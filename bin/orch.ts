@@ -1094,8 +1094,26 @@ function cmdClean() {
 
 // ---- setup (bootstrap a fresh machine) ----
 
-function cmdSetup(args: string[]) {
+// Ordered: bun first — pi's installer needs it.
+const DEP_INSTALLERS: [string, string][] = [
+  ["bun", "curl -fsSL https://bun.sh/install | bash"],
+  ["herdr", "curl -fsSL https://herdr.dev/install.sh | bash"],
+  ["pi", "bun add -g @earendil-works/pi-coding-agent"],
+  ["claude", "curl -fsSL https://claude.ai/install.sh | bash"],
+];
+
+async function askYesNo(q: string): Promise<boolean> {
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const a = (await rl.question(q)).trim().toLowerCase();
+  rl.close();
+  return a === "" || a === "y" || a === "yes";
+}
+
+async function cmdSetup(args: string[]) {
   const copy = args.includes("--copy");
+  const yes = args.includes("--yes") || args.includes("-y");
+  const noInstall = args.includes("--no-install");
   const pkgRoot = path.resolve(path.dirname(fs.realpathSync(process.argv[1])), "..");
   const link = (src: string, dest: string) => {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -1113,9 +1131,36 @@ function cmdSetup(args: string[]) {
   };
 
   process.stdout.write("Prerequisites:\n");
-  for (const bin of ["bun", "herdr", "pi", "claude"]) {
+  const missing: string[] = [];
+  for (const [bin] of DEP_INSTALLERS) {
     const found = which(bin);
+    if (!found) missing.push(bin);
     process.stdout.write(`  ${found ? "ok      " : "MISSING "}${bin}${found ? `  (${found})` : ""}\n`);
+  }
+
+  if (missing.length && !noInstall) {
+    for (const bin of missing) {
+      const cmd = DEP_INSTALLERS.find(([b]) => b === bin)![1];
+      let go = yes;
+      if (!go && process.stdin.isTTY) go = await askYesNo(`  Install ${bin} now? (${cmd}) [Y/n] `);
+      if (!go) {
+        process.stdout.write(`  skipped ${bin} — install later with: ${cmd}\n`);
+        continue;
+      }
+      process.stdout.write(`  Installing ${bin}…\n`);
+      try {
+        execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
+      } catch {
+        process.stderr.write(`  ${bin} install failed — run manually: ${cmd}\n`);
+      }
+      // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
+      process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
+      const now = which(bin);
+      process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH — open a new shell and re-run orch setup\n`);
+    }
+  } else if (missing.length) {
+    for (const bin of missing)
+      process.stdout.write(`  install ${bin}: ${DEP_INSTALLERS.find(([b]) => b === bin)![1]}\n`);
   }
 
   process.stdout.write("Presence dir:\n");
@@ -2017,8 +2062,11 @@ WORKSPACES
 
 MAINTENANCE
   orch clean                     Delete agent dirs whose pid is dead.
-  orch setup [--copy]            Bootstrap this machine: check deps, link pi extensions,
-                                 install Claude skills/agents, link bins (--copy to copy).
+  orch setup [--yes] [--no-install] [--copy]
+                                 Bootstrap this machine: offer to install missing deps
+                                 (bun/herdr/pi/claude), link pi extensions, install Claude
+                                 skills/agents, link bins. --yes auto-installs, --no-install
+                                 just reports, --copy copies instead of symlinking.
   orch help                      This message.
 
 RECOVER
@@ -2143,7 +2191,7 @@ function main() {
       cmdClean();
       break;
     case "setup":
-      cmdSetup(rest);
+      void cmdSetup(rest).catch((e) => die(String(e?.message || e)));
       break;
     case "help":
     case "-h":

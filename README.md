@@ -45,9 +45,10 @@ git clone <this repo> ~/orch
 
 ## `orch setup`
 
-Idempotent bootstrap. It:
+Idempotent guided bootstrap. It:
 
-1. Checks for `bun`, `herdr`, `pi`, `claude` on PATH (warns, doesn't fail)
+1. Checks for `bun`, `herdr`, `pi`, `claude` — and for each missing one, offers to run its
+   installer right there (`--yes` auto-accepts all, `--no-install` just prints the commands)
 2. Creates `~/.orch/agents` (presence dir)
 3. Symlinks the two pi extensions into `~/.pi/agent/extensions/` so interactive pi loads them
 4. Copies Claude Code skills into `~/.claude/skills/` and the `pi-dispatch` agent into `~/.claude/agents/`

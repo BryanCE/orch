@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# pif — pi headless dispatch under bun: fast startup (extension discovery off)
+# but ALWAYS loads the control-plane extensions so every run is visible and
+# steerable via `orch` (status/result/inbox) and herdr agent-status.
+#
+#   PIF_BARE=1 pif ...   # rare true one-off: no extensions at all
+#
+# Overrides:
+#   PIF_CLI      path to pi-coding-agent cli.js
+#   PIF_EXT_DIR  extensions dir (default: the extensions/ dir shipped next to this script)
+
+BUN="${BUN:-$(command -v bun || echo "$HOME/.bun/bin/bun")}"
+
+CLI="${PIF_CLI:-}"
+if [ -z "$CLI" ]; then
+  for candidate in \
+    "$HOME/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/dist/cli.js" \
+    "$HOME/.pi/npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"; do
+    [ -f "$candidate" ] && CLI="$candidate" && break
+  done
+fi
+if [ -z "$CLI" ]; then
+  echo "pif: could not find pi-coding-agent cli.js (set PIF_CLI)" >&2
+  exit 1
+fi
+
+if [ "${PIF_BARE:-}" = "1" ]; then
+  exec "$BUN" "$CLI" --no-extensions "$@"
+fi
+
+# default: extensions shipped in this package, next to bin/
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+EXT_DIR="${PIF_EXT_DIR:-$(dirname "$(dirname "$SELF")")/extensions}"
+
+exec "$BUN" "$CLI" --no-extensions \
+  -e "$EXT_DIR/herdr-agent-state.ts" \
+  -e "$EXT_DIR/orchestrator-bridge.ts" \
+  "$@"

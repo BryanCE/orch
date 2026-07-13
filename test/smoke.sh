@@ -15,10 +15,46 @@ cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT INT TERM
 
 mkdir -p "$ORCH_FIXTURE/agents/w0:p1" "$BIN_DIR"
-# Deliberately hide herdr: this proves status/questions/help work on a host
-# without it, while panes is checked only against its current local fallback.
+# Keep herdr unavailable for the read-only checks.  Spawn precedence checks
+# opt into the deterministic fake below, so no live herdr server is needed.
 export PATH="$BIN_DIR:/usr/bin:/bin"
 export ORCH_DIR="$ORCH_FIXTURE"
+unset ORCH_ADAPTER ORCH_BACKEND ORCH_MODEL ORCH_SPAWN_CAP ORCH_WORKTREE
+
+cat > "$BIN_DIR/herdr" <<'EOF_HERDR'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${ORCH_SMOKE_FAKE_HERDR:-0} == 1 ]] || exit 1
+case "${1:-}" in
+  pane)
+    case "${2:-}" in
+      list) printf '%s\n' '{"panes":[{"pane_id":"w0:p2","workspace_id":"ws-smoke","tab_id":"t-smoke"}]}' ;;
+      layout) printf '%s\n' '{"layout":{"tab_id":"t-smoke","panes":[{"pane_id":"w0:p2","rect":{"width":80,"height":24,"x":0,"y":0}}]}}' ;;
+      run|send-keys|process-info) printf '%s\n' '{}' ;;
+      split) printf '%s\n' '{"pane":{"pane_id":"w0:p3"}}' ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  tab)
+    [[ ${2:-} == create ]] && printf '%s\n' '{"tab":{"label":"work"},"root_pane":{"pane_id":"w0:p2"}}' || exit 1
+    ;;
+  agent)
+    case "${2:-}" in
+      list) printf '%s\n' '{"agents":[{"pane_id":"w0:p2","name":"work-1"}]}' ;;
+      rename) printf '%s\n' '{}' ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 1 ;;
+esac
+EOF_HERDR
+chmod +x "$BIN_DIR/herdr"
+
+cat > "$ORCH_FIXTURE/config.toml" <<'EOF_CONFIG'
+[defaults]
+adapter = "pi"
+spawn_cap = 1
+EOF_CONFIG
 
 cat > "$ORCH_FIXTURE/agents/w0:p1/status.json" <<EOF_STATUS
 {
@@ -91,8 +127,41 @@ check help.txt "$BUN" "$ROOT/bin/orch.ts" help
 # exit status should be captured deliberately rather than requiring herdr.
 check panes.txt "$BUN" "$ROOT/bin/orch.ts" panes
 
+check_fail() {
+  local name=$1; shift
+  local raw="$TMP/$name.raw" actual="$TMP/$name.actual" expected="$GOLDEN_DIR/$name"
+  if "$@" >"$raw" 2>"$TMP/$name.stderr"; then
+    printf 'FAIL %s: command unexpectedly succeeded\n' "$name" >&2
+    failures=$((failures + 1))
+    return
+  fi
+  sanitize <"$TMP/$name.stderr" >"$actual"
+  if [[ $UPDATE == 1 ]]; then
+    cp "$actual" "$expected"
+    printf 'UPDATED %s\n' "$name"
+  elif ! diff -u "$expected" "$actual"; then
+    printf 'FAIL %s: golden mismatch\n' "$name" >&2
+    failures=$((failures + 1))
+  else
+    printf 'PASS %s\n' "$name"
+  fi
+}
+
+# Config precedence is observable through spawn's cap guard and the fake herdr
+# lifecycle. Successful launches use a custom command so they do not wait for
+# a real pi bridge.
+check_fail spawn-cap-config.txt "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke
+check spawn-cap-flag-config.txt env ORCH_SMOKE_FAKE_HERDR=1 "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke --spawn-cap 2 --cmd claude
+check spawn-cap-env.txt env ORCH_SMOKE_FAKE_HERDR=1 ORCH_SPAWN_CAP=2 "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke --cmd claude
+check_fail spawn-cap-flag-env.txt env ORCH_SMOKE_FAKE_HERDR=1 ORCH_SPAWN_CAP=2 "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke --spawn-cap 1
+
+# With no config file, the built-in cap (8) is observable too.
+mv "$ORCH_FIXTURE/config.toml" "$ORCH_FIXTURE/config.toml.saved"
+check_fail spawn-cap-default.txt "$BUN" "$ROOT/bin/orch.ts" spawn 9 --workspace ws-smoke
+mv "$ORCH_FIXTURE/config.toml.saved" "$ORCH_FIXTURE/config.toml"
+
 if (( failures )); then
   printf 'FAIL smoke (%d check(s) failed)\n' "$failures" >&2
   exit 1
 fi
-printf 'PASS smoke: status, questions, help, panes\n'
+printf 'PASS smoke: status, questions, help, panes, config precedence\n'

@@ -2,9 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
+import { computeCodeHash } from "../src/daemon/lifecycle.ts";
+import { startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
 import { applyFixes, runDoctor } from "../src/doctor.ts";
 
 const directories: string[] = [];
+const servers: RpcServer[] = [];
 
 function tempDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-"));
@@ -18,11 +21,118 @@ function check(results: Awaited<ReturnType<typeof runDoctor>>, id: string) {
   return result;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
 });
 
 describe("runDoctor", () => {
+  test("reports an absent daemon as optional", async () => {
+    const result = check(await runDoctor(tempDir()), "orchd");
+    expect(result).toMatchObject({ status: "ok", detail: expect.stringContaining("absent") });
+  });
+
+  test("reports and fixes a stale daemon lock", async () => {
+    const directory = tempDir();
+    const lockFile = path.join(directory, "orchd.lock");
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 99999999, codeHash: "old", startedAt: "now" }));
+
+    const result = check(await runDoctor(directory), "orchd-lock");
+    expect(result).toMatchObject({ status: "fail", detail: expect.stringContaining(lockFile) });
+    expect(result.fix).toBeDefined();
+    expect(applyFixes([result]).applied[0]).toContain(lockFile);
+    expect(fs.existsSync(lockFile)).toBe(false);
+  });
+
+  test("accepts a live daemon and an answerable socket", async () => {
+    const directory = tempDir();
+    const server = await startRpcServer(directory, { "daemon-status": () => ({ ok: true }) });
+    servers.push(server);
+    const entrypoint = path.join(import.meta.dir, "../src/daemon/orchd.ts");
+    fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({
+      pid: process.pid,
+      codeHash: computeCodeHash(entrypoint),
+      startedAt: new Date().toISOString(),
+    }));
+
+    expect(check(await runDoctor(directory), "orchd")).toMatchObject({ status: "ok" });
+    expect(check(await runDoctor(directory), "orchd-socket")).toMatchObject({ status: "ok" });
+  });
+
+  test("warns when the live daemon code hash is stale", async () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({
+      pid: process.pid,
+      codeHash: "old",
+      startedAt: new Date().toISOString(),
+    }));
+
+    expect(check(await runDoctor(directory), "orchd-staleness")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("orch daemon reload"),
+    });
+  });
+
+  test("fails on an invalid lock and an unanswerable live socket", async () => {
+    const invalid = tempDir();
+    const invalidLock = path.join(invalid, "orchd.lock");
+    fs.writeFileSync(invalidLock, "not json");
+    expect(check(await runDoctor(invalid), "orchd-lock")).toMatchObject({ status: "fail", detail: expect.stringContaining(invalidLock) });
+
+    const unanswerable = tempDir();
+    fs.writeFileSync(path.join(unanswerable, "orchd.lock"), JSON.stringify({
+      pid: process.pid,
+      codeHash: "old",
+      startedAt: new Date().toISOString(),
+    }));
+    expect(check(await runDoctor(unanswerable), "orchd-socket")).toMatchObject({
+      status: "fail",
+      detail: expect.stringContaining("orch daemon start"),
+    });
+  });
+
+  test("accepts a matching live extension hash", async () => {
+    const directory = tempDir();
+    const agent = path.join(directory, "agents", "pane-1");
+    fs.mkdirSync(agent, { recursive: true });
+    fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({
+      pid: process.pid,
+      extensionHash: computeCodeHash(path.join(import.meta.dir, "../extensions/orchestrator-bridge.ts")),
+    }));
+
+    expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
+      status: "ok",
+      detail: expect.stringContaining("current"),
+    });
+  });
+
+  test("warns when a live extension hash is stale", async () => {
+    const directory = tempDir();
+    const agent = path.join(directory, "agents", "pane-2");
+    fs.mkdirSync(agent, { recursive: true });
+    fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({ pid: process.pid, extensionHash: "old" }));
+
+    expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("orch restart pane-2"),
+    });
+  });
+
+  test("tolerates live extension status without a hash", async () => {
+    const directory = tempDir();
+    const agent = path.join(directory, "agents", "pane-3");
+    const broken = path.join(directory, "agents", "broken");
+    fs.mkdirSync(agent, { recursive: true });
+    fs.mkdirSync(broken, { recursive: true });
+    fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({ pid: process.pid }));
+    fs.writeFileSync(path.join(broken, "status.json"), "not json");
+
+    expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
+      status: "ok",
+      detail: expect.stringContaining("no live agents with extension hashes"),
+    });
+  });
+
   test("reports a dead presence pid and corrupt spawn registry lines", async () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "former-agent");
@@ -106,5 +216,9 @@ describe("runDoctor", () => {
     fs.writeFileSync(path.join(directory, "spawned.jsonl"), "{broken\n");
 
     await expect(runDoctor(directory)).resolves.toBeArray();
+
+    const invalidAgents = tempDir();
+    fs.writeFileSync(path.join(invalidAgents, "agents"), "not a directory");
+    expect(check(await runDoctor(invalidAgents), "extension-staleness")).toMatchObject({ status: "fail" });
   });
 });

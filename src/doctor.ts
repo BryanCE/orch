@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.ts";
+import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
+import { rpcCall } from "./daemon/rpc.ts";
 
 export type FixDescriptor = {
   description: string;
@@ -42,6 +44,11 @@ function pidAlive(pid: unknown): boolean {
   } catch (error: unknown) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  return error.code === code;
 }
 
 function readJson(file: string): unknown {
@@ -84,15 +91,19 @@ async function checkHerdrVersion(bins: BinaryStatus): Promise<CheckResult> {
   return { id: "herdr-version", label: "herdr version", status: "ok", detail: `herdr ${version}` };
 }
 
-async function checkStalePresence(orchDir: string): Promise<CheckResult> {
-  const agentsDir = path.join(orchDir, "agents");
-  let entries: filesystem.Dirent[];
+function readAgentEntries(orchDir: string): filesystem.Dirent[] | undefined {
   try {
-    entries = filesystem.readdirSync(agentsDir, { withFileTypes: true });
+    return filesystem.readdirSync(path.join(orchDir, "agents"), { withFileTypes: true });
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
+    if (hasErrorCode(error, "ENOENT")) return undefined;
     throw error;
   }
+}
+
+async function checkStalePresence(orchDir: string): Promise<CheckResult> {
+  const agentsDir = path.join(orchDir, "agents");
+  const entries = readAgentEntries(orchDir);
+  if (!entries) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
   const stale: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -117,6 +128,53 @@ async function checkStalePresence(orchDir: string): Promise<CheckResult> {
         },
       }
     : { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
+}
+
+type AgentStatus = {
+  pid?: unknown;
+  extensionHash?: unknown;
+};
+
+function isAgentStatus(value: unknown): value is AgentStatus {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Compare a bridge presence hash with the bridge currently installed on disk. */
+export function isBridgeExtensionStale(extensionHash: string | undefined): boolean {
+  if (extensionHash === undefined) return false;
+  return extensionHash !== computeCodeHash(path.join(repoDir, "extensions", "orchestrator-bridge.ts"));
+}
+
+async function checkExtensionStaleness(orchDir: string): Promise<CheckResult> {
+  const id = "extension-staleness";
+  const label = "Extension staleness";
+  const agentsDir = path.join(orchDir, "agents");
+  const entries = readAgentEntries(orchDir);
+  if (!entries) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
+
+  const diskHash = computeCodeHash(path.join(repoDir, "extensions", "orchestrator-bridge.ts"));
+  const stale: string[] = [];
+  let liveWithHash = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const status = readJson(path.join(agentsDir, entry.name, "status.json"));
+      if (!isAgentStatus(status) || !pidAlive(status.pid) || typeof status.extensionHash !== "string") continue;
+      liveWithHash += 1;
+      if (isBridgeExtensionStale(status.extensionHash)) stale.push(entry.name);
+    } catch {}
+  }
+
+  if (stale.length) {
+    return {
+      id,
+      label,
+      status: "warn",
+      detail: `stale extension panes: ${stale.join(", ")}; hint: ${stale.map((name) => `orch restart ${name}`).join("; ")}`,
+    };
+  }
+  if (!liveWithHash) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
+  return { id, label, status: "ok", detail: `all live extension hashes are current (${diskHash})` };
 }
 
 async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
@@ -230,13 +288,100 @@ async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> {
   return result;
 }
 
+const defaultDaemonEntrypoint = path.join(repoDir, "src", "daemon", "orchd.ts");
+
+function daemonEntrypoint(): string {
+  return process.env.ORCHD_ENTRYPOINT ?? defaultDaemonEntrypoint;
+}
+
+async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
+  const lockFile = path.join(orchDir, "orchd.lock");
+  if (!filesystem.existsSync(lockFile)) {
+    return { id: "orchd", label: "orchd presence", status: "ok", detail: "orchd is absent (daemon is optional)" };
+  }
+  const lock = readDaemonLock(orchDir);
+  if (!lock) {
+    return { id: "orchd", label: "orchd presence", status: "warn", detail: "orchd lock is present but invalid" };
+  }
+  return pidAlive(lock.pid)
+    ? { id: "orchd", label: "orchd presence", status: "ok", detail: `orchd is running (pid ${lock.pid})` }
+    : { id: "orchd", label: "orchd presence", status: "warn", detail: `orchd is absent (stale lock for dead pid ${lock.pid})` };
+}
+
+async function checkDaemonStaleness(orchDir: string): Promise<CheckResult> {
+  const lock = readDaemonLock(orchDir);
+  if (!lock || !pidAlive(lock.pid)) {
+    return { id: "orchd-staleness", label: "orchd code", status: "skip", detail: "orchd is not running" };
+  }
+  const diskHash = computeCodeHash(daemonEntrypoint());
+  if (lock.codeHash !== diskHash) {
+    return {
+      id: "orchd-staleness",
+      label: "orchd code",
+      status: "warn",
+      detail: `orchd code is stale (lock ${lock.codeHash}, disk ${diskHash}); run orch daemon reload`,
+    };
+  }
+  return { id: "orchd-staleness", label: "orchd code", status: "ok", detail: `orchd code is current (${diskHash})` };
+}
+
+async function checkDaemonLock(orchDir: string): Promise<CheckResult> {
+  const lockFile = path.join(orchDir, "orchd.lock");
+  if (!filesystem.existsSync(lockFile)) {
+    return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: "no orchd lock" };
+  }
+  const lock = readDaemonLock(orchDir);
+  if (!lock) {
+    return { id: "orchd-lock", label: "orchd lock", status: "fail", detail: `invalid orchd lock: ${lockFile}` };
+  }
+  if (pidAlive(lock.pid)) {
+    return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: `lock belongs to live pid ${lock.pid}` };
+  }
+  return {
+    id: "orchd-lock",
+    label: "orchd lock",
+    status: "fail",
+    detail: `stale orchd lock ${lockFile} (dead pid ${lock.pid})`,
+    fix: {
+      description: `Remove stale orchd lock ${lockFile} (dead pid ${lock.pid})`,
+      apply() {
+        filesystem.rmSync(lockFile, { force: true });
+      },
+    },
+  };
+}
+
+async function checkDaemonSocket(orchDir: string): Promise<CheckResult> {
+  const lock = readDaemonLock(orchDir);
+  if (!lock || !pidAlive(lock.pid)) {
+    return { id: "orchd-socket", label: "orchd socket", status: "skip", detail: "no running orchd to probe" };
+  }
+  try {
+    await rpcCall(orchDir, "daemon-status", undefined, 250);
+    return { id: "orchd-socket", label: "orchd socket", status: "ok", detail: `daemon-status answered (pid ${lock.pid})` };
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      id: "orchd-socket",
+      label: "orchd socket",
+      status: "fail",
+      detail: `orchd pid ${lock.pid} is not answerable: ${reason}; try orch daemon start`,
+    };
+  }
+}
+
 async function checkWorktreeGitignore(): Promise<CheckResult> {
   const worktrees = path.join(process.cwd(), ".orch-worktrees");
   if (!filesystem.existsSync(worktrees)) return { id: "worktree-gitignore", label: "Worktree gitignore", status: "skip", detail: ".orch-worktrees does not exist" };
   const result = await commandOutput("git", ["check-ignore", "-q", ".orch-worktrees"]);
   return result.ok
     ? { id: "worktree-gitignore", label: "Worktree gitignore", status: "ok", detail: ".orch-worktrees is gitignored" }
-    : { id: "worktree-gitignore", label: "Worktree gitignore", status: "warn", detail: ".orch-worktrees is not gitignored" };
+    : {
+        id: "worktree-gitignore",
+        label: "Worktree gitignore",
+        status: "warn",
+        detail: ".orch-worktrees is not gitignored; fix: printf '\n.orch-worktrees/\n' >> .gitignore",
+      };
 }
 
 async function isolated(id: string, label: string, check: () => Promise<CheckResult>): Promise<CheckResult> {
@@ -254,10 +399,15 @@ export async function runDoctor(orchDir: string): Promise<CheckResult[]> {
     isolated("bins", "Required binaries", () => checkBins(bins)),
     isolated("herdr-version", "herdr version", () => checkHerdrVersion(bins)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
+    isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("spawned-registry", "Spawn registry", () => checkSpawnedRegistry(orchDir)),
     isolated("config", "Config validity", () => checkConfig(orchDir)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     isolated("pi-extensions", "pi extensions", () => checkExtensions(bins)),
+    isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
+    isolated("orchd-staleness", "orchd code", () => checkDaemonStaleness(orchDir)),
+    isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),
+    isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(orchDir)),
     isolated("worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
   ]);
 }

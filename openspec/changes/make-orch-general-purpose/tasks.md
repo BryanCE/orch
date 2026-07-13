@@ -11,20 +11,20 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 ## 2. Config file
 
 - [x] 2.1 Implement `src/config.ts`: TOML load from `$ORCH_DIR/config.toml` (Bun TOML; vendored fallback), precedence flags > env > config > defaults, schema validation with helpful errors
-- [ ] 2.2 Wire `[defaults]` (adapter, backend, model, spawn cap, worktree) into spawn/dispatch paths; document config in README
-- [ ] 2.3 Smoke tests for precedence (config-set default overridden by flag)
+- [x] 2.2 Wire `[defaults]` (adapter, backend, model, spawn cap, worktree) into spawn/dispatch paths; document config in README
+- [x] 2.3 Smoke tests for precedence (config-set default overridden by flag) *(2026-07-13: spawn_cap fixture; config/flag/env/flag-over-env/default goldens, fake herdr)*
 
 ## 3. Agent adapters
 
 - [x] 3.1 Define `src/adapters/adapter.ts` (interface + caps from design D4); extract current pi behavior into `src/adapters/pi.ts` with zero behavior change (smoke tests green) *(2026-07-13: modules + tests done; commands.ts consumes presence directly until 3.2 wiring)*
-- [ ] 3.2 Plumb `--agent` through spawn/tile/dispatch and record adapter in spawned registry; `orch status` shows adapter id for registry-spawned agents; unknown adapter errors with the supported list
-- [ ] 3.3 Add `agent` + `schema` fields to presence status.json (bridge bump to schema 2, reader tolerates 1)
+- [x] 3.2 Plumb `--agent` through spawn/tile/dispatch and record adapter in spawned registry; `orch status` shows adapter id for registry-spawned agents; unknown adapter errors with the supported list *(2026-07-13: presence agent field preferred, registry fallback; also shipped the orch status `‡` stale-extension marker deferred from orchd 3.4)*
+- [x] 3.3 Add `agent` + `schema` fields to presence status.json (bridge bump to schema 2, reader tolerates 1) *(2026-07-13: typed PresenceStatus, mixed-schema tests; consumers audited: entities, work, adapters/pi, commands, daemon/events)*
 - [ ] 3.4 Claude Code adapter: hooks shim (SessionStart/Stop/Notification → presence writes), `orch setup` merges hooks additively, interactive + headless commands, steer via keys fallback with warning
 - [ ] 3.5 Verify claude adapter end-to-end in a herdr pane: spawn, dispatch, status transitions, result extraction
 - [ ] 3.6 Codex spike (time-boxed): pick state-detection mechanism (notify hook vs session tail vs wrapper), record decision in design.md Open Questions
 - [ ] 3.7 Codex adapter per spike outcome, with honest caps (coarse states acceptable, `stateFallback` marker)
 
-- [ ] 3.8 Dedupe extension↔src utility clones (atomicWrite, socket-finish shape) into a shared module both import — PROVEN possible 2026-07-13: pi's extension loader resolves relative imports (probe: extension importing a sibling module ran fine under `pif -e`), and `src/` ships in package files; extensions do NOT need to stay standalone
+- [ ] 3.8 Dedupe extension↔src utility clones (atomicWrite, socket-finish shape) into a shared module both import — **PREMISE DISPROVEN 2026-07-13 (later same day): the earlier probe used a direct repo path, but the LIVE deployment loads extensions through the `~/.pi/agent/extensions` symlink, where relative `../src` imports resolve against `~/.pi/agent` and fail** ("Cannot find module ../src/daemon/lifecycle.ts", broke every bridge reload). Extensions MUST stay standalone until dedupe goes through a build/bundle step or the loader realpaths before resolving
 
 ## 4. Headless backend
 
@@ -38,12 +38,12 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 
 - [x] 5.1 Implement `src/queue.ts`: append-only `queue/queue.jsonl` events + replay; `orch queue add|list|cancel [--json]`
 - [x] 5.2 Implement `orch work [--once]`: idle detection from presence, FIFO assignment honoring task constraints, atomic O_EXCL claim files, post-dispatch working-state verification with unclaim on failure *(2026-07-13; includes settlement pass for claims that finish after the ack window)*
-- [ ] 5.3 Retry-on-error up to `queue.max_retries`, terminal `failed` state with last error *(done 2026-07-13)*; `orch queue history [--json]` *(remaining: CLI subcommand — `history()` exists in src/queue.ts)*
-- [ ] 5.4 Two-runner race test (spawn two `orch work --once` against one queued task; exactly one dispatch)
+- [x] 5.3 Retry-on-error up to `queue.max_retries`, terminal `failed` state with last error *(done 2026-07-13)*; `orch queue history [--json]`
+- [x] 5.4 Two-runner race test (spawn two `orch work --once` against one queued task; exactly one dispatch) *(2026-07-13: test/work-race.test.ts, claim-side invariant)*
 
 ## 6. Worktree isolation + review
 
-- [ ] 6.1 `orch spawn --worktree` / queue `--worktree`: worktree + `orch/<name>` branch creation, registry records worktree+branch, non-repo error, doctor-checkable gitignore entry
+- [x] 6.1 `orch spawn --worktree` / queue `--worktree`: worktree + `orch/<name>` branch creation, registry records worktree+branch, non-repo error, doctor-checkable gitignore entry *(2026-07-13: completed gaps over pre-existing src/worktree.ts; doctor gitignore check with copy-paste fix)*
 - [ ] 6.2 `orch review list [--json]` (done agents with commits ahead of base) and plumbing `approve`/`reject -m` (merge ff-preferred else merge-commit; conflict aborts safely; reject re-dispatches feedback into same worktree via adapter)
 - [ ] 6.3 Interactive `orch review` (a/r/s loop with diff display) as sugar over the plumbing
 - [ ] 6.4 `orch clean --worktrees`: remove merged/empty orphans, report unmerged with `--force` requirement
@@ -56,7 +56,7 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 - [x] 7.3 Verify on WSL2: blocked agent produces a Windows toast; dead webhook logs a warning without disrupting dispatch
 - [x] 7.4 Event payloads carry real context (operator order 2026-07-13): agent name, tab, model, state transition old→new, task summary, lastError text — in `orch events` output, `--json`, and every sink payload; a bare "state changed" line is a bug
 - [x] 7.5 herdr-alert sink: when the herdr backend is active, deliver notifications through herdr's native alert/notify channel as a first-class `[[notify]]` sink type (auto-registered when backend=herdr); stays completely absent on headless
-- [ ] 7.6 Outcome-first notification titles (operator order 2026-07-13): every sink title/first-line leads with the terminal state + agent — `DONE w-2: <task summary>`, `ERROR w-2: <lastError>`, `BLOCKED w-2: <question>` — one state per notification, never a mixed label like "completion/error"
+- [x] 7.6 Outcome-first notification titles (operator order 2026-07-13): every sink title/first-line leads with the terminal state + agent — `DONE w-2: <task summary>`, `ERROR w-2: <lastError>`, `BLOCKED w-2: <question>` — one state per notification, never a mixed label like "completion/error"
 
 ## 8. Doctor
 

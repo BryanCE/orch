@@ -1,5 +1,6 @@
-import { loadPresence, type PresenceEntry } from "./store.ts";
+import { loadConfig, type HostConfig } from "./config.ts";
 import { herdrNames, herdrPanes, herdrTabs } from "./herdr.ts";
+import { loadPresence, orchDir, type PresenceEntry } from "./store.ts";
 
 export interface Entity {
   key: string;
@@ -12,6 +13,32 @@ export interface Entity {
   presence: PresenceEntry | null;
   sessionPath: string | null;
   presenceOnly: boolean;
+  /** Set when this entity was addressed with a configured host prefix. */
+  host?: string;
+}
+
+export type TargetRef = {
+  host: string | null;
+  target: string;
+};
+
+/** Split `<host>/<target>` without changing the meaning of targets without `/`. */
+export function parseTarget(target: string, hosts?: Record<string, HostConfig>): TargetRef {
+  const slash = target.indexOf("/");
+  if (slash < 0) return { host: null, target };
+  const host = target.slice(0, slash);
+  const remainder = target.slice(slash + 1);
+  const configured = hosts ?? loadConfig(orchDir()).hosts;
+  if (!host || !remainder) throw new Error(`Invalid target "${target}". Expected <host>/<target>.`);
+  if (!Object.prototype.hasOwnProperty.call(configured, host)) {
+    const names = Object.keys(configured).sort();
+    throw new Error(`Unknown host "${host}". Configured hosts: ${names.length ? names.join(", ") : "none"}`);
+  }
+  return { host, target: remainder };
+}
+
+export function formatTarget(ref: TargetRef): string {
+  return ref.host ? `${ref.host}/${ref.target}` : ref.target;
 }
 
 export function collapse(value: string): string {
@@ -110,21 +137,28 @@ function ambiguous(target: string, entities: Entity[]): never {
 }
 
 export function resolveTarget(target: string): Entity {
+  let ref: TargetRef;
+  try {
+    ref = parseTarget(target);
+  } catch (error: unknown) {
+    die(error instanceof Error ? error.message : String(error));
+  }
+  const localTarget = ref.target;
   const entities = buildEntities();
-  const exact = dedupeEntities(entities.filter((entity) => entity.key === target || entity.paneId === target || entity.name === target));
-  if (exact.length === 1) return exact[0];
+  const exact = dedupeEntities(entities.filter((entity) => entity.key === localTarget || entity.paneId === localTarget || entity.name === localTarget));
+  if (exact.length === 1) return ref.host ? { ...exact[0], host: ref.host } : exact[0];
   if (exact.length > 1) ambiguous(target, exact);
 
   const suffix = dedupeEntities(entities.filter((entity) => [entity.key, entity.paneId].filter(Boolean).some((id) => {
     const value = id as string;
     const short = value.slice(value.lastIndexOf(":") + 1);
-    return value === target || value.endsWith(":" + target) || short.startsWith(target) || value.endsWith(target);
+    return value === localTarget || value.endsWith(":" + localTarget) || short.startsWith(localTarget) || value.endsWith(localTarget);
   })));
-  if (suffix.length === 1) return suffix[0];
+  if (suffix.length === 1) return ref.host ? { ...suffix[0], host: ref.host } : suffix[0];
   if (suffix.length > 1) ambiguous(target, suffix);
 
-  const byAgent = dedupeEntities(entities.filter((entity) => entity.agent === target));
-  if (byAgent.length === 1) return byAgent[0];
+  const byAgent = dedupeEntities(entities.filter((entity) => entity.agent === localTarget));
+  if (byAgent.length === 1) return ref.host ? { ...byAgent[0], host: ref.host } : byAgent[0];
   if (byAgent.length > 1) ambiguous(target, byAgent);
   die(`No target matches "${target}". Run 'orch panes' to list.`);
 }

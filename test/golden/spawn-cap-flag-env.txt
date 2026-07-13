@@ -1,0 +1,1 @@
+Refusing to spawn 2 panes — cap is 1.

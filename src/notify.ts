@@ -239,7 +239,10 @@ function oneLine(error: unknown): string {
 }
 
 function payload(event: NotifyEvent): string {
+  const { title, body } = notificationText(event);
   return JSON.stringify({
+    title,
+    body,
     host: event.host ?? null,
     key: event.key,
     agent: event.agent,
@@ -278,16 +281,21 @@ async function run(command: string[], stdin?: string): Promise<boolean> {
   }
 }
 
-function notificationText(event: NotifyEvent): { title: string; body: string } {
+export function notificationText(event: NotifyEvent): { title: string; body: string } {
   const agent = event.agent || event.key;
-  const title = `orch: ${agent} ${event.oldState}→${event.newState}`;
-  const details: string[] = [];
+  const state = oneLine(event.newState || "unknown").toUpperCase();
+  let summary = event.task || "state changed";
+  if (event.newState === "error") summary = event.lastError || event.task || "agent error";
+  else if (event.newState === "blocked") summary = event.task || "agent needs input";
+  summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
+  const title = `${state} ${agent}: ${summary}`;
+  const details: string[] = [title];
   if (event.tab) details.push(`Tab: ${event.tab}`);
   if (event.model) details.push(`Model: ${event.model}`);
-  if (event.task) details.push(`Task: ${oneLine(event.task)}`);
-  if (event.lastError) details.push(`Error: ${oneLine(event.lastError)}`);
+  if (event.task && event.newState !== "blocked") details.push(`Task: ${oneLine(event.task)}`);
+  if (event.lastError && event.newState !== "error") details.push(`Error: ${oneLine(event.lastError)}`);
   if (typeof event.cost === "number") details.push(`Cost: $${event.cost.toFixed(2)}`);
-  return { title, body: details.join("\n") || `Agent ${event.key} changed state.` };
+  return { title, body: details.join("\n") };
 }
 
 async function windowsToast(title: string, body: string): Promise<boolean> {

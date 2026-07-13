@@ -2,15 +2,23 @@ import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { randomUUID } from "node:crypto";
 import { deliverToSink, loadSinks, notify, type NotifyEvent, type Sink } from "./notify.ts";
-import { addTask, cancelTask, listTasks, nextQueuedTask, claimTask, requeueTask, recordTaskDone, recordTaskFailure, taskShouldRetry, type TaskRec } from "./queue.ts";
-import { runDoctor, applyFixes, type CheckResult } from "./doctor.ts";
-import { loadConfig } from "./config.ts";
-import { appendPresenceInbox, bridgeRegistered, defaultModelString, loadPresence, orchDir, pidAlive, presenceDir, readJSON, readPaneModel, recordSpawned, spawnedPanes, statusForPresence, type PresenceEntry } from "./store.ts";
+import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "./queue.ts";
+import { runWorkLoop } from "./work.ts";
+import { runDoctor, applyFixes, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
+import { loadConfig, resolveSetting } from "./config.ts";
+import { appendPresenceInbox, bridgeRegistered, defaultModelString, loadPresence, orchDir, pidAlive, presenceDir, readJSON, readPaneModel, recordSpawned, spawnedPanes, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "./store.ts";
+import { piAdapter } from "./adapters/pi.ts";
+import type { AgentAdapter } from "./adapters/adapter.ts";
 import { blockText, parseSession, type SessionData } from "./session.ts";
 import { buildEntities, collapse, resolvePane, resolveTarget, sortEntities, type Entity } from "./entities.ts";
 import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, paneStatus } from "./herdr.ts";
 import { renderTable, truncate } from "./table.ts";
+import { daemonize, runForeground } from "./daemon/lifecycle.ts";
+import { DaemonAbsentError, rpcCall } from "./daemon/rpc.ts";
+import { derivePresenceTransition, startPreferredEvents, startPresenceWatch, type PresenceMetadata, type PresenceWatch } from "./daemon/events.ts";
+import { createAgentWorktree } from "./worktree.ts";
 
 const HOME = os.homedir();
 const isTTY = process.stdout.isTTY;
@@ -31,6 +39,7 @@ interface View {
   modelFull: string;
   state: string;
   stateFallback: boolean; // true → append †
+  staleExtension: boolean; // true → append ‡
   cost: number;
   ctxPercent: number | null;
   task: string;
@@ -39,7 +48,7 @@ interface View {
   session: SessionData | null;
 }
 
-function deriveView(ent: Entity): View {
+function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
   const pres = ent.presence;
   const isPi = ent.agent === "pi";
   const session = isPi ? parseSession(ent.sessionPath) : null;
@@ -106,11 +115,12 @@ function deriveView(ent: Entity): View {
     paneLabel,
     name: ent.name || "",
     tab: ent.tabLabel || "-",
-    agent: ent.agent || "-",
+    agent: pres?.status?.agent || (ent.paneId ? spawned.get(ent.paneId)?.adapter : undefined) || ent.agent || "-",
     model,
     modelFull,
     state,
     stateFallback,
+    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash),
     cost,
     ctxPercent,
     task: collapse(task),
@@ -125,7 +135,8 @@ function cmdStatus(args: string[]) {
   const json = args.includes("--json");
   const all = args.includes("--all");
   const entities = sortEntities(buildEntities());
-  const views = entities.map(deriveView);
+  const spawned = spawnedRecords();
+  const views = entities.map((entity) => deriveView(entity, spawned));
 
   // Hide exited presence entries with no matching live pane, unless --all
   const visible = views.filter((v) => {
@@ -182,7 +193,7 @@ function cmdStatus(args: string[]) {
       v.tab,
       v.agent,
       v.model,
-      v.state + (v.stateFallback ? "†" : ""),
+      v.state + (v.stateFallback ? "†" : "") + (v.staleExtension ? "‡" : ""),
       v.cost > 0 ? "$" + v.cost.toFixed(2) : "",
       v.ctxPercent != null ? `${Math.round(v.ctxPercent)}%` : "",
       truncate(v.task, 40),
@@ -205,17 +216,42 @@ function cmdStatus(args: string[]) {
   process.stdout.write(out.join("\n") + "\n");
 }
 
+function renderQueueTasks(tasks: TaskRec[]): void {
+  if (tasks.length === 0) {
+    process.stdout.write("No queue tasks.\n");
+    return;
+  }
+  const headers = ["ID", "STATE", "RETRIES", "AGENT", "TASK", "ERROR"];
+  const caps = [36, 10, 7, 16, 60, 40];
+  const rows = tasks.map((task) => [
+    task.id,
+    task.state,
+    String(task.retries),
+    task.agentKey || "-",
+    task.text,
+    task.lastError || "",
+  ]);
+  process.stdout.write(renderTable(headers, rows, caps) + "\n");
+}
+
 function cmdQueue(args: string[]) {
   const subcommand = args[0];
   const rest = args.slice(1);
   const json = rest.includes("--json");
-  const positional = rest.filter((arg) => arg !== "--json");
+  const worktree = rest.includes("--worktree");
+  const positional = rest.filter((arg) => arg !== "--json" && arg !== "--worktree");
 
   switch (subcommand) {
     case "add": {
       const text = positional.join(" ");
-      if (!text) die('usage: orch queue add "<task text>" [--json]');
-      const task = addTask(orchDir(), text);
+      if (!text) die('usage: orch queue add "<task text>" [--worktree] [--json]');
+      let options = {};
+      if (worktree) {
+        const name = `queue-${randomUUID()}`;
+        const worktreePath = createAgentWorktree(process.cwd(), name);
+        options = { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
+      }
+      const task = addTask(orchDir(), text, options);
       if (json) {
         process.stdout.write(JSON.stringify(task, null, 2) + "\n");
       } else {
@@ -223,33 +259,20 @@ function cmdQueue(args: string[]) {
       }
       return;
     }
-    case "list": {
-      if (positional.length > 0) die("usage: orch queue list [--json]");
-      const tasks = listTasks(orchDir());
+    case "list":
+    case "history": {
+      if (positional.length > 0 || worktree) die(`usage: orch queue ${subcommand} [--json]`);
+      const tasks = subcommand === "history" ? queueHistory(orchDir()) : listTasks(orchDir());
       if (json) {
         process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
         return;
       }
-      if (tasks.length === 0) {
-        process.stdout.write("No queue tasks.\n");
-        return;
-      }
-      const headers = ["ID", "STATE", "RETRIES", "AGENT", "TASK", "ERROR"];
-      const caps = [36, 10, 7, 16, 60, 40];
-      const rows = tasks.map((task) => [
-        task.id,
-        task.state,
-        String(task.retries),
-        task.agentKey || "-",
-        task.text,
-        task.lastError || "",
-      ]);
-      process.stdout.write(renderTable(headers, rows, caps) + "\n");
+      renderQueueTasks(tasks);
       return;
     }
     case "cancel": {
       const id = positional[0];
-      if (!id || positional.length !== 1) die("usage: orch queue cancel <id> [--json]");
+      if (!id || positional.length !== 1 || worktree) die("usage: orch queue cancel <id> [--json]");
       let task;
       try {
         task = cancelTask(orchDir(), id);
@@ -265,7 +288,7 @@ function cmdQueue(args: string[]) {
       return;
     }
     default:
-      die("usage: orch queue <add|list|cancel> ...");
+      die("usage: orch queue <add|list|history|cancel> ...");
   }
 }
 
@@ -334,187 +357,161 @@ interface WatchItem {
   pid: number | undefined;
 }
 
-function eventModel(status: any): string | null {
-  if (!status?.model?.id) return null;
-  return `${status.model.id}${status.thinking ? `:${status.thinking}` : ""}`;
+function isNotifyEvent(value: unknown): value is NotifyEvent {
+  if (!value || typeof value !== "object") return false;
+  return typeof Reflect.get(value, "key") === "string"
+    && typeof Reflect.get(value, "oldState") === "string"
+    && typeof Reflect.get(value, "newState") === "string"
+    && typeof Reflect.get(value, "ts") === "string";
 }
 
-function cmdEvents(args: string[]) {
+type EventsOptions = {
+  statusFilter: Set<string> | null;
+  all: boolean;
+  notifications: boolean;
+  json: boolean;
+  targets: string[];
+};
+
+type EventsContext = {
+  options: EventsOptions;
+  items: Map<string, WatchItem>;
+  states: Map<string, string>;
+  sinks: Sink[];
+  metadata: (key: string) => PresenceMetadata;
+  accepts: (key: string) => boolean;
+  emit: (event: NotifyEvent) => void;
+};
+
+function parseEventsOptions(args: string[]): EventsOptions {
   let statusFilter: Set<string> | null = null;
   let all = false;
   let notifications = false;
   let json = false;
   const targets: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--status") {
-      statusFilter = new Set(
-        args[++i]
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      );
-    } else if (args[i] === "--all") all = true;
-    else if (args[i] === "--notify") notifications = true;
-    else if (args[i] === "--json") json = true;
-    else targets.push(args[i]);
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index];
+    if (argument === "--status") statusFilter = new Set(args[++index].split(",").map((state) => state.trim()).filter(Boolean));
+    else if (argument === "--all") all = true;
+    else if (argument === "--notify") notifications = true;
+    else if (argument === "--json") json = true;
+    else targets.push(argument);
   }
-  if (!targets.length) all = true;
+  return { statusFilter, all: all || targets.length === 0, notifications, json, targets };
+}
 
-  const herdrAvailable = notifications && herdrReachable();
-  const notifySinks = notifications
-    ? loadSinks(orchDir()).filter((sink) => sink.type !== "herdr" || herdrAvailable)
-    : [];
-  // The native sink is implicit for a live herdr backend, but never exists in headless mode.
-  if (herdrAvailable && !notifySinks.some((sink) => sink.type === "herdr")) {
-    notifySinks.push({ type: "herdr", on: ["blocked", "error"] });
+function eventsSinks(enabled: boolean): Sink[] {
+  if (!enabled) return [];
+  const herdrAvailable = herdrReachable();
+  const sinks = loadSinks(orchDir()).filter((sink) => sink.type !== "herdr" || herdrAvailable);
+  if (herdrAvailable && !sinks.some((sink) => sink.type === "herdr")) {
+    sinks.push({ type: "herdr", on: ["blocked", "error"] });
   }
-  if (notifications && !notifySinks.length) process.stderr.write("notify: no sinks configured\n");
+  if (!sinks.length) process.stderr.write("notify: no sinks configured\n");
+  return sinks;
+}
 
-  const names = new Map<string, string>();
-  for (const ent of buildEntities()) {
-    if (ent.name) {
-      names.set(ent.key, ent.name);
-      if (ent.paneId) names.set(ent.paneId, ent.name);
-      if (ent.presence) names.set(ent.presence.key, ent.name);
+function presenceMetadata(key: string): PresenceMetadata {
+  const entity = buildEntities().find((candidate) => candidate.presence?.key === key || candidate.key === key);
+  return { name: entity?.name ?? null, tab: entity?.tabLabel ?? null, pid: entity?.presence?.status?.pid };
+}
+
+function eventsItems(options: EventsOptions): Map<string, WatchItem> {
+  const items = new Map<string, WatchItem>();
+  if (options.all) {
+    for (const presence of loadPresence().values()) {
+      if (presence.alive && looksLikePaneKey(presence.key)) {
+        items.set(presence.key, { key: presence.key, dir: presence.dir, ...presenceMetadata(presence.key) });
+      }
     }
   }
+  for (const target of options.targets) {
+    const entity = resolveTarget(target);
+    if (!entity.presence) die(`Target "${target}" has no agent dir to watch.`);
+    items.set(entity.presence.key, {
+      key: entity.presence.key,
+      dir: entity.presence.dir,
+      name: entity.name,
+      tab: entity.tabLabel,
+      pid: entity.presence.status?.pid,
+    });
+  }
+  if (!items.size && !options.all) die("No live pane agent dirs to stream.");
+  return items;
+}
 
-  const items = new Map<string, WatchItem>();
-  const lastStates = new Map<string, string>();
-  const watchers = new Map<string, files.FSWatcher>();
-  let safety: ReturnType<typeof setInterval> | undefined;
-
-  function emit(event: NotifyEvent) {
-    if (statusFilter && !statusFilter.has(event.newState)) return;
-    if (json) {
-      process.stdout.write(JSON.stringify(event) + "\n");
+function eventWriter(options: EventsOptions): (event: NotifyEvent) => void {
+  return (event): void => {
+    if (options.statusFilter && !options.statusFilter.has(event.newState)) return;
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(event)}\n`);
       return;
     }
     const task = event.task ? `  task: ${event.task}` : "";
     const error = event.lastError ? `  error: ${event.lastError}` : "";
-    process.stdout.write(
-      `${event.agent || event.key} [${event.tab || "-"}] ${event.model || "-"} ${event.oldState}→${event.newState}${task}${error}\n`,
-    );
-  }
+    process.stdout.write(`${event.agent || event.key} [${event.tab || "-"}] ${event.model || "-"} ${event.oldState}→${event.newState}${task}${error}\n`);
+  };
+}
 
-  function check(item: WatchItem) {
-    const st = readJSON(path.join(item.dir, "status.json"));
-    const pid = st?.pid ?? item.pid;
-    let state: string | null = null;
-    if (st?.state) state = String(st.state);
-    if (!pidAlive(pid)) state = "exited";
-    if (!state) return;
-    const prev = lastStates.get(item.key);
-    if (prev === state) return;
-    lastStates.set(item.key, state);
-    // Seed map on first observation without emitting historical noise.
-    if (prev === undefined) return;
-    const event: NotifyEvent = {
-      key: item.key,
-      agent: typeof st?.label === "string" ? st.label : item.name,
-      tab: typeof st?.tabLabel === "string" ? st.tabLabel : item.tab,
-      model: eventModel(st),
-      oldState: prev,
-      newState: state,
-      task: typeof st?.task === "string" ? truncate(collapse(st.task), 80) : undefined,
-      cost: typeof st?.cost === "number" ? st.cost : undefined,
-      ts: new Date().toISOString(),
-      lastError: typeof st?.lastError === "string" ? collapse(st.lastError) : undefined,
-    };
-    if (notifications) notify(notifySinks, event);
-    emit(event);
+function seedEventStates(context: EventsContext): void {
+  for (const presence of loadPresence().values()) {
+    if (!context.accepts(presence.key)) continue;
+    derivePresenceTransition(presence.key, presence.status, context.metadata(presence.key), context.states);
   }
+}
 
-  function attach(item: WatchItem) {
-    if (watchers.has(item.key)) return;
-    const watcher = files.watch(item.dir, (_event, filename) => {
-      if (!filename || filename === "status.json") check(item);
+async function startEventsTransport(context: EventsContext): Promise<() => void> {
+  let fileWatch: PresenceWatch | undefined;
+  const startFiles = (): void => {
+    if (fileWatch) return;
+    const keys = context.options.all
+      ? undefined
+      : new Map([...context.items].map(([key, item]) => [key, { name: item.name, tab: item.tab, pid: item.pid }]));
+    fileWatch = startPresenceWatch({
+      orchDir: orchDir(),
+      initialStates: context.states,
+      keys,
+      acceptKey: context.accepts,
+      metadataFor: context.metadata,
+      onEvent: (event) => {
+        if (context.options.notifications) notify(context.sinks, event);
+        context.emit(event);
+      },
     });
-    watcher.on("error", () => {});
-    watchers.set(item.key, watcher);
-    check(item);
-  }
-
-  function scan() {
-    // Refresh names for panes that appear mid-stream.
-    for (const ent of buildEntities()) {
-      if (ent.name) {
-        names.set(ent.key, ent.name);
-        if (ent.paneId) names.set(ent.paneId, ent.name);
-        if (ent.presence) names.set(ent.presence.key, ent.name);
-      }
-    }
-    if (all) {
-      for (const pres of loadPresence().values()) {
-        if (pres.alive && looksLikePaneKey(pres.key) && !items.has(pres.key)) {
-          items.set(pres.key, {
-            key: pres.key,
-            dir: pres.dir,
-            name: names.get(pres.key) || null,
-            tab: null,
-            pid: pres.status?.pid,
-          });
-        }
-      }
-    }
-    for (const item of items.values()) {
-      if (!item.name) item.name = names.get(item.key) || null;
-      const entity = buildEntities().find((candidate) => candidate.presence?.key === item.key || candidate.key === item.key);
-      if (entity) {
-        item.name = entity.name || item.name;
-        item.tab = entity.tabLabel || item.tab;
-      }
-      attach(item);
-      check(item);
-    }
-  }
-
-  if (all) {
-    for (const pres of loadPresence().values()) {
-      if (pres.alive && looksLikePaneKey(pres.key)) {
-        items.set(pres.key, {
-          key: pres.key,
-          dir: pres.dir,
-          name: names.get(pres.key) || null,
-          tab: null,
-          pid: pres.status?.pid,
-        });
-      }
-    }
-  }
-  for (const target of targets) {
-    const ent = resolveTarget(target);
-    if (!ent.presence) die(`Target "${target}" has no agent dir to watch.`);
-    items.set(ent.presence.key, {
-      key: ent.presence.key,
-      dir: ent.presence.dir,
-      name: ent.name || names.get(ent.presence.key) || null,
-      tab: ent.tabLabel,
-      pid: ent.presence.status?.pid,
-    });
-  }
-  if (!items.size && !all) die("No live pane agent dirs to stream.");
-
-  function cleanup() {
-    if (safety) clearInterval(safety);
-    for (const watcher of watchers.values()) {
-      try {
-        watcher.close();
-      } catch {}
-    }
-  }
-
-  process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
+  };
+  const preferred = await startPreferredEvents({
+    orchDir: orchDir(),
+    onEvent: (value) => {
+      if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
+      context.states.set(value.key, value.newState);
+      context.emit(value);
+    },
+    onDisconnect: () => process.stderr.write("orch events: daemon disconnected; falling back to file watch\n"),
+    onFallback: startFiles,
   });
-  process.on("SIGTERM", () => {
-    cleanup();
-    process.exit(0);
-  });
+  return () => {
+    preferred.stop();
+    fileWatch?.stop();
+  };
+}
 
-  scan();
-  safety = setInterval(scan, 5000);
+async function cmdEvents(args: string[]) {
+  const options = parseEventsOptions(args);
+  const items = eventsItems(options);
+  const accepts = (key: string): boolean => options.all ? looksLikePaneKey(key) : items.has(key);
+  const context: EventsContext = {
+    options,
+    items,
+    states: new Map<string, string>(),
+    sinks: eventsSinks(options.notifications),
+    metadata: presenceMetadata,
+    accepts,
+    emit: eventWriter(options),
+  };
+  seedEventStates(context);
+  const cleanup = await startEventsTransport(context);
+  process.on("SIGINT", () => { cleanup(); process.exit(0); });
+  process.on("SIGTERM", () => { cleanup(); process.exit(0); });
 }
 
 async function cmdNotify(args: string[]) {
@@ -1096,39 +1093,72 @@ function printLayout(refPane: string, header: string) {
     process.stdout.write(`  ${r[0].padEnd(w0)}  ${r[1].padEnd(w1)}  ${r[2]}\n`);
 }
 
+const adapters: readonly AgentAdapter[] = [piAdapter];
+
+function resolveAdapter(id: string): AgentAdapter {
+  const adapter = adapters.find((candidate) => candidate.id === id);
+  if (adapter) return adapter;
+  die(`Unknown adapter "${id}". Supported adapters: ${adapters.map((candidate) => candidate.id).join(", ")}.`);
+}
+
+function adapterCommand(adapter: string): string {
+  return resolveAdapter(adapter).interactiveCmd({});
+}
+
 async function cmdSpawn(args: string[]) {
   let label = "work";
   let cwd = process.cwd();
   let cmd = "pi";
+  let commandFlag = false;
   let workspace: string | null = null;
   let namePrefix: string | null = null;
-  let model: string | null = null;
+  let modelFlag: string | undefined;
+  let adapterFlag: string | undefined;
+  let backendFlag: string | undefined;
+  let spawnCapFlag: number | undefined;
+  let worktreeFlag: boolean | undefined;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--tab") label = args[++i];
     else if (a === "--cwd") cwd = args[++i];
-    else if (a === "--cmd") cmd = args[++i];
+    else if (a === "--cmd") { cmd = args[++i]; commandFlag = true; }
     else if (a === "--name") namePrefix = args[++i];
     else if (a === "--workspace") workspace = args[++i];
-    else if (a === "--model") model = args[++i];
+    else if (a === "--model") modelFlag = args[++i];
+    else if (a === "--agent" || a === "--adapter") adapterFlag = args[++i];
+    else if (a === "--backend") backendFlag = args[++i];
+    else if (a === "--spawn-cap" || a === "--cap") spawnCapFlag = Number(args[++i]);
+    else if (a === "--worktree") worktreeFlag = true;
     else positional.push(a);
   }
+  const config = loadConfig(orchDir());
+  const adapter = resolveSetting({ flag: adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "pi" });
+  const backend = resolveSetting({ flag: backendFlag, env: "ORCH_BACKEND", config: config.defaults.backend, fallback: "herdr" });
+  const selectedModel = resolveSetting({ flag: modelFlag, env: "ORCH_MODEL", config: config.defaults.model, fallback: "" });
+  const spawnCap = resolveSetting({ flag: spawnCapFlag, env: "ORCH_SPAWN_CAP", config: config.defaults.spawn_cap, fallback: 8 });
+  const worktree = resolveSetting({ flag: worktreeFlag, env: "ORCH_WORKTREE", config: config.defaults.worktree, fallback: false });
+  if (!Number.isInteger(spawnCap) || spawnCap < 1) die(`Invalid spawn cap ${spawnCap}; expected a positive integer.`);
+  const model = selectedModel || null;
   const n = parseInt(positional[0], 10);
   if (!Number.isFinite(n) || n < 1)
-    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <provider/model[:thinking]>");
-  if (n > 8) die(`Refusing to spawn ${n} panes — cap is 8.`);
+    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <provider/model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--spawn-cap <N>] [--worktree]");
+  if (n > spawnCap) die(`Refusing to spawn ${n} panes — cap is ${spawnCap}.`);
+  resolveAdapter(adapter);
+  if (!commandFlag) cmd = adapterCommand(adapter);
   const prefix = namePrefix || label;
 
   if (!workspace) workspace = callerWorkspace();
   if (!workspace) workspace = herdrPanes()[0]?.workspace_id || null;
   if (!workspace) die("Could not determine workspace id (herdr down?). Pass --workspace <id>.");
-  if (launchesPi(cmd)) writeTrustEntry(cwd);
+  const rootName = `${prefix}-1`;
+  const rootCwd = worktree ? createAgentWorktree(cwd, rootName) : cwd;
+  if (launchesPi(cmd)) writeTrustEntry(rootCwd);
 
   // 1. fresh tab, no focus — its root pane is agent #1.
   let root: string, tabLabel: string;
   try {
-    const r = herdrJSON(["tab", "create", "--workspace", workspace, "--cwd", cwd, "--label", label, "--no-focus"]);
+    const r = herdrJSON(["tab", "create", "--workspace", workspace, "--cwd", rootCwd, "--label", label, "--no-focus"]);
     root = r?.root_pane?.pane_id;
     tabLabel = r?.tab?.label || label;
     if (!root) throw new Error("no root_pane.pane_id");
@@ -1138,16 +1168,18 @@ async function cmdSpawn(args: string[]) {
 
   const created: { pane: string; name: string }[] = [];
   // agent #1 on the root pane
-  runAndName(root!, cmd, `${prefix}-1`);
-  recordSpawned(root!);
-  created.push({ pane: root!, name: `${prefix}-1` });
+  runAndName(root!, cmd, rootName);
+  recordSpawned(root!, { adapter, model: model || undefined, backend, worktree: worktree ? rootCwd : undefined, branch: worktree ? `orch/${rootName}` : undefined });
+  created.push({ pane: root!, name: rootName });
 
   // agents #2..N: geometry-driven placement, one at a time (layout re-fetched each time).
   for (let i = 2; i <= n; i++) {
     try {
-      const pane = placeOnePane(root!, cwd);
-      runAndName(pane, cmd, `${prefix}-${i}`);
-      recordSpawned(pane);
+      const agentName = `${prefix}-${i}`;
+      const agentCwd = worktree ? createAgentWorktree(cwd, agentName) : cwd;
+      const pane = placeOnePane(root!, agentCwd);
+      runAndName(pane, cmd, agentName);
+      recordSpawned(pane, { adapter, model: model || undefined, backend, worktree: worktree ? agentCwd : undefined, branch: worktree ? `orch/${agentName}` : undefined });
       created.push({ pane, name: `${prefix}-${i}` });
     } catch (e: any) {
       process.stderr.write(`warning: could not place agent #${i}: ${e?.message || e}\n`);
@@ -1167,17 +1199,29 @@ async function cmdSpawn(args: string[]) {
 async function cmdTile(args: string[]) {
   let cwd = process.cwd();
   let cmd = "pi";
+  let commandFlag = false;
   let name: string | null = null;
-  let model: string | null = null;
+  let modelFlag: string | undefined;
+  let adapterFlag: string | undefined;
+  let backendFlag: string | undefined;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--cwd") cwd = args[++i];
-    else if (a === "--cmd") cmd = args[++i];
+    else if (a === "--cmd") { cmd = args[++i]; commandFlag = true; }
     else if (a === "--name") name = args[++i];
-    else if (a === "--model") model = args[++i];
+    else if (a === "--model") modelFlag = args[++i];
+    else if (a === "--agent" || a === "--adapter") adapterFlag = args[++i];
+    else if (a === "--backend") backendFlag = args[++i];
     else positional.push(a);
   }
+  const config = loadConfig(orchDir());
+  const adapter = resolveSetting({ flag: adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "pi" });
+  const backend = resolveSetting({ flag: backendFlag, env: "ORCH_BACKEND", config: config.defaults.backend, fallback: "herdr" });
+  const selectedModel = resolveSetting({ flag: modelFlag, env: "ORCH_MODEL", config: config.defaults.model, fallback: "" });
+  const model = selectedModel || null;
+  resolveAdapter(adapter);
+  if (!commandFlag) cmd = adapterCommand(adapter);
   const target = positional[0];
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
 
@@ -1200,7 +1244,7 @@ async function cmdTile(args: string[]) {
     die(`tile failed: ${e?.message || e}`);
   }
   runAndName(newPane, cmd, autoName);
-  recordSpawned(newPane);
+  recordSpawned(newPane, { adapter, model: model || undefined, backend });
   process.stdout.write(`Added ${newPane} (${autoName}) to tab ${layout.tab_id} running "${cmd}".\n`);
   printLayout(refPane, "\nFinal tiling:");
   if (model) await pinModels([{ pane: newPane, name: autoName }], model);
@@ -1221,29 +1265,34 @@ function workerPrompt(prompt: string, raw: boolean): string {
   return raw ? prompt : `${WORKER_PROMPT_HEADER}\n\n${prompt}`;
 }
 
-// Dispatch a prompt to a pane's pi; nudge Enter if the composer didn't submit. Returns final status.
-function doRun(pane: string, prompt: string): string | null {
+type RunResult = { status: string | null; retried: boolean };
+
+function paneAgentState(pane: string): string | null {
+  const status = readJSON(path.join(presenceDir(), pane, "status.json"));
+  if (typeof status?.state === "string") return status.state;
+  return paneStatus(pane);
+}
+
+function waitForWorking(pane: string, timeoutMs: number): string | null {
+  const deadline = Date.now() + timeoutMs;
+  let state: string | null = null;
+  do {
+    state = paneAgentState(pane);
+    if (state === "working") return state;
+    if (Date.now() >= deadline) return state;
+    sleepMs(250);
+  } while (true);
+}
+
+// Dispatch a prompt and retry once when the pane never enters working state.
+function doRun(pane: string, prompt: string): RunResult {
   herdrBestEffort(["pane", "run", pane, prompt]);
-  // give it up to ~3s to go working
-  try {
-    herdrExec( ["wait", "agent-status", pane, "--status", "working", "--timeout", "3000"], {
-      timeout: 4000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch {}
-  let st = paneStatus(pane);
-  if (st === "idle") {
-    // TUI composer race — nudge Enter once and re-check
-    herdrBestEffort(["pane", "send-keys", pane, "Enter"]);
-    try {
-      herdrExec( ["wait", "agent-status", pane, "--status", "working", "--timeout", "3000"], {
-        timeout: 4000,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch {}
-    st = paneStatus(pane);
-  }
-  return st;
+  let status = waitForWorking(pane, 10_000);
+  if (status === "working") return { status, retried: false };
+
+  herdrBestEffort(["pane", "run", pane, prompt]);
+  status = waitForWorking(pane, 10_000);
+  return { status: status || paneStatus(pane), retried: true };
 }
 
 function cmdRun(args: string[]) {
@@ -1253,8 +1302,8 @@ function cmdRun(args: string[]) {
   const prompt = positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch run <target> "<prompt>" [--raw]');
   const { pane } = resolvePane(target);
-  const st = doRun(pane, workerPrompt(prompt, raw));
-  process.stdout.write(`Dispatched to ${pane} → status: ${st || "unknown"}\n`);
+  const result = doRun(pane, workerPrompt(prompt, raw));
+  process.stdout.write(`Dispatched to ${pane} → status: ${result.status || "unknown"}${result.retried ? " (retried)" : ""}\n`);
 }
 
 function delay(ms: number): Promise<void> {
@@ -1367,8 +1416,26 @@ function cmdNew(args: string[]) {
   const target = args[0];
   if (!target) die("usage: orch new <target>");
   const { pane } = resolvePane(target);
-  herdrBestEffort(["pane", "run", pane, "/new"]);
-  process.stdout.write(`Cleared session on ${pane} (/new).\n`);
+  const statusPath = path.join(presenceDir(), pane, "status.json");
+  const before = readJSON(statusPath);
+  const beforeUpdated = Date.parse(String(before?.updatedAt || ""));
+  const sentAt = Date.now();
+  if (!herdrBestEffort(["pane", "run", pane, "/new"])) die(`Could not reset ${pane}.`);
+
+  const deadline = sentAt + 15_000;
+  while (Date.now() < deadline) {
+    const status = readJSON(statusPath);
+    const updated = Date.parse(String(status?.updatedAt || ""));
+    const advanced = Number.isFinite(updated)
+      && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
+      && updated >= sentAt - 1000;
+    if (advanced && status?.state === "idle") {
+      process.stdout.write(`Cleared session on ${pane} (/new); ready.\n`);
+      return;
+    }
+    sleepMs(250);
+  }
+  die(`${pane}: /new did not become ready within 15s.`);
 }
 
 function paneForeground(pane: string): string[] {
@@ -1756,13 +1823,15 @@ function cmdWs(args: string[]) {
 async function cmdDispatch(args: string[]) {
   const raw = args.includes("--raw");
   const commandArgs = args.filter((arg) => arg !== "--raw");
-  let model: string | null = null;
+  let modelFlag: string | undefined;
+  let adapterFlag: string | undefined;
   let doWait = false;
   let thenTarget: string | null = null;
   let thenNote = "";
   const positional: string[] = [];
   for (let i = 0; i < commandArgs.length; i++) {
-    if (commandArgs[i] === "--model") model = commandArgs[++i];
+    if (commandArgs[i] === "--model") modelFlag = commandArgs[++i];
+    else if (commandArgs[i] === "--agent" || commandArgs[i] === "--adapter") adapterFlag = commandArgs[++i];
     else if (commandArgs[i] === "--wait") doWait = true;
     else if (commandArgs[i] === "--then") {
       thenTarget = commandArgs[++i] || null;
@@ -1772,8 +1841,13 @@ async function cmdDispatch(args: string[]) {
   }
   const target = positional[0];
   const prompt = positional.slice(1).join(" ");
-  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--wait] [--then <dst> ["note"]]');
+  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
   const { ent, pane } = resolvePane(target);
+  const config = loadConfig(orchDir());
+  const adapter = resolveSetting({ flag: adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "pi" });
+  resolveAdapter(adapter);
+  const selectedModel = resolveSetting({ flag: modelFlag, env: "ORCH_MODEL", config: config.defaults.model, fallback: "" });
+  const model = selectedModel || null;
   const destination = thenTarget ? requirePresenceTarget(thenTarget) : null;
   if (thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
 
@@ -1781,8 +1855,9 @@ async function cmdDispatch(args: string[]) {
     const { old, now } = await doModel(pane, model);
     process.stdout.write(`model: ${old || "(unknown)"} → ${now || "(sent, unverified)"}\n`);
   }
-  const st = doRun(pane, workerPrompt(prompt, raw));
-  process.stdout.write(`Dispatched to ${pane} → status: ${st || "unknown"}\n`);
+  const result = doRun(pane, workerPrompt(prompt, raw));
+  recordSpawned(pane, { adapter, model: model || undefined });
+  process.stdout.write(`Dispatched to ${pane} → status: ${result.status || "unknown"}${result.retried ? " (retried)" : ""}\n`);
   if (destination) {
     appendPresenceInbox(ent.presence!, {
       cmd: "on_done",
@@ -1806,6 +1881,107 @@ async function cmdDispatch(args: string[]) {
   }
 }
 
+interface DaemonStatus {
+  pid: number;
+  startedAt: string;
+  uptimeSec: number;
+  codeHash: string;
+  socket: string;
+}
+
+function daemonEntrypoint(): string {
+  return path.join(import.meta.dir, "daemon", "orchd.ts");
+}
+
+function daemonLockPid(): number | undefined {
+  const lock = readJSON(path.join(orchDir(), "orchd.lock"));
+  return Number.isInteger(lock?.pid) && lock.pid > 0 ? lock.pid : undefined;
+}
+
+function validDaemonStatus(value: unknown): value is DaemonStatus {
+  if (!value || typeof value !== "object") return false;
+  return "pid" in value && typeof value.pid === "number"
+    && "startedAt" in value && typeof value.startedAt === "string"
+    && "uptimeSec" in value && typeof value.uptimeSec === "number"
+    && "codeHash" in value && typeof value.codeHash === "string"
+    && "socket" in value && typeof value.socket === "string";
+}
+
+async function fetchDaemonStatus(timeoutMs = 5000): Promise<DaemonStatus> {
+  const result = await rpcCall(orchDir(), "daemon-status", undefined, timeoutMs);
+  if (!validDaemonStatus(result)) throw new Error("orchd returned an invalid status");
+  return result;
+}
+
+async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      const status = await fetchDaemonStatus(300);
+      if (!previousStartedAt || status.startedAt !== previousStartedAt) return status;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("timed out waiting for orchd");
+}
+
+async function startDaemon(foreground: boolean): Promise<void> {
+  const existingPid = daemonLockPid();
+  if (existingPid && pidAlive(existingPid)) {
+    process.stdout.write(`already running (pid ${existingPid})\n`);
+    return;
+  }
+  const entrypoint = daemonEntrypoint();
+  if (foreground) {
+    runForeground(entrypoint);
+    return;
+  }
+  daemonize(entrypoint);
+  const status = await waitForDaemon();
+  process.stdout.write(`started (pid ${status.pid})\n`);
+}
+
+async function stopDaemon(): Promise<void> {
+  const pid = daemonLockPid();
+  if (!pid || !pidAlive(pid)) {
+    process.stdout.write("not running\n");
+    return;
+  }
+  process.kill(pid, "SIGTERM");
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline && pidAlive(pid)) await new Promise((resolve) => setTimeout(resolve, 50));
+  if (pidAlive(pid)) throw new Error(`timed out stopping orchd (pid ${pid})`);
+  process.stdout.write(`stopped (pid ${pid})\n`);
+}
+
+async function statusDaemon(json: boolean): Promise<void> {
+  try {
+    const status = await fetchDaemonStatus();
+    if (json) process.stdout.write(`${JSON.stringify(status)}\n`);
+    else process.stdout.write(`running (pid ${status.pid}, uptime ${status.uptimeSec}s, hash ${status.codeHash}, ${status.socket})\n`);
+  } catch (error) {
+    if (!(error instanceof DaemonAbsentError)) throw error;
+    process.stdout.write("not running\n");
+    process.exitCode = 1;
+  }
+}
+
+async function reloadDaemon(): Promise<void> {
+  const before = await fetchDaemonStatus();
+  await rpcCall(orchDir(), "reload");
+  const after = await waitForDaemon(before.startedAt);
+  process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);
+}
+
+async function cmdDaemon(args: string[]): Promise<void> {
+  const action = args[0];
+  if (action === "start") return startDaemon(args.includes("--fg"));
+  if (action === "stop") return stopDaemon();
+  if (action === "status") return statusDaemon(args.includes("--json"));
+  if (action === "reload") return reloadDaemon();
+  die("usage: orch daemon start [--fg] | stop | status [--json] | reload");
+}
+
 async function cmdDoctor(args: string[]) {
   const json = args.includes("--json");
   const fix = args.includes("--fix");
@@ -1822,78 +1998,14 @@ async function cmdDoctor(args: string[]) {
   if (results.some((r) => r.status === "fail" || r.status === "warn")) process.exitCode = 1;
 }
 
-function agentIdle(entry: PresenceEntry): boolean {
-  const state = entry.status?.state;
-  return entry.alive && (state === "idle" || state === "done");
-}
-
-async function waitForTaskState(entry: PresenceEntry, timeoutMs: number): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const status = statusForPresence(entry)?.state;
-    if (status === "working" || status === "done" || status === "error") return status;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  return "timeout";
-}
-
-function settleClaimedTasks(maxRetries: number): void {
-  const presence = loadPresence();
-  for (const task of listTasks(orchDir())) {
-    if (task.state !== "claimed" || !task.agentKey) continue;
-    const agent = presence.get(task.agentKey);
-    const status = agent ? statusForPresence(agent) : null;
-    if (status?.state === "done") {
-      recordTaskDone(orchDir(), task.id, agent?.result);
-    } else if (status?.state === "error") {
-      const error = typeof status.lastError === "string" ? status.lastError : "agent reported error";
-      if (taskShouldRetry(task, maxRetries)) requeueTask(orchDir(), task.id, error);
-      else recordTaskFailure(orchDir(), task.id, error);
-    }
-  }
-}
-
 async function cmdWork(args: string[]) {
-  const once = args.includes("--once");
   const config = loadConfig(orchDir());
-  const maxRetries = config.queue.max_retries ?? 1;
-  do {
-    // Claims can outlive the 10s acknowledgement wait; settle them on every pass.
-    settleClaimedTasks(maxRetries);
-    const entries = [...loadPresence().values()].filter(agentIdle);
-    let assigned = 0;
-    for (const entry of entries) {
-      const task = nextQueuedTask(listTasks(orchDir()), entry.status?.agent || "pi");
-      if (!task || !claimTask(orchDir(), task.id, entry.key)) continue;
-      assigned++;
-      try {
-        await cmdDispatch([entry.key, task.text]);
-        const state = await waitForTaskState(entry, 10000);
-        if (state === "timeout") { requeueTask(orchDir(), task.id, "agent did not acknowledge working"); continue; }
-        if (state === "error") {
-          const current = listTasks(orchDir()).find((item) => item.id === task.id) || task;
-          if (taskShouldRetry(current, maxRetries)) requeueTask(orchDir(), task.id, "agent reported error");
-          else recordTaskFailure(orchDir(), task.id, "agent reported error");
-          continue;
-        }
-        if (state === "done") recordTaskDone(orchDir(), task.id, loadPresence().get(entry.key)?.result);
-      } catch (error) {
-        const current = listTasks(orchDir()).find((item) => item.id === task.id) || task;
-        if (taskShouldRetry(current, maxRetries)) requeueTask(orchDir(), task.id, String(error));
-        else recordTaskFailure(orchDir(), task.id, String(error));
-      }
-      if (once) break;
-    }
-    // A live claim needs polling even when no agent was newly assigned; otherwise a
-    // task completing just after its acknowledgement window can wedge forever.
-    if (once) {
-      settleClaimedTasks(maxRetries);
-      return;
-    }
-    const hasClaimedTask = listTasks(orchDir()).some((task) => task.state === "claimed");
-    if (assigned === 0 && !hasClaimedTask) return;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  } while (true);
+  await runWorkLoop({
+    orchDir: orchDir(),
+    pollIntervalMs: 500,
+    once: args.includes("--once"),
+    maxRetries: config.queue.max_retries ?? 1,
+  });
 }
 
 // ---- help ----
@@ -1910,9 +2022,10 @@ OBSERVE
                                  Continuous stream of pane state transitions (forever).
 
 QUEUE
-  orch queue add "<task text>" [--json]
+  orch queue add "<task text>" [--worktree] [--json]
                                  Add a task and print its id.
   orch queue list [--json]       List queued, claimed, and settled tasks.
+  orch queue history [--json]    List completed, failed, and cancelled tasks.
   orch queue cancel <id> [--json]
                                  Cancel an unclaimed task.
   orch work [--once]             Assign queued tasks to idle agents.
@@ -1920,7 +2033,7 @@ QUEUE
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Send a prompt with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--wait] [--then <dst> ["note"]]
+  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]
                                  One-shot: optional model set, run, wait, or forward its result on done.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).
@@ -1944,9 +2057,10 @@ DISPATCH WORK
 
 PANES (create / arrange / lifecycle — never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
+                   [--agent A] [--backend B] [--spawn-cap N] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
                                  3=2+1, 4=2x2, …; cap 8). Names <prefix>-1..N.
-  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M]
+  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
                                  Set the herdr agent name (NAME column); --pane sets the pane
@@ -1974,6 +2088,8 @@ WORKSPACES
   orch ws focus <workspace_id>   Jump the user's view to that workspace.
 
 MAINTENANCE
+  orch daemon start [--fg] | stop | status [--json] | reload
+                                 Manage the resident orch daemon.
   orch doctor [--fix] [--json]   Check and optionally repair the installation.
   orch clean                     Delete agent dirs whose pid is dead.
   orch setup [--yes] [--no-install] [--copy]
@@ -2000,10 +2116,11 @@ export function runCommand(argv: string[]): void {
   const rest = argv.slice(1);
   switch (cmd) {
     case undefined: case "status": cmdStatus(cmd === undefined ? argv : rest); break;
-    case "events": cmdEvents(rest); break;
+    case "events": void cmdEvents(rest).catch((error) => die(error?.message || String(error))); break;
     case "notify": void cmdNotify(rest).catch((error) => die(error?.message || String(error))); break;
     case "questions": cmdQuestions(); break;
     case "queue": cmdQueue(rest); break;
+    case "daemon": void cmdDaemon(rest).catch((error) => die(error?.message || String(error))); break;
     case "doctor": void cmdDoctor(rest).catch((error) => die(error?.message || String(error))); break;
     case "work": void cmdWork(rest).catch((error) => die(error?.message || String(error))); break;
     case "answer": cmdAnswer(rest); break;

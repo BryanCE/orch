@@ -8,9 +8,10 @@ OBSERVE
                                  Continuous stream of pane state transitions (forever).
 
 QUEUE
-  orch queue add "<task text>" [--json]
+  orch queue add "<task text>" [--worktree] [--json]
                                  Add a task and print its id.
   orch queue list [--json]       List queued, claimed, and settled tasks.
+  orch queue history [--json]    List completed, failed, and cancelled tasks.
   orch queue cancel <id> [--json]
                                  Cancel an unclaimed task.
   orch work [--once]             Assign queued tasks to idle agents.
@@ -18,7 +19,7 @@ QUEUE
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Send a prompt with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--wait] [--then <dst> ["note"]]
+  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]
                                  One-shot: optional model set, run, wait, or forward its result on done.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).
@@ -42,9 +43,10 @@ DISPATCH WORK
 
 PANES (create / arrange / lifecycle — never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
+                   [--agent A] [--backend B] [--spawn-cap N] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
                                  3=2+1, 4=2x2, …; cap 8). Names <prefix>-1..N.
-  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M]
+  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
                                  Set the herdr agent name (NAME column); --pane sets the pane
@@ -72,6 +74,8 @@ WORKSPACES
   orch ws focus <workspace_id>   Jump the user's view to that workspace.
 
 MAINTENANCE
+  orch daemon start [--fg] | stop | status [--json] | reload
+                                 Manage the resident orch daemon.
   orch doctor [--fix] [--json]   Check and optionally repair the installation.
   orch clean                     Delete agent dirs whose pid is dead.
   orch setup [--yes] [--no-install] [--copy]

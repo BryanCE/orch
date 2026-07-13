@@ -3,6 +3,15 @@ import * as path from "node:path";
 
 type TomlTable = Record<string, unknown>;
 
+export type HostConfig = {
+  /** SSH destination (for example, user@example.org). */
+  dest?: string;
+  /** Legacy spelling accepted for configs written before the remote-host schema. */
+  ssh?: string;
+  orch_dir?: string;
+  timeout_ms?: number;
+};
+
 export type OrchConfig = {
   defaults: {
     adapter?: string;
@@ -13,7 +22,7 @@ export type OrchConfig = {
   };
   queue: { max_retries: number };
   notify: unknown[];
-  hosts: Record<string, { ssh: string }>;
+  hosts: Record<string, HostConfig>;
 };
 
 function stripComment(line: string): string {
@@ -214,9 +223,22 @@ export function loadConfig(orchDir: string): OrchConfig {
     const source = table(root.hosts, file, "hosts");
     for (const [name, host] of Object.entries(source)) {
       const hostTable = table(host, file, `hosts.${name}`);
-      knownKeys(hostTable, file, `hosts.${name}`, ["ssh"]);
-      if (typeof hostTable.ssh !== "string") fail(file, `hosts.${name}.ssh`, "string", hostTable.ssh);
-      hosts[name] = { ssh: hostTable.ssh };
+      knownKeys(hostTable, file, `hosts.${name}`, ["dest", "ssh", "orch_dir", "timeout_ms"]);
+      const destination = hostTable.dest ?? hostTable.ssh;
+      if (typeof destination !== "string") fail(file, `hosts.${name}.dest`, "string", destination);
+      if (hostTable.orch_dir !== undefined && typeof hostTable.orch_dir !== "string") {
+        fail(file, `hosts.${name}.orch_dir`, "string", hostTable.orch_dir);
+      }
+      if (hostTable.timeout_ms !== undefined &&
+          (typeof hostTable.timeout_ms !== "number" || !Number.isFinite(hostTable.timeout_ms) || hostTable.timeout_ms <= 0 || !Number.isInteger(hostTable.timeout_ms))) {
+        throw new Error(`${file}: hosts.${name}.timeout_ms: expected a positive integer, found ${found(hostTable.timeout_ms)}`);
+      }
+      const parsed: HostConfig = {};
+      if (hostTable.dest !== undefined) parsed.dest = destination;
+      else parsed.ssh = destination;
+      if (typeof hostTable.orch_dir === "string") parsed.orch_dir = hostTable.orch_dir;
+      if (typeof hostTable.timeout_ms === "number") parsed.timeout_ms = hostTable.timeout_ms;
+      hosts[name] = parsed;
     }
   }
 

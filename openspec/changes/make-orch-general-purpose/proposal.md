@@ -18,7 +18,7 @@ orch today is an excellent remote control for one exact stack: pi agents, inside
 
 No breaking changes: existing commands keep their behavior; pi + herdr remains the default adapter + backend.
 
-**Non-goals / deferred**: building orchd itself, task DAGs/dependencies, `orch ui` web dashboard, multi-tenant auth, non-SSH transports.
+**Non-goals / deferred** *(revised by operator order 2026-07-13: orchd-minimal pulled forward — see change add-orchd-minimal; resident-process behavior belongs in the daemon, not faked in one-shot CLIs)*: ~~building orchd itself~~, task DAGs/dependencies, `orch ui` web dashboard, multi-tenant auth, non-SSH transports.
 
 ## Capabilities
 

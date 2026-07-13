@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deliverToSink, loadSinks, notify, type NotifyEvent } from "../src/notify";
+import { deliverToSink, loadSinks, notificationText, notify, type NotifyEvent } from "../src/notify";
 
 const tempDirs: string[] = [];
 
@@ -144,6 +144,8 @@ on = ["done"]
     await waitForFile(output);
 
     expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({
+      title: "ERROR worker: boom",
+      body: "ERROR worker: boom\nTab: workers\nModel: terra:medium\nTask: run tests\nCost: $1.25",
       host: "gpu1",
       key: "task-1",
       agent: "worker",
@@ -156,6 +158,39 @@ on = ["done"]
       ts: "2026-01-01T00:00:00.000Z",
       lastError: "boom",
     });
+  });
+
+  test("titles lead with exactly one terminal state and agent", () => {
+    expect(notificationText({
+      key: "w-2",
+      agent: "w-2",
+      tab: null,
+      model: null,
+      oldState: "working",
+      newState: "done",
+      task: "ship it",
+      ts: "2026-01-01T00:00:00.000Z",
+    }).title).toBe("DONE w-2: ship it");
+    expect(notificationText({
+      key: "w-2",
+      agent: "w-2",
+      tab: null,
+      model: null,
+      oldState: "working",
+      newState: "blocked",
+      task: "Q: need approval",
+      ts: "2026-01-01T00:00:00.000Z",
+    }).title).toBe("BLOCKED w-2: need approval");
+    expect(notificationText({
+      key: "w-2",
+      agent: "w-2",
+      tab: null,
+      model: null,
+      oldState: "working",
+      newState: "error",
+      lastError: "boom",
+      ts: "2026-01-01T00:00:00.000Z",
+    }).title).toBe("ERROR w-2: boom");
   });
 
   test("webhook failure is non-fatal and reports a warning", async () => {

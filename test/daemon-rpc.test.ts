@@ -1,0 +1,89 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { createConnection } from "node:net";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  DaemonAbsentError,
+  RpcError,
+  rpcCall,
+  rpcSubscribe,
+  startRpcServer,
+  type RpcServer,
+} from "../src/daemon/rpc";
+
+const dirs: string[] = [];
+const servers: RpcServer[] = [];
+
+function tempOrchDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "orch-rpc-"));
+  dirs.push(dir);
+  return dir;
+}
+
+async function start(dir: string): Promise<RpcServer> {
+  const server = await startRpcServer(dir, {
+    echo: async (params) => params,
+    "subscribe-events": async (_params, emit) => {
+      setTimeout(() => emit({ kind: "pushed", value: 1 }), 5);
+      return { subscribed: true };
+    },
+  });
+  servers.push(server);
+  return server;
+}
+
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
+  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+});
+
+describe("daemon RPC", () => {
+  test("round-trips a call over the real unix socket", async () => {
+    const dir = tempOrchDir();
+    await start(dir);
+    await expect(rpcCall(dir, "echo", { ok: true })).resolves.toEqual({ ok: true });
+  });
+
+  test("returns an error for an unknown method", async () => {
+    const dir = tempOrchDir();
+    await start(dir);
+    await expect(rpcCall(dir, "missing")).rejects.toBeInstanceOf(RpcError);
+    await expect(rpcCall(dir, "missing")).rejects.toThrow("Unknown method");
+  });
+
+  test("reports malformed lines and keeps the connection alive", async () => {
+    const dir = tempOrchDir();
+    const server = await start(dir);
+    const socket = await new Promise<import("node:net").Socket>((resolve, reject) => {
+      const connection = createConnection(server.socketPath);
+      connection.once("connect", () => resolve(connection));
+      connection.once("error", reject);
+    });
+    socket.setEncoding("utf8");
+    const lines: string[] = [];
+    socket.on("data", (chunk: string) => lines.push(...chunk.trim().split("\n")));
+    socket.write("not json\n");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(JSON.parse(lines[0]).error.code).toBe("INVALID_REQUEST");
+    socket.write('{"id":7,"method":"echo","params":"still alive"}\n');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(JSON.parse(lines[1])).toMatchObject({ id: 7, result: "still alive" });
+    socket.destroy();
+  });
+
+  test("delivers pushed subscription events", async () => {
+    const dir = tempOrchDir();
+    const server = await start(dir);
+    const event = new Promise((resolve) => {
+      void rpcSubscribe(dir, "subscribe-events", resolve);
+    });
+    await expect(event).resolves.toEqual({ kind: "pushed", value: 1 });
+    server.emit({ kind: "broadcast", value: 2 });
+  });
+
+  test("has a catchable absent-daemon error", async () => {
+    const dir = tempOrchDir();
+    await expect(rpcCall(dir, "echo")).rejects.toBeInstanceOf(DaemonAbsentError);
+  });
+});

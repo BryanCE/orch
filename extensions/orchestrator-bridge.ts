@@ -13,13 +13,25 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createConnection } from "node:net";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { Type } from "typebox";
+
+// Loaded via the ~/.pi/agent/extensions symlink, where a relative ../src import resolves
+// against ~/.pi/agent and fails — this file must stay standalone. The digest must stay
+// byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
+function hashExtensionFile(file: string): string {
+  return createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 12);
+}
+
+const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 const ORCH_DIR = process.env.ORCH_DIR || path.join(os.homedir(), ".orch");
 const PRESENCE_ROOT = path.join(ORCH_DIR, "agents");
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const AGENT_ID = "pi";
 
 // A pane id key means "this agent OWNS that pane" — only true for the
 // interactive TUI. Headless runs (-p etc.) inherit the caller's
@@ -121,6 +133,7 @@ export default function (pi) {
   let lastCtx: any;
   const state = {
     schema: SCHEMA_VERSION,
+    agent: AGENT_ID,
     key: "",
     paneId: process.env.HERDR_PANE_ID || null,
     label: null as string | null,
@@ -189,7 +202,7 @@ export default function (pi) {
   function writeStatus() {
     if (!dir) return;
     state.updatedAt = new Date().toISOString();
-    const out: any = { ...state };
+    const out: any = { ...state, extensionHash: EXTENSION_HASH };
     if (blockedCount > 0) {
       out.state = "blocked";
       out.blockedMessage = blockedMessage;
@@ -862,16 +875,28 @@ export default function (pi) {
     writeStatus();
   });
 
+  function currentFileCandidate(args: any): string | undefined {
+    const candidate = args.path ?? args.file_path ?? args.filePath;
+    return typeof candidate === "string" ? candidate : undefined;
+  }
+
+  function shouldWriteToolStatus(
+    previousTool: string | undefined,
+    currentTool: string | undefined,
+    file: string | undefined,
+  ): boolean {
+    return currentTool !== previousTool || !!file;
+  }
+
   function handleToolExecutionStart(event: any): void {
     const name = String(event?.toolName ?? "");
     const previousTool = state.lastTool;
     if (name) state.lastTool = name;
-    const args = event?.args ?? {};
-    const file = args.path ?? args.file_path ?? args.filePath;
-    if (typeof file === "string" && file && file !== state.currentFile) {
+    const file = currentFileCandidate(event?.args ?? {});
+    if (file && file !== state.currentFile) {
       state.currentFile = file;
     }
-    if (state.lastTool !== previousTool || (typeof file === "string" && file)) {
+    if (shouldWriteToolStatus(previousTool, state.lastTool, file)) {
       writeStatus();
     }
   }

@@ -57,7 +57,7 @@ high-volume loops stay at low/medium.
 
 | Priority | Provider | Status | Tier mapping |
 |---|---|---|---|
-| 1 (default) | `openai-codex` (OpenAI subscription, no per-token cost) | primary; 5h usage windows per model | sol=FRONTIER, terra=WORKHORSE, luna=FAST |
+| 1 (default) | `openai-codex` (OpenAI subscription, no per-token cost) | primary; 5h usage windows per model | sol=FRONTIER, luna=WORKHORSE (**operator orders 2026-07-13: terra is BENCHED — never route to terra. Default EVERY dispatch to luna:high. Escalation ladder: luna:xhigh FIRST wherever sol feels warranted, THEN sol:low or sol:medium by task; never start at sol. Luna is highly effective and nearly free quota-wise. Mid-task model/thinking switches via `orch model` are allowed and encouraged when routing is wrong — operator order**) |
 | 2 (fallback) | `openrouter/x-ai` (metered via OpenRouter) | operator-designated fallback 2026-07-12 when codex windows are exhausted | grok-4.5 is WORKHORSE-class (Intel 54 ≈ terra 55, below sol/opus): :high=WORKHORSE-max, :medium=everyday, :low=grunt. NOT a true FRONTIER substitute — for architecture/security prefer codex sol whenever its window is open |
 
 Failover procedure: quota exhaustion is now VISIBLE (bridge writes
@@ -140,7 +140,7 @@ targeted drizzle + lint fixes — all first-pass accepted, consistent with Intel
 
 - Unrelated new task → `--fresh` / `orch new`: stale context degrades output and re-bills every accumulated token each turn.
 - Related follow-up (SAME task) → same session, steer at most once.
-- `/new` clears the session but KEEPS the pane's model+thinking setting.
+- `orch new` can REVERT the pane to pi's saved default model (observed 2026-07-13: sol:low pane came back luna:high after `orch new`). Always re-pin with `orch model <target> ...` after `orch new`, or chain `orch model X ... && orch dispatch X ...` so the pin is part of every dispatch.
 - A user-aborted or wedged session (turns increment, zero tool calls, empty replies) is dead: `--fresh` it before reuse; see SKILL.md dispatch-ack rules.
 
 Keep this matrix current against [Artificial Analysis](https://artificialanalysis.ai/):

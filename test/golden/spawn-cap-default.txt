@@ -1,0 +1,1 @@
+Refusing to spawn 9 panes — cap is 8.

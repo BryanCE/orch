@@ -1,0 +1,9 @@
+<PANE_ID>  work-1  [work]  claude
+<PANE_ID>  work-2  [work]  claude
+
+Spawned 2 named agent(s) on tab "work" (no focus stolen).
+
+Final tiling:
+  <PANE_ID>  work-1  80x24 @0,0
+
+'orch status' shows the fleet.

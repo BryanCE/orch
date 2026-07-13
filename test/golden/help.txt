@@ -16,6 +16,12 @@ QUEUE
                                  Cancel an unclaimed task.
   orch work [--once]             Assign queued tasks to idle agents.
 
+REVIEW
+  orch review list [--json]      List done worktree agents with commits ahead.
+  orch review approve <target>    Merge and remove an approved worktree.
+  orch review reject <target> -m "feedback"
+                                 Re-dispatch feedback in the same worktree.
+
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Send a prompt with the worker header (or exact prompt with --raw).
@@ -77,7 +83,8 @@ MAINTENANCE
   orch daemon start [--fg] | stop | status [--json] | reload
                                  Manage the resident orch daemon.
   orch doctor [--fix] [--json]   Check and optionally repair the installation.
-  orch clean                     Delete agent dirs whose pid is dead.
+  orch clean [--worktrees [--force]]
+                                 Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
   orch setup [--yes] [--no-install] [--copy]
                                  Bootstrap this machine: offer to install missing deps
                                  (bun/herdr/pi/claude), link pi extensions, install Claude

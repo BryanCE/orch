@@ -67,6 +67,10 @@ export function readJSON<T = any>(file: string): T | null {
   }
 }
 
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export function pidAlive(pid: number | undefined): boolean {
   if (!pid || !Number.isFinite(pid)) return false;
   try {

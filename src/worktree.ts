@@ -6,9 +6,19 @@ function git(repoRoot: string, args: string[]): string {
   return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
 }
 
-function repositoryRoot(repoRoot: string): string {
+export function repositoryRoot(repoRoot: string): string {
   try {
     return git(repoRoot, ["rev-parse", "--show-toplevel"]);
+  } catch {
+    throw new Error(`Worktree mode requires a git repository: ${repoRoot}`);
+  }
+}
+
+/** Return the main repository root shared by all linked worktrees. */
+export function repositoryCommonRoot(repoRoot: string): string {
+  try {
+    const commonDir = git(repoRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    return path.dirname(commonDir);
   } catch {
     throw new Error(`Worktree mode requires a git repository: ${repoRoot}`);
   }
@@ -44,14 +54,76 @@ export function listAgentWorktrees(repoRoot: string): string[] {
     });
 }
 
-/** Remove an existing worktree without forcing deletion of uncommitted changes. */
-export function removeWorktree(repoRoot: string, worktreePath: string): void {
+/** Remove an existing worktree, optionally discarding uncommitted changes. */
+export function removeWorktree(repoRoot: string, worktreePath: string, force = false): void {
   const root = repositoryRoot(repoRoot);
-  git(root, ["worktree", "remove", worktreePath]);
+  git(root, ["worktree", "remove", ...(force ? ["--force"] : []), worktreePath]);
+}
+
+/** Return the branch checked out in a repository worktree. */
+export function worktreeBranch(worktreePath: string): string {
+  const branch = git(worktreePath, ["branch", "--show-current"]);
+  if (!branch) throw new Error(`Worktree is not on a branch: ${worktreePath}`);
+  return branch;
+}
+
+/** Return the branch currently checked out at the repository root. */
+export function repositoryBranch(repoRoot: string): string {
+  const root = repositoryRoot(repoRoot);
+  const branch = git(root, ["branch", "--show-current"]);
+  if (!branch) throw new Error(`Repository is not on a branch: ${root}`);
+  return branch;
 }
 
 /** Return whether a worktree's checked-out branch has commits beyond the base branch. */
 export function worktreeHasCommitsAheadOf(repoRoot: string, worktreePath: string, baseBranch: string): boolean {
   repositoryRoot(repoRoot);
   return Number(git(worktreePath, ["rev-list", "--count", `${baseBranch}..HEAD`])) > 0;
+}
+
+/** Return whether a worktree contains uncommitted changes. */
+export function worktreeHasChanges(worktreePath: string): boolean {
+  return git(worktreePath, ["status", "--porcelain"]) !== "";
+}
+
+/** Return a compact summary and diff stat for a branch under review. */
+export function worktreeReviewSummary(worktreePath: string, baseBranch: string, branch = worktreeBranch(worktreePath)): { summary: string; diff: string; commitsAhead: number } {
+  const commitsAhead = Number(git(worktreePath, ["rev-list", "--count", `${baseBranch}..${branch}`]));
+  const summary = commitsAhead > 0 ? git(worktreePath, ["log", "-1", "--format=%s", branch]) : "";
+  const diff = commitsAhead > 0 ? git(worktreePath, ["diff", `${baseBranch}...${branch}`]) : "";
+  return { summary, diff, commitsAhead };
+}
+
+/** Merge a review branch into the repository branch, preferring fast-forward. */
+export function mergeReviewBranch(repoRoot: string, branch: string): "fast-forward" | "merge-commit" {
+  const root = repositoryRoot(repoRoot);
+  try {
+    git(root, ["merge", "--ff-only", branch]);
+    return "fast-forward";
+  } catch {
+    try {
+      git(root, ["merge", "--no-ff", "--no-edit", branch]);
+      return "merge-commit";
+    } catch (mergeError) {
+      try { git(root, ["merge", "--abort"]); } catch {}
+      const detail = String(mergeError instanceof Error ? mergeError.message : mergeError).trim();
+      throw new Error(`Merge conflict approving ${branch}; merge aborted and both branches were left untouched. Resolve conflicts and retry, or reject with feedback.${detail ? ` Details: ${detail}` : ""}`);
+    }
+  }
+}
+
+function removeWorktreeAndBranch(repoRoot: string, worktreePath: string, branch: string, force: boolean): void {
+  const root = repositoryRoot(repoRoot);
+  removeWorktree(root, worktreePath, force);
+  git(root, ["branch", force ? "-D" : "-d", branch]);
+}
+
+/** Remove an approved worktree and its branch after a successful merge. */
+export function removeMergedWorktree(repoRoot: string, worktreePath: string, branch: string): void {
+  removeWorktreeAndBranch(repoRoot, worktreePath, branch, false);
+}
+
+/** Remove an abandoned worktree and force-delete its branch. */
+export function removeDiscardedWorktree(repoRoot: string, worktreePath: string, branch: string): void {
+  removeWorktreeAndBranch(repoRoot, worktreePath, branch, true);
 }

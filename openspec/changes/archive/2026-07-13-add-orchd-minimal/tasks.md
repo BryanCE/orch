@@ -19,5 +19,5 @@
 
 ## 4. Verify live on this machine
 
-- [ ] 4.1 Daemon up: blocked agent toasts with NO orch events process running; queued task assigned with NO orch work running
-- [ ] 4.2 `orch daemon reload` after editing src/ → status shows new hash; kill -9 the daemon → next `orch daemon start` reclaims lock; stop daemon mid-`orch events` → CLI falls back without losing transitions
+- [x] 4.1 Daemon up: blocked agent toasts with NO orch events process running; queued task assigned with NO orch work running *(2026-07-13 live: sink delivered outcome-first BLOCKED payload with zero events processes; configWatch hot-loaded the sink post-boot; queue drained daemon-only — BUT assignment picked an idle pane in the OTHER workspace, see make-orch 3.9)*
+- [x] 4.2 `orch daemon reload` after editing src/ → status shows new hash; kill -9 the daemon → next `orch daemon start` reclaims lock; stop daemon mid-`orch events` → CLI falls back without losing transitions *(2026-07-13: first live pass found five defects — reload lock-suicide (env-conditional release + spawnSync parent), pid-recycling fooling the lock check, stale socket forcing TCP fallback, logPath falling back to cwd, and a transition lost in the fallback switchover window. All five fixed same day with regression tests (lock start-tick identity, detached re-exec with pre-release, owned-lock socket unlink+retry, explicit orchDir logging, watcher-first reconciliation); reload + kill -9 reclaim re-verified live green. Nit outstanding: commands.ts should pass orchDir to daemonize() explicitly)*

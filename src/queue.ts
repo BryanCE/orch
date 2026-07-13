@@ -1,6 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { isRecord } from "./store.ts";
 
 export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled";
 
@@ -60,20 +61,16 @@ function appendEvent(orchDir: string, event: QueueEvent): void {
 }
 
 function isQueueEvent(value: unknown): value is QueueEvent {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const event = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
   return (
-    typeof event.id === "string" &&
-    typeof event.ts === "string" &&
-    (event.ev === "add" ||
-      event.ev === "claim" ||
-      event.ev === "done" ||
-      event.ev === "fail" ||
-      event.ev === "retry" ||
-      event.ev === "cancel")
+    typeof value.id === "string" &&
+    typeof value.ts === "string" &&
+    (value.ev === "add" ||
+      value.ev === "claim" ||
+      value.ev === "done" ||
+      value.ev === "fail" ||
+      value.ev === "retry" ||
+      value.ev === "cancel")
   );
 }
 

@@ -1,0 +1,91 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseTarget, formatTarget } from "../src/entities.ts";
+import { runRemote, type RemoteResult } from "../src/remote.ts";
+
+const directories: string[] = [];
+function fixture(): { bin: string; record: string } {
+  const directory = mkdtempSync(join(tmpdir(), "orch-remote-"));
+  directories.push(directory);
+  const record = join(directory, "ssh-args.log");
+  const bin = join(directory, "ssh-fake");
+  writeFileSync(bin, `#!/bin/sh
+printf '%s\\n' "$*" >> '${record}'
+case "$3" in
+  slow.example) sleep 2 ;;
+  dead.example) printf 'connection refused\\n' >&2; exit 255 ;;
+  bryan@gpu1)
+    case "$5" in
+      questions) printf 'not json\\n' ;;
+      *) printf '{"host":"gpu1","ok":true}\\n' ;;
+    esac ;;
+  *) printf '{"host":"gpu1","ok":true}\\n' ;;
+esac
+`);
+  chmodSync(bin, 0o755);
+  return { bin, record };
+}
+
+function recorded(record: string): string {
+  expect(existsSync(record)).toBe(true);
+  const lines = readFileSync(record, "utf8").trim().split("\n");
+  expect(lines.length).toBeGreaterThan(0);
+  return lines[lines.length - 1];
+}
+
+function failure(result: RemoteResult) {
+  expect(result.ok).toBe(false);
+  if (result.ok) throw new Error("expected remote failure");
+  return result.failure;
+}
+
+afterEach(() => {
+  while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true });
+});
+
+describe("remote SSH executor", () => {
+  test("runs BatchMode SSH and parses JSON", () => {
+    const { bin, record } = fixture();
+    const result = runRemote("gpu1", { dest: "bryan@gpu1" }, ["status"], { timeoutMs: 500, sshBin: bin });
+    expect(result).toEqual({ ok: true, value: { host: "gpu1", ok: true } });
+    expect(recorded(record)).toBe("-o BatchMode=yes bryan@gpu1 orch status --json");
+  });
+
+  test("returns a typed timeout failure", () => {
+    const { bin, record } = fixture();
+    const result = runRemote("slow", { dest: "slow.example", timeout_ms: 20 }, ["status"], { sshBin: bin });
+    expect(failure(result)).toMatchObject({ kind: "timeout", host: "slow" });
+    expect(recorded(record)).toContain("slow.example orch status --json");
+  });
+
+  test("returns a dead-host failure", () => {
+    const { bin, record } = fixture();
+    const result = runRemote("dead", { dest: "dead.example" }, ["status"], { sshBin: bin });
+    expect(failure(result)).toMatchObject({ kind: "dead-host", host: "dead" });
+    expect(recorded(record)).toContain("dead.example orch status --json");
+  });
+
+  test("returns a non-JSON failure", () => {
+    const { bin, record } = fixture();
+    const result = runRemote("gpu1", { dest: "bryan@gpu1" }, ["questions"], { sshBin: bin });
+    expect(failure(result)).toMatchObject({ kind: "non-json", host: "gpu1" });
+    expect(recorded(record)).toContain("bryan@gpu1 orch questions --json");
+  });
+});
+
+describe("host-prefixed targets", () => {
+  const hosts = { gpu1: { dest: "bryan@gpu1" }, lab: { dest: "lab.example" } };
+
+  test("round-trips local and host-prefixed grammar", () => {
+    for (const target of ["w6:p3", "pi-2", "gpu1/w6:p3", "lab/pi-2"]) {
+      const parsed = parseTarget(target, hosts);
+      expect(formatTarget(parsed)).toBe(target);
+    }
+  });
+
+  test("reports unknown host and configured names", () => {
+    expect(() => parseTarget("missing/pi-2", hosts)).toThrow("Unknown host \"missing\". Configured hosts: gpu1, lab");
+  });
+});

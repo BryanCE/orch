@@ -40,7 +40,7 @@ const AGENT_STATES = new Set<AgentState>([
   "unknown",
 ]);
 
-function presenceFor(key: string): PresenceEntry | undefined {
+export function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
 

@@ -494,7 +494,18 @@ export default function (pi) {
     return `${status.model.provider}/${status.model.id}:${status.thinking ?? ""}`;
   }
 
-  function livePeers(ownKey: string) {
+  // Pane keys are workspace-scoped (for example, w8:p5). Headless keys do
+  // not carry a workspace, so each session is local only to itself.
+  function workspaceForKey(key: string): string {
+    const separator = key.indexOf(":");
+    return separator > 0 ? key.slice(0, separator) : `local:${key}`;
+  }
+
+  function workspaceMismatch(ownKey: string, peerKey: string): string {
+    return `error: workspace mismatch: you are in workspace ${workspaceForKey(ownKey)}, target ${peerKey} is in workspace ${workspaceForKey(peerKey)}; pass allWorkspaces=true to override`;
+  }
+
+  function livePeers(ownKey: string, allWorkspaces = false) {
     try {
       return fs.readdirSync(PRESENCE_ROOT, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && entry.name !== ownKey)
@@ -503,22 +514,29 @@ export default function (pi) {
           const status = readJson(path.join(peerDir, "status.json"));
           return { key: entry.name, dir: peerDir, status };
         })
-        .filter((peer) => peer.status && isPidAlive(peer.status.pid));
+        .filter((peer) => peer.status && isPidAlive(peer.status.pid))
+        .filter((peer) => allWorkspaces || workspaceForKey(peer.key) === workspaceForKey(ownKey));
     } catch {
       return [];
     }
   }
 
-  function resolvePeer(target: string, ownKey: string) {
-    const peers = livePeers(ownKey);
+  function resolvePeer(target: string, ownKey: string, allWorkspaces = false) {
+    const peers = livePeers(ownKey, true);
     const exact = peers.find((peer) => peer.key === target);
-    if (exact) return { peer: exact };
-    const matches = peers.filter((peer) => peer.key.endsWith(target));
-    if (matches.length === 1) return { peer: matches[0] };
+    const matches = exact ? [exact] : peers.filter((peer) => peer.key.endsWith(target));
+    if (matches.length === 1) {
+      const peer = matches[0];
+      if (!allWorkspaces && workspaceForKey(peer.key) !== workspaceForKey(ownKey)) {
+        return { error: workspaceMismatch(ownKey, peer.key) };
+      }
+      return { peer };
+    }
     if (matches.length > 1) {
       return { error: `error: ambiguous target. Candidates: ${matches.map((peer) => peer.key).join(", ")}` };
     }
-    return { error: `error: target not found. Candidates: ${peers.map((peer) => peer.key).join(", ")}` };
+    const candidates = livePeers(ownKey, allWorkspaces);
+    return { error: `error: target not found. Candidates: ${candidates.map((peer) => peer.key).join(", ")}` };
   }
 
   function ownPresenceKey(ctx: any): string {
@@ -526,8 +544,8 @@ export default function (pi) {
     return state.key || computeKey(ctx?.hasUI === true);
   }
 
-  function peerSummaries(ownKey: string) {
-    return livePeers(ownKey).map((peer) => ({
+  function peerSummaries(ownKey: string, allWorkspaces = false) {
+    return livePeers(ownKey, allWorkspaces).map((peer) => ({
       key: peer.key,
       state: peer.status.state,
       model: peerModel(peer.status),
@@ -538,8 +556,8 @@ export default function (pi) {
     }));
   }
 
-  function sendPeerMessage(target: string, text: string, ownKey: string): string {
-    const resolved = resolvePeer(target, ownKey);
+  function sendPeerMessage(target: string, text: string, ownKey: string, allWorkspaces = false): string {
+    const resolved = resolvePeer(target, ownKey, allWorkspaces);
     if (resolved.error) return resolved.error;
     fs.appendFileSync(
       path.join(resolved.peer.dir, "inbox.jsonl"),
@@ -741,10 +759,12 @@ export default function (pi) {
     description: "List live peer agents managed by the orchestrator.",
     promptSnippet: "Discover live orchestrator peer agents and their compact status",
     promptGuidelines: ["Use orch_agents to discover live peer agents before sending or reading peer messages."],
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+    parameters: Type.Object({
+      allWorkspaces: Type.Optional(Type.Boolean({ description: "Include agents in every workspace" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeTool(
-        () => JSON.stringify(peerSummaries(ownPresenceKey(ctx))),
+        () => JSON.stringify(peerSummaries(ownPresenceKey(ctx), params.allWorkspaces === true)),
         "error: unable to list peer agents",
       );
     },
@@ -759,10 +779,11 @@ export default function (pi) {
     parameters: Type.Object({
       target: Type.String({ description: "Peer key or unique key suffix" }),
       text: Type.String({ description: "Message to send" }),
+      allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow sending across workspaces" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeTool(
-        () => sendPeerMessage(params.target, params.text, ownPresenceKey(ctx)),
+        () => sendPeerMessage(params.target, params.text, ownPresenceKey(ctx), params.allWorkspaces === true),
         "error: unable to send peer message",
       );
     },
@@ -776,12 +797,13 @@ export default function (pi) {
     promptGuidelines: ["Use orch_read to inspect a peer agent's latest result or status text."],
     parameters: Type.Object({
       target: Type.String({ description: "Peer key or unique key suffix" }),
+      allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow reading across workspaces" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeTool(() => {
         initPresence(ctx?.hasUI === true);
         const ownKey = state.key || computeKey(ctx?.hasUI === true);
-        const resolved = resolvePeer(params.target, ownKey);
+        const resolved = resolvePeer(params.target, ownKey, params.allWorkspaces === true);
         if (resolved.error) return resolved.error;
         const result = readJson(path.join(resolved.peer.dir, "result.json"));
         return JSON.stringify({

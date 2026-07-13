@@ -68,11 +68,11 @@ async function main(): Promise<void> {
       "subscribe-events": () => ({ subscribed: true }),
       reload: () => {
         setTimeout(() => {
-          void server?.stop().then(() => reexecSelf());
+          void server?.stop().then(() => reexecSelf(orchDir));
         }, 10);
         return { ok: true };
       },
-    });
+    }, { holdsDaemonLock: true });
   } catch (error) {
     releaseDaemonLock(orchDir);
     throw error;

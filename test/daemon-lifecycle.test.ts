@@ -9,6 +9,7 @@ import {
   releaseDaemonLock,
   reexecSelf,
   runForeground,
+  readDaemonLock,
 } from "../src/daemon/lifecycle";
 
 const tempDirs: string[] = [];
@@ -35,6 +36,7 @@ describe("daemon lifecycle", () => {
       pid: process.pid,
       codeHash: expect.any(String),
       startedAt: expect.any(String),
+      startTicks: expect.any(String),
     });
     releaseDaemonLock(orchDir);
   });
@@ -81,12 +83,12 @@ describe("daemon lifecycle", () => {
     releaseDaemonLock(orchDir);
   });
 
-  test("daemonizes to a log and supports attached foreground mode", async () => {
+  test("daemonizes to an explicit orch dir and supports attached foreground mode", async () => {
     const orchDir = makeOrchDir();
     const oldOrchDir = process.env.ORCH_DIR;
-    process.env.ORCH_DIR = orchDir;
+    delete process.env.ORCH_DIR;
     try {
-      const detachedPid = daemonize("/bin/sh", ["-c", "printf daemon-test"]);
+      const detachedPid = daemonize("/bin/sh", ["-c", "printf daemon-test"], orchDir);
       expect(detachedPid).toBeGreaterThan(0);
       expect(readFileSync(join(orchDir, "orchd.log"), "utf8")).toBeDefined();
       expect(runForeground("/bin/true")).toBeGreaterThan(0);
@@ -111,7 +113,7 @@ describe("daemon lifecycle", () => {
       configurable: true,
     });
     try {
-      expect(() => reexecSelf()).toThrow("exit:0");
+      expect(() => reexecSelf(orchDir)).toThrow("exit:0");
       expect(() => readFileSync(join(orchDir, "orchd.lock"))).toThrow();
     } finally {
       if (execPath) Object.defineProperty(process, "execPath", execPath);
@@ -119,6 +121,18 @@ describe("daemon lifecycle", () => {
       if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = oldOrchDir;
     }
+  });
+
+  test("rejects a recycled pid identity", () => {
+    const orchDir = makeOrchDir();
+    expect(acquireDaemonLock(orchDir)).toBe(true);
+    const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8"));
+    lock.startTicks = "not-the-current-process";
+    writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify(lock));
+
+    expect(readDaemonLock(orchDir)).toBeNull();
+    expect(acquireDaemonLock(orchDir, () => false)).toBe(true);
+    releaseDaemonLock(orchDir);
   });
 
   test("hash is stable and changes when entrypoint content changes", () => {

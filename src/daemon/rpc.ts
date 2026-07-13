@@ -1,6 +1,7 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readDaemonLock } from "./lifecycle.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
@@ -27,6 +28,11 @@ export class RpcError extends Error {
     this.data = data;
   }
 }
+
+export type RpcServerOptions = {
+  /** Allow one stale unix endpoint to be removed during daemon boot. */
+  holdsDaemonLock?: boolean;
+};
 
 export interface RpcServer {
   /** Stop accepting connections and remove the endpoint files. */
@@ -240,7 +246,11 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
 }
 
 /** Start the local RPC endpoint, preferring a unix socket and falling back to loopback TCP. */
-export async function startRpcServer(orchDir: string, handlers: RpcHandlers): Promise<RpcServer> {
+export async function startRpcServer(
+  orchDir: string,
+  handlers: RpcHandlers,
+  options: RpcServerOptions = {},
+): Promise<RpcServer> {
   mkdirSync(orchDir, { recursive: true });
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
@@ -258,7 +268,21 @@ export async function startRpcServer(orchDir: string, handlers: RpcHandlers): Pr
     try {
       unlinkSync(paths.port);
     } catch {}
-  } catch (unixError) {
+  } catch (unixError: unknown) {
+    const lockHeld = options.holdsDaemonLock ?? readDaemonLock(orchDir)?.pid === process.pid;
+    if (unixError instanceof Error && Reflect.get(unixError, "code") === "EADDRINUSE" && lockHeld) {
+      try {
+        unlinkSync(paths.socket);
+        await listen(server, paths.socket);
+        transport = "unix";
+        try {
+          unlinkSync(paths.port);
+        } catch {}
+        return makeRpcServer(server, sockets, subscriptions, paths, transport);
+      } catch {
+        // A live endpoint or an unremovable path still requires TCP fallback.
+      }
+    }
     try {
       server.close();
     } catch {}

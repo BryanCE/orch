@@ -155,8 +155,13 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
     ? [...options.keys.keys()]
     : directoryNames(agentsDir).filter((key) => options.acceptKey?.(key) ?? true);
   const scan = (): void => {
-    for (const key of selectedKeys()) {
-      attach(key);
+    // Snapshot delivered states, then arm every watcher before reconciliation.
+    const lastSeen = new Map(states);
+    const keys = selectedKeys();
+    for (const key of keys) attach(key);
+    for (const key of keys) {
+      // A callback that delivered this state while watchers were arming owns it.
+      if (lastSeen.get(key) !== states.get(key)) continue;
       check(key);
     }
   };

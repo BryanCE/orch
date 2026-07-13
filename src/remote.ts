@@ -48,6 +48,49 @@ function commandArgs(command: string | readonly string[]): string[] {
   return command.trim() ? command.trim().split(/\s+/) : [];
 }
 
+function sshArgs(host: HostConfig, command: string | readonly string[], destination: string): string[] {
+  const commandParts = commandArgs(command);
+  if (commandParts[commandParts.length - 1] !== "--json") commandParts.push("--json");
+  const remoteCommand = host.orch_dir
+    ? ["env", `ORCH_DIR=${shellQuote(host.orch_dir)}`, "orch", ...commandParts]
+    : ["orch", ...commandParts];
+  return ["-o", "BatchMode=yes", destination, ...remoteCommand];
+}
+
+function parsedOutput(hostName: string, stdout: string): RemoteResult {
+  try {
+    return { ok: true, value: JSON.parse(stdout.trim()) };
+  } catch {
+    return {
+      ok: false,
+      failure: {
+        kind: "non-json",
+        host: hostName,
+        message: `Host "${hostName}" returned non-JSON output: ${stdout.trim().slice(0, 200)}`,
+        stdout,
+      },
+    };
+  }
+}
+
+function failedOutput(hostName: string, error: unknown, timeout: number): RemoteResult {
+  const timedOut = errorField(error, "code") === "ETIMEDOUT"
+    || errorField(error, "signal") === "SIGTERM"
+    || errorField(error, "killed") === true;
+  const stdout = outputText(errorField(error, "stdout"));
+  const stderr = outputText(errorField(error, "stderr"));
+  return {
+    ok: false,
+    failure: {
+      kind: timedOut ? "timeout" : "dead-host",
+      host: hostName,
+      message: timedOut ? `Host "${hostName}" timed out after ${timeout}ms.` : `Host "${hostName}" is unreachable: ${detail(error)}`,
+      ...(stdout ? { stdout } : {}),
+      ...(stderr ? { stderr } : {}),
+    },
+  };
+}
+
 /** Run one JSON-producing orch command on a configured SSH host. */
 export function runRemote(
   hostName: string,
@@ -62,53 +105,16 @@ export function runRemote(
       failure: { kind: "invalid-config", host: hostName, message: `Host "${hostName}" has no SSH destination (expected dest).` },
     };
   }
-
-  const commandParts = commandArgs(command);
-  if (commandParts[commandParts.length - 1] !== "--json") commandParts.push("--json");
-  const remoteCommand = host.orch_dir
-    ? ["env", `ORCH_DIR=${shellQuote(host.orch_dir)}`, "orch", ...commandParts]
-    : ["orch", ...commandParts];
   const sshBin = options.sshBin ?? process.env.ORCH_SSH_BIN ?? "ssh";
   const timeout = options.timeoutMs ?? host.timeout_ms ?? DEFAULT_REMOTE_TIMEOUT_MS;
-  const args = ["-o", "BatchMode=yes", destination, ...remoteCommand];
-
   try {
-    const stdout = execFileSync(sshBin, args, {
+    const stdout = execFileSync(sshBin, sshArgs(host, command, destination), {
       timeout,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
-    try {
-      return { ok: true, value: JSON.parse(stdout.trim()) };
-    } catch {
-      return {
-        ok: false,
-        failure: {
-          kind: "non-json",
-          host: hostName,
-          message: `Host "${hostName}" returned non-JSON output: ${stdout.trim().slice(0, 200)}`,
-          stdout,
-        },
-      };
-    }
+    return parsedOutput(hostName, stdout);
   } catch (error: unknown) {
-    const timedOut = errorField(error, "code") === "ETIMEDOUT"
-      || errorField(error, "signal") === "SIGTERM"
-      || errorField(error, "killed") === true;
-    const kind: RemoteFailureKind = timedOut ? "timeout" : "dead-host";
-    const stdout = outputText(errorField(error, "stdout"));
-    const stderr = outputText(errorField(error, "stderr"));
-    return {
-      ok: false,
-      failure: {
-        kind,
-        host: hostName,
-        message: timedOut ? `Host "${hostName}" timed out after ${timeout}ms.` : `Host "${hostName}" is unreachable: ${detail(error)}`,
-        ...(stdout ? { stdout } : {}),
-        ...(stderr ? { stderr } : {}),
-      },
-    };
+    return failedOutput(hostName, error, timeout);
   }
 }
-
-export const executeRemote = runRemote;

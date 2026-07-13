@@ -115,17 +115,20 @@ describe("daemon presence events", () => {
       onDisconnect: () => { notices++; },
       onFallback: () => {
         fallbackStarts++;
+        // Change state in the handover gap, before file watchers are armed.
+        writeStatus(orchDir, key, "blocked");
         const watcher = startPresenceWatch({ orchDir, initialStates: states, onEvent: (event) => received.push(event), pollIntervalMs: 20 });
         presenceWatches.push(watcher);
       },
     });
     preferredStreams.push(stream);
 
-    writeStatus(orchDir, key, "blocked");
     await server.close();
     servers.splice(servers.indexOf(server), 1);
     await waitFor(() => received.some((event) => event.newState === "blocked"));
     expect(received[0]).toMatchObject({ oldState: "working", newState: "blocked" });
+    await Bun.sleep(50);
+    expect(received).toHaveLength(1);
     expect(notices).toBe(1);
     expect(fallbackStarts).toBe(1);
   });

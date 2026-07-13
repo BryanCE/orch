@@ -25,7 +25,7 @@ const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 function onPath(command: string): boolean {
   const extensions = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
-  for (const directory of (process.env.PATH || "").split(path.delimiter)) {
+  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
     for (const extension of extensions) {
       try {
         filesystem.accessSync(path.join(directory, command + extension), filesystem.constants.X_OK);

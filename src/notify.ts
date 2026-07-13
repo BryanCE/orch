@@ -258,7 +258,7 @@ function payload(event: NotifyEvent): string {
 }
 
 function commandOnPath(command: string): boolean {
-  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
     if (dir && filesystem.existsSync(path.join(dir, command))) return true;
   }
   return false;
@@ -282,11 +282,11 @@ async function run(command: string[], stdin?: string): Promise<boolean> {
 }
 
 export function notificationText(event: NotifyEvent): { title: string; body: string } {
-  const agent = event.agent || event.key;
+  const agent = event.agent ?? event.key;
   const state = oneLine(event.newState || "unknown").toUpperCase();
-  let summary = event.task || "state changed";
-  if (event.newState === "error") summary = event.lastError || event.task || "agent error";
-  else if (event.newState === "blocked") summary = event.task || "agent needs input";
+  let summary = event.task ?? "state changed";
+  if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
+  else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
   summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
   const title = `${state} ${agent}: ${summary}`;
   const details: string[] = [title];

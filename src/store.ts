@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const HOME = homedir();
-const ORCH_DIR = process.env.ORCH_DIR || join(HOME, ".orch");
+const ORCH_DIR = process.env.ORCH_DIR ?? join(HOME, ".orch");
 const PRESENCE_DIR = join(ORCH_DIR, "agents");
 const SPAWNED_PATH = join(ORCH_DIR, "spawned.jsonl");
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
@@ -169,7 +169,7 @@ export function bridgeRegistered(pane: string): boolean {
 export function readPaneModel(pane: string): string | null {
   const status = readJSON(presencePath(pane, "status.json"));
   if (status?.model?.id) {
-    return `${status.model.provider || ""}/${status.model.id}${status.thinking ? `:${status.thinking}` : ""}`;
+    return `${status.model.provider ?? ""}/${status.model.id}${status.thinking ? `:${status.thinking}` : ""}`;
   }
   return null;
 }
@@ -189,11 +189,11 @@ export function writeAnswer(presence: PresenceEntry, text: string): void {
 
 let cachedSettings: any | undefined;
 function settings(): any {
-  if (cachedSettings === undefined) cachedSettings = readJSON(SETTINGS_PATH) || {};
+  if (cachedSettings === undefined) cachedSettings = readJSON(SETTINGS_PATH) ?? {};
   return cachedSettings;
 }
 
 export function defaultModelString(): string {
   const source = settings();
-  return `${source.defaultProvider || "openai-codex"}/${source.defaultModel || "unknown"}:${source.defaultThinkingLevel || "medium"}`;
+  return `${source.defaultProvider ?? "openai-codex"}/${source.defaultModel ?? "unknown"}:${source.defaultThinkingLevel ?? "medium"}`;
 }

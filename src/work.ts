@@ -54,7 +54,7 @@ async function dispatchTask(entry: PresenceEntry, task: TaskRec): Promise<void> 
     herdrBestEffort(["pane", "run", entry.key, prompt]);
     status = waitForWorking(entry, 10_000);
   }
-  process.stdout.write(`Dispatched to ${entry.key} → status: ${status || "unknown"}${retried ? " (retried)" : ""}\n`);
+  process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
 }
 
 async function waitForTaskState(entry: PresenceEntry, timeoutMs: number): Promise<string> {
@@ -103,7 +103,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     settleClaimedTasks(options.orchDir, maxRetries);
     let assigned = 0;
     for (const entry of [...loadPresence().values()].filter(agentIdle)) {
-      const task = nextQueuedTask(listTasks(options.orchDir), entry.status?.agent || "pi");
+      const task = nextQueuedTask(listTasks(options.orchDir), entry.status?.agent ?? "pi");
       if (!task || !claimTask(options.orchDir, task.id, entry.key)) continue;
       assigned++;
       await assignTask(options, entry, task, maxRetries);

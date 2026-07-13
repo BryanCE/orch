@@ -28,7 +28,7 @@ function hashExtensionFile(file: string): string {
 
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
-const ORCH_DIR = process.env.ORCH_DIR || path.join(os.homedir(), ".orch");
+const ORCH_DIR = process.env.ORCH_DIR ?? path.join(os.homedir(), ".orch");
 const PRESENCE_ROOT = path.join(ORCH_DIR, "agents");
 const SCHEMA_VERSION = 2;
 const AGENT_ID = "pi";
@@ -135,7 +135,7 @@ export default function (pi) {
     schema: SCHEMA_VERSION,
     agent: AGENT_ID,
     key: "",
-    paneId: process.env.HERDR_PANE_ID || null,
+    paneId: process.env.HERDR_PANE_ID ?? null,
     label: null as string | null,
     tabLabel: null as string | null,
     pid: process.pid,

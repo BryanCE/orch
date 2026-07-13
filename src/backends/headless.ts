@@ -25,7 +25,7 @@ const HEADLESS_BACKEND = "headless";
 const DEFAULT_ORCH_DIR = join(homedir(), ".orch");
 
 function orchDirectory(override?: string): string {
-  return override || process.env.ORCH_DIR || DEFAULT_ORCH_DIR;
+  return override ?? process.env.ORCH_DIR ?? DEFAULT_ORCH_DIR;
 }
 
 function registryPath(directory: string): string {
@@ -119,7 +119,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Start adapter.headlessCmd() detached, redirecting both output streams to a log. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const directory = orchDirectory(opts.orchDir);
-    const key = opts.key || `session-pending`;
+    const key = opts.key ?? `session-pending`;
     if (!safeKey(key)) throw new Error(`invalid headless presence key: ${key}`);
 
     const adapterOpts: SpawnOpts = {
@@ -129,7 +129,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       orchDir: directory,
       env: opts.env,
     };
-    const argv = adapter.headlessCmd(opts.prompt || "", adapterOpts);
+    const argv = adapter.headlessCmd(opts.prompt ?? "", adapterOpts);
     if (!Array.isArray(argv) || argv.length === 0 || argv.some((part) => typeof part !== "string" || part.length === 0)) {
       throw new Error(`adapter ${String(adapter.id)} returned an invalid headless command`);
     }
@@ -142,7 +142,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       child = spawnProcess(argv[0], argv.slice(1), {
         cwd: opts.cwd,
         detached: true,
-        env: { ...process.env, ORCH_DIR: directory, ...(opts.env || {}) },
+        env: { ...process.env, ORCH_DIR: directory, ...(opts.env ?? {}) },
         stdio: ["ignore", logFd, logFd],
       });
     } catch (error) {
@@ -154,7 +154,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
-    const actualKey = opts.key || `session-${pid}`;
+    const actualKey = opts.key ?? `session-${pid}`;
     const handle: HeadlessHandle = { pid, key: actualKey };
     appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: String(adapter.id) }, directory);
     return handle;

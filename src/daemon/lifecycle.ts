@@ -58,7 +58,7 @@ function processStartTicks(pid: number): string | undefined {
     const closingParen = stat.lastIndexOf(")");
     if (closingParen < 0) return undefined;
     const fields = stat.slice(closingParen + 2).trim().split(/\s+/);
-    return fields[19] || undefined;
+    return fields[19] ?? undefined;
   } catch {
     return undefined;
   }

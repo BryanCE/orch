@@ -65,7 +65,7 @@ export function buildEntities(): Entity[] {
 
   for (const pane of panes) {
     const paneId: string = pane.pane_id;
-    let pres: PresenceEntry | null = presence.get(paneId) || null;
+    let pres: PresenceEntry | null = presence.get(paneId) ?? null;
     if (!pres) {
       for (const entry of presence.values()) {
         if (entry.status?.paneId === paneId) {
@@ -79,13 +79,13 @@ export function buildEntities(): Entity[] {
     entities.push({
       key: paneId,
       paneId,
-      name: names.get(paneId) || pane.name || null,
+      name: names.get(paneId) ?? pane.name ?? null,
       tabLabel: tab ? tab.label : null,
-      agent: pane.agent || null,
+      agent: pane.agent ?? null,
       focused: !!pane.focused,
-      herdrStatus: pane.agent_status || null,
+      herdrStatus: pane.agent_status ?? null,
       presence: pres,
-      sessionPath: paneSessionPath(pane) || pres?.status?.sessionPath || null,
+      sessionPath: paneSessionPath(pane) ?? pres?.status?.sessionPath ?? null,
       presenceOnly: false,
     });
   }
@@ -94,14 +94,14 @@ export function buildEntities(): Entity[] {
     if (usedPresence.has(entry.key)) continue;
     entities.push({
       key: entry.key,
-      paneId: entry.status?.paneId || null,
-      name: (entry.status?.paneId && names.get(entry.status.paneId)) || null,
+      paneId: entry.status?.paneId ?? null,
+      name: (entry.status?.paneId && names.get(entry.status.paneId)) ?? null,
       tabLabel: null,
       agent: "pi",
       focused: false,
       herdrStatus: null,
       presence: entry,
-      sessionPath: entry.status?.sessionPath || null,
+      sessionPath: entry.status?.sessionPath ?? null,
       presenceOnly: true,
     });
   }
@@ -112,8 +112,8 @@ export function sortEntities(entities: Entity[]): Entity[] {
   const herdr = entities.filter((entity) => !entity.presenceOnly);
   const only = entities.filter((entity) => entity.presenceOnly);
   herdr.sort((left, right) => {
-    const [leftWorkspace, leftNumber] = naturalPaneOrder(left.paneId || left.key);
-    const [rightWorkspace, rightNumber] = naturalPaneOrder(right.paneId || right.key);
+    const [leftWorkspace, leftNumber] = naturalPaneOrder(left.paneId ?? left.key);
+    const [rightWorkspace, rightNumber] = naturalPaneOrder(right.paneId ?? right.key);
     return leftWorkspace === rightWorkspace ? leftNumber - rightNumber : leftWorkspace < rightWorkspace ? -1 : 1;
   });
   only.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);

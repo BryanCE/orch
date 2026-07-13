@@ -5,7 +5,7 @@ export function truncate(value: string, length: number): string {
 
 export function renderTable(headers: string[], rows: string[][], caps: number[]): string {
   const widths = headers.map((header, index) => Math.min(
-    Math.max(header.length, ...rows.map((row) => (row[index] || "").length)),
+    Math.max(header.length, ...rows.map((row) => (row[index] ?? "").length)),
     caps[index] ?? Infinity,
   ));
   const format = (cells: string[]) => cells

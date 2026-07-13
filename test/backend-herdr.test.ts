@@ -9,7 +9,7 @@ const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-herdr-"));
 const binDir = path.join(testDir, "bin");
 const logFile = path.join(testDir, "herdr.log");
 fs.mkdirSync(binDir);
-process.env.PATH = `${binDir}:${originalPath || ""}`;
+process.env.PATH = `${binDir}:${originalPath ?? ""}`;
 process.env.HERDR_TEST_LOG = logFile;
 
 fs.writeFileSync(path.join(binDir, "herdr"), `#!/bin/sh

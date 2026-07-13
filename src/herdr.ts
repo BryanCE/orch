@@ -15,7 +15,7 @@ export function herdrJSON(args: string[]): any {
   try {
     output = execFileSync("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error: any) {
-    const detail = (error?.stderr || error?.stdout || error?.message || "").toString().trim();
+    const detail = (error?.stderr ?? error?.stdout ?? error?.message ?? "").toString().trim();
     throw new Error(`herdr ${args.join(" ")} failed: ${detail}`);
   }
   try {
@@ -38,7 +38,7 @@ export function herdrPanes(): any[] {
 
 export function paneStatus(pane: string): string | null {
   const found = herdrPanes().find((item) => item.pane_id === pane);
-  return found ? found.agent_status || null : null;
+  return found ? found.agent_status ?? null : null;
 }
 
 export function herdrNames(): Map<string, string> {
@@ -64,7 +64,7 @@ export function herdrBestEffort(args: string[]): boolean {
     execFileSync("herdr", args, { timeout: 8000, stdio: ["ignore", "pipe", "pipe"] });
     return true;
   } catch (error: any) {
-    process.stderr.write(`warning: herdr ${args.join(" ")} failed: ${(error?.stderr || error?.message || error).toString().trim()}\n`);
+    process.stderr.write(`warning: herdr ${args.join(" ")} failed: ${(error?.stderr ?? error?.message ?? error).toString().trim()}\n`);
     return false;
   }
 }

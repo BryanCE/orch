@@ -21,7 +21,7 @@ type TabCreateResult = {
 
 function callerPane(panes: HerdrPane[]): HerdrPane | undefined {
   const caller = process.env.HERDR_PANE_ID;
-  return panes.find((pane) => pane.pane_id === caller) || panes[0];
+  return panes.find((pane) => pane.pane_id === caller) ?? panes[0];
 }
 
 function spawnPane(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
@@ -38,7 +38,7 @@ function spawnPane(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
     "--workspace",
     source.workspace_id,
     "--cwd",
-    opts.cwd || process.cwd(),
+    opts.cwd ?? process.cwd(),
     "--label",
     DEFAULT_TAB_LABEL,
     "--no-focus",

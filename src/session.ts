@@ -19,7 +19,7 @@ export function blockText(content: any): string {
   if (Array.isArray(content)) {
     return content
       .filter((block) => block && typeof block === "object" && block.type === "text")
-      .map((block) => block.text || "")
+      .map((block) => block.text ?? "")
       .join("\n");
   }
   return "";
@@ -27,7 +27,7 @@ export function blockText(content: any): string {
 
 export function parseSession(sessionPath: string | null): SessionData {
   const empty: SessionData = {
-    exists: false, path: sessionPath || "", model: null, provider: null, thinking: null,
+    exists: false, path: sessionPath ?? "", model: null, provider: null, thinking: null,
     task: null, lastAssistant: null, cost: 0,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, turns: 0, entries: [],
   };
@@ -53,12 +53,12 @@ export function parseSession(sessionPath: string | null): SessionData {
     }
     data.entries.push(entry);
     if (entry.type === "model_change") {
-      lastModelChange = entry.modelId || lastModelChange;
+      lastModelChange = entry.modelId ?? lastModelChange;
       if (entry.provider) lastAsstProvider = entry.provider;
       continue;
     }
     if (entry.type === "thinking_level_change") {
-      lastThinkChange = entry.thinkingLevel || lastThinkChange;
+      lastThinkChange = entry.thinkingLevel ?? lastThinkChange;
       continue;
     }
     if (entry.type !== "message" || !entry.message) continue;
@@ -74,16 +74,16 @@ export function parseSession(sessionPath: string | null): SessionData {
       if (text.trim()) data.lastAssistant = text;
       const usage = message.usage;
       if (usage) {
-        data.tokens.input += usage.input || 0;
-        data.tokens.output += usage.output || 0;
-        data.tokens.cacheRead += usage.cacheRead || 0;
-        data.tokens.cacheWrite += usage.cacheWrite || 0;
+        data.tokens.input += usage.input ?? 0;
+        data.tokens.output += usage.output ?? 0;
+        data.tokens.cacheRead += usage.cacheRead ?? 0;
+        data.tokens.cacheWrite += usage.cacheWrite ?? 0;
         const cost = usage.cost && typeof usage.cost === "object" ? usage.cost.total : usage.cost;
         if (typeof cost === "number") data.cost += cost;
       }
     }
   }
-  data.model = lastModelChange || lastAsstModel;
+  data.model = lastModelChange ?? lastAsstModel;
   data.provider = lastAsstProvider;
   data.thinking = lastThinkChange;
   return data;

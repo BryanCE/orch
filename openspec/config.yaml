@@ -1,0 +1,38 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating artifacts.
+context: |
+  Project: orch — a fleet orchestration control plane for AI coding agents
+  (currently pi agents running in herdr terminal panes). MIT licensed,
+  published to npm as a runnable package.
+
+  Tech stack: TypeScript on Bun, node built-ins only (zero runtime deps).
+  Key components:
+    - bin/orch.ts — the CLI (status/dispatch/steer/spawn/close/events/...)
+    - bin/pif — headless pi dispatch wrapper (bash)
+    - extensions/orchestrator-bridge.ts — pi extension writing the presence
+      protocol: ~/.orch/agents/<key>/{status.json,result.json,inbox.jsonl,
+      question.json,answer.json}
+    - extensions/herdr-agent-state.ts — pi extension reporting state to herdr
+
+  Core contracts (preserve unless a spec explicitly changes them):
+    - Presence-dir file protocol under ~/.orch/agents/<key>/ is the
+      language-neutral truth channel between agents and the CLI.
+    - `orch close --all` only reaps panes recorded in ~/.orch/spawned.jsonl —
+      never touch panes/tabs the user created.
+    - herdr is invoked strictly at the process boundary (CLI/JSON output);
+      never vendor herdr source (it is AGPL-3.0; orch must stay MIT).
+    - All writes to shared state are best-effort and atomic (tmp+rename).
+
+  Environment: primary dev machine is Windows via WSL2 — headless backend
+  and notifications must work there. Style: plain functions, no classes
+  unless earned, small files, comments only for non-obvious constraints.
+
+# Per-artifact rules.
+rules:
+  proposal:
+    - Always include a "Non-goals" or explicit deferral note for scope cut from a feature
+  specs:
+    - Requirements must be testable from the CLI surface (commands, files, exit codes) — not internal function names
+  tasks:
+    - Order tasks so orch remains shippable after every task (no long broken intermediate states)

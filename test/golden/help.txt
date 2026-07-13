@@ -1,0 +1,80 @@
+orch — the single controller for pi agents in herdr panes.
+The orchestrator never needs raw herdr for the normal loop.
+
+OBSERVE
+  orch status [--json] [--all]   Glanceable table of every pane (default command).
+  orch questions                 List pending agent questions.
+  orch events [--all] [target ...] [--status s[,s…]] [--notify]
+                                 Continuous stream of pane state transitions (forever).
+
+DISPATCH WORK
+  orch run <target> "<prompt>" [--raw]
+                                 Send a prompt with the worker header (or exact prompt with --raw).
+  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--wait] [--then <dst> ["note"]]
+                                 One-shot: optional model set, run, wait, or forward its result on done.
+  orch answer <target> "<text>" [--force]
+                                 Answer a pending question (--force permits a missing question.json).
+  orch pipe <src> <dst> ["instruction"]
+                                 Send a completed result to another agent's inbox.
+  orch broadcast "<text>" [target ...|--all]
+                                 Steer named targets, or every live pane agent by default.
+  orch model <target> <provider/model[:thinking]>
+                                 Switch a pane's model via the bridge inbox; prints old → new.
+  orch steer <target> <text…>    Append a mid-run steer to the agent's inbox.
+  orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
+                                 Block until the pane reaches a status (default done, 300000ms).
+  orch result <target> [--json]  Print a target's result (result.json or session fallback).
+  orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
+  orch session <target>          Resolved session path + quick stats.
+  orch new <target>              Clear the pane's session (/new).
+  orch restart <target>… | --all [--hard] [--cmd pi]
+                                 Reload extensions in place; --hard fully restarts pi for version upgrades.
+
+PANES (create / arrange / lifecycle — never steals focus except 'focus')
+  orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX]
+                                 Fresh tab with N balanced-tiled named agents (2=side-by-side,
+                                 3=2+1, 4=2x2, …; cap 8). Names <prefix>-1..N.
+  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P]
+                                 Add ONE pane to an existing tab, split into its largest cell.
+  orch rename <target> <name> [--pane]
+                                 Set the herdr agent name (NAME column); --pane sets the pane
+                                 border label instead.
+  orch focus <target>            Jump the user's view to that pane (this one DOES steal focus).
+  orch zoom <target> [--on|--off]
+                                 Zoom the pane full-tab (default: toggle).
+  orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X]
+                                 Move a pane to another tab or a fresh one (no focus steal).
+  orch close <target>... | --all [--stream]
+                                 Close pane(s) ('orch kill' is an alias). --all closes only
+                                 panes orch spawned (never the user's); --stream also kills orch events.
+  orch panes                     Raw merged pane list (tab-separated, for scripting).
+
+TABS
+  orch tabs                      List tabs: id, label, number, pane count, status.
+  orch tab new [--label X] [--workspace ID] [--cwd P]
+                                 Create a tab (no focus steal); prints root pane id.
+  orch tab rename <tab_id|label> <new-label>
+  orch tab close <tab_id|label>
+  orch tab focus <tab_id|label>  Jump the user's view to that tab.
+
+WORKSPACES
+  orch ws [list]                 List workspaces: id, label, tab/pane counts, status.
+  orch ws focus <workspace_id>   Jump the user's view to that workspace.
+
+MAINTENANCE
+  orch clean                     Delete agent dirs whose pid is dead.
+  orch setup [--yes] [--no-install] [--copy]
+                                 Bootstrap this machine: offer to install missing deps
+                                 (bun/herdr/pi/claude), link pi extensions, install Claude
+                                 skills/agents, link bins. --yes auto-installs, --no-install
+                                 just reports, --copy copies instead of symlinking.
+  orch help                      This message.
+
+RECOVER
+  orch abort <target>            Escape twice, 500ms apart, to dismiss and cancel a turn.
+  orch keys <target> <key> [key...]
+                                 Send raw keys to a pane.
+  orch peek <target> [-n N]      Read visible pane screen (default 25 lines).
+
+Target: agent name, agent-dir key (<PANE_ID>, session-1234), herdr pane_id, or unique suffix (p3).
+Tabs resolve by tab_id or unique label.

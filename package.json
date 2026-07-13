@@ -18,6 +18,8 @@
 	},
 	"files": [
 		"bin/",
+		"src/",
+		"scripts/",
 		"extensions/",
 		"skills/",
 		"agents/",

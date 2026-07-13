@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { loadSinks, notify } from "../src/notify.ts";
 
 const HOME = os.homedir();
 const ORCH_DIR = process.env.ORCH_DIR || path.join(HOME, ".orch");
@@ -633,6 +634,7 @@ interface WatchItem {
 function cmdEvents(args: string[]) {
   let statusFilter: Set<string> | null = null;
   let all = false;
+  let notifications = false;
   const targets: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--status") {
@@ -643,9 +645,13 @@ function cmdEvents(args: string[]) {
           .filter(Boolean),
       );
     } else if (args[i] === "--all") all = true;
+    else if (args[i] === "--notify") notifications = true;
     else targets.push(args[i]);
   }
   if (!targets.length) all = true;
+
+  const notifySinks = notifications ? loadSinks(ORCH_DIR) : [];
+  if (notifications && !notifySinks.length) process.stderr.write("notify: no sinks configured\n");
 
   const names = new Map<string, string>();
   for (const ent of buildEntities()) {
@@ -689,6 +695,17 @@ function cmdEvents(args: string[]) {
     lastStates.set(item.key, state);
     // Seed map on first observation without emitting historical noise.
     if (prev === undefined) return;
+    if (notifications) {
+      notify(notifySinks, {
+        key: item.key,
+        name: item.name,
+        state,
+        task: typeof st?.task === "string" ? st.task : undefined,
+        cost: typeof st?.cost === "number" ? st.cost : undefined,
+        ts: new Date().toISOString(),
+        lastError: typeof st?.lastError === "string" ? st.lastError : undefined,
+      });
+    }
     emit(item, state, st);
   }
 
@@ -774,7 +791,6 @@ function cmdEvents(args: string[]) {
 
   for (const item of items.values()) attach(item);
   safety = setInterval(scan, 5000);
-  safety.unref?.();
 }
 
 // ---- target resolution ----
@@ -2003,7 +2019,7 @@ The orchestrator never needs raw herdr for the normal loop.
 OBSERVE
   orch status [--json] [--all]   Glanceable table of every pane (default command).
   orch questions                 List pending agent questions.
-  orch events [--all] [target ...] [--status s[,s…]]
+  orch events [--all] [target ...] [--status s[,s…]] [--notify]
                                  Continuous stream of pane state transitions (forever).
 
 DISPATCH WORK

@@ -7,6 +7,13 @@ OBSERVE
   orch events [--all] [target ...] [--status s[,s…]] [--notify]
                                  Continuous stream of pane state transitions (forever).
 
+QUEUE
+  orch queue add "<task text>" [--json]
+                                 Add a task and print its id.
+  orch queue list [--json]       List queued, claimed, and settled tasks.
+  orch queue cancel <id> [--json]
+                                 Cancel an unclaimed task.
+
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Send a prompt with the worker header (or exact prompt with --raw).
@@ -18,8 +25,10 @@ DISPATCH WORK
                                  Send a completed result to another agent's inbox.
   orch broadcast "<text>" [target ...|--all]
                                  Steer named targets, or every live pane agent by default.
-  orch model <target> <provider/model[:thinking]>
-                                 Switch a pane's model via the bridge inbox; prints old → new.
+  orch model <target> <provider/model[:thinking]> [--no-wait]
+                                 Switch a pane's model via the bridge inbox; waits up to 10s by default.
+  orch notify test [--state <state>]
+                                 Send a synthetic transition to each configured notification sink.
   orch steer <target> <text…>    Append a mid-run steer to the agent's inbox.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
@@ -31,11 +40,11 @@ DISPATCH WORK
                                  Reload extensions in place; --hard fully restarts pi for version upgrades.
 
 PANES (create / arrange / lifecycle — never steals focus except 'focus')
-  orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX]
+  orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
                                  3=2+1, 4=2x2, …; cap 8). Names <prefix>-1..N.
-  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P]
-                                 Add ONE pane to an existing tab, split into its largest cell.
+  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M]
+                                 Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
                                  Set the herdr agent name (NAME column); --pane sets the pane
                                  border label instead.

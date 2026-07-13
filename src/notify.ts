@@ -300,28 +300,28 @@ async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
   return windowsToast(title, body);
 }
 
-async function deliver(sink: Sink, event: NotifyEvent): Promise<void> {
-  if (sink.type === "desktop") {
-    if (!await deliverDesktop(event)) throw new Error("no desktop notification mechanism succeeded");
-    return;
-  }
-  if (sink.type === "webhook") {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    try {
-      const response = await fetch(sink.url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: payload(event),
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    } finally {
-      clearTimeout(timeout);
+export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boolean> {
+  try {
+    if (sink.type === "desktop") return await deliverDesktop(event);
+    if (sink.type === "webhook") {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const response = await fetch(sink.url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: payload(event),
+          signal: controller.signal,
+        });
+        return response.ok;
+      } finally {
+        clearTimeout(timeout);
+      }
     }
-    return;
+    return await run(sink.command, payload(event));
+  } catch {
+    return false;
   }
-  if (!await run(sink.command, payload(event))) throw new Error("command exited nonzero");
 }
 
 /** Queue best-effort sink delivery without delaying or throwing into the caller. */
@@ -329,7 +329,9 @@ export function notify(sinks: Sink[], event: NotifyEvent): void {
   for (const sink of sinks) {
     if (!sink.on.includes(event.state)) continue;
     queueMicrotask(() => {
-      void deliver(sink, event).catch((error) => warning(`${sink.type} sink failed: ${oneLine(error)}`));
+      void deliverToSink(sink, event).then((ok) => {
+        if (!ok) warning(`${sink.type} sink failed`);
+      });
     });
   }
 }

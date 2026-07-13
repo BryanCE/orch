@@ -6,7 +6,8 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { loadSinks, notify } from "../src/notify.ts";
+import { deliverToSink, loadSinks, notify, type NotifyEvent, type Sink } from "../src/notify.ts";
+import { addTask, cancelTask, listTasks } from "../src/queue.ts";
 
 const HOME = os.homedir();
 const ORCH_DIR = process.env.ORCH_DIR || path.join(HOME, ".orch");
@@ -567,6 +568,70 @@ function cmdStatus(args: string[]) {
   process.stdout.write(out.join("\n") + "\n");
 }
 
+function cmdQueue(args: string[]) {
+  const subcommand = args[0];
+  const rest = args.slice(1);
+  const json = rest.includes("--json");
+  const positional = rest.filter((arg) => arg !== "--json");
+
+  switch (subcommand) {
+    case "add": {
+      const text = positional.join(" ");
+      if (!text) die('usage: orch queue add "<task text>" [--json]');
+      const task = addTask(ORCH_DIR, text);
+      if (json) {
+        process.stdout.write(JSON.stringify(task, null, 2) + "\n");
+      } else {
+        process.stdout.write(`${task.id}\n`);
+      }
+      return;
+    }
+    case "list": {
+      if (positional.length > 0) die("usage: orch queue list [--json]");
+      const tasks = listTasks(ORCH_DIR);
+      if (json) {
+        process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
+        return;
+      }
+      if (tasks.length === 0) {
+        process.stdout.write("No queue tasks.\n");
+        return;
+      }
+      const headers = ["ID", "STATE", "RETRIES", "AGENT", "TASK", "ERROR"];
+      const caps = [36, 10, 7, 16, 60, 40];
+      const rows = tasks.map((task) => [
+        task.id,
+        task.state,
+        String(task.retries),
+        task.agentKey || "-",
+        task.text,
+        task.lastError || "",
+      ]);
+      process.stdout.write(renderTable(headers, rows, caps) + "\n");
+      return;
+    }
+    case "cancel": {
+      const id = positional[0];
+      if (!id || positional.length !== 1) die("usage: orch queue cancel <id> [--json]");
+      let task;
+      try {
+        task = cancelTask(ORCH_DIR, id);
+      } catch (error: any) {
+        die(error?.message || `Unable to cancel task ${id}`);
+      }
+      if (task.error) die(task.error);
+      if (json) {
+        process.stdout.write(JSON.stringify(task, null, 2) + "\n");
+      } else {
+        process.stdout.write(`Cancelled ${task.id}\n`);
+      }
+      return;
+    }
+    default:
+      die("usage: orch queue <add|list|cancel> ...");
+  }
+}
+
 // ---- questions / answers ----
 
 function formatAge(ts: unknown): string {
@@ -791,6 +856,38 @@ function cmdEvents(args: string[]) {
 
   for (const item of items.values()) attach(item);
   safety = setInterval(scan, 5000);
+}
+
+async function cmdNotify(args: string[]) {
+  if (args[0] !== "test") die("usage: orch notify test [--state <state>]");
+  let state = "blocked";
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "--state") state = args[++i] || "";
+    else die("usage: orch notify test [--state <state>]");
+  }
+  if (!state) die("usage: orch notify test [--state <state>]");
+  const event: NotifyEvent = {
+    key: "test:notify",
+    name: "notify-test",
+    task: "orch notify test",
+    state,
+    ts: new Date().toISOString(),
+  };
+  const sinks = loadSinks(ORCH_DIR);
+  if (!sinks.length) {
+    process.stderr.write("notify test: no sinks configured\n");
+    process.exitCode = 1;
+    return;
+  }
+  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliverToSink(sink, event) })));
+  for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
+  if (results.some((result) => !result.ok)) process.exitCode = 1;
+}
+
+function sinkLabel(sink: Sink): string {
+  if (sink.type === "webhook") return `webhook ${sink.url}`;
+  if (sink.type === "command") return `command ${sink.command.join(" ")}`;
+  return "desktop";
 }
 
 // ---- target resolution ----
@@ -1324,12 +1421,13 @@ function printLayout(refPane: string, header: string) {
     process.stdout.write(`  ${r[0].padEnd(w0)}  ${r[1].padEnd(w1)}  ${r[2]}\n`);
 }
 
-function cmdSpawn(args: string[]) {
+async function cmdSpawn(args: string[]) {
   let label = "work";
   let cwd = process.cwd();
   let cmd = "pi";
   let workspace: string | null = null;
   let namePrefix: string | null = null;
+  let model: string | null = null;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -1338,11 +1436,12 @@ function cmdSpawn(args: string[]) {
     else if (a === "--cmd") cmd = args[++i];
     else if (a === "--name") namePrefix = args[++i];
     else if (a === "--workspace") workspace = args[++i];
+    else if (a === "--model") model = args[++i];
     else positional.push(a);
   }
   const n = parseInt(positional[0], 10);
   if (!Number.isFinite(n) || n < 1)
-    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>]");
+    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <provider/model[:thinking]>");
   if (n > 8) die(`Refusing to spawn ${n} panes — cap is 8.`);
   const prefix = namePrefix || label;
 
@@ -1383,36 +1482,30 @@ function cmdSpawn(args: string[]) {
     `\nSpawned ${created.length} named agent(s) on tab "${tabLabel!}" (no focus stolen).\n`
   );
   printLayout(root!, "\nFinal tiling:");
+  if (model) await pinModels(created, model);
   process.stdout.write(`\nGive them a few seconds to boot, then 'orch status' will show them.\n`);
 }
 
-function cmdTile(args: string[]) {
+async function cmdTile(args: string[]) {
   let cwd = process.cwd();
   let cmd = "pi";
   let name: string | null = null;
+  let model: string | null = null;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--cwd") cwd = args[++i];
     else if (a === "--cmd") cmd = args[++i];
     else if (a === "--name") name = args[++i];
+    else if (a === "--model") model = args[++i];
     else positional.push(a);
   }
   const target = positional[0];
-  if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>]");
+  if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
 
-  // Resolve target to any pane on the intended tab.
-  let refPane: string;
-  if (/:t[0-9a-zA-Z]+$/.test(target)) {
-    // a tab id (herdr numbers tabs base-36: t1..t9, tA, tB, …) → find a pane on it
-    const p = herdrPanes().find((x) => x.tab_id === target);
-    if (!p) die(`No panes found on tab "${target}".`);
-    refPane = p.pane_id;
-  } else {
-    const ent = resolveTarget(target);
-    if (!ent.paneId) die(`Target "${target}" has no herdr pane to tile onto.`);
-    refPane = ent.paneId;
-  }
+  const tab = resolveTab(target);
+  const refPane = herdrPanes().find((item) => item.tab_id === tab.tab_id)?.pane_id;
+  if (!refPane) die(`No panes found on tab "${tab.tab_id}".`);
 
   let layout;
   try {
@@ -1432,6 +1525,7 @@ function cmdTile(args: string[]) {
   recordSpawned(newPane);
   process.stdout.write(`Added ${newPane} (${autoName}) to tab ${layout.tab_id} running "${cmd}".\n`);
   printLayout(refPane, "\nFinal tiling:");
+  if (model) await pinModels([{ pane: newPane, name: autoName }], model);
 }
 
 // ---- unified pane control: run / model / wait / new / close / dispatch ----
@@ -1514,43 +1608,87 @@ function cmdRun(args: string[]) {
   process.stdout.write(`Dispatched to ${pane} → status: ${st || "unknown"}\n`);
 }
 
-// Set a pane's model via the bridge inbox (pi.setModel/pi.setThinkingLevel),
-// then verify via presence status.json. Never types /model into the TUI: a
-// non-matching search string opens pi's model-selector overlay and wedges the pane.
-function doModel(pane: string, modelArg: string): { old: string | null; now: string | null } {
-  const old = readPaneModel(pane);
-  const dir = path.join(PRESENCE_DIR, pane);
-  if (!fs.existsSync(path.join(dir, "status.json"))) {
-    die(`${pane}: no orchestrator-bridge agent dir — restart pi in that pane, then retry.`);
-  }
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForBridge(paneKey: string, timeoutMs = 10_000): Promise<string> {
+  const dir = path.join(PRESENCE_DIR, paneKey);
+  const deadline = Date.now() + timeoutMs;
+  do {
+    if (fs.existsSync(dir) && readJSON(path.join(dir, "status.json")) !== null) return dir;
+    if (Date.now() >= deadline) break;
+    await delay(250);
+  } while (true);
+  const waited = timeoutMs > 0 ? ` after waiting ${timeoutMs}ms` : "";
+  throw new Error(`${paneKey}: no orchestrator-bridge agent dir${waited} — restart pi in that pane, then retry.`);
+}
+
+function normalizedModel(modelArg: string): { requested: string; model: string; thinking: string | null } {
   const colon = modelArg.lastIndexOf(":");
   const slash = modelArg.indexOf("/");
   const hasThinking = colon > slash && colon !== -1;
   const model = hasThinking ? modelArg.slice(0, colon) : modelArg;
   const thinking = hasThinking ? modelArg.slice(colon + 1) : null;
-  const inbox = path.join(dir, "inbox.jsonl");
-  let lines = JSON.stringify({ cmd: "model", model, ts: new Date().toISOString() }) + "\n";
-  if (thinking) lines += JSON.stringify({ cmd: "thinking", level: thinking, ts: new Date().toISOString() }) + "\n";
-  fs.appendFileSync(inbox, lines);
-  sleepMs(2500);
-  const now = readPaneModel(pane);
-  return { old, now };
+  return { requested: modelArg, model, thinking };
 }
 
-function cmdModel(args: string[]) {
-  const target = args[0];
-  const modelArg = args[1];
-  if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]>");
+// Set a pane's model via the bridge inbox, then poll status.json for reflection.
+async function doModel(pane: string, modelArg: string, wait = true): Promise<{ old: string | null; now: string | null; confirmed: boolean; unchanged: boolean }> {
+  const dir = await waitForBridge(pane, wait ? 10_000 : 0);
+  const { requested, model, thinking } = normalizedModel(modelArg);
+  const old = readPaneModel(pane);
+  if (old === requested) return { old, now: old, confirmed: true, unchanged: true };
+  let lines = JSON.stringify({ cmd: "model", model, ts: new Date().toISOString() }) + "\n";
+  if (thinking) lines += JSON.stringify({ cmd: "thinking", level: thinking, ts: new Date().toISOString() }) + "\n";
+  fs.appendFileSync(path.join(dir, "inbox.jsonl"), lines);
+  let now = old;
+  const deadline = Date.now() + 2500;
+  do {
+    now = readPaneModel(pane);
+    if (now === requested) return { old, now, confirmed: true, unchanged: false };
+    if (Date.now() >= deadline) break;
+    await delay(250);
+  } while (true);
+  return { old, now, confirmed: false, unchanged: false };
+}
+
+async function cmdModel(args: string[]) {
+  const noWait = args.includes("--no-wait");
+  const positional = args.filter((arg) => arg !== "--no-wait");
+  const target = positional[0];
+  const modelArg = positional[1];
+  if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--no-wait]");
   const { pane } = resolvePane(target);
-  const { old, now } = doModel(pane, modelArg);
-  if (now) {
-    const changed = old !== now;
-    process.stdout.write(`${pane}: ${old || "(unknown)"} → ${now}${changed ? "" : "  (unchanged — bridge may lag or model rejected)"}\n`);
-  } else {
-    process.stdout.write(
-      `${pane}: sent "/model ${modelArg}". Could not verify via agent dir (no bridge/status.json yet).\n`
-    );
+  let result;
+  try {
+    result = await doModel(pane, modelArg, !noWait);
+  } catch (error: any) {
+    die(error?.message || String(error));
   }
+  if (result.unchanged) {
+    process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
+  } else if (result.confirmed) {
+    process.stdout.write(`${pane}: ${result.old || "(unknown)"} → ${result.now}\n`);
+  } else {
+    process.stderr.write(`${pane}: requested ${modelArg}; still ${result.now || "(unknown)"}.\n`);
+    process.exitCode = 1;
+  }
+}
+
+async function pinModels(created: { pane: string; name: string }[], model: string): Promise<void> {
+  const results = await Promise.all(created.map(async ({ pane, name }) => {
+    try {
+      const result = await doModel(pane, model);
+      return { pane, name, ok: result.confirmed };
+    } catch {
+      return { pane, name, ok: false };
+    }
+  }));
+  for (const result of results) {
+    if (!result.ok) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}.\n`);
+  }
+  if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
 
 function cmdWait(args: string[]) {
@@ -1776,22 +1914,32 @@ function cmdPeek(args: string[]) {
 
 // ---- tab CRUD ----
 
-function resolveTab(idOrLabel: string): any {
-  const tabs = [...herdrTabs().values()];
+function resolveTab(target: string): any {
+  const r = herdrJSON(["tab", "list"]);
+  const tabs = Array.isArray(r?.tabs) ? r.tabs : [];
   if (!tabs.length) die("No tabs (herdr down?).");
-  const byId = tabs.filter((t) => t.tab_id === idOrLabel);
-  if (byId.length === 1) return byId[0];
-  const byLabel = tabs.filter((t) => (t.label || "") === idOrLabel);
-  if (byLabel.length === 1) return byLabel[0];
-  const byLabelCI = tabs.filter((t) => (t.label || "").toLowerCase() === idOrLabel.toLowerCase());
-  if (byLabelCI.length === 1) return byLabelCI[0];
-  if (byLabel.length > 1 || byLabelCI.length > 1) {
-    process.stderr.write(`Ambiguous tab "${idOrLabel}". Candidates:\n`);
-    for (const t of byLabel.length > 1 ? byLabel : byLabelCI)
-      process.stderr.write(`  ${t.tab_id}  ${t.label}\n`);
+  if (/:t[0-9a-zA-Z]+$/.test(target)) {
+    const tab = tabs.find((item: any) => item.tab_id === target);
+    if (tab) return tab;
+    die(`No tab matches "${target}". Run 'orch tabs' to list.`);
+  }
+  const exact = tabs.filter((item: any) => (item.label || "") === target);
+  if (exact.length === 1) return exact[0];
+  const insensitive = tabs.filter((item: any) => (item.label || "").toLowerCase() === target.toLowerCase());
+  if (!exact.length && insensitive.length === 1) return insensitive[0];
+  const candidates = exact.length > 1 ? exact : insensitive;
+  if (candidates.length > 1) {
+    process.stderr.write(`Ambiguous tab "${target}". Candidates:\n`);
+    for (const tab of candidates) process.stderr.write(`  ${tab.tab_id}  ${tab.label}\n`);
     process.exit(1);
   }
-  die(`No tab matches "${idOrLabel}". Run 'orch tabs' to list.`);
+  const ent = resolveTarget(target);
+  if (!ent.paneId) die(`Target "${target}" has no herdr pane to resolve a tab.`);
+  const pane = herdrPanes().find((item) => item.pane_id === ent.paneId);
+  if (!pane?.tab_id) die(`No tab found for pane "${ent.paneId}".`);
+  const tab = tabs.find((item: any) => item.tab_id === pane.tab_id);
+  if (!tab) die(`No tab matches "${pane.tab_id}". Run 'orch tabs' to list.`);
+  return tab;
 }
 
 function cmdTabs() {
@@ -1956,7 +2104,7 @@ function cmdWs(args: string[]) {
   process.stdout.write(renderTable(headers, rows, [8, 24, 4, 5, 6, 10]) + "\n");
 }
 
-function cmdDispatch(args: string[]) {
+async function cmdDispatch(args: string[]) {
   const raw = args.includes("--raw");
   const commandArgs = args.filter((arg) => arg !== "--raw");
   let model: string | null = null;
@@ -1981,7 +2129,7 @@ function cmdDispatch(args: string[]) {
   if (thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
 
   if (model) {
-    const { old, now } = doModel(pane, model);
+    const { old, now } = await doModel(pane, model);
     process.stdout.write(`model: ${old || "(unknown)"} → ${now || "(sent, unverified)"}\n`);
   }
   const st = doRun(pane, workerPrompt(prompt, raw));
@@ -2022,6 +2170,13 @@ OBSERVE
   orch events [--all] [target ...] [--status s[,s…]] [--notify]
                                  Continuous stream of pane state transitions (forever).
 
+QUEUE
+  orch queue add "<task text>" [--json]
+                                 Add a task and print its id.
+  orch queue list [--json]       List queued, claimed, and settled tasks.
+  orch queue cancel <id> [--json]
+                                 Cancel an unclaimed task.
+
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Send a prompt with the worker header (or exact prompt with --raw).
@@ -2033,8 +2188,10 @@ DISPATCH WORK
                                  Send a completed result to another agent's inbox.
   orch broadcast "<text>" [target ...|--all]
                                  Steer named targets, or every live pane agent by default.
-  orch model <target> <provider/model[:thinking]>
-                                 Switch a pane's model via the bridge inbox; prints old → new.
+  orch model <target> <provider/model[:thinking]> [--no-wait]
+                                 Switch a pane's model via the bridge inbox; waits up to 10s by default.
+  orch notify test [--state <state>]
+                                 Send a synthetic transition to each configured notification sink.
   orch steer <target> <text…>    Append a mid-run steer to the agent's inbox.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
@@ -2046,11 +2203,11 @@ DISPATCH WORK
                                  Reload extensions in place; --hard fully restarts pi for version upgrades.
 
 PANES (create / arrange / lifecycle — never steals focus except 'focus')
-  orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX]
+  orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
                                  3=2+1, 4=2x2, …; cap 8). Names <prefix>-1..N.
-  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P]
-                                 Add ONE pane to an existing tab, split into its largest cell.
+  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M]
+                                 Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
                                  Set the herdr agent name (NAME column); --pane sets the pane
                                  border label instead.
@@ -2118,8 +2275,14 @@ function main() {
     case "events":
       cmdEvents(rest);
       break;
+    case "notify":
+      void cmdNotify(rest).catch((error) => die(error?.message || String(error)));
+      break;
     case "questions":
       cmdQuestions();
+      break;
+    case "queue":
+      cmdQueue(rest);
       break;
     case "answer":
       cmdAnswer(rest);
@@ -2146,22 +2309,22 @@ function main() {
       cmdPanes();
       break;
     case "spawn":
-      cmdSpawn(rest);
+      void cmdSpawn(rest).catch((error) => die(error?.message || String(error)));
       break;
     case "tile":
-      cmdTile(rest);
+      void cmdTile(rest).catch((error) => die(error?.message || String(error)));
       break;
     case "run":
       cmdRun(rest);
       break;
     case "model":
-      cmdModel(rest);
+      void cmdModel(rest).catch((error) => die(error?.message || String(error)));
       break;
     case "wait":
       cmdWait(rest);
       break;
     case "dispatch":
-      cmdDispatch(rest);
+      void cmdDispatch(rest).catch((error) => die(error?.message || String(error)));
       break;
     case "new":
       cmdNew(rest);

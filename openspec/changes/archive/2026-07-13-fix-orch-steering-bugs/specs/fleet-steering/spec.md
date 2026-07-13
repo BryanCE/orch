@@ -49,6 +49,17 @@ Commands that accept a tab (`tile`, `tab`, `move`) SHALL resolve a tab by its la
 - **WHEN** `orch spawn 2 --model openai-codex/gpt-5.6-terra:medium` completes and the bridges boot
 - **THEN** `orch status` shows both new panes on `openai-codex/gpt-5.6-terra:medium` without any separate `orch model` call
 
+### Requirement: One-command sink verification
+`orch notify test [--state <state>]` SHALL fire a synthetic transition event (default state `blocked`) through the configured `[[notify]]` sinks and report per-sink success or failure, so verifying a notification setup requires no fake presence dirs or background event streams. Exit code SHALL be nonzero if any sink failed.
+
+#### Scenario: Verify a fresh config
+- **WHEN** a desktop sink is configured and the user runs `orch notify test`
+- **THEN** a desktop notification appears and the command prints the sink outcome, exit 0
+
+#### Scenario: Dead webhook surfaces in the report
+- **WHEN** a webhook sink points at an unreachable URL and the user runs `orch notify test`
+- **THEN** the failure is reported per-sink and the command exits nonzero
+
 #### Scenario: One pin fails
 - **WHEN** one of two spawned panes never boots its bridge
 - **THEN** the other pane is pinned, a warning names the failed pane, and the command exits nonzero

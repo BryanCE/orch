@@ -4,13 +4,13 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 
 ## 1. Refactor to src/ with a store boundary (no behavior change)
 
-- [ ] 1.1 Write a smoke-test script (`test/smoke.sh` + golden `--json` outputs) covering `orch status --json`, `panes`, `help`, `questions` against a fake `$ORCH_DIR` fixture — run it green on current main before refactoring
+- [x] 1.1 Write a smoke-test script (`test/smoke.sh` + golden `--json` outputs) covering `orch status --json`, `panes`, `help`, `questions` against a fake `$ORCH_DIR` fixture — run it green on current main before refactoring
 - [ ] 1.2 Extract `src/store.ts` (all `$ORCH_DIR` reads/writes: presence, spawned registry, atomic write helpers), `src/session.ts`, `src/herdr.ts`, `src/entities.ts` (buildEntities/resolveTarget), `src/table.ts`; `bin/orch.ts` becomes command wiring only
 - [ ] 1.3 Grep-verify no `fs.` / `ORCH_DIR` access outside `src/store.ts`; smoke tests green; bump patch version
 
 ## 2. Config file
 
-- [ ] 2.1 Implement `src/config.ts`: TOML load from `$ORCH_DIR/config.toml` (Bun TOML; vendored fallback), precedence flags > env > config > defaults, schema validation with helpful errors
+- [x] 2.1 Implement `src/config.ts`: TOML load from `$ORCH_DIR/config.toml` (Bun TOML; vendored fallback), precedence flags > env > config > defaults, schema validation with helpful errors
 - [ ] 2.2 Wire `[defaults]` (adapter, backend, model, spawn cap, worktree) into spawn/dispatch paths; document config in README
 - [ ] 2.3 Smoke tests for precedence (config-set default overridden by flag)
 
@@ -34,7 +34,7 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 
 ## 5. Task queue
 
-- [ ] 5.1 Implement `src/queue.ts`: append-only `queue/queue.jsonl` events + replay; `orch queue add|list|cancel [--json]`
+- [x] 5.1 Implement `src/queue.ts`: append-only `queue/queue.jsonl` events + replay; `orch queue add|list|cancel [--json]`
 - [ ] 5.2 Implement `orch work [--once]`: idle detection from presence, FIFO assignment honoring task constraints, atomic O_EXCL claim files, post-dispatch working-state verification with unclaim on failure
 - [ ] 5.3 Retry-on-error up to `queue.max_retries`, terminal `failed` state with last error; `orch queue history [--json]`
 - [ ] 5.4 Two-runner race test (spawn two `orch work --once` against one queued task; exactly one dispatch)
@@ -49,13 +49,13 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 
 ## 7. Notifications
 
-- [ ] 7.1 Implement `src/notify.ts`: `[[notify]]` config parsing, sinks (desktop chain herdr→notify-send→WSL bridge, webhook POST, command w/ JSON stdin), per-sink `on` filters, best-effort with warnings
-- [ ] 7.2 Ship the WSL toast bridge script; wire `orch events --notify` and auto-attach in `orch work`
-- [ ] 7.3 Verify on WSL2: blocked agent produces a Windows toast; dead webhook logs a warning without disrupting dispatch
+- [x] 7.1 Implement `src/notify.ts`: `[[notify]]` config parsing, sinks (desktop chain herdr→notify-send→WSL bridge, webhook POST, command w/ JSON stdin), per-sink `on` filters, best-effort with warnings
+- [ ] 7.2 Ship the WSL toast bridge script; wire `orch events --notify` and auto-attach in `orch work` *(bridge script + `events --notify` done 2026-07-13; remaining: auto-attach — blocked on 5.2 `orch work`)*
+- [x] 7.3 Verify on WSL2: blocked agent produces a Windows toast; dead webhook logs a warning without disrupting dispatch
 
 ## 8. Doctor
 
-- [ ] 8.1 Implement `src/doctor.ts` checks: bins, extension symlinks/currency, claude hooks shim currency, stale presence dirs, registry consistency, herdr version, config validity, worktree gitignore, desktop-notification chain; non-zero exit on failure
+- [ ] 8.1 Implement `src/doctor.ts` checks: bins, extension symlinks/currency, claude hooks shim currency, stale presence dirs, registry consistency, herdr version, config validity, worktree gitignore, desktop-notification chain; non-zero exit on failure *(module + tests done 2026-07-13, verified green on live env; remaining: `orch doctor` CLI wiring + claude-hooks check — blocked on bin/orch.ts ownership and task 3.4)*
 - [ ] 8.2 `orch doctor --fix` for reversible fixes only, listing every change made
 - [ ] 8.3 Replace `orch setup`'s ad-hoc checks with doctor calls where they overlap
 

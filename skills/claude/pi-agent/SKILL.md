@@ -197,6 +197,11 @@ orch dispatch <target> 'FULL PROMPT: exact files, helpers, DON-Ts' [--then <dst>
 orch result <target>                                 # 6. read the final text
 orch new <target>                                    # 7. clear the session before the next assignment
 ```
+**END-OF-TASK FLEET RESET (operator rule, 2026-07-13, non-optional):** when a task
+batch wraps — before you report done — leave no dirty pane behind: `orch new` every
+worker you used that stays parked, `orch close` throwaway panes/tabs. A dirty pane
+re-bills its whole context next turn and poisons the next assignment; "done and
+walked away" is a bug, not a wrap-up.
 Mid-flight: `orch steer <target> "correction"` (delivered as a steer while working);
 `orch pipe <src> <dst> ["instruction"]` feeds one agent's result to another;
 `orch broadcast "<text>" --all` steers the whole fleet. `orch restart <target>|--all`

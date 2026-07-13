@@ -1,12 +1,17 @@
-import * as fs from "node:fs";
+import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type NotifyEvent = {
   host?: string;
   key: string;
-  name: string | null;
-  state: string;
+  /** Human-assigned agent name. */
+  agent: string | null;
+  tab: string | null;
+  /** Model id plus thinking level, e.g. terra:medium. */
+  model: string | null;
+  oldState: string;
+  newState: string;
   task?: string;
   cost?: number;
   ts: string;
@@ -14,9 +19,10 @@ export type NotifyEvent = {
 };
 
 export type DesktopSink = { type: "desktop"; on: string[] };
+export type HerdrSink = { type: "herdr"; on: string[] };
 export type WebhookSink = { type: "webhook"; on: string[]; url: string };
 export type CommandSink = { type: "command"; on: string[]; command: string[] };
-export type Sink = DesktopSink | WebhookSink | CommandSink;
+export type Sink = DesktopSink | HerdrSink | WebhookSink | CommandSink;
 
 type TomlTable = Record<string, unknown>;
 
@@ -123,7 +129,7 @@ function tableAt(root: TomlTable, parts: string[], line: number): TomlTable {
 }
 
 /** Minimal TOML parser used when Bun.TOML is unavailable. */
-export function parseToml(text: string): TomlTable {
+function parseToml(text: string): TomlTable {
   const root: TomlTable = {};
   let current = root;
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
@@ -178,7 +184,7 @@ function stringArray(value: unknown): string[] | null {
 export function loadSinks(orchDir: string): Sink[] {
   let config: TomlTable;
   try {
-    config = parseConfig(fs.readFileSync(path.join(orchDir, "config.toml"), "utf8"));
+    config = parseConfig(filesystem.readFileSync(path.join(orchDir, "config.toml"), "utf8"));
   } catch (error: any) {
     if (error?.code === "ENOENT") return [];
     warning(`could not parse config.toml: ${oneLine(error)}`);
@@ -206,6 +212,8 @@ export function loadSinks(orchDir: string): Sink[] {
     }
     if (value.type === "desktop") {
       sinks.push({ type: "desktop", on });
+    } else if (value.type === "herdr") {
+      sinks.push({ type: "herdr", on });
     } else if (value.type === "webhook") {
       if (typeof value.url !== "string" || !value.url) {
         warning("invalid notify entry: webhook sink requires url");
@@ -234,8 +242,11 @@ function payload(event: NotifyEvent): string {
   return JSON.stringify({
     host: event.host ?? null,
     key: event.key,
-    name: event.name,
-    state: event.state,
+    agent: event.agent,
+    tab: event.tab,
+    model: event.model,
+    oldState: event.oldState,
+    newState: event.newState,
     task: event.task ?? null,
     cost: event.cost ?? null,
     ts: event.ts,
@@ -245,7 +256,7 @@ function payload(event: NotifyEvent): string {
 
 function commandOnPath(command: string): boolean {
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
-    if (dir && fs.existsSync(path.join(dir, command))) return true;
+    if (dir && filesystem.existsSync(path.join(dir, command))) return true;
   }
   return false;
 }
@@ -268,19 +279,21 @@ async function run(command: string[], stdin?: string): Promise<boolean> {
 }
 
 function notificationText(event: NotifyEvent): { title: string; body: string } {
-  const agent = event.name || event.key;
-  const title = `orch: ${agent} ${event.state}`;
+  const agent = event.agent || event.key;
+  const title = `orch: ${agent} ${event.oldState}→${event.newState}`;
   const details: string[] = [];
+  if (event.tab) details.push(`Tab: ${event.tab}`);
+  if (event.model) details.push(`Model: ${event.model}`);
   if (event.task) details.push(`Task: ${oneLine(event.task)}`);
   if (event.lastError) details.push(`Error: ${oneLine(event.lastError)}`);
   if (typeof event.cost === "number") details.push(`Cost: $${event.cost.toFixed(2)}`);
-  return { title, body: details.join("\n") || `Agent ${event.key} is ${event.state}.` };
+  return { title, body: details.join("\n") || `Agent ${event.key} changed state.` };
 }
 
 async function windowsToast(title: string, body: string): Promise<boolean> {
   if (!commandOnPath("powershell.exe")) return false;
   const script = fileURLToPath(new URL("../scripts/wsl-toast.ps1", import.meta.url));
-  if (!fs.existsSync(script)) return false;
+  if (!filesystem.existsSync(script)) return false;
   try {
     const convert = Bun.spawn(["wslpath", "-w", script], { stdout: "pipe", stderr: "ignore" });
     if ((await convert.exited) !== 0) return false;
@@ -292,9 +305,14 @@ async function windowsToast(title: string, body: string): Promise<boolean> {
   }
 }
 
+async function deliverHerdr(event: NotifyEvent): Promise<boolean> {
+  const { title, body } = notificationText(event);
+  return run(["herdr", "notification", "show", title, "--body", body]);
+}
+
 async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
   const { title, body } = notificationText(event);
-  if (process.env.HERDR_ENV === "1" && await run(["herdr", "notification", "show", title, "--body", body])) return true;
+  if (process.env.HERDR_ENV === "1" && await deliverHerdr(event)) return true;
   if (await run(["notify-send", title, body])) return true;
   if (commandOnPath("wsl-notify-send") && await run(["wsl-notify-send", title, body])) return true;
   return windowsToast(title, body);
@@ -303,6 +321,7 @@ async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
 export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boolean> {
   try {
     if (sink.type === "desktop") return await deliverDesktop(event);
+    if (sink.type === "herdr") return await deliverHerdr(event);
     if (sink.type === "webhook") {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
@@ -327,7 +346,7 @@ export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boo
 /** Queue best-effort sink delivery without delaying or throwing into the caller. */
 export function notify(sinks: Sink[], event: NotifyEvent): void {
   for (const sink of sinks) {
-    if (!sink.on.includes(event.state)) continue;
+    if (!sink.on.includes(event.newState)) continue;
     queueMicrotask(() => {
       void deliverToSink(sink, event).then((ok) => {
         if (!ok) warning(`${sink.type} sink failed`);

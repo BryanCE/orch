@@ -239,10 +239,41 @@ export function claimTask(orchDir: string, id: string, agentKey: string): boolea
   }
 }
 
-export function unclaimTask(orchDir: string, id: string): void {
+export function releaseClaim(orchDir: string, id: string): void {
   const claimPath = join(claimsDir(orchDir), id);
   if (existsSync(claimPath)) {
     unlinkSync(claimPath);
   }
-  appendEvent(orchDir, { ev: "retry", id, ts: new Date().toISOString() });
 }
+
+function settleTaskEvent(orchDir: string, id: string, event: Omit<QueueEvent, "id" | "ts">, returnTask: true): TaskRec;
+function settleTaskEvent(orchDir: string, id: string, event: Omit<QueueEvent, "id" | "ts">, returnTask?: false): void;
+function settleTaskEvent(orchDir: string, id: string, event: Omit<QueueEvent, "id" | "ts">, returnTask = false): TaskRec | void {
+  releaseClaim(orchDir, id);
+  appendEvent(orchDir, { ...event, id, ts: new Date().toISOString() });
+  if (returnTask) {
+    return requireTask(orchDir, id);
+  }
+}
+
+export function unclaimTask(orchDir: string, id: string): void { settleTaskEvent(orchDir, id, { ev: "retry" }); }
+
+// FIFO pick among queued tasks whose constraints the candidate agent satisfies.
+// Constraint matching is by task.opts.agent (exact adapter/agent name) only for
+// now; richer constraints ride in opts.constraints once adapters land.
+export function nextQueuedTask(tasks: TaskRec[], agentName?: string): TaskRec | undefined {
+  return tasks
+    .filter((task) => task.state === "queued")
+    .filter((task) => !task.opts.agent || task.opts.agent === agentName)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+}
+
+export function taskShouldRetry(task: TaskRec, maxRetries: number): boolean {
+  return task.retries < maxRetries;
+}
+
+export function requeueTask(orchDir: string, id: string, error: string): TaskRec { return settleTaskEvent(orchDir, id, { ev: "retry", error }, true); }
+
+export function recordTaskDone(orchDir: string, id: string, result?: unknown): TaskRec { return settleTaskEvent(orchDir, id, { ev: "done", result }, true); }
+
+export function recordTaskFailure(orchDir: string, id: string, error: string): TaskRec { return settleTaskEvent(orchDir, id, { ev: "fail", error }, true); }

@@ -1,39 +1,46 @@
 {
-	"name": "orch",
-	"version": "0.1.0",
-	"description": "Fleet orchestration control plane for pi agents in herdr panes — orch CLI, pif headless dispatch, and the pi extensions that make every agent visible and steerable.",
-	"keywords": [
-		"pi-package",
-		"pi-extension",
-		"herdr",
-		"orchestration",
-		"agents"
-	],
-	"license": "MIT",
-	"author": "Bryan Edman",
-	"type": "module",
-	"bin": {
-		"orch": "./bin/orch.ts",
-		"pif": "./bin/pif"
-	},
-	"files": [
-		"bin/",
-		"src/",
-		"scripts/",
-		"extensions/",
-		"skills/",
-		"agents/",
-		"README.md"
-	],
-	"pi": {
-		"extensions": [
-			"./extensions"
-		]
-	},
-	"engines": {
-		"bun": ">=1.0.0"
-	},
-	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": "*"
-	}
+  "name": "orch",
+  "version": "0.1.0",
+  "description": "Fleet orchestration control plane for pi agents in herdr panes — orch CLI, pif headless dispatch, and the pi extensions that make every agent visible and steerable.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "herdr",
+    "orchestration",
+    "agents"
+  ],
+  "license": "MIT",
+  "author": "Bryan Edman",
+  "type": "module",
+  "bin": {
+    "orch": "./bin/orch.ts",
+    "pif": "./bin/pif"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    "extensions/",
+    "skills/",
+    "agents/",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "fallow": "^3.4.2"
+  },
+  "trustedDependencies": [
+    "@google/genai",
+    "protobufjs"
+  ]
 }

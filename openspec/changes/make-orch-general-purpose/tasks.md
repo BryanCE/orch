@@ -5,8 +5,8 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 ## 1. Refactor to src/ with a store boundary (no behavior change)
 
 - [x] 1.1 Write a smoke-test script (`test/smoke.sh` + golden `--json` outputs) covering `orch status --json`, `panes`, `help`, `questions` against a fake `$ORCH_DIR` fixture — run it green on current main before refactoring
-- [ ] 1.2 Extract `src/store.ts` (all `$ORCH_DIR` reads/writes: presence, spawned registry, atomic write helpers), `src/session.ts`, `src/herdr.ts`, `src/entities.ts` (buildEntities/resolveTarget), `src/table.ts`; `bin/orch.ts` becomes command wiring only
-- [ ] 1.3 Grep-verify no `fs.` / `ORCH_DIR` access outside `src/store.ts`; smoke tests green; bump patch version
+- [x] 1.2 Extract `src/store.ts` (all `$ORCH_DIR` reads/writes: presence, spawned registry, atomic write helpers), `src/session.ts`, `src/herdr.ts`, `src/entities.ts` (buildEntities/resolveTarget), `src/table.ts`; `bin/orch.ts` becomes command wiring only *(2026-07-13: commands live in `src/commands.ts`; splitting that further rides with groups 3-4)*
+- [x] 1.3 Grep-verify no `fs.` / `ORCH_DIR` access outside `src/store.ts`; smoke tests green (version bumps happen only at publish, task 10.2)
 
 ## 2. Config file
 
@@ -16,13 +16,15 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 
 ## 3. Agent adapters
 
-- [ ] 3.1 Define `src/adapters/adapter.ts` (interface + caps from design D4); extract current pi behavior into `src/adapters/pi.ts` with zero behavior change (smoke tests green)
+- [x] 3.1 Define `src/adapters/adapter.ts` (interface + caps from design D4); extract current pi behavior into `src/adapters/pi.ts` with zero behavior change (smoke tests green) *(2026-07-13: modules + tests done; commands.ts consumes presence directly until 3.2 wiring)*
 - [ ] 3.2 Plumb `--agent` through spawn/tile/dispatch and record adapter in spawned registry; `orch status` shows adapter id for registry-spawned agents; unknown adapter errors with the supported list
 - [ ] 3.3 Add `agent` + `schema` fields to presence status.json (bridge bump to schema 2, reader tolerates 1)
 - [ ] 3.4 Claude Code adapter: hooks shim (SessionStart/Stop/Notification → presence writes), `orch setup` merges hooks additively, interactive + headless commands, steer via keys fallback with warning
 - [ ] 3.5 Verify claude adapter end-to-end in a herdr pane: spawn, dispatch, status transitions, result extraction
 - [ ] 3.6 Codex spike (time-boxed): pick state-detection mechanism (notify hook vs session tail vs wrapper), record decision in design.md Open Questions
 - [ ] 3.7 Codex adapter per spike outcome, with honest caps (coarse states acceptable, `stateFallback` marker)
+
+- [ ] 3.8 Dedupe extension↔src utility clones (atomicWrite, socket-finish shape) into a shared module both import — PROVEN possible 2026-07-13: pi's extension loader resolves relative imports (probe: extension importing a sibling module ran fine under `pif -e`), and `src/` ships in package files; extensions do NOT need to stay standalone
 
 ## 4. Headless backend
 
@@ -35,8 +37,8 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 ## 5. Task queue
 
 - [x] 5.1 Implement `src/queue.ts`: append-only `queue/queue.jsonl` events + replay; `orch queue add|list|cancel [--json]`
-- [ ] 5.2 Implement `orch work [--once]`: idle detection from presence, FIFO assignment honoring task constraints, atomic O_EXCL claim files, post-dispatch working-state verification with unclaim on failure
-- [ ] 5.3 Retry-on-error up to `queue.max_retries`, terminal `failed` state with last error; `orch queue history [--json]`
+- [x] 5.2 Implement `orch work [--once]`: idle detection from presence, FIFO assignment honoring task constraints, atomic O_EXCL claim files, post-dispatch working-state verification with unclaim on failure *(2026-07-13; includes settlement pass for claims that finish after the ack window)*
+- [ ] 5.3 Retry-on-error up to `queue.max_retries`, terminal `failed` state with last error *(done 2026-07-13)*; `orch queue history [--json]` *(remaining: CLI subcommand — `history()` exists in src/queue.ts)*
 - [ ] 5.4 Two-runner race test (spawn two `orch work --once` against one queued task; exactly one dispatch)
 
 ## 6. Worktree isolation + review
@@ -52,11 +54,14 @@ Ordered so orch is shippable after every group. Group 1 is a pure refactor gate;
 - [x] 7.1 Implement `src/notify.ts`: `[[notify]]` config parsing, sinks (desktop chain herdr→notify-send→WSL bridge, webhook POST, command w/ JSON stdin), per-sink `on` filters, best-effort with warnings
 - [ ] 7.2 Ship the WSL toast bridge script; wire `orch events --notify` and auto-attach in `orch work` *(bridge script + `events --notify` done 2026-07-13; remaining: auto-attach — blocked on 5.2 `orch work`)*
 - [x] 7.3 Verify on WSL2: blocked agent produces a Windows toast; dead webhook logs a warning without disrupting dispatch
+- [x] 7.4 Event payloads carry real context (operator order 2026-07-13): agent name, tab, model, state transition old→new, task summary, lastError text — in `orch events` output, `--json`, and every sink payload; a bare "state changed" line is a bug
+- [x] 7.5 herdr-alert sink: when the herdr backend is active, deliver notifications through herdr's native alert/notify channel as a first-class `[[notify]]` sink type (auto-registered when backend=herdr); stays completely absent on headless
+- [ ] 7.6 Outcome-first notification titles (operator order 2026-07-13): every sink title/first-line leads with the terminal state + agent — `DONE w-2: <task summary>`, `ERROR w-2: <lastError>`, `BLOCKED w-2: <question>` — one state per notification, never a mixed label like "completion/error"
 
 ## 8. Doctor
 
-- [ ] 8.1 Implement `src/doctor.ts` checks: bins, extension symlinks/currency, claude hooks shim currency, stale presence dirs, registry consistency, herdr version, config validity, worktree gitignore, desktop-notification chain; non-zero exit on failure *(module + tests done 2026-07-13, verified green on live env; remaining: `orch doctor` CLI wiring + claude-hooks check — blocked on bin/orch.ts ownership and task 3.4)*
-- [ ] 8.2 `orch doctor --fix` for reversible fixes only, listing every change made
+- [ ] 8.1 Implement `src/doctor.ts` checks: bins, extension symlinks/currency, claude hooks shim currency, stale presence dirs, registry consistency, herdr version, config validity, worktree gitignore, desktop-notification chain; non-zero exit on failure *(module + tests + `orch doctor` CLI done 2026-07-13, verified green live; remaining: claude-hooks check — blocked on task 3.4)*
+- [x] 8.2 `orch doctor --fix` for reversible fixes only, listing every change made
 - [ ] 8.3 Replace `orch setup`'s ad-hoc checks with doctor calls where they overlap
 
 ## 9. Remote hosts (SSH federation)

@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+import * as filesystem from "node:fs";
 import * as path from "node:path";
 
 type TomlTable = Record<string, unknown>;
@@ -158,12 +158,12 @@ function knownKeys(value: TomlTable, file: string, prefix: string, keys: string[
   }
 }
 
-/** Load and validate `$ORCH_DIR/config.toml`; a missing file uses built-in defaults. */
+/** Load and validate `the orch config directory/config.toml`; a missing file uses built-in defaults. */
 export function loadConfig(orchDir: string): OrchConfig {
   const file = path.join(orchDir, "config.toml");
   let root: TomlTable;
   try {
-    root = parseToml(fs.readFileSync(file, "utf8"));
+    root = parseToml(filesystem.readFileSync(file, "utf8"));
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { defaults: {}, queue: { max_retries: 1 }, notify: [], hosts: {} };

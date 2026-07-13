@@ -1,0 +1,10 @@
+{
+	"duplicates": {
+		"mode": "semantic",
+		"minTokens": 35,
+		"minLines": 3
+	},
+	"health": {
+		"maxCyclomatic": 12
+	}
+}

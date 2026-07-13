@@ -31,7 +31,9 @@ function computeKey(hasUI: boolean): string {
 
 const LAST_TEXT_MAX = 400;
 const TASK_MAX = 200;
+const HEARTBEAT_MS = 3000;
 const INBOX_POLL_MS = 1000;
+const ALLOWED_MODELS_FILE = path.join(os.homedir(), ".pi", "agent", "orch", "allowed-models");
 const HERDR_ENV = process.env.HERDR_ENV;
 const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH;
 const HERDR_PANE_ID = process.env.HERDR_PANE_ID;
@@ -114,18 +116,22 @@ export default function (pi) {
   let statusFile = "";
   let resultFile = "";
   let inboxFile = "";
+  let controlFile = "";
 
   let lastCtx: any;
   const state = {
     schema: SCHEMA_VERSION,
     key: "",
     paneId: process.env.HERDR_PANE_ID || null,
+    label: null as string | null,
+    tabLabel: null as string | null,
     pid: process.pid,
     cwd: process.cwd(),
     state: "idle" as "idle" | "working" | "blocked" | "done" | "exited" | "error" | "aborted",
     lastError: undefined as string | undefined,
     model: undefined as { provider: string; id: string } | undefined,
     thinking: undefined as string | undefined,
+    lastTool: undefined as string | undefined,
     task: undefined as string | undefined,
     lastText: undefined as string | undefined,
     currentFile: undefined as string | undefined,
@@ -192,6 +198,53 @@ export default function (pi) {
     reportHerdrMetadata();
   }
 
+  function runHerdrJson(args: string[]): Promise<any | undefined> {
+    return new Promise((resolve) => {
+      try {
+        execFile("herdr", args, { timeout: 2000 }, (_error, stdout) => {
+          try {
+            resolve(JSON.parse(String(stdout)));
+          } catch {
+            resolve(undefined);
+          }
+        });
+      } catch {
+        resolve(undefined);
+      }
+    });
+  }
+
+  function herdrCollection(output: any, name: string): any {
+    return output?.result?.[name] ?? output?.[name];
+  }
+
+  function findHerdrPane(panes: any): any | undefined {
+    if (!Array.isArray(panes)) return undefined;
+    return panes.find((candidate: any) => candidate?.pane_id === HERDR_PANE_ID);
+  }
+
+  function findPaneTab(tabs: any, pane: any): any | undefined {
+    if (!Array.isArray(tabs)) return undefined;
+    return tabs.find((candidate: any) => candidate?.tab_id === pane?.tab_id);
+  }
+
+  async function readHerdrIdentity(): Promise<void> {
+    if (!HERDR_PANE_ID) return;
+    try {
+      const [paneOutput, tabOutput] = await Promise.all([
+        runHerdrJson(["pane", "list"]),
+        runHerdrJson(["tab", "list"]),
+      ]);
+      const pane = findHerdrPane(herdrCollection(paneOutput, "panes"));
+      const tab = findPaneTab(herdrCollection(tabOutput, "tabs"), pane);
+      state.label = pane?.label ?? null;
+      state.tabLabel = tab?.label ?? null;
+    } catch {
+      // best-effort
+    }
+    writeStatus();
+  }
+
   function updateSessionRef(ctx: any) {
     try {
       const file = ctx?.sessionManager?.getSessionFile?.();
@@ -226,80 +279,151 @@ export default function (pi) {
   }
 
   // ---- inbox: appended lines become steer messages ----
-  let inboxOffset = 0;
   let poll: ReturnType<typeof setInterval> | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   let watcher: fs.FSWatcher | undefined;
 
-  function drainInbox() {
-    if (!dir) return;
-    let size: number;
+  function globToRegex(pattern: string): RegExp {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, (char) => `\\${char}`);
+    return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
+  }
+
+  function isAllowedModel(requestedModel: string): boolean {
+    if (requestedModel.startsWith("openai-codex/")) return true;
+    let raw: string;
     try {
-      size = fs.statSync(inboxFile).size;
+      raw = fs.readFileSync(ALLOWED_MODELS_FILE, "utf8");
     } catch {
-      return;
+      return false;
     }
-    if (size < inboxOffset) inboxOffset = 0; // truncated/rotated
-    if (size === inboxOffset) return;
+    for (const line of raw.split("\n")) {
+      const pattern = line.trim();
+      if (!pattern || pattern.startsWith("#")) continue;
+      if (globToRegex(pattern).test(requestedModel)) return true;
+    }
+    return false;
+  }
 
-    let chunk: string;
+  async function resolveRequestedModel(requestedModel: unknown): Promise<any> {
+    if (typeof requestedModel !== "string") throw new Error("Model must be a provider/id string");
+    const slash = requestedModel.indexOf("/");
+    if (slash <= 0 || slash === requestedModel.length - 1) {
+      throw new Error("Model must be a provider/id string");
+    }
+    if (!isAllowedModel(requestedModel)) {
+      throw new Error(`Model not allowed: ${requestedModel}`);
+    }
+    const provider = requestedModel.slice(0, slash);
+    const id = requestedModel.slice(slash + 1);
+    // Registry-find ONLY: a plain candidate object from getAvailable()
+    // passes setModel but poisons the next turn ("Model not found <id>"
+    // run errors). Retry briefly instead — the registry is unavailable
+    // for a moment while a fresh session boots.
+    let model;
+    for (let attempt = 0; attempt < 8 && !model; attempt++) {
+      model = lastCtx?.modelRegistry?.find?.(provider, id);
+      if (!model) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (!model) throw new Error(`Model not in registry (session still booting?): ${requestedModel}`);
+    return model;
+  }
+
+  async function applyRequestedThinkingLevel(level: unknown): Promise<void> {
+    if (typeof level !== "string") throw new Error("Thinking level must be a string");
+    await pi.setThinkingLevel(level);
+  }
+
+  async function applyControlCommand(parsed: any): Promise<void> {
+    const requested = parsed.cmd === "model"
+      ? { model: parsed.model }
+      : { thinking: parsed.level };
+    const outcome: any = { requested, success: false, ts: new Date().toISOString() };
     try {
-      const fd = fs.openSync(inboxFile, "r");
-      const buf = Buffer.alloc(size - inboxOffset);
-      fs.readSync(fd, buf, 0, buf.length, inboxOffset);
-      fs.closeSync(fd);
-      chunk = buf.toString("utf8");
-    } catch {
-      return;
-    }
-    inboxOffset = size;
-
-    for (const line of chunk.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let parsed: any = trimmed;
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch {}
-
-      // Control commands: {"cmd":"model","model":"provider/id"} and
-      // {"cmd":"thinking","level":"low"} — pi's real APIs, never the TUI
-      // composer (a non-matching /model string opens a selector overlay
-      // and wedges the pane).
-      if (parsed && typeof parsed === "object" && parsed.cmd) {
-        try {
-          if (parsed.cmd === "model" && typeof parsed.model === "string") {
-            const slash = parsed.model.indexOf("/");
-            const provider = parsed.model.slice(0, slash);
-            const id = parsed.model.slice(slash + 1);
-            const model = lastCtx?.modelRegistry?.find?.(provider, id);
-            if (model) void pi.setModel(model);
-          } else if (parsed.cmd === "thinking" && typeof parsed.level === "string") {
-            pi.setThinkingLevel(parsed.level);
-          } else if (parsed.cmd === "on_done" && typeof parsed.target === "string" && parsed.target.trim()) {
-            const target = parsed.target.trim();
-            pendingHandoff = {
-              target,
-              note: typeof parsed.note === "string" ? parsed.note : undefined,
-            };
-            state.pendingHandoff = target;
-            state.handoffError = undefined;
-          }
-        } catch {}
-        continue;
+      if (parsed.cmd === "model") {
+        await pi.setModel(await resolveRequestedModel(parsed.model));
+      } else {
+        await applyRequestedThinkingLevel(parsed.level);
       }
+      outcome.success = true;
+    } catch (error) {
+      outcome.error = error instanceof Error ? error.message : String(error);
+    }
+    atomicWrite(controlFile, outcome);
+    updateModel(lastCtx);
+    writeStatus();
+  }
 
-      const text = typeof parsed === "string" ? parsed : parsed?.text;
-      if (!text) continue;
-      state.steersReceived += 1;
+  function parseInboxLine(line: string): any | undefined {
+    const trimmed = line.trim();
+    if (!trimmed) return undefined;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed;
+    }
+  }
+
+  async function routeInboxCommand(parsed: any): Promise<boolean> {
+    if (!parsed || typeof parsed !== "object") return false;
+    if (!parsed.cmd) return false;
+    // Control commands: {"cmd":"model","model":"provider/id"} and
+    // {"cmd":"thinking","level":"low"} — pi's real APIs, never the TUI
+    // composer (a non-matching /model string opens a selector overlay
+    // and wedges the pane).
+    if (parsed.cmd === "model" || parsed.cmd === "thinking") {
+      await applyControlCommand(parsed);
+    } else if (parsed.cmd === "on_done" && typeof parsed.target === "string" && parsed.target.trim()) {
+      const target = parsed.target.trim();
+      pendingHandoff = {
+        target,
+        note: typeof parsed.note === "string" ? parsed.note : undefined,
+      };
+      state.pendingHandoff = target;
+      state.handoffError = undefined;
+    }
+    return true;
+  }
+
+  function deliverSteerText(text: string): void {
+    state.steersReceived += 1;
+    try {
+      const idle = lastCtx?.isIdle?.() ?? true;
+      if (idle) {
+        pi.sendUserMessage(text);
+      } else {
+        pi.sendUserMessage(text, { deliverAs: "steer" });
+      }
+    } catch {}
+  }
+
+  async function routeInboxLine(line: string): Promise<void> {
+    const parsed = parseInboxLine(line);
+    if (await routeInboxCommand(parsed)) return;
+    const text = typeof parsed === "string" ? parsed : parsed?.text;
+    if (text) deliverSteerText(text);
+  }
+
+  // We atomically claim the file (rename), so lines appended mid-drain land in
+  // a fresh inbox and are never lost, then inject each via the steer channel.
+  async function drainInbox(): Promise<void> {
+    if (!dir) return;
+    const claim = `${inboxFile}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.draining`;
+    try {
+      fs.renameSync(inboxFile, claim);
+    } catch {
+      return; // another drain won the race, or file vanished
+    }
+    let chunk = "";
+    try {
+      chunk = fs.readFileSync(claim, "utf8");
+    } catch {
+    } finally {
       try {
-        const idle = lastCtx?.isIdle?.() ?? true;
-        if (idle) {
-          pi.sendUserMessage(text);
-        } else {
-          pi.sendUserMessage(text, { deliverAs: "steer" });
-        }
+        fs.unlinkSync(claim);
       } catch {}
     }
+
+    for (const line of chunk.split("\n")) await routeInboxLine(line);
     writeStatus();
   }
 
@@ -317,19 +441,18 @@ export default function (pi) {
     statusFile = path.join(dir, "status.json");
     resultFile = path.join(dir, "result.json");
     inboxFile = path.join(dir, "inbox.jsonl");
+    controlFile = path.join(dir, "control.json");
 
     try {
-      inboxOffset = fs.statSync(inboxFile).size; // ignore steers from a previous life
-    } catch {
-      try {
-        fs.writeFileSync(inboxFile, "");
-      } catch {}
-    }
-    poll = setInterval(drainInbox, INBOX_POLL_MS);
+      fs.writeFileSync(inboxFile, ""); // ignore steers from a previous life
+    } catch {}
+    poll = setInterval(() => {
+      void drainInbox().catch(() => {});
+    }, INBOX_POLL_MS);
     poll.unref?.();
     try {
       watcher = fs.watch(dir, (_ev, filename) => {
-        if (filename === "inbox.jsonl") drainInbox();
+        if (filename === "inbox.jsonl") void drainInbox().catch(() => {});
       });
       watcher.unref?.();
     } catch {}
@@ -488,6 +611,34 @@ export default function (pi) {
     return { content: [{ type: "text", text }] };
   }
 
+  function noOrchestratorAnswer() {
+    return toolResult("no answer from orchestrator (timeout) — proceed with your best judgment and note the open question in your final reply.");
+  }
+
+  async function executeTool(action: () => string | Promise<string>, error: string) {
+    try {
+      return toolResult(await action());
+    } catch {
+      return toolResult(error);
+    }
+  }
+
+  function writeResult(text: string, details: any = {}): void {
+    atomicWrite(resultFile, {
+      schema: SCHEMA_VERSION,
+      text,
+      ...details,
+      task: state.task,
+      model: state.model,
+      thinking: state.thinking,
+      tokens: state.tokens,
+      cost: state.cost,
+      turns: state.turns,
+      sessionPath: state.sessionPath,
+      finishedAt: state.finishedAt,
+    });
+  }
+
   pi.registerCommand("peers", {
     description: "List live orch peer agents",
     handler: async (_args, ctx) => {
@@ -530,7 +681,7 @@ export default function (pi) {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       try {
         ownPresenceKey(ctx);
-        if (!dir) return toolResult("no answer from orchestrator (timeout) — proceed with your best judgment and note the open question in your final reply.");
+        if (!dir) return noOrchestratorAnswer();
         const id = Math.random().toString(36).slice(2, 10);
         const ts = new Date().toISOString();
         const questionFile = path.join(dir, "question.json");
@@ -559,9 +710,9 @@ export default function (pi) {
           } catch {}
           return toolResult(answer);
         }
-        return toolResult("no answer from orchestrator (timeout) — proceed with your best judgment and note the open question in your final reply.");
+        return noOrchestratorAnswer();
       } catch {
-        return toolResult("no answer from orchestrator (timeout) — proceed with your best judgment and note the open question in your final reply.");
+        return noOrchestratorAnswer();
       } finally {
         state.asking = undefined;
         if (askingPreviousState) state.state = askingPreviousState;
@@ -579,12 +730,10 @@ export default function (pi) {
     promptGuidelines: ["Use orch_agents to discover live peer agents before sending or reading peer messages."],
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      try {
-        const peers = peerSummaries(ownPresenceKey(ctx));
-        return toolResult(JSON.stringify(peers));
-      } catch {
-        return toolResult("error: unable to list peer agents");
-      }
+      return executeTool(
+        () => JSON.stringify(peerSummaries(ownPresenceKey(ctx))),
+        "error: unable to list peer agents",
+      );
     },
   });
 
@@ -599,11 +748,10 @@ export default function (pi) {
       text: Type.String({ description: "Message to send" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      try {
-        return toolResult(sendPeerMessage(params.target, params.text, ownPresenceKey(ctx)));
-      } catch {
-        return toolResult("error: unable to send peer message");
-      }
+      return executeTool(
+        () => sendPeerMessage(params.target, params.text, ownPresenceKey(ctx)),
+        "error: unable to send peer message",
+      );
     },
   });
 
@@ -617,21 +765,19 @@ export default function (pi) {
       target: Type.String({ description: "Peer key or unique key suffix" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      try {
+      return executeTool(() => {
         initPresence(ctx?.hasUI === true);
         const ownKey = state.key || computeKey(ctx?.hasUI === true);
         const resolved = resolvePeer(params.target, ownKey);
-        if (resolved.error) return toolResult(resolved.error);
+        if (resolved.error) return resolved.error;
         const result = readJson(path.join(resolved.peer.dir, "result.json"));
-        return toolResult(JSON.stringify({
+        return JSON.stringify({
           key: resolved.peer.key,
           state: resolved.peer.status.state,
           model: peerModel(resolved.peer.status),
           text: result?.text ?? resolved.peer.status.lastText ?? "",
-        }));
-      } catch {
-        return toolResult("error: unable to read peer agent");
-      }
+        });
+      }, "error: unable to read peer agent");
     },
   });
 
@@ -642,6 +788,19 @@ export default function (pi) {
     updateSessionRef(ctx);
     updateModel(ctx);
     writeStatus();
+    void readHerdrIdentity().catch(() => {});
+    let heartbeatTicks = 0;
+    heartbeat = setInterval(() => {
+      try {
+        heartbeatTicks += 1;
+        updateSessionRef(lastCtx);
+        updateModel(lastCtx);
+        updateContextUsage(lastCtx);
+        if (heartbeatTicks % 10 === 0) void readHerdrIdentity().catch(() => {});
+        writeStatus();
+      } catch {}
+    }, HEARTBEAT_MS);
+    heartbeat.unref?.();
   });
 
   pi.on("model_select", (event) => {
@@ -703,70 +862,88 @@ export default function (pi) {
     writeStatus();
   });
 
-  pi.on("tool_execution_start", (event) => {
+  function handleToolExecutionStart(event: any): void {
     const name = String(event?.toolName ?? "");
-    if (!/^(read|edit|multi[-_]?edit|write)$/i.test(name)) return;
+    const previousTool = state.lastTool;
+    if (name) state.lastTool = name;
     const args = event?.args ?? {};
     const file = args.path ?? args.file_path ?? args.filePath;
     if (typeof file === "string" && file && file !== state.currentFile) {
       state.currentFile = file;
+    }
+    if (state.lastTool !== previousTool || (typeof file === "string" && file)) {
       writeStatus();
     }
-  });
+  }
+
+  pi.on("tool_execution_start", handleToolExecutionStart);
+
+  function finalFailedAssistantMessage(messages: any[]): any | undefined {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role !== "assistant") continue;
+      if (message.stopReason !== "error" && message.stopReason !== "aborted") return undefined;
+      return message;
+    }
+    return undefined;
+  }
+
+  function failedAssistantError(message: any): string {
+    if (typeof message.errorMessage === "string" && message.errorMessage.trim()) {
+      return message.errorMessage;
+    }
+    return message.stopReason === "aborted" ? "aborted" : "error";
+  }
+
+  function recordFailedAgentRun(message: any, ctx: any): void {
+    const stopReason = message.stopReason;
+    const errorText = failedAssistantError(message);
+    const partial = extractText(message.content);
+    state.state = stopReason === "aborted" ? "aborted" : "error";
+    state.lastError = errorText;
+    state.finishedAt = new Date().toISOString();
+    updateContextUsage(ctx);
+    if (dir) {
+      const text = partial.trim()
+        ? `${partial.trim()}\n\n[${stopReason}] ${errorText}`
+        : `[${stopReason}] ${errorText}`;
+      lastFullText = text;
+      runFullText = text;
+      state.lastText = truncate(text, LAST_TEXT_MAX);
+      writeResult(text, { error: errorText, stopReason });
+    }
+    writeStatus();
+  }
 
   // agent_end carries every message from the run. Failures/aborts land as the
   // last assistant message with stopReason "error" | "aborted" + errorMessage
   // (see AssistantMessage in @earendil-works/pi-ai). No turn_error event exists.
-  pi.on("agent_end", (event, ctx) => {
+  function handleAgentEnd(event: any, ctx: any): void {
     lastCtx = ctx;
     const messages = event?.messages;
     if (!Array.isArray(messages)) return;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg?.role !== "assistant") continue;
-      const stopReason = msg.stopReason;
-      if (stopReason !== "error" && stopReason !== "aborted") break;
-      const errorText =
-        typeof msg.errorMessage === "string" && msg.errorMessage.trim()
-          ? msg.errorMessage
-          : stopReason === "aborted"
-            ? "aborted"
-            : "error";
-      const partial = extractText(msg.content);
-      state.state = stopReason === "aborted" ? "aborted" : "error";
-      state.lastError = errorText;
-      state.finishedAt = new Date().toISOString();
-      updateContextUsage(ctx);
-      if (dir) {
-        const text = partial.trim()
-          ? `${partial.trim()}\n\n[${stopReason}] ${errorText}`
-          : `[${stopReason}] ${errorText}`;
-        lastFullText = text;
-        runFullText = text;
-        state.lastText = truncate(text, LAST_TEXT_MAX);
-        atomicWrite(resultFile, {
-          schema: SCHEMA_VERSION,
-          text,
-          error: errorText,
-          stopReason,
-          task: state.task,
-          model: state.model,
-          thinking: state.thinking,
-          tokens: state.tokens,
-          cost: state.cost,
-          turns: state.turns,
-          sessionPath: state.sessionPath,
-          finishedAt: state.finishedAt,
-        });
-      }
-      writeStatus();
-      return;
+    const message = finalFailedAssistantMessage(messages);
+    if (message) recordFailedAgentRun(message, ctx);
+  }
+
+  pi.on("agent_end", handleAgentEnd);
+
+  function completeSettledAgentRun(ctx: any): void {
+    state.state = lastFullText ? "done" : "idle";
+    state.finishedAt = new Date().toISOString();
+    updateContextUsage(ctx);
+    if (lastFullText && dir) {
+      writeResult(lastFullText);
     }
-  });
+    if (pendingHandoff && runFullText) {
+      deliverPendingHandoff(runFullText, state.key || computeKey(ctx?.hasUI === true));
+    }
+    writeStatus();
+  }
 
   // agent_settled fires only when pi will not auto-continue (no retry/compact
   // continuation pending) — the real "done" signal, unlike agent_end.
-  pi.on("agent_settled", (_event, ctx) => {
+  function handleAgentSettled(_event: any, ctx: any): void {
     lastCtx = ctx;
     // agent_end already recorded an error/abort for this run — do not clobber it
     // with a synthetic done/idle from a previous successful lastFullText.
@@ -775,28 +952,10 @@ export default function (pi) {
       writeStatus();
       return;
     }
-    state.state = lastFullText ? "done" : "idle";
-    state.finishedAt = new Date().toISOString();
-    updateContextUsage(ctx);
-    if (lastFullText && dir) {
-      atomicWrite(resultFile, {
-        schema: SCHEMA_VERSION,
-        text: lastFullText,
-        task: state.task,
-        model: state.model,
-        thinking: state.thinking,
-        tokens: state.tokens,
-        cost: state.cost,
-        turns: state.turns,
-        sessionPath: state.sessionPath,
-        finishedAt: state.finishedAt,
-      });
-    }
-    if (pendingHandoff && runFullText) {
-      deliverPendingHandoff(runFullText, state.key || computeKey(ctx?.hasUI === true));
-    }
-    writeStatus();
-  });
+    completeSettledAgentRun(ctx);
+  }
+
+  pi.on("agent_settled", handleAgentSettled);
 
   pi.events?.on?.("herdr:blocked", (data) => {
     if (data?.active) {
@@ -817,6 +976,7 @@ export default function (pi) {
   });
 
   pi.on("session_shutdown", () => {
+    if (heartbeat) clearInterval(heartbeat);
     if (poll) clearInterval(poll);
     try {
       watcher?.close();

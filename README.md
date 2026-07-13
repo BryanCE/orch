@@ -43,6 +43,43 @@ git clone <this repo> ~/orch
 ~/orch/bin/orch.ts setup   # symlinks bins into ~/.local/bin, extensions into ~/.pi/agent/extensions
 ```
 
+## Configuration
+
+orch reads `$ORCH_DIR/config.toml`. The file uses TOML. Values in command-line flags take precedence over matching `ORCH_*` environment variables, which take precedence over values in this file, which take precedence over built-in defaults.
+
+The supported `[defaults]` keys are:
+
+- `adapter` — agent adapter name
+- `backend` — fleet backend name
+- `model` — default model
+- `spawn_cap` — maximum spawn count
+- `worktree` — whether to use git worktrees (`true` or `false`)
+
+Notifications use repeated `[[notify]]` tables. Each sink has a `type` of `desktop`, `webhook`, or `command`, and an optional `on` array of state names. If `on` is omitted, it defaults to `["blocked", "error"]`. Webhook sinks require a `url`. Command sinks require `command` as either a string (run through `sh -c`) or an array of command arguments.
+
+```toml
+[defaults]
+adapter = "pi"
+backend = "herdr"
+model = "claude-sonnet"
+spawn_cap = 4
+worktree = true
+
+[[notify]]
+type = "desktop"
+on = ["blocked", "error"]
+
+[[notify]]
+type = "webhook"
+on = ["done", "error"]
+url = "https://example.test/orch-events"
+
+[[notify]]
+type = "command"
+on = ["blocked"]
+command = ["logger", "-t", "orch"]
+```
+
 ## `orch setup`
 
 Idempotent guided bootstrap. It:

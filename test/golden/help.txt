@@ -4,7 +4,7 @@ The orchestrator never needs raw herdr for the normal loop.
 OBSERVE
   orch status [--json] [--all]   Glanceable table of every pane (default command).
   orch questions                 List pending agent questions.
-  orch events [--all] [target ...] [--status s[,s…]] [--notify]
+  orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json]
                                  Continuous stream of pane state transitions (forever).
 
 QUEUE
@@ -13,6 +13,7 @@ QUEUE
   orch queue list [--json]       List queued, claimed, and settled tasks.
   orch queue cancel <id> [--json]
                                  Cancel an unclaimed task.
+  orch work [--once]             Assign queued tasks to idle agents.
 
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
@@ -71,6 +72,7 @@ WORKSPACES
   orch ws focus <workspace_id>   Jump the user's view to that workspace.
 
 MAINTENANCE
+  orch doctor [--fix] [--json]   Check and optionally repair the installation.
   orch clean                     Delete agent dirs whose pid is dead.
   orch setup [--yes] [--no-install] [--copy]
                                  Bootstrap this machine: offer to install missing deps

@@ -38,7 +38,7 @@ function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolea
     socket.on("error", () => finish(false));
     socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on("data", () => finish(true));
-    socket.on("end", () => finish(false));
+    socket.on("end", () => finish(true));
     timeout = setTimeout(() => finish(false), timeoutMs);
     timeout.unref?.();
   });
@@ -344,7 +344,11 @@ export default function (pi) {
     updateSessionRef(ctx);
     void reportSession();
     // A reload can replace this extension mid-run without emitting another agent_start.
-    agentActive = ctx?.isIdle?.() === false;
+    try {
+      agentActive = ctx?.isIdle?.() === false;
+    } catch {
+      agentActive = false;
+    }
     publishState(true);
   });
 

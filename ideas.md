@@ -37,3 +37,5 @@ Good context to have — orch is further along than I realized: presence dir, he
   local web page reading ~/.orch/) rather than a terminal. That gets you clickable fleet control for a weekend
   of work instead of a terminal-emulator project.
 
+
+- BUG (2026-07-13): herdr pane move across workspaces orphans the bridge key — pane env HERDR_PANE_ID is frozen at spawn, so after a move the bridge writes ~/.orch/agents/<old-id> while the CLI resolves the name to the new pane id and misses. Fix: entities resolution should correlate stale agent dirs by pid (status.json pid ↔ herdr pane process-info) and adopt the dir under the live pane id.

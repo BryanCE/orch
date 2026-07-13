@@ -1,0 +1,71 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+
+const originalOrchDir = process.env.ORCH_DIR;
+const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
+process.env.ORCH_DIR = testOrchDir;
+
+const { HeadlessBackend } = await import("../src/backends/headless.ts");
+const backend = new HeadlessBackend();
+const handles: Array<{ pid: number; key: string }> = [];
+
+const fakeAdapter = {
+  id: "fake",
+  headlessCmd(_prompt: string, opts: { key?: string; orchDir?: string }): string[] {
+    const key = opts.key!;
+    const directory = opts.orchDir!;
+    const statusDir = path.join(directory, "agents", key);
+    const statusFile = path.join(statusDir, "status.json");
+    return [
+      "sh",
+      "-c",
+      `mkdir -p '${statusDir}'; printf '{"pid":%s,"state":"working"}' "$$" > '${statusFile}'; exec sleep 5`,
+    ];
+  },
+};
+
+async function waitFor(check: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (!check() && Date.now() < deadline) await Bun.sleep(20);
+  expect(check()).toBe(true);
+}
+
+afterEach(() => {
+  for (const handle of handles.splice(0)) {
+    try { process.kill(handle.pid, "SIGKILL"); } catch {}
+  }
+});
+
+afterAll(() => {
+  fs.rmSync(testOrchDir, { recursive: true, force: true });
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+});
+
+describe("HeadlessBackend", () => {
+  test("spawns a detached process and records its handle", async () => {
+    expect(backend.caps).toEqual({ panes: false, focusable: false });
+    const handle = backend.spawn(fakeAdapter as any, { key: "fake-1", prompt: "sleep" });
+    handles.push(handle);
+
+    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-1", "status.json")));
+    const record = JSON.parse(fs.readFileSync(path.join(testOrchDir, "spawned.jsonl"), "utf8").trim());
+    expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake" });
+    expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
+  });
+
+  test("closes only when registry and presence pid/key both match", async () => {
+    const handle = backend.spawn(fakeAdapter as any, { key: "fake-2" });
+    handles.push(handle);
+    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-2", "status.json")));
+
+    expect(backend.close({ pid: handle.pid, key: "wrong-key" })).toBe(false);
+    expect(backend.close({ pid: process.pid, key: "fake-2" })).toBe(false);
+    expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-2", alive: true });
+
+    expect(backend.close(handle)).toBe(true);
+    await waitFor(() => !backend.list().some((entry) => entry.pid === handle.pid && entry.alive));
+  });
+});

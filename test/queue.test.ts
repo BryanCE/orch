@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -22,10 +22,6 @@ function makeOrchDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-queue-"));
   tempDirs.push(dir);
   return dir;
-}
-
-function appendEvent(orchDir: string, event: Record<string, unknown>): void {
-  appendFileSync(join(orchDir, "queue", "queue.jsonl"), `${JSON.stringify(event)}\n`);
 }
 
 afterEach(() => {
@@ -73,10 +69,10 @@ describe("queue", () => {
     const retried = addTask(orchDir, "try again");
 
     expect(claimTask(orchDir, done.id, "agent-a")).toBe(true);
-    appendEvent(orchDir, { ev: "done", id: done.id, ts: "2026-01-01T00:00:00.000Z", result: "ok" });
+    recordTaskDone(orchDir, done.id, "ok");
 
     expect(claimTask(orchDir, failed.id, "agent-b")).toBe(true);
-    appendEvent(orchDir, { ev: "fail", id: failed.id, ts: "2026-01-01T00:00:01.000Z", error: "boom" });
+    recordTaskFailure(orchDir, failed.id, "boom");
 
     expect(claimTask(orchDir, retried.id, "agent-c")).toBe(true);
     unclaimTask(orchDir, retried.id);
@@ -128,14 +124,13 @@ describe("queue", () => {
     expect(claimTask(orchDir, task.id, "agent-b")).toBe(false);
   });
 
-  test("releases the claim file on done so the id can never wedge the claims dir", () => {
+  test("settles a claimed task to done and blocks any later claim", () => {
     const orchDir = makeOrchDir();
     const task = addTask(orchDir, "one shot");
 
     expect(claimTask(orchDir, task.id, "agent-a")).toBe(true);
-    expect(existsSync(join(orchDir, "queue", "claims", task.id))).toBe(true);
     expect(recordTaskDone(orchDir, task.id, "ok")).toMatchObject({ state: "done", result: "ok" });
-    expect(existsSync(join(orchDir, "queue", "claims", task.id))).toBe(false);
+    expect(claimTask(orchDir, task.id, "agent-b")).toBe(false);
   });
 
   test("exactly one of two racing claimers wins", () => {
@@ -145,13 +140,5 @@ describe("queue", () => {
     const outcomes = [claimTask(orchDir, task.id, "runner-1"), claimTask(orchDir, task.id, "runner-2")];
     expect(outcomes.filter(Boolean)).toHaveLength(1);
     expect(listTasks(orchDir)[0]).toMatchObject({ state: "claimed", agentKey: "runner-1" });
-  });
-
-  test("skips a corrupt trailing event line", () => {
-    const orchDir = makeOrchDir();
-    const task = addTask(orchDir, "survive corruption");
-    appendFileSync(join(orchDir, "queue", "queue.jsonl"), '{"ev":"claim"');
-
-    expect(listTasks(orchDir)).toEqual([expect.objectContaining({ id: task.id, state: "queued" })]);
   });
 });

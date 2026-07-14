@@ -7,7 +7,7 @@ import { deliverToSink, loadSinks, notify, notificationText, type NotifyEvent, t
 import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "./queue.ts";
 import { runWorkLoop } from "./work.ts";
 import { runDoctor, applyFixes, binaryStatus, checkBins, checkExtensions, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
-import { loadConfig, resolveSetting, type HostConfig, type OrchConfig } from "./config.ts";
+import { loadConfig, resolveSetting, writeDefaultEntry, type HostConfig, type OrchConfig } from "./config.ts";
 import { appendPresenceInbox, bridgeRegistered, defaultModelString, isRecord, loadPresence, orchDir, pidAlive, presenceDir, presenceAgentDir, readJSON, readPaneModel, recordSpawned, spawnedPanes, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "./store.ts";
 import { piAdapter, presenceFor } from "./adapters/pi.ts";
 import { codexAdapter } from "./adapters/codex.ts";
@@ -19,6 +19,7 @@ import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrRea
 import { herdrBackend } from "./backends/herdr.ts";
 import { runRemoteAsync, runSSH } from "./remote.ts";
 import { headlessBackend, type HeadlessHandle } from "./backends/headless.ts";
+import type { Backend } from "./backends/backend.ts";
 import { renderTable, truncate } from "./table.ts";
 import { errorMessage } from "./util.ts";
 import { daemonize, runForeground } from "./daemon/lifecycle.ts";
@@ -1429,6 +1430,42 @@ async function askYesNo(q: string): Promise<boolean> {
   return a === "" || a === "y" || a === "yes";
 }
 
+/** Prompt for one id from `options`, accepting either its list number or its exact name. */
+async function askChoice(label: string, options: readonly string[]): Promise<string> {
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  process.stdout.write(`${label}\n`);
+  options.forEach((option, index) => process.stdout.write(`  ${index + 1}) ${option}\n`));
+  try {
+    while (true) {
+      const answer = (await rl.question(`  Select [1-${options.length}]: `)).trim();
+      const byNumber = Number(answer);
+      if (Number.isInteger(byNumber) && byNumber >= 1 && byNumber <= options.length) return options[byNumber - 1];
+      const byName = options.find((option) => option === answer.toLowerCase());
+      if (byName) return byName;
+      process.stdout.write(`  Enter 1-${options.length} or one of: ${options.join(", ")}\n`);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+/** Read the value following `name` in `args`, or undefined when the flag is absent. */
+function readValueFlag(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  return index !== -1 && index + 1 < args.length ? args[index + 1] : undefined;
+}
+
+/** Resolve one setup selection from its flag, an interactive prompt, or fail in non-interactive mode. */
+async function pickSetupSelection(kind: string, flag: string | undefined, supported: readonly string[], flagName: string): Promise<string> {
+  if (flag !== undefined) {
+    if (supported.includes(flag)) return flag;
+    die(`Unknown ${kind} "${flag}". Supported ${kind}s: ${supported.join(", ")}.`);
+  }
+  if (process.stdin.isTTY) return askChoice(`Choose a ${kind}:`, supported);
+  die(`orch setup needs ${flagName} <id> in non-interactive mode. Supported ${kind}s: ${supported.join(", ")}.`);
+}
+
 function installClaudeHooks(pkgRoot: string): void {
   const claudeDir = path.join(HOME, ".claude");
   const settingsPath = path.join(claudeDir, "settings.json");
@@ -1497,6 +1534,14 @@ async function cmdSetup(args: string[]) {
     }
   };
 
+  const harnessFlag = readValueFlag(args, "--agent") ?? readValueFlag(args, "--adapter");
+  const backendFlag = readValueFlag(args, "--backend");
+  const harness = await pickSetupSelection("harness", harnessFlag, adapters.map((adapter) => adapter.id), "--agent");
+  const backend = await pickSetupSelection("backend", backendFlag, backends.map((entry) => entry.id), "--backend");
+  writeDefaultEntry(orchDir(), "adapter", harness);
+  writeDefaultEntry(orchDir(), "backend", backend);
+  process.stdout.write(`Selection recorded in ${path.join(orchDir(), "config.toml")}:\n  harness (adapter) = ${harness}\n  backend           = ${backend}\n`);
+
   process.stdout.write("Prerequisites:\n");
   // Keep prerequisite availability in sync with doctor. Claude is a setup-only
   // dependency; bun, herdr, and pi use the shared doctor binary check.
@@ -1539,16 +1584,18 @@ async function cmdSetup(args: string[]) {
   files.mkdirSync(presenceDir(), { recursive: true });
   process.stdout.write(`  ${presenceDir()}\n`);
 
-  process.stdout.write("pi extensions:\n");
-  const extDir = path.join(HOME, ".pi", "agent", "extensions");
-  const bridgeBundle = path.join(pkgRoot, "dist", "extensions", "orchestrator-bridge.js");
-  if (!files.existsSync(bridgeBundle)) {
-    die(`Missing bundled extension ${bridgeBundle}; run: bun run build:ext`);
-  }
-  link(bridgeBundle, path.join(extDir, "orchestrator-bridge.js"));
-  for (const f of files.readdirSync(path.join(pkgRoot, "extensions"))) {
-    if (f === "orchestrator-bridge.ts") continue;
-    link(path.join(pkgRoot, "extensions", f), path.join(extDir, f));
+  if (harness === "pi") {
+    process.stdout.write("pi extensions:\n");
+    const extDir = path.join(HOME, ".pi", "agent", "extensions");
+    const bridgeBundle = path.join(pkgRoot, "dist", "extensions", "orchestrator-bridge.js");
+    if (!files.existsSync(bridgeBundle)) {
+      die(`Missing bundled extension ${bridgeBundle}; run: bun run build:ext`);
+    }
+    link(bridgeBundle, path.join(extDir, "orchestrator-bridge.js"));
+    for (const f of files.readdirSync(path.join(pkgRoot, "extensions"))) {
+      if (f === "orchestrator-bridge.ts") continue;
+      link(path.join(pkgRoot, "extensions", f), path.join(extDir, f));
+    }
   }
 
   const skillsSrc = path.join(pkgRoot, "skills", "claude");
@@ -1573,7 +1620,7 @@ async function cmdSetup(args: string[]) {
     }
   }
 
-  installClaudeHooks(pkgRoot);
+  if (harness === "claude") installClaudeHooks(pkgRoot);
 
   // bins on PATH (repo-clone case; bun add -g already links bins)
   process.stdout.write("bins:\n");
@@ -1757,10 +1804,12 @@ function herdrAvailable(): boolean {
   return process.env.HERDR_ENV === "1" || herdrReachable();
 }
 
-function resolveBackend(id: string): typeof herdrBackend | typeof headlessBackend {
-  if (id === herdrBackend.id) return herdrBackend;
-  if (id === headlessBackend.id) return headlessBackend;
-  die(`Unknown backend "${id}". Supported backends: ${herdrBackend.id}, ${headlessBackend.id}.`);
+const backends: readonly Backend[] = [herdrBackend, headlessBackend];
+
+function resolveBackend(id: string): Backend {
+  const backend = backends.find((candidate) => candidate.id === id);
+  if (backend) return backend;
+  die(`Unknown backend "${id}". Supported backends: ${backends.map((candidate) => candidate.id).join(", ")}.`);
 }
 
 function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
@@ -2106,11 +2155,13 @@ function normalizedModel(modelArg: string): { requested: string; model: string; 
   return { requested: modelArg, model, thinking };
 }
 
-// Set a pane's model via the bridge inbox, then poll status.json for reflection.
-async function doModel(pane: string, modelArg: string, wait = true): Promise<{ old: string | null; now: string | null; confirmed: boolean; unchanged: boolean }> {
-  const dir = await waitForBridge(pane, wait ? 10_000 : 0);
+// Set an agent's model via the bridge inbox, then poll status.json for reflection.
+// Backend-neutral: the agent is identified by its presence key (herdr pane id or
+// headless session key), never a pane specifically.
+async function setAgentModel(agentKey: string, modelArg: string, wait = true): Promise<{ old: string | null; now: string | null; confirmed: boolean; unchanged: boolean }> {
+  const dir = await waitForBridge(agentKey, wait ? 10_000 : 0);
   const { requested, model, thinking } = normalizedModel(modelArg);
-  const old = readPaneModel(pane);
+  const old = readPaneModel(agentKey);
   if (old === requested) return { old, now: old, confirmed: true, unchanged: true };
   let lines = JSON.stringify({ cmd: "model", model, ts: new Date().toISOString() }) + "\n";
   if (thinking) lines += JSON.stringify({ cmd: "thinking", level: thinking, ts: new Date().toISOString() }) + "\n";
@@ -2118,7 +2169,7 @@ async function doModel(pane: string, modelArg: string, wait = true): Promise<{ o
   let now = old;
   const deadline = Date.now() + 2500;
   do {
-    now = readPaneModel(pane);
+    now = readPaneModel(agentKey);
     if (now === requested) return { old, now, confirmed: true, unchanged: false };
     if (Date.now() >= deadline) break;
     await delay(250);
@@ -2136,7 +2187,7 @@ async function cmdModel(args: string[]) {
   const { pane } = resolvePane(target);
   let result;
   try {
-    result = await doModel(pane, modelArg, !noWait);
+    result = await setAgentModel(pane, modelArg, !noWait);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -2155,7 +2206,7 @@ async function cmdModel(args: string[]) {
 async function pinModels(created: { pane: string; name: string }[], model: string): Promise<void> {
   const results = await Promise.all(created.map(async ({ pane, name }) => {
     try {
-      const result = await doModel(pane, model);
+      const result = await setAgentModel(pane, model);
       return { pane, name, ok: result.confirmed };
     } catch {
       return { pane, name, ok: false };
@@ -2789,7 +2840,7 @@ function waitForDispatchCompletion(pane: string, json = false): void {
 
 async function executeDispatch(settings: DispatchSettings): Promise<void> {
   if (settings.model) {
-    const { old, now } = await doModel(settings.pane, settings.model);
+    const { old, now } = await setAgentModel(settings.pane, settings.model);
     if (!settings.json) process.stdout.write(`model: ${old ?? "(unknown)"} → ${now ?? "(sent, unverified)"}\n`);
   }
   const result = doRun(settings.pane, workerPrompt(settings.prompt, settings.raw));
@@ -3053,11 +3104,13 @@ MAINTENANCE
   orch doctor [--fix] [--json]   Check and optionally repair the installation.
   orch clean [--worktrees [--force]]
                                  Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
-  orch setup [--yes] [--no-install] [--copy]
-                                 Bootstrap this machine: offer to install missing deps
-                                 (bun/herdr/pi/claude), link pi extensions, install Claude
-                                 skills/agents, link bins. --yes auto-installs, --no-install
-                                 just reports, --copy copies instead of symlinking.
+  orch setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]
+                                 Onboarding wizard: pick a harness (--agent) and backend,
+                                 record them to ~/.orch/config.toml, install missing deps
+                                 (bun/herdr/pi/claude), and wire the chosen harness. Prompts
+                                 interactively when a selection is omitted on a TTY; --yes
+                                 auto-installs deps, --no-install just reports, --copy copies
+                                 instead of symlinking.
   orch help                      This message.
 
 RECOVER

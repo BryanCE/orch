@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { insertSpawnedRecord, selectSpawnedRecords } from "./store/sqlite.ts";
 
 const HOME = homedir();
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
@@ -28,10 +29,6 @@ export function presenceKeyFromDirectoryName(name: string): string {
 
 export function presenceAgentDir(key: string, root = orchDir()): string {
   return join(root, "agents", presenceDirectoryName(key));
-}
-
-function spawnedPath(): string {
-  return join(orchDir(), "spawned.jsonl");
 }
 
 export interface PresenceStatus {
@@ -105,17 +102,13 @@ export function recordSpawned(
   metadata: { adapter?: string; model?: string; backend?: string; worktree?: string; branch?: string } = {},
 ): void {
   try {
-    mkdirSync(orchDir(), { recursive: true });
-    const record: { pane: string; ts: string; adapter?: string; model?: string; backend?: string; worktree?: string; branch?: string } = {
-      pane,
-      ts: new Date().toISOString(),
-    };
+    const record: SpawnedRecord = { pane, ts: new Date().toISOString() };
     if (metadata.adapter !== undefined) record.adapter = metadata.adapter;
     if (metadata.model !== undefined) record.model = metadata.model;
     if (metadata.backend !== undefined) record.backend = metadata.backend;
     if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
     if (metadata.branch !== undefined) record.branch = metadata.branch;
-    appendFileSync(spawnedPath(), JSON.stringify(record) + "\n");
+    insertSpawnedRecord(orchDir(), record);
   } catch {}
 }
 
@@ -132,21 +125,7 @@ export interface SpawnedRecord {
 export function spawnedRecords(): Map<string, SpawnedRecord> {
   const records = new Map<string, SpawnedRecord>();
   try {
-    for (const line of readFileSync(spawnedPath(), "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const entry: unknown = JSON.parse(line);
-        if (typeof entry !== "object" || entry === null || !("pane" in entry) || typeof entry.pane !== "string") continue;
-        const record: SpawnedRecord = { pane: entry.pane };
-        if ("ts" in entry && typeof entry.ts === "string") record.ts = entry.ts;
-        if ("adapter" in entry && typeof entry.adapter === "string") record.adapter = entry.adapter;
-        if ("model" in entry && typeof entry.model === "string") record.model = entry.model;
-        if ("backend" in entry && typeof entry.backend === "string") record.backend = entry.backend;
-        if ("worktree" in entry && typeof entry.worktree === "string") record.worktree = entry.worktree;
-        if ("branch" in entry && typeof entry.branch === "string") record.branch = entry.branch;
-        records.set(record.pane, record);
-      } catch {}
-    }
+    for (const record of selectSpawnedRecords(orchDir())) records.set(record.pane, record);
   } catch {}
   return records;
 }

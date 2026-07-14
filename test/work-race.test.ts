@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks } from "../src/queue";
@@ -27,13 +27,12 @@ function makeFixture(): { orchDir: string; agentKey: string; taskId: string } {
 }
 
 async function waitForClaim(orchDir: string): Promise<void> {
-  const queuePath = join(orchDir, "queue", "queue.jsonl");
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    if (existsSync(queuePath) && readFileSync(queuePath, "utf8").includes('"ev":"claim"')) return;
+    if (listTasks(orchDir).some((task) => task.state === "claimed")) return;
     await Bun.sleep(10);
   }
-  throw new Error("timed out waiting for a claim event");
+  throw new Error("timed out waiting for a claim");
 }
 
 function startRunner(orchDir: string): Runner {
@@ -67,14 +66,9 @@ describe("orch work claim race", () => {
       const exits = await Promise.all(runners.map((runner) => runner.exited));
       expect(exits).toEqual([0, 0]);
 
-      const events = readFileSync(join(orchDir, "queue", "queue.jsonl"), "utf8")
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
-      expect(events.filter((event) => event.ev === "claim" && event.id === taskId)).toHaveLength(1);
-
-      const claimFiles = readdirSync(join(orchDir, "queue", "claims"));
-      expect(claimFiles).toEqual([taskId]);
+      // SQLite's conditional claim UPDATE is the exactly-once boundary now: two
+      // OS processes contend, only one row transitions to claimed.
+      expect(listTasks(orchDir).filter((task) => task.state === "claimed")).toHaveLength(1);
       expect(listTasks(orchDir).filter((task) => task.id === taskId)).toEqual([
         expect.objectContaining({ id: taskId, state: "claimed", agentKey }),
       ]);

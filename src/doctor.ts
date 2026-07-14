@@ -437,6 +437,29 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
   return result;
 }
 
+function isWslRuntime(): boolean {
+  if (process.env.WSL_DISTRO_NAME) return true;
+  return /microsoft|wsl/i.test(os.release());
+}
+
+function isWindowsMountPath(dir: string): boolean {
+  return dir === "/mnt" || dir.startsWith("/mnt/");
+}
+
+async function checkOrchDirLocation(orchDir: string): Promise<CheckResult> {
+  const id = "orchdir-location";
+  const label = "ORCH_DIR location";
+  if (!isWslRuntime() || !isWindowsMountPath(orchDir)) {
+    return { id, label, status: "ok", detail: `${orchDir} is not on a Windows mount` };
+  }
+  return {
+    id,
+    label,
+    status: "warn",
+    detail: `ORCH_DIR ${orchDir} is on a Windows mount (/mnt); SQLite locks slowly there. Move it to the Linux filesystem, e.g. ORCH_DIR=$HOME/.orch`,
+  };
+}
+
 const defaultDaemonEntrypoint = path.join(repoDir, "src", "daemon", "orchd.ts");
 
 function daemonEntrypoint(): string {
@@ -454,7 +477,7 @@ async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
   }
   return pidAlive(lock.pid)
     ? { id: "orchd", label: "orchd presence", status: "ok", detail: `orchd is running (pid ${lock.pid})` }
-    : { id: "orchd", label: "orchd presence", status: "warn", detail: `orchd is absent (stale lock for dead pid ${lock.pid})` };
+    : { id: "orchd", label: "orchd presence", status: "warn", detail: `orchd is stale (lock for dead pid ${lock.pid}); run orch daemon start` };
 }
 
 async function checkDaemonStaleness(orchDir: string): Promise<CheckResult> {
@@ -621,6 +644,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
     isolated("pi-extensions", "pi extensions", () => checkExtensions(bins)),
+    isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
     isolated("orchd-staleness", "orchd code", () => checkDaemonStaleness(orchDir)),
     isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),

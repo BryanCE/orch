@@ -6,6 +6,8 @@
 //   status.json  — state / model / thinking / tokens / cost / currentFile / lastText
 //   result.json  — final assistant text of the last settled run
 //   inbox.jsonl  — APPEND a JSON line {"text":"..."} to steer this agent mid-run
+//   ack.jsonl    — APPEND {"id":...,"ts":...} per consumed inbox line that carries
+//                  a message id, so the daemon marks that outbox row delivered once
 //
 // Read by the `orch` CLI. Inert failures: every write is best-effort.
 import * as fs from "node:fs";
@@ -18,6 +20,7 @@ import { createHash } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../src/policy/workspace.ts";
+import { allowedModelPatterns } from "../src/config.ts";
 
 // The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
 function hashExtensionFile(file: string): string {
@@ -236,7 +239,6 @@ const LAST_TEXT_MAX = 400;
 const TASK_MAX = 200;
 const HEARTBEAT_MS = 3000;
 const INBOX_POLL_MS = 1000;
-const ALLOWED_MODELS_FILE = path.join(os.homedir(), ".pi", "agent", "orch", "allowed-models");
 const HERDR_ENV = process.env.HERDR_ENV;
 const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH;
 const HERDR_PANE_ID = process.env.HERDR_PANE_ID;
@@ -317,6 +319,7 @@ export default function (pi: ExtensionAPI): void {
   let resultFile = "";
   let inboxFile = "";
   let controlFile = "";
+  let ackFile = "";
 
   let lastCtx: ExtensionContext | undefined;
   const state = {
@@ -502,15 +505,7 @@ export default function (pi: ExtensionAPI): void {
 
   function isAllowedModel(requestedModel: string): boolean {
     if (requestedModel.startsWith("openai-codex/")) return true;
-    let raw: string;
-    try {
-      raw = fs.readFileSync(ALLOWED_MODELS_FILE, "utf8");
-    } catch {
-      return false;
-    }
-    for (const line of raw.split("\n")) {
-      const pattern = line.trim();
-      if (!pattern || pattern.startsWith("#")) continue;
+    for (const pattern of allowedModelPatterns(ORCH_DIR)) {
       if (globToRegex(pattern).test(requestedModel)) return true;
     }
     return false;
@@ -607,13 +602,44 @@ export default function (pi: ExtensionAPI): void {
     } catch {}
   }
 
-  async function routeInboxLine(line: string): Promise<void> {
-    const parsed = parseInboxLine(line);
+  // At-least-once delivery: the daemon retries an unacked outbox row by
+  // re-appending the SAME message id, so track acked ids to apply each message
+  // once and ack once (never re-deliver, never double-append the marker).
+  const ackedMessageIds = new Set<string>();
+
+  function messageIdOf(parsed: unknown): string | undefined {
+    if (!isRecord(parsed) || typeof parsed.id !== "string" || !parsed.id) return undefined;
+    return parsed.id;
+  }
+
+  // ack.jsonl is bridge-append / daemon-consume: the daemon reads it to mark the
+  // matching outbox row delivered exactly once, then truncates it. Never cleared here.
+  function appendAckMarker(id: string): void {
+    if (!ackFile) return;
+    try {
+      fs.appendFileSync(ackFile, `${JSON.stringify({ id, key: state.key, ts: new Date().toISOString() })}\n`);
+    } catch {
+      // best-effort
+    }
+  }
+
+  async function applyInboxMessage(parsed: unknown): Promise<void> {
     if (await routeInboxCommand(parsed)) return;
     const text = typeof parsed === "string"
       ? parsed
       : isRecord(parsed) && typeof parsed.text === "string" ? parsed.text : undefined;
     if (text) deliverSteerText(text);
+  }
+
+  async function routeInboxLine(line: string): Promise<void> {
+    const parsed = parseInboxLine(line);
+    const messageId = messageIdOf(parsed);
+    if (messageId !== undefined && ackedMessageIds.has(messageId)) return;
+    await applyInboxMessage(parsed);
+    if (messageId !== undefined) {
+      ackedMessageIds.add(messageId);
+      appendAckMarker(messageId);
+    }
   }
 
   // We atomically claim the file (rename), so lines appended mid-drain land in
@@ -655,6 +681,7 @@ export default function (pi: ExtensionAPI): void {
     resultFile = path.join(dir, "result.json");
     inboxFile = path.join(dir, "inbox.jsonl");
     controlFile = path.join(dir, "control.json");
+    ackFile = path.join(dir, "ack.jsonl");
 
     try {
       fs.writeFileSync(inboxFile, ""); // ignore steers from a previous life

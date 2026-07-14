@@ -86,11 +86,13 @@ MAINTENANCE
   orch doctor [--fix] [--json]   Check and optionally repair the installation.
   orch clean [--worktrees [--force]]
                                  Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
-  orch setup [--yes] [--no-install] [--copy]
-                                 Bootstrap this machine: offer to install missing deps
-                                 (bun/herdr/pi/claude), link pi extensions, install Claude
-                                 skills/agents, link bins. --yes auto-installs, --no-install
-                                 just reports, --copy copies instead of symlinking.
+  orch setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]
+                                 Onboarding wizard: pick a harness (--agent) and backend,
+                                 record them to ~/.orch/config.toml, install missing deps
+                                 (bun/herdr/pi/claude), and wire the chosen harness. Prompts
+                                 interactively when a selection is omitted on a TTY; --yes
+                                 auto-installs deps, --no-install just reports, --copy copies
+                                 instead of symlinking.
   orch help                      This message.
 
 RECOVER

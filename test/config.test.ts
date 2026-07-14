@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { loadConfig, resolveSetting } from "../src/config.ts";
+import { DEFAULT_ALLOWED_MODELS, allowedModelPatterns, loadConfig, resolveSetting, writeDefaultEntry } from "../src/config.ts";
 
 const directories: string[] = [];
 const originalConfigTest = process.env.ORCH_CONFIG_TEST;
@@ -79,6 +79,67 @@ wD = "Design"
     fs.writeFileSync(file, "[queue]\nmax_retries = \"once\"\n");
 
     expect(() => loadConfig(directory)).toThrow(`${file}: queue.max_retries: expected number, found string`);
+  });
+
+  test("parses defaults.allowed_models as a string array", () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "config.toml"), "[defaults]\nallowed_models = [\"openrouter/a\", \"openrouter/b\"]\n");
+
+    expect(loadConfig(directory).defaults.allowed_models).toEqual(["openrouter/a", "openrouter/b"]);
+  });
+
+  test("rejects a non-string entry in defaults.allowed_models", () => {
+    const directory = tempDir();
+    const file = path.join(directory, "config.toml");
+    fs.writeFileSync(file, "[defaults]\nallowed_models = [1]\n");
+
+    expect(() => loadConfig(directory)).toThrow(`${file}: defaults.allowed_models: expected string array`);
+  });
+});
+
+describe("allowedModelPatterns", () => {
+  test("returns the built-in defaults when config is absent", () => {
+    expect(allowedModelPatterns(tempDir())).toEqual(DEFAULT_ALLOWED_MODELS);
+  });
+
+  test("returns the configured patterns when set", () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "config.toml"), "[defaults]\nallowed_models = [\"openrouter/x\"]\n");
+
+    expect(allowedModelPatterns(directory)).toEqual(["openrouter/x"]);
+  });
+});
+
+describe("writeDefaultEntry", () => {
+  test("creates a [defaults] table and records the entry", () => {
+    const directory = tempDir();
+    writeDefaultEntry(directory, "adapter", "pi");
+    writeDefaultEntry(directory, "backend", "herdr");
+
+    const config = loadConfig(directory);
+    expect(config.defaults.adapter).toBe("pi");
+    expect(config.defaults.backend).toBe("herdr");
+  });
+
+  test("replaces an existing entry without disturbing other sections", () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "config.toml"), "[defaults]\nadapter = \"claude\"\nmodel = \"sonnet\"\n\n[queue]\nmax_retries = 3\n");
+    writeDefaultEntry(directory, "adapter", "pi");
+
+    const config = loadConfig(directory);
+    expect(config.defaults.adapter).toBe("pi");
+    expect(config.defaults.model).toBe("sonnet");
+    expect(config.queue.max_retries).toBe(3);
+  });
+
+  test("is idempotent when rewriting the same value", () => {
+    const directory = tempDir();
+    writeDefaultEntry(directory, "adapter", "pi");
+    const first = fs.readFileSync(path.join(directory, "config.toml"), "utf8");
+    writeDefaultEntry(directory, "adapter", "pi");
+    const second = fs.readFileSync(path.join(directory, "config.toml"), "utf8");
+
+    expect(second).toBe(first);
   });
 });
 

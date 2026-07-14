@@ -10,6 +10,7 @@ import {
   repositoryBranch,
   worktreeBranch,
 } from "../src/worktree.ts";
+import { insertSpawnedRecord } from "../src/store/sqlite.ts";
 
 const directories: string[] = [];
 
@@ -40,9 +41,9 @@ function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, 
   fs.writeFileSync(path.join(orchDir, "agents", pane, "status.json"), JSON.stringify({
     schema: 2, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
   }));
-  fs.writeFileSync(path.join(orchDir, "spawned.jsonl"), JSON.stringify({
-    pane, adapter: "pi", worktree: worktreePath, branch,
-  }) + "\n");
+  insertSpawnedRecord(orchDir, {
+    pane, ts: new Date().toISOString(), adapter: "pi", worktree: worktreePath, branch,
+  });
 }
 
 function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {

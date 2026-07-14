@@ -18,6 +18,7 @@ export type OrchConfig = {
     adapter?: string;
     backend?: string;
     model?: string;
+    allowed_models?: string[];
     spawn_cap?: number;
     worktree?: boolean;
     worker_peer_tools?: boolean;
@@ -187,12 +188,18 @@ export function loadConfig(orchDir: string): OrchConfig {
   const defaults: OrchConfig["defaults"] = {};
   if (root.defaults !== undefined) {
     const source = table(root.defaults, file, "defaults");
-    knownKeys(source, file, "defaults", ["adapter", "backend", "model", "spawn_cap", "worktree", "worker_peer_tools"]);
+    knownKeys(source, file, "defaults", ["adapter", "backend", "model", "allowed_models", "spawn_cap", "worktree", "worker_peer_tools"]);
     for (const key of ["adapter", "backend", "model"] as const) {
       if (source[key] !== undefined) {
         if (typeof source[key] !== "string") fail(file, `defaults.${key}`, "string", source[key]);
         defaults[key] = source[key] as string;
       }
+    }
+    if (source.allowed_models !== undefined) {
+      if (!Array.isArray(source.allowed_models) || !source.allowed_models.every((entry) => typeof entry === "string")) {
+        fail(file, "defaults.allowed_models", "string array", source.allowed_models);
+      }
+      defaults.allowed_models = source.allowed_models as string[];
     }
     if (source.spawn_cap !== undefined) {
       if (typeof source.spawn_cap !== "number") fail(file, "defaults.spawn_cap", "number", source.spawn_cap);
@@ -282,4 +289,57 @@ export function resolveSetting<T>(opts: { flag?: T; env?: string; config?: T; fa
   }
   if (opts.config !== undefined) return opts.config;
   return opts.fallback;
+}
+
+/** Model allowlist applied when `defaults.allowed_models` is unset. `openai-codex/*` is always allowed. */
+export const DEFAULT_ALLOWED_MODELS = ["openrouter/moonshotai/kimi-k2.7-code", "openrouter/x-ai/grok-4.5"];
+
+/** Return the configured model-allowlist patterns, or the built-in defaults when unset or unreadable. */
+export function allowedModelPatterns(orchDir: string): string[] {
+  try {
+    const patterns = loadConfig(orchDir).defaults.allowed_models;
+    if (patterns && patterns.length) return patterns;
+  } catch {
+    // A malformed config falls back to the built-in allowlist rather than failing closed.
+  }
+  return DEFAULT_ALLOWED_MODELS;
+}
+
+/** Line range [start, end) of a top-level table's body, or null when the header is absent. */
+function tableBodyRange(lines: string[], section: string): { start: number; end: number } | null {
+  const header = `[${section}]`;
+  const headerIndex = lines.findIndex((line) => line.trim() === header);
+  if (headerIndex === -1) return null;
+  const start = headerIndex + 1;
+  let end = lines.length;
+  for (let index = start; index < lines.length; index++) {
+    if (/^\s*\[/.test(lines[index])) { end = index; break; }
+  }
+  return { start, end };
+}
+
+/** Upsert a quoted-string assignment into the `[defaults]` table of `$orchDir/config.toml`, preserving all other content. */
+export function writeDefaultEntry(orchDir: string, key: string, value: string): void {
+  const file = path.join(orchDir, "config.toml");
+  let text = "";
+  try {
+    text = filesystem.readFileSync(file, "utf8");
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const lines = text.length ? text.split(/\r?\n/) : [];
+  const assignment = `${key} = ${JSON.stringify(value)}`;
+  const range = tableBodyRange(lines, "defaults");
+  if (!range) {
+    lines.unshift("[defaults]", assignment, "");
+  } else {
+    let replaced = false;
+    for (let index = range.start; index < range.end; index++) {
+      const match = lines[index].match(/^\s*([A-Za-z0-9_-]+)\s*=/);
+      if (match && match[1] === key) { lines[index] = assignment; replaced = true; break; }
+    }
+    if (!replaced) lines.splice(range.end, 0, assignment);
+  }
+  filesystem.mkdirSync(orchDir, { recursive: true });
+  filesystem.writeFileSync(file, lines.join("\n"));
 }

@@ -2,13 +2,14 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
-process.env.ORCH_DIR = orchDir;
 const { claudeAdapter } = await import("../src/adapters/claude.ts");
 const hookScript = join(import.meta.dir, "../scripts/claude-hooks.ts");
+// Windows forbids ':' in the presence directory name; the hook contract is otherwise unchanged.
+const fakePaneId = process.platform === "win32" ? "w9_p1" : "w9:p1";
 
 function agentDir(key: string): string {
   const directory = join(orchDir, "agents", key);
@@ -18,7 +19,6 @@ function agentDir(key: string): string {
 
 function runHook(event: string, key: string, input: Record<string, unknown> = {}): Record<string, any> {
   const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
-  const fakePaneId = "w9:p1";
   try {
     execFileSync(process.execPath, [hookScript, event], {
       env: { ...process.env, ORCH_DIR: hookOrchDir, HERDR_PANE_ID: fakePaneId },
@@ -31,14 +31,23 @@ function runHook(event: string, key: string, input: Record<string, unknown> = {}
   }
 }
 
+function restoreOrchDir(): void {
+  if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = previousOrchDir;
+}
+
+beforeEach(() => {
+  process.env.ORCH_DIR = orchDir;
+});
+
 afterEach(() => {
   rmSync(join(orchDir, "agents"), { recursive: true, force: true });
+  restoreOrchDir();
 });
 
 afterAll(() => {
   rmSync(orchDir, { recursive: true, force: true });
-  if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
-  else process.env.ORCH_DIR = previousOrchDir;
+  restoreOrchDir();
 });
 
 describe("Claude adapter", () => {
@@ -71,7 +80,7 @@ describe("Claude adapter", () => {
 
   test("maps Claude hook events to presence states and schema", () => {
     const key = "claude-hooks";
-    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 2, agent: "claude", key: "w9:p1", pid: process.pid, state: "working" });
+    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 2, agent: "claude", key: fakePaneId, pid: process.pid, state: "working" });
     expect(runHook("Notification", key, { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: 2, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
     expect(runHook("Stop", key, { pid: process.pid })).toMatchObject({ schema: 2, agent: "claude", state: "idle" });
 

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import type { AgentAdapter, SpawnOpts } from "../adapters/adapter.ts";
-import { pidAlive } from "../store.ts";
+import { pidAlive, presenceAgentDir } from "../store.ts";
 import type {
   Backend,
   BackendCapabilities,
@@ -22,10 +22,9 @@ export interface HeadlessHandle {
 export type HeadlessRegistryRecord = BackendRegistryRecord<HeadlessHandle>;
 
 const HEADLESS_BACKEND = "headless";
-const DEFAULT_ORCH_DIR = join(homedir(), ".orch");
 
 function orchDirectory(override?: string): string {
-  return override ?? process.env.ORCH_DIR ?? DEFAULT_ORCH_DIR;
+  return override ?? process.env.ORCH_DIR ?? join(homedir(), ".orch");
 }
 
 function registryPath(directory: string): string {
@@ -90,8 +89,10 @@ function appendRegistry(record: HeadlessRegistryRecord, directory: string): void
 function statusPid(directory: string, key: string): number | undefined {
   if (!safeKey(key)) return undefined;
   try {
-    const status = JSON.parse(readFileSync(join(directory, "agents", key, "status.json"), "utf8"));
-    return typeof status?.pid === "number" ? status.pid : undefined;
+    const status: unknown = JSON.parse(readFileSync(join(presenceAgentDir(key, directory), "status.json"), "utf8"));
+    if (!status || typeof status !== "object" || Array.isArray(status)) return undefined;
+    const pid = Reflect.get(status, "pid");
+    return typeof pid === "number" ? pid : undefined;
   } catch {
     return undefined;
   }
@@ -141,6 +142,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       model: opts.model,
       orchDir: directory,
       env: opts.env,
+      tools: opts.tools,
     };
     const argv = adapter.restrictedHeadlessCmd?.(opts.prompt ?? "", adapterOpts)
       ?? adapter.headlessCmd(opts.prompt ?? "", adapterOpts);

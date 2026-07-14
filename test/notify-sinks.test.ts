@@ -12,6 +12,10 @@ function tempDir(): string {
   return directory;
 }
 
+function nodeCommand(script: string): string[] {
+  return [process.execPath, "-e", script];
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
@@ -31,7 +35,11 @@ describe("notify sinks", () => {
       ts: "2026-01-01T00:00:00.000Z",
     };
 
-    const sink = { type: "command" as const, on: ["done"], command: ["bash", "-c", `cat > ${output}`] };
+    const sink = {
+      type: "command" as const,
+      on: ["done"],
+      command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`),
+    };
     expect(await deliverToSink(sink, event)).toBe(true);
 
     const payload = JSON.parse(readFileSync(output, "utf8"));
@@ -50,7 +58,7 @@ describe("notify sinks", () => {
     writeFileSync(join(directory, "config.toml"), `[[notify]]
 type = "command"
 on = ["done"]
-command = ["bash", "-c", "cat"]
+command = [${JSON.stringify(process.execPath)}, "-e", ""]
 
 [[notify]]
 type = "webhook"
@@ -59,7 +67,7 @@ url = "https://example.test/notify"
 `);
 
     expect(loadSinks(directory)).toEqual([
-      { type: "command", on: ["done"], command: ["bash", "-c", "cat"] },
+      { type: "command", on: ["done"], command: nodeCommand("") },
       { type: "webhook", on: ["error"], url: "https://example.test/notify" },
     ]);
   });

@@ -15,6 +15,11 @@ mock.module("../src/herdr.ts", () => ({
       { pane_id: "w0:p2", workspace_id: "ws-test" },
     ];
   },
+  herdrNames: () => new Map(),
+  herdrTabs: () => new Map(),
+  herdrReachable: () => true,
+  paneStatus: () => null,
+  herdrExec: () => "",
   herdrJSON: (args: string[]) => {
     herdrArgv.push([...args]);
     return { tab: { label: "work" }, root_pane: { pane_id: "w0:p3" } };
@@ -40,7 +45,10 @@ const fakeAdapter: AgentAdapter = {
   extractResult: () => undefined,
 };
 
-afterAll(() => fs.rmSync(testDir, { recursive: true, force: true }));
+afterAll(() => {
+  mock.restore();
+  fs.rmSync(testDir, { recursive: true, force: true });
+});
 
 describe("HerdrBackend", () => {
   test("creates a pane and runs the adapter command", () => {

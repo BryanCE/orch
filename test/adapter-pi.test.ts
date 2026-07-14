@@ -1,25 +1,23 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
-process.env.ORCH_DIR = orchDir;
 
 const { PiAdapter } = await import("../src/adapters/pi.ts");
 const { presenceDir } = await import("../src/store.ts");
 const adapter = new PiAdapter();
 
-// The store is process-global and may have been imported by another test before
-// this file's ORCH_DIR override. Build fixtures under the directory the store
-// actually reads, rather than assuming this file won the import race.
-const storePresenceDir = presenceDir();
+function storePresenceDir(): string {
+  return presenceDir();
+}
 const fixtureKeys = new Set<string>();
 
 function presencePath(key: string, file: string): string {
   fixtureKeys.add(key);
-  const directory = path.join(storePresenceDir, key);
+  const directory = path.join(storePresenceDir(), key);
   fs.mkdirSync(directory, { recursive: true });
   return path.join(directory, file);
 }
@@ -28,17 +26,26 @@ function writeStatus(key: string, state: string): void {
   fs.writeFileSync(presencePath(key, "status.json"), JSON.stringify({ state, pid: process.pid }));
 }
 
+function restoreOrchDir(): void {
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+}
+
+beforeEach(() => {
+  process.env.ORCH_DIR = orchDir;
+});
+
 afterEach(() => {
   for (const key of fixtureKeys) {
-    fs.rmSync(path.join(storePresenceDir, key), { recursive: true, force: true });
+    fs.rmSync(path.join(storePresenceDir(), key), { recursive: true, force: true });
   }
   fixtureKeys.clear();
+  restoreOrchDir();
 });
 
 afterAll(() => {
   fs.rmSync(orchDir, { recursive: true, force: true });
-  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
-  else process.env.ORCH_DIR = originalOrchDir;
+  restoreOrchDir();
 });
 
 describe("PiAdapter", () => {
@@ -65,7 +72,7 @@ describe("PiAdapter", () => {
 
     adapter.steer({ key: "pi-steer", text: "run the tests" });
 
-    const lines = fs.readFileSync(path.join(storePresenceDir, "pi-steer", "inbox.jsonl"), "utf8").trim().split("\n");
+    const lines = fs.readFileSync(path.join(storePresenceDir(), "pi-steer", "inbox.jsonl"), "utf8").trim().split("\n");
     expect(JSON.parse(lines[0])).toMatchObject({ text: "run the tests" });
   });
 
@@ -74,7 +81,7 @@ describe("PiAdapter", () => {
 
     adapter.answer({ key: "pi-answer", text: "yes" });
 
-    expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir, "pi-answer", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
+    expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir(), "pi-answer", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
   });
 
   test("reads result.json and falls back to the last assistant session text", () => {

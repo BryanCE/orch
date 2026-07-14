@@ -13,6 +13,7 @@ import {
 import { emitAndNotify, derivePresenceTransition, type PresenceMetadata } from "./daemon/events.ts";
 import { loadSinks, type Sink } from "./notify.ts";
 import { loadPresence, statusForPresence, type PresenceEntry } from "./store.ts";
+import { workspaceOf } from "./policy/workspace.ts";
 
 const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
 
@@ -31,11 +32,6 @@ export interface WorkOptions {
 function agentIdle(entry: PresenceEntry): boolean {
   const state = entry.status?.state;
   return entry.alive && (state === "idle" || state === "done");
-}
-
-/** Return the workspace prefix of a presence key (the part before ':'). */
-function workspaceOf(key: string): string {
-  return key.split(":", 1)[0] ?? "";
 }
 
 function sleepMs(ms: number): void {
@@ -132,7 +128,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       const task = nextQueuedTask(
         listTasks(options.orchDir),
         entry.status?.agent ?? "pi",
-        workspaceOf(entry.key),
+        workspaceOf(entry.key) ?? entry.key.split(":", 1)[0],
       );
       if (!task || !claimTask(options.orchDir, task.id, entry.key)) continue;
       assigned++;

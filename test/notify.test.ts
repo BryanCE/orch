@@ -12,12 +12,13 @@ function tempDir(): string {
   return directory;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
+function nodeCommand(script: string): string[] {
+  return [process.execPath, "-e", script];
 }
 
 async function waitForFile(file: string): Promise<void> {
-  for (let attempt = 0; attempt < 40 && !existsSync(file); attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (existsSync(file) && readFileSync(file, "utf8").length > 0) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -55,7 +56,7 @@ url = "https://example.test/hook"
 
 [[notify]]
 type = "command"
-command = "cat"
+command = [${JSON.stringify(process.execPath)}, "-e", ""]
 
 [[notify]]
 type = "email"
@@ -83,7 +84,7 @@ on = ["done"]
     expect(result.value).toEqual([
       { type: "desktop", on: ["blocked", "error"] },
       { type: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
-      { type: "command", on: ["blocked", "error"], command: ["sh", "-c", "cat"] },
+      { type: "command", on: ["blocked", "error"], command: nodeCommand("") },
       { type: "herdr", on: ["done"] },
     ]);
     expect(result.stderr).toContain("unknown sink type");
@@ -99,12 +100,12 @@ on = ["done"]
     const matching = {
       type: "command" as const,
       on: ["done"],
-      command: ["sh", "-c", `printf matched > ${shellQuote(matchingFile)}`],
+      command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(matchingFile)}, "matched");`),
     };
     const nonMatching = {
       type: "command" as const,
       on: ["error"],
-      command: ["sh", "-c", `printf wrong > ${shellQuote(nonMatchingFile)}`],
+      command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(nonMatchingFile)}, "wrong");`),
     };
 
     notify([matching, nonMatching], {
@@ -138,7 +139,11 @@ on = ["done"]
       ts: "2026-01-01T00:00:00.000Z",
       lastError: "boom",
     };
-    const sink = { type: "command" as const, on: ["error"], command: ["sh", "-c", `cat > ${shellQuote(output)}`] };
+    const sink = {
+      type: "command" as const,
+      on: ["error"],
+      command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`),
+    };
 
     expect(await deliverToSink(sink, event)).toBe(true);
     await waitForFile(output);

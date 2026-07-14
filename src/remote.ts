@@ -34,6 +34,7 @@ export function runSSH(destination: string, command: string, options: RemoteOpti
       timeout,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      shell: windowsCommandShell(sshBin),
     });
     return { ok: true, stdout: outputText(stdout), stderr: "", code: 0 };
   } catch (error: unknown) {
@@ -44,6 +45,10 @@ export function runSSH(destination: string, command: string, options: RemoteOpti
       code: typeof errorField(error, "status") === "number" ? errorField(error, "status") as number : undefined,
     };
   }
+}
+
+function windowsCommandShell(sshBin: string): boolean {
+  return process.platform === "win32" && /\.(?:cmd|bat)$/i.test(sshBin);
 }
 
 function outputText(value: unknown): string {
@@ -135,6 +140,7 @@ export function runRemote(
       timeout,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      shell: windowsCommandShell(sshBin),
     });
     return parsedOutput(hostName, stdout);
   } catch (error: unknown) {
@@ -163,6 +169,7 @@ export function runRemoteAsync(
       timeout,
       encoding: "utf8",
       windowsHide: true,
+      shell: windowsCommandShell(sshBin),
     }, (error, stdout, stderr) => {
       if (!error) {
         resolve(parsedOutput(hostName, outputText(stdout)));

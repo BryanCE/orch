@@ -8,8 +8,6 @@
 //   inbox.jsonl  — APPEND a JSON line {"text":"..."} to steer this agent mid-run
 //
 // Read by the `orch` CLI. Inert failures: every write is best-effort.
-// @ts-nocheck
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -17,11 +15,11 @@ import { fileURLToPath } from "node:url";
 import { createConnection } from "node:net";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { checkWall, scopeToWorkspace, workspaceOf } from "../src/policy/workspace.ts";
 
-// Loaded via the ~/.pi/agent/extensions symlink, where a relative ../src import resolves
-// against ~/.pi/agent and fails — this file must stay standalone. The digest must stay
-// byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
+// The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
 function hashExtensionFile(file: string): string {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 12);
 }
@@ -33,12 +31,205 @@ const PRESENCE_ROOT = path.join(ORCH_DIR, "agents");
 const SCHEMA_VERSION = 2;
 const AGENT_ID = "pi";
 
+type JsonRecord = Record<string, unknown>;
+type ResolvedModel = NonNullable<ExtensionContext["model"]>;
+type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
+
+interface TextBlockLike {
+  type: unknown;
+  text: string;
+}
+
+interface HerdrEntityLike {
+  pane_id?: unknown;
+  tab_id?: unknown;
+  label?: unknown;
+}
+
+interface UsageLike {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: { total?: number };
+}
+
+interface AssistantMessageLike {
+  role: string;
+  content: unknown;
+  usage?: UsageLike;
+  stopReason?: string;
+  errorMessage?: string;
+}
+
+interface ModelSelectEventLike {
+  model: unknown;
+}
+
+interface ThinkingLevelSelectEventLike {
+  level: unknown;
+}
+
+interface BeforeAgentStartEventLike {
+  prompt: unknown;
+}
+
+interface MessageEndEventLike {
+  message: unknown;
+}
+
+interface AgentEndEventLike {
+  messages: unknown;
+}
+
+interface ToolExecutionStartEventLike {
+  toolName: unknown;
+  args: unknown;
+}
+
+interface HerdrBlockedEventLike {
+  active: boolean;
+  label?: string;
+}
+
+interface ControlCommand {
+  cmd: string;
+  model?: unknown;
+  level?: unknown;
+}
+
+interface OrchAskParams {
+  question: string;
+}
+
+interface OrchSendParams {
+  target: string;
+  text: string;
+  cross_workspace?: boolean;
+  allWorkspaces?: boolean;
+}
+
+interface OrchReadParams {
+  target: string;
+  cross_workspace?: boolean;
+  allWorkspaces?: boolean;
+}
+
+interface OrchAgentsParams {
+  all_workspaces?: boolean;
+  allWorkspaces?: boolean;
+}
+
+interface Peer {
+  key: string;
+  dir: string;
+  status: JsonRecord;
+}
+
+interface PeerSummary {
+  key: string;
+  workspace: string | null;
+  state: string;
+  model?: string;
+  task?: string;
+  lastText: string;
+  cost?: number;
+  updatedAt?: string;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isTextBlock(value: unknown): value is TextBlockLike {
+  return isRecord(value) && value.type === "text" && typeof value.text === "string";
+}
+
+function isUsageLike(value: unknown): value is UsageLike {
+  if (!isRecord(value)) return false;
+  if (value.input !== undefined && typeof value.input !== "number") return false;
+  if (value.output !== undefined && typeof value.output !== "number") return false;
+  if (value.cacheRead !== undefined && typeof value.cacheRead !== "number") return false;
+  if (value.cacheWrite !== undefined && typeof value.cacheWrite !== "number") return false;
+  if (value.cost === undefined) return true;
+  return isRecord(value.cost)
+    && (value.cost.total === undefined || typeof value.cost.total === "number");
+}
+
+function isAssistantMessageLike(value: unknown): value is AssistantMessageLike {
+  if (!isRecord(value) || value.role !== "assistant" || !("content" in value)) return false;
+  if (value.usage !== undefined && !isUsageLike(value.usage)) return false;
+  if (value.stopReason !== undefined && typeof value.stopReason !== "string") return false;
+  return value.errorMessage === undefined || typeof value.errorMessage === "string";
+}
+
+function isControlCommand(value: unknown): value is ControlCommand {
+  return isRecord(value) && typeof value.cmd === "string";
+}
+
+function isThinkingLevel(value: unknown): value is ThinkingLevel {
+  return value === "off" || value === "minimal" || value === "low" || value === "medium"
+    || value === "high" || value === "xhigh" || value === "max";
+}
+
+function isModelSelectEvent(value: unknown): value is ModelSelectEventLike {
+  return isRecord(value) && "model" in value;
+}
+
+function isThinkingLevelSelectEvent(value: unknown): value is ThinkingLevelSelectEventLike {
+  return isRecord(value) && "level" in value;
+}
+
+function isBeforeAgentStartEvent(value: unknown): value is BeforeAgentStartEventLike {
+  return isRecord(value) && "prompt" in value;
+}
+
+function isMessageEndEvent(value: unknown): value is MessageEndEventLike {
+  return isRecord(value) && "message" in value;
+}
+
+function isAgentEndEvent(value: unknown): value is AgentEndEventLike {
+  return isRecord(value) && "messages" in value;
+}
+
+function isToolExecutionStartEvent(value: unknown): value is ToolExecutionStartEventLike {
+  return isRecord(value) && "toolName" in value && "args" in value;
+}
+
+function isHerdrBlockedEvent(value: unknown): value is HerdrBlockedEventLike {
+  return isRecord(value)
+    && typeof value.active === "boolean"
+    && (value.label === undefined || typeof value.label === "string");
+}
+
 // A pane id key means "this agent OWNS that pane" — only true for the
 // interactive TUI. Headless runs (-p etc.) inherit the caller's
 // HERDR_PANE_ID and would clobber the owner's row, so they key by pid.
 function computeKey(hasUI: boolean): string {
   if (hasUI && process.env.HERDR_PANE_ID) return process.env.HERDR_PANE_ID;
   return `session-${process.pid}`;
+}
+
+function presenceDirectoryName(key: string): string {
+  if (process.platform !== "win32") return key;
+  return key.replaceAll("%", "%25").replaceAll(":", "%3A");
+}
+
+function presenceKeyFromDirectoryName(name: string): string {
+  if (process.platform !== "win32") return name;
+  return name.replace(/%25|%3A/g, (token) => token === "%25" ? "%" : ":");
+}
+
+function presenceAgentDir(key: string): string {
+  return path.join(PRESENCE_ROOT, presenceDirectoryName(key));
 }
 
 const LAST_TEXT_MAX = 400;
@@ -101,11 +292,8 @@ function notifyHerdr(title: string, body: string): void {
 
 function extractText(content: unknown): string {
   if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((b: any) => b?.type === "text" && typeof b.text === "string")
-    .map((b: any) => b.text)
-    .join("\n");
+  if (!isUnknownArray(content)) return "";
+  return content.filter(isTextBlock).map((block) => block.text).join("\n");
 }
 
 function truncate(text: string, max: number): string {
@@ -123,14 +311,14 @@ function atomicWrite(file: string, data: unknown): void {
   }
 }
 
-export default function (pi) {
+export default function (pi: ExtensionAPI): void {
   let dir: string | undefined;
   let statusFile = "";
   let resultFile = "";
   let inboxFile = "";
   let controlFile = "";
 
-  let lastCtx: any;
+  let lastCtx: ExtensionContext | undefined;
   const state = {
     schema: SCHEMA_VERSION,
     agent: AGENT_ID,
@@ -202,7 +390,7 @@ export default function (pi) {
   function writeStatus() {
     if (!dir) return;
     state.updatedAt = new Date().toISOString();
-    const out: any = { ...state, extensionHash: EXTENSION_HASH };
+    const out: JsonRecord = { ...state, extensionHash: EXTENSION_HASH };
     if (blockedCount > 0) {
       out.state = "blocked";
       out.blockedMessage = blockedMessage;
@@ -211,12 +399,12 @@ export default function (pi) {
     reportHerdrMetadata();
   }
 
-  function runHerdrJson(args: string[]): Promise<any | undefined> {
+  function runHerdrJson(args: string[]): Promise<unknown | undefined> {
     return new Promise((resolve) => {
       try {
         execFile("herdr", args, { timeout: 2000 }, (_error, stdout) => {
           try {
-            resolve(JSON.parse(String(stdout)));
+            resolve(JSON.parse(String(stdout)) as unknown);
           } catch {
             resolve(undefined);
           }
@@ -227,18 +415,29 @@ export default function (pi) {
     });
   }
 
-  function herdrCollection(output: any, name: string): any {
-    return output?.result?.[name] ?? output?.[name];
+  function herdrCollection(output: unknown, name: string): unknown {
+    if (!isRecord(output)) return undefined;
+    const result = output.result;
+    return isRecord(result) && result[name] !== undefined ? result[name] : output[name];
   }
 
-  function findHerdrPane(panes: any): any | undefined {
-    if (!Array.isArray(panes)) return undefined;
-    return panes.find((candidate: any) => candidate?.pane_id === HERDR_PANE_ID);
+  function isHerdrEntity(value: unknown): value is HerdrEntityLike {
+    return isRecord(value)
+      && (value.pane_id === undefined || typeof value.pane_id === "string")
+      && (value.tab_id === undefined || typeof value.tab_id === "string")
+      && (value.label === undefined || typeof value.label === "string");
   }
 
-  function findPaneTab(tabs: any, pane: any): any | undefined {
-    if (!Array.isArray(tabs)) return undefined;
-    return tabs.find((candidate: any) => candidate?.tab_id === pane?.tab_id);
+  function findHerdrPane(panes: unknown): HerdrEntityLike | undefined {
+    if (!isUnknownArray(panes)) return undefined;
+    return panes.find((candidate: unknown): candidate is HerdrEntityLike =>
+      isHerdrEntity(candidate) && candidate.pane_id === HERDR_PANE_ID);
+  }
+
+  function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEntityLike | undefined {
+    if (!isUnknownArray(tabs) || typeof pane?.tab_id !== "string") return undefined;
+    return tabs.find((candidate: unknown): candidate is HerdrEntityLike =>
+      isHerdrEntity(candidate) && candidate.tab_id === pane.tab_id);
   }
 
   async function readHerdrIdentity(): Promise<void> {
@@ -250,43 +449,43 @@ export default function (pi) {
       ]);
       const pane = findHerdrPane(herdrCollection(paneOutput, "panes"));
       const tab = findPaneTab(herdrCollection(tabOutput, "tabs"), pane);
-      state.label = pane?.label ?? null;
-      state.tabLabel = tab?.label ?? null;
+      state.label = optionalString(pane?.label) ?? null;
+      state.tabLabel = optionalString(tab?.label) ?? null;
     } catch {
       // best-effort
     }
     writeStatus();
   }
 
-  function updateSessionRef(ctx: any) {
+  function updateSessionRef(ctx: ExtensionContext): void {
     try {
-      const file = ctx?.sessionManager?.getSessionFile?.();
+      const file = ctx.sessionManager.getSessionFile();
       if (typeof file === "string" && file.startsWith("/")) state.sessionPath = file;
     } catch {}
     try {
-      const id = ctx?.sessionManager?.getSessionId?.();
-      if (typeof id === "string" && id) state.sessionId = id;
+      const id = ctx.sessionManager.getSessionId();
+      if (id) state.sessionId = id;
     } catch {}
   }
 
-  function updateModel(ctx: any) {
+  function updateModel(ctx: ExtensionContext): void {
     try {
-      const m = ctx?.model;
-      if (m && typeof m === "object" && m.id) {
-        state.model = { provider: m.provider, id: m.id };
-      }
+      const model = ctx.model;
+      if (model) state.model = { provider: model.provider, id: model.id };
     } catch {}
     try {
-      const level = pi.getThinkingLevel?.();
-      if (typeof level === "string") state.thinking = level;
+      state.thinking = pi.getThinkingLevel();
     } catch {}
   }
 
-  function updateContextUsage(ctx: any) {
+  function updateContextUsage(ctx: ExtensionContext): void {
     try {
-      const usage = ctx?.getContextUsage?.();
+      const usage = ctx.getContextUsage();
       if (usage && typeof usage.tokens === "number") {
-        state.context = { tokens: usage.tokens, percent: usage.percent };
+        state.context = {
+          tokens: usage.tokens,
+          percent: typeof usage.percent === "number" ? usage.percent : undefined,
+        };
       }
     } catch {}
   }
@@ -317,7 +516,7 @@ export default function (pi) {
     return false;
   }
 
-  async function resolveRequestedModel(requestedModel: unknown): Promise<any> {
+  async function resolveRequestedModel(requestedModel: unknown): Promise<ResolvedModel> {
     if (typeof requestedModel !== "string") throw new Error("Model must be a provider/id string");
     const slash = requestedModel.indexOf("/");
     if (slash <= 0 || slash === requestedModel.length - 1) {
@@ -332,58 +531,57 @@ export default function (pi) {
     // passes setModel but poisons the next turn ("Model not found <id>"
     // run errors). Retry briefly instead — the registry is unavailable
     // for a moment while a fresh session boots.
-    let model;
+    let model: ResolvedModel | undefined;
     for (let attempt = 0; attempt < 8 && !model; attempt++) {
-      model = lastCtx?.modelRegistry?.find?.(provider, id);
+      model = lastCtx?.modelRegistry.find(provider, id);
       if (!model) await new Promise((resolve) => setTimeout(resolve, 250));
     }
     if (!model) throw new Error(`Model not in registry (session still booting?): ${requestedModel}`);
     return model;
   }
 
-  async function applyRequestedThinkingLevel(level: unknown): Promise<void> {
-    if (typeof level !== "string") throw new Error("Thinking level must be a string");
-    await pi.setThinkingLevel(level);
+  function applyRequestedThinkingLevel(level: unknown): void {
+    if (!isThinkingLevel(level)) throw new Error("Thinking level must be valid");
+    pi.setThinkingLevel(level);
   }
 
-  async function applyControlCommand(parsed: any): Promise<void> {
-    const requested = parsed.cmd === "model"
+  async function applyControlCommand(parsed: ControlCommand): Promise<void> {
+    const requested: JsonRecord = parsed.cmd === "model"
       ? { model: parsed.model }
       : { thinking: parsed.level };
-    const outcome: any = { requested, success: false, ts: new Date().toISOString() };
+    const outcome: JsonRecord = { requested, success: false, ts: new Date().toISOString() };
     try {
       if (parsed.cmd === "model") {
         await pi.setModel(await resolveRequestedModel(parsed.model));
       } else {
-        await applyRequestedThinkingLevel(parsed.level);
+        applyRequestedThinkingLevel(parsed.level);
       }
       outcome.success = true;
-    } catch (error) {
+    } catch (error: unknown) {
       outcome.error = error instanceof Error ? error.message : String(error);
     }
     atomicWrite(controlFile, outcome);
-    updateModel(lastCtx);
+    if (lastCtx) updateModel(lastCtx);
     writeStatus();
   }
 
-  function parseInboxLine(line: string): any | undefined {
+  function parseInboxLine(line: string): unknown {
     const trimmed = line.trim();
     if (!trimmed) return undefined;
     try {
-      return JSON.parse(trimmed);
+      return JSON.parse(trimmed) as unknown;
     } catch {
       return trimmed;
     }
   }
 
-  async function routeInboxCommand(parsed: any): Promise<boolean> {
-    if (!parsed || typeof parsed !== "object") return false;
-    if (!parsed.cmd) return false;
+  async function routeInboxCommand(parsed: unknown): Promise<boolean> {
+    if (!isRecord(parsed) || typeof parsed.cmd !== "string") return false;
     // Control commands: {"cmd":"model","model":"provider/id"} and
     // {"cmd":"thinking","level":"low"} — pi's real APIs, never the TUI
     // composer (a non-matching /model string opens a selector overlay
     // and wedges the pane).
-    if (parsed.cmd === "model" || parsed.cmd === "thinking") {
+    if ((parsed.cmd === "model" || parsed.cmd === "thinking") && isControlCommand(parsed)) {
       await applyControlCommand(parsed);
     } else if (parsed.cmd === "on_done" && typeof parsed.target === "string" && parsed.target.trim()) {
       const target = parsed.target.trim();
@@ -400,7 +598,7 @@ export default function (pi) {
   function deliverSteerText(text: string): void {
     state.steersReceived += 1;
     try {
-      const idle = lastCtx?.isIdle?.() ?? true;
+      const idle = lastCtx?.isIdle() ?? true;
       if (idle) {
         pi.sendUserMessage(text);
       } else {
@@ -412,7 +610,9 @@ export default function (pi) {
   async function routeInboxLine(line: string): Promise<void> {
     const parsed = parseInboxLine(line);
     if (await routeInboxCommand(parsed)) return;
-    const text = typeof parsed === "string" ? parsed : parsed?.text;
+    const text = typeof parsed === "string"
+      ? parsed
+      : isRecord(parsed) && typeof parsed.text === "string" ? parsed.text : undefined;
     if (text) deliverSteerText(text);
   }
 
@@ -443,7 +643,7 @@ export default function (pi) {
   function initPresence(hasUI: boolean) {
     if (dir) return;
     const key = computeKey(hasUI);
-    const candidate = path.join(PRESENCE_ROOT, key);
+    const candidate = presenceAgentDir(key);
     try {
       fs.mkdirSync(candidate, { recursive: true });
     } catch {
@@ -471,9 +671,9 @@ export default function (pi) {
     } catch {}
   }
 
-  function readJson(file: string): any | undefined {
+  function readJson(file: string): unknown {
     try {
-      return JSON.parse(fs.readFileSync(file, "utf8"));
+      return JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
     } catch {
       return undefined;
     }
@@ -489,22 +689,13 @@ export default function (pi) {
     }
   }
 
-  function peerModel(status: any): string | undefined {
-    if (!status?.model?.provider || !status?.model?.id) return undefined;
-    return `${status.model.provider}/${status.model.id}:${status.thinking ?? ""}`;
-  }
-
-  // Pane keys are workspace-scoped (for example, w8:p5). Headless keys do
-  // not carry a workspace. Unknown workspaces fail closed rather than being
-  // treated as a shared "local" workspace.
-  function workspaceOf(key: unknown): string | null {
-    if (typeof key !== "string") return null;
-    const separator = key.indexOf(":");
-    return separator > 0 ? key.slice(0, separator) : null;
-  }
-
-  function ownWorkspace(ownKey: string): string | null {
-    return workspaceOf(ownKey) ?? workspaceOf(state.paneId) ?? workspaceOf(HERDR_PANE_ID);
+  function peerModel(status: unknown): string | undefined {
+    if (!isRecord(status) || !isRecord(status.model)) return undefined;
+    const provider = optionalString(status.model.provider);
+    const id = optionalString(status.model.id);
+    if (!provider || !id) return undefined;
+    const thinking = optionalString(status.thinking) ?? "";
+    return `${provider}/${id}:${thinking}`;
   }
 
   function workspaceLabel(workspace: string | null): string {
@@ -524,45 +715,39 @@ export default function (pi) {
     return `BLOCKED [${workspace}] ${agentName}: ${normalizedSummary}`;
   }
 
-  function sameWorkspace(ownKey: string, peerKey: string): boolean {
-    const own = ownWorkspace(ownKey);
-    const peer = workspaceOf(peerKey);
-    return own !== null && peer !== null && own === peer;
-  }
-
-  function workspaceMismatch(ownKey: string, peerKey: string): string {
-    return `error: peer ${peerKey} is in workspace ${workspaceLabel(workspaceOf(peerKey))} but you are in workspace ${workspaceLabel(ownWorkspace(ownKey))}; pass cross_workspace:true to override`;
-  }
-
-  function livePeers(ownKey: string, allWorkspaces = false) {
+  function livePeers(ownKey: string, allWorkspaces = false): Peer[] {
     try {
-      return fs.readdirSync(PRESENCE_ROOT, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && entry.name !== ownKey)
+      const peers = fs.readdirSync(PRESENCE_ROOT, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && presenceKeyFromDirectoryName(entry.name) !== ownKey)
         .map((entry) => {
-          const peerDir = path.join(PRESENCE_ROOT, entry.name);
+          const key = presenceKeyFromDirectoryName(entry.name);
+          const peerDir = presenceAgentDir(key);
           const status = readJson(path.join(peerDir, "status.json"));
-          return { key: entry.name, dir: peerDir, status };
+          return { key, dir: peerDir, status };
         })
-        .filter((peer) => peer.status && isPidAlive(peer.status.pid))
-        .filter((peer) => allWorkspaces || sameWorkspace(ownKey, peer.key));
+        .filter((peer): peer is Peer => isRecord(peer.status) && isPidAlive(peer.status.pid));
+      return scopeToWorkspace(peers, (peer) => peer.key, workspaceOf(ownKey), { all: allWorkspaces });
     } catch {
       return [];
     }
   }
 
-  function resolvePeer(target: string, ownKey: string, allWorkspaces = false) {
+  type PeerResolution = { error: string } | { peer: Peer };
+
+  function resolvePeer(target: string, ownKey: string, allWorkspaces = false): PeerResolution {
     const peers = livePeers(ownKey, true);
     const exact = peers.find((peer) => peer.key === target);
     const matches = exact ? [exact] : peers.filter((peer) => peer.key.endsWith(target));
-    const scopedMatches = allWorkspaces ? matches : matches.filter((peer) => sameWorkspace(ownKey, peer.key));
-    if (scopedMatches.length === 1) return { peer: scopedMatches[0] };
+    const firstMatch = matches[0];
+    if (matches.length === 1 && firstMatch) {
+      const wall = checkWall(ownKey, firstMatch.key, { crossWorkspace: allWorkspaces });
+      if (!wall.allowed) return { error: `error: ${wall.reason}` };
+    }
+    const scopedMatches = scopeToWorkspace(matches, (peer) => peer.key, workspaceOf(ownKey), { all: allWorkspaces });
+    const firstScopedMatch = scopedMatches[0];
+    if (scopedMatches.length === 1 && firstScopedMatch) return { peer: firstScopedMatch };
     if (scopedMatches.length > 1) {
       return { error: `error: ambiguous target. Candidates: ${scopedMatches.map((peer) => peer.key).join(", ")}` };
-    }
-    // Preserve a useful wall error for an exact or unique foreign target,
-    // rather than hiding it behind a generic not-found response.
-    if (!allWorkspaces && matches.length === 1) {
-      return { error: workspaceMismatch(ownKey, matches[0].key) };
     }
     if (matches.length > 1) {
       return { error: `error: ambiguous target. Candidates: ${matches.map((peer) => peer.key).join(", ")}` };
@@ -571,27 +756,27 @@ export default function (pi) {
     return { error: `error: target not found. Candidates: ${candidates.map((peer) => peer.key).join(", ")}` };
   }
 
-  function ownPresenceKey(ctx: any): string {
-    initPresence(ctx?.hasUI === true);
-    return state.key || computeKey(ctx?.hasUI === true);
+  function ownPresenceKey(ctx: ExtensionContext): string {
+    initPresence(ctx.hasUI);
+    return state.key || computeKey(ctx.hasUI);
   }
 
-  function peerSummaries(ownKey: string, allWorkspaces = false) {
+  function peerSummaries(ownKey: string, allWorkspaces = false): PeerSummary[] {
     return livePeers(ownKey, allWorkspaces).map((peer) => ({
       key: peer.key,
       workspace: workspaceOf(peer.key),
-      state: peer.status.state,
+      state: optionalString(peer.status.state) ?? "unknown",
       model: peerModel(peer.status),
-      task: peer.status.task,
+      task: optionalString(peer.status.task),
       lastText: truncate(String(peer.status.lastText ?? ""), 120),
-      cost: peer.status.cost,
-      updatedAt: peer.status.updatedAt,
+      cost: typeof peer.status.cost === "number" ? peer.status.cost : undefined,
+      updatedAt: optionalString(peer.status.updatedAt),
     }));
   }
 
   function sendPeerMessage(target: string, text: string, ownKey: string, allWorkspaces = false): string {
     const resolved = resolvePeer(target, ownKey, allWorkspaces);
-    if (resolved.error) return resolved.error;
+    if ("error" in resolved) return resolved.error;
     fs.appendFileSync(
       path.join(resolved.peer.dir, "inbox.jsonl"),
       `${JSON.stringify({ text: `[from ${ownKey}] ${text}`, ts: new Date().toISOString() })}\n`,
@@ -599,7 +784,7 @@ export default function (pi) {
     return `sent to ${resolved.peer.key}`;
   }
 
-  function formatPeerLines(peers: ReturnType<typeof peerSummaries>): string {
+  function formatPeerLines(peers: PeerSummary[]): string {
     return peers
       .map((peer) => `${peer.key} ${peer.state} ${peer.model ?? "-"} ${truncate(String(peer.task ?? ""), 40)}`)
       .join("\n");
@@ -615,7 +800,7 @@ export default function (pi) {
     if (!handoff) return;
     try {
       const resolved = resolvePeer(handoff.target, ownKey);
-      if (resolved.error) {
+      if ("error" in resolved) {
         state.handoffError = resolved.error;
         clearPendingHandoff();
         return;
@@ -652,7 +837,7 @@ export default function (pi) {
       };
       const check = () => {
         const answer = readJson(answerFile);
-        if (typeof answer?.text === "string") {
+        if (isRecord(answer) && typeof answer.text === "string") {
           finish(answer.text);
           return;
         }
@@ -671,15 +856,20 @@ export default function (pi) {
     });
   }
 
-  function toolResult(text: string) {
-    return { content: [{ type: "text", text }] };
+  type BridgeToolResult = {
+    content: [{ type: "text"; text: string }];
+    details: undefined;
+  };
+
+  function toolResult(text: string): BridgeToolResult {
+    return { content: [{ type: "text", text }], details: undefined };
   }
 
-  function noOrchestratorAnswer() {
+  function noOrchestratorAnswer(): BridgeToolResult {
     return toolResult("no answer from orchestrator (timeout) — proceed with your best judgment and note the open question in your final reply.");
   }
 
-  async function executeTool(action: () => string | Promise<string>, error: string) {
+  async function executeTool(action: () => string | Promise<string>, error: string): Promise<BridgeToolResult> {
     try {
       return toolResult(await action());
     } catch {
@@ -687,7 +877,7 @@ export default function (pi) {
     }
   }
 
-  function writeResult(text: string, details: any = {}): void {
+  function writeResult(text: string, details: JsonRecord = {}): void {
     atomicWrite(resultFile, {
       schema: SCHEMA_VERSION,
       text,
@@ -705,7 +895,7 @@ export default function (pi) {
 
   pi.registerCommand("peers", {
     description: "List live orch peer agents",
-    handler: async (_args, ctx) => {
+    handler: async (_args, ctx: ExtensionContext) => {
       try {
         const peers = peerSummaries(ownPresenceKey(ctx));
         ctx.ui.notify(peers.length ? formatPeerLines(peers) : "no live peers", "info");
@@ -717,7 +907,7 @@ export default function (pi) {
 
   pi.registerCommand("tell", {
     description: "Send a message to a peer agent: /tell <target> <message>",
-    handler: async (args, ctx) => {
+    handler: async (args, ctx: ExtensionContext) => {
       try {
         const [target, ...message] = String(args ?? "").trim().split(/\s+/);
         const text = message.join(" ");
@@ -742,7 +932,7 @@ export default function (pi) {
     parameters: Type.Object({
       question: Type.String({ description: "Decision question for the orchestrator" }),
     }),
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: OrchAskParams, signal, _onUpdate, ctx: ExtensionContext) {
       try {
         ownPresenceKey(ctx);
         if (!dir) return noOrchestratorAnswer();
@@ -797,7 +987,7 @@ export default function (pi) {
       // Keep the original camelCase spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Include agents in every workspace" })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: OrchAgentsParams, _signal, _onUpdate, ctx: ExtensionContext) {
       return executeTool(
         () => JSON.stringify(peerSummaries(
           ownPresenceKey(ctx),
@@ -821,14 +1011,10 @@ export default function (pi) {
       // Keep the original spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow sending across workspaces" })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: ExtensionContext) {
+      const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
       return executeTool(
-        () => sendPeerMessage(
-          params.target,
-          params.text,
-          ownPresenceKey(ctx),
-          params.cross_workspace === true || params.allWorkspaces === true,
-        ),
+        () => sendPeerMessage(params.target, params.text, ownPresenceKey(ctx), crossWorkspace),
         "error: unable to send peer message",
       );
     },
@@ -846,32 +1032,33 @@ export default function (pi) {
       // Keep the original spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow reading across workspaces" })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: OrchReadParams, _signal, _onUpdate, ctx: ExtensionContext) {
+      const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
       return executeTool(() => {
-        initPresence(ctx?.hasUI === true);
-        const ownKey = state.key || computeKey(ctx?.hasUI === true);
-        const resolved = resolvePeer(
-          params.target,
-          ownKey,
-          params.cross_workspace === true || params.allWorkspaces === true,
-        );
-        if (resolved.error) return resolved.error;
+        initPresence(ctx.hasUI);
+        const ownKey = state.key || computeKey(ctx.hasUI);
+        const resolved = resolvePeer(params.target, ownKey, crossWorkspace);
+        if ("error" in resolved) return resolved.error;
         const result = readJson(path.join(resolved.peer.dir, "result.json"));
+        const resultRecord = isRecord(result) ? result : {};
+        const text = typeof resultRecord.text === "string"
+          ? resultRecord.text
+          : typeof resolved.peer.status.lastText === "string" ? resolved.peer.status.lastText : "";
         return JSON.stringify({
           key: resolved.peer.key,
           workspace: workspaceOf(resolved.peer.key),
-          state: resolved.peer.status.state,
+          state: optionalString(resolved.peer.status.state) ?? "unknown",
           model: peerModel(resolved.peer.status),
-          text: result?.text ?? resolved.peer.status.lastText ?? "",
+          text,
         });
       }, "error: unable to read peer agent");
     },
   });
 
   // ---- lifecycle ----
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", (_event, ctx: ExtensionContext) => {
     lastCtx = ctx;
-    initPresence(ctx?.hasUI === true);
+    initPresence(ctx.hasUI);
     updateSessionRef(ctx);
     updateModel(ctx);
     writeStatus();
@@ -880,9 +1067,11 @@ export default function (pi) {
     heartbeat = setInterval(() => {
       try {
         heartbeatTicks += 1;
-        updateSessionRef(lastCtx);
-        updateModel(lastCtx);
-        updateContextUsage(lastCtx);
+        if (lastCtx) {
+          updateSessionRef(lastCtx);
+          updateModel(lastCtx);
+          updateContextUsage(lastCtx);
+        }
         if (heartbeatTicks % 10 === 0) void readHerdrIdentity().catch(() => {});
         writeStatus();
       } catch {}
@@ -890,26 +1079,30 @@ export default function (pi) {
     heartbeat.unref?.();
   });
 
-  pi.on("model_select", (event) => {
-    if (event?.model?.id) state.model = { provider: event.model.provider, id: event.model.id };
+  pi.on("model_select", (event: unknown) => {
+    if (isModelSelectEvent(event) && isRecord(event.model)) {
+      const provider = optionalString(event.model.provider);
+      const id = optionalString(event.model.id);
+      if (provider && id) state.model = { provider, id };
+    }
     writeStatus();
   });
 
-  pi.on("thinking_level_select", (event) => {
-    if (typeof event?.level === "string") state.thinking = event.level;
+  pi.on("thinking_level_select", (event: unknown) => {
+    if (isThinkingLevelSelectEvent(event) && typeof event.level === "string") state.thinking = event.level;
     writeStatus();
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
+  pi.on("before_agent_start", (event: unknown, ctx: ExtensionContext) => {
     lastCtx = ctx;
-    if (typeof event?.prompt === "string" && event.prompt.trim()) {
+    if (isBeforeAgentStartEvent(event) && typeof event.prompt === "string" && event.prompt.trim()) {
       state.task = truncate(event.prompt, TASK_MAX);
     }
   });
 
-  pi.on("agent_start", (_event, ctx) => {
+  pi.on("agent_start", (_event, ctx: ExtensionContext) => {
     lastCtx = ctx;
-    initPresence(ctx?.hasUI === true);
+    initPresence(ctx.hasUI);
     state.state = "working";
     state.startedAt = new Date().toISOString();
     state.finishedAt = undefined;
@@ -921,17 +1114,17 @@ export default function (pi) {
     writeStatus();
   });
 
-  pi.on("turn_end", (_event, ctx) => {
+  pi.on("turn_end", (_event, ctx: ExtensionContext) => {
     lastCtx = ctx;
     state.turns += 1;
     updateContextUsage(ctx);
     writeStatus();
   });
 
-  pi.on("message_end", (event, ctx) => {
+  pi.on("message_end", (event: unknown, ctx: ExtensionContext) => {
     lastCtx = ctx;
-    const message = event?.message;
-    if (message?.role !== "assistant") return;
+    if (!isMessageEndEvent(event) || !isAssistantMessageLike(event.message)) return;
+    const message = event.message;
     const text = extractText(message.content);
     if (text.trim()) {
       lastFullText = text;
@@ -949,7 +1142,8 @@ export default function (pi) {
     writeStatus();
   });
 
-  function currentFileCandidate(args: any): string | undefined {
+  function currentFileCandidate(args: unknown): string | undefined {
+    if (!isRecord(args)) return undefined;
     const candidate = args.path ?? args.file_path ?? args.filePath;
     return typeof candidate === "string" ? candidate : undefined;
   }
@@ -962,11 +1156,12 @@ export default function (pi) {
     return currentTool !== previousTool || !!file;
   }
 
-  function handleToolExecutionStart(event: any): void {
-    const name = String(event?.toolName ?? "");
+  function handleToolExecutionStart(event: unknown): void {
+    if (!isToolExecutionStartEvent(event)) return;
+    const name = typeof event.toolName === "string" ? event.toolName : "";
     const previousTool = state.lastTool;
     if (name) state.lastTool = name;
-    const file = currentFileCandidate(event?.args ?? {});
+    const file = currentFileCandidate(event.args);
     if (file && file !== state.currentFile) {
       state.currentFile = file;
     }
@@ -977,25 +1172,25 @@ export default function (pi) {
 
   pi.on("tool_execution_start", handleToolExecutionStart);
 
-  function finalFailedAssistantMessage(messages: any[]): any | undefined {
+  function finalFailedAssistantMessage(messages: readonly unknown[]): AssistantMessageLike | undefined {
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
-      if (message?.role !== "assistant") continue;
+      if (!isAssistantMessageLike(message)) continue;
       if (message.stopReason !== "error" && message.stopReason !== "aborted") return undefined;
       return message;
     }
     return undefined;
   }
 
-  function failedAssistantError(message: any): string {
+  function failedAssistantError(message: AssistantMessageLike): string {
     if (typeof message.errorMessage === "string" && message.errorMessage.trim()) {
       return message.errorMessage;
     }
     return message.stopReason === "aborted" ? "aborted" : "error";
   }
 
-  function recordFailedAgentRun(message: any, ctx: any): void {
-    const stopReason = message.stopReason;
+  function recordFailedAgentRun(message: AssistantMessageLike, ctx: ExtensionContext): void {
+    const stopReason = message.stopReason === "aborted" ? "aborted" : "error";
     const errorText = failedAssistantError(message);
     const partial = extractText(message.content);
     state.state = stopReason === "aborted" ? "aborted" : "error";
@@ -1017,17 +1212,16 @@ export default function (pi) {
   // agent_end carries every message from the run. Failures/aborts land as the
   // last assistant message with stopReason "error" | "aborted" + errorMessage
   // (see AssistantMessage in @earendil-works/pi-ai). No turn_error event exists.
-  function handleAgentEnd(event: any, ctx: any): void {
+  function handleAgentEnd(event: unknown, ctx: ExtensionContext): void {
     lastCtx = ctx;
-    const messages = event?.messages;
-    if (!Array.isArray(messages)) return;
-    const message = finalFailedAssistantMessage(messages);
+    if (!isAgentEndEvent(event) || !isUnknownArray(event.messages)) return;
+    const message = finalFailedAssistantMessage(event.messages);
     if (message) recordFailedAgentRun(message, ctx);
   }
 
   pi.on("agent_end", handleAgentEnd);
 
-  function completeSettledAgentRun(ctx: any): void {
+  function completeSettledAgentRun(ctx: ExtensionContext): void {
     state.state = lastFullText ? "done" : "idle";
     state.finishedAt = new Date().toISOString();
     updateContextUsage(ctx);
@@ -1035,14 +1229,14 @@ export default function (pi) {
       writeResult(lastFullText);
     }
     if (pendingHandoff && runFullText) {
-      deliverPendingHandoff(runFullText, state.key || computeKey(ctx?.hasUI === true));
+      deliverPendingHandoff(runFullText, state.key || computeKey(ctx.hasUI));
     }
     writeStatus();
   }
 
   // agent_settled fires only when pi will not auto-continue (no retry/compact
   // continuation pending) — the real "done" signal, unlike agent_end.
-  function handleAgentSettled(_event: any, ctx: any): void {
+  function handleAgentSettled(_event: unknown, ctx: ExtensionContext): void {
     lastCtx = ctx;
     // agent_end already recorded an error/abort for this run — do not clobber it
     // with a synthetic done/idle from a previous successful lastFullText.
@@ -1056,10 +1250,11 @@ export default function (pi) {
 
   pi.on("agent_settled", handleAgentSettled);
 
-  pi.events?.on?.("herdr:blocked", (data) => {
-    if (data?.active) {
+  pi.events.on("herdr:blocked", (data: unknown) => {
+    if (!isHerdrBlockedEvent(data)) return;
+    if (data.active) {
       if (blockedCount === 0 && !blockedNotified) {
-        const notificationSummary = String(data.label ?? "");
+        const notificationSummary = data.label ?? "";
         notifyHerdr(blockedNotificationTitle(notificationSummary), truncate(notificationSummary, 60));
         blockedNotified = true;
       }

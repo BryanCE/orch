@@ -32,7 +32,7 @@ function spawnPane(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
   const source = callerPane(panes);
   if (!source?.workspace_id) throw new Error("Could not determine herdr workspace (herdr down?).");
 
-  const result: TabCreateResult = herdrJSON([
+  const result = herdrJSON<TabCreateResult>([
     "tab",
     "create",
     "--workspace",

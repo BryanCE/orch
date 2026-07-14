@@ -1,6 +1,10 @@
 import { loadConfig, type HostConfig } from "./config.ts";
-import { herdrNames, herdrPanes, herdrTabs } from "./herdr.ts";
+import { herdrNames, herdrPanes, herdrTabs, type HerdrPane } from "./herdr.ts";
 import { loadPresence, orchDir, type PresenceEntry } from "./store.ts";
+import { checkWall, scopeToWorkspace, workspaceOf } from "./policy/workspace.ts";
+import { errorMessage } from "./util.ts";
+
+export { workspaceName, workspaceOf } from "./policy/workspace.ts";
 
 export interface Entity {
   key: string;
@@ -45,7 +49,7 @@ export function collapse(value: string): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
-function paneSessionPath(pane: any): string | null {
+function paneSessionPath(pane: Pick<HerdrPane, "agent_session">): string | null {
   const session = pane?.agent_session;
   return session && session.kind === "path" && typeof session.value === "string" ? session.value : null;
 }
@@ -53,12 +57,6 @@ function paneSessionPath(pane: any): string | null {
 function naturalPaneOrder(id: string): [string, number] {
   const match = /^(.*?):p?(\d+)$/.exec(id);
   return match ? [match[1], parseInt(match[2], 10)] : [id, 0];
-}
-
-export function workspaceOf(id: string | null | undefined): string | null {
-  if (!id) return null;
-  const match = /^([^:]+):p(\d+)$/.exec(id);
-  return match?.[1] ?? null;
 }
 
 export function entityWorkspace(e: Entity): string | null {
@@ -72,13 +70,7 @@ export function currentWorkspace(): string | null {
 }
 
 export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
-  if (opts?.all) return entities;
-  const workspace = currentWorkspace();
-  if (workspace === null) return entities;
-  return entities.filter((entity) => {
-    const entityWorkspaceValue = entityWorkspace(entity);
-    return entityWorkspaceValue === workspace || entityWorkspaceValue === null;
-  });
+  return scopeToWorkspace(entities, (entity) => entity.paneId ?? entity.key, currentWorkspace(), { all: opts?.all === true });
 }
 
 export function buildEntities(): Entity[] {
@@ -162,17 +154,11 @@ function ambiguous(target: string, entities: Entity[]): never {
   process.exit(1);
 }
 
-export function resolveTarget(target: string): Entity {
-  let ref: TargetRef;
-  try {
-    ref = parseTarget(target);
-  } catch (error: unknown) {
-    die(error instanceof Error ? error.message : String(error));
-  }
-  const localTarget = ref.target;
-  const entities = buildEntities();
+function matchInPool(entities: Entity[], localTarget: string, target: string, host?: string | null): Entity | null {
+  const withHost = (entity: Entity): Entity => (host ? { ...entity, host } : entity);
+
   const exact = dedupeEntities(entities.filter((entity) => entity.key === localTarget || entity.paneId === localTarget || entity.name === localTarget));
-  if (exact.length === 1) return ref.host ? { ...exact[0], host: ref.host } : exact[0];
+  if (exact.length === 1) return withHost(exact[0]);
   if (exact.length > 1) ambiguous(target, exact);
 
   const suffix = dedupeEntities(entities.filter((entity) => [entity.key, entity.paneId].filter(Boolean).some((id) => {
@@ -180,17 +166,47 @@ export function resolveTarget(target: string): Entity {
     const short = value.slice(value.lastIndexOf(":") + 1);
     return value === localTarget || value.endsWith(":" + localTarget) || short.startsWith(localTarget) || value.endsWith(localTarget);
   })));
-  if (suffix.length === 1) return ref.host ? { ...suffix[0], host: ref.host } : suffix[0];
+  if (suffix.length === 1) return withHost(suffix[0]);
   if (suffix.length > 1) ambiguous(target, suffix);
 
   const byAgent = dedupeEntities(entities.filter((entity) => entity.agent === localTarget));
-  if (byAgent.length === 1) return ref.host ? { ...byAgent[0], host: ref.host } : byAgent[0];
+  if (byAgent.length === 1) return withHost(byAgent[0]);
   if (byAgent.length > 1) ambiguous(target, byAgent);
+  return null;
+}
+
+// Every control/read target resolves within the caller's own workspace by
+// default — crossing the wall is never an accident of typing a foreign key.
+// A host-prefixed (<host>/<target>) or --all target opts out; headless runs
+// (no current workspace) are unscoped.
+export function resolveTarget(target: string, opts?: { all?: boolean }): Entity {
+  let ref: TargetRef;
+  try {
+    ref = parseTarget(target);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  const localTarget = ref.target;
+  const everything = buildEntities();
+  const crossWall = opts?.all === true || ref.host !== null;
+  const pool = scopeEntitiesToWorkspace(everything, { all: crossWall });
+
+  const match = matchInPool(pool, localTarget, target, ref.host);
+  if (match) return match;
+
+  if (!crossWall) {
+    const foreign = matchInPool(everything, localTarget, target);
+    if (foreign) {
+      const ownKey = currentWorkspace() === null ? null : `${currentWorkspace()}:p0`;
+      const decision = checkWall(ownKey, foreign.paneId ?? foreign.key, { crossWorkspace: false });
+      if (!decision.allowed) die(decision.reason ?? `Target "${target}" is outside the current workspace.`);
+    }
+  }
   die(`No target matches "${target}". Run 'orch panes' to list.`);
 }
 
-export function resolvePane(target: string): { ent: Entity; pane: string } {
-  const ent = resolveTarget(target);
+export function resolvePane(target: string, opts?: { all?: boolean }): { ent: Entity; pane: string } {
+  const ent = resolveTarget(target, opts);
   if (!ent.paneId) die(`Target "${target}" has no herdr pane.`);
   return { ent, pane: ent.paneId };
 }

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { loadPresence, statusForPresence, type PresenceEntry } from "../store.ts";
+import { isRecord, loadPresence, statusForPresence, type PresenceEntry } from "../store.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -194,7 +194,8 @@ export class ClaudeAdapter implements AgentAdapter {
   /** Prefer hook result.json, then Claude transcript JSONL, then native output. */
   extractResult(input: ClaudeResultExtractionInput): string | undefined {
     const presence = presenceFor(input.key);
-    const resultText = textValue(presence?.result?.text);
+    const result = presence?.result;
+    const resultText = textValue(isRecord(result) ? result.text : undefined);
     if (resultText !== undefined) return resultText;
 
     const statusTranscript = presence?.status?.sessionPath;

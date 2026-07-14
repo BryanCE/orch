@@ -1,4 +1,5 @@
 import {
+  isRecord,
   loadPresence,
   statusForPresence,
   steerPresence,
@@ -86,8 +87,8 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Start pi with only the built-ins and orch bridge tools workers need. */
-  restrictedInteractiveCmd(_opts: SpawnOpts): string {
-    return `pi --tools ${PI_TOOL_ALLOWLIST} --no-builtin-tools`;
+  restrictedInteractiveCmd(opts: SpawnOpts): string {
+    return `pi --tools ${opts.tools ?? PI_TOOL_ALLOWLIST} --no-builtin-tools`;
   }
 
   /** Start the existing pif wrapper with the initial prompt for headless runs. */
@@ -100,7 +101,7 @@ export class PiAdapter implements AgentAdapter {
 
   /** Start pif with the same explicit worker tool allowlist as interactive pi. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["pif", "--tools", PI_TOOL_ALLOWLIST, "--no-builtin-tools"];
+    const command = ["pif", "--tools", opts.tools ?? PI_TOOL_ALLOWLIST, "--no-builtin-tools"];
     if (opts.model) command.push("--model", opts.model);
     command.push(prompt);
     return command;
@@ -131,7 +132,7 @@ export class PiAdapter implements AgentAdapter {
   /** Read result.json first, then fall back to the last assistant session entry. */
   extractResult(input: PiResultExtractionInput): string | undefined {
     const result = presenceFor(input.key)?.result;
-    if (typeof result?.text === "string") return result.text;
+    if (isRecord(result) && typeof result.text === "string") return result.text;
     if (!input.sessionPath) return undefined;
     return parseSession(input.sessionPath).lastAssistant ?? undefined;
   }

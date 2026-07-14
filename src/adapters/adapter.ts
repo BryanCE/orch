@@ -19,6 +19,8 @@ export interface SpawnOpts {
   readonly orchDir?: string;
   /** Additional environment values required by the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
+  /** Explicit worker tool allowlist, when the launcher applies one. */
+  readonly tools?: string;
 }
 
 /** Native process/session information an adapter may use to classify state. */

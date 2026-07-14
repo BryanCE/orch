@@ -1,11 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
-process.env.ORCH_DIR = testOrchDir;
 
 const { HeadlessBackend } = await import("../src/backends/headless.ts");
 const backend = new HeadlessBackend();
@@ -18,11 +17,13 @@ const fakeAdapter = {
     const directory = opts.orchDir!;
     const statusDir = path.join(directory, "agents", key);
     const statusFile = path.join(statusDir, "status.json");
-    return [
-      "sh",
-      "-c",
-      `mkdir -p '${statusDir}'; printf '{"pid":%s,"state":"working"}' "$$" > '${statusFile}'; exec sleep 5`,
-    ];
+    const script = [
+      "const fs = require(\"node:fs\");",
+      `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
+      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ pid: process.pid, state: \"working\" }));`,
+      "setTimeout(() => {}, 5000);",
+    ].join(" ");
+    return [process.execPath, "-e", script];
   },
 };
 
@@ -32,16 +33,25 @@ async function waitFor(check: () => boolean): Promise<void> {
   expect(check()).toBe(true);
 }
 
+function restoreOrchDir(): void {
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+}
+
+beforeEach(() => {
+  process.env.ORCH_DIR = testOrchDir;
+});
+
 afterEach(() => {
   for (const handle of handles.splice(0)) {
     try { process.kill(handle.pid, "SIGKILL"); } catch {}
   }
+  restoreOrchDir();
 });
 
 afterAll(() => {
   fs.rmSync(testOrchDir, { recursive: true, force: true });
-  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
-  else process.env.ORCH_DIR = originalOrchDir;
+  restoreOrchDir();
 });
 
 describe("HeadlessBackend", () => {

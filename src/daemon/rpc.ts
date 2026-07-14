@@ -2,6 +2,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readDaemonLock } from "./lifecycle.ts";
+import { errorMessage } from "../util.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
@@ -50,6 +51,10 @@ interface RpcResponse {
   id: unknown;
   result?: unknown;
   error?: { code?: string | number; message?: string; data?: unknown } | string;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const SOCKET_NAME = "orchd.sock";
@@ -103,8 +108,7 @@ function handleLine(socket: Socket, line: string, handlers: RpcHandlers, subscri
     .then(() => handler(request.params, emit))
     .then((result) => lineResponse(socket, { id: request.id, result }))
     .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      lineResponse(socket, errorResponse(request.id, "HANDLER_ERROR", message));
+      lineResponse(socket, errorResponse(request.id, "HANDLER_ERROR", errorMessage(error)));
     });
 }
 
@@ -149,8 +153,8 @@ function readPort(portFile: string): number | null {
     return null;
   }
   try {
-    const parsed = JSON.parse(text);
-    const port = typeof parsed === "number" ? parsed : parsed?.port;
+    const parsed: unknown = JSON.parse(text);
+    const port = typeof parsed === "number" ? parsed : isObject(parsed) ? parsed.port : undefined;
     if (Number.isInteger(port) && port > 0 && port < 65536) return port;
   } catch {
     const port = Number(text);
@@ -219,7 +223,9 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
         buffer = buffer.slice(newline + 1);
         if (line) {
           try {
-            const message = JSON.parse(line) as RpcResponse;
+            const parsed: unknown = JSON.parse(line);
+            if (!isObject(parsed)) continue;
+            const message = parsed as RpcResponse;
             if (message.id === id) {
               clearTimeout(timer);
               socket.off("data", onData);
@@ -379,7 +385,9 @@ export async function rpcSubscribe(
       buffer = buffer.slice(newline + 1);
       if (line) {
         try {
-          const message = JSON.parse(line) as RpcResponse & { event?: unknown };
+          const parsed: unknown = JSON.parse(line);
+          if (!isObject(parsed)) continue;
+          const message = parsed as RpcResponse & { event?: unknown };
           if (Object.prototype.hasOwnProperty.call(message, "event")) {
             try {
               onEvent(message.event);

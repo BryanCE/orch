@@ -23,8 +23,17 @@ function tempOrchDir(): string {
   return directory;
 }
 
+function storageKey(key: string): string {
+  // Windows forbids ':' in directory names; the event state assertions do not depend on the key text.
+  return process.platform === "win32" ? key.replaceAll(":", "_") : key;
+}
+
+function nodeCommand(script: string): string[] {
+  return [process.execPath, "-e", script];
+}
+
 function writeStatus(orchDir: string, key: string, state: string, extra: object = {}): void {
-  const directory = join(orchDir, "agents", key);
+  const directory = join(orchDir, "agents", storageKey(key));
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), `${JSON.stringify({ pid: process.pid, state, ...extra })}\n`);
 }
@@ -73,7 +82,11 @@ describe("daemon presence events", () => {
     const orchDir = tempOrchDir();
     const output = join(orchDir, "notification.json");
     writeStatus(orchDir, "workspace:p2", "working");
-    const sink: Sink = { type: "command", on: ["blocked"], command: ["sh", "-c", `cat > '${output}'`] };
+    const sink: Sink = {
+      type: "command",
+      on: ["blocked"],
+      command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`),
+    };
     const watcher = startPresenceWatch({
       orchDir,
       onEvent: (event) => emitAndNotify(() => {}, [sink], event),
@@ -93,7 +106,7 @@ describe("daemon presence events", () => {
 
   test("a dead daemon falls back once and diffs the switch snapshot", async () => {
     const orchDir = tempOrchDir();
-    const key = "workspace:p3";
+    const key = storageKey("workspace:p3");
     writeStatus(orchDir, key, "working");
     const server = await startRpcServer(orchDir, {
       "subscribe-events": () => ({ subscribed: true }),

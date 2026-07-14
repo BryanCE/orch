@@ -91,7 +91,7 @@ describe("runDoctor", () => {
     });
   });
 
-  test("accepts a matching live extension hash", async () => {
+  test("warns when the extension bundle is absent for a matching live hash", async () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "pane-1");
     fs.mkdirSync(agent, { recursive: true });
@@ -101,12 +101,12 @@ describe("runDoctor", () => {
     }));
 
     expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
-      status: "ok",
-      detail: expect.stringContaining("current"),
+      status: "warn",
+      detail: "extension bundle not built; run: bun run build:ext",
     });
   });
 
-  test("warns when a live extension hash is stale", async () => {
+  test("warns when the extension bundle is absent for a stale live hash", async () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "pane-2");
     fs.mkdirSync(agent, { recursive: true });
@@ -114,11 +114,11 @@ describe("runDoctor", () => {
 
     expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
       status: "warn",
-      detail: expect.stringContaining("orch restart pane-2"),
+      detail: "extension bundle not built; run: bun run build:ext",
     });
   });
 
-  test("tolerates live extension status without a hash", async () => {
+  test("warns when the extension bundle is absent for a live status without a hash", async () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "pane-3");
     const broken = path.join(directory, "agents", "broken");
@@ -128,8 +128,8 @@ describe("runDoctor", () => {
     fs.writeFileSync(path.join(broken, "status.json"), "not json");
 
     expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
-      status: "ok",
-      detail: expect.stringContaining("no live agents with extension hashes"),
+      status: "warn",
+      detail: "extension bundle not built; run: bun run build:ext",
     });
   });
 

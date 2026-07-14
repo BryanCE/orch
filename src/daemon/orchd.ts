@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import {
   acquireDaemonLock,
   computeCodeHash,
@@ -11,8 +10,9 @@ import { loadSinks, type Sink } from "../notify.ts";
 import { runWorkLoop } from "../work.ts";
 import { startConfigWatch, type ConfigWatch } from "./configwatch.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
+import { orchDir } from "../store.ts";
+import { errorMessage } from "../util.ts";
 
-const orchDir = process.env.ORCH_DIR ?? join(process.env.HOME ?? process.cwd(), ".orch");
 const entrypoint = process.env.ORCHD_ENTRYPOINT ?? import.meta.path;
 const bootCodeHash = computeCodeHash(entrypoint);
 const startedAt = new Date();
@@ -22,8 +22,16 @@ let workLoop: Promise<void> | undefined;
 let workLoopRunning = false;
 let presenceWatch: PresenceWatch | undefined;
 let configWatch: ConfigWatch | undefined;
-let currentConfig: OrchConfig = loadConfig(orchDir);
-let sinks: Sink[] = loadSinks(orchDir);
+let currentConfig: OrchConfig | undefined;
+let sinks: Sink[] | undefined;
+
+function getConfig(directory: string): OrchConfig {
+  return currentConfig ??= loadConfig(directory);
+}
+
+function getSinks(directory: string): Sink[] {
+  return sinks ??= loadSinks(directory);
+}
 
 async function socketAnswers(directory: string): Promise<boolean> {
   try {
@@ -34,25 +42,26 @@ async function socketAnswers(directory: string): Promise<boolean> {
   }
 }
 
-async function shutDown(): Promise<void> {
+async function shutDown(directory: string): Promise<void> {
   presenceWatch?.stop();
   configWatch?.stop();
   workController.abort();
   await workLoop;
   await server?.stop();
-  releaseDaemonLock(orchDir);
+  releaseDaemonLock(directory);
   process.exit(0);
 }
 
 async function main(): Promise<void> {
-  const answers = await socketAnswers(orchDir);
-  if (!acquireDaemonLock(orchDir, () => answers)) {
+  const directory = orchDir();
+  const answers = await socketAnswers(directory);
+  if (!acquireDaemonLock(directory, () => answers)) {
     process.stdout.write("already running\n");
     return;
   }
 
   try {
-    server = await startRpcServer(orchDir, {
+    server = await startRpcServer(directory, {
       "daemon-status": () => ({
         pid: process.pid,
         startedAt: startedAt.toISOString(),
@@ -68,41 +77,43 @@ async function main(): Promise<void> {
       "subscribe-events": () => ({ subscribed: true }),
       reload: () => {
         setTimeout(() => {
-          void server?.stop().then(() => reexecSelf(orchDir));
+          void server?.stop().then(() => reexecSelf(directory));
         }, 10);
         return { ok: true };
       },
     }, { holdsDaemonLock: true });
   } catch (error) {
-    releaseDaemonLock(orchDir);
+    releaseDaemonLock(directory);
     throw error;
   }
 
-  configWatch = startConfigWatch(orchDir, {
+  configWatch = startConfigWatch(directory, {
     onChange: (config) => {
       currentConfig = config;
-      sinks = loadSinks(orchDir);
+      sinks = undefined;
     },
     onWarn: (message) => process.stderr.write(`orchd config: ${message}\n`),
   });
   presenceWatch = startPresenceWatch({
-    orchDir,
-    onEvent: (event) => emitAndNotify((value) => server?.emit(value), sinks, event),
+    orchDir: directory,
+    onEvent: (event) => emitAndNotify((value) => server?.emit(value), getSinks(directory), event),
   });
   workLoopRunning = true;
   workLoop = runWorkLoop({
-    orchDir,
+    orchDir: directory,
     pollIntervalMs: 500,
-    maxRetries: currentConfig.queue.max_retries,
+    maxRetries: getConfig(directory).queue.max_retries,
     signal: workController.signal,
     continuous: true,
   }).finally(() => { workLoopRunning = false; });
 
-  process.once("SIGTERM", () => void shutDown());
-  process.once("SIGINT", () => void shutDown());
+  process.once("SIGTERM", () => void shutDown(directory));
+  process.once("SIGINT", () => void shutDown(directory));
 }
 
-void main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+if (import.meta.main) {
+  void main().catch((error: unknown) => {
+    process.stderr.write(`${errorMessage(error)}\n`);
+    process.exit(1);
+  });
+}

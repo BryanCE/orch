@@ -10,17 +10,24 @@ function fixture(): { bin: string; record: string } {
   const directory = mkdtempSync(join(tmpdir(), "orch-remote-fanout-"));
   directories.push(directory);
   const record = join(directory, "ssh-args.log");
+  const script = join(directory, "ssh-fake.js");
+  writeFileSync(script, `const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(record)}, args.join(" ") + "\\n");
+switch (args[2]) {
+  case "good.example": process.stdout.write(JSON.stringify({ host: "good", ok: true }) + "\\n"); break;
+  case "dead.example": process.stderr.write("connection refused\\n"); process.exit(255);
+  case "slow.example": setTimeout(() => {}, 2000); break;
+  case "text.example": process.stdout.write("not json\\n"); break;
+  default: process.stdout.write(JSON.stringify({ host: "unknown" }) + "\\n");
+}`);
+  if (process.platform === "win32") {
+    const bin = join(directory, "ssh-fake.cmd");
+    writeFileSync(bin, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
+    return { bin, record };
+  }
   const bin = join(directory, "ssh-fake");
-  writeFileSync(bin, `#!/bin/sh
-printf '%s\\n' "$*" >> '${record}'
-case "$3" in
-  good.example) printf '{"host":"good","ok":true}\\n' ;;
-  dead.example) printf 'connection refused\\n' >&2; exit 255 ;;
-  slow.example) sleep 2 ;;
-  text.example) printf 'not json\\n' ;;
-  *) printf '{"host":"unknown"}\\n' ;;
-esac
-`);
+  writeFileSync(bin, `#!/usr/bin/env bun\n${readFileSync(script, "utf8")}\n`);
   chmodSync(bin, 0o755);
   return { bin, record };
 }
@@ -55,7 +62,7 @@ describe("async remote fan-out", () => {
 
   test("returns a typed timeout failure", async () => {
     const { bin: sshBin } = fixture();
-    const result = await runRemoteAsync("slow", { dest: "slow.example", timeout_ms: 20 }, ["status"], { sshBin });
+    const result = await runRemoteAsync("slow", { dest: "slow.example", timeout_ms: 500 }, ["status"], { sshBin });
     expect(failure(result)).toMatchObject({ kind: "timeout", host: "slow" });
   });
 
@@ -70,7 +77,7 @@ describe("async remote fan-out", () => {
     const hosts = {
       good: { dest: "good.example" },
       dead: { dest: "dead.example" },
-      slow: { dest: "slow.example", timeout_ms: 20 },
+      slow: { dest: "slow.example", timeout_ms: 500 },
       text: { dest: "text.example" },
     };
     const results = await Promise.all(

@@ -29,6 +29,7 @@ describe("loadConfig", () => {
       queue: { max_retries: 1 },
       notify: [],
       hosts: {},
+      workspaces: {},
     });
   });
 
@@ -52,6 +53,9 @@ url = "https://example.test/orch"
 
 [hosts.gpu1]
 ssh = "bryan@gpu1"
+
+[workspaces]
+wD = "Design"
 `);
 
     expect(loadConfig(directory)).toEqual({
@@ -65,6 +69,7 @@ ssh = "bryan@gpu1"
       queue: { max_retries: 3 },
       notify: [{ type: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       hosts: { gpu1: { ssh: "bryan@gpu1" } },
+      workspaces: { wD: "Design" },
     });
   });
 

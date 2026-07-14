@@ -22,6 +22,8 @@ export interface BackendSpawnOpts {
   readonly orchDir?: string;
   /** Extra environment passed to the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
+  /** Explicit worker tool allowlist, when the launcher applies one. */
+  readonly tools?: string;
 }
 
 /** Opaque backend-specific process or pane handle. */

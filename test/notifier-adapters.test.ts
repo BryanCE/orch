@@ -21,8 +21,17 @@ function tempDir(): string {
 }
 
 function executable(dir: string, name: string, body: string): string {
+  const script = path.join(dir, `${name}.js`);
+  fs.writeFileSync(script, `${body}\n`);
+  if (process.platform === "win32") {
+    // Keep the extensionless probe path while the companion .cmd is resolved by Windows.
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, "");
+    fs.writeFileSync(`${file}.cmd`, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
+    return file;
+  }
   const file = path.join(dir, name);
-  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`);
+  fs.writeFileSync(file, `#!/usr/bin/env bun\n${body}\n`);
   fs.chmodSync(file, 0o755);
   return file;
 }
@@ -76,9 +85,13 @@ describe("notifier registry and built-in adapters", () => {
   test("command adapter passes canonical JSON on stdin", async () => {
     const dir = tempDir();
     const output = path.join(dir, "stdin.json");
-    const command = executable(dir, "capture", `cat > ${JSON.stringify(output)}`);
+    const command = [
+      process.execPath,
+      "-e",
+      `const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`,
+    ];
     const registry = createNotifierRegistry(createBuiltinNotifiers());
-    expect(await registry.deliver("command", { command: [command] }, event)).toBe(true);
+    expect(await registry.deliver("command", { command }, event)).toBe(true);
     const body = JSON.parse(fs.readFileSync(output, "utf8"));
     expect(body).toMatchObject({ title: expect.any(String), workspace: "demo", workspaceColor: expect.any(String) });
   });
@@ -87,8 +100,8 @@ describe("notifier registry and built-in adapters", () => {
     const dir = tempDir();
     const calls = path.join(dir, "calls");
     const oldPath = process.env.PATH;
-    const notify = executable(dir, "notify-send", `echo notify >> ${JSON.stringify(calls)}\nexit 0`);
-    const wsl = executable(dir, "wsl-notify-send", `echo wsl >> ${JSON.stringify(calls)}\nexit 0`);
+    const notify = executable(dir, "notify-send", `require("node:fs").appendFileSync(${JSON.stringify(calls)}, "notify\\n"); process.exit(0);`);
+    const wsl = executable(dir, "wsl-notify-send", `require("node:fs").appendFileSync(${JSON.stringify(calls)}, "wsl\\n"); process.exit(0);`);
     process.env.PATH = dir;
     const oldHerdrEnv = process.env.HERDR_ENV;
     delete process.env.HERDR_ENV;

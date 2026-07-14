@@ -49,7 +49,7 @@ export function listAgentWorktrees(repoRoot: string): string[] {
   return git(root, ["worktree", "list", "--porcelain"])
     .split("\n")
     .filter((line) => line.startsWith("worktree "))
-    .map((line) => line.slice("worktree ".length))
+    .map((line) => path.normalize(line.slice("worktree ".length)))
     .filter((worktreePath) => {
       const relativePath = path.relative(agentDirectory, worktreePath);
       return relativePath !== "" && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);

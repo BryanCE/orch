@@ -1,5 +1,6 @@
 import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { loadConfig, type OrchConfig } from "../config.ts";
+import { errorMessage } from "../util.ts";
 
 const CONFIG_FILE = "config.toml";
 const DEFAULT_DEBOUNCE_MS = 250;
@@ -15,7 +16,7 @@ export type ConfigWatch = {
 };
 
 function warningMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }
 
 function isConfigFile(filename: string | Buffer | null): boolean {

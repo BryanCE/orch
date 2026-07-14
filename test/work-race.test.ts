@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks } from "../src/queue";
+import { presenceAgentDir } from "../src/store";
 
 type Runner = ReturnType<typeof Bun.spawn>;
 
@@ -15,7 +16,7 @@ function makeFixture(): { orchDir: string; agentKey: string; taskId: string } {
   // This is deliberately an unreachable-but-idle herdr pane. The race assertion
   // stops at the claim boundary; no real dispatch can happen in this fixture.
   const agentKey = "fake:p1";
-  const agentDir = join(orchDir, "agents", agentKey);
+  const agentDir = presenceAgentDir(agentKey, orchDir);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "status.json"),
@@ -36,7 +37,7 @@ async function waitForClaim(orchDir: string): Promise<void> {
 }
 
 function startRunner(orchDir: string): Runner {
-  return Bun.spawn(["bun", "bin/orch.ts", "work", "--once"], {
+  return Bun.spawn([process.execPath, "bin/orch.ts", "work", "--once"], {
     cwd: join(import.meta.dir, ".."),
     env: { ...process.env, ORCH_DIR: orchDir },
     stdout: "pipe",
@@ -59,7 +60,7 @@ describe("orch work claim race", () => {
       // Let the winner pass cmdWork's working-state check. Herdr is intentionally
       // unreachable, so this only verifies O_EXCL claim ownership, not dispatch.
       writeFileSync(
-        join(orchDir, "agents", agentKey, "status.json"),
+        join(presenceAgentDir(agentKey, orchDir), "status.json"),
         JSON.stringify({ pid: process.pid, paneId: agentKey, agent: "pi", state: "working" }),
       );
 

@@ -74,7 +74,9 @@ function processIdentityMatches(record: LockRecord): boolean {
 
 function readLock(file: string): LockRecord | undefined {
   try {
-    const record = JSON.parse(readFileSync(file, "utf8")) as Partial<LockRecord>;
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const record = parsed as Partial<LockRecord>;
     if (
       !Number.isInteger(record.pid) ||
       typeof record.codeHash !== "string" ||

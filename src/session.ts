@@ -1,5 +1,52 @@
 import { readFileSync } from "node:fs";
 
+export interface TextContentBlock {
+  type: "text";
+  text?: string;
+}
+
+export interface ToolCallContentBlock {
+  type: "toolCall";
+  name?: string;
+  arguments?: Record<string, unknown>;
+}
+
+export interface OtherContentBlock {
+  type: string;
+  [key: string]: unknown;
+}
+
+export type ContentBlock = TextContentBlock | ToolCallContentBlock | OtherContentBlock;
+export type SessionContent = string | ContentBlock[];
+
+export interface SessionUsage {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: number | { total?: number };
+}
+
+export interface SessionMessage {
+  role: string;
+  timestamp?: string;
+  content?: SessionContent;
+  model?: string;
+  provider?: string;
+  usage?: SessionUsage;
+  toolName?: string;
+  isError?: boolean;
+}
+
+export interface SessionEntry {
+  type: string;
+  timestamp?: string;
+  modelId?: string;
+  provider?: string;
+  thinkingLevel?: string;
+  message?: SessionMessage;
+}
+
 export interface SessionData {
   exists: boolean;
   path: string;
@@ -11,17 +58,68 @@ export interface SessionData {
   cost: number;
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
   turns: number;
-  entries: any[];
+  entries: SessionEntry[];
 }
 
-export function blockText(content: any): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((block) => block && typeof block === "object" && block.type === "text")
-      .map((block) => block.text ?? "")
-      .join("\n");
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function isContentBlock(value: unknown): value is ContentBlock {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (value.type === "text") return value.text === undefined || typeof value.text === "string";
+  if (value.type === "toolCall") {
+    return (value.name === undefined || typeof value.name === "string")
+      && (value.arguments === undefined || isRecord(value.arguments));
   }
+  return true;
+}
+
+export function isTextContentBlock(value: unknown): value is TextContentBlock {
+  return isContentBlock(value) && value.type === "text";
+}
+
+export function isToolCallContentBlock(value: unknown): value is ToolCallContentBlock {
+  return isContentBlock(value) && value.type === "toolCall";
+}
+
+function isSessionContent(value: unknown): value is SessionContent {
+  return typeof value === "string" || (Array.isArray(value) && value.every(isContentBlock));
+}
+
+function isSessionUsage(value: unknown): value is SessionUsage {
+  if (!isRecord(value)) return false;
+  const numeric = ["input", "output", "cacheRead", "cacheWrite"];
+  if (numeric.some((key) => value[key] !== undefined && typeof value[key] !== "number")) return false;
+  if (value.cost !== undefined && typeof value.cost !== "number") {
+    if (!isRecord(value.cost) || (value.cost.total !== undefined && typeof value.cost.total !== "number")) return false;
+  }
+  return true;
+}
+
+function isSessionMessage(value: unknown): value is SessionMessage {
+  if (!isRecord(value) || typeof value.role !== "string") return false;
+  if (value.timestamp !== undefined && typeof value.timestamp !== "string") return false;
+  if (value.content !== undefined && !isSessionContent(value.content)) return false;
+  if (value.model !== undefined && typeof value.model !== "string") return false;
+  if (value.provider !== undefined && typeof value.provider !== "string") return false;
+  if (value.usage !== undefined && !isSessionUsage(value.usage)) return false;
+  if (value.toolName !== undefined && typeof value.toolName !== "string") return false;
+  return value.isError === undefined || typeof value.isError === "boolean";
+}
+
+function isSessionEntry(value: unknown): value is SessionEntry {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (value.timestamp !== undefined && typeof value.timestamp !== "string") return false;
+  if (value.modelId !== undefined && typeof value.modelId !== "string") return false;
+  if (value.provider !== undefined && typeof value.provider !== "string") return false;
+  if (value.thinkingLevel !== undefined && typeof value.thinkingLevel !== "string") return false;
+  return value.message === undefined || isSessionMessage(value.message);
+}
+
+export function blockText(content: SessionContent | undefined): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.filter(isTextContentBlock).map((block) => block.text ?? "").join("\n");
   return "";
 }
 
@@ -45,20 +143,22 @@ export function parseSession(sessionPath: string | null): SessionData {
   let lastAsstProvider: string | null = null;
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
-    let entry: any;
+    let parsed: unknown;
     try {
-      entry = JSON.parse(line);
+      parsed = JSON.parse(line) as unknown;
     } catch {
       continue;
     }
+    if (!isSessionEntry(parsed)) continue;
+    const entry = parsed;
     data.entries.push(entry);
     if (entry.type === "model_change") {
-      lastModelChange = entry.modelId ?? lastModelChange;
+      if (entry.modelId) lastModelChange = entry.modelId;
       if (entry.provider) lastAsstProvider = entry.provider;
       continue;
     }
     if (entry.type === "thinking_level_change") {
-      lastThinkChange = entry.thinkingLevel ?? lastThinkChange;
+      if (entry.thinkingLevel) lastThinkChange = entry.thinkingLevel;
       continue;
     }
     if (entry.type !== "message" || !entry.message) continue;

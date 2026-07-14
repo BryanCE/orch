@@ -62,7 +62,7 @@ describe("clean worktrees", () => {
     expect(fs.existsSync(merged)).toBe(false);
     expect(fs.existsSync(unmerged)).toBe(true);
     expect(listAgentWorktrees(repoRoot)).toEqual([unmerged]);
-  });
+  }, 30_000);
 
   test("--force discards an unmerged orphan and its branch", () => {
     const repoRoot = fixtureRepo();

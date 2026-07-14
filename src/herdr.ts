@@ -1,26 +1,92 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 
-function herdr(args: string[]): any | null {
+export interface HerdrPane {
+  pane_id: string;
+  tab_id?: string;
+  workspace_id?: string;
+  agent_status?: string;
+  name?: string;
+  focused?: boolean;
+  agent?: string;
+  agent_session?: { kind: string; value: string } | null;
+  rect?: { width: number; height: number; x: number; y: number };
+}
+
+export interface HerdrTab {
+  tab_id: string;
+  label?: string;
+  workspace_id?: string;
+  focused?: boolean;
+  number?: number;
+  pane_count?: number;
+  agent_status?: string;
+}
+
+export interface HerdrWorkspace {
+  workspace_id: string;
+  label?: string;
+  focused?: boolean;
+  number?: number;
+  tab_count?: number;
+  pane_count?: number;
+  agent_status?: string;
+}
+
+export interface HerdrAgent {
+  pane_id?: string;
+  name?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseHerdrOutput(output: string): unknown {
+  const value = JSON.parse(output) as unknown;
+  return isRecord(value) && value.result !== undefined ? value.result : value;
+}
+
+function errorDetail(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (isRecord(error)) {
+    const detail = error.stderr ?? error.stdout ?? error.message;
+    if (detail !== undefined) return String(detail);
+  }
+  return String(error);
+}
+
+function isHerdrPane(value: unknown): value is HerdrPane {
+  return isRecord(value) && typeof value.pane_id === "string";
+}
+
+function isHerdrTab(value: unknown): value is HerdrTab {
+  return isRecord(value) && typeof value.tab_id === "string";
+}
+
+function isHerdrAgent(value: unknown): value is HerdrAgent {
+  return isRecord(value)
+    && (value.pane_id === undefined || typeof value.pane_id === "string")
+    && (value.name === undefined || typeof value.name === "string");
+}
+
+function herdr(args: string[]): unknown | null {
   try {
     const output = execFileSync("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    const value = JSON.parse(output);
-    return value && value.result !== undefined ? value.result : value;
+    return parseHerdrOutput(output);
   } catch {
     return null;
   }
 }
 
-export function herdrJSON(args: string[]): any {
+export function herdrJSON<T = unknown>(args: string[]): T {
   let output: string;
   try {
     output = execFileSync("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  } catch (error: any) {
-    const detail = (error?.stderr ?? error?.stdout ?? error?.message ?? "").toString().trim();
-    throw new Error(`herdr ${args.join(" ")} failed: ${detail}`);
+  } catch (error: unknown) {
+    throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
   }
   try {
-    const value = JSON.parse(output);
-    return value && value.result !== undefined ? value.result : value;
+    return parseHerdrOutput(output) as T;
   } catch {
     throw new Error(`herdr ${args.join(" ")} returned non-JSON: ${output.slice(0, 200)}`);
   }
@@ -31,30 +97,32 @@ export function herdrReachable(): boolean {
   return herdr(["pane", "list"]) !== null;
 }
 
-export function herdrPanes(): any[] {
+export function herdrPanes(): HerdrPane[] {
   const result = herdr(["pane", "list"]);
-  return result && Array.isArray(result.panes) ? result.panes : [];
+  return isRecord(result) && Array.isArray(result.panes) ? result.panes.filter(isHerdrPane) : [];
 }
 
 export function paneStatus(pane: string): string | null {
   const found = herdrPanes().find((item) => item.pane_id === pane);
-  return found ? found.agent_status ?? null : null;
+  return found?.agent_status ?? null;
 }
 
 export function herdrNames(): Map<string, string> {
   const result = herdr(["agent", "list"]);
   const names = new Map<string, string>();
-  if (result && Array.isArray(result.agents)) {
-    for (const agent of result.agents) if (agent.pane_id && agent.name) names.set(agent.pane_id, agent.name);
+  if (isRecord(result) && Array.isArray(result.agents)) {
+    for (const agent of result.agents.filter(isHerdrAgent)) {
+      if (agent.pane_id && agent.name) names.set(agent.pane_id, agent.name);
+    }
   }
   return names;
 }
 
-export function herdrTabs(): Map<string, any> {
+export function herdrTabs(): Map<string, HerdrTab> {
   const result = herdr(["tab", "list"]);
-  const tabs = new Map<string, any>();
-  if (result && Array.isArray(result.tabs)) {
-    for (const tab of result.tabs) tabs.set(tab.tab_id, tab);
+  const tabs = new Map<string, HerdrTab>();
+  if (isRecord(result) && Array.isArray(result.tabs)) {
+    for (const tab of result.tabs.filter(isHerdrTab)) tabs.set(tab.tab_id, tab);
   }
   return tabs;
 }
@@ -63,8 +131,8 @@ export function herdrBestEffort(args: string[]): boolean {
   try {
     execFileSync("herdr", args, { timeout: 8000, stdio: ["ignore", "pipe", "pipe"] });
     return true;
-  } catch (error: any) {
-    process.stderr.write(`warning: herdr ${args.join(" ")} failed: ${(error?.stderr ?? error?.message ?? error).toString().trim()}\n`);
+  } catch (error: unknown) {
+    process.stderr.write(`warning: herdr ${args.join(" ")} failed: ${errorDetail(error)}\n`);
     return false;
   }
 }

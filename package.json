@@ -10,7 +10,8 @@
     "agents"
   ],
   "scripts": {
-    "check": "oxlint . && bunx tsc --noEmit",
+    "check": "oxlint . && bunx tsc --noEmit && fallow check",
+    "build:ext": "bun build extensions/orchestrator-bridge.ts --target=node --format=esm --outfile dist/extensions/orchestrator-bridge.js",
     "tc": "bunx tsc --noEmit",
     "lint": "oxlint .",
     "test": "bun test"

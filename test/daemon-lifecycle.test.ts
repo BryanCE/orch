@@ -36,7 +36,7 @@ describe("daemon lifecycle", () => {
       pid: process.pid,
       codeHash: expect.any(String),
       startedAt: expect.any(String),
-      startTicks: expect.any(String),
+      ...(process.platform === "win32" ? {} : { startTicks: expect.any(String) }),
     });
     releaseDaemonLock(orchDir);
   });
@@ -88,10 +88,10 @@ describe("daemon lifecycle", () => {
     const oldOrchDir = process.env.ORCH_DIR;
     delete process.env.ORCH_DIR;
     try {
-      const detachedPid = daemonize("/bin/sh", ["-c", "printf daemon-test"], orchDir);
+      const detachedPid = daemonize(process.execPath, ["-e", "process.stdout.write('daemon-test')"], orchDir);
       expect(detachedPid).toBeGreaterThan(0);
       expect(readFileSync(join(orchDir, "orchd.log"), "utf8")).toBeDefined();
-      expect(runForeground("/bin/true")).toBeGreaterThan(0);
+      expect(runForeground(process.execPath, ["-e", ""])).toBeGreaterThan(0);
       expect(runForeground(join(import.meta.dir, "../src/daemon/lifecycle.ts"))).toBeGreaterThan(0);
       await new Promise((resolve) => setTimeout(resolve, 50));
     } finally {
@@ -103,11 +103,12 @@ describe("daemon lifecycle", () => {
   test("reexecs with the current argv and hands over the lock", () => {
     const orchDir = makeOrchDir();
     expect(acquireDaemonLock(orchDir, () => false)).toBe(true);
-    const execPath = Object.getOwnPropertyDescriptor(process, "execPath");
     const exit = Object.getOwnPropertyDescriptor(process, "exit");
     const oldOrchDir = process.env.ORCH_DIR;
+    const oldArgv = [...process.argv];
     process.env.ORCH_DIR = orchDir;
-    Object.defineProperty(process, "execPath", { value: "/bin/true", configurable: true });
+    // Reexec the current runtime with an empty inline script, not a Unix-only helper.
+    process.argv.splice(0, process.argv.length, process.execPath, "-e", "");
     Object.defineProperty(process, "exit", {
       value: (code?: number) => { throw new Error(`exit:${code ?? 0}`); },
       configurable: true,
@@ -116,7 +117,7 @@ describe("daemon lifecycle", () => {
       expect(() => reexecSelf(orchDir)).toThrow("exit:0");
       expect(() => readFileSync(join(orchDir, "orchd.lock"))).toThrow();
     } finally {
-      if (execPath) Object.defineProperty(process, "execPath", execPath);
+      process.argv.splice(0, process.argv.length, ...oldArgv);
       if (exit) Object.defineProperty(process, "exit", exit);
       if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = oldOrchDir;
@@ -126,6 +127,11 @@ describe("daemon lifecycle", () => {
   test("rejects a recycled pid identity", () => {
     const orchDir = makeOrchDir();
     expect(acquireDaemonLock(orchDir)).toBe(true);
+    if (process.platform === "win32") {
+      // Windows has no /proc start-tick identity source, so this Linux-only assertion is not applicable.
+      releaseDaemonLock(orchDir);
+      return;
+    }
     const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8"));
     lock.startTicks = "not-the-current-process";
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify(lock));

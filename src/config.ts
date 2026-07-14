@@ -1,5 +1,6 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
+import { errorMessage } from "./util.ts";
 
 type TomlTable = Record<string, unknown>;
 
@@ -19,10 +20,12 @@ export type OrchConfig = {
     model?: string;
     spawn_cap?: number;
     worktree?: boolean;
+    worker_peer_tools?: boolean;
   };
   queue: { max_retries: number };
   notify: unknown[];
   hosts: Record<string, HostConfig>;
+  workspaces: Record<string, string>;
 };
 
 function stripComment(line: string): string {
@@ -61,7 +64,7 @@ function splitValues(value: string): string[] {
 function parseValue(value: string, line: number): unknown {
   if (value.startsWith("\"")) {
     try {
-      const parsed = JSON.parse(value);
+      const parsed: unknown = JSON.parse(value);
       if (typeof parsed !== "string") throw new Error();
       return parsed;
     } catch {
@@ -175,17 +178,16 @@ export function loadConfig(orchDir: string): OrchConfig {
     root = parseToml(filesystem.readFileSync(file, "utf8"));
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { defaults: {}, queue: { max_retries: 1 }, notify: [], hosts: {} };
+      return { defaults: {}, queue: { max_retries: 1 }, notify: [], hosts: {}, workspaces: {} };
     }
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${file}: config: expected valid TOML, found ${message}`);
+    throw new Error(`${file}: config: expected valid TOML, found ${errorMessage(error)}`);
   }
 
-  knownKeys(root, file, "", ["defaults", "queue", "notify", "hosts"]);
+  knownKeys(root, file, "", ["defaults", "queue", "notify", "hosts", "workspaces"]);
   const defaults: OrchConfig["defaults"] = {};
   if (root.defaults !== undefined) {
     const source = table(root.defaults, file, "defaults");
-    knownKeys(source, file, "defaults", ["adapter", "backend", "model", "spawn_cap", "worktree"]);
+    knownKeys(source, file, "defaults", ["adapter", "backend", "model", "spawn_cap", "worktree", "worker_peer_tools"]);
     for (const key of ["adapter", "backend", "model"] as const) {
       if (source[key] !== undefined) {
         if (typeof source[key] !== "string") fail(file, `defaults.${key}`, "string", source[key]);
@@ -199,6 +201,10 @@ export function loadConfig(orchDir: string): OrchConfig {
     if (source.worktree !== undefined) {
       if (typeof source.worktree !== "boolean") fail(file, "defaults.worktree", "boolean", source.worktree);
       defaults.worktree = source.worktree;
+    }
+    if (source.worker_peer_tools !== undefined) {
+      if (typeof source.worker_peer_tools !== "boolean") fail(file, "defaults.worker_peer_tools", "boolean", source.worker_peer_tools);
+      defaults.worker_peer_tools = source.worker_peer_tools;
     }
   }
 
@@ -242,7 +248,16 @@ export function loadConfig(orchDir: string): OrchConfig {
     }
   }
 
-  return { defaults, queue, notify, hosts };
+  const workspaces: OrchConfig["workspaces"] = {};
+  if (root.workspaces !== undefined) {
+    const source = table(root.workspaces, file, "workspaces");
+    for (const [id, name] of Object.entries(source)) {
+      if (typeof name !== "string") fail(file, `workspaces.${id}`, "string", name);
+      workspaces[id] = name;
+    }
+  }
+
+  return { defaults, queue, notify, hosts, workspaces };
 }
 
 function coerceEnvironment(value: string, fallback: unknown, name: string): unknown {

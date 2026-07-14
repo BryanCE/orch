@@ -2,9 +2,10 @@ import { mkdirSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs
 import { join } from "node:path";
 import { collapse } from "../entities.ts";
 import { notify, type NotifyEvent, type Sink } from "../notify.ts";
-import { pidAlive, readJSON } from "../store.ts";
+import { pidAlive, presenceAgentDir, presenceKeyFromDirectoryName, readJSON } from "../store.ts";
 import { truncate } from "../table.ts";
 import { rpcCall, rpcSubscribe } from "./rpc.ts";
+import { workspaceOf } from "../policy/workspace.ts";
 
 const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
 
@@ -107,7 +108,7 @@ export function derivePresenceTransition(
   const lastError = optionalString(Reflect.get(value, "lastError"));
   return {
     key,
-    workspace: key.includes(":") ? key.slice(0, key.indexOf(":")) : undefined,
+    workspace: workspaceOf(key) ?? undefined,
     agent: label ?? metadata.name,
     tab: tabLabel ?? metadata.tab,
     model: eventModel(value),
@@ -146,13 +147,13 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   const check = (key: string): void => {
     if (stopped) return;
     const metadata = options.keys?.get(key) ?? options.metadataFor?.(key) ?? { name: null, tab: null };
-    const event = derivePresenceTransition(key, readJSON(join(agentsDir, key, "status.json")), metadata, states);
+    const event = derivePresenceTransition(key, readJSON(join(presenceAgentDir(key, options.orchDir), "status.json")), metadata, states);
     if (event) options.onEvent(event);
   };
   const attach = (key: string): void => {
     if (watchers.has(key)) return;
     try {
-      const watcher = watch(join(agentsDir, key), (_event, filename) => {
+      const watcher = watch(presenceAgentDir(key, options.orchDir), (_event, filename) => {
         if (!filename || filename.toString() === "status.json") check(key);
       });
       watcher.on("error", () => {});
@@ -161,7 +162,9 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   };
   const selectedKeys = (): string[] => options.keys
     ? [...options.keys.keys()]
-    : directoryNames(agentsDir).filter((key) => options.acceptKey?.(key) ?? true);
+    : directoryNames(agentsDir)
+      .map(presenceKeyFromDirectoryName)
+      .filter((key) => options.acceptKey?.(key) ?? true);
   const scan = (): void => {
     // Snapshot delivered states, then arm every watcher before reconciliation.
     const lastSeen = new Map(states);

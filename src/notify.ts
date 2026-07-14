@@ -1,6 +1,8 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { workspaceOf } from "./policy/workspace.ts";
+import { errorMessage } from "./util.ts";
 
 export type NotifyEvent = {
   host?: string;
@@ -112,7 +114,7 @@ function splitValues(value: string): string[] {
 function parseValue(value: string, line: number): unknown {
   if (value.startsWith('"')) {
     try {
-      const parsed = JSON.parse(value);
+      const parsed: unknown = JSON.parse(value);
       if (typeof parsed !== "string") throw new Error("not a string");
       return parsed;
     } catch {
@@ -208,7 +210,7 @@ function parseToml(text: string): TomlTable {
 }
 
 function parseConfig(text: string): TomlTable {
-  const bunToml = (globalThis as any).Bun?.TOML;
+  const bunToml = (globalThis as { Bun?: { TOML?: { parse?: (source: string) => unknown } } }).Bun?.TOML;
   if (bunToml?.parse) return bunToml.parse(text) as TomlTable;
   return parseToml(text);
 }
@@ -223,8 +225,8 @@ export function loadNotifierEntries(orchDir: string): NotifierEntry[] {
   let config: TomlTable;
   try {
     config = parseConfig(filesystem.readFileSync(path.join(orchDir, "config.toml"), "utf8"));
-  } catch (error: any) {
-    if (error?.code === "ENOENT") return [];
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return [];
     warning(`could not parse config.toml: ${oneLine(error)}`);
     return [];
   }
@@ -289,12 +291,7 @@ export function loadSinks(orchDir: string): Sink[] {
 }
 
 function oneLine(error: unknown): string {
-  return String(error instanceof Error ? error.message : error).replace(/\s+/g, " ").trim();
-}
-
-/** Return the workspace prefix of a pane/presence key (the part before ':'). */
-export function workspaceOf(key: string): string {
-  return key.split(":", 1)[0] ?? "";
+  return errorMessage(error).replace(/\s+/g, " ").trim();
 }
 
 const WORKSPACE_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"] as const;
@@ -320,7 +317,7 @@ function workspaceAnsi(workspace: string): string {
 }
 
 function eventWorkspace(event: NotifyEvent): string {
-  return event.workspace ?? workspaceOf(event.key);
+  return event.workspace ?? workspaceOf(event.key) ?? event.key.split(":", 1)[0];
 }
 
 /** Structured form of the canonical notification text and event metadata. */

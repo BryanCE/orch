@@ -1,16 +1,26 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const tempDirs: string[] = [];
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
+function nodeCommand(script: string): string[] {
+  return [process.execPath, "-e", script];
 }
 
-async function waitForFile(file: string): Promise<void> {
-  for (let attempt = 0; attempt < 100 && !existsSync(file); attempt++) await Bun.sleep(10);
+async function waitForFile(file: string): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 2_000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    } catch (error) {
+      lastError = error;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error(`Timed out waiting for ${file}: ${String(lastError)}`);
 }
 
 afterEach(() => {
@@ -23,38 +33,39 @@ describe("orch work notifications", () => {
     tempDirs.push(orchDir);
     const output = join(orchDir, "notification.json");
     const key = "workspace:test-agent";
+    const command = nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`);
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
-    const { presenceDir } = await import("../src/store.ts");
-    const agentsDir = presenceDir();
-    mkdirSync(join(agentsDir, key), { recursive: true });
-    writeFileSync(join(agentsDir, key, "status.json"), JSON.stringify({ state: "idle", label: "Test agent", pid: process.pid }));
+    const { presenceAgentDir } = await import("../src/store.ts");
+    const agentsDir = presenceAgentDir(key, orchDir);
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(join(agentsDir, "status.json"), JSON.stringify({ state: "idle", label: "Test agent", pid: process.pid }));
     writeFileSync(
       join(orchDir, "config.toml"),
-      `[[notify]]\ntype = "command"\non = ["working"]\ncommand = ["sh", "-c", "cat > ${shellQuote(output)}"]\n`,
+      `[[notify]]\ntype = "command"\non = ["working"]\ncommand = ${JSON.stringify(command)}\n`,
     );
 
     try {
       const { runWorkLoop } = await import("../src/work.ts");
       const { loadSinks } = await import("../src/notify.ts");
-      expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command: ["sh", "-c", `cat > ${shellQuote(output)}`] }]);
+      expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command }]);
       const controller = new AbortController();
       const loop = runWorkLoop({ orchDir, pollIntervalMs: 20, continuous: true, signal: controller.signal });
-      setTimeout(() => {
-        writeFileSync(join(agentsDir, key, "status.json"), JSON.stringify({ state: "working", label: "Test agent", pid: process.pid }));
-      }, 40);
-      setTimeout(() => controller.abort(), 180);
-      await loop;
-      await waitForFile(output);
-
-      const payload = JSON.parse(readFileSync(output, "utf8"));
-      expect(payload).toMatchObject({
-        title: expect.stringContaining("WORKING [workspace] Test agent"),
-        workspace: "workspace",
-        newState: "working",
-      });
+      try {
+        // runWorkLoop seeds the initial idle state before its first delay.
+        writeFileSync(join(agentsDir, "status.json"), JSON.stringify({ state: "working", label: "Test agent", pid: process.pid }));
+        const payload = await waitForFile(output);
+        expect(payload).toMatchObject({
+          title: expect.stringContaining("WORKING [workspace] Test agent"),
+          workspace: "workspace",
+          newState: "working",
+        });
+      } finally {
+        controller.abort();
+        await loop;
+      }
     } finally {
-      rmSync(join(agentsDir, key), { recursive: true, force: true });
+      rmSync(agentsDir, { recursive: true, force: true });
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;
     }

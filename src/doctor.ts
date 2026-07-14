@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -145,10 +146,14 @@ function isAgentStatus(value: unknown): value is AgentStatus {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Compare a bridge presence hash with the bridge currently installed on disk. */
+/** Compare a bridge presence hash with the bundled bridge currently installed on disk. */
 export function isBridgeExtensionStale(extensionHash: string | undefined): boolean {
   if (extensionHash === undefined) return false;
-  return extensionHash !== computeCodeHash(path.join(repoDir, "extensions", "orchestrator-bridge.ts"));
+  try {
+    return extensionHash !== computeCodeHash(path.join(repoDir, "dist", "extensions", "orchestrator-bridge.js"));
+  } catch {
+    return true;
+  }
 }
 
 type JsonObject = Record<string, unknown>;
@@ -209,7 +214,12 @@ async function checkExtensionStaleness(orchDir: string): Promise<CheckResult> {
   const entries = readAgentEntries(orchDir);
   if (!entries) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
 
-  const diskHash = computeCodeHash(path.join(repoDir, "extensions", "orchestrator-bridge.ts"));
+  let diskHash: string;
+  try {
+    diskHash = computeCodeHash(path.join(repoDir, "dist", "extensions", "orchestrator-bridge.js"));
+  } catch {
+    return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext" };
+  }
   const stale: string[] = [];
   let liveWithHash = 0;
   for (const entry of entries) {
@@ -315,10 +325,26 @@ async function checkNotifySinks(orchDir: string, bins: BinaryStatus): Promise<Ch
 export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> {
   if (!bins.pi) return { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi is not installed" };
   const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
-  const names = ["orchestrator-bridge.ts", "herdr-agent-state.ts"];
+  const bridgeSource = path.join(repoDir, "extensions", "orchestrator-bridge.ts");
+  const bridgeBundle = path.join(repoDir, "dist", "extensions", "orchestrator-bridge.js");
+  const names = ["orchestrator-bridge.js", "herdr-agent-state.ts"];
   const stale: string[] = [];
   const fixable: string[] = [];
   let extensionDirMissing = false;
+  const addStale = (name: string): void => {
+    if (!stale.includes(name)) stale.push(name);
+  };
+  const addFixable = (name: string): void => {
+    if (!fixable.includes(name)) fixable.push(name);
+  };
+
+  let bundleMissing = false;
+  try {
+    bundleMissing = !filesystem.statSync(bridgeBundle).isFile();
+  } catch {
+    bundleMissing = true;
+  }
+
   try {
     if (!filesystem.lstatSync(extensionDir).isDirectory()) extensionDirMissing = false;
   } catch (error: unknown) {
@@ -326,30 +352,74 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
   }
   for (const name of names) {
     const destination = path.join(extensionDir, name);
-    const source = path.join(repoDir, "extensions", name);
+    if (name === "orchestrator-bridge.js" && bundleMissing) {
+      addStale(name);
+      addFixable(name);
+      continue;
+    }
+    const source = name === "orchestrator-bridge.js"
+      ? bridgeBundle
+      : path.join(repoDir, "extensions", name);
     let sourcePath: string;
     try {
       sourcePath = filesystem.realpathSync(source);
     } catch {
-      stale.push(name);
+      addStale(name);
+      if (name === "orchestrator-bridge.js") addFixable(name);
       continue;
     }
     try {
       const destinationStat = filesystem.lstatSync(destination);
-      if (!destinationStat.isSymbolicLink()) {
-        stale.push(name);
-        continue;
-      }
-      if (filesystem.realpathSync(destination) !== sourcePath) {
-        stale.push(name);
-        fixable.push(name);
+      if (destinationStat.isSymbolicLink()) {
+        if (filesystem.realpathSync(destination) !== sourcePath) {
+          addStale(name);
+          addFixable(name);
+        }
+      } else if (computeCodeHash(destination) !== computeCodeHash(source)) {
+        addStale(name);
+        addFixable(name);
       }
     } catch (error: unknown) {
-      stale.push(name);
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") fixable.push(name);
+      addStale(name);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") addFixable(name);
     }
   }
-  if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "orchestrator-bridge and herdr-agent-state are current" };
+  const applyExtensionFix = (): void => {
+    if (fixable.includes("orchestrator-bridge.js")) {
+      filesystem.mkdirSync(path.dirname(bridgeBundle), { recursive: true });
+      execFileSync("bun", [
+        "build", bridgeSource, "--target=node", "--format=esm", "--outfile", bridgeBundle,
+      ], { stdio: "inherit" });
+    }
+    filesystem.mkdirSync(extensionDir, { recursive: true });
+    for (const name of fixable) {
+      const destination = path.join(extensionDir, name);
+      const source = name === "orchestrator-bridge.js"
+        ? bridgeBundle
+        : path.join(repoDir, "extensions", name);
+      filesystem.rmSync(destination, { recursive: true, force: true });
+      filesystem.symlinkSync(source, destination);
+    }
+  };
+
+  if (bundleMissing) {
+    const result: CheckResult = {
+      id: "pi-extensions",
+      label: "pi extensions",
+      status: "warn",
+      detail: "extension bundle not built; run: bun run build:ext",
+    };
+    if (fixable.length) {
+      result.fix = {
+        description: extensionDirMissing
+          ? `Build bundled bridge, create missing extension dir, and redeploy: ${fixable.join(", ")}`
+          : `Build bundled bridge and redeploy: ${fixable.join(", ")}`,
+        apply: applyExtensionFix,
+      };
+    }
+    return result;
+  }
+  if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge and herdr-agent-state are current" };
   const result: CheckResult = {
     id: "pi-extensions",
     label: "pi extensions",
@@ -359,17 +429,9 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
   if (fixable.length) {
     result.fix = {
       description: extensionDirMissing
-        ? `Create missing extension dir and recreate pi extension symlinks: ${fixable.join(", ")}`
-        : `Recreate pi extension symlinks: ${fixable.join(", ")}`,
-      apply() {
-        filesystem.mkdirSync(extensionDir, { recursive: true });
-        for (const name of fixable) {
-          const destination = path.join(extensionDir, name);
-          const source = path.join(repoDir, "extensions", name);
-          filesystem.rmSync(destination, { recursive: true, force: true });
-          filesystem.symlinkSync(source, destination);
-        }
-      },
+        ? `Build bundled bridge, create missing extension dir, and redeploy: ${fixable.join(", ")}`
+        : `Build bundled bridge and redeploy: ${fixable.join(", ")}`,
+      apply: applyExtensionFix,
     };
   }
   return result;

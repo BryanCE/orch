@@ -3,10 +3,36 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const HOME = homedir();
-const ORCH_DIR = process.env.ORCH_DIR ?? join(HOME, ".orch");
-const PRESENCE_DIR = join(ORCH_DIR, "agents");
-const SPAWNED_PATH = join(ORCH_DIR, "spawned.jsonl");
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
+
+// Resolve ORCH_DIR per call: tests (and callers) mutate process.env.ORCH_DIR
+// after this module loads, so freezing it into a const reads the wrong dir.
+export function orchDir(): string {
+  return process.env.ORCH_DIR ?? join(HOME, ".orch");
+}
+
+export function presenceDir(): string {
+  return join(orchDir(), "agents");
+}
+
+/** Map logical pane keys to filesystem-safe directory names on Windows. */
+export function presenceDirectoryName(key: string): string {
+  if (process.platform !== "win32") return key;
+  return key.replaceAll("%", "%25").replaceAll(":", "%3A");
+}
+
+export function presenceKeyFromDirectoryName(name: string): string {
+  if (process.platform !== "win32") return name;
+  return name.replace(/%25|%3A/g, (token) => token === "%25" ? "%" : ":");
+}
+
+export function presenceAgentDir(key: string, root = orchDir()): string {
+  return join(root, "agents", presenceDirectoryName(key));
+}
+
+function spawnedPath(): string {
+  return join(orchDir(), "spawned.jsonl");
+}
 
 export interface PresenceStatus {
   /** Schema 2 identifies the adapter; schema 1 records may omit both fields. */
@@ -43,25 +69,18 @@ export interface PresenceEntry {
   key: string;
   dir: string;
   status: PresenceStatus | null;
-  result: any | null;
+  result: unknown | null;
   alive: boolean;
 }
 
-export function orchDir(): string {
-  return ORCH_DIR;
-}
-
-export function presenceDir(): string {
-  return PRESENCE_DIR;
-}
-
 function presencePath(key: string, file: string): string {
-  return join(PRESENCE_DIR, key, file);
+  return join(presenceAgentDir(key), file);
 }
 
-export function readJSON<T = any>(file: string): T | null {
+export function readJSON<T = unknown>(file: string): T | null {
   try {
-    return JSON.parse(readFileSync(file, "utf8"));
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    return parsed as T;
   } catch {
     return null;
   }
@@ -76,8 +95,8 @@ export function pidAlive(pid: number | undefined): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (error: any) {
-    return error && error.code === "EPERM";
+  } catch (error) {
+    return typeof error === "object" && error !== null && "code" in error && error.code === "EPERM";
   }
 }
 
@@ -86,7 +105,7 @@ export function recordSpawned(
   metadata: { adapter?: string; model?: string; backend?: string; worktree?: string; branch?: string } = {},
 ): void {
   try {
-    mkdirSync(ORCH_DIR, { recursive: true });
+    mkdirSync(orchDir(), { recursive: true });
     const record: { pane: string; ts: string; adapter?: string; model?: string; backend?: string; worktree?: string; branch?: string } = {
       pane,
       ts: new Date().toISOString(),
@@ -96,7 +115,7 @@ export function recordSpawned(
     if (metadata.backend !== undefined) record.backend = metadata.backend;
     if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
     if (metadata.branch !== undefined) record.branch = metadata.branch;
-    appendFileSync(SPAWNED_PATH, JSON.stringify(record) + "\n");
+    appendFileSync(spawnedPath(), JSON.stringify(record) + "\n");
   } catch {}
 }
 
@@ -113,7 +132,7 @@ export interface SpawnedRecord {
 export function spawnedRecords(): Map<string, SpawnedRecord> {
   const records = new Map<string, SpawnedRecord>();
   try {
-    for (const line of readFileSync(SPAWNED_PATH, "utf8").split("\n")) {
+    for (const line of readFileSync(spawnedPath(), "utf8").split("\n")) {
       if (!line.trim()) continue;
       try {
         const entry: unknown = JSON.parse(line);
@@ -140,12 +159,13 @@ export function loadPresence(): Map<string, PresenceEntry> {
   const presence = new Map<string, PresenceEntry>();
   let keys: string[];
   try {
-    keys = readdirSync(PRESENCE_DIR);
+    keys = readdirSync(presenceDir());
   } catch {
     return presence;
   }
-  for (const key of keys) {
-    const dir = join(PRESENCE_DIR, key);
+  for (const storedKey of keys) {
+    const key = presenceKeyFromDirectoryName(storedKey);
+    const dir = presenceAgentDir(key);
     try {
       if (!statSync(dir).isDirectory()) continue;
     } catch {
@@ -168,13 +188,13 @@ export function bridgeRegistered(pane: string): boolean {
 
 export function readPaneModel(pane: string): string | null {
   const status = readJSON(presencePath(pane, "status.json"));
-  if (status?.model?.id) {
-    return `${status.model.provider ?? ""}/${status.model.id}${status.thinking ? `:${status.thinking}` : ""}`;
-  }
-  return null;
+  if (!isRecord(status) || !isRecord(status.model) || typeof status.model.id !== "string" || !status.model.id) return null;
+  const provider = typeof status.model.provider === "string" ? status.model.provider : "";
+  const thinking = typeof status.thinking === "string" && status.thinking ? `:${status.thinking}` : "";
+  return `${provider}/${status.model.id}${thinking}`;
 }
 
-export function appendPresenceInbox(presence: PresenceEntry, entry: any): void {
+export function appendPresenceInbox(presence: PresenceEntry, entry: unknown): void {
   appendFileSync(join(presence.dir, "inbox.jsonl"), JSON.stringify(entry) + "\n");
 }
 
@@ -187,13 +207,19 @@ export function writeAnswer(presence: PresenceEntry, text: string): void {
   writeFileSync(join(presence.dir, "answer.json"), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
 }
 
-let cachedSettings: any | undefined;
-function settings(): any {
-  if (cachedSettings === undefined) cachedSettings = readJSON(SETTINGS_PATH) ?? {};
+let cachedSettings: Record<string, unknown> | undefined;
+function settings(): Record<string, unknown> {
+  if (cachedSettings === undefined) {
+    const value = readJSON(SETTINGS_PATH);
+    cachedSettings = isRecord(value) ? value : {};
+  }
   return cachedSettings;
 }
 
 export function defaultModelString(): string {
   const source = settings();
-  return `${source.defaultProvider ?? "openai-codex"}/${source.defaultModel ?? "unknown"}:${source.defaultThinkingLevel ?? "medium"}`;
+  const provider = typeof source.defaultProvider === "string" ? source.defaultProvider : "openai-codex";
+  const model = typeof source.defaultModel === "string" ? source.defaultModel : "unknown";
+  const thinking = typeof source.defaultThinkingLevel === "string" ? source.defaultThinkingLevel : "medium";
+  return `${provider}/${model}:${thinking}`;
 }

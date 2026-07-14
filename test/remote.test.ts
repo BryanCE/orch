@@ -10,22 +10,32 @@ function fixture(): { bin: string; record: string } {
   const directory = mkdtempSync(join(tmpdir(), "orch-remote-"));
   directories.push(directory);
   const record = join(directory, "ssh-args.log");
+  const script = join(directory, "ssh-fake.js");
+  writeFileSync(script, `const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(record)}, args.join(" ") + "\\n");
+switch (args[2]) {
+  case "slow.example": setTimeout(() => {}, 2000); break;
+  case "dead.example": process.stderr.write("connection refused\\n"); process.exit(255);
+  case "bryan@gpu1":
+    if (args[4] === "questions") process.stdout.write("not json\\n");
+    else process.stdout.write(JSON.stringify({ host: "gpu1", ok: true }) + "\\n");
+    break;
+  default: process.stdout.write(JSON.stringify({ host: "gpu1", ok: true }) + "\\n");
+}`);
+  if (process.platform === "win32") {
+    const bin = join(directory, "ssh-fake.cmd");
+    writeFileSync(bin, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
+    return { bin, record };
+  }
   const bin = join(directory, "ssh-fake");
-  writeFileSync(bin, `#!/bin/sh
-printf '%s\\n' "$*" >> '${record}'
-case "$3" in
-  slow.example) sleep 2 ;;
-  dead.example) printf 'connection refused\\n' >&2; exit 255 ;;
-  bryan@gpu1)
-    case "$5" in
-      questions) printf 'not json\\n' ;;
-      *) printf '{"host":"gpu1","ok":true}\\n' ;;
-    esac ;;
-  *) printf '{"host":"gpu1","ok":true}\\n' ;;
-esac
-`);
+  writeFileSync(bin, `#!/usr/bin/env bun\n${fsRead(script)}\n`);
   chmodSync(bin, 0o755);
   return { bin, record };
+}
+
+function fsRead(file: string): string {
+  return readFileSync(file, "utf8");
 }
 
 function recorded(record: string): string {
@@ -48,14 +58,14 @@ afterEach(() => {
 describe("remote SSH executor", () => {
   test("runs BatchMode SSH and parses JSON", () => {
     const { bin, record } = fixture();
-    const result = runRemote("gpu1", { dest: "bryan@gpu1" }, ["status"], { timeoutMs: 500, sshBin: bin });
+    const result = runRemote("gpu1", { dest: "bryan@gpu1" }, ["status"], { timeoutMs: 3000, sshBin: bin });
     expect(result).toEqual({ ok: true, value: { host: "gpu1", ok: true } });
     expect(recorded(record)).toBe("-o BatchMode=yes bryan@gpu1 orch status --json");
   });
 
   test("returns a typed timeout failure", () => {
     const { bin, record } = fixture();
-    const result = runRemote("slow", { dest: "slow.example", timeout_ms: 20 }, ["status"], { sshBin: bin });
+    const result = runRemote("slow", { dest: "slow.example", timeout_ms: 500 }, ["status"], { sshBin: bin });
     expect(failure(result)).toMatchObject({ kind: "timeout", host: "slow" });
     expect(recorded(record)).toContain("slow.example orch status --json");
   });

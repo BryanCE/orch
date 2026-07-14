@@ -120,6 +120,11 @@ function safeKey(value: string): string {
   return key && key !== "." && key !== ".." ? key : `session-${process.pid}`;
 }
 
+function presenceDirectoryName(key: string): string {
+  if (process.platform !== "win32") return key;
+  return key.replaceAll("%", "%25").replaceAll(":", "%3A");
+}
+
 function eventName(argument: string | undefined, input: JsonRecord): string {
   return String(argument ?? input.hook_event_name ?? "").toLowerCase().replace(/[^a-z]/g, "");
 }
@@ -158,7 +163,7 @@ const event = eventName(cliEvent, input);
 const pid = agentPid(input);
 const paneId = textValue(process.env.HERDR_PANE_ID) ?? null;
 const key = safeKey(paneId ?? `session-${pid}`);
-const directory = join(PRESENCE_ROOT, key);
+const directory = join(PRESENCE_ROOT, presenceDirectoryName(key));
 try {
   mkdirSync(directory, { recursive: true });
 } catch {

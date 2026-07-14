@@ -29,6 +29,11 @@ function agentIdle(entry: PresenceEntry): boolean {
   return entry.alive && (state === "idle" || state === "done");
 }
 
+/** Return the workspace prefix of a presence key (the part before ':'). */
+function workspaceOf(key: string): string {
+  return key.split(":", 1)[0] ?? "";
+}
+
 function sleepMs(ms: number): void {
   try { execFileSync("sleep", [String(ms / 1000)], { stdio: "ignore" }); } catch {}
 }
@@ -103,7 +108,11 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     settleClaimedTasks(options.orchDir, maxRetries);
     let assigned = 0;
     for (const entry of [...loadPresence().values()].filter(agentIdle)) {
-      const task = nextQueuedTask(listTasks(options.orchDir), entry.status?.agent ?? "pi");
+      const task = nextQueuedTask(
+        listTasks(options.orchDir),
+        entry.status?.agent ?? "pi",
+        workspaceOf(entry.key),
+      );
       if (!task || !claimTask(options.orchDir, task.id, entry.key)) continue;
       assigned++;
       await assignTask(options, entry, task, maxRetries);

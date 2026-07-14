@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 export type NotifyEvent = {
   host?: string;
   key: string;
+  /** Origin workspace; derived from key when omitted. */
+  workspace?: string;
   /** Human-assigned agent name. */
   agent: string | null;
   tab: string | null;
@@ -238,11 +240,45 @@ function oneLine(error: unknown): string {
   return String(error instanceof Error ? error.message : error).replace(/\s+/g, " ").trim();
 }
 
+/** Return the workspace prefix of a pane/presence key (the part before ':'). */
+export function workspaceOf(key: string): string {
+  return key.split(":", 1)[0] ?? "";
+}
+
+const WORKSPACE_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"] as const;
+const WORKSPACE_ANSI = [34, 32, 33, 31, 35, 36, 35, 34] as const;
+
+/** Stable palette color for a workspace. */
+export function workspaceColor(workspace: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < workspace.length; index++) {
+    hash ^= workspace.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return WORKSPACE_COLORS[(hash >>> 0) % WORKSPACE_COLORS.length];
+}
+
+function workspaceAnsi(workspace: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < workspace.length; index++) {
+    hash ^= workspace.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `\u001b[${WORKSPACE_ANSI[(hash >>> 0) % WORKSPACE_ANSI.length]}m`;
+}
+
+function eventWorkspace(event: NotifyEvent): string {
+  return event.workspace ?? workspaceOf(event.key);
+}
+
 function payload(event: NotifyEvent): string {
+  const workspace = eventWorkspace(event);
   const { title, body } = notificationText(event);
   return JSON.stringify({
     title,
     body,
+    workspace,
+    workspaceColor: workspaceColor(workspace),
     host: event.host ?? null,
     key: event.key,
     agent: event.agent,
@@ -281,15 +317,19 @@ async function run(command: string[], stdin?: string): Promise<boolean> {
   }
 }
 
-export function notificationText(event: NotifyEvent): { title: string; body: string } {
+export function notificationText(event: NotifyEvent, options: { colorize?: boolean } = {}): { title: string; body: string } {
   const agent = event.agent ?? event.key;
+  const workspace = eventWorkspace(event);
+  const color = workspaceColor(workspace);
   const state = oneLine(event.newState || "unknown").toUpperCase();
   let summary = event.task ?? "state changed";
   if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
   else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
   summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
-  const title = `${state} ${agent}: ${summary}`;
-  const details: string[] = [title];
+  const workspaceLabel = `[${workspace}]`;
+  const coloredWorkspace = options.colorize ? `${workspaceAnsi(workspace)}${workspaceLabel}\u001b[0m` : workspaceLabel;
+  const title = `${state} ${coloredWorkspace} ${agent}: ${summary}`;
+  const details: string[] = [title, `Workspace: ${workspace} (${color})`];
   if (event.tab) details.push(`Tab: ${event.tab}`);
   if (event.model) details.push(`Model: ${event.model}`);
   if (event.task && event.newState !== "blocked") details.push(`Task: ${oneLine(event.task)}`);
@@ -313,14 +353,14 @@ async function windowsToast(title: string, body: string): Promise<boolean> {
   }
 }
 
-async function deliverHerdr(event: NotifyEvent): Promise<boolean> {
-  const { title, body } = notificationText(event);
+async function deliverHerdr(event: NotifyEvent, colorize = true): Promise<boolean> {
+  const { title, body } = notificationText(event, { colorize });
   return run(["herdr", "notification", "show", title, "--body", body]);
 }
 
 async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
   const { title, body } = notificationText(event);
-  if (process.env.HERDR_ENV === "1" && await deliverHerdr(event)) return true;
+  if (process.env.HERDR_ENV === "1" && await deliverHerdr(event, false)) return true;
   if (await run(["notify-send", title, body])) return true;
   if (commandOnPath("wsl-notify-send") && await run(["wsl-notify-send", title, body])) return true;
   return windowsToast(title, body);

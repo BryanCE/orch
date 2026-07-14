@@ -17,6 +17,8 @@ export interface TaskOptions {
 export interface TaskRec {
   id: string;
   text: string;
+  /** Workspace this task was enqueued from; absent for legacy/unscoped tasks. */
+  workspace?: string;
   opts: TaskOptions;
   createdAt: string;
   updatedAt: string;
@@ -34,6 +36,7 @@ type QueueEvent = {
   ts: string;
   text?: string;
   opts?: TaskOptions;
+  workspace?: string;
   agentKey?: string;
   error?: string;
   result?: unknown;
@@ -108,7 +111,7 @@ function replay(orchDir: string): TaskRec[] {
 
     if (event.ev === "add") {
       if (!tasks.has(event.id) && typeof event.text === "string") {
-        tasks.set(event.id, {
+        const task: TaskRec = {
           id: event.id,
           text: event.text,
           opts: event.opts ?? {},
@@ -116,7 +119,9 @@ function replay(orchDir: string): TaskRec[] {
           updatedAt: event.ts,
           state: "queued",
           retries: 0,
-        });
+        };
+        if (typeof event.workspace === "string") task.workspace = event.workspace;
+        tasks.set(event.id, task);
       }
       continue;
     }
@@ -174,11 +179,13 @@ function requireTask(orchDir: string, id: string): TaskRec {
   return task;
 }
 
-export function addTask(orchDir: string, text: string, opts: TaskOptions = {}): TaskRec {
+export function addTask(orchDir: string, text: string, opts: TaskOptions = {}, workspace?: string): TaskRec {
   const id = randomUUID();
   const ts = new Date().toISOString();
-  appendEvent(orchDir, { ev: "add", id, ts, text, opts });
-  return {
+  const event: QueueEvent = { ev: "add", id, ts, text, opts };
+  if (workspace !== undefined) event.workspace = workspace;
+  appendEvent(orchDir, event);
+  const task: TaskRec = {
     id,
     text,
     opts,
@@ -187,6 +194,8 @@ export function addTask(orchDir: string, text: string, opts: TaskOptions = {}): 
     state: "queued",
     retries: 0,
   };
+  if (workspace !== undefined) task.workspace = workspace;
+  return task;
 }
 
 export function listTasks(orchDir: string): TaskRec[] {
@@ -258,10 +267,13 @@ export function unclaimTask(orchDir: string, id: string): void { settleTaskEvent
 // FIFO pick among queued tasks whose constraints the candidate agent satisfies.
 // Constraint matching is by task.opts.agent (exact adapter/agent name) only for
 // now; richer constraints ride in opts.constraints once adapters land.
-export function nextQueuedTask(tasks: TaskRec[], agentName?: string): TaskRec | undefined {
+export function nextQueuedTask(tasks: TaskRec[], agentName?: string, workspace?: string): TaskRec | undefined {
   return tasks
     .filter((task) => task.state === "queued")
     .filter((task) => !task.opts.agent || task.opts.agent === agentName)
+    // Legacy tasks without a workspace remain eligible everywhere. When a
+    // workspace is supplied, pinned tasks must stay within that workspace.
+    .filter((task) => workspace === undefined || task.workspace === undefined || task.workspace === workspace)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
 }
 

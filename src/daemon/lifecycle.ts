@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import * as path from "node:path";
+import { orchDir as resolveOrchDir } from "../store.ts";
 
 const LOCK_NAME = "orchd.lock";
 const SOCKET_NAME = "orchd.sock";
@@ -155,7 +156,7 @@ function commandFor(entrypoint: string, args: string[]): [string, string[]] {
 export function daemonize(
   entrypoint: string,
   args: string[] = [],
-  orchDir = process.env.ORCH_DIR ?? path.join(process.env.HOME ?? process.cwd(), ".orch"),
+  orchDir = resolveOrchDir(),
 ): number {
   mkdirSync(orchDir, { recursive: true });
   const log = openSync(logPath(orchDir), "a");
@@ -188,7 +189,7 @@ export function runForeground(entrypoint: string, args: string[] = []): number {
 
 /** Re-run this entrypoint with unchanged argv, handing the lock to the replacement. */
 export function reexecSelf(
-  orchDir = process.env.ORCH_DIR ?? path.join(process.env.HOME ?? process.cwd(), ".orch"),
+  orchDir = resolveOrchDir(),
 ): never {
   releaseDaemonLock(orchDir);
   const replacement = spawn(process.execPath, process.argv.slice(1), {

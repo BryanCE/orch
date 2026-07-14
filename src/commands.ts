@@ -3,7 +3,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { randomUUID } from "node:crypto";
-import { deliverToSink, loadSinks, notify, type NotifyEvent, type Sink } from "./notify.ts";
+import { deliverToSink, loadSinks, notify, notificationText, type NotifyEvent, type Sink } from "./notify.ts";
 import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "./queue.ts";
 import { runWorkLoop } from "./work.ts";
 import { runDoctor, applyFixes, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
@@ -12,7 +12,7 @@ import { appendPresenceInbox, bridgeRegistered, defaultModelString, isRecord, lo
 import { piAdapter, presenceFor } from "./adapters/pi.ts";
 import type { AgentAdapter } from "./adapters/adapter.ts";
 import { blockText, parseSession, type SessionData } from "./session.ts";
-import { buildEntities, collapse, resolvePane, resolveTarget, sortEntities, type Entity } from "./entities.ts";
+import { buildEntities, collapse, currentWorkspace, entityWorkspace, resolvePane, resolveTarget, scopeEntitiesToWorkspace, sortEntities, workspaceOf, type Entity } from "./entities.ts";
 import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, paneStatus } from "./herdr.ts";
 import { renderTable, truncate } from "./table.ts";
 import { daemonize, runForeground } from "./daemon/lifecycle.ts";
@@ -167,7 +167,7 @@ function cmdStatus(args: string[]) {
   const { enabled } = splitOptionFlags(args, ["--json", "--all"]);
   const json = enabled.has("--json");
   const all = enabled.has("--all");
-  const entities = sortEntities(buildEntities());
+  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
   const spawned = spawnedRecords();
   const views = entities.map((entity) => deriveView(entity, spawned));
 
@@ -219,10 +219,11 @@ function cmdStatus(args: string[]) {
   const caps = [12, 14, 10, 6, 30, 12, 8, 5, 40, 50];
   const rows: string[][] = [];
   const rawExited: boolean[] = [];
+  const showWorkspace = all && new Set(visible.map((v) => entityWorkspace(v.entity) ?? "-")).size > 1;
   for (const v of visible) {
     rows.push([
       v.paneLabel,
-      v.name,
+      showWorkspace ? `${entityWorkspace(v.entity) ?? "-"} / ${v.name}` : v.name,
       v.tab,
       v.agent,
       v.model,
@@ -441,9 +442,16 @@ function formatAge(ts: unknown): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-function cmdQuestions() {
+function cmdQuestions(args: string[]) {
+  const { enabled } = splitOptionFlags(args, ["--all"]);
+  const all = enabled.has("--all");
+  const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
   const names = new Map<string, string>();
-  for (const ent of buildEntities()) {
+  const scopedKeys = new Set<string>();
+  for (const ent of scopedEntities) {
+    scopedKeys.add(ent.key);
+    if (ent.presence) scopedKeys.add(ent.presence.key);
+
     if (ent.name) {
       names.set(ent.key, ent.name);
       if (ent.paneId) names.set(ent.paneId, ent.name);
@@ -451,6 +459,7 @@ function cmdQuestions() {
     }
   }
   const pending = [...loadPresence().values()]
+    .filter((pres) => scopedKeys.has(pres.key) || all)
     .map((pres) => ({ pres, question: readJSON(path.join(pres.dir, "question.json")) }))
     .filter(({ question }) => question && typeof question.question === "string");
   if (!pending.length) {
@@ -458,9 +467,16 @@ function cmdQuestions() {
     return;
   }
   pending.sort((a, b) => a.pres.key.localeCompare(b.pres.key));
+  const workspaces = pending.map(({ pres }) => workspaceOf(pres.status?.paneId ?? pres.key) ?? "-");
+  const showWorkspace = all && new Set(workspaces).size > 1;
   process.stdout.write(
     pending
-      .map(({ pres, question }) => `${pres.key}  ${names.get(pres.key) ?? "-"}  ${formatAge(question.ts)}\n${question.question}`)
+      .map(({ pres, question }) => {
+        const label = names.get(pres.key) ?? "-";
+        const workspaceLabel = workspaceOf(pres.status?.paneId ?? pres.key) ?? "-";
+        const name = showWorkspace ? `${workspaceLabel} / ${label}` : label;
+        return `${pres.key}  ${name}  ${formatAge(question.ts)}\n${question.question}`;
+      })
       .join("\n\n") + "\n"
   );
 }
@@ -581,9 +597,10 @@ function eventWriter(options: EventsOptions): (event: NotifyEvent) => void {
       process.stdout.write(`${JSON.stringify(event)}\n`);
       return;
     }
-    const task = event.task ? `  task: ${event.task}` : "";
-    const error = event.lastError ? `  error: ${event.lastError}` : "";
-    process.stdout.write(`${event.agent ?? event.key} [${event.tab ?? "-"}] ${event.model ?? "-"} ${event.oldState}→${event.newState}${task}${error}\n`);
+    const title = notificationText(event, { colorize: true }).title;
+    const transition = `  ${event.oldState}→${event.newState}`;
+    const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
+    process.stdout.write(`${title}${transition}${cost}\n`);
   };
 }
 
@@ -911,12 +928,15 @@ function cmdSession(args: string[]) {
 
 // ---- panes ----
 
-function cmdPanes() {
-  const entities = sortEntities(buildEntities());
+function cmdPanes(args: string[]) {
+  const { enabled } = splitOptionFlags(args, ["--all"]);
+  const all = enabled.has("--all");
+  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
+  const showWorkspace = all && new Set(entities.map((e) => entityWorkspace(e) ?? "-")).size > 1;
   for (const e of entities) {
     const parts = [
       e.paneId ?? e.key,
-      e.name ?? "-",
+      showWorkspace ? `${entityWorkspace(e) ?? "-"} / ${e.name ?? "-"}` : (e.name ?? "-"),
       e.tabLabel ?? "-",
       e.agent ?? "-",
       e.herdrStatus ?? (e.presence?.status?.state ?? "-"),
@@ -1906,21 +1926,26 @@ function resolveTab(target: string): any {
   return tab;
 }
 
-function cmdTabs() {
-  const tabs = [...herdrTabs().values()];
+function cmdTabs(args: string[]) {
+  const { enabled } = splitOptionFlags(args, ["--all"]);
+  const all = enabled.has("--all");
+  const workspace = currentWorkspace();
+  const tabs = [...herdrTabs().values()].filter((tab) => all || workspace === null || tab.workspace_id === workspace);
   if (!tabs.length) {
     process.stdout.write("No tabs (herdr down?).\n");
     return;
   }
-  const headers = ["TAB", "LABEL", "NUM", "PANES", "STATUS"];
+  const showWorkspace = all && new Set(tabs.map((t) => t.workspace_id ?? "-")).size > 1;
+  const headers = showWorkspace ? ["TAB", "LABEL", "NUM", "PANES", "STATUS", "WS"] : ["TAB", "LABEL", "NUM", "PANES", "STATUS"];
   const rows = tabs.map((t) => [
     t.tab_id + (t.focused ? "*" : ""),
     t.label ?? "-",
     String(t.number ?? "-"),
     String(t.pane_count ?? "-"),
     t.agent_status ?? "-",
+    ...(showWorkspace ? [t.workspace_id ?? "-"] : []),
   ]);
-  process.stdout.write(renderTable(headers, rows, [12, 20, 4, 5, 10]) + "\n");
+  process.stdout.write(renderTable(headers, rows, showWorkspace ? [12, 20, 4, 5, 10, 12] : [12, 20, 4, 5, 10]) + "\n");
 }
 
 function cmdTab(args: string[]) {
@@ -2395,7 +2420,7 @@ export function runCommand(argv: string[]): void {
     case undefined: case "status": cmdStatus(cmd === undefined ? argv : rest); break;
     case "events": void cmdEvents(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "notify": void cmdNotify(rest).catch((error) => die(error?.message ?? String(error))); break;
-    case "questions": cmdQuestions(); break;
+    case "questions": cmdQuestions(rest); break;
     case "queue": cmdQueue(rest); break;
     case "daemon": void cmdDaemon(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "doctor": void cmdDoctor(rest).catch((error) => die(error?.message ?? String(error))); break;
@@ -2408,7 +2433,7 @@ export function runCommand(argv: string[]): void {
     case "broadcast": cmdBroadcast(rest); break;
     case "tail": cmdTail(rest); break;
     case "session": cmdSession(rest); break;
-    case "panes": cmdPanes(); break;
+    case "panes": cmdPanes(rest); break;
     case "spawn": void cmdSpawn(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "tile": void cmdTile(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "run": cmdRun(rest); break;
@@ -2422,7 +2447,7 @@ export function runCommand(argv: string[]): void {
     case "abort": cmdAbort(rest); break;
     case "keys": cmdKeys(rest); break;
     case "peek": cmdPeek(rest); break;
-    case "tabs": cmdTabs(); break;
+    case "tabs": cmdTabs(rest); break;
     case "tab": cmdTab(rest); break;
     case "focus": cmdFocus(rest); break;
     case "zoom": cmdZoom(rest); break;

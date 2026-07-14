@@ -6,6 +6,8 @@ import { pidAlive, readJSON } from "../store.ts";
 import { truncate } from "../table.ts";
 import { rpcCall, rpcSubscribe } from "./rpc.ts";
 
+const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
+
 export type PresenceMetadata = {
   name: string | null;
   tab: string | null;
@@ -76,7 +78,12 @@ function eventTask(status: object): string | undefined {
     if (typeof question === "string") return `Q: ${truncate(collapse(question), 80)}`;
   }
   const task = Reflect.get(status, "task");
-  return typeof task === "string" ? truncate(collapse(task), 80) : undefined;
+  if (typeof task !== "string") return undefined;
+  const realTask = (task.startsWith(WORKER_PROMPT_HEADER)
+    ? task.slice(WORKER_PROMPT_HEADER.length)
+    : task).trimStart();
+  if (!realTask) return undefined;
+  return truncate(collapse(realTask), 80);
 }
 
 /** Derive one transition from a status file. First observations only seed state. */
@@ -100,6 +107,7 @@ export function derivePresenceTransition(
   const lastError = optionalString(Reflect.get(value, "lastError"));
   return {
     key,
+    workspace: key.includes(":") ? key.slice(0, key.indexOf(":")) : undefined,
     agent: label ?? metadata.name,
     tab: tabLabel ?? metadata.tab,
     model: eventModel(value),

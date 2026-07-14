@@ -495,14 +495,30 @@ export default function (pi) {
   }
 
   // Pane keys are workspace-scoped (for example, w8:p5). Headless keys do
-  // not carry a workspace, so each session is local only to itself.
-  function workspaceForKey(key: string): string {
+  // not carry a workspace. Unknown workspaces fail closed rather than being
+  // treated as a shared "local" workspace.
+  function workspaceOf(key: unknown): string | null {
+    if (typeof key !== "string") return null;
     const separator = key.indexOf(":");
-    return separator > 0 ? key.slice(0, separator) : `local:${key}`;
+    return separator > 0 ? key.slice(0, separator) : null;
+  }
+
+  function ownWorkspace(ownKey: string): string | null {
+    return workspaceOf(ownKey) ?? workspaceOf(state.paneId) ?? workspaceOf(HERDR_PANE_ID);
+  }
+
+  function workspaceLabel(workspace: string | null): string {
+    return workspace ?? "unknown";
+  }
+
+  function sameWorkspace(ownKey: string, peerKey: string): boolean {
+    const own = ownWorkspace(ownKey);
+    const peer = workspaceOf(peerKey);
+    return own !== null && peer !== null && own === peer;
   }
 
   function workspaceMismatch(ownKey: string, peerKey: string): string {
-    return `error: workspace mismatch: you are in workspace ${workspaceForKey(ownKey)}, target ${peerKey} is in workspace ${workspaceForKey(peerKey)}; pass allWorkspaces=true to override`;
+    return `error: peer ${peerKey} is in workspace ${workspaceLabel(workspaceOf(peerKey))} but you are in workspace ${workspaceLabel(ownWorkspace(ownKey))}; pass cross_workspace:true to override`;
   }
 
   function livePeers(ownKey: string, allWorkspaces = false) {
@@ -515,7 +531,7 @@ export default function (pi) {
           return { key: entry.name, dir: peerDir, status };
         })
         .filter((peer) => peer.status && isPidAlive(peer.status.pid))
-        .filter((peer) => allWorkspaces || workspaceForKey(peer.key) === workspaceForKey(ownKey));
+        .filter((peer) => allWorkspaces || sameWorkspace(ownKey, peer.key));
     } catch {
       return [];
     }
@@ -525,12 +541,15 @@ export default function (pi) {
     const peers = livePeers(ownKey, true);
     const exact = peers.find((peer) => peer.key === target);
     const matches = exact ? [exact] : peers.filter((peer) => peer.key.endsWith(target));
-    if (matches.length === 1) {
-      const peer = matches[0];
-      if (!allWorkspaces && workspaceForKey(peer.key) !== workspaceForKey(ownKey)) {
-        return { error: workspaceMismatch(ownKey, peer.key) };
-      }
-      return { peer };
+    const scopedMatches = allWorkspaces ? matches : matches.filter((peer) => sameWorkspace(ownKey, peer.key));
+    if (scopedMatches.length === 1) return { peer: scopedMatches[0] };
+    if (scopedMatches.length > 1) {
+      return { error: `error: ambiguous target. Candidates: ${scopedMatches.map((peer) => peer.key).join(", ")}` };
+    }
+    // Preserve a useful wall error for an exact or unique foreign target,
+    // rather than hiding it behind a generic not-found response.
+    if (!allWorkspaces && matches.length === 1) {
+      return { error: workspaceMismatch(ownKey, matches[0].key) };
     }
     if (matches.length > 1) {
       return { error: `error: ambiguous target. Candidates: ${matches.map((peer) => peer.key).join(", ")}` };
@@ -547,6 +566,7 @@ export default function (pi) {
   function peerSummaries(ownKey: string, allWorkspaces = false) {
     return livePeers(ownKey, allWorkspaces).map((peer) => ({
       key: peer.key,
+      workspace: workspaceOf(peer.key),
       state: peer.status.state,
       model: peerModel(peer.status),
       task: peer.status.task,
@@ -760,11 +780,16 @@ export default function (pi) {
     promptSnippet: "Discover live orchestrator peer agents and their compact status",
     promptGuidelines: ["Use orch_agents to discover live peer agents before sending or reading peer messages."],
     parameters: Type.Object({
+      all_workspaces: Type.Optional(Type.Boolean({ description: "Include agents in every workspace" })),
+      // Keep the original camelCase spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Include agents in every workspace" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeTool(
-        () => JSON.stringify(peerSummaries(ownPresenceKey(ctx), params.allWorkspaces === true)),
+        () => JSON.stringify(peerSummaries(
+          ownPresenceKey(ctx),
+          params.all_workspaces === true || params.allWorkspaces === true,
+        )),
         "error: unable to list peer agents",
       );
     },
@@ -779,11 +804,18 @@ export default function (pi) {
     parameters: Type.Object({
       target: Type.String({ description: "Peer key or unique key suffix" }),
       text: Type.String({ description: "Message to send" }),
+      cross_workspace: Type.Optional(Type.Boolean({ description: "Allow sending across workspaces" })),
+      // Keep the original spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow sending across workspaces" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeTool(
-        () => sendPeerMessage(params.target, params.text, ownPresenceKey(ctx), params.allWorkspaces === true),
+        () => sendPeerMessage(
+          params.target,
+          params.text,
+          ownPresenceKey(ctx),
+          params.cross_workspace === true || params.allWorkspaces === true,
+        ),
         "error: unable to send peer message",
       );
     },
@@ -797,17 +829,24 @@ export default function (pi) {
     promptGuidelines: ["Use orch_read to inspect a peer agent's latest result or status text."],
     parameters: Type.Object({
       target: Type.String({ description: "Peer key or unique key suffix" }),
+      cross_workspace: Type.Optional(Type.Boolean({ description: "Allow reading across workspaces" })),
+      // Keep the original spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow reading across workspaces" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeTool(() => {
         initPresence(ctx?.hasUI === true);
         const ownKey = state.key || computeKey(ctx?.hasUI === true);
-        const resolved = resolvePeer(params.target, ownKey, params.allWorkspaces === true);
+        const resolved = resolvePeer(
+          params.target,
+          ownKey,
+          params.cross_workspace === true || params.allWorkspaces === true,
+        );
         if (resolved.error) return resolved.error;
         const result = readJson(path.join(resolved.peer.dir, "result.json"));
         return JSON.stringify({
           key: resolved.peer.key,
+          workspace: workspaceOf(resolved.peer.key),
           state: resolved.peer.status.state,
           model: peerModel(resolved.peer.status),
           text: result?.text ?? resolved.peer.status.lastText ?? "",

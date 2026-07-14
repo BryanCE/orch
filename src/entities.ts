@@ -55,6 +55,32 @@ function naturalPaneOrder(id: string): [string, number] {
   return match ? [match[1], parseInt(match[2], 10)] : [id, 0];
 }
 
+export function workspaceOf(id: string | null | undefined): string | null {
+  if (!id) return null;
+  const match = /^([^:]+):p(\d+)$/.exec(id);
+  return match?.[1] ?? null;
+}
+
+export function entityWorkspace(e: Entity): string | null {
+  return workspaceOf(e.paneId ?? e.key);
+}
+
+export function currentWorkspace(): string | null {
+  const paneId = process.env.HERDR_PANE_ID;
+  if (!paneId) return null;
+  return herdrPanes().find((pane) => pane.pane_id === paneId)?.workspace_id ?? null;
+}
+
+export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
+  if (opts?.all) return entities;
+  const workspace = currentWorkspace();
+  if (workspace === null) return entities;
+  return entities.filter((entity) => {
+    const entityWorkspaceValue = entityWorkspace(entity);
+    return entityWorkspaceValue === workspace || entityWorkspaceValue === null;
+  });
+}
+
 export function buildEntities(): Entity[] {
   const panes = herdrPanes();
   const tabs = herdrTabs();

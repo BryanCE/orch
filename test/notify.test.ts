@@ -144,8 +144,10 @@ on = ["done"]
     await waitForFile(output);
 
     expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({
-      title: "ERROR worker: boom",
-      body: "ERROR worker: boom\nTab: workers\nModel: terra:medium\nTask: run tests\nCost: $1.25",
+      title: "ERROR [task-1] worker: boom",
+      body: "ERROR [task-1] worker: boom\nWorkspace: task-1 (#db2777)\nTab: workers\nModel: terra:medium\nTask: run tests\nCost: $1.25",
+      workspace: "task-1",
+      workspaceColor: "#db2777",
       host: "gpu1",
       key: "task-1",
       agent: "worker",
@@ -162,7 +164,7 @@ on = ["done"]
 
   test("titles lead with exactly one terminal state and agent", () => {
     expect(notificationText({
-      key: "w-2",
+      key: "w6:p21",
       agent: "w-2",
       tab: null,
       model: null,
@@ -170,9 +172,9 @@ on = ["done"]
       newState: "done",
       task: "ship it",
       ts: "2026-01-01T00:00:00.000Z",
-    }).title).toBe("DONE w-2: ship it");
+    }).title).toBe("DONE [w6] w-2: ship it");
     expect(notificationText({
-      key: "w-2",
+      key: "w6:p21",
       agent: "w-2",
       tab: null,
       model: null,
@@ -180,9 +182,9 @@ on = ["done"]
       newState: "blocked",
       task: "Q: need approval",
       ts: "2026-01-01T00:00:00.000Z",
-    }).title).toBe("BLOCKED w-2: need approval");
+    }).title).toBe("BLOCKED [w6] w-2: need approval");
     expect(notificationText({
-      key: "w-2",
+      key: "w6:p21",
       agent: "w-2",
       tab: null,
       model: null,
@@ -190,7 +192,7 @@ on = ["done"]
       newState: "error",
       lastError: "boom",
       ts: "2026-01-01T00:00:00.000Z",
-    }).title).toBe("ERROR w-2: boom");
+    }).title).toBe("ERROR [w6] w-2: boom");
   });
 
   test("webhook failure is non-fatal and reports a warning", async () => {

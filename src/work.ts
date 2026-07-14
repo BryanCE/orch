@@ -10,6 +10,8 @@ import {
   taskShouldRetry,
   type TaskRec,
 } from "./queue.ts";
+import { emitAndNotify, derivePresenceTransition, type PresenceMetadata } from "./daemon/events.ts";
+import { loadSinks, type Sink } from "./notify.ts";
 import { loadPresence, statusForPresence, type PresenceEntry } from "./store.ts";
 
 const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
@@ -20,6 +22,8 @@ export interface WorkOptions {
   signal?: AbortSignal;
   once?: boolean;
   continuous?: boolean;
+  /** Suppress human progress output for machine-readable callers. */
+  json?: boolean;
   maxRetries?: number;
   dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
 }
@@ -49,7 +53,7 @@ function waitForWorking(entry: PresenceEntry, timeoutMs: number): string | null 
   } while (true);
 }
 
-async function dispatchTask(entry: PresenceEntry, task: TaskRec): Promise<void> {
+async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
   const prompt = `${WORKER_PROMPT_HEADER}\n\n${task.text}`;
   herdrBestEffort(["pane", "run", entry.key, prompt]);
   let status = waitForWorking(entry, 10_000);
@@ -59,7 +63,7 @@ async function dispatchTask(entry: PresenceEntry, task: TaskRec): Promise<void> 
     herdrBestEffort(["pane", "run", entry.key, prompt]);
     status = waitForWorking(entry, 10_000);
   }
-  process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
+  if (!options.json) process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
 }
 
 async function waitForTaskState(entry: PresenceEntry, timeoutMs: number): Promise<string> {
@@ -90,7 +94,7 @@ function settleError(orchDir: string, task: TaskRec, maxRetries: number, error: 
 
 async function assignTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec, maxRetries: number): Promise<void> {
   try {
-    await (options.dispatch ?? dispatchTask)(entry, task);
+    await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
     const state = await waitForTaskState(entry, 10_000);
     if (state === "timeout") return void requeueTask(options.orchDir, task.id, "agent did not acknowledge working");
     const current = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
@@ -104,10 +108,27 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
 
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const maxRetries = options.maxRetries ?? 1;
+  const sinks: Sink[] = loadSinks(options.orchDir);
+  const states = new Map<string, string>();
   while (!options.signal?.aborted) {
+    const presence = loadPresence();
+    for (const entry of presence.values()) {
+      const status = entry.status;
+      const metadata: PresenceMetadata = {
+        name: status?.label ?? status?.agent ?? null,
+        tab: status?.tabLabel ?? null,
+        pid: status?.pid,
+      };
+      const event = derivePresenceTransition(entry.key, status, metadata, states);
+      if (event && sinks.length) {
+        try {
+          emitAndNotify(() => {}, sinks, event);
+        } catch {}
+      }
+    }
     settleClaimedTasks(options.orchDir, maxRetries);
     let assigned = 0;
-    for (const entry of [...loadPresence().values()].filter(agentIdle)) {
+    for (const entry of [...presence.values()].filter(agentIdle)) {
       const task = nextQueuedTask(
         listTasks(options.orchDir),
         entry.status?.agent ?? "pi",

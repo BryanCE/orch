@@ -20,6 +20,42 @@ export type NotifyEvent = {
   lastError?: string;
 };
 
+/** A required configuration value collected for a notifier. */
+export type NotifierConfigField = {
+  /** Config key used by the notifier. */
+  name: string;
+  /** Human-readable prompt/label for the key. */
+  label: string;
+  description?: string;
+  /** Whether setup and doctor should redact this value. */
+  secret?: boolean;
+};
+
+/** Host-integration metadata kept separate from delivery behavior. */
+export type NotifierMetadata = {
+  /** Rich fields are used by setup; bare names remain contract-compatible. */
+  requiredConfig: readonly (NotifierConfigField | string)[];
+  description?: string;
+};
+
+/** Canonical host-integration contract. */
+export type Notifier = {
+  id: string;
+  label: string;
+  metadata: NotifierMetadata;
+  /** A rejected availability probe is treated as unavailable by the registry. */
+  available(config?: Record<string, unknown>): boolean | Promise<boolean>;
+  /** Config is optional so phase-1 custom notifiers remain source-compatible. */
+  deliver(event: NotifyEvent, config?: Record<string, unknown>): Promise<boolean>;
+};
+
+/** A configured notifier entry. `type` is accepted as the legacy spelling of `id`. */
+export type NotifierEntry = {
+  id: string;
+  on: string[];
+  config: Record<string, unknown>;
+};
+
 export type DesktopSink = { type: "desktop"; on: string[] };
 export type HerdrSink = { type: "herdr"; on: string[] };
 export type WebhookSink = { type: "webhook"; on: string[]; url: string };
@@ -138,12 +174,12 @@ function parseToml(text: string): TomlTable {
 
   for (let index = 0; index < lines.length; index++) {
     const lineNumber = index + 1;
-    const line = stripComment(lines[index]).trim();
+    const line = stripComment(lines[index] ?? "").trim();
     if (!line) continue;
 
     const arrayTable = line.match(/^\[\[([^\]]+)\]\]$/);
     if (arrayTable) {
-      const parts = arrayTable[1].split(".").map((part) => part.trim());
+      const parts = (arrayTable[1] ?? "").split(".").map((part) => part.trim());
       const key = parts.pop();
       if (!key || parts.some((part) => !part)) throw new Error(`line ${lineNumber}: invalid table name`);
       const parent = tableAt(root, parts, lineNumber);
@@ -157,7 +193,7 @@ function parseToml(text: string): TomlTable {
 
     const table = line.match(/^\[([^\]]+)\]$/);
     if (table) {
-      current = tableAt(root, table[1].split(".").map((part) => part.trim()), lineNumber);
+      current = tableAt(root, (table[1] ?? "").split(".").map((part) => part.trim()), lineNumber);
       continue;
     }
 
@@ -182,8 +218,8 @@ function stringArray(value: unknown): string[] | null {
   return value;
 }
 
-/** Load valid `[[notify]]` sink declarations from an orch config file. */
-export function loadSinks(orchDir: string): Sink[] {
+/** Read configured notifier entries, accepting both `id` and legacy `type`. */
+export function loadNotifierEntries(orchDir: string): NotifierEntry[] {
   let config: TomlTable;
   try {
     config = parseConfig(filesystem.readFileSync(path.join(orchDir, "config.toml"), "utf8"));
@@ -200,40 +236,56 @@ export function loadSinks(orchDir: string): Sink[] {
     return [];
   }
 
-  const sinks: Sink[] = [];
+  const configured: NotifierEntry[] = [];
   for (const entry of entries) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       warning("invalid notify entry: expected a table");
       continue;
     }
     const value = entry as TomlTable;
+    const id = typeof value.id === "string" ? value.id : value.type;
     const on = value.on === undefined ? ["blocked", "error"] : stringArray(value.on);
     if (!on) {
       warning("invalid notify entry: on must be an array of strings");
       continue;
     }
-    if (value.type === "desktop") {
-      sinks.push({ type: "desktop", on });
-    } else if (value.type === "herdr") {
-      sinks.push({ type: "herdr", on });
-    } else if (value.type === "webhook") {
-      if (typeof value.url !== "string" || !value.url) {
-        warning("invalid notify entry: webhook sink requires url");
-        continue;
-      }
-      sinks.push({ type: "webhook", on, url: value.url });
-    } else if (value.type === "command") {
-      const command = typeof value.command === "string" ? ["sh", "-c", value.command] : stringArray(value.command);
+    if (typeof id !== "string") {
+      warning(`invalid notify entry: unknown sink type ${JSON.stringify(id)}`);
+      continue;
+    }
+    const config: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (key !== "id" && key !== "type" && key !== "on") config[key] = item;
+    }
+    if (id === "webhook" && (typeof config.url !== "string" || !config.url)) {
+      warning("invalid notify entry: webhook sink requires url");
+      continue;
+    }
+    if (id === "command") {
+      const commandValue = typeof config.command === "string" ? ["sh", "-c", config.command] : config.command;
+      const command = stringArray(commandValue);
       if (!command || !command.length || !command[0]) {
         warning("invalid notify entry: command sink requires command");
         continue;
       }
-      sinks.push({ type: "command", on, command });
-    } else {
-      warning(`invalid notify entry: unknown sink type ${JSON.stringify(value.type)}`);
+      config.command = command;
     }
+    if (!["desktop", "herdr", "webhook", "command"].includes(id)) {
+      warning(`invalid notify entry: unknown sink type ${JSON.stringify(id)}`);
+      continue;
+    }
+    configured.push({ id, on, config });
   }
-  return sinks;
+  return configured;
+}
+
+/** Load valid legacy sink declarations from an orch config file. */
+export function loadSinks(orchDir: string): Sink[] {
+  return loadNotifierEntries(orchDir).flatMap((entry): Sink[] => {
+    if (entry.id === "desktop" || entry.id === "herdr") return [{ type: entry.id, on: entry.on }];
+    if (entry.id === "webhook") return [{ type: "webhook", on: entry.on, url: entry.config.url as string }];
+    return [{ type: "command", on: entry.on, command: entry.config.command as string[] }];
+  });
 }
 
 function oneLine(error: unknown): string {
@@ -255,7 +307,7 @@ export function workspaceColor(workspace: string): string {
     hash ^= workspace.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return WORKSPACE_COLORS[(hash >>> 0) % WORKSPACE_COLORS.length];
+  return WORKSPACE_COLORS[(hash >>> 0) % WORKSPACE_COLORS.length]!;
 }
 
 function workspaceAnsi(workspace: string): string {
@@ -271,10 +323,30 @@ function eventWorkspace(event: NotifyEvent): string {
   return event.workspace ?? workspaceOf(event.key);
 }
 
-function payload(event: NotifyEvent): string {
+/** Structured form of the canonical notification text and event metadata. */
+export type NotificationPayload = {
+  title: string;
+  body: string;
+  workspace: string;
+  workspaceColor: string;
+  host: string | null;
+  key: string;
+  agent: string | null;
+  tab: string | null;
+  model: string | null;
+  oldState: string;
+  newState: string;
+  task: string | null;
+  cost: number | null;
+  ts: string;
+  lastError: string | null;
+};
+
+/** Build the canonical structured payload consumed by non-text sinks. */
+export function notificationPayload(event: NotifyEvent): NotificationPayload {
   const workspace = eventWorkspace(event);
   const { title, body } = notificationText(event);
-  return JSON.stringify({
+  return {
     title,
     body,
     workspace,
@@ -290,7 +362,11 @@ function payload(event: NotifyEvent): string {
     cost: event.cost ?? null,
     ts: event.ts,
     lastError: event.lastError ?? null,
-  });
+  };
+}
+
+function payload(event: NotifyEvent): string {
+  return JSON.stringify(notificationPayload(event));
 }
 
 function commandOnPath(command: string): boolean {
@@ -366,39 +442,206 @@ async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
   return windowsToast(title, body);
 }
 
-export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boolean> {
-  try {
-    if (sink.type === "desktop") return await deliverDesktop(event);
-    if (sink.type === "herdr") return await deliverHerdr(event);
-    if (sink.type === "webhook") {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
+function desktopAvailable(): boolean {
+  if (process.env.HERDR_ENV === "1" && commandOnPath("herdr")) return true;
+  if (commandOnPath("notify-send") || commandOnPath("wsl-notify-send")) return true;
+  return commandOnPath("powershell.exe") && commandOnPath("wslpath") && filesystem.existsSync(fileURLToPath(new URL("../scripts/wsl-toast.ps1", import.meta.url)));
+}
+
+function commandAvailable(config: Record<string, unknown>): boolean {
+  const command = stringArray(config.command);
+  return !!command?.[0] && (command[0].includes(path.sep) ? filesystem.existsSync(command[0]) : commandOnPath(command[0]));
+}
+
+/** Built-in host integrations. Delivery always uses the canonical formatter above. */
+export function createBuiltinNotifiers(): Notifier[] {
+  return [
+    {
+      id: "herdr",
+      label: "Herdr",
+      metadata: { description: "Herdr native notifications", requiredConfig: [] },
+      available: () => commandOnPath("herdr"),
+      deliver: (event) => deliverHerdr(event),
+    },
+    {
+      id: "desktop",
+      label: "Desktop",
+      metadata: { description: "Desktop notifications with WSL fallback", requiredConfig: [] },
+      available: () => desktopAvailable(),
+      deliver: (event) => deliverDesktop(event),
+    },
+    {
+      id: "webhook",
+      label: "Webhook",
+      metadata: { description: "HTTP POST notification", requiredConfig: [{ name: "url", label: "Webhook URL" }] },
+      available: (config) => typeof fetch === "function" && (config?.url === undefined || (typeof config.url === "string" && config.url.length > 0)),
+      deliver: async (event, config = {}) => {
+        if (typeof config.url !== "string" || !config.url) return false;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        try {
+          const response = await fetch(config.url, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: payload(event),
+            signal: controller.signal,
+          });
+          return response.ok;
+        } finally {
+          clearTimeout(timeout);
+        }
+      },
+    },
+    {
+      id: "command",
+      label: "Command",
+      metadata: { description: "Run a command with canonical JSON on stdin", requiredConfig: [{ name: "command", label: "Command" }] },
+      available: (config) => config?.command === undefined ? commandOnPath("sh") : commandAvailable(config),
+      deliver: (event, config = {}) => {
+        const command = stringArray(config.command);
+        return command?.length ? run(command, payload(event)) : Promise.resolve(false);
+      },
+    },
+  ];
+}
+
+export const builtinNotifiers = createBuiltinNotifiers();
+
+function entryFromSink(sink: Sink): NotifierEntry {
+  if (sink.type === "desktop" || sink.type === "herdr") return { id: sink.type, on: sink.on, config: {} };
+  if (sink.type === "webhook") return { id: sink.type, on: sink.on, config: { url: sink.url } };
+  return { id: sink.type, on: sink.on, config: { command: sink.command } };
+}
+
+function timeoutResult<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), timeoutMs);
+    promise.then((value) => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve(undefined); });
+  });
+}
+
+export type AvailabilityResult = { available: boolean; reason?: string; error?: string };
+
+/** Registry for probing, validating, and isolating configured notifier deliveries. */
+export class NotifierRegistry {
+  private readonly notifiers = new Map<string, Notifier>();
+  private readonly emitWarning: (message: string) => void;
+  readonly timeoutMs: number;
+
+  constructor(notifiers: readonly Notifier[] = builtinNotifiers, options: { timeoutMs?: number; warn?: (message: string) => void } = {}) {
+    this.timeoutMs = options.timeoutMs ?? 3000;
+    this.emitWarning = options.warn ?? ((message) => warning(message));
+    for (const notifier of notifiers) this.register(notifier);
+  }
+
+  register(notifier: Notifier): this {
+    this.notifiers.set(notifier.id, notifier);
+    return this;
+  }
+
+  get(id: string): Notifier | undefined { return this.notifiers.get(id); }
+  list(): Notifier[] { return [...this.notifiers.values()]; }
+
+  validate(id: string, config: Record<string, unknown>): string[] {
+    const notifier = this.notifiers.get(id);
+    if (!notifier) return [`unknown notifier: ${id}`];
+    return notifier.metadata.requiredConfig.flatMap((field) => {
+      const name = typeof field === "string" ? field : field.name;
+      const value = config[name];
+      if (name === "command" ? !stringArray(value)?.length : typeof value !== "string" || !value.trim()) {
+        return [`${id} requires ${name}`];
+      }
+      return [];
+    });
+  }
+
+  /** Probe all integrations, or one integration with its configured metadata. */
+  async probe(): Promise<Record<string, boolean>>;
+  async probe(id: string, config?: Record<string, unknown>): Promise<AvailabilityResult>;
+  async probe(id?: string, config: Record<string, unknown> = {}): Promise<Record<string, boolean> | AvailabilityResult> {
+    if (id !== undefined) {
+      const notifier = this.notifiers.get(id);
+      if (!notifier) return { available: false, reason: "unknown notifier" };
+      const errors = this.validate(id, config);
+      if (errors.length) return { available: false, reason: errors.join("; ") };
       try {
-        const response = await fetch(sink.url, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: payload(event),
-          signal: controller.signal,
-        });
-        return response.ok;
-      } finally {
-        clearTimeout(timeout);
+        if (id === "command" && !commandAvailable(config)) return { available: false, reason: "configured command is not on PATH" };
+        return (await notifier.available(config)) ? { available: true } : { available: false, reason: "host integration unavailable" };
+      } catch (error) {
+        return { available: false, error: oneLine(error) };
       }
     }
-    return await run(sink.command, payload(event));
-  } catch {
-    return false;
+    const result: Record<string, boolean> = {};
+    await Promise.all(this.list().map(async (notifier) => {
+      try { result[notifier.id] = await notifier.available(); } catch { result[notifier.id] = false; }
+    }));
+    return result;
+  }
+
+  /** Alias used by setup/doctor callers. */
+  probeAvailability(): Promise<Record<string, boolean>>;
+  probeAvailability(id: string, config?: Record<string, unknown>): Promise<AvailabilityResult>;
+  probeAvailability(id?: string, config: Record<string, unknown> = {}): Promise<Record<string, boolean> | AvailabilityResult> {
+    return id === undefined ? this.probe() : this.probe(id, config);
+  }
+
+  async deliverEntry(entry: NotifierEntry, event: NotifyEvent, checkAvailability = true): Promise<boolean> {
+    if (!entry.on.includes(event.newState)) return true;
+    const notifier = this.notifiers.get(entry.id);
+    if (!notifier) { this.emitWarning(`${entry.id} notifier is not registered`); return false; }
+    if (this.validate(entry.id, entry.config).length) { this.emitWarning(`${entry.id} notifier has invalid configuration`); return false; }
+    if (checkAvailability) {
+      try {
+        // A command's availability depends on its configured executable, not just the
+        // shell used by the adapter. Keep this check in the registry so custom
+        // Notifier implementations retain the phase-1 boolean probe contract.
+        if (entry.id === "command" && !commandAvailable(entry.config)) {
+          this.emitWarning(`${entry.id} notifier unavailable`);
+          return false;
+        }
+        if (!(await notifier.available(entry.config))) { this.emitWarning(`${entry.id} notifier unavailable`); return false; }
+      } catch { this.emitWarning(`${entry.id} notifier unavailable`); return false; }
+    }
+    const result = await timeoutResult(Promise.resolve().then(() => notifier.deliver(event, entry.config)), this.timeoutMs);
+    if (result !== true) { this.emitWarning(`${entry.id} sink failed`); return false; }
+    return true;
+  }
+
+  /** Deliver configured entries, or one id/config/event tuple for adapter callers. */
+  async deliver(event: NotifyEvent, entries: readonly (NotifierEntry | Sink)[]): Promise<boolean[]>;
+  async deliver(id: string, config: Record<string, unknown>, event: NotifyEvent): Promise<boolean>;
+  async deliver(eventOrId: NotifyEvent | string, entriesOrConfig: readonly (NotifierEntry | Sink)[] | Record<string, unknown>, maybeEvent?: NotifyEvent): Promise<boolean[] | boolean> {
+    if (typeof eventOrId === "string") {
+      if (!maybeEvent) return false;
+      return this.deliverEntry({ id: eventOrId, on: [maybeEvent.newState], config: entriesOrConfig as Record<string, unknown> }, maybeEvent, true);
+    }
+    const entries = entriesOrConfig as readonly (NotifierEntry | Sink)[];
+    return Promise.all(entries.map((entry) => this.deliverEntry("type" in entry ? entryFromSink(entry) : entry, eventOrId, true)));
+  }
+
+  /** Queue best-effort delivery without delaying or throwing into producers. */
+  notify(event: NotifyEvent, entries: readonly (NotifierEntry | Sink)[]): void {
+    for (const entry of entries) {
+      const configured = "type" in entry ? entryFromSink(entry) : entry;
+      if (!configured.on.includes(event.newState)) continue;
+      queueMicrotask(() => { void this.deliverEntry(configured, event, true); });
+    }
   }
 }
 
+export function createNotifierRegistry(notifiers?: readonly Notifier[], options: { timeoutMs?: number; warn?: (message: string) => void } = {}): NotifierRegistry {
+  return new NotifierRegistry(notifiers ?? builtinNotifiers, options);
+}
+
+export const notifierRegistry = createNotifierRegistry();
+
+export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boolean> {
+  const configured = entryFromSink(sink);
+  // Preserve the direct sink API: it reports the adapter outcome and does not probe first.
+  return notifierRegistry.deliverEntry(configured, event, false);
+}
+
 /** Queue best-effort sink delivery without delaying or throwing into the caller. */
-export function notify(sinks: Sink[], event: NotifyEvent): void {
-  for (const sink of sinks) {
-    if (!sink.on.includes(event.newState)) continue;
-    queueMicrotask(() => {
-      void deliverToSink(sink, event).then((ok) => {
-        if (!ok) warning(`${sink.type} sink failed`);
-      });
-    });
-  }
+export function notify(entries: readonly (Sink | NotifierEntry)[], event: NotifyEvent): void {
+  notifierRegistry.notify(event, entries);
 }

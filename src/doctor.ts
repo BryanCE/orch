@@ -2,9 +2,11 @@ import * as filesystem from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig } from "./config.ts";
+import { loadConfig, type HostConfig } from "./config.ts";
+import { loadSinks, type Sink } from "./notify.ts";
 import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
 import { rpcCall } from "./daemon/rpc.ts";
+import { runSSH, type SshResult } from "./remote.ts";
 
 export type FixDescriptor = {
   description: string;
@@ -19,7 +21,7 @@ export type CheckResult = {
   fix?: FixDescriptor;
 };
 
-type BinaryStatus = Record<string, boolean>;
+export type BinaryStatus = Record<string, boolean>;
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -69,7 +71,11 @@ async function commandOutput(command: string, args: string[]): Promise<{ ok: boo
   }
 }
 
-async function checkBins(bins: BinaryStatus): Promise<CheckResult> {
+export function binaryStatus(): BinaryStatus {
+  return { bun: onPath("bun"), herdr: onPath("herdr"), pi: onPath("pi") };
+}
+
+export async function checkBins(bins: BinaryStatus): Promise<CheckResult> {
   const missing = ["bun", "herdr", "pi"].filter((bin) => !bins[bin]);
   if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: "bun, herdr, and pi are on PATH" };
   if (!bins.bun) return { id: "bins", label: "Required binaries", status: "fail", detail: "bun is not on PATH" };
@@ -143,6 +149,57 @@ function isAgentStatus(value: unknown): value is AgentStatus {
 export function isBridgeExtensionStale(extensionHash: string | undefined): boolean {
   if (extensionHash === undefined) return false;
   return extensionHash !== computeCodeHash(path.join(repoDir, "extensions", "orchestrator-bridge.ts"));
+}
+
+type JsonObject = Record<string, unknown>;
+type SettingsReader = (file: string) => string;
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Verify Claude's orch hooks are installed and target this checkout's shim. */
+export async function checkClaudeHooks(
+  settingsPath = path.join(os.homedir(), ".claude", "settings.json"),
+  readSettings: SettingsReader = (file) => filesystem.readFileSync(file, "utf8"),
+): CheckResult {
+  const id = "claude-hooks";
+  const label = "Claude hooks shim";
+  let raw: string;
+  try {
+    raw = readSettings(settingsPath);
+  } catch (error: unknown) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return { id, label, status: "ok", detail: "Claude is not set up (no settings.json)" };
+    }
+    return { id, label, status: "warn", detail: `could not read ${settingsPath}; fix: run orch setup` };
+  }
+
+  let settings: unknown;
+  try {
+    settings = JSON.parse(raw);
+  } catch {
+    return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
+  }
+  if (!isJsonObject(settings)) {
+    return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
+  }
+
+  const hooks = settings.hooks;
+  const shim = path.join(repoDir, "scripts", "claude-hooks.ts");
+  const missing: string[] = [];
+  for (const event of ["SessionStart", "Stop", "Notification"] as const) {
+    const expected = `bun ${shim} ${event}`;
+    const entries = isJsonObject(hooks) ? hooks[event] : undefined;
+    const present = Array.isArray(entries) && entries.some((entry) =>
+      isJsonObject(entry) && Array.isArray(entry.hooks) && entry.hooks.some((hook) =>
+        isJsonObject(hook) && hook.type === "command" && hook.command === expected));
+    if (!present) missing.push(event);
+  }
+
+  return missing.length
+    ? { id, label, status: "warn", detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}; fix: run orch setup` }
+    : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
 }
 
 async function checkExtensionStaleness(orchDir: string): Promise<CheckResult> {
@@ -225,7 +282,37 @@ async function checkNotifications(bins: BinaryStatus): Promise<CheckResult> {
   return { id: "notifications", label: "Desktop notifications", status: "warn", detail: "no desktop notification tier is available" };
 }
 
-async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> {
+async function checkNotifySinks(orchDir: string, bins: BinaryStatus): Promise<CheckResult> {
+  const id = "notify-sinks";
+  const label = "Notification sinks";
+  const sinks = loadSinks(orchDir);
+  if (!sinks.length) return { id, label, status: "ok", detail: "no notify sinks configured" };
+
+  const desktop = await checkNotifications(bins);
+  const unavailable: string[] = [];
+  sinks.forEach((sink: Sink, index) => {
+    const name = `${sink.type} sink #${index + 1}`;
+    if (sink.type === "webhook") {
+      try {
+        const url = new URL(sink.url);
+        if (url.protocol !== "http:" && url.protocol !== "https:") unavailable.push(`${name} URL is not http/https`);
+      } catch {
+        unavailable.push(`${name} URL is not well-formed`);
+      }
+    } else if (sink.type === "command") {
+      const binary = sink.command[0];
+      if (!binary || !onPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
+    } else if (desktop.status !== "ok") {
+      unavailable.push(`${name} has no available desktop notification tier`);
+    }
+  });
+
+  return unavailable.length
+    ? { id, label, status: "warn", detail: `undeliverable: ${unavailable.join("; ")}` }
+    : { id, label, status: "ok", detail: `${sinks.length} configured sink${sinks.length === 1 ? "" : "s"} look deliverable` };
+}
+
+export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> {
   if (!bins.pi) return { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi is not installed" };
   const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
   const names = ["orchestrator-bridge.ts", "herdr-agent-state.ts"];
@@ -370,6 +457,72 @@ async function checkDaemonSocket(orchDir: string): Promise<CheckResult> {
   }
 }
 
+type SshRunner = (destination: string, command: string, options?: { timeoutMs?: number }) => SshResult;
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function configuredHosts(orchDir: string): Array<[string, HostConfig]> {
+  return Object.entries(loadConfig(orchDir).hosts);
+}
+
+function hostDestination(name: string, host: HostConfig): string {
+  const destination = host.dest ?? host.ssh;
+  if (!destination) throw new Error(`Host "${name}" has no SSH destination`);
+  return destination;
+}
+
+function hostResult(id: string, label: string, failures: string[], total: number, failureStatus: "warn" | "fail"): CheckResult {
+  if (!total) return { id, label, status: "ok", detail: "no remote hosts configured" };
+  if (!failures.length) return { id, label, status: "ok", detail: `${total} configured host${total === 1 ? "" : "s"} passed` };
+  return { id, label, status: failureStatus, detail: failures.join("; ") };
+}
+
+async function checkRemoteReachability(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+  const hosts = configuredHosts(orchDir);
+  const failures: string[] = [];
+  for (const [name, host] of hosts) {
+    try {
+      const destination = hostDestination(name, host);
+      const result = runner(destination, "true", { timeoutMs: 5000 });
+      if (!result.ok) failures.push(`${name}: SSH unreachable (${result.stderr || "connection failed"}); fix: ssh -o BatchMode=yes -o ConnectTimeout=5 ${destination} true`);
+    } catch (error) { failures.push(`${name}: SSH probe failed (${String(error)}); fix: ssh -o BatchMode=yes -o ConnectTimeout=5 ${host.dest ?? host.ssh ?? name} true`); }
+  }
+  return hostResult("remote-ssh", "Remote SSH reachability", failures, hosts.length, "fail");
+}
+
+async function checkRemoteVersion(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+  const hosts = configuredHosts(orchDir);
+  const failures: string[] = [];
+  const local = (readJson(path.join(repoDir, "package.json")) as { version?: string }).version ?? "unknown";
+  for (const [name, host] of hosts) {
+    const destination = hostDestination(name, host);
+    const result = runner(destination, "orch --version", { timeoutMs: host.timeout_ms });
+    const remote = result.stdout.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0];
+    if (!result.ok || !remote || remote !== local) failures.push(`${name}: remote orch ${remote ?? "is not installed"} (local ${local}); fix: ssh ${destination} orch --version`);
+  }
+  return hostResult("remote-orch-version", "Remote orch version/schema", failures, hosts.length, "fail");
+}
+
+async function checkRemoteOrchDir(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+  const hosts = configuredHosts(orchDir);
+  const failures: string[] = [];
+  for (const [name, host] of hosts) {
+    const destination = hostDestination(name, host);
+    const remoteDir = host.orch_dir ?? "${HOME}/.orch";
+    const command = host.orch_dir
+      ? `test -d ${shellQuote(remoteDir)} && test -w ${shellQuote(remoteDir)}`
+      : 'test -d "${ORCH_DIR:-$HOME/.orch}" && test -w "${ORCH_DIR:-$HOME/.orch}"';
+    const result = runner(destination, command, { timeoutMs: host.timeout_ms });
+    if (!result.ok) {
+      const fixDir = host.orch_dir ? shellQuote(host.orch_dir) : '"${ORCH_DIR:-$HOME/.orch}"';
+      failures.push(`${name}: ORCH_DIR ${remoteDir} is missing or not writable; fix: ssh ${destination} 'mkdir -p ${fixDir} && test -w ${fixDir}'`);
+    }
+  }
+  return hostResult("remote-orch-dir", "Remote ORCH_DIR", failures, hosts.length, "warn");
+}
+
 async function checkWorktreeGitignore(): Promise<CheckResult> {
   const worktrees = path.join(process.cwd(), ".orch-worktrees");
   if (!filesystem.existsSync(worktrees)) return { id: "worktree-gitignore", label: "Worktree gitignore", status: "skip", detail: ".orch-worktrees does not exist" };
@@ -393,21 +546,26 @@ async function isolated(id: string, label: string, check: () => Promise<CheckRes
 }
 
 /** Run independent environment diagnostics; individual check failures never reject this function. */
-export async function runDoctor(orchDir: string): Promise<CheckResult[]> {
-  const bins: BinaryStatus = { bun: onPath("bun"), herdr: onPath("herdr"), pi: onPath("pi") };
+export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH): Promise<CheckResult[]> {
+  const bins = binaryStatus();
   return Promise.all([
     isolated("bins", "Required binaries", () => checkBins(bins)),
     isolated("herdr-version", "herdr version", () => checkHerdrVersion(bins)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
+    isolated("claude-hooks", "Claude hooks shim", () => checkClaudeHooks()),
     isolated("spawned-registry", "Spawn registry", () => checkSpawnedRegistry(orchDir)),
     isolated("config", "Config validity", () => checkConfig(orchDir)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
+    isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
     isolated("pi-extensions", "pi extensions", () => checkExtensions(bins)),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
     isolated("orchd-staleness", "orchd code", () => checkDaemonStaleness(orchDir)),
     isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),
     isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(orchDir)),
+    isolated("remote-ssh", "Remote SSH reachability", () => checkRemoteReachability(orchDir, sshRunner)),
+    isolated("remote-orch-version", "Remote orch version/schema", () => checkRemoteVersion(orchDir, sshRunner)),
+    isolated("remote-orch-dir", "Remote ORCH_DIR", () => checkRemoteOrchDir(orchDir, sshRunner)),
     isolated("worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
   ]);
 }

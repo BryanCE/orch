@@ -511,6 +511,19 @@ export default function (pi) {
     return workspace ?? "unknown";
   }
 
+  // Keep bridge-owned Herdr notifications in sync with src/notify.ts without
+  // importing it (the bridge also runs through the ~/.pi/agent symlink).
+  function blockedNotificationTitle(summary: string): string {
+    const workspace = workspaceLabel(workspaceOf(state.key));
+    const agentName = state.label ?? state.agent ?? state.key;
+    const normalizedSummary = String(summary)
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/^Q:\s*/i, "")
+      .slice(0, 60);
+    return `BLOCKED [${workspace}] ${agentName}: ${normalizedSummary}`;
+  }
+
   function sameWorkspace(ownKey: string, peerKey: string): boolean {
     const own = ownWorkspace(ownKey);
     const peer = workspaceOf(peerKey);
@@ -745,7 +758,7 @@ export default function (pi) {
         state.asking = { question: truncate(params.question, 200), id, ts };
         state.state = "blocked";
         writeStatus();
-        const notificationTitle = `NEEDS ANSWER: ${state.key}`;
+        const notificationTitle = blockedNotificationTitle(params.question);
         const notificationBody = truncate(params.question, 60);
         notifyHerdr(notificationTitle, notificationBody);
 
@@ -1046,7 +1059,8 @@ export default function (pi) {
   pi.events?.on?.("herdr:blocked", (data) => {
     if (data?.active) {
       if (blockedCount === 0 && !blockedNotified) {
-        notifyHerdr(`NEEDS INPUT: ${state.key || computeKey(!!HERDR_PANE_ID)}`, truncate(String(data.label ?? ""), 60));
+        const notificationSummary = String(data.label ?? "");
+        notifyHerdr(blockedNotificationTitle(notificationSummary), truncate(notificationSummary, 60));
         blockedNotified = true;
       }
       blockedCount += 1;

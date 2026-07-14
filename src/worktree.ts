@@ -17,8 +17,10 @@ export function repositoryRoot(repoRoot: string): string {
 /** Return the main repository root shared by all linked worktrees. */
 export function repositoryCommonRoot(repoRoot: string): string {
   try {
-    const commonDir = git(repoRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    return path.dirname(commonDir);
+    // `--path-format=absolute` was added after older Git versions still in use.
+    // Resolve the (possibly relative) common-dir path ourselves instead.
+    const commonDir = git(repoRoot, ["rev-parse", "--git-common-dir"]);
+    return path.dirname(path.resolve(repoRoot, commonDir));
   } catch {
     throw new Error(`Worktree mode requires a git repository: ${repoRoot}`);
   }

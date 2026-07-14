@@ -1,0 +1,3 @@
+PANE   NAME  TAB  AGENT  MODEL         STATE    COST    CTX  TASK                        LAST
+─────  ────  ───  ─────  ────────────  ───────  ──────  ───  ──────────────────────────  ──────────────────
+<PANE_ID>        -    codex  gpt-5:medium  working  $0  42%  Exercise the smoke fixture  Fixture is healthy

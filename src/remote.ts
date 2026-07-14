@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import type { HostConfig } from "./config.ts";
 
 export const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
@@ -22,6 +22,29 @@ export type RemoteOptions = {
   /** Primarily for hermetic callers; ORCH_SSH_BIN is used otherwise. */
   sshBin?: string;
 };
+
+export type SshResult = { ok: boolean; stdout: string; stderr: string; code?: number };
+
+/** Execute an arbitrary command over SSH (used by diagnostics and remote probes). */
+export function runSSH(destination: string, command: string, options: RemoteOptions = {}): SshResult {
+  const sshBin = options.sshBin ?? process.env.ORCH_SSH_BIN ?? "ssh";
+  const timeout = options.timeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS;
+  try {
+    const stdout = execFileSync(sshBin, ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, command], {
+      timeout,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { ok: true, stdout: outputText(stdout), stderr: "", code: 0 };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      stdout: outputText(errorField(error, "stdout")),
+      stderr: outputText(errorField(error, "stderr")),
+      code: typeof errorField(error, "status") === "number" ? errorField(error, "status") as number : undefined,
+    };
+  }
+}
 
 function outputText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -117,4 +140,49 @@ export function runRemote(
   } catch (error: unknown) {
     return failedOutput(hostName, error, timeout);
   }
+}
+
+/** Asynchronous JSON command executor for parallel multi-host reads. */
+export function runRemoteAsync(
+  hostName: string,
+  host: HostConfig,
+  command: string | readonly string[],
+  options: RemoteOptions = {},
+): Promise<RemoteResult> {
+  const destination = host.dest ?? host.ssh;
+  if (!destination) {
+    return Promise.resolve({
+      ok: false,
+      failure: { kind: "invalid-config", host: hostName, message: `Host "${hostName}" has no SSH destination (expected dest).` },
+    });
+  }
+  const sshBin = options.sshBin ?? process.env.ORCH_SSH_BIN ?? "ssh";
+  const timeout = options.timeoutMs ?? host.timeout_ms ?? DEFAULT_REMOTE_TIMEOUT_MS;
+  return new Promise((resolve) => {
+    execFile(sshBin, sshArgs(host, command, destination), {
+      timeout,
+      encoding: "utf8",
+      windowsHide: true,
+    }, (error, stdout, stderr) => {
+      if (!error) {
+        resolve(parsedOutput(hostName, outputText(stdout)));
+        return;
+      }
+      const out = outputText(stdout);
+      const err = outputText(stderr);
+      const timedOut = errorField(error, "code") === "ETIMEDOUT"
+        || errorField(error, "signal") === "SIGTERM"
+        || errorField(error, "killed") === true;
+      resolve({
+        ok: false,
+        failure: {
+          kind: timedOut ? "timeout" : "dead-host",
+          host: hostName,
+          message: timedOut ? `Host "${hostName}" timed out after ${timeout}ms.` : `Host "${hostName}" is unreachable: ${err.trim() || error.message || "ssh failed"}`,
+          ...(out ? { stdout: out } : {}),
+          ...(err ? { stderr: err } : {}),
+        },
+      });
+    });
+  });
 }

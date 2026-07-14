@@ -110,13 +110,26 @@ function registeredHandle(handle: HeadlessHandle, directory: string): boolean {
  * observable, while close can only signal a registered process with matching
  * presence ownership.
  */
+export interface HeadlessBackendDeps {
+  /** Injected process liveness check and signaler, primarily for hermetic tests. */
+  pidAlive?: (pid: number) => boolean;
+  killer?: (pid: number, signal: "SIGTERM") => void;
+}
+
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
   readonly panes = false;
   readonly focusable = false;
   readonly caps: BackendCapabilities = { panes: false, focusable: false };
+  private readonly isPidAlive: (pid: number) => boolean;
+  private readonly killer: (pid: number, signal: "SIGTERM") => void;
 
-  /** Start adapter.headlessCmd() detached, redirecting both output streams to a log. */
+  constructor(deps: HeadlessBackendDeps = {}) {
+    this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
+    this.killer = deps.killer ?? ((pid, signal) => process.kill(pid, signal));
+  }
+
+  /** Start the adapter's restricted worker command detached, redirecting output to a log. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const directory = orchDirectory(opts.orchDir);
     const key = opts.key ?? `session-pending`;
@@ -129,8 +142,12 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       orchDir: directory,
       env: opts.env,
     };
-    const argv = adapter.headlessCmd(opts.prompt ?? "", adapterOpts);
-    if (!Array.isArray(argv) || argv.length === 0 || argv.some((part) => typeof part !== "string" || part.length === 0)) {
+    const argv = adapter.restrictedHeadlessCmd?.(opts.prompt ?? "", adapterOpts)
+      ?? adapter.headlessCmd(opts.prompt ?? "", adapterOpts);
+    // The final argv entry is the initial prompt and may legitimately be empty
+    // for `orch spawn`, while the executable itself must always be non-empty.
+    if (!Array.isArray(argv) || argv.length === 0 || typeof argv[0] !== "string" || argv[0].length === 0
+      || argv.slice(1).some((part) => typeof part !== "string")) {
       throw new Error(`adapter ${String(adapter.id)} returned an invalid headless command`);
     }
 
@@ -169,9 +186,9 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     if (!handle || !Number.isInteger(handle.pid) || !safeKey(handle.key)) return false;
     if (!registeredHandle(handle, directory)) return false;
     if (statusPid(directory, handle.key) !== handle.pid) return false;
-    if (!pidAlive(handle.pid)) return false;
+    if (!this.isPidAlive(handle.pid)) return false;
     try {
-      process.kill(handle.pid, "SIGTERM");
+      this.killer(handle.pid, "SIGTERM");
       return true;
     } catch {
       return false;
@@ -183,7 +200,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const directory = orchDirectory();
     return readHeadlessRegistry(directory).map(({ handle }) => ({
       ...handle,
-      alive: pidAlive(handle.pid),
+      alive: this.isPidAlive(handle.pid),
     }));
   }
 }

@@ -6,14 +6,19 @@ import { randomUUID } from "node:crypto";
 import { deliverToSink, loadSinks, notify, notificationText, type NotifyEvent, type Sink } from "./notify.ts";
 import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "./queue.ts";
 import { runWorkLoop } from "./work.ts";
-import { runDoctor, applyFixes, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
-import { loadConfig, resolveSetting } from "./config.ts";
+import { runDoctor, applyFixes, binaryStatus, checkBins, checkExtensions, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
+import { loadConfig, resolveSetting, type HostConfig } from "./config.ts";
 import { appendPresenceInbox, bridgeRegistered, defaultModelString, isRecord, loadPresence, orchDir, pidAlive, presenceDir, readJSON, readPaneModel, recordSpawned, spawnedPanes, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "./store.ts";
 import { piAdapter, presenceFor } from "./adapters/pi.ts";
+import { codexAdapter } from "./adapters/codex.ts";
+import { claudeAdapter } from "./adapters/claude.ts";
 import type { AgentAdapter } from "./adapters/adapter.ts";
 import { blockText, parseSession, type SessionData } from "./session.ts";
-import { buildEntities, collapse, currentWorkspace, entityWorkspace, resolvePane, resolveTarget, scopeEntitiesToWorkspace, sortEntities, workspaceOf, type Entity } from "./entities.ts";
+import { buildEntities, collapse, currentWorkspace, entityWorkspace, parseTarget, resolvePane, resolveTarget, scopeEntitiesToWorkspace, sortEntities, workspaceOf, type Entity } from "./entities.ts";
 import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, paneStatus } from "./herdr.ts";
+import { herdrBackend } from "./backends/herdr.ts";
+import { runRemoteAsync, runSSH } from "./remote.ts";
+import { headlessBackend, type HeadlessHandle } from "./backends/headless.ts";
 import { renderTable, truncate } from "./table.ts";
 import { daemonize, runForeground } from "./daemon/lifecycle.ts";
 import { DaemonAbsentError, rpcCall } from "./daemon/rpc.ts";
@@ -163,8 +168,8 @@ function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
 }
 
 
-function cmdStatus(args: string[]) {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all"]);
+function cmdStatusLocal(args: string[]) {
+  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
   const json = enabled.has("--json");
   const all = enabled.has("--all");
   const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
@@ -242,12 +247,151 @@ function cmdStatus(args: string[]) {
   // render with dim for exited rows
   const table = renderTable(headers, rows, caps);
   const lines = table.split("\n");
-  const out: string[] = [lines[0], lines[1]];
+  const out: string[] = [lines[0] ?? "", lines[1] ?? ""];
   for (let i = 0; i < rows.length; i++) {
-    const line = lines[i + 2];
+    const line = lines[i + 2] ?? "";
     out.push(rawExited[i] ? dim(line) : line);
   }
   process.stdout.write(out.join("\n") + "\n");
+}
+
+interface StatusRow {
+  key: string;
+  paneId: string | null;
+  name: string | null;
+  tab: string | null;
+  agent: string | null;
+  focused: boolean;
+  model: string;
+  modelShort: string;
+  state: string;
+  stateFallback: boolean;
+  exited: boolean;
+  cost: number;
+  ctxPercent: number | null;
+  task: string | null;
+  lastText: string | null;
+  herdrStatus: string | null;
+  sessionPath: string | null;
+  presenceDir: string | null;
+  presenceOnly: boolean;
+  tokens: unknown;
+  turns: unknown;
+  host?: string;
+  warning?: string;
+}
+
+function localStatusRows(args: string[]): StatusRow[] {
+  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
+  const all = enabled.has("--all");
+  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
+  const spawned = spawnedRecords();
+  const views = entities.map((entity) => deriveView(entity, spawned));
+  return views.filter((v) => all || (!v.exited || !v.entity.presenceOnly) && !(v.entity.presenceOnly && v.entity.presence && !v.entity.presence.alive))
+    .map((v) => ({
+      key: v.entity.key,
+      paneId: v.entity.paneId,
+      name: v.entity.name,
+      tab: v.entity.tabLabel,
+      agent: v.entity.agent,
+      focused: v.entity.focused,
+      model: v.modelFull,
+      modelShort: v.model,
+      state: v.state,
+      stateFallback: v.stateFallback,
+      exited: v.exited,
+      cost: v.cost,
+      ctxPercent: v.ctxPercent,
+      task: v.entity.presence?.status?.asking?.question
+        ? `Q: ${v.entity.presence.status.asking.question}`
+        : v.entity.presence?.status?.task ?? v.session?.task ?? null,
+      lastText: v.entity.presence?.status?.lastText ?? v.entity.presence?.result?.text ?? v.session?.lastAssistant ?? null,
+      herdrStatus: v.entity.herdrStatus,
+      sessionPath: v.entity.sessionPath,
+      presenceDir: v.entity.presence?.dir ?? null,
+      presenceOnly: v.entity.presenceOnly,
+      tokens: v.session?.exists ? v.session.tokens : v.entity.presence?.status?.tokens ?? null,
+      turns: v.entity.presence?.status?.turns ?? v.session?.turns ?? null,
+      host: "local",
+    }));
+}
+
+function warningStatusRow(host: string, warning: string): StatusRow {
+  return {
+    key: `warning:${host}`, paneId: null, name: "WARNING", tab: null, agent: null,
+    focused: false, model: "", modelShort: "", state: "warning", stateFallback: false,
+    exited: false, cost: 0, ctxPercent: null, task: warning, lastText: null,
+    herdrStatus: null, sessionPath: null, presenceDir: null, presenceOnly: false,
+    tokens: null, turns: null, host, warning,
+  };
+}
+
+function remoteCommandArgs(host: HostConfig, command: string, args: readonly string[]): string {
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  const prefix = host.orch_dir ? `env ORCH_DIR=${quote(host.orch_dir)} ` : "";
+  return `${prefix}orch ${[command, ...args].map(quote).join(" ")}`;
+}
+
+function remoteWrite(hostName: string, command: string, args: readonly string[]): void {
+  const host = loadConfig(orchDir()).hosts[hostName];
+  const destination = host?.dest ?? host?.ssh;
+  if (!host || !destination) die(`Host "${hostName}" has no SSH destination.`);
+  const result = runSSH(destination, remoteCommandArgs(host, command, args), { timeoutMs: host.timeout_ms });
+  if (!result.ok) die(`Host "${hostName}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
+  if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
+}
+
+function targetHost(target: string): { host: string; target: string } | null {
+  try {
+    const ref = parseTarget(target, loadConfig(orchDir()).hosts);
+    return ref.host ? { host: ref.host, target: ref.target } : null;
+  } catch (error: unknown) {
+    die(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function cmdStatus(args: string[]): Promise<void> {
+  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
+  const json = enabled.has("--json");
+  const localOnly = enabled.has("--local");
+  const hosts = loadConfig(orchDir()).hosts;
+  if (localOnly || Object.keys(hosts).length === 0) {
+    cmdStatusLocal(args);
+    return;
+  }
+  const local = localStatusRows(args);
+  const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
+    name,
+    result: await runRemoteAsync(name, host, ["status"], { timeoutMs: host.timeout_ms }),
+  })));
+  const rows: StatusRow[] = [...local];
+  for (const { name, result } of remoteResults) {
+    if (!result.ok) {
+      rows.push(warningStatusRow(name, result.failure.message));
+      continue;
+    }
+    if (!Array.isArray(result.value)) {
+      rows.push(warningStatusRow(name, `Host "${name}" returned an invalid status payload.`));
+      continue;
+    }
+    for (const value of result.value) if (value && typeof value === "object") rows.push({ ...(value as StatusRow), host: name });
+  }
+  if (json) {
+    process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+    return;
+  }
+  const headers = ["HOST", "PANE", "NAME", "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
+  const tableRows = rows.map((row) => [
+    row.host ?? "local", row.warning ? "-" : row.paneId ?? row.key, row.name ?? (row.warning ? "WARNING" : ""),
+    row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", row.state,
+    row.cost > 0 ? "$" + row.cost.toFixed(2) : "", row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "",
+    truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),
+  ]);
+  if (!tableRows.length) {
+    process.stdout.write("No panes found (herdr down and no agent dirs).\n");
+    return;
+  }
+  process.stdout.write(renderTable(headers, tableRows, [10, 14, 14, 10, 8, 30, 12, 8, 5, 40, 50]) + "\n");
 }
 
 interface ReviewItem {
@@ -312,6 +456,41 @@ function findReviewItem(target: string): ReviewItem {
   return item;
 }
 
+async function cmdReviewInteractive(): Promise<void> {
+  const items = reviewItems();
+  if (!items.length) {
+    process.stdout.write("No worktree reviews pending.\n");
+    return;
+  }
+
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    for (const item of items) {
+      process.stdout.write(`\n=== ${item.target}: ${item.branch} vs ${item.base} ===\n`);
+      if (item.task) process.stdout.write(`Task: ${item.task}\n`);
+      if (item.summary) process.stdout.write(`Summary: ${item.summary}\n`);
+      process.stdout.write("\n" + (item.diff || "(no diff)\n") + (item.diff?.endsWith("\n") ? "" : "\n"));
+
+      let action = "";
+      while (action !== "a" && action !== "r" && action !== "s") {
+        action = (await rl.question("Action [a]pprove/[r]eject/[s]kip: ")).trim().toLowerCase();
+      }
+      if (action === "s") continue;
+      if (action === "a") {
+        cmdReview(["approve", item.target]);
+        continue;
+      }
+
+      let feedback = "";
+      while (!feedback.trim()) feedback = await rl.question("Feedback: ");
+      cmdReview(["reject", item.target, "-m", feedback]);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
 function cmdReview(args: string[]) {
   const subcommand = args[0];
   if (!subcommand || !["list", "approve", "reject"].includes(subcommand)) {
@@ -333,26 +512,32 @@ function cmdReview(args: string[]) {
     process.stdout.write(renderTable(["TARGET", "BRANCH", "AHEAD", "TASK", "SUMMARY"], rows, [20, 24, 5, 40, 60]) + "\n");
     return;
   }
-  const target = args[1];
-  if (!target) die(`usage: orch review ${subcommand === "approve" ? "approve <target>" : 'reject <target> -m "feedback"'}`);
+  const json = args.includes("--json");
+  const target = args.find((arg, index) => index > 0 && arg !== "--json");
+  if (!target) die(`usage: orch review ${subcommand === "approve" ? "approve <target> [--json]" : 'reject <target> -m "feedback" [--json]'}`);
   const item = findReviewItem(target);
   if (subcommand === "approve") {
-    if (args.length !== 2) die("usage: orch review approve <target>");
+    if (args.some((arg) => arg !== "approve" && arg !== target && arg !== "--json")) die("usage: orch review approve <target> [--json]");
     try {
       const strategy = mergeReviewBranch(item.repoRoot, item.branch);
       removeMergedWorktree(item.repoRoot, item.worktree, item.branch);
-      process.stdout.write(`Approved ${item.target}: merged (${strategy}) and removed worktree.\n`);
+      if (json) process.stdout.write(JSON.stringify({ target: item.target, approved: true, strategy }) + "\n");
+      else process.stdout.write(`Approved ${item.target}: merged (${strategy}) and removed worktree.\n`);
     } catch (error: any) {
       die(error?.message ?? String(error));
     }
     return;
   }
   if (subcommand === "reject") {
-    if (args[2] !== "-m" || !args[3] || args.length !== 4) die('usage: orch review reject <target> -m "feedback"');
+    const messageIndex = args.indexOf("-m");
+    const feedback = messageIndex >= 0 ? args[messageIndex + 1] : undefined;
+    const allowedReject = new Set(["reject", target, "-m", feedback, "--json"]);
+    if (messageIndex < 0 || !feedback || args.some((arg) => !allowedReject.has(arg))) die('usage: orch review reject <target> -m "feedback" [--json]');
     const adapter = resolveAdapter(item.adapter);
     if (!presenceFor(item.pane)) die(`Cannot reject ${item.target}: agent presence is missing.`);
-    adapter.steer({ key: item.pane, text: args[3] });
-    process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
+    adapter.steer({ key: item.pane, text: feedback });
+    if (json) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
+    else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
     return;
   }
   die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
@@ -383,14 +568,27 @@ function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
 
 function cmdQueue(args: string[]) {
   const subcommand = args[0];
-  const { enabled, positional } = splitOptionFlags(args.slice(1), ["--json", "--worktree"]);
+  const hostIndex = args.indexOf("--host");
+  let hostName: string | null = null;
+  let queueArgs = args;
+  if (hostIndex >= 0) {
+    hostName = args[hostIndex + 1] ?? null;
+    if (!hostName) die('usage: orch queue add --host <host> "<task text>" [--worktree] [--json]');
+    queueArgs = args.slice(0, hostIndex).concat(args.slice(hostIndex + 2));
+  }
+  const { enabled, positional } = splitOptionFlags(queueArgs.slice(1), ["--json", "--worktree"]);
   const json = enabled.has("--json");
+  if (hostName && subcommand !== "add") die("--host is only supported for orch queue add");
   const worktree = enabled.has("--worktree");
 
   switch (subcommand) {
     case "add": {
       const text = positional.join(" ");
       if (!text) die('usage: orch queue add "<task text>" [--worktree] [--json]');
+      if (hostName) {
+        remoteWrite(hostName, "queue", ["add", ...queueArgs.slice(1)]);
+        return;
+      }
       let options = {};
       if (worktree) {
         const name = `queue-${randomUUID()}`;
@@ -442,8 +640,8 @@ function formatAge(ts: unknown): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-function cmdQuestions(args: string[]) {
-  const { enabled } = splitOptionFlags(args, ["--all"]);
+function cmdQuestionsLocal(args: string[]) {
+  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
   const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
   const names = new Map<string, string>();
@@ -463,10 +661,22 @@ function cmdQuestions(args: string[]) {
     .map((pres) => ({ pres, question: readJSON(path.join(pres.dir, "question.json")) }))
     .filter(({ question }) => question && typeof question.question === "string");
   if (!pending.length) {
-    process.stdout.write("No pending questions.\n");
+    if (enabled.has("--json")) process.stdout.write("[]\n");
+    else process.stdout.write("No pending questions.\n");
     return;
   }
   pending.sort((a, b) => a.pres.key.localeCompare(b.pres.key));
+  if (enabled.has("--json")) {
+    process.stdout.write(JSON.stringify(pending.map(({ pres, question }) => ({
+      key: pres.key,
+      name: names.get(pres.key) ?? null,
+      age: formatAge(question.ts),
+      question: question.question,
+      workspace: workspaceOf(pres.status?.paneId ?? pres.key) ?? "-",
+      host: "local",
+    })), null, 2) + "\n");
+    return;
+  }
   const workspaces = pending.map(({ pres }) => workspaceOf(pres.status?.paneId ?? pres.key) ?? "-");
   const showWorkspace = all && new Set(workspaces).size > 1;
   process.stdout.write(
@@ -481,16 +691,93 @@ function cmdQuestions(args: string[]) {
   );
 }
 
+type QuestionRow = { key: string; name: string | null; age: string; question: string; workspace?: string; host?: string; warning?: string };
+
+function localQuestionRows(args: string[]): QuestionRow[] {
+  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
+  const all = enabled.has("--all");
+  const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
+  const names = new Map<string, string>();
+  const scopedKeys = new Set<string>();
+  for (const ent of scopedEntities) {
+    scopedKeys.add(ent.key);
+    if (ent.presence) scopedKeys.add(ent.presence.key);
+    if (ent.name) {
+      names.set(ent.key, ent.name);
+      if (ent.paneId) names.set(ent.paneId, ent.name);
+      if (ent.presence) names.set(ent.presence.key, ent.name);
+    }
+  }
+  return [...loadPresence().values()]
+    .filter((pres) => scopedKeys.has(pres.key) || all)
+    .map((pres) => ({ pres, question: readJSON(path.join(pres.dir, "question.json")) }))
+    .filter(({ question }) => question && typeof question.question === "string")
+    .map(({ pres, question }) => ({
+      key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
+      question: question.question, workspace: workspaceOf(pres.status?.paneId ?? pres.key) ?? "-", host: "local",
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function warningQuestionRow(host: string, warning: string): QuestionRow {
+  return { key: `warning:${host}`, name: "WARNING", age: "-", question: warning, host, warning };
+}
+
+async function cmdQuestions(args: string[]): Promise<void> {
+  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
+  const json = enabled.has("--json");
+  const localOnly = enabled.has("--local");
+  const hosts = loadConfig(orchDir()).hosts;
+  if (localOnly || Object.keys(hosts).length === 0) {
+    cmdQuestionsLocal(args);
+    return;
+  }
+  const rows: QuestionRow[] = [...localQuestionRows(args)];
+  const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
+    name,
+    result: await runRemoteAsync(name, host, ["questions"], { timeoutMs: host.timeout_ms }),
+  })));
+  for (const { name, result } of remoteResults) {
+    if (!result.ok) {
+      rows.push(warningQuestionRow(name, result.failure.message));
+      continue;
+    }
+    if (!Array.isArray(result.value)) {
+      rows.push(warningQuestionRow(name, `Host "${name}" returned an invalid questions payload.`));
+      continue;
+    }
+    for (const value of result.value) if (value && typeof value === "object") rows.push({ ...(value as QuestionRow), host: name });
+  }
+  if (json) {
+    process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+    return;
+  }
+  if (!rows.length) {
+    process.stdout.write("No pending questions.\n");
+    return;
+  }
+  const tableRows = rows.map((row) => [row.host ?? "local", row.key, row.name ?? "-", row.age, row.question]);
+  process.stdout.write(renderTable(["HOST", "PANE", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
+}
+
 function cmdAnswer(args: string[]) {
   const force = args.includes("--force");
-  const { target, prompt: text } = parseTargetPrompt(args, "--force", 'usage: orch answer <target> "<text>" [--force]');
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const { target, prompt: text } = parseTargetPrompt(cleanArgs, "--force", 'usage: orch answer <target> "<text>" [--force] [--json]');
+  const remote = targetHost(target);
+  if (remote) {
+    remoteWrite(remote.host, "answer", [remote.target, text, ...(force ? ["--force"] : []), ...(json ? ["--json"] : [])]);
+    return;
+  }
   const ent = resolveTarget(target);
   const questionPath = ent.presence ? path.join(ent.presence.dir, "question.json") : null;
   if (!force && (!questionPath || !files.existsSync(questionPath)))
     die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
   files.writeFileSync(path.join(ent.presence.dir, "answer.json"), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
-  process.stdout.write(`Answered ${ent.presence!.key}.\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: ent.presence!.key, answered: true }) + "\n");
+  else process.stdout.write(`Answered ${ent.presence!.key}.\n`);
 }
 
 // ---- watch ----
@@ -540,8 +827,8 @@ function parseEventsOptions(args: string[]): EventsOptions {
   let json = false;
   const targets: string[] = [];
   for (let index = 0; index < args.length; index++) {
-    const argument = args[index];
-    if (argument === "--status") statusFilter = new Set(args[++index].split(",").map((state) => state.trim()).filter(Boolean));
+    const argument = args[index]!;
+    if (argument === "--status") statusFilter = new Set((args[++index] ?? "").split(",").map((state) => state.trim()).filter(Boolean));
     else if (argument === "--all") all = true;
     else if (argument === "--notify") notifications = true;
     else if (argument === "--json") json = true;
@@ -571,7 +858,14 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
   if (options.all) {
     for (const presence of loadPresence().values()) {
       if (presence.alive && looksLikePaneKey(presence.key)) {
-        items.set(presence.key, { key: presence.key, dir: presence.dir, ...presenceMetadata(presence.key) });
+        const metadata = presenceMetadata(presence.key);
+        items.set(presence.key, {
+          key: presence.key,
+          dir: presence.dir,
+          name: metadata.name,
+          tab: metadata.tab,
+          pid: metadata.pid,
+        });
       }
     }
   }
@@ -666,13 +960,15 @@ async function cmdEvents(args: string[]) {
 }
 
 async function cmdNotify(args: string[]) {
-  if (args[0] !== "test") die("usage: orch notify test [--state <state>]");
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  if (cleanArgs[0] !== "test") die("usage: orch notify test [--state <state>] [--json]");
   let state = "blocked";
-  for (let i = 1; i < args.length; i++) {
-    if (args[i] === "--state") state = args[++i] ?? "";
-    else die("usage: orch notify test [--state <state>]");
+  for (let i = 1; i < cleanArgs.length; i++) {
+    if (cleanArgs[i] === "--state") state = cleanArgs[++i] ?? "";
+    else die("usage: orch notify test [--state <state>] [--json]");
   }
-  if (!state) die("usage: orch notify test [--state <state>]");
+  if (!state) die("usage: orch notify test [--state <state>] [--json]");
   const event: NotifyEvent = {
     key: "test:notify",
     agent: "notify-test",
@@ -690,7 +986,8 @@ async function cmdNotify(args: string[]) {
     return;
   }
   const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliverToSink(sink, event) })));
-  for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
+  if (json) process.stdout.write(JSON.stringify(results.map(({ sink, ok }) => ({ sink: sinkLabel(sink), ok }))) + "\n");
+  else for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
   if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
 
@@ -745,9 +1042,16 @@ function cmdResult(args: string[]) {
 // ---- steer ----
 
 function cmdSteer(args: string[]) {
-  const target = args[0];
-  const text = args.slice(1).join(" ");
-  if (!target || !text) die('usage: orch steer <target> <text...>');
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const target = cleanArgs[0];
+  const text = cleanArgs.slice(1).join(" ");
+  if (!target || !text) die('usage: orch steer <target> <text...> [--json]');
+  const remote = targetHost(target);
+  if (remote) {
+    remoteWrite(remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
+    return;
+  }
   const ent = resolveTarget(target);
   if (ent.presence) {
     const inbox = path.join(ent.presence.dir, "inbox.jsonl");
@@ -756,7 +1060,8 @@ function cmdSteer(args: string[]) {
     } catch {}
     const line = JSON.stringify({ text, ts: new Date().toISOString() }) + "\n";
     files.appendFileSync(inbox, line);
-    process.stdout.write(`Steered ${ent.key} → ${truncate(collapse(text), 60)}\n`);
+    if (json) process.stdout.write(JSON.stringify({ target: ent.key, steered: true }) + "\n");
+    else process.stdout.write(`Steered ${ent.key} → ${truncate(collapse(text), 60)}\n`);
     return;
   }
   // No presence bridge → fall back to herdr send-keys
@@ -766,9 +1071,10 @@ function cmdSteer(args: string[]) {
     `warning: pane ${pane} has no orchestrator-bridge (restart pi to load it); using herdr agent send.\n`
   );
   try {
-    herdrExec( ["agent", "send", pane, text], { timeout: 3000, stdio: ["ignore", "pipe", "pipe"] });
-    herdrExec( ["pane", "send-keys", pane, "Enter"], { timeout: 3000, stdio: ["ignore", "pipe", "pipe"] });
-    process.stdout.write(`Sent to ${pane} via herdr.\n`);
+    herdrExec( ["agent", "send", pane, text], { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    herdrExec( ["pane", "send-keys", pane, "Enter"], { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    if (json) process.stdout.write(JSON.stringify({ target: pane, steered: true, via: "herdr" }) + "\n");
+    else process.stdout.write(`Sent to ${pane} via herdr.\n`);
   } catch (e: any) {
     die(`herdr send failed: ${e?.message ?? e}`);
   }
@@ -785,24 +1091,29 @@ function livePanePresenceEntries(): PresenceEntry[] {
 }
 
 function cmdPipe(args: string[]) {
-  const src = args[0];
-  const dst = args[1];
-  const instruction = args.slice(2).join(" ");
-  if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"]');
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const src = cleanArgs[0];
+  const dst = cleanArgs[1];
+  const instruction = cleanArgs.slice(2).join(" ");
+  if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
   const source = requirePresenceTarget(src);
   const result = readJSON(path.join(source.presence!.dir, "result.json"));
   if (!result?.text) die(`No result.json text available for "${src}".`);
   const destination = requirePresenceTarget(dst);
   const text = `[piped from ${source.presence!.key}] ${instruction ? instruction + "\n" : ""}${result.text}`;
   appendPresenceInbox(destination.presence!, { text, ts: new Date().toISOString() });
-  process.stdout.write(`Piped ${source.presence!.key} → ${destination.presence!.key}.\n`);
+  if (json) process.stdout.write(JSON.stringify({ source: source.presence!.key, destination: destination.presence!.key, piped: true }) + "\n");
+  else process.stdout.write(`Piped ${source.presence!.key} → ${destination.presence!.key}.\n`);
 }
 
 function cmdBroadcast(args: string[]) {
   let all = false;
+  const json = args.includes("--json");
   const positional: string[] = [];
   for (const arg of args) {
     if (arg === "--all") all = true;
+    else if (arg === "--json") continue;
     else positional.push(arg);
   }
   const text = positional[0];
@@ -820,7 +1131,8 @@ function cmdBroadcast(args: string[]) {
   if (!destinations.size) die("No live pane agent dirs to broadcast to.");
   const ts = new Date().toISOString();
   for (const pres of destinations.values()) appendPresenceInbox(pres, { text, ts });
-  process.stdout.write(`Broadcast to ${destinations.size} agent(s).\n`);
+  if (json) process.stdout.write(JSON.stringify({ count: destinations.size, broadcast: true }) + "\n");
+  else process.stdout.write(`Broadcast to ${destinations.size} agent(s).\n`);
 }
 
 // ---- tail ----
@@ -837,7 +1149,8 @@ function toolCallSummary(block: any): string {
   }
   if (!arg) {
     const keys = Object.keys(a);
-    if (keys.length) arg = `${keys[0]}=${String(a[keys[0]])}`;
+    const firstKey = keys[0];
+    if (firstKey !== undefined) arg = `${firstKey}=${String(a[firstKey])}`;
   }
   return `${name}(${collapse(truncate(arg, 60))})`;
 }
@@ -851,14 +1164,19 @@ function hms(entry: any): string {
 
 function cmdTail(args: string[]) {
   let n = 20;
+  let json = false;
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-n") {
-      n = parseInt(args[++i], 10) || 20;
-    } else rest.push(args[i]);
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === "-n") {
+      const value = args[++i];
+      n = parseInt(value ?? "", 10) || 20;
+    } else if (arg === "--json") json = true;
+    else rest.push(arg);
   }
   const target = rest[0];
-  if (!target) die("usage: orch tail <target> [-n N]");
+  if (!target) die("usage: orch tail <target> [-n N] [--json]");
   const ent = resolveTarget(target);
   const session = parseSession(ent.sessionPath);
   if (!session.exists) die(`No session file for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
@@ -899,20 +1217,31 @@ function cmdTail(args: string[]) {
     }
   }
   const tail = rendered.slice(-n);
+  if (json) {
+    process.stdout.write(JSON.stringify({ target, sessionPath: ent.sessionPath, model: session.model, provider: session.provider,
+      thinking: session.thinking, cost: session.cost, turns: session.turns, tokens: session.tokens, entries: session.entries.slice(-n) }, null, 2) + "\n");
+    return;
+  }
   process.stdout.write(tail.join("\n") + (tail.length ? "\n" : "(no entries)\n"));
 }
 
 // ---- session ----
 
 function cmdSession(args: string[]) {
-  const target = args[0];
-  if (!target) die("usage: orch session <target>");
+  const json = args.includes("--json");
+  const target = args.find((arg) => arg !== "--json");
+  if (!target) die("usage: orch session <target> [--json]");
   const ent = resolveTarget(target);
   if (!ent.sessionPath) die(`No session path known for "${target}".`);
   const s = parseSession(ent.sessionPath);
   const modelStr = s.model
     ? `${s.provider ? s.provider + "/" : ""}${s.model}${s.thinking ? ":" + s.thinking : ""}`
     : "(none)";
+  if (json) {
+    process.stdout.write(JSON.stringify({ path: ent.sessionPath, exists: s.exists, entries: s.entries.length,
+      turns: s.turns, cost: s.cost, tokens: s.tokens, model: s.model, provider: s.provider, thinking: s.thinking }, null, 2) + "\n");
+    return;
+  }
   process.stdout.write(
     [
       `path:    ${ent.sessionPath}`,
@@ -929,9 +1258,17 @@ function cmdSession(args: string[]) {
 // ---- panes ----
 
 function cmdPanes(args: string[]) {
-  const { enabled } = splitOptionFlags(args, ["--all"]);
+  const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
+  const json = enabled.has("--json");
   const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
+  if (json) {
+    process.stdout.write(JSON.stringify(entities.map((e) => ({ key: e.key, paneId: e.paneId, name: e.name,
+      tab: e.tabLabel, agent: e.agent, focused: e.focused, state: e.herdrStatus ?? e.presence?.status?.state ?? null,
+      herdrStatus: e.herdrStatus, sessionPath: e.sessionPath, presenceOnly: e.presenceOnly,
+      workspace: entityWorkspace(e) })), null, 2) + "\n");
+    return;
+  }
   const showWorkspace = all && new Set(entities.map((e) => entityWorkspace(e) ?? "-")).size > 1;
   for (const e of entities) {
     const parts = [
@@ -954,7 +1291,7 @@ function liveWorktreeOwner(worktreePath: string, records: Map<string, SpawnedRec
   return Boolean(owner && presence.get(owner.pane)?.alive);
 }
 
-function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean): boolean {
+function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, json = false): boolean {
   try {
     const branch = worktreeBranch(worktreePath);
     const hasCommitsAhead = worktreeHasCommitsAheadOf(repoRoot, worktreePath, baseBranch);
@@ -963,12 +1300,12 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
       .filter(Boolean).join(" and ");
     if (!hasCommitsAhead && !hasChanges) {
       removeMergedWorktree(repoRoot, worktreePath, branch);
-      process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}; empty or merged).\n`);
+      if (!json) process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}; empty or merged).\n`);
     } else if (!force) {
-      process.stdout.write(`Kept orphan worktree ${worktreePath} (${branch}; ${discardReason}). Re-run with --force to discard it.\n`);
+      if (!json) process.stdout.write(`Kept orphan worktree ${worktreePath} (${branch}; ${discardReason}). Re-run with --force to discard it.\n`);
     } else {
       removeDiscardedWorktree(repoRoot, worktreePath, branch);
-      process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}); discarded ${discardReason}.\n`);
+      if (!json) process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}); discarded ${discardReason}.\n`);
     }
   } catch (error) {
     process.stderr.write(`failed to clean worktree ${worktreePath}: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -976,7 +1313,7 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
   return true;
 }
 
-function cleanWorktrees(force: boolean): void {
+function cleanWorktrees(force: boolean, json = false): number {
   let repoRoot: string;
   try {
     repoRoot = repositoryCommonRoot(process.cwd());
@@ -990,9 +1327,10 @@ function cleanWorktrees(force: boolean): void {
   let reported = false;
   for (const worktreePath of worktrees) {
     if (liveWorktreeOwner(worktreePath, records, presence)) continue;
-    reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, force) || reported;
+    reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, force, json) || reported;
   }
-  if (!reported) process.stdout.write("No orphan worktrees to clean.\n");
+  if (!reported && !json) process.stdout.write("No orphan worktrees to clean.\n");
+  return worktrees.length;
 }
 
 function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean } {
@@ -1003,7 +1341,7 @@ function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean
   return { worktrees, force };
 }
 
-function removeDeadAgentDirs(): void {
+function removeDeadAgentDirs(json = false): string[] {
   const removed: string[] = [];
   for (const e of loadPresence().values()) {
     if (!e.alive) {
@@ -1015,14 +1353,19 @@ function removeDeadAgentDirs(): void {
       }
     }
   }
-  if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
-  else process.stdout.write("Nothing to clean — all agent dirs have live pids (or none exist).\n");
+  if (!json) {
+    if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
+    else process.stdout.write("Nothing to clean — all agent dirs have live pids (or none exist).\n");
+  }
+  return removed;
 }
 
 function cmdClean(args: string[]) {
-  const options = validateCleanArgs(args);
-  removeDeadAgentDirs();
-  if (options.worktrees) cleanWorktrees(options.force);
+  const json = args.includes("--json");
+  const options = validateCleanArgs(args.filter((arg) => arg !== "--json"));
+  const removed = removeDeadAgentDirs(json);
+  const worktrees = options.worktrees ? cleanWorktrees(options.force, json) : 0;
+  if (json) process.stdout.write(JSON.stringify({ removed, worktrees }) + "\n");
 }
 
 // ---- setup (bootstrap a fresh machine) ----
@@ -1043,11 +1386,59 @@ async function askYesNo(q: string): Promise<boolean> {
   return a === "" || a === "y" || a === "yes";
 }
 
+function installClaudeHooks(pkgRoot: string): void {
+  const claudeDir = path.join(HOME, ".claude");
+  const settingsPath = path.join(claudeDir, "settings.json");
+  let settings: Record<string, any>;
+  if (!files.existsSync(settingsPath)) {
+    settings = {};
+  } else {
+    try {
+      const parsed: unknown = JSON.parse(files.readFileSync(settingsPath, "utf8"));
+      if (!isRecord(parsed)) throw new Error("settings root is not an object");
+      settings = parsed;
+    } catch (error) {
+      process.stderr.write(`  warning: could not parse ${settingsPath}; Claude hooks not changed (${error instanceof Error ? error.message : String(error)})\n`);
+      return;
+    }
+  }
+  const shim = path.join(pkgRoot, "scripts", "claude-hooks.ts");
+  const added: string[] = [];
+  const hooks = isRecord(settings.hooks) ? settings.hooks : (settings.hooks === undefined ? {} : null);
+  if (!hooks) {
+    process.stderr.write(`  warning: ${settingsPath} has a non-object hooks value; Claude hooks not changed\n`);
+    return;
+  }
+  settings.hooks = hooks;
+  for (const event of ["SessionStart", "Stop", "Notification"] as const) {
+    const command = `bun ${shim} ${event}`;
+    const entries = hooks[event];
+    if (entries !== undefined && !Array.isArray(entries)) {
+      process.stderr.write(`  warning: ${settingsPath} has a non-array ${event} hook value; skipped\n`);
+      continue;
+    }
+    const list: any[] = entries ?? [];
+    const alreadyPresent = list.some((entry) => isRecord(entry) && Array.isArray(entry.hooks)
+      && entry.hooks.some((hook: unknown) => isRecord(hook) && hook.type === "command" && hook.command === command));
+    if (alreadyPresent) continue;
+    list.push({ hooks: [{ type: "command", command }] });
+    hooks[event] = list;
+    added.push(event);
+  }
+  if (added.length) {
+    files.mkdirSync(claudeDir, { recursive: true });
+    files.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  }
+  process.stdout.write(`Claude Code hooks: ${added.length ? `added ${added.join(", ")} in ${settingsPath}` : "already configured"}\n`);
+}
+
 async function cmdSetup(args: string[]) {
   const copy = args.includes("--copy");
   const yes = args.includes("--yes") || args.includes("-y");
   const noInstall = args.includes("--no-install");
-  const pkgRoot = path.resolve(path.dirname(files.realpathSync(process.argv[1])), "..");
+  const entrypoint = process.argv[1];
+  if (!entrypoint) die("Cannot determine orch executable path.");
+  const pkgRoot = path.resolve(path.dirname(files.realpathSync(entrypoint)), "..");
   const link = (src: string, dest: string) => {
     files.mkdirSync(path.dirname(dest), { recursive: true });
     files.rmSync(dest, { recursive: true, force: true });
@@ -1064,11 +1455,16 @@ async function cmdSetup(args: string[]) {
   };
 
   process.stdout.write("Prerequisites:\n");
+  // Keep prerequisite availability in sync with doctor. Claude is a setup-only
+  // dependency; bun, herdr, and pi use the shared doctor binary check.
+  const bins = binaryStatus();
+  await checkBins(bins);
   const missing: string[] = [];
   for (const [bin] of DEP_INSTALLERS) {
-    const found = which(bin);
+    const found = bin === "claude" ? which(bin) : bins[bin];
+    const resolved = found ? which(bin) : "";
     if (!found) missing.push(bin);
-    process.stdout.write(`  ${found ? "ok      " : "MISSING "}${bin}${found ? `  (${found})` : ""}\n`);
+    process.stdout.write(`  ${found ? "ok      " : "MISSING "}${bin}${resolved ? `  (${resolved})` : ""}\n`);
   }
 
   if (missing.length && !noInstall) {
@@ -1127,6 +1523,8 @@ async function cmdSetup(args: string[]) {
     }
   }
 
+  installClaudeHooks(pkgRoot);
+
   // bins on PATH (repo-clone case; bun add -g already links bins)
   process.stdout.write("bins:\n");
   const binDir = path.join(HOME, ".local", "bin");
@@ -1157,6 +1555,8 @@ async function cmdSetup(args: string[]) {
     link(packageBin, path.join(binDir, name));
   }
 
+  // Validate the links using the same check doctor uses before the full report.
+  await checkExtensions(binaryStatus());
   process.stdout.write("Running doctor checks...\n");
   const doctorResults = await runDoctor(orchDir());
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
@@ -1247,24 +1647,24 @@ function paneForegroundMatches(pane: string, cmd: string): boolean {
 // pane sits at a prompt forever. The bridge agent dir is the boot signal; a
 // pane whose foreground is still the shell after the grace period gets the
 // command re-sent once.
-async function awaitBridgeRegistration(created: { pane: string; name: string }[], cmd: string) {
+async function awaitBridgeRegistration(created: { pane: string; name: string }[], cmd: string, json = false) {
   const pending = new Map(created.map((c) => [c.pane, c.name]));
   const resent = new Set<string>();
   const resendAt = Date.now() + 20_000;
   const deadline = Date.now() + 60_000;
-  process.stdout.write("\nWaiting for agents to register:\n");
+  if (!json) process.stdout.write("\nWaiting for agents to register:\n");
   while (pending.size && Date.now() < deadline) {
     for (const [pane, name] of [...pending]) {
       if (!bridgeRegistered(pane)) continue;
       pending.delete(pane);
-      process.stdout.write(`  ok      ${pane}  ${name}\n`);
+      if (!json) process.stdout.write(`  ok      ${pane}  ${name}\n`);
     }
     if (pending.size && Date.now() >= resendAt) {
       for (const [pane, name] of pending) {
         if (resent.has(pane) || paneForegroundMatches(pane, cmd)) continue;
         resent.add(pane);
         herdrBestEffort(["pane", "run", pane, cmd]);
-        process.stdout.write(`  resent  ${pane}  ${name} (launch keystroke lost)\n`);
+        if (!json) process.stdout.write(`  resent  ${pane}  ${name} (launch keystroke lost)\n`);
       }
     }
     await delay(500);
@@ -1307,7 +1707,7 @@ function printLayout(refPane: string, header: string) {
     process.stdout.write(`  ${r[0].padEnd(w0)}  ${r[1].padEnd(w1)}  ${r[2]}\n`);
 }
 
-const adapters: readonly AgentAdapter[] = [piAdapter];
+const adapters: readonly AgentAdapter[] = [piAdapter, codexAdapter, claudeAdapter];
 
 function resolveAdapter(id: string): AgentAdapter {
   const adapter = adapters.find((candidate) => candidate.id === id);
@@ -1316,7 +1716,8 @@ function resolveAdapter(id: string): AgentAdapter {
 }
 
 function adapterCommand(adapter: string): string {
-  return resolveAdapter(adapter).interactiveCmd({});
+  const resolved = resolveAdapter(adapter);
+  return resolved.restrictedInteractiveCmd?.({}) ?? resolved.interactiveCmd({});
 }
 
 type AgentFlags = {
@@ -1331,14 +1732,30 @@ type AgentSettings = {
   model: string | null;
 };
 
+function herdrAvailable(): boolean {
+  return process.env.HERDR_ENV === "1" || herdrReachable();
+}
+
+function resolveBackend(id: string): typeof herdrBackend | typeof headlessBackend {
+  if (id === herdrBackend.id) return herdrBackend;
+  if (id === headlessBackend.id) return headlessBackend;
+  die(`Unknown backend "${id}". Supported backends: ${herdrBackend.id}, ${headlessBackend.id}.`);
+}
+
 function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
   const adapter = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "pi" });
-  const backend = resolveSetting({ flag: flags.backendFlag, env: "ORCH_BACKEND", config: config.defaults.backend, fallback: "herdr" });
+  // Explicit sources retain the normal flag > environment > config precedence. When
+  // none is set, probe herdr once and fall back to detached execution.
+  const configuredBackend = flags.backendFlag
+    ?? (process.env.ORCH_BACKEND !== undefined ? process.env.ORCH_BACKEND : config.defaults.backend);
+  const backend = configuredBackend ?? (herdrAvailable() ? herdrBackend.id : headlessBackend.id);
+  resolveBackend(backend);
   const selectedModel = resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", config: config.defaults.model, fallback: "" });
   return { adapter, backend, model: selectedModel || null };
 }
 
 type SpawnFlags = AgentFlags & {
+  json: boolean;
   label: string;
   cwd: string;
   cmd: string;
@@ -1370,11 +1787,12 @@ function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number
 
 function parseSpawnFlags(args: string[]): SpawnFlags {
   const flags: SpawnFlags = {
+    json: args.includes("--json"),
     label: "work", cwd: process.cwd(), cmd: "pi", commandFlag: false,
     workspace: null, namePrefix: null, positional: [],
   };
   for (let index = 0; index < args.length; index++) {
-    if (args[index] === "--worktree") { flags.worktreeFlag = true; continue; }
+    if (args[index] === "--worktree" || args[index] === "--json") { if (args[index] === "--worktree") flags.worktreeFlag = true; continue; }
     const consumed = readSpawnFlag(flags, args, index);
     if (consumed >= 0) { index += consumed; continue; }
     flags.positional.push(args[index]);
@@ -1383,9 +1801,11 @@ function parseSpawnFlags(args: string[]): SpawnFlags {
 }
 
 type SpawnSettings = AgentSettings & {
+  json: boolean;
   label: string;
   cwd: string;
   cmd: string;
+  commandFlag: boolean;
   workspace: string | null;
   prefix: string;
   n: number;
@@ -1404,12 +1824,48 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   if (n > spawnCap) die(`Refusing to spawn ${n} panes — cap is ${spawnCap}.`);
   resolveAdapter(settings.adapter);
   const cmd = flags.commandFlag ? flags.cmd : adapterCommand(settings.adapter);
-  return { ...settings, label: flags.label, cwd: flags.cwd, cmd, workspace: flags.workspace, prefix: flags.namePrefix ?? flags.label, n, worktree };
+  return { ...settings, json: flags.json, label: flags.label, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix: flags.namePrefix ?? flags.label, n, worktree };
 }
 
 type SpawnRoot = { root: string; tabLabel: string; rootCwd: string; rootName: string };
 
 type CreatedAgent = { pane: string; name: string };
+
+function executeHeadlessSpawn(settings: SpawnSettings): void {
+  if (settings.commandFlag) die("--cmd requires the herdr backend; headless launches use the selected adapter.");
+  const adapter = resolveAdapter(settings.adapter);
+  const created: HeadlessHandle[] = [];
+  for (let index = 1; index <= settings.n; index++) {
+    const name = `${settings.prefix}-${index}`;
+    const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
+    if (launchesPi(settings.cmd)) writeTrustEntry(cwd);
+    try {
+      // Headless pi identifies itself as session-<pid>; omitting key keeps the
+      // registry handle aligned with the presence protocol's actual key.
+      const handle = headlessBackend.spawn(adapter, {
+        cwd,
+        model: settings.model ?? undefined,
+        orchDir: orchDir(),
+      });
+      created.push(handle);
+      recordSpawned(handle.key, {
+        adapter: settings.adapter,
+        model: settings.model ?? undefined,
+        backend: settings.backend,
+        worktree: settings.worktree ? cwd : undefined,
+        branch: settings.worktree ? `orch/${name}` : undefined,
+      });
+      if (!settings.json) process.stdout.write(`${handle.key}  ${name}  [headless]\n`);
+    } catch (error: any) {
+      die(`headless spawn failed for ${name}: ${error?.message ?? error}`);
+    }
+  }
+  if (settings.json) process.stdout.write(JSON.stringify({ backend: "headless", agents: created }) + "\n");
+  else {
+    process.stdout.write(`\nSpawned ${created.length} headless agent(s) (no herdr panes).\n`);
+    process.stdout.write("'orch status' shows the fleet.\n");
+  }
+}
 
 function resolveSpawnWorkspace(requested: string | null): string {
   const workspace = requested ?? callerWorkspace() ?? herdrPanes()[0]?.workspace_id;
@@ -1448,15 +1904,22 @@ function launchAdditionalAgents(settings: SpawnSettings, root: string, created: 
 }
 
 async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): Promise<void> {
-  for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${root.tabLabel}]  ${settings.cmd}\n`);
-  process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${root.tabLabel}" (no focus stolen).\n`);
-  printLayout(root.root, "\nFinal tiling:");
-  if (launchesPi(settings.cmd)) await awaitBridgeRegistration(created, settings.cmd);
+  if (!settings.json) {
+    for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${root.tabLabel}]  ${settings.cmd}\n`);
+    process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${root.tabLabel}" (no focus stolen).\n`);
+    printLayout(root.root, "\nFinal tiling:");
+  }
+  if (launchesPi(settings.cmd)) await awaitBridgeRegistration(created, settings.cmd, settings.json);
   if (settings.model) await pinModels(created, settings.model);
-  process.stdout.write(`\n'orch status' shows the fleet.\n`);
+  if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, tab: root.tabLabel, agents: created }) + "\n");
+  else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }
 
 async function executeSpawn(settings: SpawnSettings): Promise<void> {
+  if (settings.backend === headlessBackend.id) {
+    executeHeadlessSpawn(settings);
+    return;
+  }
   const workspace = resolveSpawnWorkspace(settings.workspace);
   const root = createSpawnRoot(settings, workspace);
   const created: CreatedAgent[] = [];
@@ -1472,6 +1935,7 @@ async function cmdSpawn(args: string[]) {
 }
 
 async function cmdTile(args: string[]) {
+  const json = args.includes("--json");
   let cwd = process.cwd();
   let cmd = "pi";
   let commandFlag = false;
@@ -1488,9 +1952,11 @@ async function cmdTile(args: string[]) {
     else if (a === "--model") modelFlag = args[++i];
     else if (a === "--agent" || a === "--adapter") adapterFlag = args[++i];
     else if (a === "--backend") backendFlag = args[++i];
+    else if (a === "--json") continue;
     else positional.push(a);
   }
   const { adapter, backend, model } = resolveAgentSettings({ adapterFlag, backendFlag, modelFlag });
+  if (backend === headlessBackend.id) die("orch tile requires the herdr backend; headless agents have no panes to tile.");
   resolveAdapter(adapter);
   if (!commandFlag) cmd = adapterCommand(adapter);
   const target = positional[0];
@@ -1516,8 +1982,11 @@ async function cmdTile(args: string[]) {
   }
   runAndName(newPane, cmd, autoName);
   recordSpawned(newPane, { adapter, model: model ?? undefined, backend });
-  process.stdout.write(`Added ${newPane} (${autoName}) to tab ${layout.tab_id} running "${cmd}".\n`);
-  printLayout(refPane, "\nFinal tiling:");
+  if (json) process.stdout.write(JSON.stringify({ pane: newPane, name: autoName, tab: layout.tab_id, added: true }) + "\n");
+  else {
+    process.stdout.write(`Added ${newPane} (${autoName}) to tab ${layout.tab_id} running "${cmd}".\n`);
+    printLayout(refPane, "\nFinal tiling:");
+  }
   if (model) await pinModels([{ pane: newPane, name: autoName }], model);
 }
 
@@ -1568,10 +2037,13 @@ function doRun(pane: string, prompt: string): RunResult {
 
 function cmdRun(args: string[]) {
   const raw = args.includes("--raw");
-  const { target, prompt } = parseTargetPrompt(args, "--raw", 'usage: orch run <target> "<prompt>" [--raw]');
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const { target, prompt } = parseTargetPrompt(cleanArgs, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--json]');
   const { pane } = resolvePane(target);
   const result = doRun(pane, workerPrompt(prompt, raw));
-  process.stdout.write(`Dispatched to ${pane} → status: ${result.status ?? "unknown"}${result.retried ? " (retried)" : ""}\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: pane, dispatched: true, status: result.status, retried: result.retried }) + "\n");
+  else process.stdout.write(`Dispatched to ${pane} → status: ${result.status ?? "unknown"}${result.retried ? " (retried)" : ""}\n`);
 }
 
 function delay(ms: number): Promise<void> {
@@ -1621,7 +2093,8 @@ async function doModel(pane: string, modelArg: string, wait = true): Promise<{ o
 
 async function cmdModel(args: string[]) {
   const noWait = args.includes("--no-wait");
-  const positional = args.filter((arg) => arg !== "--no-wait");
+  const json = args.includes("--json");
+  const positional = args.filter((arg) => arg !== "--no-wait" && arg !== "--json");
   const target = positional[0];
   const modelArg = positional[1];
   if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--no-wait]");
@@ -1632,7 +2105,9 @@ async function cmdModel(args: string[]) {
   } catch (error: any) {
     die(error?.message ?? String(error));
   }
-  if (result.unchanged) {
+  if (json) {
+    process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");
+  } else if (result.unchanged) {
     process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
   } else if (result.confirmed) {
     process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} → ${result.now}\n`);
@@ -1660,10 +2135,12 @@ async function pinModels(created: { pane: string; name: string }[], model: strin
 function cmdWait(args: string[]) {
   let status = "done";
   let timeout = 300000;
+  const json = args.includes("--json");
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--status") status = args[++i];
     else if (args[i] === "--timeout") timeout = parseInt(args[++i], 10) || 300000;
+    else if (args[i] === "--json") continue;
     else positional.push(args[i]);
   }
   const target = positional[0];
@@ -1674,15 +2151,17 @@ function cmdWait(args: string[]) {
       timeout: timeout + 5000,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    process.stdout.write(`${pane} reached "${status}".\n`);
+    if (json) process.stdout.write(JSON.stringify({ target: pane, status, reached: true }) + "\n");
+    else process.stdout.write(`${pane} reached "${status}".\n`);
   } catch (e: any) {
     die(`wait for ${pane} → "${status}" failed/timed out: ${(e?.stderr ?? e?.message ?? e).toString().trim()}`);
   }
 }
 
 function cmdNew(args: string[]) {
-  const target = args[0];
-  if (!target) die("usage: orch new <target>");
+  const json = args.includes("--json");
+  const target = args.find((arg) => arg !== "--json");
+  if (!target) die("usage: orch new <target> [--json]");
   const { pane } = resolvePane(target);
   const statusPath = path.join(presenceDir(), pane, "status.json");
   const before = readJSON(statusPath);
@@ -1698,7 +2177,8 @@ function cmdNew(args: string[]) {
       && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
       && updated >= sentAt - 1000;
     if (advanced && status?.state === "idle") {
-      process.stdout.write(`Cleared session on ${pane} (/new); ready.\n`);
+      if (json) process.stdout.write(JSON.stringify({ target: pane, cleared: true, ready: true }) + "\n");
+      else process.stdout.write(`Cleared session on ${pane} (/new); ready.\n`);
       return;
     }
     sleepMs(250);
@@ -1770,10 +2250,12 @@ function doHardRestart(pane: string, cmd: string): boolean {
 function cmdRestart(args: string[]) {
   let cmd = "pi";
   let hard = false;
+  const json = args.includes("--json");
   const targets: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--cmd") cmd = args[++i];
     else if (args[i] === "--hard") hard = true;
+    else if (args[i] === "--json") continue;
     else if (args[i] === "--all") {
       for (const ent of buildEntities()) {
         if (ent.paneId && ent.agent === "pi") targets.push(ent.paneId);
@@ -1784,18 +2266,21 @@ function cmdRestart(args: string[]) {
   let ok = 0;
   for (const t of targets) {
     const { pane } = resolvePane(t);
-    process.stdout.write(`${hard ? "Restarting" : "Reloading"} ${pane}${hard ? ` (${cmd})` : ""}...\n`);
-    if ((hard ? doHardRestart(pane, cmd) : doReload(pane))) { ok++; process.stdout.write(`${pane}: bridge live.\n`); }
+    if (!json) process.stdout.write(`${hard ? "Restarting" : "Reloading"} ${pane}${hard ? ` (${cmd})` : ""}...\n`);
+    if ((hard ? doHardRestart(pane, cmd) : doReload(pane))) { ok++; if (!json) process.stdout.write(`${pane}: bridge live.\n`); }
   }
-  process.stdout.write(`${ok}/${targets.length} ${hard ? "restarted" : "reloaded"} with fresh bridge.\n`);
+  if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard }) + "\n");
+  else process.stdout.write(`${ok}/${targets.length} ${hard ? "restarted" : "reloaded"} with fresh bridge.\n`);
   if (ok !== targets.length) process.exit(1);
 }
 
 function cmdRename(args: string[]) {
   let paneLabel = false;
+  const json = args.includes("--json");
   const positional: string[] = [];
   for (const a of args) {
     if (a === "--pane") paneLabel = true;
+    else if (a === "--json") continue;
     else positional.push(a);
   }
   const target = positional[0];
@@ -1804,39 +2289,65 @@ function cmdRename(args: string[]) {
   const { pane } = resolvePane(target);
   if (paneLabel) {
     // pane border label, not the agent name
-    if (herdrBestEffort(["pane", "rename", pane, name]))
-      process.stdout.write(`${pane} → pane label "${name}".\n`);
+    if (herdrBestEffort(["pane", "rename", pane, name])) {
+      if (json) process.stdout.write(JSON.stringify({ target: pane, name, paneLabel: true, renamed: true }) + "\n");
+      else process.stdout.write(`${pane} → pane label "${name}".\n`);
+    }
     else die(`Could not rename pane ${pane}.`);
     return;
   }
-  if (herdrBestEffort(["agent", "rename", pane, name])) process.stdout.write(`${pane} → named "${name}".\n`);
+  if (herdrBestEffort(["agent", "rename", pane, name])) {
+    if (json) process.stdout.write(JSON.stringify({ target: pane, name, paneLabel: false, renamed: true }) + "\n");
+    else process.stdout.write(`${pane} → named "${name}".\n`);
+  }
   else die(`Could not rename ${pane}.`);
 }
 
 function cmdClose(args: string[]) {
-  const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream"]);
+  const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
   const all = enabled.has("--all");
   const stream = enabled.has("--stream");
+  const json = enabled.has("--json");
   if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream]");
-  const targets: string[] = [];
+
+  const herdrTargets: string[] = [];
+  const headlessTargets: HeadlessHandle[] = [];
   if (all) {
-    // ONLY panes orch itself created (spawned.jsonl). Panes/tabs the user opened
-    // are never touched, no matter what.
+    // Only panes in orch's spawn registry are eligible; user panes are never touched.
     const self = process.env.HERDR_PANE_ID ?? null;
     const mine = spawnedPanes();
     for (const p of herdrPanes()) {
-      if (p.pane_id === self) continue;
-      if (!mine.has(p.pane_id)) continue;
-      targets.push(p.pane_id);
+      if (p.pane_id === self || !mine.has(p.pane_id)) continue;
+      herdrTargets.push(p.pane_id);
+    }
+    // HeadlessBackend.close performs the registry + presence pid/key safety checks.
+    for (const handle of headlessBackend.list()) {
+      if (handle.alive !== false) headlessTargets.push(handle);
     }
   }
-  for (const t of positional) targets.push(resolvePane(t).pane);
-  let ok = 0;
-  for (const pane of targets) {
-    if (herdrBestEffort(["pane", "close", pane])) { ok++; process.stdout.write(`Closed ${pane}.\n`); }
-    else process.stderr.write(`Could not close ${pane}.\n`);
+  for (const target of positional) {
+    const ent = resolveTarget(target);
+    if (ent.paneId) {
+      herdrTargets.push(ent.paneId);
+      continue;
+    }
+    const handle = headlessBackend.list().find((candidate) => candidate.key === ent.key);
+    if (!handle) die(`Target "${target}" is not an orch-managed headless agent.`);
+    headlessTargets.push(handle);
   }
-  if (all && !targets.length) process.stdout.write("No fleet panes to close.\n");
+
+  let ok = 0;
+  const closed: string[] = [];
+  for (const pane of herdrTargets) {
+    if (herdrBackend.close(pane)) { ok++; closed.push(pane); if (!json) process.stdout.write(`Closed ${pane}.\n`); }
+    else if (!json) process.stderr.write(`Could not close ${pane}.\n`);
+  }
+  for (const handle of headlessTargets) {
+    if (headlessBackend.close(handle)) { ok++; closed.push(handle.key); if (!json) process.stdout.write(`Closed ${handle.key}.\n`); }
+    else if (!all && !json) process.stderr.write(`Could not close ${handle.key}.\n`);
+  }
+  const targetCount = herdrTargets.length + headlessTargets.length;
+  if (all && !targetCount && !json) process.stdout.write("No fleet agents to close.\n");
   if (stream) {
     let pids: number[] = [];
     try {
@@ -1845,43 +2356,60 @@ function cmdClose(args: string[]) {
     const skip = new Set([process.pid, process.ppid]);
     const kill = pids.filter((p) => !skip.has(p));
     for (const p of kill) { try { process.kill(p, "SIGTERM"); } catch {} }
-    process.stdout.write(kill.length ? `Killed ${kill.length} orch events process(es).\n` : "No orch events stream running.\n");
+    if (!json) process.stdout.write(kill.length ? `Killed ${kill.length} orch events process(es).\n` : "No orch events stream running.\n");
   }
-  if (targets.length && ok !== targets.length) process.exit(1);
+  if (json) process.stdout.write(JSON.stringify({ closed, requested: targetCount, ok, stream }) + "\n");
+  if (targetCount && ok !== targetCount) process.exit(1);
 }
 
 // ---- recovery / escape hatches ----
 
 function cmdAbort(args: string[]) {
-  const target = args[0];
-  if (!target) die("usage: orch abort <target>");
+  const json = args.includes("--json");
+  const target = args.find((arg) => arg !== "--json");
+  if (!target) die("usage: orch abort <target> [--json]");
   const { pane } = resolvePane(target);
   if (!herdrBestEffort(["pane", "send-keys", pane, "Escape"])) die(`Could not abort ${pane}.`);
   sleepMs(500);
   if (!herdrBestEffort(["pane", "send-keys", pane, "Escape"])) die(`Could not abort ${pane}.`);
-  process.stdout.write(`Aborted ${pane}.\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: pane, aborted: true }) + "\n");
+  else process.stdout.write(`Aborted ${pane}.\n`);
+}
+
+function requireHerdrTarget(target: string, command: string): string {
+  const ent = resolveTarget(target);
+  if (!ent.paneId) {
+    die(`orch ${command} requires the herdr backend; target "${target}" is headless (not a herdr pane).`);
+  }
+  return ent.paneId;
 }
 
 function cmdKeys(args: string[]) {
-  const target = args[0];
-  const keys = args.slice(1);
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const target = cleanArgs[0];
+  const keys = cleanArgs.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...]");
-  const { pane } = resolvePane(target);
-  if (herdrBestEffort(["pane", "send-keys", pane, ...keys]))
-    process.stdout.write(`Sent keys to ${pane}: ${keys.join(" ")}\n`);
+  const pane = requireHerdrTarget(target, "keys");
+  if (herdrBestEffort(["pane", "send-keys", pane, ...keys])) {
+    if (json) process.stdout.write(JSON.stringify({ target: pane, keys, sent: true }) + "\n");
+    else process.stdout.write(`Sent keys to ${pane}: ${keys.join(" ")}\n`);
+  }
   else die(`Could not send keys to ${pane}.`);
 }
 
 function cmdPeek(args: string[]) {
   let n = 25;
+  let json = false;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-n") n = parseInt(args[++i], 10) || 25;
+    else if (args[i] === "--json") json = true;
     else positional.push(args[i]);
   }
   const target = positional[0];
-  if (!target) die("usage: orch peek <target> [-n N]");
-  const { pane } = resolvePane(target);
+  if (!target) die("usage: orch peek <target> [-n N] [--json]");
+  const pane = requireHerdrTarget(target, "peek");
   let screen: string;
   try {
     screen = herdrExec( ["pane", "read", pane, "--source", "visible", "--lines", String(n)], {
@@ -1891,6 +2419,10 @@ function cmdPeek(args: string[]) {
     });
   } catch (e: any) {
     die(`Could not read ${pane}: ${(e?.stderr ?? e?.message ?? e).toString().trim()}`);
+  }
+  if (json) {
+    process.stdout.write(JSON.stringify({ target, pane, screen, lines: n }) + "\n");
+    return;
   }
   process.stdout.write("screen (eyeball only — status/result/tail are the truth channel)\n");
   process.stdout.write(screen.endsWith("\n") ? screen : screen + "\n");
@@ -1927,12 +2459,18 @@ function resolveTab(target: string): any {
 }
 
 function cmdTabs(args: string[]) {
-  const { enabled } = splitOptionFlags(args, ["--all"]);
+  const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
+  const json = enabled.has("--json");
   const workspace = currentWorkspace();
   const tabs = [...herdrTabs().values()].filter((tab) => all || workspace === null || tab.workspace_id === workspace);
   if (!tabs.length) {
-    process.stdout.write("No tabs (herdr down?).\n");
+    if (json) process.stdout.write("[]\n");
+    else process.stdout.write("No tabs (herdr down?).\n");
+    return;
+  }
+  if (json) {
+    process.stdout.write(JSON.stringify(tabs, null, 2) + "\n");
     return;
   }
   const showWorkspace = all && new Set(tabs.map((t) => t.workspace_id ?? "-")).size > 1;
@@ -1949,8 +2487,10 @@ function cmdTabs(args: string[]) {
 }
 
 function cmdTab(args: string[]) {
-  const sub = args[0];
-  const rest = args.slice(1);
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const sub = cleanArgs[0];
+  const rest = cleanArgs.slice(1);
   if (sub === "new") {
     let label: string | null = null;
     let workspace: string | null = null;
@@ -1966,7 +2506,8 @@ function cmdTab(args: string[]) {
     if (label) cargs.push("--label", label);
     try {
       const r = herdrJSON(cargs);
-      process.stdout.write(
+      if (json) process.stdout.write(JSON.stringify(r) + "\n");
+      else process.stdout.write(
         `Created tab ${r?.tab?.tab_id} "${r?.tab?.label}" — root pane ${r?.root_pane?.pane_id}\n`
       );
     } catch (e: any) {
@@ -1976,22 +2517,28 @@ function cmdTab(args: string[]) {
     const [t, label] = rest;
     if (!t || !label) die("usage: orch tab rename <tab_id|label> <new-label>");
     const tab = resolveTab(t);
-    if (herdrBestEffort(["tab", "rename", tab.tab_id, label]))
-      process.stdout.write(`${tab.tab_id}: "${tab.label}" → "${label}"\n`);
+    if (herdrBestEffort(["tab", "rename", tab.tab_id, label])) {
+      if (json) process.stdout.write(JSON.stringify({ tab: tab.tab_id, label, renamed: true }) + "\n");
+      else process.stdout.write(`${tab.tab_id}: "${tab.label}" → "${label}"\n`);
+    }
     else die(`Could not rename tab ${tab.tab_id}.`);
   } else if (sub === "close") {
     const t = rest[0];
     if (!t) die("usage: orch tab close <tab_id|label>");
     const tab = resolveTab(t);
-    if (herdrBestEffort(["tab", "close", tab.tab_id]))
-      process.stdout.write(`Closed tab ${tab.tab_id} "${tab.label}".\n`);
+    if (herdrBestEffort(["tab", "close", tab.tab_id])) {
+      if (json) process.stdout.write(JSON.stringify({ tab: tab.tab_id, closed: true }) + "\n");
+      else process.stdout.write(`Closed tab ${tab.tab_id} "${tab.label}".\n`);
+    }
     else die(`Could not close tab ${tab.tab_id}.`);
   } else if (sub === "focus") {
     const t = rest[0];
     if (!t) die("usage: orch tab focus <tab_id|label>");
     const tab = resolveTab(t);
-    if (herdrBestEffort(["tab", "focus", tab.tab_id]))
-      process.stdout.write(`Focused tab ${tab.tab_id} "${tab.label}".\n`);
+    if (herdrBestEffort(["tab", "focus", tab.tab_id])) {
+      if (json) process.stdout.write(JSON.stringify({ tab: tab.tab_id, focused: true }) + "\n");
+      else process.stdout.write(`Focused tab ${tab.tab_id} "${tab.label}".\n`);
+    }
     else die(`Could not focus tab ${tab.tab_id}.`);
   } else {
     die("usage: orch tab new|rename|close|focus …  (orch tabs to list)");
@@ -2001,33 +2548,42 @@ function cmdTab(args: string[]) {
 // ---- pane focus / zoom / move ----
 
 function cmdFocus(args: string[]) {
-  const target = args[0];
-  if (!target) die("usage: orch focus <target>");
-  const { pane } = resolvePane(target);
+  const json = args.includes("--json");
+  const target = args.find((arg) => arg !== "--json");
+  if (!target) die("usage: orch focus <target> [--json]");
+  const pane = requireHerdrTarget(target, "focus");
   // herdr agent focus accepts pane ids and jumps the view (tab + pane).
-  if (herdrBestEffort(["agent", "focus", pane])) process.stdout.write(`Focused ${pane}.\n`);
+  if (herdrBestEffort(["agent", "focus", pane])) {
+    if (json) process.stdout.write(JSON.stringify({ target: pane, focused: true }) + "\n");
+    else process.stdout.write(`Focused ${pane}.\n`);
+  }
   else die(`Could not focus ${pane}.`);
 }
 
 function cmdZoom(args: string[]) {
   let mode = "--toggle";
+  const json = args.includes("--json");
   const positional: string[] = [];
   for (const a of args) {
     if (a === "--off") mode = "--off";
     else if (a === "--on") mode = "--on";
+    else if (a === "--json") continue;
     else positional.push(a);
   }
   const target = positional[0];
   if (!target) die("usage: orch zoom <target> [--on|--off]  (default: toggle)");
-  const { pane } = resolvePane(target);
-  if (herdrBestEffort(["pane", "zoom", pane, mode]))
-    process.stdout.write(`Zoom ${mode.replace("--", "")} on ${pane}.\n`);
+  const pane = requireHerdrTarget(target, "zoom");
+  if (herdrBestEffort(["pane", "zoom", pane, mode])) {
+    if (json) process.stdout.write(JSON.stringify({ target: pane, mode: mode.replace("--", ""), zoomed: true }) + "\n");
+    else process.stdout.write(`Zoom ${mode.replace("--", "")} on ${pane}.\n`);
+  }
   else die(`Could not zoom ${pane}.`);
 }
 
 function cmdMove(args: string[]) {
   let tab: string | null = null;
   let split = "right";
+  const json = args.includes("--json");
   let newTab = false;
   let label: string | null = null;
   const positional: string[] = [];
@@ -2036,12 +2592,13 @@ function cmdMove(args: string[]) {
     else if (args[i] === "--split") split = args[++i];
     else if (args[i] === "--new-tab") newTab = true;
     else if (args[i] === "--label") label = args[++i];
+    else if (args[i] === "--json") continue;
     else positional.push(args[i]);
   }
   const target = positional[0];
   if (!target || (!tab && !newTab))
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X]");
-  const { pane } = resolvePane(target);
+  const pane = requireHerdrTarget(target, "move");
   let margs: string[];
   if (newTab) {
     margs = ["pane", "move", pane, "--new-tab", "--no-focus"];
@@ -2052,7 +2609,8 @@ function cmdMove(args: string[]) {
   }
   try {
     herdrJSON(margs);
-    process.stdout.write(`Moved ${pane} ${newTab ? "to a new tab" : `to tab ${resolveTab(tab!).tab_id}`}.\n`);
+    if (json) process.stdout.write(JSON.stringify({ target: pane, moved: true, newTab, tab: newTab ? null : resolveTab(tab!).tab_id }) + "\n");
+    else process.stdout.write(`Moved ${pane} ${newTab ? "to a new tab" : `to tab ${resolveTab(tab!).tab_id}`}.\n`);
   } catch (e: any) {
     die(`move failed: ${e?.message ?? e}`);
   }
@@ -2061,15 +2619,20 @@ function cmdMove(args: string[]) {
 // ---- workspaces ----
 
 function cmdWs(args: string[]) {
-  const sub = args[0];
+  const json = args.includes("--json");
+  const positional = args.filter((arg) => arg !== "--json");
+  const sub = positional[0];
   if (sub === "focus") {
-    const id = args[1];
-    if (!id) die("usage: orch ws focus <workspace_id>");
-    if (herdrBestEffort(["workspace", "focus", id])) process.stdout.write(`Focused workspace ${id}.\n`);
+    const id = positional[1];
+    if (!id) die("usage: orch ws focus <workspace_id> [--json]");
+    if (herdrBestEffort(["workspace", "focus", id])) {
+      if (json) process.stdout.write(JSON.stringify({ workspace: id, focused: true }) + "\n");
+      else process.stdout.write(`Focused workspace ${id}.\n`);
+    }
     else die(`Could not focus workspace ${id}.`);
     return;
   }
-  if (sub && sub !== "list") die("usage: orch ws [list|focus <workspace_id>]");
+  if (sub && sub !== "list") die("usage: orch ws [list|focus <workspace_id>] [--json]");
   let r: any;
   try {
     r = herdrJSON(["workspace", "list"]);
@@ -2078,7 +2641,12 @@ function cmdWs(args: string[]) {
   }
   const wss = r?.workspaces ?? [];
   if (!wss.length) {
-    process.stdout.write("No workspaces.\n");
+    if (json) process.stdout.write("[]\n");
+    else process.stdout.write("No workspaces.\n");
+    return;
+  }
+  if (json) {
+    process.stdout.write(JSON.stringify(wss, null, 2) + "\n");
     return;
   }
   const headers = ["WS", "LABEL", "NUM", "TABS", "PANES", "STATUS"];
@@ -2095,6 +2663,7 @@ function cmdWs(args: string[]) {
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
+  json: boolean;
   doWait: boolean;
   thenTarget: string | null;
   thenNote: string;
@@ -2102,8 +2671,8 @@ type DispatchFlags = AgentFlags & {
 };
 
 function parseDispatchFlags(args: string[]): DispatchFlags {
-  const commandArgs = args.filter((argument) => argument !== "--raw");
-  const flags: DispatchFlags = { raw: args.includes("--raw"), doWait: false, thenTarget: null, thenNote: "", positional: [] };
+  const commandArgs = args.filter((argument) => argument !== "--raw" && argument !== "--json");
+  const flags: DispatchFlags = { raw: args.includes("--raw"), json: args.includes("--json"), doWait: false, thenTarget: null, thenNote: "", positional: [] };
   for (let i = 0; i < commandArgs.length; i++) {
     const argument = commandArgs[i];
     if (argument === "--model") flags.modelFlag = commandArgs[++i];
@@ -2120,6 +2689,7 @@ function parseDispatchFlags(args: string[]): DispatchFlags {
 
 type DispatchSettings = AgentSettings & {
   raw: boolean;
+  json: boolean;
   doWait: boolean;
   thenNote: string;
   ent: Entity;
@@ -2137,10 +2707,10 @@ function resolveDispatchSettings(flags: DispatchFlags): DispatchSettings {
   resolveAdapter(settings.adapter);
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
-  return { ...settings, raw: flags.raw, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
+  return { ...settings, raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
 }
 
-async function waitForDispatchCompletion(pane: string): Promise<void> {
+async function waitForDispatchCompletion(pane: string, json = false): Promise<void> {
   try {
     herdrExec(["wait", "agent-status", pane, "--status", "done", "--timeout", "300000"], {
       timeout: 305000,
@@ -2149,18 +2719,18 @@ async function waitForDispatchCompletion(pane: string): Promise<void> {
   } catch (error: any) {
     process.stderr.write(`warning: wait done failed: ${(error?.stderr ?? error?.message ?? error).toString().trim()}\n`);
   }
-  process.stdout.write(`\n--- result ---\n`);
-  cmdResult([pane]);
+  if (!json) process.stdout.write(`\n--- result ---\n`);
+  cmdResult(json ? [pane, "--json"] : [pane]);
 }
 
 async function executeDispatch(settings: DispatchSettings): Promise<void> {
   if (settings.model) {
     const { old, now } = await doModel(settings.pane, settings.model);
-    process.stdout.write(`model: ${old ?? "(unknown)"} → ${now ?? "(sent, unverified)"}\n`);
+    if (!settings.json) process.stdout.write(`model: ${old ?? "(unknown)"} → ${now ?? "(sent, unverified)"}\n`);
   }
   const result = doRun(settings.pane, workerPrompt(settings.prompt, settings.raw));
   recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined });
-  process.stdout.write(`Dispatched to ${settings.pane} → status: ${result.status ?? "unknown"}${result.retried ? " (retried)" : ""}\n`);
+  if (!settings.json) process.stdout.write(`Dispatched to ${settings.pane} → status: ${result.status ?? "unknown"}${result.retried ? " (retried)" : ""}\n`);
   if (settings.destination) {
     appendPresenceInbox(settings.ent.presence!, {
       cmd: "on_done",
@@ -2169,11 +2739,24 @@ async function executeDispatch(settings: DispatchSettings): Promise<void> {
       ts: new Date().toISOString(),
     });
   }
-  if (settings.doWait) await waitForDispatchCompletion(settings.pane);
+  if (settings.doWait) await waitForDispatchCompletion(settings.pane, settings.json);
+  else if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, status: result.status, retried: result.retried }) + "\n");
 }
 
 async function cmdDispatch(args: string[]) {
-  await executeDispatch(resolveDispatchSettings(parseDispatchFlags(args)));
+  const flags = parseDispatchFlags(args);
+  const target = flags.positional[0];
+  if (target) {
+    const remote = targetHost(target);
+    if (remote) {
+      const remoteArgs = [...args];
+      const index = remoteArgs.indexOf(target);
+      if (index >= 0) remoteArgs[index] = remote.target;
+      remoteWrite(remote.host, "dispatch", remoteArgs);
+      return;
+    }
+  }
+  await executeDispatch(resolveDispatchSettings(flags));
 }
 
 interface DaemonStatus {
@@ -2220,10 +2803,11 @@ async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> 
   throw new Error("timed out waiting for orchd");
 }
 
-async function startDaemon(foreground: boolean): Promise<void> {
+async function startDaemon(foreground: boolean, json = false): Promise<void> {
   const existingPid = daemonLockPid();
   if (existingPid && pidAlive(existingPid)) {
-    process.stdout.write(`already running (pid ${existingPid})\n`);
+    if (json) process.stdout.write(JSON.stringify({ running: true, pid: existingPid, started: false }) + "\n");
+    else process.stdout.write(`already running (pid ${existingPid})\n`);
     return;
   }
   const entrypoint = daemonEntrypoint();
@@ -2233,20 +2817,23 @@ async function startDaemon(foreground: boolean): Promise<void> {
   }
   daemonize(entrypoint, [], orchDir());
   const status = await waitForDaemon();
-  process.stdout.write(`started (pid ${status.pid})\n`);
+  if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: true }) + "\n");
+  else process.stdout.write(`started (pid ${status.pid})\n`);
 }
 
-async function stopDaemon(): Promise<void> {
+async function stopDaemon(json = false): Promise<void> {
   const pid = daemonLockPid();
   if (!pid || !pidAlive(pid)) {
-    process.stdout.write("not running\n");
+    if (json) process.stdout.write(JSON.stringify({ running: false, stopped: false }) + "\n");
+    else process.stdout.write("not running\n");
     return;
   }
   process.kill(pid, "SIGTERM");
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline && pidAlive(pid)) await new Promise((resolve) => setTimeout(resolve, 50));
   if (pidAlive(pid)) throw new Error(`timed out stopping orchd (pid ${pid})`);
-  process.stdout.write(`stopped (pid ${pid})\n`);
+  if (json) process.stdout.write(JSON.stringify({ running: false, stopped: true, pid }) + "\n");
+  else process.stdout.write(`stopped (pid ${pid})\n`);
 }
 
 async function statusDaemon(json: boolean): Promise<void> {
@@ -2261,20 +2848,22 @@ async function statusDaemon(json: boolean): Promise<void> {
   }
 }
 
-async function reloadDaemon(): Promise<void> {
+async function reloadDaemon(json = false): Promise<void> {
   const before = await fetchDaemonStatus();
   await rpcCall(orchDir(), "reload");
   const after = await waitForDaemon(before.startedAt);
-  process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);
+  if (json) process.stdout.write(JSON.stringify({ reloaded: true, pid: after.pid, codeHash: after.codeHash }) + "\n");
+  else process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);
 }
 
 async function cmdDaemon(args: string[]): Promise<void> {
   const action = args[0];
-  if (action === "start") return startDaemon(args.includes("--fg"));
-  if (action === "stop") return stopDaemon();
-  if (action === "status") return statusDaemon(args.includes("--json"));
-  if (action === "reload") return reloadDaemon();
-  die("usage: orch daemon start [--fg] | stop | status [--json] | reload");
+  const json = args.includes("--json");
+  if (action === "start") return startDaemon(args.includes("--fg"), json);
+  if (action === "stop") return stopDaemon(json);
+  if (action === "status") return statusDaemon(json);
+  if (action === "reload") return reloadDaemon(json);
+  die("usage: orch daemon start [--fg] | stop | status [--json] | reload [--json]");
 }
 
 async function cmdDoctor(args: string[]) {
@@ -2294,13 +2883,18 @@ async function cmdDoctor(args: string[]) {
 }
 
 async function cmdWork(args: string[]) {
+  const json = args.includes("--json");
+  const once = args.includes("--once");
+  if (args.some((arg) => arg !== "--once" && arg !== "--json")) die("usage: orch work [--once] [--json]");
   const config = loadConfig(orchDir());
   await runWorkLoop({
     orchDir: orchDir(),
     pollIntervalMs: 500,
-    once: args.includes("--once"),
+    once,
+    json,
     maxRetries: config.queue.max_retries ?? 1,
   });
+  if (json) process.stdout.write(JSON.stringify({ once, tasks: listTasks(orchDir()) }, null, 2) + "\n");
 }
 
 // ---- help ----
@@ -2326,6 +2920,7 @@ QUEUE
   orch work [--once]             Assign queued tasks to idle agents.
 
 REVIEW
+  orch review                     Interactively review done worktree agents.
   orch review list [--json]      List done worktree agents with commits ahead.
   orch review approve <target>    Merge and remove an approved worktree.
   orch review reject <target> -m "feedback"
@@ -2417,15 +3012,18 @@ export function runCommand(argv: string[]): void {
   const cmd = argv[0];
   const rest = argv.slice(1);
   switch (cmd) {
-    case undefined: case "status": cmdStatus(cmd === undefined ? argv : rest); break;
+    case undefined: case "status": void cmdStatus(cmd === undefined ? argv : rest).catch((error) => die(error?.message ?? String(error))); break;
     case "events": void cmdEvents(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "notify": void cmdNotify(rest).catch((error) => die(error?.message ?? String(error))); break;
-    case "questions": cmdQuestions(rest); break;
+    case "questions": void cmdQuestions(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "queue": cmdQueue(rest); break;
     case "daemon": void cmdDaemon(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "doctor": void cmdDoctor(rest).catch((error) => die(error?.message ?? String(error))); break;
     case "work": void cmdWork(rest).catch((error) => die(error?.message ?? String(error))); break;
-    case "review": cmdReview(rest); break;
+    case "review":
+      if (rest.length === 0) void cmdReviewInteractive().catch((error) => die(error?.message ?? String(error)));
+      else cmdReview(rest);
+      break;
     case "answer": cmdAnswer(rest); break;
     case "result": cmdResult(rest); break;
     case "steer": cmdSteer(rest); break;

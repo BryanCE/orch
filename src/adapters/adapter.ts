@@ -89,10 +89,22 @@ export interface AgentAdapter {
     /** Whether native session output can be tailed for supplementary state/result data. */
     readonly sessionTail: boolean;
   };
-  /** Build the shell command used to start one agent in an interactive pane. */
+  /** Build the normal shell command used to start one agent in an interactive pane. */
   interactiveCmd(opts: SpawnOpts): string;
+  /**
+   * Build the restricted shell command used for worker launches.
+   * Adapters that cannot enforce a tool allowlist return their normal command;
+   * this is an explicit capability gap rather than an implicit global discovery.
+   * Omit this method when the adapter cannot restrict launches.
+   */
+  restrictedInteractiveCmd?(opts: SpawnOpts): string;
   /** Build argv for a detached backend, including the initial prompt. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[];
+  /**
+   * Build restricted argv for a detached worker, including the initial prompt.
+   * Adapters without allowlist support may omit this method or return headlessCmd(prompt, opts).
+   */
+  restrictedHeadlessCmd?(prompt: string, opts: SpawnOpts): string[];
   /** Translate native process/session signals into a presence-protocol state. */
   detectState(input: StateDetectionInput): AgentState;
   /** Build the command or presence action used to deliver a steering message. */

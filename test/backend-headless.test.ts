@@ -68,4 +68,43 @@ describe("HeadlessBackend", () => {
     expect(backend.close(handle)).toBe(true);
     await waitFor(() => !backend.list().some((entry) => entry.pid === handle.pid && entry.alive));
   });
+
+  test("signals a matching recorded handle through the injected killer", () => {
+    const calls: Array<{ pid: number; signal: string }> = [];
+    const hermetic = new HeadlessBackend({
+      pidAlive: () => true,
+      killer: (pid, signal) => calls.push({ pid, signal }),
+    });
+    const handle = { pid: 41001, key: "hermetic-match" };
+    fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
+    fs.writeFileSync(path.join(testOrchDir, "agents", handle.key, "status.json"), JSON.stringify({ pid: handle.pid }));
+    fs.writeFileSync(path.join(testOrchDir, "spawned.jsonl"), JSON.stringify({ backend: "headless", handle, adapter: "fake" }) + "\n", { flag: "a" });
+
+    expect(hermetic.close(handle)).toBe(true);
+    expect(calls).toEqual([{ pid: handle.pid, signal: "SIGTERM" }]);
+  });
+
+  test("refuses when presence pid is missing or key does not match the recorded handle", () => {
+    const calls: number[] = [];
+    const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
+    const recorded = { pid: 41002, key: "hermetic-recorded" };
+    fs.writeFileSync(path.join(testOrchDir, "spawned.jsonl"), JSON.stringify({ backend: "headless", handle: recorded, adapter: "fake" }) + "\n", { flag: "a" });
+
+    fs.mkdirSync(path.join(testOrchDir, "agents", recorded.key), { recursive: true });
+    expect(hermetic.close(recorded)).toBe(false);
+    fs.writeFileSync(path.join(testOrchDir, "agents", recorded.key, "status.json"), JSON.stringify({ pid: recorded.pid }));
+    expect(hermetic.close({ pid: recorded.pid, key: "hermetic-wrong" })).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  test("never signals an unrecorded pid", () => {
+    const calls: number[] = [];
+    const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
+    const handle = { pid: 41003, key: "hermetic-unrecorded" };
+    fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
+    fs.writeFileSync(path.join(testOrchDir, "agents", handle.key, "status.json"), JSON.stringify({ pid: handle.pid }));
+
+    expect(hermetic.close(handle)).toBe(false);
+    expect(calls).toEqual([]);
+  });
 });

@@ -40,6 +40,24 @@ const AGENT_STATES = new Set<AgentState>([
   "unknown",
 ]);
 
+/**
+ * Tools a spawned pi worker may load. Keep this explicit: --no-builtin-tools
+ * prevents globally installed tools/extensions from silently expanding it.
+ * The bridge registers the four orch_* tools; herdr-agent-state registers none.
+ */
+export const PI_APPROVED_TOOLS = [
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "orch_ask",
+  "orch_agents",
+  "orch_send",
+  "orch_read",
+] as const;
+
+const PI_TOOL_ALLOWLIST = PI_APPROVED_TOOLS.join(",");
+
 export function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
@@ -67,9 +85,22 @@ export class PiAdapter implements AgentAdapter {
     return "pi";
   }
 
+  /** Start pi with only the built-ins and orch bridge tools workers need. */
+  restrictedInteractiveCmd(_opts: SpawnOpts): string {
+    return `pi --tools ${PI_TOOL_ALLOWLIST} --no-builtin-tools`;
+  }
+
   /** Start the existing pif wrapper with the initial prompt for headless runs. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
     const command = ["pif"];
+    if (opts.model) command.push("--model", opts.model);
+    command.push(prompt);
+    return command;
+  }
+
+  /** Start pif with the same explicit worker tool allowlist as interactive pi. */
+  restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
+    const command = ["pif", "--tools", PI_TOOL_ALLOWLIST, "--no-builtin-tools"];
     if (opts.model) command.push("--model", opts.model);
     command.push(prompt);
     return command;

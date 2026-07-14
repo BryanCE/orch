@@ -25,7 +25,7 @@ function callerPane(panes: HerdrPane[]): HerdrPane | undefined {
 }
 
 function spawnPane(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
-  const command = adapter.interactiveCmd(opts);
+  const command = adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
   if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
   const panes: HerdrPane[] = herdrPanes();

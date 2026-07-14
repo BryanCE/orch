@@ -119,13 +119,24 @@ check() {
 }
 
 check status.json "$BUN" "$ROOT/bin/orch.ts" status --json
+check status-all.json "$BUN" "$ROOT/bin/orch.ts" status --all --json
 # cmdQuestions currently has no --json mode; plain output is intentional.
 check questions.txt "$BUN" "$ROOT/bin/orch.ts" questions
+check questions-all.txt "$BUN" "$ROOT/bin/orch.ts" questions --all
 check help.txt "$BUN" "$ROOT/bin/orch.ts" help
 # With herdr unreachable, current code still renders presence-only entries.
 # If this command later becomes an explicit no-herdr failure, its message and
 # exit status should be captured deliberately rather than requiring herdr.
 check panes.txt "$BUN" "$ROOT/bin/orch.ts" panes
+check panes-all.txt "$BUN" "$ROOT/bin/orch.ts" panes --all
+check tabs-all.txt "$BUN" "$ROOT/bin/orch.ts" tabs --all
+check review-list.json "$BUN" "$ROOT/bin/orch.ts" review list --json
+check queue-list.json "$BUN" "$ROOT/bin/orch.ts" queue list --json
+
+# Registry entries provide the adapter fallback when presence status predates
+# the adapter field. Keep this separate from status --json's existing golden.
+printf '%s\n' '{"pane":"w0:p1","ts":"2020-01-01T00:00:00.000Z","adapter":"codex"}' > "$ORCH_FIXTURE/spawned.jsonl"
+check status-adapter.txt "$BUN" "$ROOT/bin/orch.ts" status --local
 
 check_fail() {
   local name=$1; shift
@@ -164,4 +175,4 @@ if (( failures )); then
   printf 'FAIL smoke (%d check(s) failed)\n' "$failures" >&2
   exit 1
 fi
-printf 'PASS smoke: status, questions, help, panes, config precedence\n'
+printf 'PASS smoke: status, questions, help, panes, review, queue, adapter, config precedence\n'

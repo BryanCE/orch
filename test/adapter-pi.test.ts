@@ -8,10 +8,18 @@ const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
 process.env.ORCH_DIR = orchDir;
 
 const { PiAdapter } = await import("../src/adapters/pi.ts");
+const { presenceDir } = await import("../src/store.ts");
 const adapter = new PiAdapter();
 
+// The store is process-global and may have been imported by another test before
+// this file's ORCH_DIR override. Build fixtures under the directory the store
+// actually reads, rather than assuming this file won the import race.
+const storePresenceDir = presenceDir();
+const fixtureKeys = new Set<string>();
+
 function presencePath(key: string, file: string): string {
-  const directory = path.join(orchDir, "agents", key);
+  fixtureKeys.add(key);
+  const directory = path.join(storePresenceDir, key);
   fs.mkdirSync(directory, { recursive: true });
   return path.join(directory, file);
 }
@@ -21,7 +29,10 @@ function writeStatus(key: string, state: string): void {
 }
 
 afterEach(() => {
-  fs.rmSync(path.join(orchDir, "agents"), { recursive: true, force: true });
+  for (const key of fixtureKeys) {
+    fs.rmSync(path.join(storePresenceDir, key), { recursive: true, force: true });
+  }
+  fixtureKeys.clear();
 });
 
 afterAll(() => {
@@ -54,7 +65,7 @@ describe("PiAdapter", () => {
 
     adapter.steer({ key: "pi-steer", text: "run the tests" });
 
-    const lines = fs.readFileSync(path.join(orchDir, "agents", "pi-steer", "inbox.jsonl"), "utf8").trim().split("\n");
+    const lines = fs.readFileSync(path.join(storePresenceDir, "pi-steer", "inbox.jsonl"), "utf8").trim().split("\n");
     expect(JSON.parse(lines[0])).toMatchObject({ text: "run the tests" });
   });
 
@@ -63,7 +74,7 @@ describe("PiAdapter", () => {
 
     adapter.answer({ key: "pi-answer", text: "yes" });
 
-    expect(JSON.parse(fs.readFileSync(path.join(orchDir, "agents", "pi-answer", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
+    expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir, "pi-answer", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
   });
 
   test("reads result.json and falls back to the last assistant session text", () => {

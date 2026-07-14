@@ -17,6 +17,7 @@ QUEUE
   orch work [--once]             Assign queued tasks to idle agents.
 
 REVIEW
+  orch review                     Interactively review done worktree agents.
   orch review list [--json]      List done worktree agents with commits ahead.
   orch review approve <target>    Merge and remove an approved worktree.
   orch review reject <target> -m "feedback"

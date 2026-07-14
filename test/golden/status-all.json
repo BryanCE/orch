@@ -1,0 +1,28 @@
+[
+  {
+    "key": "<PANE_ID>",
+    "paneId": "<PANE_ID>",
+    "name": null,
+    "tab": null,
+    "agent": "pi",
+    "focused": false,
+    "model": "openai-codex/gpt-5:medium",
+    "modelShort": "gpt-5:medium",
+    "state": "working",
+    "stateFallback": false,
+    "exited": false,
+    "cost": 0,
+    "ctxPercent": 42,
+    "task": "Exercise the smoke fixture",
+    "lastText": "Fixture is healthy",
+    "herdrStatus": null,
+    "sessionPath": null,
+    "presenceDir": "<ORCH_DIR>/agents/<PANE_ID>",
+    "presenceOnly": true,
+    "tokens": {
+      "input": 10,
+      "output": 20
+    },
+    "turns": 3
+  }
+]

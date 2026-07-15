@@ -7,7 +7,7 @@ import type { AgentAdapter } from "../src/adapters/adapter.ts";
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
 
-const { HeadlessBackend } = await import("../src/backends/headless.ts");
+const { HeadlessBackend } = await import("../src/backends/headless/index.ts");
 const backend = new HeadlessBackend();
 const handles: { pid: number; key: string }[] = [];
 
@@ -57,7 +57,7 @@ afterAll(() => {
 
 describe("HeadlessBackend", () => {
   test("spawns a detached process and records its handle", async () => {
-    expect(backend.caps).toEqual({ panes: false, focusable: false });
+    expect(backend.caps).toEqual({ panes: false, focusable: false, canSendKeys: false });
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-1", prompt: "sleep" });
     handles.push(handle);
 

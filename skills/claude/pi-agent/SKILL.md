@@ -88,7 +88,7 @@ DISPATCH and INTEGRATION; make the agents spend theirs on the reading and typing
    saying "Implemented, no behavior change" is a claim, not proof. On mission-critical
    code (payroll cascade, snapshot writes) this is non-negotiable.
 
-8. **Keep yourself light.** Dispatch → `herdr wait agent-status <pane> --status idle`
+8. **Keep yourself light.** Dispatch → `herdr wait agent-status <pane> --status done`
    (or the background-agent notification) → read the distilled result → integrate. Do
    not sit in the loop narrating every agent's transcript into your own context.
 
@@ -171,7 +171,7 @@ pi's `/model` is a fuzzy SEARCH — a non-matching string opens a selector overl
 that wedges the pane (Escape dismisses it).
 
 **FIRST THING ON SKILL ACTIVATION — arm the event stream (do this before any dispatch).**
-`orch events` is a native, forever-running, all-panes transition stream (one line
+`orch events` is a native, forever-running transition stream (workspace-scoped by default; use `--all` for every pane) with one line
 per state change: working/idle/done/blocked/error/aborted/exited, with `lastError`
 text on error/aborted). Start ONE persistent Monitor on it the moment this skill
 activates and keep it up for the whole session; it is the orchestrator's ONLY
@@ -192,10 +192,10 @@ orch status                                          # 1. instant fleet context:
 orch spawn <N> --tab work --name job                 # 2. only if panes are needed: fresh tab, N NAMED agents, balanced auto-tiling
 orch tile <tab> --name extra                         #    (or add ONE balanced pane to an existing tab)
 orch model <target> "openai-codex/<exact-id>:<effort>"  # 3. per the matrix; verified old → new
-orch dispatch <target> 'FULL PROMPT: exact files, helpers, DON-Ts' [--then <dst> "note"]  # 4. ALL slices in ONE turn
+orch dispatch <target> 'FULL PROMPT: exact files, helpers, DON-Ts'  # 4. ALL slices in ONE turn
 # 5. (nothing to arm per fan-out — the session-long `orch events` Monitor pings every transition)
 orch result <target>                                 # 6. read the final text
-orch new <target>                                    # 7. clear the session before the next assignment
+orch reset <target>                                    # 7. clear the session before the next assignment (alias: new)
 ```
 **END-OF-TASK FLEET RESET (operator rule, 2026-07-13, non-optional):** when a task
 batch wraps — before you report done — leave no dirty pane behind: `orch new` every
@@ -204,23 +204,22 @@ re-bills its whole context next turn and poisons the next assignment; "done and
 walked away" is a bug, not a wrap-up.
 Mid-flight: `orch steer <target> "correction"` (delivered as a steer while working);
 `orch pipe <src> <dst> ["instruction"]` feeds one agent's result to another;
-`orch broadcast "<text>" --all` steers the whole fleet. `orch restart <target>|--all`
-reloads extensions in place via `/reload` (same pid, session intact) — `--hard`
-full restart is only for pi version upgrades. `orch tail`/`orch session` read pi's
+`orch broadcast "<text>" --all` steers the whole fleet. `orch reload <target>|--all`
+refreshes extensions in place via `/reload` (same pid, session intact); `orch restart`
+fully closes and relaunches the harness process. `orch tail`/`orch session` read pi's
 own session files; `orch tabs/tab/focus/zoom/move/rename/kill/clean` are the rest
 of the CRUD. Targets accept pane ids, unique suffixes (`p3`), or herdr agent names.
 
 **Agent-to-agent:** every bridged pi agent has tools `orch_agents` (discover live
 peers), `orch_send` (drop a message in a peer's inbox), `orch_read` (read a peer's
-result) — write handoffs INTO the dispatch prompt, or wire them mechanically with
-`--then` / `orch pipe`. Bryan's manual equivalents inside a pane: `/peers` and
+result) — write handoffs INTO the dispatch prompt, or use `orch pipe`. Bryan's manual equivalents inside a pane: `/peers` and
 `/tell <target> <msg>`.
 
 NEVER `herdr pane read` an agent (it scrapes the TUI and lies) — `orch status`
 lastText, `orch result`, and `orch tail` are the channel (`orch peek` exists as a
 labelled eyeball-only escape hatch). If a pane is missing from `orch status`, its
-pi predates the bridge — `orch restart <target>` it (`--hard` after extension-file
-changes; plain restart = in-place `/reload`).
+pi predates the bridge — `orch restart <target>` it when a full harness relaunch is needed; use
+`orch reload <target>` for an in-place extension refresh.
 
 **Dispatch ack (2026-07-12 quota incident):** `orch dispatch` prints the
 pane's status — `→ status: working` is the ack; `→ status: idle` means the

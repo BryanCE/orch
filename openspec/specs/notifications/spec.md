@@ -1,7 +1,7 @@
 # notifications Specification
 
 ## Purpose
-TBD - created by archiving change make-orch-general-purpose. Update Purpose after archive.
+Deliver filtered agent state-transition notifications through configurable desktop, webhook, and command sinks.
 ## Requirements
 ### Requirement: Configurable notification sinks
 Notification sinks SHALL be declared in config as `[[notify]]` entries with a `type` (`desktop`, `webhook`, `command`) and an `on` filter (subset of agent states, default `["blocked","error"]`). Multiple sinks SHALL be supported simultaneously.

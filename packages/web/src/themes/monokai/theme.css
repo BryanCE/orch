@@ -1,0 +1,87 @@
+/* Monokai Light */
+[data-color-scheme="monokai"] {
+  --background: #fafafa;
+  --foreground: #272822;
+  --card: #f0f0f0;
+  --card-foreground: #272822;
+  --popover: #f0f0f0;
+  --popover-foreground: #272822;
+  --primary: #7a9a1e;
+  --primary-foreground: #ffffff;
+  --secondary: #e8e8e3;
+  --secondary-foreground: #272822;
+  --muted: #e8e8e3;
+  --muted-foreground: #75715e;
+  --accent: #dff0c0;
+  --accent-foreground: #7a9a1e;
+  --destructive: #f92672;
+  --destructive-foreground: #ffffff;
+  --border: #cfcfc4;
+  --input: #cfcfc4;
+  --ring: #7a9a1e;
+  --chart-1: #7a9a1e;
+  --chart-2: #66d9ef;
+  --chart-3: #ae81ff;
+  --chart-4: #fd971f;
+  --chart-5: #f92672;
+  --sidebar: #f0f0f0;
+  --sidebar-foreground: #272822;
+  --sidebar-primary: #7a9a1e;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dff0c0;
+  --sidebar-accent-foreground: #7a9a1e;
+  --sidebar-border: #cfcfc4;
+  --sidebar-ring: #7a9a1e;
+  --shadow-color: rgba(39, 40, 34, 0.1);
+  --terminal-green: #7a9a1e;
+  --terminal-cyan: #66d9ef;
+  --terminal-glow: 0 0 10px rgba(122, 154, 30, 0.2);
+}
+
+/* Monokai Dark */
+[data-color-scheme="monokai"].dark {
+  --background: #272822;
+  --foreground: #a6e22e;
+  --card: #1e1f1c;
+  --card-foreground: #a6e22e;
+  --popover: #272822;
+  --popover-foreground: #a6e22e;
+  --primary: #a6e22e;
+  --primary-foreground: #272822;
+  --secondary: #3e3d32;
+  --secondary-foreground: #a6e22e;
+  --muted: #3e3d32;
+  --muted-foreground: #a6e22e99;
+  --accent: #a6e22e15;
+  --accent-foreground: #a6e22e;
+  --destructive: #f92672;
+  --destructive-foreground: #272822;
+  --border: #a6e22e33;
+  --input: #a6e22e33;
+  --ring: #a6e22e;
+  --chart-1: #a6e22e;
+  --chart-2: #66d9ef;
+  --chart-3: #ae81ff;
+  --chart-4: #fd971f;
+  --chart-5: #f92672;
+  --sidebar: #1e1f1c;
+  --sidebar-foreground: #a6e22e;
+  --sidebar-primary: #a6e22e;
+  --sidebar-primary-foreground: #272822;
+  --sidebar-accent: #a6e22e15;
+  --sidebar-accent-foreground: #a6e22e;
+  --sidebar-border: #a6e22e33;
+  --sidebar-ring: #a6e22e;
+  --shadow-color: rgba(166, 226, 46, 0.15);
+  --shadow-2xs: 0 0 2px rgba(166, 226, 46, 0.2);
+  --shadow-xs: 0 0 4px rgba(166, 226, 46, 0.2);
+  --shadow-sm: 0 0 6px rgba(166, 226, 46, 0.15);
+  --shadow: 0 0 10px rgba(166, 226, 46, 0.15);
+  --shadow-md: 0 0 15px rgba(166, 226, 46, 0.15);
+  --shadow-lg: 0 0 20px rgba(166, 226, 46, 0.2);
+  --shadow-xl: 0 0 30px rgba(166, 226, 46, 0.25);
+  --shadow-2xl: 0 0 40px rgba(166, 226, 46, 0.3);
+  --terminal-green: #a6e22e;
+  --terminal-cyan: #66d9ef;
+  --terminal-glow: 0 0 10px rgba(166, 226, 46, 0.4), 0 0 20px rgba(166, 226, 46, 0.2);
+}

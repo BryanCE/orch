@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { insertSpawnedRecord, selectSpawnedRecords } from "./store/sqlite.ts";
+import { insertSpawnedRecord, selectSpawnedRecords, setOwner } from "./store/sqlite.ts";
 
 const HOME = homedir();
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
@@ -16,15 +16,15 @@ export function presenceDir(): string {
   return join(orchDir(), "agents");
 }
 
-/** Map logical pane keys to filesystem-safe directory names on Windows. */
+/** Serialized identity keys are already a single filesystem-safe segment
+ *  (`<backend>~<workspace>~<handle>`, with `~ % : /` percent-escaped inside
+ *  each part), so the presence directory name IS the key — no remapping. */
 function presenceDirectoryName(key: string): string {
-  if (process.platform !== "win32") return key;
-  return key.replaceAll("%", "%25").replaceAll(":", "%3A");
+  return key;
 }
 
 export function presenceKeyFromDirectoryName(name: string): string {
-  if (process.platform !== "win32") return name;
-  return name.replace(/%25|%3A/g, (token) => token === "%25" ? "%" : ":");
+  return name;
 }
 
 export function presenceAgentDir(key: string, root = orchDir()): string {
@@ -34,8 +34,16 @@ export function presenceAgentDir(key: string, root = orchDir()): string {
 export interface PresenceStatus {
   /** Schema 2 identifies the adapter; schema 1 records may omit both fields. */
   schema?: number;
+  /** Identity record version; v1 carries the structured backend/workspace/handle. */
+  schemaVersion?: number;
   agent?: string;
   key?: string;
+  /** Backend that minted this agent's identity (herdr/tmux/headless). */
+  backend?: string;
+  /** Backend-reported workspace for wall checks and display. */
+  workspace?: string;
+  /** Backend-native handle (herdr/tmux pane id, headless pid). */
+  handle?: string;
   paneId?: string | null;
   pid?: number;
   cwd?: string;
@@ -99,25 +107,33 @@ export function pidAlive(pid: number | undefined): boolean {
 
 export function recordSpawned(
   pane: string,
-  metadata: { adapter?: string; model?: string; backend?: string; worktree?: string; branch?: string } = {},
+  metadata: { adapter?: string; model?: string; backend?: string; handle?: string; cwd?: string; worktree?: string; branch?: string; owner?: string } = {},
 ): void {
   try {
     const record: SpawnedRecord = { pane, ts: new Date().toISOString() };
     if (metadata.adapter !== undefined) record.adapter = metadata.adapter;
     if (metadata.model !== undefined) record.model = metadata.model;
     if (metadata.backend !== undefined) record.backend = metadata.backend;
+    if (metadata.handle !== undefined) record.handle = metadata.handle;
+    if (metadata.cwd !== undefined) record.cwd = metadata.cwd;
     if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
     if (metadata.branch !== undefined) record.branch = metadata.branch;
     insertSpawnedRecord(orchDir(), record);
+    if (metadata.owner) setOwner(orchDir(), pane, metadata.owner);
   } catch {}
 }
 
 export interface SpawnedRecord {
+  /** Primary registry id: the agent's serialized identity key. */
   pane: string;
   ts?: string;
   adapter?: string;
   model?: string;
   backend?: string;
+  /** Backend-native control handle (herdr/tmux pane id) for close/focus/send-keys. */
+  handle?: string;
+  /** Working directory the agent launched in. */
+  cwd?: string;
   worktree?: string;
   branch?: string;
 }

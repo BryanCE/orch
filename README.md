@@ -59,45 +59,45 @@ These are the top-level commands accepted by the CLI. `orch status` is also the 
 
 | Command | Description |
 | --- | --- |
-| `status` | Show merged agent and pane state; supports `--json`, `--all`, and `--offline`. |
-| `questions` | List pending agent questions. |
-| `events` | Stream state transitions, optionally filtered or notified. |
-| `queue` | Add, list, inspect history, or cancel queued tasks. |
-| `work` | Assign queued tasks to idle agents. |
-| `review` | List, approve, reject, or interactively review worktree results. |
-| `run` | Queue a prompt through orchd with the worker header. |
-| `dispatch` | Durably dispatch a prompt to a target. |
-| `answer` | Answer a pending agent question. |
-| `pipe` | Send a completed result from one target to another. |
-| `broadcast` | Steer multiple named targets or all targets. |
-| `notify` | Test configured notification sinks. |
-| `steer` | Send a durable mid-run instruction. |
-| `model` | Change a target's model. |
-| `wait` | Wait for a target to reach a state. |
-| `result` | Print a target's final result. |
-| `tail` | Show recent session entries. |
-| `session` | Show a target's resolved session path and stats. |
-| `reload` | Reload one or more panes and signal watchers. |
-| `reset` / `new` | Start a fresh session/context while keeping the model. |
-| `restart` | Close and relaunch a harness process. |
-| `spawn` | Create a new tab with N balanced, tiled agents. |
-| `tile` | Add one pane to an existing tab. |
-| `rename` | Rename an agent or pane border. |
-| `close` / `kill` | Close targets; `--all` only closes orch-spawned panes. |
-| `abort` | Cancel a turn by sending the abort key sequence. |
-| `keys` | Send raw keys to a pane. |
-| `peek` | Read the visible screen of a pane. |
-| `panes` | Print the raw merged pane list for scripting. |
-| `tabs` | List tabs and their pane counts/status. |
-| `tab` | Create, rename, close, or focus a tab. |
-| `focus` | Focus a target pane. |
-| `zoom` | Toggle or set pane zoom. |
-| `move` | Move a pane to a tab or new tab. |
-| `ws` | List or focus workspaces. |
-| `daemon` | Start, stop, inspect, or reload orchd. |
-| `doctor` | Check and optionally repair the installation. |
-| `clean` | Remove dead agent directories and orphaned worktrees. |
-| `setup` | Configure an agent/backend and install or link integrations. |
+| `status [--json] [--all] [--offline]` | Show merged agent and pane state; no command defaults to `status`. |
+| `questions [--all] [--json] [--local]` | List pending agent questions. |
+| `events [--all] [target ...] [--status s[,s…]] [--notify] [--json] [--offline]` | Stream pane state transitions. |
+| `queue add|list|history|cancel` | Add, list, inspect history, or cancel queued tasks; `add` accepts `--host`, `--worktree`, and `--json`. |
+| `work [--once] [--json]` | Assign queued tasks to idle agents. |
+| `review [list|approve|reject]` | Interactively review, or list, approve, or reject worktree results; subcommands accept `--json`. |
+| `run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]` | Queue a prompt through orchd with the worker header. |
+| `dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-workspace] [--json]` | Durably accept a prompt through orchd. |
+| `answer <target> "<text>" [--force] [--json]` | Answer a pending agent question; `--force` permits a missing question. |
+| `pipe <src> <dst> ["instruction"] [--json]` | Send a completed result from one target to another. |
+| `broadcast "<text>" [target ...\|--all] [--json]` | Steer named targets or all live pane agents. |
+| `notify test [--state <state>] [--json]` | Send a synthetic transition to configured notification sinks. |
+| `steer <target> <text…> [--steal] [--cross-workspace] [--json]` | Send a durable mid-run instruction. |
+| `model <target> <provider/model[:thinking]> [--steal] [--cross-workspace] [--no-wait] [--json]` | Change a target's model. |
+| `wait <target> [--status done\|idle\|working\|blocked] [--timeout ms] [--json]` | Wait for a target to reach a status; default is `done` after `300000ms`. |
+| `result <target> [--json]` | Print a target's result, falling back to session text when needed. |
+| `tail <target> [-n N] [--json]` | Show recent session entries; default is 20. |
+| `session <target> [--json]` | Show a target's resolved session path and stats. |
+| `reload <target>… \| --all [--json]` | Reload panes and signal watchers. |
+| `reset <target>… \| --all [--json]` / `new` | Start a fresh session/context while keeping the model. |
+| `restart <target>… \| --all [--cmd pi] [--json]` | Fully close the harness process and relaunch it. |
+| `spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M] [--agent A] [--backend B] [--spawn-cap N] [--worktree]` | Create a fresh tab with balanced, tiled agents; maximum cap is 8. |
+| `tile <tab\|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]` | Add one pane to an existing tab. |
+| `rename <target> <name> [--pane] [--json]` | Rename an agent or pane border. |
+| `close <target>... \| --all [--stream] [--json]` / `kill` | Close targets; `--all` only closes orch-spawned panes. |
+| `abort <target> [--json]` | Cancel a turn by sending the abort key sequence. |
+| `keys <target> <key> [key...]` | Send raw keys to a pane. |
+| `peek <target> [-n N] [--json]` | Read the visible pane screen; default is 25 lines. |
+| `panes [--all] [--json]` | Print the raw merged pane list for scripting. |
+| `tabs [--all] [--json]` | List tabs and their pane counts/status. |
+| `tab new|rename|close|focus [--json]` | Create, rename, close, or focus a tab. |
+| `focus <target> [--json]` | Focus a target pane. |
+| `zoom <target> [--on\|--off] [--json]` | Toggle or set pane zoom; default is toggle. |
+| `move <target> --tab <tab_id\|label> [--split right\|down] \| --new-tab [--label X] [--json]` | Move a pane to a tab or new tab. |
+| `ws [list\|focus <workspace_id>] [--json]` | List or focus workspaces. |
+| `daemon start [--fg] \| stop \| status [--json] \| reload [--json]` | Manage the resident orch daemon. |
+| `doctor [--fix] [-y\|--yes] [--json]` | Check the install; TTY fix mode opens a menu, while `-y`/`--yes` applies every fix unattended. |
+| `clean [--worktrees [--force]] [--json]` | Remove dead agent directories and optionally clean orphaned worktrees. |
+| `setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]` | Configure an agent/backend and install or link integrations. |
 | `help` | Print the full built-in usage text. |
 
 Run `orch help` for subcommands and flags.
@@ -146,6 +146,10 @@ worker = { dest = "user@example.org", orch_dir = "/home/user/.orch", timeout_ms 
 ```
 
 `[defaults]` supports `adapter`, `backend`, `model`, `allowed_models`, `spawn_cap`, `worktree`, and `worker_peer_tools`. Each `[[notify]]` entry selects a notifier with `id` (the legacy `type` spelling is also accepted). `[hosts]` entries define remote SSH destinations with `dest` (or legacy `ssh`), optional `orch_dir`, and `timeout_ms`.
+
+## Files and data layout
+
+orch keeps all state under one directory (`$ORCH_DIR`, default `~/.orch`), including the SQLite database `orch.db`, the daemon socket/lock, and the per-agent presence dirs. See [docs/files-and-data-layout.md](docs/files-and-data-layout.md) for the full on-disk map.
 
 ## Notifications and events
 

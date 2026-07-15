@@ -1,16 +1,12 @@
+import { tryParseIdentity } from "../backends/identity.ts";
+
 export interface WallDecision {
   allowed: boolean;
   reason?: string;
 }
 
-/** Return the workspace prefix of a Herdr pane key, or null for headless keys.
- *  Herdr pane ids use a base32-style alphanumeric counter (p1..p9, pA..pH, pJ,
- *  pK, pN, pP, ...), so the pane segment is general alphanumeric — matching only
- *  [0-9] or hex silently dropped panes past p9 / pF and broke the wall. */
 export function workspaceOf(id: string | null | undefined): string | null {
-  if (!id) return null;
-  const match = /^([^:]+):p[0-9A-Za-z]+$/.exec(id);
-  return match?.[1] ?? null;
+  return tryParseIdentity(id)?.workspace ?? null;
 }
 
 export type WorkspaceResolver =

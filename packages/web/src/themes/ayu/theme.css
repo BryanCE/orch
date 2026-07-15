@@ -1,0 +1,87 @@
+/* Ayu Light - soft, low-saturation */
+[data-color-scheme="ayu"] {
+  --background: #fcfcfc;
+  --foreground: #5c6166;
+  --card: #ffffff;
+  --card-foreground: #5c6166;
+  --popover: #ffffff;
+  --popover-foreground: #5c6166;
+  --primary: #ff9940;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f4f5;
+  --secondary-foreground: #5c6166;
+  --muted: #f3f4f5;
+  --muted-foreground: #8a9199;
+  --accent: #fff0e0;
+  --accent-foreground: #fa8d3e;
+  --destructive: #e65050;
+  --destructive-foreground: #ffffff;
+  --border: #e7e8e9;
+  --input: #e7e8e9;
+  --ring: #ff9940;
+  --chart-1: #ff9940;
+  --chart-2: #86b300;
+  --chart-3: #55b4d4;
+  --chart-4: #a37acc;
+  --chart-5: #e65050;
+  --sidebar: #f8f9fa;
+  --sidebar-foreground: #5c6166;
+  --sidebar-primary: #ff9940;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fff0e0;
+  --sidebar-accent-foreground: #fa8d3e;
+  --sidebar-border: #e7e8e9;
+  --sidebar-ring: #ff9940;
+  --shadow-color: rgba(92, 97, 102, 0.08);
+  --terminal-green: #86b300;
+  --terminal-cyan: #55b4d4;
+  --terminal-glow: none;
+}
+
+/* Ayu Mirage (Dark) - soft muted */
+[data-color-scheme="ayu"].dark {
+  --background: #1f2430;
+  --foreground: #cccac2;
+  --card: #232834;
+  --card-foreground: #cccac2;
+  --popover: #232834;
+  --popover-foreground: #cccac2;
+  --primary: #ffcc66;
+  --primary-foreground: #1f2430;
+  --secondary: #2a3140;
+  --secondary-foreground: #cccac2;
+  --muted: #2a3140;
+  --muted-foreground: #8a9199;
+  --accent: #ffcc6620;
+  --accent-foreground: #ffcc66;
+  --destructive: #ff6666;
+  --destructive-foreground: #1f2430;
+  --border: #3b4252;
+  --input: #3b4252;
+  --ring: #ffcc66;
+  --chart-1: #ffcc66;
+  --chart-2: #d5ff80;
+  --chart-3: #5ccfe6;
+  --chart-4: #dfbfff;
+  --chart-5: #ff6666;
+  --sidebar: #232834;
+  --sidebar-foreground: #cccac2;
+  --sidebar-primary: #ffcc66;
+  --sidebar-primary-foreground: #1f2430;
+  --sidebar-accent: #ffcc6620;
+  --sidebar-accent-foreground: #ffcc66;
+  --sidebar-border: #3b4252;
+  --sidebar-ring: #ffcc66;
+  --shadow-color: rgba(20, 24, 31, 0.5);
+  --shadow-2xs: 0 0 2px rgba(20, 24, 31, 0.3);
+  --shadow-xs: 0 1px 3px rgba(20, 24, 31, 0.4);
+  --shadow-sm: 0 1px 4px rgba(20, 24, 31, 0.4);
+  --shadow: 0 3px 6px rgba(20, 24, 31, 0.4);
+  --shadow-md: 0 4px 8px rgba(20, 24, 31, 0.4);
+  --shadow-lg: 0 8px 16px rgba(20, 24, 31, 0.45);
+  --shadow-xl: 0 12px 24px rgba(20, 24, 31, 0.5);
+  --shadow-2xl: 0 16px 32px rgba(20, 24, 31, 0.55);
+  --terminal-green: #d5ff80;
+  --terminal-cyan: #5ccfe6;
+  --terminal-glow: none;
+}

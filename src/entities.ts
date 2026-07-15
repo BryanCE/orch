@@ -1,6 +1,7 @@
 import { loadConfig, type HostConfig } from "./config.ts";
-import { herdrNames, herdrPanes, herdrTabs, type HerdrPane } from "./herdr.ts";
-import { loadPresence, orchDir, type PresenceEntry } from "./store.ts";
+import { herdrNames, herdrPanes, herdrTabs, type HerdrPane } from "./backends/herdr/cli.ts";
+import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./store.ts";
+import { serializeIdentity } from "./backends/identity.ts";
 import { checkWall, scopeToWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
 
@@ -60,7 +61,7 @@ function naturalPaneOrder(id: string): [string, number] {
 }
 
 export function entityWorkspace(e: Entity): string | null {
-  return workspaceOf(e.paneId ?? e.key);
+  return workspaceOf(e.key);
 }
 
 export function currentWorkspace(): string | null {
@@ -69,8 +70,15 @@ export function currentWorkspace(): string | null {
   return herdrPanes().find((pane) => pane.pane_id === paneId)?.workspace_id ?? null;
 }
 
+/** The orchestrator's own pane key — the actor used for ownership and wall checks
+ *  on writes. Null when unscoped (headless / not inside a herdr pane). */
+export function selfActor(): string | null {
+  const workspace = currentWorkspace();
+  return workspace ? serializeIdentity({ backend: "herdr", workspace, handle: "operator" }) : null;
+}
+
 export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
-  return scopeToWorkspace(entities, (entity) => entity.paneId ?? entity.key, currentWorkspace(), { all: opts?.all === true });
+  return scopeToWorkspace(entities, (entity) => entity.key, currentWorkspace(), { all: opts?.all === true });
 }
 
 export function buildEntities(): Entity[] {
@@ -78,24 +86,22 @@ export function buildEntities(): Entity[] {
   const tabs = herdrTabs();
   const names = herdrNames();
   const presence = loadPresence();
+  const records = spawnedRecords();
+  const keyByPane = new Map<string, string>();
+  for (const [key, record] of records) {
+    if (record.backend === "herdr" && record.handle) keyByPane.set(record.handle, key);
+  }
   const usedPresence = new Set<string>();
   const entities: Entity[] = [];
 
   for (const pane of panes) {
     const paneId: string = pane.pane_id;
-    let pres: PresenceEntry | null = presence.get(paneId) ?? null;
-    if (!pres) {
-      for (const entry of presence.values()) {
-        if (entry.status?.paneId === paneId) {
-          pres = entry;
-          break;
-        }
-      }
-    }
+    const key = keyByPane.get(paneId) ?? paneId;
+    const pres: PresenceEntry | null = presence.get(key) ?? null;
     if (pres) usedPresence.add(pres.key);
     const tab = pane.tab_id ? tabs.get(pane.tab_id) : null;
     entities.push({
-      key: paneId,
+      key,
       paneId,
       name: names.get(paneId) ?? pane.name ?? null,
       tabLabel: tab?.label ?? null,
@@ -197,7 +203,9 @@ export function resolveTarget(target: string, opts?: { all?: boolean }): Entity 
   if (!crossWall) {
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
-      const ownKey = currentWorkspace() === null ? null : `${currentWorkspace()}:p0`;
+      const ownKey = currentWorkspace() === null
+        ? null
+        : serializeIdentity({ backend: "herdr", workspace: currentWorkspace()!, handle: "operator" });
       const decision = checkWall(ownKey, foreign.paneId ?? foreign.key, { crossWorkspace: false });
       if (!decision.allowed) die(decision.reason ?? `Target "${target}" is outside the current workspace.`);
     }

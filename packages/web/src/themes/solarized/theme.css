@@ -1,0 +1,87 @@
+/* Solarized Light */
+[data-color-scheme="solarized"] {
+  --background: #fdf6e3;
+  --foreground: #657b83;
+  --card: #eee8d5;
+  --card-foreground: #657b83;
+  --popover: #eee8d5;
+  --popover-foreground: #657b83;
+  --primary: #268bd2;
+  --primary-foreground: #fdf6e3;
+  --secondary: #eee8d5;
+  --secondary-foreground: #657b83;
+  --muted: #eee8d5;
+  --muted-foreground: #93a1a1;
+  --accent: #d3e8f0;
+  --accent-foreground: #268bd2;
+  --destructive: #dc322f;
+  --destructive-foreground: #fdf6e3;
+  --border: #93a1a1;
+  --input: #93a1a1;
+  --ring: #268bd2;
+  --chart-1: #268bd2;
+  --chart-2: #2aa198;
+  --chart-3: #6c71c4;
+  --chart-4: #cb4b16;
+  --chart-5: #dc322f;
+  --sidebar: #eee8d5;
+  --sidebar-foreground: #657b83;
+  --sidebar-primary: #268bd2;
+  --sidebar-primary-foreground: #fdf6e3;
+  --sidebar-accent: #d3e8f0;
+  --sidebar-accent-foreground: #268bd2;
+  --sidebar-border: #93a1a1;
+  --sidebar-ring: #268bd2;
+  --shadow-color: rgba(101, 123, 131, 0.1);
+  --terminal-green: #268bd2;
+  --terminal-cyan: #2aa198;
+  --terminal-glow: 0 0 10px rgba(38, 139, 210, 0.2);
+}
+
+/* Solarized Dark */
+[data-color-scheme="solarized"].dark {
+  --background: #002b36;
+  --foreground: #268bd2;
+  --card: #073642;
+  --card-foreground: #268bd2;
+  --popover: #002b36;
+  --popover-foreground: #268bd2;
+  --primary: #268bd2;
+  --primary-foreground: #002b36;
+  --secondary: #073642;
+  --secondary-foreground: #268bd2;
+  --muted: #073642;
+  --muted-foreground: #268bd299;
+  --accent: #268bd215;
+  --accent-foreground: #268bd2;
+  --destructive: #dc322f;
+  --destructive-foreground: #002b36;
+  --border: #268bd233;
+  --input: #268bd233;
+  --ring: #268bd2;
+  --chart-1: #268bd2;
+  --chart-2: #2aa198;
+  --chart-3: #6c71c4;
+  --chart-4: #cb4b16;
+  --chart-5: #dc322f;
+  --sidebar: #073642;
+  --sidebar-foreground: #268bd2;
+  --sidebar-primary: #268bd2;
+  --sidebar-primary-foreground: #002b36;
+  --sidebar-accent: #268bd215;
+  --sidebar-accent-foreground: #268bd2;
+  --sidebar-border: #268bd233;
+  --sidebar-ring: #268bd2;
+  --shadow-color: rgba(38, 139, 210, 0.15);
+  --shadow-2xs: 0 0 2px rgba(38, 139, 210, 0.2);
+  --shadow-xs: 0 0 4px rgba(38, 139, 210, 0.2);
+  --shadow-sm: 0 0 6px rgba(38, 139, 210, 0.15);
+  --shadow: 0 0 10px rgba(38, 139, 210, 0.15);
+  --shadow-md: 0 0 15px rgba(38, 139, 210, 0.15);
+  --shadow-lg: 0 0 20px rgba(38, 139, 210, 0.2);
+  --shadow-xl: 0 0 30px rgba(38, 139, 210, 0.25);
+  --shadow-2xl: 0 0 40px rgba(38, 139, 210, 0.3);
+  --terminal-green: #268bd2;
+  --terminal-cyan: #2aa198;
+  --terminal-glow: 0 0 10px rgba(38, 139, 210, 0.4), 0 0 20px rgba(38, 139, 210, 0.2);
+}

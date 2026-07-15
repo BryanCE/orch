@@ -1,0 +1,87 @@
+/* Dracula (Light - same purple tones, lighter background) */
+[data-color-scheme="dracula"] {
+  --background: #f8f8f2;
+  --foreground: #6272a4;
+  --card: #f1f1ec;
+  --card-foreground: #6272a4;
+  --popover: #f1f1ec;
+  --popover-foreground: #6272a4;
+  --primary: #bd93f9;
+  --primary-foreground: #282a36;
+  --secondary: #e8e8e3;
+  --secondary-foreground: #6272a4;
+  --muted: #e8e8e3;
+  --muted-foreground: #7c86aa;
+  --accent: #e0d4f7;
+  --accent-foreground: #bd93f9;
+  --destructive: #ff5555;
+  --destructive-foreground: #ffffff;
+  --border: #d4d4cf;
+  --input: #d4d4cf;
+  --ring: #bd93f9;
+  --chart-1: #bd93f9;
+  --chart-2: #8be9fd;
+  --chart-3: #ff79c6;
+  --chart-4: #ffb86c;
+  --chart-5: #ff5555;
+  --sidebar: #f1f1ec;
+  --sidebar-foreground: #6272a4;
+  --sidebar-primary: #bd93f9;
+  --sidebar-primary-foreground: #282a36;
+  --sidebar-accent: #e0d4f7;
+  --sidebar-accent-foreground: #bd93f9;
+  --sidebar-border: #d4d4cf;
+  --sidebar-ring: #bd93f9;
+  --shadow-color: rgba(98, 114, 164, 0.1);
+  --terminal-green: #bd93f9;
+  --terminal-cyan: #8be9fd;
+  --terminal-glow: 0 0 10px rgba(189, 147, 249, 0.2);
+}
+
+/* Dracula (Dark) */
+[data-color-scheme="dracula"].dark {
+  --background: #282a36;
+  --foreground: #bd93f9;
+  --card: #21222c;
+  --card-foreground: #bd93f9;
+  --popover: #282a36;
+  --popover-foreground: #bd93f9;
+  --primary: #bd93f9;
+  --primary-foreground: #282a36;
+  --secondary: #44475a;
+  --secondary-foreground: #bd93f9;
+  --muted: #44475a;
+  --muted-foreground: #bd93f999;
+  --accent: #bd93f915;
+  --accent-foreground: #bd93f9;
+  --destructive: #ff5555;
+  --destructive-foreground: #282a36;
+  --border: #bd93f933;
+  --input: #bd93f933;
+  --ring: #bd93f9;
+  --chart-1: #bd93f9;
+  --chart-2: #8be9fd;
+  --chart-3: #ff79c6;
+  --chart-4: #ffb86c;
+  --chart-5: #ff5555;
+  --sidebar: #21222c;
+  --sidebar-foreground: #bd93f9;
+  --sidebar-primary: #bd93f9;
+  --sidebar-primary-foreground: #282a36;
+  --sidebar-accent: #bd93f915;
+  --sidebar-accent-foreground: #bd93f9;
+  --sidebar-border: #bd93f933;
+  --sidebar-ring: #bd93f9;
+  --shadow-color: rgba(189, 147, 249, 0.15);
+  --shadow-2xs: 0 0 2px rgba(189, 147, 249, 0.2);
+  --shadow-xs: 0 0 4px rgba(189, 147, 249, 0.2);
+  --shadow-sm: 0 0 6px rgba(189, 147, 249, 0.15);
+  --shadow: 0 0 10px rgba(189, 147, 249, 0.15);
+  --shadow-md: 0 0 15px rgba(189, 147, 249, 0.15);
+  --shadow-lg: 0 0 20px rgba(189, 147, 249, 0.2);
+  --shadow-xl: 0 0 30px rgba(189, 147, 249, 0.25);
+  --shadow-2xl: 0 0 40px rgba(189, 147, 249, 0.3);
+  --terminal-green: #bd93f9;
+  --terminal-cyan: #8be9fd;
+  --terminal-glow: 0 0 10px rgba(189, 147, 249, 0.4), 0 0 20px rgba(189, 147, 249, 0.2);
+}

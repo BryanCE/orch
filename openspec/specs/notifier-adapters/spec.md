@@ -1,7 +1,7 @@
 # notifier-adapters Specification
 
 ## Purpose
-TBD - created by archiving change notifier-adapters. Update Purpose after archive.
+Provide a pluggable notifier registry with canonical event fan-out, built-in integrations, setup, and doctor validation.
 ## Requirements
 ### Requirement: Pluggable notifier adapter contract
 orch SHALL provide a third pluggable adapter axis for notifier integrations, alongside agent adapters and execution backends. Each notifier SHALL expose an id, human-readable label, availability probe, delivery operation, and metadata declaring its required configuration fields. The built-in notifier ids SHALL be `herdr`, `desktop`, `webhook`, and `command`.

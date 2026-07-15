@@ -7,7 +7,8 @@ import { CodexAdapter } from "../src/adapters/codex.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { loadConfig } from "../src/config.ts";
 import { checkNotifiers, checkExtensionStaleness } from "../src/doctor.ts";
-import { HeadlessBackend } from "../src/backends/headless.ts";
+import { HeadlessBackend } from "../src/backends/headless/index.ts";
+import { parseIdentity } from "../src/backends/identity.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
 
 const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening-"));
@@ -56,7 +57,11 @@ describe("adapter and runtime hardening", () => {
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
     const handle = backend.spawn(adapter, {});
-    expect(handle.key).toMatch(/^session-\d+-\d+$/);
+    const identity = parseIdentity(handle.key);
+    expect(identity.backend).toBe("headless");
+    expect(identity.workspace).toBe("local");
+    expect(identity.handle.length).toBeGreaterThan(0);
+    expect(handle.key).not.toContain("/");
     expect(backend.list()).toContainEqual({ ...handle, alive: false });
     try { process.kill(handle.pid, "SIGKILL"); } catch { /* already exited */ }
     if (previous === undefined) delete process.env.ORCH_DIR;

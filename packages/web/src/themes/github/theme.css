@@ -1,0 +1,87 @@
+/* GitHub Primer (Light) - muted professional */
+[data-color-scheme="github"] {
+  --background: #ffffff;
+  --foreground: #1f2328;
+  --card: #ffffff;
+  --card-foreground: #1f2328;
+  --popover: #ffffff;
+  --popover-foreground: #1f2328;
+  --primary: #0969da;
+  --primary-foreground: #ffffff;
+  --secondary: #f6f8fa;
+  --secondary-foreground: #1f2328;
+  --muted: #f6f8fa;
+  --muted-foreground: #656d76;
+  --accent: #ddf4ff;
+  --accent-foreground: #0969da;
+  --destructive: #cf222e;
+  --destructive-foreground: #ffffff;
+  --border: #d0d7de;
+  --input: #d0d7de;
+  --ring: #0969da;
+  --chart-1: #0969da;
+  --chart-2: #1a7f37;
+  --chart-3: #8250df;
+  --chart-4: #bc4c00;
+  --chart-5: #cf222e;
+  --sidebar: #f6f8fa;
+  --sidebar-foreground: #1f2328;
+  --sidebar-primary: #0969da;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ddf4ff;
+  --sidebar-accent-foreground: #0969da;
+  --sidebar-border: #d0d7de;
+  --sidebar-ring: #0969da;
+  --shadow-color: rgba(31, 35, 40, 0.08);
+  --terminal-green: #1a7f37;
+  --terminal-cyan: #0969da;
+  --terminal-glow: none;
+}
+
+/* GitHub Dark Default */
+[data-color-scheme="github"].dark {
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --card: #161b22;
+  --card-foreground: #e6edf3;
+  --popover: #161b22;
+  --popover-foreground: #e6edf3;
+  --primary: #2f81f7;
+  --primary-foreground: #ffffff;
+  --secondary: #21262d;
+  --secondary-foreground: #e6edf3;
+  --muted: #21262d;
+  --muted-foreground: #8b949e;
+  --accent: #2f81f726;
+  --accent-foreground: #58a6ff;
+  --destructive: #f85149;
+  --destructive-foreground: #0d1117;
+  --border: #30363d;
+  --input: #30363d;
+  --ring: #2f81f7;
+  --chart-1: #58a6ff;
+  --chart-2: #3fb950;
+  --chart-3: #bc8cff;
+  --chart-4: #db6d28;
+  --chart-5: #f85149;
+  --sidebar: #161b22;
+  --sidebar-foreground: #e6edf3;
+  --sidebar-primary: #2f81f7;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2f81f726;
+  --sidebar-accent-foreground: #58a6ff;
+  --sidebar-border: #30363d;
+  --sidebar-ring: #2f81f7;
+  --shadow-color: rgba(1, 4, 9, 0.5);
+  --shadow-2xs: 0 0 2px rgba(1, 4, 9, 0.3);
+  --shadow-xs: 0 1px 3px rgba(1, 4, 9, 0.4);
+  --shadow-sm: 0 1px 4px rgba(1, 4, 9, 0.4);
+  --shadow: 0 3px 6px rgba(1, 4, 9, 0.4);
+  --shadow-md: 0 4px 8px rgba(1, 4, 9, 0.4);
+  --shadow-lg: 0 8px 16px rgba(1, 4, 9, 0.45);
+  --shadow-xl: 0 12px 24px rgba(1, 4, 9, 0.5);
+  --shadow-2xl: 0 16px 32px rgba(1, 4, 9, 0.55);
+  --terminal-green: #3fb950;
+  --terminal-cyan: #58a6ff;
+  --terminal-glow: none;
+}

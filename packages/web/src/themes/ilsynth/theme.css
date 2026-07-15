@@ -1,0 +1,105 @@
+/* iLSynth Light (default) - Clean terminal-inspired */
+:root,
+[data-color-scheme="ilsynth"] {
+  --background: #f5f5f0;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #2d5a27;
+  --primary-foreground: #ffffff;
+  --secondary: #e8e8e0;
+  --secondary-foreground: #1a1a1a;
+  --muted: #e8e8e0;
+  --muted-foreground: #666666;
+  --accent: #d4e6d1;
+  --accent-foreground: #2d5a27;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #d4d4c8;
+  --input: #d4d4c8;
+  --ring: #2d5a27;
+  --chart-1: #2d5a27;
+  --chart-2: #0891b2;
+  --chart-3: #7c3aed;
+  --chart-4: #f97316;
+  --chart-5: #dc2626;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1a1a1a;
+  --sidebar-primary: #2d5a27;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d4e6d1;
+  --sidebar-accent-foreground: #2d5a27;
+  --sidebar-border: #d4d4c8;
+  --sidebar-ring: #2d5a27;
+  --font-sans: 'IBM Plex Mono', monospace;
+  --font-serif: Georgia, serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --radius: 0px;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+  --shadow-2xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 6px 10px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1);
+  --shadow-2xl: 0 25px 50px rgba(0, 0, 0, 0.15);
+  --tracking-normal: 0.025em;
+  --spacing: 0.25rem;
+
+  --terminal-green: #2d5a27;
+  --terminal-cyan: #0891b2;
+  --terminal-glow: 0 0 10px rgba(45, 90, 39, 0.2);
+}
+
+/* iLSynth Dark - Neon Terminal */
+.dark,
+[data-color-scheme="ilsynth"].dark {
+  --background: #0a0a0a;
+  --foreground: #00ff41;
+  --card: #0f0f0f;
+  --card-foreground: #00ff41;
+  --popover: #0a0a0a;
+  --popover-foreground: #00ff41;
+  --primary: #00ff41;
+  --primary-foreground: #0a0a0a;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #00ff41;
+  --muted: #1a1a1a;
+  --muted-foreground: #00ff4199;
+  --accent: #00ff4115;
+  --accent-foreground: #00ff41;
+  --destructive: #f4212e;
+  --destructive-foreground: #ffffff;
+  --border: #00ff4133;
+  --input: #00ff4133;
+  --ring: #00ff41;
+  --chart-1: #00ff41;
+  --chart-2: #00d4ff;
+  --chart-3: #ff00ff;
+  --chart-4: #ff8c00;
+  --chart-5: #f4212e;
+  --sidebar: #0f0f0f;
+  --sidebar-foreground: #00ff41;
+  --sidebar-primary: #00ff41;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #00ff4115;
+  --sidebar-accent-foreground: #00ff41;
+  --sidebar-border: #00ff4133;
+  --sidebar-ring: #00ff41;
+  --shadow-color: rgba(0, 255, 65, 0.15);
+  --shadow-2xs: 0 0 2px rgba(0, 255, 65, 0.2);
+  --shadow-xs: 0 0 4px rgba(0, 255, 65, 0.2);
+  --shadow-sm: 0 0 6px rgba(0, 255, 65, 0.15);
+  --shadow: 0 0 10px rgba(0, 255, 65, 0.15);
+  --shadow-md: 0 0 15px rgba(0, 255, 65, 0.15);
+  --shadow-lg: 0 0 20px rgba(0, 255, 65, 0.2);
+  --shadow-xl: 0 0 30px rgba(0, 255, 65, 0.25);
+  --shadow-2xl: 0 0 40px rgba(0, 255, 65, 0.3);
+
+  --terminal-green: #00ff41;
+  --terminal-cyan: #00d4ff;
+  --terminal-glow: 0 0 10px rgba(0, 255, 65, 0.4), 0 0 20px rgba(0, 255, 65, 0.2);
+}

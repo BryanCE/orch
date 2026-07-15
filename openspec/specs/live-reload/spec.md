@@ -1,7 +1,7 @@
 # live-reload Specification
 
 ## Purpose
-TBD - created by archiving change add-live-reload. Update Purpose after archive.
+Keep long-running orch watchers and pane extensions current as config or extension code changes, without restarting the fleet.
 ## Requirements
 ### Requirement: Config hot-reload in long-running commands
 

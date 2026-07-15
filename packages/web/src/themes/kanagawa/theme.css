@@ -1,0 +1,87 @@
+/* Kanagawa Lotus (Light) */
+[data-color-scheme="kanagawa"] {
+  --background: #f2ecbc;
+  --foreground: #545464;
+  --card: #e7dba0;
+  --card-foreground: #545464;
+  --popover: #e7dba0;
+  --popover-foreground: #545464;
+  --primary: #4d699b;
+  --primary-foreground: #f2ecbc;
+  --secondary: #e4d794;
+  --secondary-foreground: #545464;
+  --muted: #e4d794;
+  --muted-foreground: #766b6b;
+  --accent: #c9d4e4;
+  --accent-foreground: #4d699b;
+  --destructive: #c84053;
+  --destructive-foreground: #f2ecbc;
+  --border: #c9c4a0;
+  --input: #c9c4a0;
+  --ring: #4d699b;
+  --chart-1: #4d699b;
+  --chart-2: #597b75;
+  --chart-3: #624c83;
+  --chart-4: #77713f;
+  --chart-5: #c84053;
+  --sidebar: #e7dba0;
+  --sidebar-foreground: #545464;
+  --sidebar-primary: #4d699b;
+  --sidebar-primary-foreground: #f2ecbc;
+  --sidebar-accent: #c9d4e4;
+  --sidebar-accent-foreground: #4d699b;
+  --sidebar-border: #c9c4a0;
+  --sidebar-ring: #4d699b;
+  --shadow-color: rgba(84, 84, 100, 0.1);
+  --terminal-green: #4d699b;
+  --terminal-cyan: #597b75;
+  --terminal-glow: 0 0 10px rgba(77, 105, 155, 0.2);
+}
+
+/* Kanagawa Wave (Dark) */
+[data-color-scheme="kanagawa"].dark {
+  --background: #1f1f28;
+  --foreground: #7e9cd8;
+  --card: #16161d;
+  --card-foreground: #7e9cd8;
+  --popover: #1f1f28;
+  --popover-foreground: #7e9cd8;
+  --primary: #7e9cd8;
+  --primary-foreground: #1f1f28;
+  --secondary: #2a2a37;
+  --secondary-foreground: #7e9cd8;
+  --muted: #2a2a37;
+  --muted-foreground: #7e9cd899;
+  --accent: #7e9cd815;
+  --accent-foreground: #7e9cd8;
+  --destructive: #ff5d62;
+  --destructive-foreground: #1f1f28;
+  --border: #7e9cd833;
+  --input: #7e9cd833;
+  --ring: #7e9cd8;
+  --chart-1: #7e9cd8;
+  --chart-2: #7aa89f;
+  --chart-3: #957fb8;
+  --chart-4: #e6c384;
+  --chart-5: #ff5d62;
+  --sidebar: #16161d;
+  --sidebar-foreground: #7e9cd8;
+  --sidebar-primary: #7e9cd8;
+  --sidebar-primary-foreground: #1f1f28;
+  --sidebar-accent: #7e9cd815;
+  --sidebar-accent-foreground: #7e9cd8;
+  --sidebar-border: #7e9cd833;
+  --sidebar-ring: #7e9cd8;
+  --shadow-color: rgba(126, 156, 216, 0.15);
+  --shadow-2xs: 0 0 2px rgba(126, 156, 216, 0.2);
+  --shadow-xs: 0 0 4px rgba(126, 156, 216, 0.2);
+  --shadow-sm: 0 0 6px rgba(126, 156, 216, 0.15);
+  --shadow: 0 0 10px rgba(126, 156, 216, 0.15);
+  --shadow-md: 0 0 15px rgba(126, 156, 216, 0.15);
+  --shadow-lg: 0 0 20px rgba(126, 156, 216, 0.2);
+  --shadow-xl: 0 0 30px rgba(126, 156, 216, 0.25);
+  --shadow-2xl: 0 0 40px rgba(126, 156, 216, 0.3);
+  --terminal-green: #7e9cd8;
+  --terminal-cyan: #7aa89f;
+  --terminal-glow: 0 0 10px rgba(126, 156, 216, 0.4), 0 0 20px rgba(126, 156, 216, 0.2);
+}

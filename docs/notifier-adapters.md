@@ -16,7 +16,7 @@ Each entry is an array table in `config.toml`. The `on` field is optional and de
 
 ### `herdr`
 
-Sends a native Herdr notification using the canonical title and body. It is available when `herdr` is on `PATH`. Herdr controls the in-app toast display time globally with `~/.config/herdr/config.toml`'s `[ui.toast].delay_seconds`; orch sets this to `2` seconds (Herdr's default is `1` second).
+Sends a native Herdr notification using the canonical title and body. It is available when `herdr` is on `PATH`.
 
 ```toml
 [[notify]]

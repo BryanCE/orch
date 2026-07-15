@@ -24,7 +24,7 @@ function writeHosts(directory: string, config: string): void {
 }
 
 function successfulRunner(_destination: string, command: string): SshResult {
-  if (command === "orch --version") return { ok: true, stdout: "orch 0.2.0\n", stderr: "", code: 0 };
+  if (command === "orch --version") return { ok: true, stdout: "orch 0.1.0\n", stderr: "", code: 0 };
   return { ok: true, stdout: "", stderr: "", code: 0 };
 }
 
@@ -68,7 +68,7 @@ describe("doctor remote host checks", () => {
     const check = result(await runDoctor(directory, mismatch), "remote-orch-version");
 
     expect(check.status).toBe("fail");
-    expect(check.detail).toContain("old: remote orch 9.9.9 (local 0.2.0)");
+    expect(check.detail).toContain("old: remote orch 9.9.9 (local 0.1.0)");
     expect(check.detail).toContain("fix: ssh user@old.example orch --version");
   });
 

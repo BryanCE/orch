@@ -1,7 +1,7 @@
 # task-queue Specification
 
 ## Purpose
-TBD - created by archiving change make-orch-general-purpose. Update Purpose after archive.
+Persist tasks, assign them to eligible idle agents, retry failures, and expose queue history.
 ## Requirements
 ### Requirement: Enqueue tasks
 `orch queue add "<task>"` SHALL append a task to a persistent queue under `$ORCH_DIR/queue/` and print its task id. Options SHALL include `--agent <adapter>`, `--model <spec>`, `--cwd <path>`, and `--worktree`. `orch queue list [--json]` SHALL show queued, running, done, and failed tasks with their ids, and `orch queue cancel <id>` SHALL cancel a not-yet-claimed task.

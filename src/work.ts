@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { herdrBestEffort } from "./herdr.ts";
+import { herdrBestEffort } from "./backends/herdr/cli.ts";
 import {
   claimTask,
   listTasks,

@@ -8,7 +8,7 @@ import {
   collectRequiredConfig,
   probeNotifiers,
   renderNotifyEntry,
-} from "../src/setup-notifiers.ts";
+} from "../src/setup/notifiers.ts";
 
 describe("notifier setup logic", () => {
   test("probes the built-in adapters", async () => {

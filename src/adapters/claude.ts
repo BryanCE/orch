@@ -117,7 +117,9 @@ function presenceFor(key: string): PresenceEntry | undefined {
 }
 
 function paneFor(request: { key: string; opts?: SpawnOpts }): string {
-  return request.opts?.env?.HERDR_PANE_ID ?? request.key;
+  // Bridge boundary: the adapter uses the opaque orch-provided key, never a
+  // plexer-specific pane/session environment variable.
+  return request.key;
 }
 
 function degradedKeysCommand(pane: string, text: string): AdapterCommand {

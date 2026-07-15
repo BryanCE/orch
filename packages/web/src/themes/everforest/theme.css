@@ -1,0 +1,87 @@
+/* Everforest Light */
+[data-color-scheme="everforest"] {
+  --background: #fdf6e3;
+  --foreground: #5c6a72;
+  --card: #f3ead3;
+  --card-foreground: #5c6a72;
+  --popover: #f3ead3;
+  --popover-foreground: #5c6a72;
+  --primary: #8da101;
+  --primary-foreground: #fdf6e3;
+  --secondary: #eae4ca;
+  --secondary-foreground: #5c6a72;
+  --muted: #eae4ca;
+  --muted-foreground: #829181;
+  --accent: #d8e5c0;
+  --accent-foreground: #8da101;
+  --destructive: #f85552;
+  --destructive-foreground: #fdf6e3;
+  --border: #d4cdb8;
+  --input: #d4cdb8;
+  --ring: #8da101;
+  --chart-1: #8da101;
+  --chart-2: #3a94c5;
+  --chart-3: #df69ba;
+  --chart-4: #dfa000;
+  --chart-5: #f85552;
+  --sidebar: #f3ead3;
+  --sidebar-foreground: #5c6a72;
+  --sidebar-primary: #8da101;
+  --sidebar-primary-foreground: #fdf6e3;
+  --sidebar-accent: #d8e5c0;
+  --sidebar-accent-foreground: #8da101;
+  --sidebar-border: #d4cdb8;
+  --sidebar-ring: #8da101;
+  --shadow-color: rgba(92, 106, 114, 0.1);
+  --terminal-green: #8da101;
+  --terminal-cyan: #3a94c5;
+  --terminal-glow: 0 0 10px rgba(141, 161, 1, 0.2);
+}
+
+/* Everforest Dark */
+[data-color-scheme="everforest"].dark {
+  --background: #2d353b;
+  --foreground: #a7c080;
+  --card: #232a2e;
+  --card-foreground: #a7c080;
+  --popover: #2d353b;
+  --popover-foreground: #a7c080;
+  --primary: #a7c080;
+  --primary-foreground: #2d353b;
+  --secondary: #3d484d;
+  --secondary-foreground: #a7c080;
+  --muted: #3d484d;
+  --muted-foreground: #a7c08099;
+  --accent: #a7c08015;
+  --accent-foreground: #a7c080;
+  --destructive: #e67e80;
+  --destructive-foreground: #2d353b;
+  --border: #a7c08033;
+  --input: #a7c08033;
+  --ring: #a7c080;
+  --chart-1: #a7c080;
+  --chart-2: #7fbbb3;
+  --chart-3: #d699b6;
+  --chart-4: #dbbc7f;
+  --chart-5: #e67e80;
+  --sidebar: #232a2e;
+  --sidebar-foreground: #a7c080;
+  --sidebar-primary: #a7c080;
+  --sidebar-primary-foreground: #2d353b;
+  --sidebar-accent: #a7c08015;
+  --sidebar-accent-foreground: #a7c080;
+  --sidebar-border: #a7c08033;
+  --sidebar-ring: #a7c080;
+  --shadow-color: rgba(167, 192, 128, 0.15);
+  --shadow-2xs: 0 0 2px rgba(167, 192, 128, 0.2);
+  --shadow-xs: 0 0 4px rgba(167, 192, 128, 0.2);
+  --shadow-sm: 0 0 6px rgba(167, 192, 128, 0.15);
+  --shadow: 0 0 10px rgba(167, 192, 128, 0.15);
+  --shadow-md: 0 0 15px rgba(167, 192, 128, 0.15);
+  --shadow-lg: 0 0 20px rgba(167, 192, 128, 0.2);
+  --shadow-xl: 0 0 30px rgba(167, 192, 128, 0.25);
+  --shadow-2xl: 0 0 40px rgba(167, 192, 128, 0.3);
+  --terminal-green: #a7c080;
+  --terminal-cyan: #7fbbb3;
+  --terminal-glow: 0 0 10px rgba(167, 192, 128, 0.4), 0 0 20px rgba(167, 192, 128, 0.2);
+}

@@ -1,7 +1,7 @@
 # remote-hosts Specification
 
 ## Purpose
-TBD - created by archiving change make-orch-general-purpose. Update Purpose after archive.
+Federate orch observations and controls across SSH-configured remote orch installations.
 ## Requirements
 ### Requirement: Host declarations
 Remote hosts SHALL be declared in config as `[hosts.<name>]` with an `ssh` destination (and optional `orch_dir`). Each remote host runs its own complete orch installation; orch on the local machine federates over `ssh <dest> orch <command> --json` using BatchMode (no interactive prompts).

@@ -1,0 +1,87 @@
+/* Rosé Pine Dawn (Light) */
+[data-color-scheme="rose-pine"] {
+  --background: #faf4ed;
+  --foreground: #575279;
+  --card: #fffaf3;
+  --card-foreground: #575279;
+  --popover: #fffaf3;
+  --popover-foreground: #575279;
+  --primary: #286983;
+  --primary-foreground: #faf4ed;
+  --secondary: #f2e9e1;
+  --secondary-foreground: #575279;
+  --muted: #f2e9e1;
+  --muted-foreground: #9893a5;
+  --accent: #d7e4ea;
+  --accent-foreground: #286983;
+  --destructive: #b4637a;
+  --destructive-foreground: #faf4ed;
+  --border: #dfdad9;
+  --input: #dfdad9;
+  --ring: #286983;
+  --chart-1: #286983;
+  --chart-2: #56949f;
+  --chart-3: #907aa9;
+  --chart-4: #ea9d34;
+  --chart-5: #b4637a;
+  --sidebar: #fffaf3;
+  --sidebar-foreground: #575279;
+  --sidebar-primary: #286983;
+  --sidebar-primary-foreground: #faf4ed;
+  --sidebar-accent: #d7e4ea;
+  --sidebar-accent-foreground: #286983;
+  --sidebar-border: #dfdad9;
+  --sidebar-ring: #286983;
+  --shadow-color: rgba(87, 82, 121, 0.1);
+  --terminal-green: #286983;
+  --terminal-cyan: #56949f;
+  --terminal-glow: 0 0 10px rgba(40, 105, 131, 0.2);
+}
+
+/* Rosé Pine (Dark) */
+[data-color-scheme="rose-pine"].dark {
+  --background: #191724;
+  --foreground: #c4a7e7;
+  --card: #1f1d2e;
+  --card-foreground: #c4a7e7;
+  --popover: #191724;
+  --popover-foreground: #c4a7e7;
+  --primary: #c4a7e7;
+  --primary-foreground: #191724;
+  --secondary: #26233a;
+  --secondary-foreground: #c4a7e7;
+  --muted: #26233a;
+  --muted-foreground: #c4a7e799;
+  --accent: #c4a7e715;
+  --accent-foreground: #c4a7e7;
+  --destructive: #eb6f92;
+  --destructive-foreground: #191724;
+  --border: #c4a7e733;
+  --input: #c4a7e733;
+  --ring: #c4a7e7;
+  --chart-1: #c4a7e7;
+  --chart-2: #9ccfd8;
+  --chart-3: #ebbcba;
+  --chart-4: #f6c177;
+  --chart-5: #eb6f92;
+  --sidebar: #1f1d2e;
+  --sidebar-foreground: #c4a7e7;
+  --sidebar-primary: #c4a7e7;
+  --sidebar-primary-foreground: #191724;
+  --sidebar-accent: #c4a7e715;
+  --sidebar-accent-foreground: #c4a7e7;
+  --sidebar-border: #c4a7e733;
+  --sidebar-ring: #c4a7e7;
+  --shadow-color: rgba(196, 167, 231, 0.15);
+  --shadow-2xs: 0 0 2px rgba(196, 167, 231, 0.2);
+  --shadow-xs: 0 0 4px rgba(196, 167, 231, 0.2);
+  --shadow-sm: 0 0 6px rgba(196, 167, 231, 0.15);
+  --shadow: 0 0 10px rgba(196, 167, 231, 0.15);
+  --shadow-md: 0 0 15px rgba(196, 167, 231, 0.15);
+  --shadow-lg: 0 0 20px rgba(196, 167, 231, 0.2);
+  --shadow-xl: 0 0 30px rgba(196, 167, 231, 0.25);
+  --shadow-2xl: 0 0 40px rgba(196, 167, 231, 0.3);
+  --terminal-green: #c4a7e7;
+  --terminal-cyan: #9ccfd8;
+  --terminal-glow: 0 0 10px rgba(196, 167, 231, 0.4), 0 0 20px rgba(196, 167, 231, 0.2);
+}

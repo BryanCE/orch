@@ -16,3 +16,9 @@ This work should take minutes, not half an hour. The moment work splits, spawn t
 
 ## Rule 5 — Green means `bun run check` clean + `bun test` passing.
 Don't declare done until you've run them and they pass. Report the real result, never a claim.
+
+## Rule 6 — NODE-COMPATIBLE runtime. Bun is a BUILD tool only, NEVER a runtime dependency.
+This project ships to node so anyone can use it without bun. Runtime code in `src/` and `extensions/` MUST be node-safe. **NEVER** call `Bun.*` APIs (`Bun.which`, `Bun.file`, `Bun.sleep`, `Bun.spawn`, etc.) or import `bun:*` (except `bun:sqlite` ONLY as a guarded fallback behind `node:sqlite`) in runtime code. Use node equivalents: `node:sqlite` for the DB (already abstracted in `src/store/sqlite.ts`), `node:child_process` / a PATH scan for binary lookup, `node:fs`, timers for sleep. `bun:test` is fine in `test/` (tests run under bun). The distributable entrypoint is the node-built `dist/bin/orch.js` (node shebang, chmod +x); `bun run rebuild` runs `bun run build` (bun bundles → node output) then reloads agents. The installed `orch` should point at `dist/bin/orch.js`, NOT live `bin/orch.ts`.
+
+## Rule 7 — Dispatch agents on a FRESH context. Always `reset` before a new task.
+Before handing an agent a new task, `orch reset <target>` (alias `new`) so it starts with clean context — never pile a new task onto a used session. Reset every target you're about to redispatch, in the same shot as the dispatch.

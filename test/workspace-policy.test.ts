@@ -2,15 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { checkWall, sameWorkspace, scopeToWorkspace, workspaceName, workspaceOf } from "../src/policy/workspace.ts";
 
 describe("workspace policy", () => {
-  test("extracts workspace ids from base32 Herdr pane keys", () => {
-    expect(workspaceOf("w8:p5")).toBe("w8");
-    expect(workspaceOf("w12:p3")).toBe("w12");
-    expect(workspaceOf("wD:pJ")).toBe("wD");
-    expect(workspaceOf("wD:pF")).toBe("wD");
-    expect(workspaceOf("wD:p9")).toBe("wD");
-    expect(workspaceOf("session-1234")).toBeNull();
-    expect(workspaceOf("wD:t1")).toBeNull();
-    expect(checkWall("wD:p0", "wD:pJ", { crossWorkspace: false }).allowed).toBe(true);
+  test("reads workspaces from serialized identity keys", () => {
+    expect(workspaceOf("herdr~wD~p2")).toBe("wD");
+    expect(workspaceOf("tmux~main~%255")).toBe("main");
+    expect(workspaceOf("headless~local~1234")).toBe("local");
+    expect(workspaceOf("wD:p1")).toBeNull();
+    expect(workspaceOf("session-123")).toBeNull();
+    expect(workspaceOf(null)).toBeNull();
+    expect(workspaceOf(undefined)).toBeNull();
   });
 
   test("resolves workspace names through records and functions", () => {
@@ -20,42 +19,27 @@ describe("workspace policy", () => {
     expect(workspaceName(null, {})).toBeNull();
   });
 
-  test("treats headless and session keys as unscoped", () => {
-    expect(workspaceOf("session-123")).toBeNull();
-    expect(workspaceOf("p5")).toBeNull();
-    expect(workspaceOf(null)).toBeNull();
-    expect(workspaceOf(undefined)).toBeNull();
+  test("compares serialized keys by their workspace", () => {
+    expect(sameWorkspace(workspaceOf("herdr~wD~p0"), workspaceOf("herdr~wD~p2"))).toBe(true);
+    expect(sameWorkspace(workspaceOf("herdr~w1~p1"), workspaceOf("herdr~w2~p2"))).toBe(false);
     expect(sameWorkspace(null, "w8")).toBe(false);
   });
 
-  test("denies a cross-workspace wall without override", () => {
-    expect(checkWall("w1:p1", "w2:p2", { crossWorkspace: false }).allowed).toBe(false);
+  test("enforces the workspace wall", () => {
+    expect(checkWall("herdr~wD~p0", "herdr~wD~p2", { crossWorkspace: false }).allowed).toBe(true);
+    expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false }).allowed).toBe(false);
+    expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true }).allowed).toBe(true);
+    expect(checkWall(null, "herdr~w2~p2", { crossWorkspace: false }).allowed).toBe(true);
+    expect(checkWall("headless~local~1", "tmux~local~%5", { crossWorkspace: false }).allowed).toBe(true);
   });
 
-  test("allows a cross-workspace wall with override", () => {
-    expect(checkWall("w1:p1", "w2:p2", { crossWorkspace: true }).allowed).toBe(true);
-  });
-
-  test("scopes items to the current workspace and excludes unscoped keys", () => {
-    const items = ["w1:p1", "w2:p2", "session-123"];
-    expect(scopeToWorkspace(items, (item) => item, "w1", { all: false })).toEqual(["w1:p1"]);
+  test("scopes serialized identity keys to the current workspace", () => {
+    const items = ["herdr~w1~p1", "tmux~w2~%5", "session-123"];
+    expect(scopeToWorkspace(items, (item) => item, "w1", { all: false })).toEqual(["herdr~w1~p1"]);
   });
 
   test("null current workspace leaves items unscoped", () => {
-    const items = ["w1:p1", "w2:p2", "session-123"];
+    const items = ["herdr~w1~p1", "herdr~w2~p2", "session-123"];
     expect(scopeToWorkspace(items, (item) => item, null, { all: false })).toBe(items);
-    expect(checkWall(null, "w2:p2", { crossWorkspace: false }).allowed).toBe(true);
-  });
-
-  test("accepts base32 pane ids beyond the existing coverage", () => {
-    expect(workspaceOf("wD:pE")).toBe("wD");
-    expect(workspaceOf("wD:pJ")).toBe("wD");
-    expect(workspaceOf("wD:pT")).toBe("wD");
-    expect(workspaceOf("wD:pX")).toBe("wD");
-    expect(workspaceOf("wD:p9")).toBe("wD");
-    expect(workspaceOf("wD:pT")).toBe(workspaceOf("wD:pX"));
-    expect(sameWorkspace("wD", "wD")).toBe(true);
-    expect(sameWorkspace("wD", "wC")).toBe(false);
-    expect(checkWall("wD:pT", "wD:pX", { crossWorkspace: false }).allowed).toBe(true);
   });
 });

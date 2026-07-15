@@ -1,0 +1,87 @@
+/* Tokyo Night Day (Light) */
+[data-color-scheme="tokyo-night"] {
+  --background: #e1e2e7;
+  --foreground: #3760bf;
+  --card: #d5d6db;
+  --card-foreground: #3760bf;
+  --popover: #d5d6db;
+  --popover-foreground: #3760bf;
+  --primary: #2e7de9;
+  --primary-foreground: #ffffff;
+  --secondary: #c4c8da;
+  --secondary-foreground: #3760bf;
+  --muted: #c4c8da;
+  --muted-foreground: #6172b0;
+  --accent: #b6bfe2;
+  --accent-foreground: #2e7de9;
+  --destructive: #f52a65;
+  --destructive-foreground: #ffffff;
+  --border: #a8aecb;
+  --input: #a8aecb;
+  --ring: #2e7de9;
+  --chart-1: #2e7de9;
+  --chart-2: #387068;
+  --chart-3: #9854f1;
+  --chart-4: #b15c00;
+  --chart-5: #f52a65;
+  --sidebar: #d5d6db;
+  --sidebar-foreground: #3760bf;
+  --sidebar-primary: #2e7de9;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #b6bfe2;
+  --sidebar-accent-foreground: #2e7de9;
+  --sidebar-border: #a8aecb;
+  --sidebar-ring: #2e7de9;
+  --shadow-color: rgba(55, 96, 191, 0.1);
+  --terminal-green: #2e7de9;
+  --terminal-cyan: #387068;
+  --terminal-glow: 0 0 10px rgba(46, 125, 233, 0.2);
+}
+
+/* Tokyo Night (Dark) */
+[data-color-scheme="tokyo-night"].dark {
+  --background: #1a1b26;
+  --foreground: #7aa2f7;
+  --card: #16161e;
+  --card-foreground: #7aa2f7;
+  --popover: #1a1b26;
+  --popover-foreground: #7aa2f7;
+  --primary: #7aa2f7;
+  --primary-foreground: #1a1b26;
+  --secondary: #24283b;
+  --secondary-foreground: #7aa2f7;
+  --muted: #24283b;
+  --muted-foreground: #7aa2f799;
+  --accent: #7aa2f715;
+  --accent-foreground: #7aa2f7;
+  --destructive: #f7768e;
+  --destructive-foreground: #1a1b26;
+  --border: #7aa2f733;
+  --input: #7aa2f733;
+  --ring: #7aa2f7;
+  --chart-1: #7aa2f7;
+  --chart-2: #73daca;
+  --chart-3: #bb9af7;
+  --chart-4: #ff9e64;
+  --chart-5: #f7768e;
+  --sidebar: #16161e;
+  --sidebar-foreground: #7aa2f7;
+  --sidebar-primary: #7aa2f7;
+  --sidebar-primary-foreground: #1a1b26;
+  --sidebar-accent: #7aa2f715;
+  --sidebar-accent-foreground: #7aa2f7;
+  --sidebar-border: #7aa2f733;
+  --sidebar-ring: #7aa2f7;
+  --shadow-color: rgba(122, 162, 247, 0.15);
+  --shadow-2xs: 0 0 2px rgba(122, 162, 247, 0.2);
+  --shadow-xs: 0 0 4px rgba(122, 162, 247, 0.2);
+  --shadow-sm: 0 0 6px rgba(122, 162, 247, 0.15);
+  --shadow: 0 0 10px rgba(122, 162, 247, 0.15);
+  --shadow-md: 0 0 15px rgba(122, 162, 247, 0.15);
+  --shadow-lg: 0 0 20px rgba(122, 162, 247, 0.2);
+  --shadow-xl: 0 0 30px rgba(122, 162, 247, 0.25);
+  --shadow-2xl: 0 0 40px rgba(122, 162, 247, 0.3);
+  --terminal-green: #7aa2f7;
+  --terminal-cyan: #73daca;
+  --terminal-glow: 0 0 10px rgba(122, 162, 247, 0.4), 0 0 20px rgba(122, 162, 247, 0.2);
+}

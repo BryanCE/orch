@@ -6,7 +6,7 @@ const PALETTE = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2
 
 function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   return {
-    key: "w6:p21",
+    key: "herdr~w6~p21",
     agent: "w-2",
     tab: null,
     model: null,
@@ -31,12 +31,12 @@ describe("notification and presence event formatting", () => {
     expect(first).toMatch(/^#[0-9a-f]{6}$/);
   });
 
-  test("nameless events use an abstract agent label, never the harness pane key", () => {
-    const before = "DONE [w6] w6:p21: build the thing";
+  test("nameless events use an identity-derived agent label", () => {
+    const before = "DONE [w6] herdr~w6~p21: build the thing";
     const after = notificationText(event({ agent: null }), { colorize: false }).title;
-    expect(before).toContain("w6:p21");
-    expect(after).not.toContain("w6:p21");
-    expect(after).toContain("w6/agent-p21");
+    expect(before).toContain("herdr~w6~p21");
+    expect(after).toContain("herdr~w6~p21");
+    expect(after).toContain("w6/agent-herdr~w6~p21");
     expect(after).toContain("[w6]");
   });
 
@@ -75,7 +75,7 @@ describe("notification and presence event formatting", () => {
       workspace: "w6",
       workspaceColor: workspaceColor("w6"),
       host: null,
-      key: "w6:p21",
+      key: "herdr~w6~p21",
       agent: "w-2",
       tab: null,
       model: null,
@@ -90,15 +90,15 @@ describe("notification and presence event formatting", () => {
 
   test("presence eventTask strips worker preamble, truncates plain tasks, and formats questions", () => {
     const preamble = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
-    expect(transition("w8:p3", { state: "done", task: `${preamble} build the real thing` })?.task).toBe("build the real thing");
+    expect(transition("herdr~w8~p3", { state: "done", task: `${preamble} build the real thing` })?.task).toBe("build the real thing");
 
     const longTask = "x".repeat(100);
-    expect(transition("w8:p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(79)}…`);
-    expect(transition("w8:p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
+    expect(transition("herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(79)}…`);
+    expect(transition("herdr~w8~p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
   });
 
-  test("derivePresenceTransition derives workspace only for workspace:pane keys", () => {
-    const withWorkspace = transition("w8:p3", { state: "done" });
+  test("derivePresenceTransition derives workspace from identity keys", () => {
+    const withWorkspace = transition("herdr~w8~p3", { state: "done" });
     expect(withWorkspace?.workspace).toBe("w8");
     const withoutWorkspace = transition("p3", { state: "done" });
     expect(withoutWorkspace?.workspace).toBeUndefined();

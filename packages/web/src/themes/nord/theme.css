@@ -1,0 +1,87 @@
+/* Nord Snow Storm (Light) */
+[data-color-scheme="nord"] {
+  --background: #eceff4;
+  --foreground: #2e3440;
+  --card: #e5e9f0;
+  --card-foreground: #2e3440;
+  --popover: #e5e9f0;
+  --popover-foreground: #2e3440;
+  --primary: #5e81ac;
+  --primary-foreground: #ffffff;
+  --secondary: #d8dee9;
+  --secondary-foreground: #2e3440;
+  --muted: #d8dee9;
+  --muted-foreground: #4c566a;
+  --accent: #c9d1e0;
+  --accent-foreground: #5e81ac;
+  --destructive: #bf616a;
+  --destructive-foreground: #ffffff;
+  --border: #c2c9d6;
+  --input: #c2c9d6;
+  --ring: #5e81ac;
+  --chart-1: #5e81ac;
+  --chart-2: #8fbcbb;
+  --chart-3: #b48ead;
+  --chart-4: #d08770;
+  --chart-5: #bf616a;
+  --sidebar: #e5e9f0;
+  --sidebar-foreground: #2e3440;
+  --sidebar-primary: #5e81ac;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #c9d1e0;
+  --sidebar-accent-foreground: #5e81ac;
+  --sidebar-border: #c2c9d6;
+  --sidebar-ring: #5e81ac;
+  --shadow-color: rgba(46, 52, 64, 0.1);
+  --terminal-green: #5e81ac;
+  --terminal-cyan: #8fbcbb;
+  --terminal-glow: 0 0 10px rgba(94, 129, 172, 0.2);
+}
+
+/* Nord Polar Night (Dark) */
+[data-color-scheme="nord"].dark {
+  --background: #2e3440;
+  --foreground: #88c0d0;
+  --card: #3b4252;
+  --card-foreground: #88c0d0;
+  --popover: #2e3440;
+  --popover-foreground: #88c0d0;
+  --primary: #88c0d0;
+  --primary-foreground: #2e3440;
+  --secondary: #434c5e;
+  --secondary-foreground: #88c0d0;
+  --muted: #434c5e;
+  --muted-foreground: #88c0d099;
+  --accent: #88c0d015;
+  --accent-foreground: #88c0d0;
+  --destructive: #bf616a;
+  --destructive-foreground: #2e3440;
+  --border: #88c0d033;
+  --input: #88c0d033;
+  --ring: #88c0d0;
+  --chart-1: #88c0d0;
+  --chart-2: #a3be8c;
+  --chart-3: #b48ead;
+  --chart-4: #d08770;
+  --chart-5: #bf616a;
+  --sidebar: #3b4252;
+  --sidebar-foreground: #88c0d0;
+  --sidebar-primary: #88c0d0;
+  --sidebar-primary-foreground: #2e3440;
+  --sidebar-accent: #88c0d015;
+  --sidebar-accent-foreground: #88c0d0;
+  --sidebar-border: #88c0d033;
+  --sidebar-ring: #88c0d0;
+  --shadow-color: rgba(136, 192, 208, 0.15);
+  --shadow-2xs: 0 0 2px rgba(136, 192, 208, 0.2);
+  --shadow-xs: 0 0 4px rgba(136, 192, 208, 0.2);
+  --shadow-sm: 0 0 6px rgba(136, 192, 208, 0.15);
+  --shadow: 0 0 10px rgba(136, 192, 208, 0.15);
+  --shadow-md: 0 0 15px rgba(136, 192, 208, 0.15);
+  --shadow-lg: 0 0 20px rgba(136, 192, 208, 0.2);
+  --shadow-xl: 0 0 30px rgba(136, 192, 208, 0.25);
+  --shadow-2xl: 0 0 40px rgba(136, 192, 208, 0.3);
+  --terminal-green: #88c0d0;
+  --terminal-cyan: #a3be8c;
+  --terminal-glow: 0 0 10px rgba(136, 192, 208, 0.4), 0 0 20px rgba(136, 192, 208, 0.2);
+}

@@ -18,11 +18,13 @@ const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 const HERDR_ENV = process.env.HERDR_ENV;
 const socketPath = process.env.HERDR_SOCKET_PATH;
-const paneId = process.env.HERDR_PANE_ID;
+// This pane id is used only in herdr control-socket payloads. Presence identity
+// belongs to orch and is supplied separately as ORCH_AGENT_KEY.
+const herdrPaneId = process.env.HERDR_PANE_ID;
 const source = "herdr:pi";
 
 function enabled() {
-  return HERDR_ENV === "1" && !!socketPath && !!paneId;
+  return HERDR_ENV === "1" && !!socketPath && !!herdrPaneId;
 }
 
 function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
@@ -140,7 +142,7 @@ function reportSession(): Promise<void> {
     id: `${source}:session:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.report_agent_session",
     params: {
-      pane_id: paneId,
+      pane_id: herdrPaneId,
       source,
       agent: "pi",
       seq: nextReportSeq(),
@@ -154,7 +156,7 @@ function sendState(state: AgentState, message?: string, seq = nextReportSeq()): 
     id: `${source}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.report_agent",
     params: withSessionRef({
-      pane_id: paneId,
+      pane_id: herdrPaneId,
       source,
       agent: "pi",
       state,
@@ -170,7 +172,7 @@ function releaseAgent(): Promise<void> {
     id: `${source}:release:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.release_agent",
     params: {
-      pane_id: paneId,
+      pane_id: herdrPaneId,
       source,
       agent: "pi",
       seq: nextReportSeq(),

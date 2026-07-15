@@ -1,0 +1,87 @@
+/* Night Owl Light (Light Owl) */
+[data-color-scheme="night-owl"] {
+  --background: #fbfbfb;
+  --foreground: #403f53;
+  --card: #f0f0f0;
+  --card-foreground: #403f53;
+  --popover: #f0f0f0;
+  --popover-foreground: #403f53;
+  --primary: #288ed7;
+  --primary-foreground: #fbfbfb;
+  --secondary: #e5e5e5;
+  --secondary-foreground: #403f53;
+  --muted: #e5e5e5;
+  --muted-foreground: #7a7a7a;
+  --accent: #d0e6f5;
+  --accent-foreground: #288ed7;
+  --destructive: #de3d3b;
+  --destructive-foreground: #fbfbfb;
+  --border: #d0d0d0;
+  --input: #d0d0d0;
+  --ring: #288ed7;
+  --chart-1: #288ed7;
+  --chart-2: #0c969b;
+  --chart-3: #9a4292;
+  --chart-4: #daaa01;
+  --chart-5: #de3d3b;
+  --sidebar: #f0f0f0;
+  --sidebar-foreground: #403f53;
+  --sidebar-primary: #288ed7;
+  --sidebar-primary-foreground: #fbfbfb;
+  --sidebar-accent: #d0e6f5;
+  --sidebar-accent-foreground: #288ed7;
+  --sidebar-border: #d0d0d0;
+  --sidebar-ring: #288ed7;
+  --shadow-color: rgba(64, 63, 83, 0.1);
+  --terminal-green: #288ed7;
+  --terminal-cyan: #0c969b;
+  --terminal-glow: 0 0 10px rgba(40, 142, 215, 0.2);
+}
+
+/* Night Owl Dark */
+[data-color-scheme="night-owl"].dark {
+  --background: #011627;
+  --foreground: #82aaff;
+  --card: #001122;
+  --card-foreground: #82aaff;
+  --popover: #011627;
+  --popover-foreground: #82aaff;
+  --primary: #82aaff;
+  --primary-foreground: #011627;
+  --secondary: #0b2942;
+  --secondary-foreground: #82aaff;
+  --muted: #0b2942;
+  --muted-foreground: #82aaff99;
+  --accent: #82aaff15;
+  --accent-foreground: #82aaff;
+  --destructive: #ef5350;
+  --destructive-foreground: #011627;
+  --border: #82aaff33;
+  --input: #82aaff33;
+  --ring: #82aaff;
+  --chart-1: #82aaff;
+  --chart-2: #21c7a8;
+  --chart-3: #c792ea;
+  --chart-4: #addb67;
+  --chart-5: #ef5350;
+  --sidebar: #001122;
+  --sidebar-foreground: #82aaff;
+  --sidebar-primary: #82aaff;
+  --sidebar-primary-foreground: #011627;
+  --sidebar-accent: #82aaff15;
+  --sidebar-accent-foreground: #82aaff;
+  --sidebar-border: #82aaff33;
+  --sidebar-ring: #82aaff;
+  --shadow-color: rgba(130, 170, 255, 0.15);
+  --shadow-2xs: 0 0 2px rgba(130, 170, 255, 0.2);
+  --shadow-xs: 0 0 4px rgba(130, 170, 255, 0.2);
+  --shadow-sm: 0 0 6px rgba(130, 170, 255, 0.15);
+  --shadow: 0 0 10px rgba(130, 170, 255, 0.15);
+  --shadow-md: 0 0 15px rgba(130, 170, 255, 0.15);
+  --shadow-lg: 0 0 20px rgba(130, 170, 255, 0.2);
+  --shadow-xl: 0 0 30px rgba(130, 170, 255, 0.25);
+  --shadow-2xl: 0 0 40px rgba(130, 170, 255, 0.3);
+  --terminal-green: #82aaff;
+  --terminal-cyan: #21c7a8;
+  --terminal-glow: 0 0 10px rgba(130, 170, 255, 0.4), 0 0 20px rgba(130, 170, 255, 0.2);
+}

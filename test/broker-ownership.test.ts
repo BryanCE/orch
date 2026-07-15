@@ -36,14 +36,14 @@ describe("broker ownership and workspace governance", () => {
   });
 
   test("refuses cross-workspace writes unless explicitly overridden", () => {
-    expect(checkWall("w1:p1", "w1:p2", { crossWorkspace: false })).toEqual({ allowed: true });
+    expect(checkWall("herdr~w1~p1", "herdr~w1~p3", { crossWorkspace: false })).toEqual({ allowed: true });
 
-    const refused = checkWall("w1:p1", "w2:p2", { crossWorkspace: false });
+    const refused = checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false });
     expect(refused.allowed).toBe(false);
     expect(refused.reason).toContain("w1");
     expect(refused.reason).toContain("w2");
 
-    expect(checkWall("w1:p1", "w2:p2", { crossWorkspace: true })).toEqual({ allowed: true });
+    expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
   });
 
   test("work-loop selection stays within the origin workspace", () => {

@@ -2,24 +2,30 @@ import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { deliverToSink, loadSinks, notify, notificationText, type NotifyEvent, type Sink } from "./notify.ts";
 import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "./queue.ts";
-import { runDoctor, applyFixes, binaryStatus, checkBins, checkExtensions, isBridgeExtensionStale } from "./doctor.ts";
+import { runDoctor, applyFixes, binaryStatus, checkBins, checkExtensions, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
+import { setupIntro, setupOutro, selectAdapter, selectBackend, chooseInstalls } from "./setup/wizard.ts";
+import { renderDoctorResults, pickFixes } from "./setup/doctor-wizard.ts";
+import { withSpinner } from "./setup/io.ts";
 import { bridgeBundlePath, buildBridgeBundle } from "./bridge-bundle.ts";
 import { loadConfig, resolveSetting, writeDefaultEntry, type HostConfig, type OrchConfig } from "./config.ts";
-import { bridgeRegistered, defaultModelString, isRecord, loadPresence, orchDir, pidAlive, presenceDir, presenceAgentDir, readJSON, recordSpawned, spawnedPanes, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "./store.ts";
+import { bridgeRegistered, defaultModelString, isRecord, loadPresence, orchDir, pidAlive, presenceDir, presenceAgentDir, readJSON, recordSpawned, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "./store.ts";
 import { piAdapter, presenceFor } from "./adapters/pi.ts";
 import { codexAdapter } from "./adapters/codex.ts";
 import { claudeAdapter } from "./adapters/claude.ts";
 import type { AgentAdapter } from "./adapters/adapter.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionData, type SessionEntry, type ToolCallContentBlock } from "./session.ts";
-import { buildEntities, collapse, currentWorkspace, entityWorkspace, parseTarget, resolvePane, resolveTarget, scopeEntitiesToWorkspace, sortEntities, workspaceOf, type Entity } from "./entities.ts";
-import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./herdr.ts";
-import { herdrBackend } from "./backends/herdr.ts";
+import { buildEntities, collapse, currentWorkspace, entityWorkspace, parseTarget, resolvePane, resolveTarget, scopeEntitiesToWorkspace, selfActor, sortEntities, workspaceOf, type Entity } from "./entities.ts";
+import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./backends/herdr/cli.ts";
+import { herdrBackend } from "./backends/herdr/index.ts";
+import { serializeIdentity, tryParseIdentity } from "./backends/identity.ts";
 import { runRemoteAsync, runSSH } from "./remote.ts";
-import { headlessBackend, type HeadlessHandle } from "./backends/headless.ts";
+import { headlessBackend, type HeadlessHandle } from "./backends/headless/index.ts";
 import type { Backend } from "./backends/backend.ts";
+import { allBackends, resolveBackend } from "./backends/registry.ts";
 import { renderTable, truncate } from "./table.ts";
 import { errorMessage } from "./util.ts";
 import { daemonize, runForeground } from "./daemon/lifecycle.ts";
@@ -172,7 +178,7 @@ function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
     paneLabel,
     name: ent.name ?? "",
     tab: ent.tabLabel ?? "-",
-    agent: pres?.status?.agent ?? (ent.paneId ? spawned.get(ent.paneId)?.adapter : undefined) ?? ent.agent ?? "-",
+    agent: pres?.status?.agent ?? (spawned.get(ent.key)?.adapter) ?? ent.agent ?? "-",
     model,
     modelFull,
     state,
@@ -708,18 +714,18 @@ function cmdQuestionsLocal(args: string[]) {
       name: names.get(pres.key) ?? null,
       age: formatAge(question.ts),
       question: questionText(question),
-      workspace: workspaceOf(pres.status?.paneId ?? pres.key) ?? "-",
+      workspace: workspaceOf(pres.key) ?? "-",
       host: "local",
     })), null, 2) + "\n");
     return;
   }
-  const workspaces = pending.map(({ pres }) => workspaceOf(pres.status?.paneId ?? pres.key) ?? "-");
+  const workspaces = pending.map(({ pres }) => workspaceOf(pres.key) ?? "-");
   const showWorkspace = all && new Set(workspaces).size > 1;
   process.stdout.write(
     pending
       .map(({ pres, question }) => {
         const label = names.get(pres.key) ?? "-";
-        const workspaceLabel = workspaceOf(pres.status?.paneId ?? pres.key) ?? "-";
+        const workspaceLabel = workspaceOf(pres.key) ?? "-";
         const name = showWorkspace ? `${workspaceLabel} / ${label}` : label;
         return `${pres.key}  ${name}  ${formatAge(question.ts)}\n${question.question}`;
       })
@@ -760,7 +766,7 @@ function localQuestionRows(args: string[]): QuestionRow[] {
     .filter((entry): entry is { pres: PresenceEntry; question: QuestionPayload } => isQuestionPayload(entry.question))
     .map(({ pres, question }) => ({
       key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
-      question: questionText(question), workspace: workspaceOf(pres.status?.paneId ?? pres.key) ?? "-", host: "local",
+      question: questionText(question), workspace: workspaceOf(pres.key) ?? "-", host: "local",
     }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -829,7 +835,7 @@ function cmdAnswer(args: string[]) {
 // ---- watch ----
 
 function looksLikePaneKey(key: string): boolean {
-  return /:p[0-9a-zA-Z]+$/.test(key);
+  return tryParseIdentity(key)?.backend === "herdr";
 }
 
 interface WatchItem {
@@ -1118,10 +1124,10 @@ function cmdResult(args: string[]) {
 
 async function cmdSteer(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const { gov, rest: cleanArgs } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const target = cleanArgs[0];
   const text = cleanArgs.slice(1).join(" ");
-  if (!target || !text) die('usage: orch steer <target> <text...> [--json]');
+  if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-workspace] [--json]');
   const remote = targetHost(target);
   if (remote) {
     remoteWrite(remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
@@ -1137,7 +1143,7 @@ async function cmdSteer(args: string[]): Promise<void> {
     return;
   }
   const pane = entity.paneId;
-  const result = await writeRpc("steer", { target: pane, text });
+  const result = await writeRpc("steer", { target: pane, text }, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Steered ${pane} → ${truncate(collapse(text), 60)}\n`);
 }
@@ -1441,48 +1447,72 @@ const DEP_INSTALLERS: [string, string][] = [
   ["claude", "curl -fsSL https://claude.ai/install.sh | bash"],
 ];
 
-async function askYesNo(q: string): Promise<boolean> {
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const a = (await rl.question(q)).trim().toLowerCase();
-  rl.close();
-  return a === "" || a === "y" || a === "yes";
-}
-
-/** Prompt for one id from `options`, accepting either its list number or its exact name. */
-async function askChoice(label: string, options: readonly string[]): Promise<string> {
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  process.stdout.write(`${label}\n`);
-  options.forEach((option, index) => process.stdout.write(`  ${index + 1}) ${option}\n`));
-  try {
-    while (true) {
-      const answer = (await rl.question(`  Select [1-${options.length}]: `)).trim();
-      const byNumber = Number(answer);
-      if (Number.isInteger(byNumber) && byNumber >= 1 && byNumber <= options.length) return options[byNumber - 1]!;
-      const byName = options.find((option) => option === answer.toLowerCase());
-      if (byName) return byName;
-      process.stdout.write(`  Enter 1-${options.length} or one of: ${options.join(", ")}\n`);
-    }
-  } finally {
-    rl.close();
-  }
-}
-
 /** Read the value following `name` in `args`, or undefined when the flag is absent. */
 function readValueFlag(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index !== -1 && index + 1 < args.length ? args[index + 1] : undefined;
 }
 
-/** Resolve one setup selection from its flag, an interactive prompt, or fail in non-interactive mode. */
-async function pickSetupSelection(kind: string, flag: string | undefined, supported: readonly string[], flagName: string): Promise<string> {
-  if (flag !== undefined) {
-    if (supported.includes(flag)) return flag;
-    die(`Unknown ${kind} "${flag}". Supported ${kind}s: ${supported.join(", ")}.`);
+/** Validate a provided setup flag value against the supported ids, or exit. */
+function validateSetupFlag(kind: string, value: string, supported: readonly string[]): string {
+  if (supported.includes(value)) return value;
+  die(`Unknown ${kind} "${value}". Supported ${kind}s: ${supported.join(", ")}.`);
+}
+
+/** Resolve one setup selection from its flag, the interactive picker, or exit in non-interactive mode. Null on cancel. */
+async function resolveSetupSelection(
+  kind: string,
+  flagName: string,
+  flag: string | undefined,
+  ids: readonly string[],
+  interactive: boolean,
+  pick: (options: readonly string[]) => Promise<string | null>,
+): Promise<string | null> {
+  if (flag !== undefined) return validateSetupFlag(kind, flag, ids);
+  if (interactive) return pick(ids);
+  die(`orch setup needs ${flagName} <id> in non-interactive mode. Supported ${kind}s: ${ids.join(", ")}.`);
+}
+
+/** Print the manual install commands for each missing prerequisite. */
+function printInstallHints(missing: readonly { bin: string; cmd: string }[]): void {
+  for (const { bin, cmd } of missing) process.stdout.write(`  install ${bin}: ${cmd}\n`);
+}
+
+/** Decide which missing prerequisites to install: multiselect when interactive, all with -y, none otherwise. Null on cancel. */
+async function resolveInstallTargets(
+  missing: readonly { bin: string; cmd: string }[],
+  interactive: boolean,
+  yes: boolean,
+  noInstall: boolean,
+): Promise<string[] | null> {
+  if (!missing.length || noInstall) {
+    printInstallHints(missing);
+    return [];
   }
-  if (process.stdin.isTTY) return askChoice(`Choose a ${kind}:`, supported);
-  die(`orch setup needs ${flagName} <id> in non-interactive mode. Supported ${kind}s: ${supported.join(", ")}.`);
+  if (interactive) {
+    const picked = await chooseInstalls(missing);
+    if (picked === null) return null;
+    for (const { bin, cmd } of missing)
+      if (!picked.includes(bin)) process.stdout.write(`  skipped ${bin} — install later with: ${cmd}\n`);
+    return picked;
+  }
+  if (yes) return missing.map(({ bin }) => bin);
+  printInstallHints(missing);
+  return [];
+}
+
+/** Install one prerequisite: silent under a spinner when interactive, streamed otherwise. */
+async function runInstall(bin: string, cmd: string, interactive: boolean): Promise<void> {
+  try {
+    if (interactive) {
+      await withSpinner(`Installing ${bin}…`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
+    } else {
+      process.stdout.write(`  Installing ${bin}…\n`);
+      execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
+    }
+  } catch {
+    process.stderr.write(`  ${bin} install failed — run manually: ${cmd}\n`);
+  }
 }
 
 function installClaudeHooks(pkgRoot: string): void {
@@ -1555,8 +1585,16 @@ async function cmdSetup(args: string[]) {
 
   const harnessFlag = readValueFlag(args, "--agent") ?? readValueFlag(args, "--adapter");
   const backendFlag = readValueFlag(args, "--backend");
-  const harness = await pickSetupSelection("harness", harnessFlag, adapters.map((adapter) => adapter.id), "--agent");
-  const backend = await pickSetupSelection("backend", backendFlag, backends.map((entry) => entry.id), "--backend");
+  const adapterIds = adapters.map((adapter) => adapter.id);
+  const backendIds = allBackends().map((entry) => entry.id);
+  const interactive = process.stdin.isTTY && !yes;
+  if (interactive) setupIntro();
+
+  const harness = await resolveSetupSelection("harness", "--agent", harnessFlag, adapterIds, interactive, selectAdapter);
+  if (harness === null) return;
+  const backend = await resolveSetupSelection("backend", "--backend", backendFlag, backendIds, interactive, selectBackend);
+  if (backend === null) return;
+
   writeDefaultEntry(orchDir(), "adapter", harness);
   writeDefaultEntry(orchDir(), "backend", backend);
   process.stdout.write(`Selection recorded in ${path.join(orchDir(), "config.toml")}:\n  harness (adapter) = ${harness}\n  backend           = ${backend}\n`);
@@ -1574,29 +1612,16 @@ async function cmdSetup(args: string[]) {
     process.stdout.write(`  ${found ? "ok      " : "MISSING "}${bin}${resolved ? `  (${resolved})` : ""}\n`);
   }
 
-  if (missing.length && !noInstall) {
-    for (const bin of missing) {
-      const cmd = DEP_INSTALLERS.find(([b]) => b === bin)![1];
-      let go = yes;
-      if (!go && process.stdin.isTTY) go = await askYesNo(`  Install ${bin} now? (${cmd}) [Y/n] `);
-      if (!go) {
-        process.stdout.write(`  skipped ${bin} — install later with: ${cmd}\n`);
-        continue;
-      }
-      process.stdout.write(`  Installing ${bin}…\n`);
-      try {
-        execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
-      } catch {
-        process.stderr.write(`  ${bin} install failed — run manually: ${cmd}\n`);
-      }
-      // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
-      process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
-      const now = which(bin);
-      process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH — open a new shell and re-run orch setup\n`);
-    }
-  } else if (missing.length) {
-    for (const bin of missing)
-      process.stdout.write(`  install ${bin}: ${DEP_INSTALLERS.find(([b]) => b === bin)![1]}\n`);
+  const missingWithCmd = missing.map((bin) => ({ bin, cmd: DEP_INSTALLERS.find(([b]) => b === bin)![1] }));
+  const toInstall = await resolveInstallTargets(missingWithCmd, interactive, yes, noInstall);
+  if (toInstall === null) return;
+  for (const bin of toInstall) {
+    const cmd = DEP_INSTALLERS.find(([b]) => b === bin)![1];
+    await runInstall(bin, cmd, interactive);
+    // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
+    process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
+    const now = which(bin);
+    process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH — open a new shell and re-run orch setup\n`);
   }
 
   process.stdout.write("Presence dir:\n");
@@ -1677,7 +1702,9 @@ async function cmdSetup(args: string[]) {
   process.stdout.write("Running doctor checks...\n");
   const doctorResults = await runDoctor(orchDir());
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
-  process.stdout.write("Done. Open a herdr workspace and try: orch spawn 2 --tab Team1\n");
+  const doneMessage = "Done. Open a herdr workspace and try: orch spawn 2 --tab Team1";
+  if (interactive) setupOutro(doneMessage);
+  else process.stdout.write(`${doneMessage}\n`);
 }
 
 // ---- spawn / tile (geometry-driven tiler) ----
@@ -1732,35 +1759,42 @@ function writeTrustEntry(cwd: string) {
 // keystroke can be lost, and no resend is ever needed. The agent's name is set
 // at start, so there is no separate rename step. `tab` targets an existing tab;
 // `split` splits within it (the caller owns tiling direction).
-function startAgentPane(opts: { name: string; cmd: string; cwd: string; workspace?: string; tab?: string; split?: "down" | "right" }): string {
+function startAgentPane(opts: { name: string; key: string; cmd: string; cwd: string; workspace?: string; tab?: string; split?: "down" | "right" }): { pane: string; key: string } {
   const argv = opts.cmd.trim().split(/\s+/).filter(Boolean);
   const flags = ["agent", "start", opts.name, "--cwd", opts.cwd, "--no-focus"];
   if (opts.workspace) flags.push("--workspace", opts.workspace);
   if (opts.tab) flags.push("--tab", opts.tab);
   if (opts.split) flags.push("--split", opts.split);
-  const result = herdrJSON<{ agent: HerdrPane }>([...flags, "--", ...argv]);
+  const result = herdrJSON<{ agent: HerdrPane }>([
+    ...flags,
+    "--",
+    "env",
+    `ORCH_AGENT_KEY=${opts.key}`,
+    `ORCH_DIR=${orchDir()}`,
+    ...argv,
+  ]);
   const pane = result?.agent?.pane_id;
   if (!pane) throw new Error(`agent start ${opts.name} returned no pane_id`);
-  return pane;
+  return { pane, key: opts.key };
 }
 
 // A worker is ready once its bridge presence dir appears. `agent start` cannot
 // drop a launch keystroke, so this only waits — it never re-launches.
-async function awaitBridgeRegistration(created: { pane: string; name: string }[], json = false) {
-  const pending = new Map(created.map((c) => [c.pane, c.name]));
+async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false) {
+  const pending = new Map(created.map((c) => [c.key, c]));
   const deadline = Date.now() + 60_000;
   if (!json) process.stdout.write("\nWaiting for agents to register:\n");
   while (pending.size && Date.now() < deadline) {
-    for (const [pane, name] of [...pending]) {
-      if (bridgeRegistered(pane)) {
-        pending.delete(pane);
-        if (!json) process.stdout.write(`  ok      ${pane}  ${name}\n`);
+    for (const [key, agent] of [...pending]) {
+      if (bridgeRegistered(key)) {
+        pending.delete(key);
+        if (!json) process.stdout.write(`  ok      ${agent.pane}  ${agent.name}\n`);
       }
     }
     await delay(500);
   }
-  for (const [pane, name] of pending)
-    process.stderr.write(`  STALLED ${pane}  ${name} — no bridge dir; try: orch restart ${name}\n`);
+  for (const agent of pending.values())
+    process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} — no bridge dir; try: orch restart ${agent.name}\n`);
 }
 
 // Print the final layout of the tab containing refPane, with names.
@@ -1820,27 +1854,22 @@ interface AgentSettings {
   model: string | null;
 }
 
-function herdrAvailable(): boolean {
-  return process.env.HERDR_ENV === "1" || herdrReachable();
-}
-
-const backends: readonly Backend[] = [herdrBackend, headlessBackend];
-
-function resolveBackend(id: string): Backend {
-  const backend = backends.find((candidate) => candidate.id === id);
-  if (backend) return backend;
-  die(`Unknown backend "${id}". Supported backends: ${backends.map((candidate) => candidate.id).join(", ")}.`);
-}
-
 function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
   const adapter = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "pi" });
-  // Explicit sources retain the normal flag > environment > config precedence. When
-  // none is set, probe herdr once and fall back to detached execution.
-  const configuredBackend = flags.backendFlag ?? process.env.ORCH_BACKEND ?? config.defaults.backend;
-  const backend = configuredBackend ?? (herdrAvailable() ? herdrBackend.id : headlessBackend.id);
-  resolveBackend(backend);
+  // Selection flows through the backend factory: explicit flag/env, then config
+  // default, then a capability-probed fallback (herdr if inside a session, else
+  // headless). No per-backend branch is hard-coded here.
+  let backend: Backend;
+  try {
+    backend = resolveBackend({
+      explicit: flags.backendFlag ?? process.env.ORCH_BACKEND ?? null,
+      configured: config.defaults.backend ?? null,
+    });
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
   const selectedModel = resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", config: config.defaults.model, fallback: "" });
-  return { adapter, backend, model: selectedModel || null };
+  return { adapter, backend: backend.id, model: selectedModel || null };
 }
 
 type SpawnFlags = AgentFlags & {
@@ -1918,9 +1947,9 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   return { ...settings, tools, json: flags.json, label: flags.namePrefix ?? flags.label, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix: flags.namePrefix ?? flags.label, n, worktree };
 }
 
-interface SpawnRoot { root: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
+interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
 
-interface CreatedAgent { pane: string; name: string }
+interface CreatedAgent { key: string; pane: string; name: string }
 
 function executeHeadlessSpawn(settings: SpawnSettings): void {
   if (settings.commandFlag) die("--cmd requires the herdr backend; headless launches use the selected adapter.");
@@ -1946,6 +1975,7 @@ function executeHeadlessSpawn(settings: SpawnSettings): void {
         backend: settings.backend,
         worktree: settings.worktree ? cwd : undefined,
         branch: settings.worktree ? `orch/${name}` : undefined,
+        owner: selfActor() ?? undefined,
       });
       if (!settings.json) process.stdout.write(`${handle.key}  ${name}  [headless]\n`);
     } catch (error: unknown) {
@@ -1979,10 +2009,11 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string): SpawnRoot 
   } catch (error: unknown) {
     die(`tab create failed: ${errorMessage(error)}`);
   }
-  const root = startAgentPane({ name: rootName, cmd: settings.cmd, cwd: rootCwd, tab: tabId });
+  const key = serializeIdentity({ backend: "herdr", workspace, handle: rootName });
+  const started = startAgentPane({ name: rootName, key, cmd: settings.cmd, cwd: rootCwd, workspace, tab: tabId });
   // tab create leaves an empty shell pane; the agent runs in its own pane, so drop the shell.
   herdrBestEffort(["pane", "close", shellRoot]);
-  return { root, tabId, tabLabel, rootCwd, rootName };
+  return { root: started.pane, key: started.key, workspace, tabId, tabLabel, rootCwd, rootName };
 }
 
 function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): void {
@@ -2003,9 +2034,10 @@ function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, create
         // wide cells split horizontally and tall cells split vertically.
         split = largest.rect.width >= largest.rect.height ? "right" : "down";
       }
-      const pane = startAgentPane({ name, cmd: settings.cmd, cwd, tab: root.tabId, split });
-      recordSpawned(pane, { adapter: settings.adapter, model: settings.model ?? undefined, backend: settings.backend, worktree: settings.worktree ? cwd : undefined, branch: settings.worktree ? `orch/${name}` : undefined });
-      created.push({ pane, name });
+      const key = serializeIdentity({ backend: "herdr", workspace: root.workspace, handle: name });
+      const started = startAgentPane({ name, key, cmd: settings.cmd, cwd, workspace: root.workspace, tab: root.tabId, split });
+      recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: "herdr", handle: started.pane, cwd, worktree: settings.worktree ? cwd : undefined, branch: settings.worktree ? `orch/${name}` : undefined, owner: selfActor() ?? undefined });
+      created.push({ key: started.key, pane: started.pane, name });
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
@@ -2032,8 +2064,8 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const workspace = resolveSpawnWorkspace(settings.workspace);
   const root = createSpawnRoot(settings, workspace);
   const created: CreatedAgent[] = [];
-  recordSpawned(root.root, { adapter: settings.adapter, model: settings.model ?? undefined, backend: settings.backend, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined });
-  created.push({ pane: root.root, name: root.rootName });
+  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: "herdr", handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: selfActor() ?? undefined });
+  created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created);
   await reportSpawnResults(settings, root, created);
 }
@@ -2082,19 +2114,22 @@ async function cmdTile(args: string[]) {
   }
   const autoName = name ?? `tile-${layout.panes.length + 1}`;
 
-  let newPane: string;
+  const workspace = herdrPanes().find((item) => item.pane_id === refPane)?.workspace_id;
+  if (!workspace) die(`Could not determine workspace for pane ${refPane}.`);
+  const key = serializeIdentity({ backend: "herdr", workspace, handle: autoName });
+  let started: { pane: string; key: string };
   try {
-    newPane = startAgentPane({ name: autoName, cmd, cwd, tab: tab.tab_id, split: "down" });
+    started = startAgentPane({ name: autoName, key, cmd, cwd, workspace, tab: tab.tab_id, split: "down" });
   } catch (e: unknown) {
     die(`tile failed: ${errorMessage(e)}`);
   }
-  recordSpawned(newPane, { adapter, model: model ?? undefined, backend });
-  if (json) process.stdout.write(JSON.stringify({ pane: newPane, name: autoName, tab: layout.tab_id, added: true }) + "\n");
+  recordSpawned(key, { adapter, model: model ?? undefined, backend: "herdr", handle: started.pane, cwd, owner: selfActor() ?? undefined });
+  if (json) process.stdout.write(JSON.stringify({ pane: started.pane, key, name: autoName, tab: layout.tab_id, added: true }) + "\n");
   else {
-    process.stdout.write(`Added ${newPane} (${autoName}) to tab ${layout.tab_id} running "${cmd}".\n`);
+    process.stdout.write(`Added ${started.pane} (${autoName}) to tab ${layout.tab_id} running "${cmd}".\n`);
     printLayout(refPane, "\nFinal tiling:");
   }
-  if (model) await pinModels([{ pane: newPane, name: autoName }], model);
+  if (model) await pinModels([{ key, pane: started.pane, name: autoName }], model);
 }
 
 // ---- unified pane control: run / model / wait / new / close / dispatch ----
@@ -2126,10 +2161,10 @@ interface LockFile {
 async function cmdRun(args: string[]): Promise<void> {
   const raw = args.includes("--raw");
   const json = args.includes("--json");
-  const cleanArgs = args.filter((arg) => arg !== "--json");
-  const { target, prompt } = parseTargetPrompt(cleanArgs, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--json]');
+  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
+  const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
   const { pane } = resolvePane(target);
-  const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw) });
+  const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw) }, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${pane}.\n`);
 }
@@ -2138,30 +2173,30 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function setAgentModel(agentKey: string, modelArg: string): Promise<{ old: string | null; now: string; confirmed: true; unchanged: boolean }> {
+async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; confirmed: true; unchanged: boolean }> {
   const old = readJSON<{ model?: unknown }>(path.join(presenceAgentDir(agentKey), "status.json"));
   const previous = typeof old?.model === "string" ? old.model : null;
-  await writeRpc("set-model", { target: agentKey, model: modelArg });
+  await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, confirmed: true, unchanged: previous === modelArg };
 }
 
 async function cmdModel(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const positional = args.filter((arg) => arg !== "--no-wait" && arg !== "--json");
-  const target = positional[0];
-  const modelArg = positional[1];
-  if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--no-wait]");
+  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--no-wait" && arg !== "--json"));
+  const target = rest[0];
+  const modelArg = rest[1];
+  if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
   const { pane } = resolvePane(target);
-  const result = await setAgentModel(pane, modelArg);
+  const result = await setAgentModel(pane, modelArg, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
   else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} → ${result.now} (accepted)\n`);
 }
 
-async function pinModels(created: { pane: string; name: string }[], model: string): Promise<void> {
-  const results = await Promise.all(created.map(async ({ pane, name }) => {
+async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
+  const results = await Promise.all(created.map(async ({ key, pane, name }) => {
     try {
-      const result = await setAgentModel(pane, model);
+      const result = await setAgentModel(key, model);
       return { pane, name, ok: result.confirmed };
     } catch {
       return { pane, name, ok: false };
@@ -2455,10 +2490,12 @@ function cmdClose(args: string[]) {
   if (all) {
     // Only panes in orch's spawn registry are eligible; user panes are never touched.
     const self = process.env.HERDR_PANE_ID ?? null;
-    const mine = spawnedPanes();
+    const mine = spawnedRecords();
     for (const p of herdrPanes()) {
-      if (p.pane_id === self || !mine.has(p.pane_id)) continue;
-      herdrTargets.push(p.pane_id);
+      if (p.pane_id === self) continue;
+      const record = [...mine.values()].find((candidate) => candidate.backend === "herdr" && candidate.handle === p.pane_id);
+      if (!record?.handle) continue;
+      herdrTargets.push(record.handle);
     }
     // HeadlessBackend.close performs the registry + presence pid/key safety checks.
     for (const handle of headlessBackend.list()) {
@@ -2851,8 +2888,9 @@ function resolveDispatchSettings(flags: DispatchFlags): DispatchSettings {
 }
 
 async function cmdDispatch(args: string[]) {
-  const flags = parseDispatchFlags(args);
-  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter]');
+  const { gov, rest } = parseGovernance(args);
+  const flags = parseDispatchFlags(rest);
+  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-workspace]');
   const target = flags.positional[0];
   if (target) {
     const remote = targetHost(target);
@@ -2865,9 +2903,9 @@ async function cmdDispatch(args: string[]) {
     }
   }
   const settings = resolveDispatchSettings(flags);
-  if (settings.model) await setAgentModel(settings.pane, settings.model);
-  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw) });
-  recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined });
+  if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
+  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw) }, gov);
+  recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined, owner: selfActor() ?? undefined });
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${settings.pane}.\n`);
 }
@@ -2937,11 +2975,33 @@ async function ensureDaemon(directory: string): Promise<void> {
   throw new DaemonAbsentError(directory);
 }
 
-async function writeRpc(method: string, params: Record<string, unknown>): Promise<unknown> {
+interface WriteGovernance {
+  steal?: boolean;
+  crossWorkspace?: boolean;
+}
+
+/** Extract governance flags and strip them from the positional args. */
+function parseGovernance(args: string[]): { gov: WriteGovernance; rest: string[] } {
+  const gov: WriteGovernance = {};
+  const rest: string[] = [];
+  for (const arg of args) {
+    if (arg === "--steal") gov.steal = true;
+    else if (arg === "--cross-workspace") gov.crossWorkspace = true;
+    else rest.push(arg);
+  }
+  return { gov, rest };
+}
+
+async function writeRpc(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}): Promise<unknown> {
   const directory = orchDir();
+  const actor = selfActor();
+  const enriched: Record<string, unknown> = { ...params };
+  if (actor !== null) enriched.actor = actor;
+  if (gov.steal) enriched.steal = true;
+  if (gov.crossWorkspace) enriched.crossWorkspace = true;
   try {
     await ensureDaemon(directory);
-    return await rpcCall(directory, method, params);
+    return await rpcCall(directory, method, enriched);
   } catch (error: unknown) {
     if (error instanceof DaemonAbsentError) die(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
     throw error;
@@ -3011,10 +3071,36 @@ async function cmdDaemon(args: string[]): Promise<void> {
   die("usage: orch daemon start [--fg] | stop | status [--json] | reload [--json]");
 }
 
+/** Interactive doctor: render results, multiselect the fixable findings, apply the chosen ones with a spinner. */
+async function runInteractiveDoctor(initial: CheckResult[]): Promise<void> {
+  let results = initial;
+  renderDoctorResults(results);
+  const fixable = results.filter((r) => r.fix).map((r) => ({ id: r.id, label: r.label, description: r.fix!.description, destructive: r.fix!.destructive }));
+  const selected = await pickFixes(fixable);
+  if (selected === null) return;
+  if (selected.length) {
+    const chosen = new Set(selected);
+    const toApply = results.filter((r) => r.fix && chosen.has(r.id));
+    await withSpinner(
+      `Applying ${toApply.length} fix${toApply.length === 1 ? "" : "es"}…`,
+      "fixes applied",
+      () => { for (const r of toApply) r.fix!.apply(); },
+    );
+    results = await runDoctor(orchDir());
+    renderDoctorResults(results);
+  }
+  if (results.some((r) => r.status === "fail" || r.status === "warn")) process.exitCode = 1;
+}
+
 async function cmdDoctor(args: string[]) {
   const json = args.includes("--json");
-  const fix = args.includes("--fix");
+  const yes = args.includes("-y") || args.includes("--yes");
+  const fix = args.includes("--fix") || yes;
   let results = await runDoctor(orchDir());
+  // A TTY session that did not demand json or an unattended -y apply gets the
+  // interactive fix menu (bare `doctor` and `doctor --fix` both land here).
+  if (!json && !yes && process.stdin.isTTY) return runInteractiveDoctor(results);
+  // Unattended: -y (or --fix with no TTY to prompt on) applies every fix.
   const changes = fix ? applyFixes(results).applied : [];
   if (fix && changes.length) results = await runDoctor(orchDir());
   if (json) {
@@ -3127,7 +3213,10 @@ WORKSPACES
 MAINTENANCE
   orch daemon start [--fg] | stop | status [--json] | reload
                                  Manage the resident orch daemon.
-  orch doctor [--fix] [--json]   Check and optionally repair the installation.
+  orch doctor [--fix] [-y|--yes] [--json]
+                                 Check the install. On a TTY, doctor and 'doctor --fix'
+                                 open a menu to pick fixes; -y/--yes applies every fix
+                                 unattended (also how CI/non-TTY repairs run).
   orch clean [--worktrees [--force]]
                                  Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
   orch setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]
@@ -3151,7 +3240,17 @@ Tabs resolve by tab_id or unique label.
   );
 }
 
-const VERSION = "0.2.0";
+function readOrchVersion(): string {
+  try {
+    const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const parsed: unknown = JSON.parse(files.readFileSync(path.join(repoDir, "package.json"), "utf8"));
+    return isRecord(parsed) && typeof parsed.version === "string" ? parsed.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+const VERSION = readOrchVersion();
 
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];

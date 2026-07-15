@@ -105,21 +105,27 @@ function createTables(db: DatabaseLike): void {
       adapter TEXT,
       model TEXT,
       backend TEXT,
+      handle TEXT,
+      cwd TEXT,
       worktree TEXT,
       branch TEXT
     );
   `);
 
   // Keep migrations additive for databases created by earlier versions.
-  const columns = db.query("PRAGMA table_info(outbox)").all() as { name: string }[];
-  if (!columns.some((column) => column.name === "next_attempt_at")) {
-    try {
-      db.exec("ALTER TABLE outbox ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0");
-    } catch (error: unknown) {
-      // Another process may have applied this additive migration between the
-      // PRAGMA and ALTER.  Treat only that expected race as success.
-      if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) throw error;
-    }
+  addColumnIfMissing(db, "outbox", "next_attempt_at", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "spawned", "handle", "TEXT");
+  addColumnIfMissing(db, "spawned", "cwd", "TEXT");
+}
+
+/** Apply an additive column migration, tolerating a concurrent applier's race. */
+function addColumnIfMissing(db: DatabaseLike, table: string, column: string, definition: string): void {
+  const columns = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (columns.some((existing) => existing.name === column)) return;
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (error: unknown) {
+    if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) throw error;
   }
 }
 
@@ -282,6 +288,8 @@ interface SpawnedRow {
   adapter: string | null;
   model: string | null;
   backend: string | null;
+  handle: string | null;
+  cwd: string | null;
   worktree: string | null;
   branch: string | null;
 }
@@ -292,6 +300,8 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
   if (row.adapter !== null) record.adapter = row.adapter;
   if (row.model !== null) record.model = row.model;
   if (row.backend !== null) record.backend = row.backend;
+  if (row.handle !== null) record.handle = row.handle;
+  if (row.cwd !== null) record.cwd = row.cwd;
   if (row.worktree !== null) record.worktree = row.worktree;
   if (row.branch !== null) record.branch = row.branch;
   return record;
@@ -301,11 +311,12 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
 export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): void {
   openStore(orchDir)
     .query(
-      `INSERT INTO spawned (pane, ts, adapter, model, backend, worktree, branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO spawned (pane, ts, adapter, model, backend, handle, cwd, worktree, branch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(pane) DO UPDATE SET
          ts = excluded.ts, adapter = excluded.adapter, model = excluded.model,
-         backend = excluded.backend, worktree = excluded.worktree, branch = excluded.branch`,
+         backend = excluded.backend, handle = excluded.handle, cwd = excluded.cwd,
+         worktree = excluded.worktree, branch = excluded.branch`,
     )
     .run(
       record.pane,
@@ -313,6 +324,8 @@ export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): voi
       record.adapter ?? null,
       record.model ?? null,
       record.backend ?? null,
+      record.handle ?? null,
+      record.cwd ?? null,
       record.worktree ?? null,
       record.branch ?? null,
     );

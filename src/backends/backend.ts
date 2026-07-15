@@ -1,4 +1,5 @@
 import type { AgentAdapter } from "../adapters/adapter.ts";
+import type { Identity } from "./identity.ts";
 
 /** Capabilities exposed by a backend. */
 export interface BackendCapabilities {
@@ -6,6 +7,8 @@ export interface BackendCapabilities {
   readonly panes: boolean;
   /** Whether the backend can focus one of its handles. */
   readonly focusable: boolean;
+  /** Whether the backend can deliver raw keystrokes to a handle. */
+  readonly canSendKeys: boolean;
 }
 
 /** Options common to backend launches. */
@@ -34,13 +37,29 @@ export interface BackendRegistryRecord<Handle = BackendHandle> {
   readonly backend: string;
   readonly handle: Handle;
   readonly adapter: string;
+  /** Working directory the agent was launched in, when known. */
+  readonly cwd?: string;
 }
 
-/** Lifecycle contract shared by pane and detached-process backends. */
+/**
+ * Lifecycle and identity contract shared by pane and detached-process backends.
+ *
+ * The backend is the identity authority (design D2): it mints a stable
+ * {@link Identity} for each handle and probes its own availability. The port is
+ * agent-agnostic — it never references pi/claude/codex.
+ */
 export interface Backend<Handle = BackendHandle> {
   readonly id: string;
   readonly panes: boolean;
   readonly focusable: boolean;
+  /** Whether raw keystroke delivery is supported (capability-gated by callers). */
+  readonly canSendKeys: boolean;
+  /** Whether the backend binary/runtime is present on this machine. */
+  isAvailable(): boolean;
+  /** Whether the current process is inside a live session for this backend. */
+  isInsideSession(): boolean;
+  /** Mint the stable structured identity for a spawned handle. */
+  mintIdentity(handle: Handle): Identity;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   close(handle: Handle): boolean;
   list(): Handle[];

@@ -3,7 +3,7 @@ import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import type { NotifyEvent } from "../src/notify.ts";
 
 const herdrArgv: string[][] = [];
-void mock.module("../src/herdr.ts", () => ({
+void mock.module("../src/backends/herdr/cli.ts", () => ({
   herdrPanes: () => [{ pane_id: "w6:p9", workspace_id: "ws-test" }],
   herdrJSON: (args: string[]) => {
     herdrArgv.push([...args]);
@@ -20,7 +20,7 @@ void mock.module("../src/herdr.ts", () => ({
   herdrExec: () => "",
 }));
 
-const { HerdrBackend } = await import("../src/backends/herdr.ts");
+const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
 const { emitAndNotify } = await import("../src/daemon/events.ts");
 const { notificationText } = await import("../src/notify.ts");
 

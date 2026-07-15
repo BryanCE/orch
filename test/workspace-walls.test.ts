@@ -21,43 +21,43 @@ function fakeTask(id: string, createdAt: string, workspace?: string, agent?: str
 }
 
 describe("workspace helpers", () => {
-  test("extracts workspace ids only from pane ids", () => {
-    expect(workspaceOf("w6:p21")).toBe("w6");
-    expect(workspaceOf("w12:p3")).toBe("w12");
+  test("extracts workspace ids only from identity keys", () => {
+    expect(workspaceOf("herdr~w6~p21")).toBe("w6");
+    expect(workspaceOf("herdr~w12~p3")).toBe("w12");
     expect(workspaceOf("session-123")).toBeNull();
     expect(workspaceOf(null)).toBeNull();
     expect(workspaceOf("nocolon")).toBeNull();
   });
 
-  test("derives an entity workspace from paneId or key", () => {
-    expect(entityWorkspace(fakeEntity("fallback", "w6:p21"))).toBe("w6");
-    expect(entityWorkspace(fakeEntity("w12:p3", null))).toBe("w12");
+  test("derives an entity workspace from the identity key", () => {
+    expect(entityWorkspace(fakeEntity("herdr~w6~p21", null))).toBe("w6");
+    expect(entityWorkspace(fakeEntity("herdr~w12~p3", null))).toBe("w12");
   });
 
   test("returns the same entities when all workspaces are requested", () => {
-    const entities = [fakeEntity("w6:p1", "w6:p1")];
+    const entities = [fakeEntity("herdr~w6~p1", "herdr~w6~p1")];
     expect(scopeEntitiesToWorkspace(entities, { all: true })).toBe(entities);
   });
 });
 
 describe("workspace wall writes", () => {
   test("allows a write within the same workspace", () => {
-    expect(checkWall("w1:p1", "w1:p2", { crossWorkspace: false })).toEqual({ allowed: true });
+    expect(checkWall("herdr~w1~p1", "herdr~w1~p2", { crossWorkspace: false })).toEqual({ allowed: true });
   });
 
   test("denies a cross-workspace write with both workspaces in the reason", () => {
-    const decision = checkWall("w1:p1", "w2:p2", { crossWorkspace: false });
+    const decision = checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false });
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain("w1");
     expect(decision.reason).toContain("w2");
   });
 
   test("allows a cross-workspace write with an explicit override", () => {
-    expect(checkWall("w1:p1", "w2:p2", { crossWorkspace: true })).toEqual({ allowed: true });
+    expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
   });
 
   test("allows legacy unscoped targets", () => {
-    expect(checkWall("w1:p1", "legacy-target", { crossWorkspace: false })).toEqual({ allowed: true });
+    expect(checkWall("herdr~w1~p1", "legacy-target", { crossWorkspace: false })).toEqual({ allowed: true });
   });
 });
 

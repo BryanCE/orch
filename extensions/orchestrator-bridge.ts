@@ -1,8 +1,8 @@
 // orchestrator-bridge — per-agent control plane for the Claude orchestrator.
 //
-// Writes $ORCH_DIR/agents/<KEY>/ (default ~/.orch) where <KEY> = HERDR_PANE_ID
-// (e.g. "w6:p3") for the interactive TUI that owns the pane, or
-// "session-<pid>" for headless runs:
+// Writes $ORCH_DIR/agents/<KEY>/ (default ~/.orch) where <KEY> = ORCH_AGENT_KEY
+// (e.g. "herdr~wD~p2") for orch agents, or "session-<pid>" for the
+// owner's interactive TUI pane:
 //   status.json  — state / model / thinking / tokens / cost / currentFile / lastText
 //   result.json  — final assistant text of the last settled run
 //   inbox.jsonl  — APPEND a JSON line {"text":"..."} to steer this agent mid-run
@@ -21,6 +21,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../src/policy/workspace.ts";
 import { allowedModelPatterns } from "../src/config.ts";
+import { tryParseIdentity } from "../src/backends/identity.ts";
 
 // The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
 function hashExtensionFile(file: string): string {
@@ -213,13 +214,12 @@ function isHerdrBlockedEvent(value: unknown): value is HerdrBlockedEventLike {
     && (value.label === undefined || typeof value.label === "string");
 }
 
-// A pane id key means "this agent OWNS that pane" — only true for the
-// interactive TUI. Headless runs (-p etc.) inherit the caller's
-// HERDR_PANE_ID and would clobber the owner's row, so they key by pid.
-function computeKey(hasUI: boolean): string {
+// Orch-spawned agents use their opaque identity key. The owner's interactive
+// pane has a local pid key when no orch key is present; otherwise skip presence.
+function computeKey(hasUI: boolean): string | undefined {
   if (process.env.ORCH_AGENT_KEY) return process.env.ORCH_AGENT_KEY;
-  if (hasUI && process.env.HERDR_PANE_ID) return process.env.HERDR_PANE_ID;
-  return `session-${process.pid}`;
+  if (hasUI && process.pid > 0) return `session-${process.pid}`;
+  return undefined;
 }
 
 function presenceDirectoryName(key: string): string {
@@ -460,7 +460,18 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   function writeStatus() {
     if (!dir) return;
     state.updatedAt = new Date().toISOString();
-    const out: JsonRecord = { ...state, extensionHash: EXTENSION_HASH };
+    const identity = tryParseIdentity(state.key);
+    const out: JsonRecord = {
+      ...state,
+      extensionHash: EXTENSION_HASH,
+      schemaVersion: 1,
+      key: state.key,
+      ...(identity ? {
+        backend: identity.backend,
+        workspace: identity.workspace,
+        handle: identity.handle,
+      } : {}),
+    };
     if (blockedCount > 0) {
       out.state = "blocked";
       out.blockedMessage = blockedMessage;
@@ -812,6 +823,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   function initPresence(hasUI: boolean) {
     if (dir) return;
     const key = computeKey(hasUI);
+    if (!key) return;
     const candidate = presenceAgentDir(key);
     try {
       fs.mkdirSync(candidate, { recursive: true });
@@ -923,7 +935,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
 
   function ownPresenceKey(ctx: ExtensionContext): string {
     initPresence(ctx.hasUI);
-    return state.key || computeKey(ctx.hasUI);
+    return state.key || computeKey(ctx.hasUI) || "";
   }
 
   function peerSummaries(ownKey: string, allWorkspaces = false): PeerSummary[] {
@@ -1212,7 +1224,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
       const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
       return executeTool(() => {
         initPresence(ctx.hasUI);
-        const ownKey = state.key || computeKey(ctx.hasUI);
+        const ownKey = state.key || computeKey(ctx.hasUI) || "";
         const resolved = resolvePeer(params.target, ownKey, crossWorkspace);
         if ("error" in resolved) return resolved.error;
         const result = readJson(path.join(resolved.peer.dir, "result.json"));
@@ -1409,7 +1421,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
       writeResult(lastFullText);
     }
     if (pendingHandoff && runFullText) {
-      deliverPendingHandoff(runFullText, state.key || computeKey(ctx.hasUI));
+      deliverPendingHandoff(runFullText, state.key || computeKey(ctx.hasUI) || "");
     }
     writeStatus();
   }

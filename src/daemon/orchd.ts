@@ -16,9 +16,10 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
-import { insertOutboxMessage, markOutboxDelivered } from "../store/sqlite.ts";
+import { insertOutboxMessage, markOutboxDelivered, checkOwnerWrite } from "../store/sqlite.ts";
+import { checkWall } from "../policy/workspace.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
-import { herdrBestEffort } from "../herdr.ts";
+import { herdrBestEffort } from "../backends/herdr/cli.ts";
 import { presenceAgentDir, loadPresence } from "../store.ts";
 import { piAdapter } from "../adapters/pi.ts";
 
@@ -56,6 +57,9 @@ interface WriteParams {
   target?: unknown;
   text?: unknown;
   model?: unknown;
+  actor?: unknown;
+  steal?: unknown;
+  crossWorkspace?: unknown;
 }
 
 function writeParams(params: unknown): WriteParams {
@@ -101,8 +105,24 @@ export function validateWriteParams(params: unknown): { target: string; text: st
   };
 }
 
+/** Enforce the workspace wall, then ownership, before a write is accepted.
+ *  An unscoped actor (no HERDR_PANE_ID; e.g. headless operator) is wall-eligible
+ *  and unattributable, so ownership is skipped for it. Throws to reject the write. */
+export function governWrite(directory: string, target: string, params: unknown): void {
+  const value = writeParams(params);
+  const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
+  const steal = value.steal === true;
+  const crossWorkspace = value.crossWorkspace === true;
+  const wall = checkWall(actor, target, { crossWorkspace });
+  if (!wall.allowed) throw new Error(wall.reason ?? "workspace wall denied the write");
+  if (actor === null) return;
+  const owned = checkOwnerWrite(directory, target, actor, { steal });
+  if (!owned.ok) throw new Error(owned.reason ?? "ownership denied the write");
+}
+
 async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
   const { target, text } = validateWriteParams(params);
+  governWrite(directory, target, params);
   const id = randomUUID();
   insertOutboxMessage(directory, { id, target, payload: { action, text } });
   await drainOutbox(directory, outboxDeps());
@@ -113,6 +133,7 @@ function setModel(directory: string, params: unknown): { ok: true } {
   const value = writeParams(params);
   const target = requiredString(value.target, "target");
   const model = requiredString(value.model, "model");
+  governWrite(directory, target, params);
   const dir = presenceAgentDir(target, directory);
   appendFileSync(`${dir}/inbox.jsonl`, `${JSON.stringify({ cmd: "model", model, ts: new Date().toISOString() })}\n`);
   return { ok: true };

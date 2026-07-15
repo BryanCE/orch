@@ -48,7 +48,7 @@ orchd SHALL expose newline-delimited JSON-RPC on `$ORCH_DIR/orchd.sock` (unix so
 
 ### Requirement: Daemon-optional operation
 
-Read-only orch commands (`orch status`, `orch events`, `orch result`, `orch doctor`) SHALL keep working with orchd absent, via the existing file-protocol paths; daemon absence downgrades their ergonomics (no resident notify, socket push replaced by file-watch), never their correctness. Write commands (`orch dispatch`, `orch run`, `orch steer`, `orch model`, `orch work`) SHALL require the broker: with orchd absent they SHALL refuse with a nonzero exit and a message to run `orch daemon start`, and SHALL NOT fall back to a direct herdr or inbox-file write. `orch doctor` SHALL report whether orchd is running, stale, or absent.
+Read-only orch commands (`orch status`, `orch result`, `orch doctor`) SHALL keep working with orchd absent via the existing file-protocol paths. `orch events` SHALL require orchd by default; only explicit `--offline` enables read-only file-watch diagnostics. Write commands (`orch dispatch`, `orch run`, `orch steer`, `orch model`, `orch work`) SHALL require the broker: with orchd absent they SHALL refuse with a nonzero exit and a message to run `orch daemon start`, and SHALL NOT fall back to a direct herdr or inbox-file write. `orch doctor` SHALL report whether orchd is running, stale, or absent.
 
 #### Scenario: Socket dead mid-stream
 

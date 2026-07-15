@@ -9,10 +9,29 @@ import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
 import { rpcCall } from "./daemon/rpc.ts";
 import { runSSH, type SshResult } from "./remote.ts";
 import { bridgeBundlePath, buildBridgeBundle } from "./bridge-bundle.ts";
+import { allBackends } from "./backends/registry.ts";
+import { tryParseIdentity } from "./backends/identity.ts";
+import { presenceDir, presenceKeyFromDirectoryName } from "./store.ts";
 
 export interface FixDescriptor {
   description: string;
   apply(): void;
+  /** True for fixes that delete data. UIs must render these clearly and never pre-select them. */
+  destructive?: boolean;
+}
+
+export interface DoctorBackendReport {
+  id: string;
+  available: boolean;
+  insideSession: boolean;
+  panes: boolean;
+  focusable: boolean;
+  canSendKeys: boolean;
+}
+
+export interface IgnoredPresenceRecord {
+  path: string;
+  reason: string;
 }
 
 export interface CheckResult {
@@ -21,6 +40,8 @@ export interface CheckResult {
   status: "ok" | "warn" | "fail" | "skip";
   detail: string;
   fix?: FixDescriptor;
+  backends?: DoctorBackendReport[];
+  ignoredRecords?: IgnoredPresenceRecord[];
 }
 
 export type BinaryStatus = Record<string, boolean>;
@@ -109,35 +130,124 @@ function readAgentEntries(orchDir: string): filesystem.Dirent[] | undefined {
   }
 }
 
+function humanAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "unknown";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+/** Recover the logical pane key from a presence dir name (Windows escapes ':' and '%'). */
+function keyFromDirName(name: string): string {
+  return presenceKeyFromDirectoryName(name);
+}
+
+/** One human-legible line identifying a presence dir — so nobody deletes a live session blind. */
+function describePresenceDir(agentsDir: string, name: string): string {
+  const key = keyFromDirName(name);
+  const status = readJson(path.join(agentsDir, name, "status.json"));
+  const value = isRecord(status) ? status : {};
+  const label = typeof value.label === "string" && value.label.trim() ? value.label.trim() : null;
+  const cwd = typeof value.cwd === "string" ? value.cwd : null;
+  const project = cwd ? path.basename(cwd) : null;
+  const agent = typeof value.agent === "string" ? value.agent : null;
+  const workspace = key.includes(":") ? key.slice(0, key.indexOf(":")) : null;
+  const stamp = typeof value.updatedAt === "string" ? value.updatedAt
+    : typeof value.finishedAt === "string" ? value.finishedAt : null;
+  const seen = stamp ? `last seen ${humanAge(Date.now() - Date.parse(stamp))}` : null;
+  const head = label ? `${label} (${key})` : key;
+  return [head, project ? `project ${project}` : null, workspace ? `ws ${workspace}` : null, agent, seen]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export async function checkBackendCapabilities(): Promise<CheckResult> {
+  const backends: DoctorBackendReport[] = allBackends().map((backend) => ({
+    id: backend.id,
+    available: backend.isAvailable(),
+    insideSession: backend.isInsideSession(),
+    panes: backend.panes,
+    focusable: backend.focusable,
+    canSendKeys: backend.canSendKeys,
+  }));
+  return {
+    id: "backend-capabilities",
+    label: "Backend capabilities",
+    status: "ok",
+    detail: backends.map((backend) => `${backend.id}: available=${backend.available}, insideSession=${backend.insideSession}, panes=${backend.panes}, focusable=${backend.focusable}, canSendKeys=${backend.canSendKeys}`).join("\\n"),
+    backends,
+  };
+}
+
+export async function checkMalformedPresenceRecords(orchDir?: string): Promise<CheckResult> {
+  const agentsDir = orchDir === undefined ? presenceDir() : path.join(orchDir, "agents");
+  let entries: filesystem.Dirent[];
+  try {
+    entries = filesystem.readdirSync(agentsDir, { withFileTypes: true });
+  } catch (error: unknown) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no presence records", ignoredRecords: [] };
+    }
+    throw error;
+  }
+
+  const ignoredRecords: IgnoredPresenceRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const recordPath = path.join(agentsDir, entry.name);
+    const key = presenceKeyFromDirectoryName(entry.name);
+    const reasons: string[] = [];
+    if (!tryParseIdentity(key)) reasons.push("malformed identity key");
+    let status: unknown = null;
+    try { status = readJson(path.join(recordPath, "status.json")); } catch {}
+    if (!isRecord(status) || status.schemaVersion !== 1) reasons.push("missing or invalid schemaVersion (expected 1)");
+    if (reasons.length) ignoredRecords.push({ path: recordPath, reason: reasons.join("; ") });
+  }
+
+  return ignoredRecords.length
+    ? {
+        id: "malformed-presence",
+        label: "Malformed presence records",
+        status: "fail",
+        detail: `${ignoredRecords.length} malformed/legacy presence record${ignoredRecords.length === 1 ? "" : "s"}; orch clean can reap them\\n    ${ignoredRecords.map((record) => `${record.path}: ${record.reason}`).join("\\n    ")}`,
+        ignoredRecords,
+      }
+    : { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no malformed or legacy presence records", ignoredRecords };
+}
+
 async function checkStalePresence(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const agentsDir = path.join(orchDir, "agents");
   const entries = readAgentEntries(orchDir);
   if (!entries) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
-  const stale: string[] = [];
+  const stale: { name: string; description: string }[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     try {
       const status = readJson(path.join(agentsDir, entry.name, "status.json")) as { pid?: unknown };
-      if (!pidAlive(status?.pid)) stale.push(entry.name);
+      if (!pidAlive(status?.pid)) stale.push({ name: entry.name, description: describePresenceDir(agentsDir, entry.name) });
     } catch {}
   }
-  return stale.length
-    ? {
-        id: "stale-presence",
-        label: "Stale presence dirs",
-        status: "warn",
-        detail: `dead pid: ${stale.join(", ")}`,
-        fix: {
-          description: `Remove stale presence dirs: ${stale.join(", ")}`,
-          apply() {
-            for (const name of stale) {
-              filesystem.rmSync(path.join(agentsDir, name), { recursive: true, force: true });
-            }
-          },
-        },
-      }
-    : { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
+  if (!stale.length) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
+  return {
+    id: "stale-presence",
+    label: "Stale presence dirs",
+    status: "warn",
+    detail: `${stale.length} dead agent dir${stale.length === 1 ? "" : "s"} (verify before removing):\n    ${stale.map((item) => item.description).join("\n    ")}`,
+    fix: {
+      description: `Delete ${stale.length} dead presence dir${stale.length === 1 ? "" : "s"}: ${stale.map((item) => item.description).join("; ")}`,
+      destructive: true,
+      apply() {
+        for (const { name } of stale) {
+          filesystem.rmSync(path.join(agentsDir, name), { recursive: true, force: true });
+        }
+      },
+    },
+  };
 }
 
 interface AgentStatus {
@@ -721,6 +831,8 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
   return Promise.all([
     isolated("bins", "Required binaries", () => checkBins(bins)),
     isolated("herdr-version", "herdr version", () => checkHerdrVersion(bins)),
+    isolated("backend-capabilities", "Backend capabilities", checkBackendCapabilities),
+    isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("claude-hooks", "Claude hooks shim", () => checkClaudeHooks()),

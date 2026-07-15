@@ -1,7 +1,7 @@
 # worktree-review Specification
 
 ## Purpose
-TBD - created by archiving change make-orch-general-purpose. Update Purpose after archive.
+Isolate agent work in git worktrees and provide safe review, merge, rejection, and cleanup workflows.
 ## Requirements
 ### Requirement: Per-agent worktree isolation
 `orch spawn --worktree` (and queue tasks with `--worktree`) SHALL give each spawned agent its own git worktree and branch (`orch/<agent-name>`) created from the repository's current branch, and start the agent with that worktree as its cwd. Worktree and branch SHALL be recorded in the spawn registry. Spawning with `--worktree` outside a git repository SHALL fail with a clear message.

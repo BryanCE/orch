@@ -1,7 +1,7 @@
 # workspace-policy Specification
 
 ## Purpose
-TBD - created by archiving change unify-workspace-policy. Update Purpose after archive.
+Enforce shared workspace scoping and write walls across workers, commands, and queue work loops.
 ## Requirements
 ### Requirement: Worker peer tools are opt-in
 Worker processes SHALL default to `worker_peer_tools = false`, receiving `orch_ask` but not peer discovery or peer messaging tools (`orch_agents`, `orch_send`, or `orch_read`). Those peer tools SHALL be granted only when the setting is explicitly enabled.

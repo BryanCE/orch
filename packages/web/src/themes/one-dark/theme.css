@@ -1,0 +1,87 @@
+/* One Light */
+[data-color-scheme="one-dark"] {
+  --background: #fafafa;
+  --foreground: #383a42;
+  --card: #f0f0f0;
+  --card-foreground: #383a42;
+  --popover: #f0f0f0;
+  --popover-foreground: #383a42;
+  --primary: #526fff;
+  --primary-foreground: #ffffff;
+  --secondary: #e5e5e6;
+  --secondary-foreground: #383a42;
+  --muted: #e5e5e6;
+  --muted-foreground: #696c77;
+  --accent: #d8deff;
+  --accent-foreground: #526fff;
+  --destructive: #e45649;
+  --destructive-foreground: #ffffff;
+  --border: #d0d0d0;
+  --input: #d0d0d0;
+  --ring: #526fff;
+  --chart-1: #526fff;
+  --chart-2: #0184bc;
+  --chart-3: #a626a4;
+  --chart-4: #c18401;
+  --chart-5: #e45649;
+  --sidebar: #f0f0f0;
+  --sidebar-foreground: #383a42;
+  --sidebar-primary: #526fff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d8deff;
+  --sidebar-accent-foreground: #526fff;
+  --sidebar-border: #d0d0d0;
+  --sidebar-ring: #526fff;
+  --shadow-color: rgba(56, 58, 66, 0.1);
+  --terminal-green: #526fff;
+  --terminal-cyan: #0184bc;
+  --terminal-glow: 0 0 10px rgba(82, 111, 255, 0.2);
+}
+
+/* One Dark */
+[data-color-scheme="one-dark"].dark {
+  --background: #282c34;
+  --foreground: #61afef;
+  --card: #21252b;
+  --card-foreground: #61afef;
+  --popover: #282c34;
+  --popover-foreground: #61afef;
+  --primary: #61afef;
+  --primary-foreground: #282c34;
+  --secondary: #3e4451;
+  --secondary-foreground: #61afef;
+  --muted: #3e4451;
+  --muted-foreground: #61afef99;
+  --accent: #61afef15;
+  --accent-foreground: #61afef;
+  --destructive: #e06c75;
+  --destructive-foreground: #282c34;
+  --border: #61afef33;
+  --input: #61afef33;
+  --ring: #61afef;
+  --chart-1: #61afef;
+  --chart-2: #56b6c2;
+  --chart-3: #c678dd;
+  --chart-4: #e5c07b;
+  --chart-5: #e06c75;
+  --sidebar: #21252b;
+  --sidebar-foreground: #61afef;
+  --sidebar-primary: #61afef;
+  --sidebar-primary-foreground: #282c34;
+  --sidebar-accent: #61afef15;
+  --sidebar-accent-foreground: #61afef;
+  --sidebar-border: #61afef33;
+  --sidebar-ring: #61afef;
+  --shadow-color: rgba(97, 175, 239, 0.15);
+  --shadow-2xs: 0 0 2px rgba(97, 175, 239, 0.2);
+  --shadow-xs: 0 0 4px rgba(97, 175, 239, 0.2);
+  --shadow-sm: 0 0 6px rgba(97, 175, 239, 0.15);
+  --shadow: 0 0 10px rgba(97, 175, 239, 0.15);
+  --shadow-md: 0 0 15px rgba(97, 175, 239, 0.15);
+  --shadow-lg: 0 0 20px rgba(97, 175, 239, 0.2);
+  --shadow-xl: 0 0 30px rgba(97, 175, 239, 0.25);
+  --shadow-2xl: 0 0 40px rgba(97, 175, 239, 0.3);
+  --terminal-green: #61afef;
+  --terminal-cyan: #56b6c2;
+  --terminal-glow: 0 0 10px rgba(97, 175, 239, 0.4), 0 0 20px rgba(97, 175, 239, 0.2);
+}

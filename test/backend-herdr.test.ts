@@ -7,7 +7,7 @@ import type { AgentAdapter } from "../src/adapters/adapter.ts";
 // Replace the CLI boundary before loading HerdrBackend. This records argv without
 // ever starting a herdr process (and therefore cannot create a live pane).
 const herdrArgv: string[][] = [];
-void mock.module("../src/herdr.ts", () => ({
+void mock.module("../src/backends/herdr/cli.ts", () => ({
   herdrPanes: () => {
     herdrArgv.push(["pane", "list"]);
     return [
@@ -31,7 +31,7 @@ void mock.module("../src/herdr.ts", () => ({
 }));
 
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-herdr-"));
-const { HerdrBackend } = await import("../src/backends/herdr.ts");
+const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
 const backend = new HerdrBackend();
 
 const fakeAdapter: AgentAdapter = {
@@ -55,7 +55,7 @@ describe("HerdrBackend", () => {
     expect(backend.id).toBe("herdr");
     expect(backend.panes).toBe(true);
     expect(backend.focusable).toBe(true);
-    expect(backend.caps).toEqual({ panes: true, focusable: true });
+    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true });
 
     const handle = backend.spawn(fakeAdapter, { cwd: testDir });
 

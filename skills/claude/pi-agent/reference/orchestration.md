@@ -199,7 +199,7 @@ The two signal extensions are the control plane, not decoration:
   `herdr agent wait --status done` is a real signal, not output-guessing. Inert
   unless `HERDR_ENV=1`, so it costs nothing off-herdr.
 - **`orchestrator-bridge.ts`** — writes a per-agent control plane under
-  `~/.orch/agents/<KEY>/` (`$ORCH_DIR` overrides `~/.orch`; `<KEY>` = `HERDR_PANE_ID`, or
+  `~/.orch/agents/<KEY>/` (`$ORCH_DIR` overrides `~/.orch`; `<KEY>` uses explicit `ORCH_AGENT_KEY` for headless runs, the interactive pane context when present, or
   `session-<pid>` for a bare pi): `status.json` (state / tokens / cost /
   currentFile / lastText), `result.json` (final text), `inbox.jsonl` (APPEND a
   line to steer the agent mid-run). READ `status.json` to see every agent at

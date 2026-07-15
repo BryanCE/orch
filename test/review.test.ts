@@ -7,7 +7,6 @@ import {
   createAgentWorktree,
   mergeReviewBranch,
   removeMergedWorktree,
-  repositoryBranch,
   worktreeBranch,
 } from "../src/worktree.ts";
 import { insertSpawnedRecord } from "../src/store/sqlite.ts";
@@ -67,10 +66,10 @@ describe("review plumbing", () => {
     commit(worktreePath, "feature.txt", "feature\n", "add feature");
     registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
 
-    const result = JSON.parse(runOrch(repoRoot, orchDir, "review", "list", "--json"));
+    const result = JSON.parse(runOrch(repoRoot, orchDir, "review", "list", "--json")) as Record<string, unknown>[];
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ target: "feature-1", state: "done", commitsAhead: 1, summary: "add feature" });
-    expect(result[0].diff).toContain("feature.txt");
+    expect(result[0]!.diff).toContain("feature.txt");
   });
 
   test("reject re-dispatches feedback through the adapter inbox", () => {

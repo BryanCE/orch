@@ -95,6 +95,27 @@ wD = "Design"
 
     expect(() => loadConfig(directory)).toThrow(`${file}: defaults.allowed_models: expected string array`);
   });
+
+  test("validates defaults.worker_peer_tools as a boolean", () => {
+    const directory = tempDir();
+    const file = path.join(directory, "config.toml");
+    fs.writeFileSync(file, "[defaults]\nworker_peer_tools = \"yes\"\n");
+
+    expect(() => loadConfig(directory)).toThrow(`${file}: defaults.worker_peer_tools: expected boolean, found string`);
+  });
+
+  test("accepts true and false for defaults.worker_peer_tools", () => {
+    for (const value of [true, false]) {
+      const directory = tempDir();
+      fs.writeFileSync(path.join(directory, "config.toml"), `[defaults]\nworker_peer_tools = ${value}\n`);
+
+      expect(loadConfig(directory).defaults.worker_peer_tools).toBe(value);
+    }
+  });
+
+  test("leaves defaults.worker_peer_tools absent when unset", () => {
+    expect(loadConfig(tempDir()).defaults.worker_peer_tools).toBeUndefined();
+  });
 });
 
 describe("allowedModelPatterns", () => {

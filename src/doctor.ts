@@ -1,26 +1,27 @@
-import { execFileSync } from "node:child_process";
 import * as filesystem from "node:fs";
+import { execFile } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig, type HostConfig } from "./config.ts";
-import { loadSinks, type Sink } from "./notify.ts";
+import { createNotifierRegistry, loadSinks, type Sink } from "./notify.ts";
 import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
 import { rpcCall } from "./daemon/rpc.ts";
 import { runSSH, type SshResult } from "./remote.ts";
+import { bridgeBundlePath, buildBridgeBundle } from "./bridge-bundle.ts";
 
-export type FixDescriptor = {
+export interface FixDescriptor {
   description: string;
   apply(): void;
-};
+}
 
-export type CheckResult = {
+export interface CheckResult {
   id: string;
   label: string;
   status: "ok" | "warn" | "fail" | "skip";
   detail: string;
   fix?: FixDescriptor;
-};
+}
 
 export type BinaryStatus = Record<string, boolean>;
 
@@ -58,18 +59,18 @@ function readJson(file: string): unknown {
   return JSON.parse(filesystem.readFileSync(file, "utf8"));
 }
 
-async function commandOutput(command: string, args: string[]): Promise<{ ok: boolean; output: string }> {
-  try {
-    const process = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(process.stdout).text(),
-      new Response(process.stderr).text(),
-      process.exited,
-    ]);
-    return { ok: code === 0, output: (stdout || stderr).trim() };
-  } catch (error: unknown) {
-    return { ok: false, output: error instanceof Error ? error.message : String(error) };
-  }
+function commandOutput(command: string, args: string[]): Promise<{ ok: boolean; output: string }> {
+  return new Promise((resolve) => {
+    execFile(command, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+      const err = error as (NodeJS.ErrnoException & { code?: number | string }) | null;
+      if (err && typeof err.code !== "number") {
+        resolve({ ok: false, output: err.message });
+        return;
+      }
+      const code = err && typeof err.code === "number" ? err.code : 0;
+      resolve({ ok: code === 0, output: (stdout || stderr).trim() });
+    });
+  });
 }
 
 export function binaryStatus(): BinaryStatus {
@@ -77,6 +78,7 @@ export function binaryStatus(): BinaryStatus {
 }
 
 export async function checkBins(bins: BinaryStatus): Promise<CheckResult> {
+  await Promise.resolve();
   const missing = ["bun", "herdr", "pi"].filter((bin) => !bins[bin]);
   if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: "bun, herdr, and pi are on PATH" };
   if (!bins.bun) return { id: "bins", label: "Required binaries", status: "fail", detail: "bun is not on PATH" };
@@ -91,7 +93,7 @@ export async function checkBins(bins: BinaryStatus): Promise<CheckResult> {
 async function checkHerdrVersion(bins: BinaryStatus): Promise<CheckResult> {
   if (!bins.herdr) return { id: "herdr-version", label: "herdr version", status: "skip", detail: "herdr is not installed" };
   const result = await commandOutput("herdr", ["--version"]);
-  const version = result.output.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0];
+  const version = /\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/.exec(result.output)?.[0];
   if (!result.ok || !version) {
     return { id: "herdr-version", label: "herdr version", status: "warn", detail: "could not parse herdr --version output" };
   }
@@ -108,6 +110,7 @@ function readAgentEntries(orchDir: string): filesystem.Dirent[] | undefined {
 }
 
 async function checkStalePresence(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
   const agentsDir = path.join(orchDir, "agents");
   const entries = readAgentEntries(orchDir);
   if (!entries) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
@@ -137,22 +140,22 @@ async function checkStalePresence(orchDir: string): Promise<CheckResult> {
     : { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
 }
 
-type AgentStatus = {
+interface AgentStatus {
   pid?: unknown;
   extensionHash?: unknown;
-};
+}
 
 function isAgentStatus(value: unknown): value is AgentStatus {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Compare a bridge presence hash with the bundled bridge currently installed on disk. */
-export function isBridgeExtensionStale(extensionHash: string | undefined): boolean {
+export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath = bridgeBundlePath(repoDir)): boolean {
   if (extensionHash === undefined) return false;
   try {
-    return extensionHash !== computeCodeHash(path.join(repoDir, "dist", "extensions", "orchestrator-bridge.js"));
+    return extensionHash !== computeCodeHash(bundlePath);
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -167,7 +170,8 @@ function isJsonObject(value: unknown): value is JsonObject {
 export async function checkClaudeHooks(
   settingsPath = path.join(os.homedir(), ".claude", "settings.json"),
   readSettings: SettingsReader = (file) => filesystem.readFileSync(file, "utf8"),
-): CheckResult {
+): Promise<CheckResult> {
+  await Promise.resolve();
   const id = "claude-hooks";
   const label = "Claude hooks shim";
   let raw: string;
@@ -207,16 +211,22 @@ export async function checkClaudeHooks(
     : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
 }
 
-async function checkExtensionStaleness(orchDir: string): Promise<CheckResult> {
+export async function checkExtensionStaleness(orchDir: string, bundlePath: string = bridgeBundlePath(repoDir)): Promise<CheckResult> {
+  await Promise.resolve();
   const id = "extension-staleness";
   const label = "Extension staleness";
   const agentsDir = path.join(orchDir, "agents");
-  const entries = readAgentEntries(orchDir);
+  let entries: filesystem.Dirent[] | undefined;
+  try {
+    entries = readAgentEntries(orchDir);
+  } catch (error: unknown) {
+    return { id, label, status: "fail", detail: error instanceof Error ? error.message : String(error) };
+  }
   if (!entries) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
 
   let diskHash: string;
   try {
-    diskHash = computeCodeHash(path.join(repoDir, "dist", "extensions", "orchestrator-bridge.js"));
+    diskHash = computeCodeHash(bundlePath);
   } catch {
     return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext" };
   }
@@ -228,7 +238,7 @@ async function checkExtensionStaleness(orchDir: string): Promise<CheckResult> {
       const status = readJson(path.join(agentsDir, entry.name, "status.json"));
       if (!isAgentStatus(status) || !pidAlive(status.pid) || typeof status.extensionHash !== "string") continue;
       liveWithHash += 1;
-      if (isBridgeExtensionStale(status.extensionHash)) stale.push(entry.name);
+      if (status.extensionHash !== diskHash) stale.push(entry.name);
     } catch {}
   }
 
@@ -237,7 +247,7 @@ async function checkExtensionStaleness(orchDir: string): Promise<CheckResult> {
       id,
       label,
       status: "warn",
-      detail: `stale extension panes: ${stale.join(", ")}; hint: ${stale.map((name) => `orch restart ${name}`).join("; ")}`,
+      detail: `stale extension panes: ${stale.join(", ")}; hint: ${stale.map((name) => `orch reload ${name}`).join("; ")}`,
     };
   }
   if (!liveWithHash) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
@@ -245,6 +255,7 @@ async function checkExtensionStaleness(orchDir: string): Promise<CheckResult> {
 }
 
 async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
   const file = path.join(orchDir, "spawned.jsonl");
   let text: string;
   try {
@@ -257,7 +268,7 @@ async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
   for (const [index, line] of text.split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
     try {
-      const entry = JSON.parse(line);
+      const entry: unknown = JSON.parse(line);
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("not an object");
     } catch {
       corrupt.push(index + 1);
@@ -269,6 +280,7 @@ async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
 }
 
 async function checkConfig(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
   const file = path.join(orchDir, "config.toml");
   if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "ok", detail: "no config" };
   try {
@@ -280,6 +292,7 @@ async function checkConfig(orchDir: string): Promise<CheckResult> {
 }
 
 async function checkNotifications(bins: BinaryStatus): Promise<CheckResult> {
+  await Promise.resolve();
   if (process.env.HERDR_ENV === "1" && bins.herdr) {
     return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "herdr notification tier is available" };
   }
@@ -290,6 +303,68 @@ async function checkNotifications(bins: BinaryStatus): Promise<CheckResult> {
     return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "powershell.exe toast tier is available" };
   }
   return { id: "notifications", label: "Desktop notifications", status: "warn", detail: "no desktop notification tier is available" };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Validate configured notifier entries and probe each adapter in isolation. */
+export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
+  const id = "notifiers";
+  const label = "Notifiers";
+  let configured: unknown[];
+  try {
+    configured = loadConfig(orchDir).notify;
+  } catch (error: unknown) {
+    return { id, label, status: "fail", detail: error instanceof Error ? error.message : String(error) };
+  }
+  if (!configured.length) return { id, label, status: "ok", detail: "no notifiers configured" };
+
+  const registry = createNotifierRegistry();
+  const failures: string[] = [];
+  for (const [index, raw] of configured.entries()) {
+    const number = index + 1;
+    if (!isRecord(raw)) {
+      failures.push(`notifier #${number}: expected a table; fix: add [[notify]] with id = "desktop"`);
+      continue;
+    }
+    const adapter = typeof raw.id === "string" ? raw.id : typeof raw.type === "string" ? raw.type : "";
+    const config: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (key !== "id" && key !== "type" && key !== "on") config[key] = value;
+    }
+    if (adapter === "command" && typeof config.command === "string") {
+      config.command = ["sh", "-c", config.command];
+    }
+    const errors = registry.validate(adapter, config);
+    if (errors.length) {
+      failures.push(`${adapter || `notifier #${number}`}: ${errors.join(", ")}; fix: add ${errors.map((error) => {
+        const field = /requires (\\w+)$/.exec(error)?.[1] ?? "the required field";
+        return `${field} = \"...\"`;
+      }).join(", ")} to [[notify]]`);
+      continue;
+    }
+    const result = await registry.probe(adapter, config);
+    if (!result.available) {
+      let remediation = "fix: verify the adapter installation and configuration";
+      if (adapter === "desktop") {
+        remediation = isWslRuntime()
+          ? "fix: install notify-send (`sudo apt install libnotify-bin`) or ensure powershell.exe and wslpath are reachable"
+          : "fix: install notify-send (`sudo apt install libnotify-bin`)";
+      } else if (adapter === "herdr") {
+        remediation = "fix: install herdr (`bun install -g herdr`)";
+      } else if (adapter === "command") {
+        const command = Array.isArray(config.command) && typeof config.command[0] === "string" ? config.command[0] : "the command";
+        remediation = `fix: install ${command} (for example: sudo apt install ${command})`;
+      }
+      failures.push(`${adapter || `notifier #${number}`}: ${result.reason ?? result.error ?? "unavailable"}; ${remediation}`);
+    }
+  }
+
+  return failures.length
+    ? { id, label, status: "fail", detail: failures.join("; ") }
+    : { id, label, status: "ok", detail: `${configured.length} configured notifier${configured.length === 1 ? "" : "s"} are available` };
 }
 
 async function checkNotifySinks(orchDir: string, bins: BinaryStatus): Promise<CheckResult> {
@@ -323,10 +398,10 @@ async function checkNotifySinks(orchDir: string, bins: BinaryStatus): Promise<Ch
 }
 
 export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> {
+  await Promise.resolve();
   if (!bins.pi) return { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi is not installed" };
   const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
-  const bridgeSource = path.join(repoDir, "extensions", "orchestrator-bridge.ts");
-  const bridgeBundle = path.join(repoDir, "dist", "extensions", "orchestrator-bridge.js");
+  const bridgeBundle = bridgeBundlePath(repoDir);
   const names = ["orchestrator-bridge.js", "herdr-agent-state.ts"];
   const stale: string[] = [];
   const fixable: string[] = [];
@@ -386,10 +461,7 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
   }
   const applyExtensionFix = (): void => {
     if (fixable.includes("orchestrator-bridge.js")) {
-      filesystem.mkdirSync(path.dirname(bridgeBundle), { recursive: true });
-      execFileSync("bun", [
-        "build", bridgeSource, "--target=node", "--format=esm", "--outfile", bridgeBundle,
-      ], { stdio: "inherit" });
+      buildBridgeBundle(repoDir);
     }
     filesystem.mkdirSync(extensionDir, { recursive: true });
     for (const name of fixable) {
@@ -442,21 +514,28 @@ function isWslRuntime(): boolean {
   return /microsoft|wsl/i.test(os.release());
 }
 
-function isWindowsMountPath(dir: string): boolean {
-  return dir === "/mnt" || dir.startsWith("/mnt/");
+export function isDrvFsPath(resolved: string): boolean {
+  return resolved.toLowerCase().startsWith("/mnt/");
 }
 
 async function checkOrchDirLocation(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
   const id = "orchdir-location";
   const label = "ORCH_DIR location";
-  if (!isWslRuntime() || !isWindowsMountPath(orchDir)) {
-    return { id, label, status: "ok", detail: `${orchDir} is not on a Windows mount` };
+  let resolved: string;
+  try {
+    resolved = filesystem.realpathSync(orchDir);
+  } catch {
+    resolved = path.resolve(orchDir);
+  }
+  if (!isWslRuntime() || !isDrvFsPath(resolved)) {
+    return { id, label, status: "ok", detail: "ORCH_DIR is on the Linux filesystem" };
   }
   return {
     id,
     label,
     status: "warn",
-    detail: `ORCH_DIR ${orchDir} is on a Windows mount (/mnt); SQLite locks slowly there. Move it to the Linux filesystem, e.g. ORCH_DIR=$HOME/.orch`,
+    detail: `ORCH_DIR resolves to ${resolved}; move $ORCH_DIR onto the Linux filesystem (e.g. under $HOME) because SQLite WAL on DrvFs (/mnt) is slow and unsafe`,
   };
 }
 
@@ -467,6 +546,7 @@ function daemonEntrypoint(): string {
 }
 
 async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
   const lockFile = path.join(orchDir, "orchd.lock");
   if (!filesystem.existsSync(lockFile)) {
     return { id: "orchd", label: "orchd presence", status: "ok", detail: "orchd is absent (daemon is optional)" };
@@ -481,6 +561,7 @@ async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
 }
 
 async function checkDaemonStaleness(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
   const lock = readDaemonLock(orchDir);
   if (!lock || !pidAlive(lock.pid)) {
     return { id: "orchd-staleness", label: "orchd code", status: "skip", detail: "orchd is not running" };
@@ -498,6 +579,7 @@ async function checkDaemonStaleness(orchDir: string): Promise<CheckResult> {
 }
 
 async function checkDaemonLock(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
   const lockFile = path.join(orchDir, "orchd.lock");
   if (!filesystem.existsSync(lockFile)) {
     return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: "no orchd lock" };
@@ -548,7 +630,7 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function configuredHosts(orchDir: string): Array<[string, HostConfig]> {
+function configuredHosts(orchDir: string): [string, HostConfig][] {
   return Object.entries(loadConfig(orchDir).hosts);
 }
 
@@ -565,6 +647,7 @@ function hostResult(id: string, label: string, failures: string[], total: number
 }
 
 async function checkRemoteReachability(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+  await Promise.resolve();
   const hosts = configuredHosts(orchDir);
   const failures: string[] = [];
   for (const [name, host] of hosts) {
@@ -578,19 +661,21 @@ async function checkRemoteReachability(orchDir: string, runner: SshRunner = runS
 }
 
 async function checkRemoteVersion(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+  await Promise.resolve();
   const hosts = configuredHosts(orchDir);
   const failures: string[] = [];
   const local = (readJson(path.join(repoDir, "package.json")) as { version?: string }).version ?? "unknown";
   for (const [name, host] of hosts) {
     const destination = hostDestination(name, host);
     const result = runner(destination, "orch --version", { timeoutMs: host.timeout_ms });
-    const remote = result.stdout.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0];
+    const remote = /\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/.exec(result.stdout)?.[0];
     if (!result.ok || !remote || remote !== local) failures.push(`${name}: remote orch ${remote ?? "is not installed"} (local ${local}); fix: ssh ${destination} orch --version`);
   }
   return hostResult("remote-orch-version", "Remote orch version/schema", failures, hosts.length, "fail");
 }
 
 async function checkRemoteOrchDir(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+  await Promise.resolve();
   const hosts = configuredHosts(orchDir);
   const failures: string[] = [];
   for (const [name, host] of hosts) {
@@ -643,6 +728,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("config", "Config validity", () => checkConfig(orchDir)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
+    isolated("notifiers", "Notifiers", () => checkNotifiers(orchDir)),
     isolated("pi-extensions", "pi extensions", () => checkExtensions(bins)),
     isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),

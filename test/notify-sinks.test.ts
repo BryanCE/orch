@@ -42,7 +42,7 @@ describe("notify sinks", () => {
     };
     expect(await deliverToSink(sink, event)).toBe(true);
 
-    const payload = JSON.parse(readFileSync(output, "utf8"));
+    const payload = JSON.parse(readFileSync(output, "utf8")) as Record<string, unknown>;
     expect(payload).toMatchObject({
       workspace: "w6",
       workspaceColor: workspaceColor("w6"),

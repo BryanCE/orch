@@ -9,7 +9,7 @@ export function renderTable(headers: string[], rows: string[][], caps: number[])
     caps[index] ?? Infinity,
   ));
   const format = (cells: string[]) => cells
-    .map((cell, index) => truncate(cell, widths[index]).padEnd(widths[index]))
+    .map((cell, index) => truncate(cell, widths[index]!).padEnd(widths[index]!))
     .join("  ")
     .replace(/\s+$/, "");
   return [format(headers), widths.map((width) => "─".repeat(width)).join("  ").replace(/\s+$/, ""), ...rows.map(format)].join("\n");

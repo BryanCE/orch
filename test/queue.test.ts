@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { TaskRec } from "../src/queue";
 import {
   addTask,
   cancelTask,
@@ -42,7 +43,7 @@ describe("queue", () => {
         opts: { agent: "pi", worktree: true },
         state: "queued",
         retries: 0,
-      }),
+      }) as unknown as TaskRec,
     ]);
   });
 
@@ -82,7 +83,7 @@ describe("queue", () => {
         expect.objectContaining({ id: done.id, state: "done", result: "ok" }),
         expect.objectContaining({ id: failed.id, state: "failed", lastError: "boom" }),
         expect.objectContaining({ id: retried.id, state: "queued", retries: 1 }),
-      ]),
+      ]) as unknown as TaskRec[],
     );
     expect(history(orchDir).map((task) => task.id).sort()).toEqual([done.id, failed.id].sort());
   });

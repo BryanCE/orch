@@ -1,93 +1,128 @@
 # orch
 
-`orch` is a general-purpose fleet orchestration control plane for coding agents. It lets one operator spawn, dispatch, observe, steer, review, and reap many agents from one CLI. **pi is the shipped adapter today, not the limit of the design**; the adapter and backend contracts are intentionally independent.
+**orch** is a fleet orchestration control plane for coding agents running in herdr panes. It gives one operator a durable loop for spawning, dispatching, observing, steering, and reviewing many agents. Built-in agent adapters cover **pi**, **Claude**, and **Codex**; execution can happen in visible herdr panes or through the headless backend.
 
-## Prerequisites
+orch is also a headless control-plane backend: the daemon, presence protocol, event stream, queue, and result files keep agent state observable and steerable without requiring a pane for every run.
 
-- [bun](https://bun.sh) (runs the CLI and workers)
-- [herdr](https://herdr.dev) (needed for visible pane fleets)
-- [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (the current agent adapter)
+## Install
 
-Install globally:
+### npm (end users)
+
+Install the published CLI globally with npm:
 
 ```sh
-bun add -g orch
+npm install -g orch
 orch setup
 ```
 
-`orch setup` checks dependencies, creates `~/.orch/agents`, installs the pi extensions, installs optional Claude Code skills/agents, and links `orch`/`pif`. Use `--yes`, `--no-install`, or `--copy` for non-interactive, report-only, or copy-based setup.
+The npm package includes the prebuilt `dist/` bundle, so npm users do not need Bun to build orch locally. `herdr` is required for visible pane fleets; install and configure the agent CLI you plan to use. The `pi` adapter also requires [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Use `--backend headless` when a visible herdr fleet is not needed.
+
+### Development (Bun)
+
+From a checkout, install dependencies and link the local CLI:
+
+```sh
+bun install
+bun run build
+bun link
+```
+
+`bun link` makes the checkout's `orch` and `pif` commands available globally. `bun run build` refreshes the prebuilt extension bundle in `dist/`.
 
 ## Quickstart
 
-From a herdr workspace:
+Open a herdr workspace, then run the core loop:
 
 ```sh
-orch spawn 4 --tab Team1                 # four balanced, named agents
-orch dispatch Team1-1 "fix the tests" --wait
-orch status                              # state, model, cost, context, task, last text
-orch result Team1-1                      # final result (or pi session fallback)
-orch close --all --stream                # close only orch-spawned panes; stop events too
+orch spawn 2 --tab Team1 --agent pi
+orch dispatch Team1-1 "fix the failing tests"
+orch status
+orch wait Team1-1
+orch result Team1-1
+orch reload Team1-1                 # refresh the current session
+orch new Team1-1                    # reset to a fresh session/context
 ```
 
-Useful follow-ups include `orch steer <target> "..."`, `orch answer <target> "..."`, `orch wait <target>`, `orch tail <target>`, and `orch session <target>`. Targets can be agent names, presence keys, pane IDs, or unique suffixes.
+`dispatch` accepts `--raw`, `--model provider/id:think`, and `--agent adapter`. Targets can be agent names, presence keys, pane IDs, or unique suffixes. Use `orch steer <target> "..."` for a durable mid-run instruction, and `orch answer <target> "..."` for a pending question.
 
-## Agent adapters
-
-An adapter translates an agent CLI into orch's presence protocol: interactive/headless launch commands, state detection, steering and answers, model changes, and final-result extraction. **pi** is implemented now (`--agent pi`, the default) with lossless inbox steering, questions, model switching, session tailing, and `result.json` integration. The contract is suitable for future Claude, Codex, or other adapters; those are roadmap items, not currently shipped adapters.
-
-## Backends
-
-Backends decide where an adapter runs:
-
-- **herdr** (default): creates visible, focusable panes/tabs and supports the normal `spawn`, `tile`, focus, layout, and close workflow.
-- **headless**: runs a detached adapter process, redirects output to `~/.orch/logs`, records pid/key handles in `~/.orch/spawned.jsonl`, and has no panes or focus. Select with `--backend headless` or `ORCH_BACKEND=headless` where supported.
-
-## Task queue and review
-
-Queue work for idle agents, optionally isolated in a git worktree:
+For detached execution:
 
 ```sh
-id=$(orch queue add "add regression coverage" --worktree)
-orch queue list
-orch work --once                         # claim and dispatch queued work
-orch queue history
-orch queue cancel "$id"                  # queued tasks only
+orch spawn 2 --backend headless
+orch dispatch <target> "run the unit tests"
+orch status
 ```
 
-`orch work` matches queued tasks to idle agents (FIFO, adapter/workspace-aware), retries failures according to config, and records results. Worktree tasks use `.orch-worktrees/` and an `orch/<name>` branch. When an agent finishes with commits ahead of the base branch:
+## Command reference
 
-```sh
-orch review list
-orch review approve <target>             # merge, then remove worktree/branch
-orch review reject <target> -m "please add tests"  # re-dispatch feedback in place
-```
+These are the top-level commands accepted by the CLI. `orch status` is also the default when no command is supplied.
 
-Use `orch clean --worktrees [--force]` for orphaned worktrees; `--force` discards unmerged work.
+| Command | Description |
+| --- | --- |
+| `status` | Show merged agent and pane state; supports `--json`, `--all`, and `--offline`. |
+| `questions` | List pending agent questions. |
+| `events` | Stream state transitions, optionally filtered or notified. |
+| `queue` | Add, list, inspect history, or cancel queued tasks. |
+| `work` | Assign queued tasks to idle agents. |
+| `review` | List, approve, reject, or interactively review worktree results. |
+| `run` | Queue a prompt through orchd with the worker header. |
+| `dispatch` | Durably dispatch a prompt to a target. |
+| `answer` | Answer a pending agent question. |
+| `pipe` | Send a completed result from one target to another. |
+| `broadcast` | Steer multiple named targets or all targets. |
+| `notify` | Test configured notification sinks. |
+| `steer` | Send a durable mid-run instruction. |
+| `model` | Change a target's model. |
+| `wait` | Wait for a target to reach a state. |
+| `result` | Print a target's final result. |
+| `tail` | Show recent session entries. |
+| `session` | Show a target's resolved session path and stats. |
+| `reload` | Reload one or more panes and signal watchers. |
+| `reset` / `new` | Start a fresh session/context while keeping the model. |
+| `restart` | Close and relaunch a harness process. |
+| `spawn` | Create a new tab with N balanced, tiled agents. |
+| `tile` | Add one pane to an existing tab. |
+| `rename` | Rename an agent or pane border. |
+| `close` / `kill` | Close targets; `--all` only closes orch-spawned panes. |
+| `abort` | Cancel a turn by sending the abort key sequence. |
+| `keys` | Send raw keys to a pane. |
+| `peek` | Read the visible screen of a pane. |
+| `panes` | Print the raw merged pane list for scripting. |
+| `tabs` | List tabs and their pane counts/status. |
+| `tab` | Create, rename, close, or focus a tab. |
+| `focus` | Focus a target pane. |
+| `zoom` | Toggle or set pane zoom. |
+| `move` | Move a pane to a tab or new tab. |
+| `ws` | List or focus workspaces. |
+| `daemon` | Start, stop, inspect, or reload orchd. |
+| `doctor` | Check and optionally repair the installation. |
+| `clean` | Remove dead agent directories and orphaned worktrees. |
+| `setup` | Configure an agent/backend and install or link integrations. |
+| `help` | Print the full built-in usage text. |
 
-## Notifications and the events stream
+Run `orch help` for subcommands and flags.
 
-`orch events` is the live state-transition stream:
+## Concepts
 
-```sh
-orch events --status blocked,error --notify
-orch events --all --json
-orch notify test --state blocked
-```
+### Three adapter axes
 
-Configured notification sinks can be desktop (herdr notification, `notify-send`, WSL notifications/toast), webhook (HTTP POST JSON), or command (JSON on stdin). Sinks default to `blocked` and `error` unless `on = [...]` is specified. Events include agent, tab, model, task, cost, and workspace provenance.
+orch keeps these responsibilities separate:
 
-## WORKSPACE WALLS
+- **Agent adapters** translate agent CLIs and their state protocols. The built-in adapters are `pi`, `claude`, and `codex`.
+- **Execution backends** decide where an adapter runs: `herdr` creates visible, focusable panes; `headless` runs a detached process and records its handle and logs under `~/.orch`.
+- **Notifier adapters** deliver canonical state events. Built-ins include `herdr`, `desktop`, `webhook`, and `command`.
 
-Orch separates **pull views** from **push alerts**:
+### orchd and presence
 
-- Pull commands (`status`, `questions`, `tabs`, `panes`, and workspace-scoped listings) default to the **current workspace**. Add `--all` to opt into a cross-workspace view (workspace labels are shown when mixed).
-- Push paths (events, notifications, and toasts) cross workspace boundaries. Every alert carries `[workspace]` provenance plus a stable workspace color, so an event from another workspace is immediately identifiable.
+`orchd` is the resident daemon that accepts durable dispatch, steer, model, queue, and event operations. Agents publish presence files under `~/.orch/agents`; orch merges those records with herdr and session data to report state, task, model, result, and liveness.
 
-This prevents a status glance in one workspace from silently mixing in another while still ensuring important alerts are delivered.
+### Workspaces and walls
+
+A workspace is a herdr grouping of tabs and panes. Pull-oriented commands such as `status`, `questions`, `tabs`, and `panes` default to the current workspace; use `--all` where supported for a cross-workspace view. Push paths such as events and notifications include workspace provenance and a stable workspace color, so alerts do not lose their wall context.
 
 ## Configuration
 
-The default directory is `~/.orch` (override with `ORCH_DIR`). `~/.orch/config.toml` is TOML; flags override `ORCH_*` environment variables, which override config, which overrides built-in defaults.
+Configuration lives at `~/.orch/config.toml` (or `$ORCH_DIR/config.toml`). Flags override `ORCH_*` environment variables, which override this file, which overrides built-in defaults.
 
 ```toml
 [defaults]
@@ -97,45 +132,30 @@ model = "provider/model:thinking"
 spawn_cap = 8
 worktree = false
 
-[queue]
-max_retries = 1
-
 [[notify]]
-type = "desktop"
+id = "desktop"
 on = ["blocked", "error"]
 
 [[notify]]
-type = "webhook"
+id = "webhook"
 url = "https://example.test/orch-events"
 on = ["done", "error"]
 
-[[notify]]
-type = "command"
-command = ["logger", "-t", "orch"]
+[hosts]
+worker = { dest = "user@example.org", orch_dir = "/home/user/.orch", timeout_ms = 10000 }
 ```
 
-Supported defaults are `adapter`, `backend`, `model`, `spawn_cap`, and `worktree`; queue configuration currently exposes `max_retries`. Notification tables support `desktop`, `webhook` (requires `url`), and `command` (string or argv array).
+`[defaults]` supports `adapter`, `backend`, `model`, `allowed_models`, `spawn_cap`, `worktree`, and `worker_peer_tools`. Each `[[notify]]` entry selects a notifier with `id` (the legacy `type` spelling is also accepted). `[hosts]` entries define remote SSH destinations with `dest` (or legacy `ssh`), optional `orch_dir`, and `timeout_ms`.
 
-## Doctor and maintenance
+## Notifications and events
 
 ```sh
-orch doctor
-orch doctor --fix
-orch doctor --json
-orch daemon start                 # optional resident event daemon
-orch daemon status
+orch events --status blocked,error --notify
+orch notify test --state blocked
 ```
 
-Doctor checks required binaries, herdr version, stale presence directories, extension hashes and links, spawn registry, config validity, notification availability, daemon health/locks/socket, and worktree gitignore. `--fix` applies safe repairs and reruns checks.
+Notifier sinks default to `blocked` and `error` unless `on = [...]` is specified. Webhooks receive canonical JSON; command sinks receive the same JSON on standard input.
 
-## Layout
+## License
 
-```
-bin/orch.ts        CLI
-bin/pif            headless pi wrapper
-src/adapters/      agent adapter contracts and implementations
-src/backends/      herdr and headless backend implementations
-extensions/        pi presence/state extensions
-```
-
-Remote-host fan-out and additional adapters are planned; they are not part of the shipped CLI yet.
+MIT

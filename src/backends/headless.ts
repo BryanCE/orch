@@ -19,9 +19,10 @@ export interface HeadlessHandle {
   readonly alive?: boolean;
 }
 
-export type HeadlessRegistryRecord = BackendRegistryRecord<HeadlessHandle>;
+type HeadlessRegistryRecord = BackendRegistryRecord<HeadlessHandle>;
 
 const HEADLESS_BACKEND = "headless";
+let generatedKey = 0;
 
 function orchDirectory(override?: string): string {
   return override ?? process.env.ORCH_DIR ?? join(homedir(), ".orch");
@@ -62,7 +63,7 @@ function isRecord(value: unknown): value is HeadlessRegistryRecord {
 }
 
 /** Read valid headless records, ignoring corrupt or unrelated registry lines. */
-export function readHeadlessRegistry(directory = orchDirectory()): HeadlessRegistryRecord[] {
+function readHeadlessRegistry(directory = orchDirectory()): HeadlessRegistryRecord[] {
   try {
     return readFileSync(registryPath(directory), "utf8")
       .split("\n")
@@ -91,7 +92,7 @@ function statusPid(directory: string, key: string): number | undefined {
   try {
     const status: unknown = JSON.parse(readFileSync(join(presenceAgentDir(key, directory), "status.json"), "utf8"));
     if (!status || typeof status !== "object" || Array.isArray(status)) return undefined;
-    const pid = Reflect.get(status, "pid");
+    const pid: unknown = Reflect.get(status, "pid");
     return typeof pid === "number" ? pid : undefined;
   } catch {
     return undefined;
@@ -119,7 +120,11 @@ export interface HeadlessBackendDeps {
 
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
+  // Required by the Backend contract even though headless has no pane UI.
+  // fallow-ignore-next-line unused-class-member
   readonly panes = false;
+  // Required by the Backend contract even though headless has no pane UI.
+  // fallow-ignore-next-line unused-class-member
   readonly focusable = false;
   readonly caps: BackendCapabilities = { panes: false, focusable: false };
   private readonly isPidAlive: (pid: number) => boolean;
@@ -133,11 +138,11 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Start the adapter's restricted worker command detached, redirecting output to a log. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const directory = orchDirectory(opts.orchDir);
-    const key = opts.key ?? `session-pending`;
-    if (!safeKey(key)) throw new Error(`invalid headless presence key: ${key}`);
+    const key = opts.key ?? `session-${process.pid}-${++generatedKey}`;
+    if (!safeKey(key)) throw new Error(`invalid headless presence key: ${JSON.stringify(key)}`);
 
     const adapterOpts: SpawnOpts = {
-      key: opts.key,
+      key,
       cwd: opts.cwd,
       model: opts.model,
       orchDir: directory,
@@ -161,7 +166,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       child = spawnProcess(argv[0], argv.slice(1), {
         cwd: opts.cwd,
         detached: true,
-        env: { ...process.env, ORCH_DIR: directory, ...(opts.env ?? {}) },
+        env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ...(opts.env ?? {}) },
         stdio: ["ignore", logFd, logFd],
       });
     } catch (error) {
@@ -173,8 +178,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
-    const actualKey = opts.key ?? `session-${pid}`;
-    const handle: HeadlessHandle = { pid, key: actualKey };
+    const handle: HeadlessHandle = { pid, key };
     appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: String(adapter.id) }, directory);
     return handle;
   }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// fallow-ignore-file unused-file
 /**
  * Claude Code settings.json hook shim for orch presence.
  *
@@ -16,7 +17,7 @@ const SCHEMA_VERSION = 2;
 const AGENT_ID = "claude";
 const MAX_TEXT = 400;
 const MAX_TASK = 200;
-type JsonRecord = Record<string, any>;
+type JsonRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -126,7 +127,8 @@ function presenceDirectoryName(key: string): string {
 }
 
 function eventName(argument: string | undefined, input: JsonRecord): string {
-  return String(argument ?? input.hook_event_name ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  const hookEventName = textValue(input.hook_event_name) ?? "";
+  return (argument ?? hookEventName).toLowerCase().replace(/[^a-z]/g, "");
 }
 
 function modelValue(input: JsonRecord): { provider?: string; id?: string } | undefined {
@@ -175,7 +177,8 @@ const transcriptPath = textValue(input.transcript_path ?? input.transcriptPath);
 const now = new Date().toISOString();
 const previous = loadStatus(statusFile);
 const model = modelValue(input) ?? previous.model;
-const task = truncate(input.task ?? input.prompt ?? input.initial_prompt, MAX_TASK) ?? previous.task;
+const rawTask = input.task ?? input.prompt ?? input.initial_prompt;
+const task = truncate(typeof rawTask === "string" ? rawTask : undefined, MAX_TASK) ?? previous.task;
 const sessionId = textValue(input.session_id ?? input.sessionId) ?? previous.sessionId;
 const existingText = textValue(previous.lastText);
 const transcriptText = lastAssistant(transcriptPath ?? textValue(previous.sessionPath));

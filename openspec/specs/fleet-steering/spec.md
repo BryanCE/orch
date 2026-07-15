@@ -3,9 +3,7 @@
 ## Purpose
 
 Reliability contract for the orchestrator-facing steering surface of the orch CLI: the event stream, tab targeting, bridge-dependent write commands, model-change acknowledgements, notification-sink verification, and spawn-time model pinning.
-
 ## Requirements
-
 ### Requirement: Event stream survives an empty fleet
 `orch events --all` SHALL keep running when zero live agent presence dirs exist, and SHALL begin emitting transitions for agents that appear later, without restart.
 
@@ -25,15 +23,19 @@ Commands that accept a tab (`tile`, `tab`, `move`) SHALL resolve a tab by its la
 - **THEN** the command exits 1 and lists both tab ids as candidates
 
 ### Requirement: Bridge-dependent writes wait for readiness
-`orch model` SHALL wait up to a bounded default (10s) for the target pane's bridge presence dir before failing, polling rather than exiting on first miss. A `--no-wait` flag SHALL restore immediate failure. On timeout the error SHALL state how long it waited.
+`orch model` SHALL route through the daemon broker and wait up to a bounded default (10s) for the target pane's bridge presence dir before failing, polling rather than exiting on first miss. A `--no-wait` flag SHALL restore immediate failure. On timeout the error SHALL state how long it waited. With orchd absent, `orch model` SHALL refuse with a nonzero exit and a message to run `orch daemon start`, rather than attempting a direct write.
 
 #### Scenario: Model set immediately after spawn
 - **WHEN** `orch model <pane> <model>` runs 1 second after `orch spawn` created the pane and the bridge appears within 10s
-- **THEN** the model is applied and the command exits 0 without the caller sleeping
+- **THEN** the model is applied through the broker and the command exits 0 without the caller sleeping
 
 #### Scenario: Bridge never appears
 - **WHEN** the target pane never writes a presence dir within the wait window
 - **THEN** the command exits 1 with an error naming the wait duration
+
+#### Scenario: Model change refuses without the broker
+- **WHEN** orchd is absent and `orch model <pane> <model>` runs
+- **THEN** the command exits nonzero and tells the operator to run `orch daemon start`, and no model change is attempted
 
 ### Requirement: Unambiguous model-change acknowledgement
 `orch model` SHALL distinguish three outcomes: no-op (requested model already set — exit 0, output says already set), confirmed change (exit 0, output shows old → new), and unconfirmed change (bridge did not reflect the new model within the verification window — exit 1, output names both the requested and the still-current model).
@@ -67,3 +69,4 @@ Commands that accept a tab (`tile`, `tab`, `move`) SHALL resolve a tab by its la
 #### Scenario: One pin fails
 - **WHEN** one of two spawned panes never boots its bridge
 - **THEN** the other pane is pinned, a warning names the failed pane, and the command exits nonzero
+

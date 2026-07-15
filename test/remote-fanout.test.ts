@@ -86,9 +86,9 @@ describe("async remote fan-out", () => {
     const byHost = Object.fromEntries(results);
 
     expect(byHost.good).toEqual({ ok: true, value: { host: "good", ok: true } });
-    expect(failure(byHost.dead)).toMatchObject({ kind: "dead-host", host: "dead" });
-    expect(failure(byHost.slow)).toMatchObject({ kind: "timeout", host: "slow" });
-    expect(failure(byHost.text)).toMatchObject({ kind: "non-json", host: "text" });
+    expect(failure(byHost.dead!)).toMatchObject({ kind: "dead-host", host: "dead" });
+    expect(failure(byHost.slow!)).toMatchObject({ kind: "timeout", host: "slow" });
+    expect(failure(byHost.text!)).toMatchObject({ kind: "non-json", host: "text" });
     expect(recorded(record).length).toBeGreaterThan(0);
   });
 });

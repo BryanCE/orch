@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { runDoctor } from "../src/doctor.ts";
+import { runDoctor, type CheckResult } from "../src/doctor.ts";
 
 const directories: string[] = [];
 
@@ -12,7 +12,7 @@ function tempDir(): string {
   return directory;
 }
 
-function notifyResult(results: Awaited<ReturnType<typeof runDoctor>>) {
+function notifyResult(results: CheckResult[]): CheckResult {
   const result = results.find((entry) => entry.id === "notify-sinks");
   if (!result) throw new Error("missing notify-sinks result");
   return result;
@@ -54,16 +54,16 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     writeConfig(directory, '[[notify]]\ntype = "webhook"\nurl = "not a url"\n');
 
-    const result = await withPath(path.join(directory, "empty-path"), async () => notifyResult(await runDoctor(directory)));
-    expect(result).toMatchObject({ status: "warn", detail: expect.stringContaining("webhook sink #1 URL is not well-formed") });
+    const result = await withPath<CheckResult>(path.join(directory, "empty-path"), async (): Promise<CheckResult> => notifyResult(await runDoctor(directory)));
+    expect(result).toMatchObject({ status: "warn", detail: expect.stringContaining("webhook sink #1 URL is not well-formed") as unknown as string });
   });
 
   test("warns for a command binary missing from PATH", async () => {
     const directory = tempDir();
     writeConfig(directory, '[[notify]]\ntype = "command"\ncommand = ["missing-notify-command"]\n');
 
-    const result = await withPath(path.join(directory, "empty-path"), async () => notifyResult(await runDoctor(directory)));
-    expect(result).toMatchObject({ status: "warn", detail: expect.stringContaining('command sink #1 binary "missing-notify-command" is not on PATH') });
+    const result = await withPath<CheckResult>(path.join(directory, "empty-path"), async (): Promise<CheckResult> => notifyResult(await runDoctor(directory)));
+    expect(result).toMatchObject({ status: "warn", detail: expect.stringContaining('command sink #1 binary "missing-notify-command" is not on PATH') as unknown as string });
   });
 
   test("accepts a command binary present on the injected PATH", async () => {

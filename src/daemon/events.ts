@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { collapse } from "../entities.ts";
-import { notify, type NotifyEvent, type Sink } from "../notify.ts";
+import { abstractAgentLabel, notify, workspaceLabelForKey, type NotifyEvent, type Sink } from "../notify.ts";
 import { pidAlive, presenceAgentDir, presenceKeyFromDirectoryName, readJSON } from "../store.ts";
 import { truncate } from "../table.ts";
 import { rpcCall, rpcSubscribe } from "./rpc.ts";
@@ -9,13 +9,13 @@ import { workspaceOf } from "../policy/workspace.ts";
 
 const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
 
-export type PresenceMetadata = {
+export interface PresenceMetadata {
   name: string | null;
   tab: string | null;
   pid?: number;
 };
 
-export type PresenceWatchOptions = {
+export interface PresenceWatchOptions {
   orchDir: string;
   onEvent: (event: NotifyEvent) => void;
   initialStates?: Map<string, string>;
@@ -25,13 +25,13 @@ export type PresenceWatchOptions = {
   pollIntervalMs?: number;
 };
 
-export type PresenceWatch = {
+export interface PresenceWatch {
   states: Map<string, string>;
   scan: () => void;
   stop: () => void;
 };
 
-export type PreferredEventsOptions = {
+export interface PreferredEventsOptions {
   orchDir: string;
   onEvent: (event: unknown) => void;
   onFallback: () => void;
@@ -39,19 +39,23 @@ export type PreferredEventsOptions = {
   probeIntervalMs?: number;
 };
 
-export type PreferredEvents = {
+export interface PreferredEvents {
   mode: "daemon" | "files";
   stop: () => void;
 };
 
+function property(value: object, key: string): unknown {
+  return Reflect.get(value, key) as unknown;
+}
+
 function eventModel(status: unknown): string | null {
   if (!status || typeof status !== "object") return null;
-  const model = Reflect.get(status, "model");
+  const model = property(status, "model");
   if (!model || typeof model !== "object") return null;
-  const id = Reflect.get(model, "id");
+  const id = property(model, "id");
   if (typeof id !== "string" || !id) return null;
-  const thinking = Reflect.get(status, "thinking");
-  return `${id}${thinking ? `:${String(thinking)}` : ""}`;
+  const thinking = property(status, "thinking");
+  return `${id}${thinking ? `:${JSON.stringify(thinking) ?? ""}` : ""}`;
 }
 
 function statusState(status: unknown, fallbackPid?: number): string | null {
@@ -59,11 +63,11 @@ function statusState(status: unknown, fallbackPid?: number): string | null {
     if (fallbackPid === undefined) return null;
     return pidAlive(fallbackPid) ? null : "exited";
   }
-  const pidValue = Reflect.get(status, "pid");
+  const pidValue = property(status, "pid");
   const pid = typeof pidValue === "number" ? pidValue : fallbackPid;
   let state: string | null = null;
-  if (Reflect.get(status, "asking")) state = "blocked";
-  else if (Reflect.get(status, "state")) state = String(Reflect.get(status, "state"));
+  if (property(status, "asking")) state = "blocked";
+  else if (property(status, "state")) state = String(property(status, "state"));
   if (!pidAlive(pid)) state = "exited";
   return state;
 }
@@ -73,12 +77,12 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function eventTask(status: object): string | undefined {
-  const asking = Reflect.get(status, "asking");
+  const asking = property(status, "asking");
   if (asking && typeof asking === "object") {
-    const question = Reflect.get(asking, "question");
+    const question = property(asking, "question");
     if (typeof question === "string") return `Q: ${truncate(collapse(question), 80)}`;
   }
-  const task = Reflect.get(status, "task");
+  const task = property(status, "task");
   if (typeof task !== "string") return undefined;
   const realTask = (task.startsWith(WORKER_PROMPT_HEADER)
     ? task.slice(WORKER_PROMPT_HEADER.length)
@@ -102,14 +106,18 @@ export function derivePresenceTransition(
   states.set(key, state);
   if (previous === undefined) return null;
   const value = status && typeof status === "object" ? status : {};
-  const label = optionalString(Reflect.get(value, "label"));
-  const tabLabel = optionalString(Reflect.get(value, "tabLabel"));
-  const cost = Reflect.get(value, "cost");
-  const lastError = optionalString(Reflect.get(value, "lastError"));
+  const workspace = workspaceOf(key) ?? undefined;
+  const assignedName = optionalString(property(value, "agent"));
+  const label = optionalString(property(value, "label"));
+  const tabLabel = optionalString(property(value, "tabLabel"));
+  const cost = property(value, "cost");
+  const lastError = optionalString(property(value, "lastError"));
   return {
     key,
-    workspace: workspaceOf(key) ?? undefined,
-    agent: label ?? metadata.name,
+    workspace,
+    // Presence is authoritative; the abstract label keeps events usable when
+    // a legacy/future harness has not supplied a human name.
+    agent: assignedName ?? label ?? metadata.name ?? abstractAgentLabel(workspace ?? "workspace", key),
     tab: tabLabel ?? metadata.tab,
     model: eventModel(value),
     oldState: previous,
@@ -156,7 +164,7 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
       const watcher = watch(presenceAgentDir(key, options.orchDir), (_event, filename) => {
         if (!filename || filename.toString() === "status.json") check(key);
       });
-      watcher.on("error", () => {});
+      watcher.on("error", () => { /* noop */ });
       watchers.set(key, watcher);
     } catch {}
   };
@@ -178,7 +186,7 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   };
   try {
     rootWatcher = watch(agentsDir, () => scan());
-    rootWatcher.on("error", () => {});
+    rootWatcher.on("error", () => { /* noop */ });
   } catch {}
   scan();
   const safety = setInterval(scan, options.pollIntervalMs ?? 5_000);
@@ -229,6 +237,10 @@ export async function startPreferredEvents(options: PreferredEventsOptions): Pro
 }
 
 export function emitAndNotify(emit: (event: unknown) => void, sinks: Sink[], event: NotifyEvent): void {
-  emit(event);
-  notify(sinks, event);
+  const workspace = event.workspace ?? workspaceLabelForKey(event.key);
+  const canonical: NotifyEvent = event.agent?.trim()
+    ? event
+    : { ...event, agent: abstractAgentLabel(workspace, event.key), workspace };
+  emit(canonical);
+  notify(sinks, canonical);
 }

@@ -1,6 +1,6 @@
 {
   "name": "orch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fleet orchestration control plane for pi agents in herdr panes — orch CLI, pif headless dispatch, and the pi extensions that make every agent visible and steerable.",
   "keywords": [
     "pi-package",
@@ -11,7 +11,10 @@
   ],
   "scripts": {
     "check": "oxlint . && bunx tsc --noEmit && fallow check",
+    "build": "bun run build:ext && bun run build:bin",
     "build:ext": "bun build extensions/orchestrator-bridge.ts --target=node --format=esm --outfile dist/extensions/orchestrator-bridge.js",
+    "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
+    "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
     "lint": "oxlint .",
     "test": "bun test"
@@ -20,7 +23,7 @@
   "author": "Bryan Edman",
   "type": "module",
   "bin": {
-    "orch": "./bin/orch.ts",
+    "orch": "./dist/bin/orch.js",
     "pif": "./bin/pif"
   },
   "files": [
@@ -28,6 +31,7 @@
     "src/",
     "scripts/",
     "extensions/",
+    "dist/",
     "skills/",
     "agents/",
     "README.md"
@@ -38,7 +42,11 @@
     ]
   },
   "engines": {
+    "node": ">=18.0.0",
     "bun": ">=1.0.0"
+  },
+  "dependencies": {
+    "typebox": "^1.1.38"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

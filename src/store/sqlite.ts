@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskOptions, TaskRec, TaskState } from "../queue.ts";
@@ -8,13 +8,67 @@ import type { SpawnedRecord } from "../store.ts";
 // outbox, and spawn registry. jsonl remains the human-visible truth channel for
 // presence/results/transitions; only this internal state lives here.
 
-const connections = new Map<string, Database>();
+interface StatementLike {
+  run(...params: unknown[]): { changes: number };
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
+}
+
+interface DatabaseLike {
+  exec(sql: string): void;
+  query(sql: string): StatementLike;
+}
+
+interface NodeStatement {
+  run(...params: unknown[]): { changes: number | bigint };
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
+}
+
+interface NodeDatabase {
+  exec(sql: string): void;
+  prepare(sql: string): NodeStatement;
+}
+
+class NodeDatabaseAdapter implements DatabaseLike {
+  public constructor(private readonly database: NodeDatabase) {}
+
+  exec(sql: string): void {
+    this.database.exec(sql);
+  }
+
+  query(sql: string): StatementLike {
+    const statement = this.database.prepare(sql);
+    return {
+      run: (...params) => ({ changes: Number(statement.run(...params).changes) }),
+      all: (...params) => statement.all(...params),
+      get: (...params) => statement.get(...params),
+    };
+  }
+}
+
+const connections = new Map<string, DatabaseLike>();
+
+const bunSqlite = process.versions.bun
+  ? await import("bun:sqlite") as unknown as {
+      Database: new (path: string, options: { create: boolean }) => DatabaseLike;
+    }
+  : null;
+const require = createRequire(import.meta.url);
+
+function createDatabase(path: string): DatabaseLike {
+  if (bunSqlite) return new bunSqlite.Database(path, { create: true });
+  const nodeSqlite = require("node:sqlite") as {
+    DatabaseSync: new (path: string) => NodeDatabase;
+  };
+  return new NodeDatabaseAdapter(new nodeSqlite.DatabaseSync(path));
+}
 
 function databasePath(orchDir: string): string {
   return join(orchDir, "orch.db");
 }
 
-function createTables(db: Database): void {
+function createTables(db: DatabaseLike): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS queue (
       id TEXT PRIMARY KEY,
@@ -42,7 +96,8 @@ function createTables(db: Database): void {
       state TEXT NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      next_attempt_at INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS spawned (
       pane TEXT PRIMARY KEY,
@@ -54,15 +109,27 @@ function createTables(db: Database): void {
       branch TEXT
     );
   `);
+
+  // Keep migrations additive for databases created by earlier versions.
+  const columns = db.query("PRAGMA table_info(outbox)").all() as { name: string }[];
+  if (!columns.some((column) => column.name === "next_attempt_at")) {
+    try {
+      db.exec("ALTER TABLE outbox ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0");
+    } catch (error: unknown) {
+      // Another process may have applied this additive migration between the
+      // PRAGMA and ALTER.  Treat only that expected race as success.
+      if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) throw error;
+    }
+  }
 }
 
 /** Open (create-if-absent) the WAL store for one orch dir; connection is cached. */
-export function openStore(orchDir: string): Database {
+function openStore(orchDir: string): DatabaseLike {
   const path = databasePath(orchDir);
   const cached = connections.get(path);
   if (cached) return cached;
   mkdirSync(orchDir, { recursive: true });
-  const db = new Database(path, { create: true });
+  const db = createDatabase(path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
   createTables(db);
@@ -122,6 +189,47 @@ export function insertQueueTask(orchDir: string, task: TaskRec): void {
 export function selectQueueTasks(orchDir: string): TaskRec[] {
   const rows = openStore(orchDir).query("SELECT * FROM queue ORDER BY created_at ASC").all() as QueueRow[];
   return rows.map(rowToTask);
+}
+
+/** Record which orchestrator controls an agent, replacing any prior owner. */
+export function setOwner(orchDir: string, agentKey: string, owner: string): void {
+  const updatedAt = new Date().toISOString();
+  openStore(orchDir)
+    .query(
+      `INSERT INTO ownership (agent_key, owner, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(agent_key) DO UPDATE SET owner = excluded.owner, updated_at = excluded.updated_at`,
+    )
+    .run(agentKey, owner, updatedAt);
+}
+
+export function getOwner(orchDir: string, agentKey: string): string | undefined {
+  const row = openStore(orchDir)
+    .query("SELECT owner FROM ownership WHERE agent_key = ?")
+    .get(agentKey) as { owner: string } | null;
+  return row?.owner;
+}
+
+export type OwnerWriteResult =
+  | { ok: true; reassigned?: boolean }
+  | { ok: false; reason: string };
+
+/** Check ownership synchronously and optionally transfer control to the actor. */
+export function checkOwnerWrite(
+  orchDir: string,
+  agentKey: string,
+  actor: string,
+  opts: { steal?: boolean } = {},
+): OwnerWriteResult {
+  const owner = getOwner(orchDir, agentKey);
+  if (owner === undefined || owner === actor) return { ok: true };
+  if (!opts.steal) return { ok: false, reason: `agent is owned by ${owner}` };
+  const changes = openStore(orchDir)
+    .query("UPDATE ownership SET owner = ?, updated_at = ? WHERE agent_key = ? AND owner = ?")
+    .run(actor, new Date().toISOString(), agentKey, owner).changes;
+  if (changes === 1) return { ok: true, reassigned: true };
+  const current = getOwner(orchDir, agentKey);
+  return { ok: false, reason: `agent is owned by ${current ?? owner}` };
 }
 
 export function selectQueueTask(orchDir: string, id: string): TaskRec | undefined {
@@ -215,48 +323,21 @@ export function selectSpawnedRecords(orchDir: string): SpawnedRecord[] {
   return rows.map(rowToSpawned);
 }
 
-export interface OwnershipRecord {
-  agentKey: string;
-  owner: string;
-  workspace: string | null;
-  updatedAt: string;
+export interface OutboxMessageInput {
+  id: string;
+  target: string;
+  payload: unknown;
+  createdAt?: string;
 }
-
-/** Record (or reassign) the orchestrator that controls an agent. */
-export function writeOwner(orchDir: string, agentKey: string, owner: string, workspace: string | null, ts: string): void {
-  openStore(orchDir)
-    .query(
-      `INSERT INTO ownership (agent_key, owner, workspace, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(agent_key) DO UPDATE SET
-         owner = excluded.owner, workspace = excluded.workspace, updated_at = excluded.updated_at`,
-    )
-    .run(agentKey, owner, workspace, ts);
-}
-
-export function readOwner(orchDir: string, agentKey: string): OwnershipRecord | undefined {
-  const row = openStore(orchDir)
-    .query("SELECT agent_key, owner, workspace, updated_at FROM ownership WHERE agent_key = ?")
-    .get(agentKey) as { agent_key: string; owner: string; workspace: string | null; updated_at: string } | null;
-  return row
-    ? { agentKey: row.agent_key, owner: row.owner, workspace: row.workspace, updatedAt: row.updated_at }
-    : undefined;
-}
-
-export function clearOwner(orchDir: string, agentKey: string): void {
-  openStore(orchDir).query("DELETE FROM ownership WHERE agent_key = ?").run(agentKey);
-}
-
-export type OutboxState = "pending" | "delivered";
 
 export interface OutboxMessage {
   id: string;
   target: string;
-  payload: string;
-  state: OutboxState;
+  payload: unknown;
+  state: "pending" | "delivered";
   attempts: number;
   createdAt: string;
-  updatedAt: string;
+  nextAttemptAt: number;
 }
 
 interface OutboxRow {
@@ -266,48 +347,51 @@ interface OutboxRow {
   state: string;
   attempts: number;
   created_at: string;
-  updated_at: string;
+  next_attempt_at: number;
 }
 
-function rowToOutbox(row: OutboxRow): OutboxMessage {
+function rowToOutboxMessage(row: OutboxRow): OutboxMessage {
   return {
     id: row.id,
     target: row.target,
-    payload: row.payload,
-    state: row.state as OutboxState,
+    payload: JSON.parse(row.payload) as unknown,
+    state: row.state as OutboxMessage["state"],
     attempts: row.attempts,
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    nextAttemptAt: row.next_attempt_at,
   };
 }
 
-/** Durably accept a message before delivery; the id also stamps the inbox record. */
-export function insertOutboxMessage(orchDir: string, id: string, target: string, payload: string, ts: string): void {
+/** Insert a pending message; synchronous so callers may use it in a transaction. */
+export function insertOutboxMessage(orchDir: string, msg: OutboxMessageInput): void {
+  const createdAt = msg.createdAt ?? new Date().toISOString();
   openStore(orchDir)
     .query(
-      `INSERT INTO outbox (id, target, payload, state, attempts, created_at, updated_at)
-       VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
+      `INSERT INTO outbox (id, target, payload, state, attempts, created_at, updated_at, next_attempt_at)
+       VALUES (?, ?, ?, 'pending', 0, ?, ?, 0)`,
     )
-    .run(id, target, payload, ts, ts);
+    .run(msg.id, msg.target, JSON.stringify(msg.payload), createdAt, createdAt);
 }
 
-/** Mark delivered on ack; idempotent so a retried-then-acked message applies once. */
-export function markOutboxDelivered(orchDir: string, id: string, ts: string): void {
-  openStore(orchDir)
-    .query("UPDATE outbox SET state = 'delivered', updated_at = ? WHERE id = ? AND state = 'pending'")
-    .run(ts, id);
-}
-
-export function bumpOutboxAttempt(orchDir: string, id: string, ts: string): void {
-  openStore(orchDir)
-    .query("UPDATE outbox SET attempts = attempts + 1, updated_at = ? WHERE id = ?")
-    .run(ts, id);
-}
-
-/** Undelivered messages, oldest first — the retry/restart-resume work list. */
-export function pendingOutboxMessages(orchDir: string): OutboxMessage[] {
+export function selectPendingOutbox(orchDir: string, now: number): OutboxMessage[] {
   const rows = openStore(orchDir)
-    .query("SELECT * FROM outbox WHERE state = 'pending' ORDER BY created_at ASC")
-    .all() as OutboxRow[];
-  return rows.map(rowToOutbox);
+    .query(
+      "SELECT id, target, payload, state, attempts, created_at, next_attempt_at FROM outbox WHERE state = 'pending' AND next_attempt_at <= ? ORDER BY created_at ASC",
+    )
+    .all(now) as OutboxRow[];
+  return rows.map(rowToOutboxMessage);
+}
+
+export function markOutboxDelivered(orchDir: string, id: string): void {
+  openStore(orchDir)
+    .query("UPDATE outbox SET state = 'delivered' WHERE id = ? AND state = 'pending'")
+    .run(id);
+}
+
+export function bumpOutboxAttempt(orchDir: string, id: string, nextAttemptAt: number): void {
+  openStore(orchDir)
+    .query(
+      "UPDATE outbox SET attempts = attempts + 1, next_attempt_at = ? WHERE id = ? AND state = 'pending'",
+    )
+    .run(nextAttemptAt, id);
 }

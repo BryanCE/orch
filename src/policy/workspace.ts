@@ -33,18 +33,20 @@ export function sameWorkspace(a: string | null | undefined, b: string | null | u
 
 /** Decide whether a caller may cross the workspace wall. */
 export function checkWall(
-  ownKey: string | null,
-  targetKey: string | null,
+  ownKey: string | null | undefined,
+  targetKey: string | null | undefined,
   opts: { crossWorkspace: boolean },
 ): WallDecision {
   const ownWorkspace = workspaceOf(ownKey);
-  if (ownWorkspace === null) return { allowed: true };
   const targetWorkspace = workspaceOf(targetKey);
+
+  // Unscoped actors and legacy/unscoped targets are eligible by policy.
+  if (ownWorkspace === null || targetWorkspace === null) return { allowed: true };
   if (sameWorkspace(ownWorkspace, targetWorkspace)) return { allowed: true };
   if (opts.crossWorkspace === true) return { allowed: true };
   return {
     allowed: false,
-    reason: `workspace wall: target ${targetKey ?? "unknown"} is outside workspace ${ownWorkspace}`,
+    reason: `workspace wall: actor workspace ${ownWorkspace} cannot write to target workspace ${targetWorkspace} (${targetKey ?? "unknown"})`,
   };
 }
 

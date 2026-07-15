@@ -217,6 +217,7 @@ function isHerdrBlockedEvent(value: unknown): value is HerdrBlockedEventLike {
 // interactive TUI. Headless runs (-p etc.) inherit the caller's
 // HERDR_PANE_ID and would clobber the owner's row, so they key by pid.
 function computeKey(hasUI: boolean): string {
+  if (process.env.ORCH_AGENT_KEY) return process.env.ORCH_AGENT_KEY;
   if (hasUI && process.env.HERDR_PANE_ID) return process.env.HERDR_PANE_ID;
   return `session-${process.pid}`;
 }
@@ -284,9 +285,75 @@ function sendHerdrMetadata(customStatus: string): void {
   }
 }
 
-function notifyHerdr(title: string, body: string): void {
+interface BridgeNotifyEvent {
+  key: string;
+  workspace?: string;
+  agent: string | null;
+  tab: string | null;
+  model: string | null;
+  oldState: string;
+  newState: string;
+  task?: string;
+  cost?: number;
+  ts: string;
+  lastError?: string;
+}
+
+const BRIDGE_WORKSPACE_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"] as const;
+const BRIDGE_WORKSPACE_ANSI = [34, 32, 33, 31, 35, 36, 35, 34] as const;
+
+function bridgeWorkspace(event: BridgeNotifyEvent): string {
+  return event.workspace ?? workspaceOf(event.key) ?? event.key.split(":", 1)[0]!;
+}
+
+function bridgeWorkspaceColor(workspace: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < workspace.length; index++) {
+    hash ^= workspace.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return BRIDGE_WORKSPACE_COLORS[(hash >>> 0) % BRIDGE_WORKSPACE_COLORS.length]!;
+}
+
+function bridgeOneLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/** Standalone copy of src/notify.ts's canonical outcome-first formatter. */
+function bridgeNotificationText(event: BridgeNotifyEvent): { title: string; body: string } {
+  const workspace = bridgeWorkspace(event);
+  const agent = event.agent ?? event.key;
+  const state = bridgeOneLine(event.newState || "unknown").toUpperCase();
+  let summary = event.task ?? "state changed";
+  if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
+  else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
+  summary = bridgeOneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
+  const workspaceLabel = `[${workspace}]`;
+  const colorIndex = (() => {
+    let hash = 2166136261;
+    for (let index = 0; index < workspace.length; index++) {
+      hash ^= workspace.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) % BRIDGE_WORKSPACE_ANSI.length;
+  })();
+  const coloredWorkspace = `\u001b[${BRIDGE_WORKSPACE_ANSI[colorIndex]!}m${workspaceLabel}\u001b[0m`;
+  const title = `${state} ${coloredWorkspace} ${agent}: ${summary}`;
+  const details: string[] = [title, `Workspace: ${workspace} (${bridgeWorkspaceColor(workspace)})`];
+  if (event.tab) details.push(`Tab: ${event.tab}`);
+  if (event.model) details.push(`Model: ${event.model}`);
+  if (event.task && event.newState !== "blocked") details.push(`Task: ${bridgeOneLine(event.task)}`);
+  if (event.lastError && event.newState !== "error") details.push(`Error: ${bridgeOneLine(event.lastError)}`);
+  if (typeof event.cost === "number") details.push(`Cost: $${event.cost.toFixed(2)}`);
+  return { title, body: details.join("\n") };
+}
+
+function notifyHerdr(event: BridgeNotifyEvent): void {
+  const { title, body } = bridgeNotificationText(event);
   try {
-    execFile("herdr", ["notification", "show", title, "--body", body, "--sound", "request", "--position", "bottom-left"], () => {});
+    execFile("herdr", ["notification", "show", title, "--body", body, "--sound", "request", "--position", "bottom-left"], () => {
+      /* noop */
+    });
   } catch {
     // best-effort
   }
@@ -313,7 +380,7 @@ function atomicWrite(file: string, data: unknown): void {
   }
 }
 
-export default function (pi: ExtensionAPI): void {
+function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   let dir: string | undefined;
   let statusFile = "";
   let resultFile = "";
@@ -402,7 +469,7 @@ export default function (pi: ExtensionAPI): void {
     reportHerdrMetadata();
   }
 
-  function runHerdrJson(args: string[]): Promise<unknown | undefined> {
+  function runHerdrJson(args: string[]): Promise<unknown> {
     return new Promise((resolve) => {
       try {
         execFile("herdr", args, { timeout: 2000 }, (_error, stdout) => {
@@ -612,6 +679,78 @@ export default function (pi: ExtensionAPI): void {
     return parsed.id;
   }
 
+  // The daemon socket is the primary ack transport. The presence marker remains
+  // the transport-neutral fallback consumed by a socket-less daemon.
+  let nextAckRequestId = 1;
+
+  function daemonAckEndpoint(): string | number | undefined {
+    const portFile = path.join(ORCH_DIR, "orchd.port");
+    try {
+      const text = fs.readFileSync(portFile, "utf8").trim();
+      try {
+        const parsed: unknown = JSON.parse(text);
+        const port = typeof parsed === "number" ? parsed
+          : isRecord(parsed) ? parsed.port : undefined;
+        if (typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536) return port;
+      } catch {
+        const port = Number(text);
+        if (Number.isInteger(port) && port > 0 && port < 65536) return port;
+      }
+    } catch {
+      // The unix socket is the normal endpoint.
+    }
+    return undefined;
+  }
+
+  function postDaemonAckTo(endpoint: string | number, id: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const requestId = `bridge-ack-${process.pid}-${nextAckRequestId++}`;
+      const socket = typeof endpoint === "string"
+        ? createConnection(endpoint)
+        : createConnection({ host: "127.0.0.1", port: endpoint });
+      let settled = false;
+      let buffer = "";
+      const finish = (success: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        socket.destroy();
+        resolve(success);
+      };
+      const timeout = setTimeout(() => finish(false), 500);
+      timeout.unref?.();
+      socket.setEncoding("utf8");
+      socket.on("error", () => finish(false));
+      socket.on("connect", () => {
+        socket.write(`${JSON.stringify({ id: requestId, method: "ack", params: { id } })}\n`);
+      });
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        const newline = buffer.indexOf("\n");
+        if (newline < 0) return;
+        try {
+          const response: unknown = JSON.parse(buffer.slice(0, newline));
+          if (isRecord(response) && response.id === requestId) {
+            finish(!("error" in response));
+          }
+        } catch {
+          finish(false);
+        }
+      });
+    });
+  }
+
+  async function postDaemonAck(id: string): Promise<boolean> {
+    try {
+      const socketPath = path.join(ORCH_DIR, "orchd.sock");
+      if (fs.existsSync(socketPath) && await postDaemonAckTo(socketPath, id)) return true;
+      const port = daemonAckEndpoint();
+      return port === undefined ? false : await postDaemonAckTo(port, id);
+    } catch {
+      return false;
+    }
+  }
+
   // ack.jsonl is bridge-append / daemon-consume: the daemon reads it to mark the
   // matching outbox row delivered exactly once, then truncates it. Never cleared here.
   function appendAckMarker(id: string): void {
@@ -638,7 +777,11 @@ export default function (pi: ExtensionAPI): void {
     await applyInboxMessage(parsed);
     if (messageId !== undefined) {
       ackedMessageIds.add(messageId);
-      appendAckMarker(messageId);
+      try {
+        if (!(await postDaemonAck(messageId))) appendAckMarker(messageId);
+      } catch {
+        appendAckMarker(messageId);
+      }
     }
   }
 
@@ -687,12 +830,16 @@ export default function (pi: ExtensionAPI): void {
       fs.writeFileSync(inboxFile, ""); // ignore steers from a previous life
     } catch {}
     poll = setInterval(() => {
-      void drainInbox().catch(() => {});
+      void drainInbox().catch(() => {
+        /* noop */
+      });
     }, INBOX_POLL_MS);
     poll.unref?.();
     try {
       watcher = fs.watch(dir, (_ev, filename) => {
-        if (filename === "inbox.jsonl") void drainInbox().catch(() => {});
+        if (filename === "inbox.jsonl") void drainInbox().catch(() => {
+          /* noop */
+        });
       });
       watcher.unref?.();
     } catch {}
@@ -725,23 +872,6 @@ export default function (pi: ExtensionAPI): void {
     return `${provider}/${id}:${thinking}`;
   }
 
-  function workspaceLabel(workspace: string | null): string {
-    return workspace ?? "unknown";
-  }
-
-  // Keep bridge-owned Herdr notifications in sync with src/notify.ts without
-  // importing it (the bridge also runs through the ~/.pi/agent symlink).
-  function blockedNotificationTitle(summary: string): string {
-    const workspace = workspaceLabel(workspaceOf(state.key));
-    const agentName = state.label ?? state.agent ?? state.key;
-    const normalizedSummary = String(summary)
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/^Q:\s*/i, "")
-      .slice(0, 60);
-    return `BLOCKED [${workspace}] ${agentName}: ${normalizedSummary}`;
-  }
-
   function livePeers(ownKey: string, allWorkspaces = false): Peer[] {
     try {
       const peers = fs.readdirSync(PRESENCE_ROOT, { withFileTypes: true })
@@ -759,7 +889,15 @@ export default function (pi: ExtensionAPI): void {
     }
   }
 
-  type PeerResolution = { error: string } | { peer: Peer };
+  interface PeerResolutionError {
+    error: string;
+  }
+
+  interface PeerResolutionPeer {
+    peer: Peer;
+  }
+
+  type PeerResolution = PeerResolutionError | PeerResolutionPeer;
 
   function resolvePeer(target: string, ownKey: string, allWorkspaces = false): PeerResolution {
     const peers = livePeers(ownKey, true);
@@ -795,7 +933,7 @@ export default function (pi: ExtensionAPI): void {
       state: optionalString(peer.status.state) ?? "unknown",
       model: peerModel(peer.status),
       task: optionalString(peer.status.task),
-      lastText: truncate(String(peer.status.lastText ?? ""), 120),
+      lastText: truncate(typeof peer.status.lastText === "string" ? peer.status.lastText : "", 120),
       cost: typeof peer.status.cost === "number" ? peer.status.cost : undefined,
       updatedAt: optionalString(peer.status.updatedAt),
     }));
@@ -883,10 +1021,10 @@ export default function (pi: ExtensionAPI): void {
     });
   }
 
-  type BridgeToolResult = {
+  interface BridgeToolResult {
     content: [{ type: "text"; text: string }];
     details: undefined;
-  };
+  }
 
   function toolResult(text: string): BridgeToolResult {
     return { content: [{ type: "text", text }], details: undefined };
@@ -922,31 +1060,33 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("peers", {
     description: "List live orch peer agents",
-    handler: async (_args, ctx: ExtensionContext) => {
+    handler: (_args, ctx) => {
       try {
         const peers = peerSummaries(ownPresenceKey(ctx));
         ctx.ui.notify(peers.length ? formatPeerLines(peers) : "no live peers", "info");
       } catch {
         ctx.ui.notify("no live peers", "info");
       }
+      return Promise.resolve();
     },
   });
 
   pi.registerCommand("tell", {
     description: "Send a message to a peer agent: /tell <target> <message>",
-    handler: async (args, ctx: ExtensionContext) => {
+    handler: (args, ctx) => {
       try {
         const [target, ...message] = String(args ?? "").trim().split(/\s+/);
         const text = message.join(" ");
         if (!target || !text) {
           ctx.ui.notify("error: usage /tell <target> <message>", "error");
-          return;
+          return Promise.resolve();
         }
         const result = sendPeerMessage(target, text, ownPresenceKey(ctx));
         ctx.ui.notify(result, result.startsWith("sent to ") ? "info" : "error");
       } catch {
         ctx.ui.notify("error: unable to send peer message", "error");
       }
+      return Promise.resolve();
     },
   });
 
@@ -975,12 +1115,21 @@ export default function (pi: ExtensionAPI): void {
         state.asking = { question: truncate(params.question, 200), id, ts };
         state.state = "blocked";
         writeStatus();
-        const notificationTitle = blockedNotificationTitle(params.question);
-        const notificationBody = truncate(params.question, 60);
-        notifyHerdr(notificationTitle, notificationBody);
+        const notificationEvent: BridgeNotifyEvent = {
+          key: state.key,
+          workspace: workspaceOf(state.key) ?? undefined,
+          agent: state.label ?? state.agent,
+          tab: state.tabLabel,
+          model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
+          oldState: askingPreviousState ?? "working",
+          newState: "blocked",
+          task: `Q: ${params.question}`,
+          ts,
+        };
+        notifyHerdr(notificationEvent);
 
         const answer = await waitForOrchestratorAnswer(answerFile, signal, () => {
-          notifyHerdr(notificationTitle, notificationBody);
+          notifyHerdr(notificationEvent);
         });
         if (typeof answer === "string") {
           try {
@@ -1089,7 +1238,9 @@ export default function (pi: ExtensionAPI): void {
     updateSessionRef(ctx);
     updateModel(ctx);
     writeStatus();
-    void readHerdrIdentity().catch(() => {});
+    void readHerdrIdentity().catch(() => {
+      /* noop */
+    });
     let heartbeatTicks = 0;
     heartbeat = setInterval(() => {
       try {
@@ -1099,7 +1250,9 @@ export default function (pi: ExtensionAPI): void {
           updateModel(lastCtx);
           updateContextUsage(lastCtx);
         }
-        if (heartbeatTicks % 10 === 0) void readHerdrIdentity().catch(() => {});
+        if (heartbeatTicks % 10 === 0) void readHerdrIdentity().catch(() => {
+          /* noop */
+        });
         writeStatus();
       } catch {}
     }, HEARTBEAT_MS);
@@ -1282,7 +1435,17 @@ export default function (pi: ExtensionAPI): void {
     if (data.active) {
       if (blockedCount === 0 && !blockedNotified) {
         const notificationSummary = data.label ?? "";
-        notifyHerdr(blockedNotificationTitle(notificationSummary), truncate(notificationSummary, 60));
+        notifyHerdr({
+          key: state.key,
+          workspace: workspaceOf(state.key) ?? undefined,
+          agent: state.label ?? state.agent,
+          tab: state.tabLabel,
+          model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
+          oldState: state.state,
+          newState: "blocked",
+          task: notificationSummary,
+          ts: new Date().toISOString(),
+        });
         blockedNotified = true;
       }
       blockedCount += 1;
@@ -1307,3 +1470,5 @@ export default function (pi: ExtensionAPI): void {
     writeStatus();
   });
 }
+
+export default orchestratorBridgeExtension;

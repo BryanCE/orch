@@ -6,18 +6,17 @@ import type { Backend, BackendCapabilities, BackendSpawnOpts } from "./backend.t
 export type HerdrHandle = string;
 
 const HERDR_BACKEND = "herdr";
-const DEFAULT_TAB_LABEL = "work";
 
-type HerdrPane = {
+interface HerdrPane {
   readonly pane_id?: string;
   readonly workspace_id?: string;
-};
+}
 
-type TabCreateResult = {
-  readonly root_pane?: {
+interface AgentStartResult {
+  readonly agent?: {
     readonly pane_id?: string;
   };
-};
+}
 
 function callerPane(panes: HerdrPane[]): HerdrPane | undefined {
   const caller = process.env.HERDR_PANE_ID;
@@ -32,21 +31,28 @@ function spawnPane(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
   const source = callerPane(panes);
   if (!source?.workspace_id) throw new Error("Could not determine herdr workspace (herdr down?).");
 
-  const result = herdrJSON<TabCreateResult>([
-    "tab",
-    "create",
+  const trimmedAdapterName = adapter.id.trim();
+  // Empty ids are invalid at runtime even though AdapterId is a closed union.
+  // oxlint-disable-next-line typescript(prefer-nullish-coalescing)
+  const adapterName = trimmedAdapterName || "agent";
+  const keyName = opts.key?.trim() ?? "agent";
+  const name = `${adapterName}-${keyName}`;
+  const result = herdrJSON<AgentStartResult>([
+    "agent",
+    "start",
+    name,
     "--workspace",
     source.workspace_id,
     "--cwd",
     opts.cwd ?? process.cwd(),
-    "--label",
-    DEFAULT_TAB_LABEL,
     "--no-focus",
+    "--",
+    "bash",
+    "-lc",
+    command,
   ]);
-  const handle = result.root_pane?.pane_id;
-  if (!handle) throw new Error("tab create returned no root pane");
-
-  herdrBestEffort(["pane", "run", handle, command]);
+  const handle = result.agent?.pane_id;
+  if (!handle) throw new Error("agent start returned no pane");
   return handle;
 }
 
@@ -57,7 +63,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly focusable = true;
   readonly caps: BackendCapabilities = { panes: true, focusable: true };
 
-  /** Create a tab and start the adapter's interactive command in its root pane. */
+  /** Start the adapter as a herdr-managed agent with status authority. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
     return spawnPane(adapter, opts);
   }

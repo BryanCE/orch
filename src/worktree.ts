@@ -6,7 +6,7 @@ function git(repoRoot: string, args: string[]): string {
   return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
 }
 
-export function repositoryRoot(repoRoot: string): string {
+function repositoryRoot(repoRoot: string): string {
   try {
     return git(repoRoot, ["rev-parse", "--show-toplevel"]);
   } catch {

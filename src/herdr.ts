@@ -32,7 +32,7 @@ export interface HerdrWorkspace {
   agent_status?: string;
 }
 
-export interface HerdrAgent {
+interface HerdrAgent {
   pane_id?: string;
   name?: string;
 }
@@ -50,7 +50,7 @@ function errorDetail(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (isRecord(error)) {
     const detail = error.stderr ?? error.stdout ?? error.message;
-    if (detail !== undefined) return String(detail);
+    if (detail !== undefined) return JSON.stringify(detail) ?? "";
   }
   return String(error);
 }
@@ -69,9 +69,9 @@ function isHerdrAgent(value: unknown): value is HerdrAgent {
     && (value.name === undefined || typeof value.name === "string");
 }
 
-function herdr(args: string[]): unknown | null {
+function herdr(args: string[]): unknown {
   try {
-    const output = execFileSync("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const output: string = execFileSync("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     return parseHerdrOutput(output);
   } catch {
     return null;
@@ -100,11 +100,6 @@ export function herdrReachable(): boolean {
 export function herdrPanes(): HerdrPane[] {
   const result = herdr(["pane", "list"]);
   return isRecord(result) && Array.isArray(result.panes) ? result.panes.filter(isHerdrPane) : [];
-}
-
-export function paneStatus(pane: string): string | null {
-  const found = herdrPanes().find((item) => item.pane_id === pane);
-  return found?.agent_status ?? null;
 }
 
 export function herdrNames(): Map<string, string> {

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
-import { applyFixes, runDoctor } from "../src/doctor.ts";
+import { applyFixes, checkExtensionStaleness, isDrvFsPath, runDoctor } from "../src/doctor.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
@@ -27,9 +27,22 @@ afterEach(async () => {
 });
 
 describe("runDoctor", () => {
+  test("detects DrvFs paths by mount path segment", () => {
+    expect(isDrvFsPath("/mnt/c/foo")).toBe(true);
+    expect(isDrvFsPath("/home/bryan/.orch")).toBe(false);
+    expect(isDrvFsPath("/mnt")).toBe(false);
+    expect(isDrvFsPath("/mnturd/x")).toBe(false);
+  });
+
+  test("reports a normal ORCH_DIR on the Linux filesystem", async () => {
+    const result = check(await runDoctor(tempDir()), "orchdir-location");
+    expect(result.status).toBe("ok");
+  });
+
   test("reports an absent daemon as optional", async () => {
     const result = check(await runDoctor(tempDir()), "orchd");
-    expect(result).toMatchObject({ status: "ok", detail: expect.stringContaining("absent") });
+    expect(result.status).toBe("ok");
+    expect(result.detail).toContain("absent");
   });
 
   test("reports and fixes a stale daemon lock", async () => {
@@ -38,7 +51,8 @@ describe("runDoctor", () => {
     fs.writeFileSync(lockFile, JSON.stringify({ pid: 99999999, codeHash: "old", startedAt: "now" }));
 
     const result = check(await runDoctor(directory), "orchd-lock");
-    expect(result).toMatchObject({ status: "fail", detail: expect.stringContaining(lockFile) });
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain(lockFile);
     expect(result.fix).toBeDefined();
     expect(applyFixes([result]).applied[0]).toContain(lockFile);
     expect(fs.existsSync(lockFile)).toBe(false);
@@ -67,17 +81,18 @@ describe("runDoctor", () => {
       startedAt: new Date().toISOString(),
     }));
 
-    expect(check(await runDoctor(directory), "orchd-staleness")).toMatchObject({
-      status: "warn",
-      detail: expect.stringContaining("orch daemon reload"),
-    });
+    const result = check(await runDoctor(directory), "orchd-staleness");
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("orch daemon reload");
   });
 
   test("fails on an invalid lock and an unanswerable live socket", async () => {
     const invalid = tempDir();
     const invalidLock = path.join(invalid, "orchd.lock");
     fs.writeFileSync(invalidLock, "not json");
-    expect(check(await runDoctor(invalid), "orchd-lock")).toMatchObject({ status: "fail", detail: expect.stringContaining(invalidLock) });
+    const invalidResult = check(await runDoctor(invalid), "orchd-lock");
+    expect(invalidResult.status).toBe("fail");
+    expect(invalidResult.detail).toContain(invalidLock);
 
     const unanswerable = tempDir();
     fs.writeFileSync(path.join(unanswerable, "orchd.lock"), JSON.stringify({
@@ -85,10 +100,9 @@ describe("runDoctor", () => {
       codeHash: "old",
       startedAt: new Date().toISOString(),
     }));
-    expect(check(await runDoctor(unanswerable), "orchd-socket")).toMatchObject({
-      status: "fail",
-      detail: expect.stringContaining("orch daemon start"),
-    });
+    const socketResult = check(await runDoctor(unanswerable), "orchd-socket");
+    expect(socketResult.status).toBe("fail");
+    expect(socketResult.detail).toContain("orch daemon start");
   });
 
   test("warns when the extension bundle is absent for a matching live hash", async () => {
@@ -100,7 +114,8 @@ describe("runDoctor", () => {
       extensionHash: computeCodeHash(path.join(import.meta.dir, "../extensions/orchestrator-bridge.ts")),
     }));
 
-    expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
+    const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
+    expect(result).toMatchObject({
       status: "warn",
       detail: "extension bundle not built; run: bun run build:ext",
     });
@@ -112,7 +127,8 @@ describe("runDoctor", () => {
     fs.mkdirSync(agent, { recursive: true });
     fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({ pid: process.pid, extensionHash: "old" }));
 
-    expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
+    const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
+    expect(result).toMatchObject({
       status: "warn",
       detail: "extension bundle not built; run: bun run build:ext",
     });
@@ -127,7 +143,8 @@ describe("runDoctor", () => {
     fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({ pid: process.pid }));
     fs.writeFileSync(path.join(broken, "status.json"), "not json");
 
-    expect(check(await runDoctor(directory), "extension-staleness")).toMatchObject({
+    const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
+    expect(result).toMatchObject({
       status: "warn",
       detail: "extension bundle not built; run: bun run build:ext",
     });
@@ -143,11 +160,14 @@ describe("runDoctor", () => {
     const results = await runDoctor(directory);
     const stale = check(results, "stale-presence");
 
-    expect(stale).toMatchObject({ status: "warn", detail: expect.stringContaining("former-agent") });
+    expect(stale.status).toBe("warn");
+    expect(stale.detail).toContain("former-agent");
     expect(stale.fix).toBeDefined();
     expect(applyFixes([stale])).toEqual({ applied: [stale.fix!.description] });
     expect(fs.existsSync(agent)).toBe(false);
-    expect(check(results, "spawned-registry")).toMatchObject({ status: "warn", detail: expect.stringContaining("2") });
+    const registryResult = check(results, "spawned-registry");
+    expect(registryResult.status).toBe("warn");
+    expect(registryResult.detail).toContain("2");
   });
 
   test("does not offer a fix for missing binaries", async () => {
@@ -201,12 +221,42 @@ describe("runDoctor", () => {
     expect(fs.readFileSync(second, "utf8")).toBe("second");
   });
 
+  test("validates configured notifier adapters", async () => {
+    const empty = tempDir();
+    expect(check(await runDoctor(empty), "notifiers")).toMatchObject({
+      status: "ok",
+      detail: "no notifiers configured",
+    });
+
+    const unavailable = tempDir();
+    const missingCommand = path.join(unavailable, "missing-notifier-command");
+    fs.writeFileSync(
+      path.join(unavailable, "config.toml"),
+      `[[notify]]\nid = "command"\ncommand = [${JSON.stringify(missingCommand)}]\n`,
+    );
+    const commandFailure = check(await runDoctor(unavailable), "notifiers");
+    expect(commandFailure.status).toBe("fail");
+    expect(commandFailure.detail).toContain(`fix: install ${missingCommand}`);
+
+    const command = tempDir();
+    fs.writeFileSync(
+      path.join(command, "config.toml"),
+      `[[notify]]\nid = "command"\ncommand = [${JSON.stringify(process.execPath)}]\n`,
+    );
+    expect(check(await runDoctor(command), "notifiers")).toMatchObject({
+      status: "ok",
+      detail: "1 configured notifier are available",
+    });
+  });
+
   test("reports invalid config and accepts missing config", async () => {
     const invalid = tempDir();
     fs.writeFileSync(path.join(invalid, "config.toml"), "[queue]\nmax_retries = \"never\"\n");
     const missing = tempDir();
 
-    expect(check(await runDoctor(invalid), "config")).toMatchObject({ status: "fail", detail: expect.stringContaining("config.toml") });
+    const configResult = check(await runDoctor(invalid), "config");
+    expect(configResult.status).toBe("fail");
+    expect(configResult.detail).toContain("config.toml");
     expect(check(await runDoctor(missing), "config")).toEqual({ id: "config", label: "Config validity", status: "ok", detail: "no config" });
   });
 
@@ -215,7 +265,7 @@ describe("runDoctor", () => {
     fs.mkdirSync(path.join(directory, "agents"), { recursive: true });
     fs.writeFileSync(path.join(directory, "spawned.jsonl"), "{broken\n");
 
-    await expect(runDoctor(directory)).resolves.toBeArray();
+    expect(runDoctor(directory)).resolves.toBeArray();
 
     const invalidAgents = tempDir();
     fs.writeFileSync(path.join(invalidAgents, "agents"), "not a directory");

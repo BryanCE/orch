@@ -4,16 +4,16 @@ import { errorMessage } from "./util.ts";
 
 type TomlTable = Record<string, unknown>;
 
-export type HostConfig = {
+export interface HostConfig {
   /** SSH destination (for example, user@example.org). */
   dest?: string;
   /** Legacy spelling accepted for configs written before the remote-host schema. */
   ssh?: string;
   orch_dir?: string;
   timeout_ms?: number;
-};
+}
 
-export type OrchConfig = {
+export interface OrchConfig {
   defaults: {
     adapter?: string;
     backend?: string;
@@ -27,7 +27,7 @@ export type OrchConfig = {
   notify: unknown[];
   hosts: Record<string, HostConfig>;
   workspaces: Record<string, string>;
-};
+}
 
 function stripComment(line: string): string {
   let quoted = false;
@@ -109,12 +109,12 @@ function parseFallbackToml(text: string): TomlTable {
 
   for (let index = 0; index < lines.length; index++) {
     const lineNumber = index + 1;
-    const line = stripComment(lines[index]).trim();
+    const line = stripComment(lines[index]!).trim();
     if (!line) continue;
 
-    const arrayTable = line.match(/^\[\[([^\]]+)\]\]$/);
+    const arrayTable = /^\[\[([^\]]+)\]\]$/.exec(line);
     if (arrayTable) {
-      const parts = arrayTable[1].split(".").map((part) => part.trim());
+      const parts = arrayTable[1]!.split(".").map((part) => part.trim());
       const key = parts.pop();
       if (!key || parts.some((part) => !part)) throw new Error(`line ${lineNumber}: invalid table name`);
       const parent = tableAt(root, parts, lineNumber);
@@ -125,9 +125,9 @@ function parseFallbackToml(text: string): TomlTable {
       continue;
     }
 
-    const table = line.match(/^\[([^\]]+)\]$/);
+    const table = /^\[([^\]]+)\]$/.exec(line);
     if (table) {
-      current = tableAt(root, table[1].split(".").map((part) => part.trim()), lineNumber);
+      current = tableAt(root, table[1]!.split(".").map((part) => part.trim()), lineNumber);
       continue;
     }
 
@@ -156,8 +156,8 @@ function fail(file: string, key: string, expected: string, value: unknown): neve
   throw new Error(`${file}: ${key}: expected ${expected}, found ${found(value)}`);
 }
 
-function warn(file: string, key: string): void {
-  process.stderr.write(`orch: ignoring unknown config key ${key} in ${file}\n`);
+function rejectUnknown(file: string, key: string): never {
+  throw new Error(`${file}: ${key}: unknown config key`);
 }
 
 function table(value: unknown, file: string, key: string): TomlTable {
@@ -167,7 +167,7 @@ function table(value: unknown, file: string, key: string): TomlTable {
 
 function knownKeys(value: TomlTable, file: string, prefix: string, keys: string[]): void {
   for (const key of Object.keys(value)) {
-    if (!keys.includes(key)) warn(file, prefix ? `${prefix}.${key}` : key);
+    if (!keys.includes(key)) rejectUnknown(file, prefix ? `${prefix}.${key}` : key);
   }
 }
 
@@ -192,14 +192,14 @@ export function loadConfig(orchDir: string): OrchConfig {
     for (const key of ["adapter", "backend", "model"] as const) {
       if (source[key] !== undefined) {
         if (typeof source[key] !== "string") fail(file, `defaults.${key}`, "string", source[key]);
-        defaults[key] = source[key] as string;
+        defaults[key] = source[key];
       }
     }
     if (source.allowed_models !== undefined) {
       if (!Array.isArray(source.allowed_models) || !source.allowed_models.every((entry) => typeof entry === "string")) {
         fail(file, "defaults.allowed_models", "string array", source.allowed_models);
       }
-      defaults.allowed_models = source.allowed_models as string[];
+      defaults.allowed_models = source.allowed_models;
     }
     if (source.spawn_cap !== undefined) {
       if (typeof source.spawn_cap !== "number") fail(file, "defaults.spawn_cap", "number", source.spawn_cap);
@@ -247,8 +247,8 @@ export function loadConfig(orchDir: string): OrchConfig {
         throw new Error(`${file}: hosts.${name}.timeout_ms: expected a positive integer, found ${found(hostTable.timeout_ms)}`);
       }
       const parsed: HostConfig = {};
-      if (hostTable.dest !== undefined) parsed.dest = destination;
-      else parsed.ssh = destination;
+      if (hostTable.dest !== undefined) parsed.dest = destination!;
+      else parsed.ssh = destination!;
       if (typeof hostTable.orch_dir === "string") parsed.orch_dir = hostTable.orch_dir;
       if (typeof hostTable.timeout_ms === "number") parsed.timeout_ms = hostTable.timeout_ms;
       hosts[name] = parsed;
@@ -265,6 +265,88 @@ export function loadConfig(orchDir: string): OrchConfig {
   }
 
   return { defaults, queue, notify, hosts, workspaces };
+}
+
+/** Watch config.toml and publish successfully loaded configurations. */
+export function watchConfig(
+  orchDir: string,
+  onChange: (config: OrchConfig) => void,
+  onWarn?: (msg: string) => void,
+): { stop(): void } {
+  const file = path.join(orchDir, "config.toml");
+  const debounceMs = 250;
+  const pollMs = 5_000;
+  let stopped = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let watcher: filesystem.FSWatcher | undefined;
+  let lastGood = loadConfig(orchDir);
+  let lastStat = statSignature(file);
+  let badState: string | undefined;
+
+  const reload = (): void => {
+    debounceTimer = undefined;
+    if (stopped) return;
+    try {
+      const config = loadConfig(orchDir);
+      lastGood = config;
+      badState = undefined;
+      onChange(config);
+    } catch (error: unknown) {
+      const message = errorMessage(error);
+      const state = `${statSignature(file)}:${message}`;
+      if (state !== badState) {
+        badState = state;
+        onWarn?.(message);
+      }
+    }
+  };
+
+  const scheduleReload = (): void => {
+    if (stopped) return;
+    if (debounceTimer !== undefined) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(reload, debounceMs);
+  };
+
+  const poll = (): void => {
+    const currentStat = statSignature(file);
+    if (currentStat !== lastStat) {
+      lastStat = currentStat;
+      scheduleReload();
+    }
+  };
+
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    if (debounceTimer !== undefined) clearTimeout(debounceTimer);
+    if (pollTimer !== undefined) clearInterval(pollTimer);
+    watcher?.close();
+  };
+
+  try {
+    watcher = filesystem.watch(file, { persistent: false }, scheduleReload);
+    watcher.on("error", (error: Error) => {
+      if (!stopped) onWarn?.(errorMessage(error));
+    });
+    pollTimer = setInterval(poll, pollMs);
+    pollTimer.unref();
+    onChange(lastGood);
+  } catch (error: unknown) {
+    stop();
+    throw error;
+  }
+
+  return { stop };
+}
+
+function statSignature(file: string): string {
+  try {
+    const stat = filesystem.statSync(file);
+    return `${stat.mtimeMs}:${stat.size}:${stat.ino}`;
+  } catch {
+    return "missing";
+  }
 }
 
 function coerceEnvironment(value: string, fallback: unknown, name: string): unknown {
@@ -298,7 +380,7 @@ export const DEFAULT_ALLOWED_MODELS = ["openrouter/moonshotai/kimi-k2.7-code", "
 export function allowedModelPatterns(orchDir: string): string[] {
   try {
     const patterns = loadConfig(orchDir).defaults.allowed_models;
-    if (patterns && patterns.length) return patterns;
+    if (patterns?.length) return patterns;
   } catch {
     // A malformed config falls back to the built-in allowlist rather than failing closed.
   }
@@ -313,7 +395,7 @@ function tableBodyRange(lines: string[], section: string): { start: number; end:
   const start = headerIndex + 1;
   let end = lines.length;
   for (let index = start; index < lines.length; index++) {
-    if (/^\s*\[/.test(lines[index])) { end = index; break; }
+    if (/^\s*\[/.test(lines[index]!)) { end = index; break; }
   }
   return { start, end };
 }
@@ -335,8 +417,8 @@ export function writeDefaultEntry(orchDir: string, key: string, value: string): 
   } else {
     let replaced = false;
     for (let index = range.start; index < range.end; index++) {
-      const match = lines[index].match(/^\s*([A-Za-z0-9_-]+)\s*=/);
-      if (match && match[1] === key) { lines[index] = assignment; replaced = true; break; }
+      const match = /^\s*([A-Za-z0-9_-]+)\s*=/.exec(lines[index]!);
+      if (match?.[1] === key) { lines[index] = assignment; replaced = true; break; }
     }
     if (!replaced) lines.splice(range.end, 0, assignment);
   }

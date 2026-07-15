@@ -1,10 +1,11 @@
+import { spawn, execFile } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
 
-export type NotifyEvent = {
+export interface NotifyEvent {
   host?: string;
   key: string;
   /** Origin workspace; derived from key when omitted. */
@@ -23,7 +24,7 @@ export type NotifyEvent = {
 };
 
 /** A required configuration value collected for a notifier. */
-export type NotifierConfigField = {
+export interface NotifierConfigField {
   /** Config key used by the notifier. */
   name: string;
   /** Human-readable prompt/label for the key. */
@@ -34,14 +35,14 @@ export type NotifierConfigField = {
 };
 
 /** Host-integration metadata kept separate from delivery behavior. */
-export type NotifierMetadata = {
+export interface NotifierMetadata {
   /** Rich fields are used by setup; bare names remain contract-compatible. */
   requiredConfig: readonly (NotifierConfigField | string)[];
   description?: string;
 };
 
 /** Canonical host-integration contract. */
-export type Notifier = {
+export interface Notifier {
   id: string;
   label: string;
   metadata: NotifierMetadata;
@@ -52,16 +53,16 @@ export type Notifier = {
 };
 
 /** A configured notifier entry. `type` is accepted as the legacy spelling of `id`. */
-export type NotifierEntry = {
+export interface NotifierEntry {
   id: string;
   on: string[];
   config: Record<string, unknown>;
 };
 
-export type DesktopSink = { type: "desktop"; on: string[] };
-export type HerdrSink = { type: "herdr"; on: string[] };
-export type WebhookSink = { type: "webhook"; on: string[]; url: string };
-export type CommandSink = { type: "command"; on: string[]; command: string[] };
+export interface DesktopSink { type: "desktop"; on: string[] }
+export interface HerdrSink { type: "herdr"; on: string[] }
+export interface WebhookSink { type: "webhook"; on: string[]; url: string }
+export interface CommandSink { type: "command"; on: string[]; command: string[] }
 export type Sink = DesktopSink | HerdrSink | WebhookSink | CommandSink;
 
 type TomlTable = Record<string, unknown>;
@@ -168,7 +169,7 @@ function tableAt(root: TomlTable, parts: string[], line: number): TomlTable {
   return current;
 }
 
-/** Minimal TOML parser used when Bun.TOML is unavailable. */
+/** Minimal TOML parser used when native TOML is unavailable. */
 function parseToml(text: string): TomlTable {
   const root: TomlTable = {};
   let current = root;
@@ -179,7 +180,7 @@ function parseToml(text: string): TomlTable {
     const line = stripComment(lines[index] ?? "").trim();
     if (!line) continue;
 
-    const arrayTable = line.match(/^\[\[([^\]]+)\]\]$/);
+    const arrayTable = /^\[\[([^\]]+)\]\]$/.exec(line);
     if (arrayTable) {
       const parts = (arrayTable[1] ?? "").split(".").map((part) => part.trim());
       const key = parts.pop();
@@ -193,7 +194,7 @@ function parseToml(text: string): TomlTable {
       continue;
     }
 
-    const table = line.match(/^\[([^\]]+)\]$/);
+    const table = /^\[([^\]]+)\]$/.exec(line);
     if (table) {
       current = tableAt(root, (table[1] ?? "").split(".").map((part) => part.trim()), lineNumber);
       continue;
@@ -221,7 +222,7 @@ function stringArray(value: unknown): string[] | null {
 }
 
 /** Read configured notifier entries, accepting both `id` and legacy `type`. */
-export function loadNotifierEntries(orchDir: string): NotifierEntry[] {
+function loadNotifierEntries(orchDir: string): NotifierEntry[] {
   let config: TomlTable;
   try {
     config = parseConfig(filesystem.readFileSync(path.join(orchDir, "config.toml"), "utf8"));
@@ -266,7 +267,7 @@ export function loadNotifierEntries(orchDir: string): NotifierEntry[] {
     if (id === "command") {
       const commandValue = typeof config.command === "string" ? ["sh", "-c", config.command] : config.command;
       const command = stringArray(commandValue);
-      if (!command || !command.length || !command[0]) {
+      if (!command?.length || !command[0]) {
         warning("invalid notify entry: command sink requires command");
         continue;
       }
@@ -313,15 +314,35 @@ function workspaceAnsi(workspace: string): string {
     hash ^= workspace.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `\u001b[${WORKSPACE_ANSI[(hash >>> 0) % WORKSPACE_ANSI.length]}m`;
+  return `\u001b[${WORKSPACE_ANSI[(hash >>> 0) % WORKSPACE_ANSI.length]!}m`;
+}
+
+export function workspaceLabelForKey(key: string): string {
+  const keyWorkspace = key.includes(":") ? key.split(":", 1)[0] : undefined;
+  // A bare pane id is not a useful human-facing workspace label. Other
+  // unscoped keys (for example task-1) are already caller-provided labels.
+  const barePane = /^p[0-9A-Za-z]+$/.test(key);
+  return workspaceOf(key) ?? keyWorkspace ?? (barePane ? "workspace" : key || "workspace");
 }
 
 function eventWorkspace(event: NotifyEvent): string {
-  return event.workspace ?? workspaceOf(event.key) ?? event.key.split(":", 1)[0];
+  return event.workspace ?? workspaceLabelForKey(event.key);
+}
+
+/** Harness-neutral label used when presence has no human-assigned name. */
+export function abstractAgentLabel(workspace: string, key: string): string {
+  const shortId = key.includes(":") ? key.slice(key.lastIndexOf(":") + 1) : key;
+  return `${workspace}/agent-${shortId}`;
+}
+
+function eventAgent(event: NotifyEvent, workspace: string): string {
+  const agent = event.agent?.trim();
+  const fallback = abstractAgentLabel(workspace, event.key);
+  return [agent, fallback].find((value) => value !== undefined && value.length > 0) ?? fallback;
 }
 
 /** Structured form of the canonical notification text and event metadata. */
-export type NotificationPayload = {
+interface NotificationPayload {
   title: string;
   body: string;
   workspace: string;
@@ -340,7 +361,7 @@ export type NotificationPayload = {
 };
 
 /** Build the canonical structured payload consumed by non-text sinks. */
-export function notificationPayload(event: NotifyEvent): NotificationPayload {
+function notificationPayload(event: NotifyEvent): NotificationPayload {
   const workspace = eventWorkspace(event);
   const { title, body } = notificationText(event);
   return {
@@ -350,7 +371,7 @@ export function notificationPayload(event: NotifyEvent): NotificationPayload {
     workspaceColor: workspaceColor(workspace),
     host: event.host ?? null,
     key: event.key,
-    agent: event.agent,
+    agent: eventAgent(event, workspace),
     tab: event.tab,
     model: event.model,
     oldState: event.oldState,
@@ -373,26 +394,27 @@ function commandOnPath(command: string): boolean {
   return false;
 }
 
-async function run(command: string[], stdin?: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn(command, {
-      stdin: stdin === undefined ? "ignore" : "pipe",
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    if (stdin !== undefined && proc.stdin) {
-      proc.stdin.write(stdin);
-      proc.stdin.end();
+function run(command: string[], stdin?: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const proc = spawn(command[0]!, command.slice(1), {
+        stdio: [stdin === undefined ? "ignore" : "pipe", "ignore", "ignore"],
+      });
+      proc.on("error", () => resolve(false));
+      proc.on("close", (code) => resolve(code === 0));
+      if (stdin !== undefined && proc.stdin) {
+        proc.stdin.write(stdin);
+        proc.stdin.end();
+      }
+    } catch {
+      resolve(false);
     }
-    return (await proc.exited) === 0;
-  } catch {
-    return false;
-  }
+  });
 }
 
 export function notificationText(event: NotifyEvent, options: { colorize?: boolean } = {}): { title: string; body: string } {
-  const agent = event.agent ?? event.key;
   const workspace = eventWorkspace(event);
+  const agent = eventAgent(event, workspace);
   const color = workspaceColor(workspace);
   const state = oneLine(event.newState || "unknown").toUpperCase();
   let summary = event.task ?? "state changed";
@@ -416,9 +438,11 @@ async function windowsToast(title: string, body: string): Promise<boolean> {
   const script = fileURLToPath(new URL("../scripts/wsl-toast.ps1", import.meta.url));
   if (!filesystem.existsSync(script)) return false;
   try {
-    const convert = Bun.spawn(["wslpath", "-w", script], { stdout: "pipe", stderr: "ignore" });
-    if ((await convert.exited) !== 0) return false;
-    const windowsPath = (await new Response(convert.stdout).text()).trim();
+    const windowsPath = await new Promise<string>((resolve) => {
+      execFile("wslpath", ["-w", script], { encoding: "utf8" }, (error, stdout) => {
+        resolve(error ? "" : stdout.trim());
+      });
+    });
     if (!windowsPath) return false;
     return await run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", windowsPath, "-Title", title, "-Body", body]);
   } catch {
@@ -471,7 +495,7 @@ export function createBuiltinNotifiers(): Notifier[] {
       id: "webhook",
       label: "Webhook",
       metadata: { description: "HTTP POST notification", requiredConfig: [{ name: "url", label: "Webhook URL" }] },
-      available: (config) => typeof fetch === "function" && (config?.url === undefined || (typeof config.url === "string" && config.url.length > 0)),
+      available: (config) => typeof fetch === "function" && (config?.url === undefined || (typeof config?.url === "string" && config.url.length > 0)),
       deliver: async (event, config = {}) => {
         if (typeof config.url !== "string" || !config.url) return false;
         const controller = new AbortController();
@@ -502,7 +526,7 @@ export function createBuiltinNotifiers(): Notifier[] {
   ];
 }
 
-export const builtinNotifiers = createBuiltinNotifiers();
+const builtinNotifiers = createBuiltinNotifiers();
 
 function entryFromSink(sink: Sink): NotifierEntry {
   if (sink.type === "desktop" || sink.type === "herdr") return { id: sink.type, on: sink.on, config: {} };
@@ -517,10 +541,10 @@ function timeoutResult<T>(promise: Promise<T>, timeoutMs: number): Promise<T | u
   });
 }
 
-export type AvailabilityResult = { available: boolean; reason?: string; error?: string };
+interface AvailabilityResult { available: boolean; reason?: string; error?: string }
 
 /** Registry for probing, validating, and isolating configured notifier deliveries. */
-export class NotifierRegistry {
+class NotifierRegistry {
   private readonly notifiers = new Map<string, Notifier>();
   private readonly emitWarning: (message: string) => void;
   readonly timeoutMs: number;
@@ -630,7 +654,7 @@ export function createNotifierRegistry(notifiers?: readonly Notifier[], options:
   return new NotifierRegistry(notifiers ?? builtinNotifiers, options);
 }
 
-export const notifierRegistry = createNotifierRegistry();
+const notifierRegistry = createNotifierRegistry();
 
 export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boolean> {
   const configured = entryFromSink(sink);

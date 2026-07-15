@@ -39,8 +39,8 @@ function executable(dir: string, name: string, body: string): string {
 describe("notifier registry and built-in adapters", () => {
   test("skips an unavailable adapter without affecting available adapters", async () => {
     const delivered: string[] = [];
-    const unavailable: Notifier = { id: "missing", label: "Missing", metadata: { requiredConfig: [] }, available: () => false, deliver: async () => { delivered.push("missing"); return true; } };
-    const available: Notifier = { id: "works", label: "Works", metadata: { requiredConfig: [] }, available: () => true, deliver: async () => { delivered.push("works"); return true; } };
+    const unavailable: Notifier = { id: "missing", label: "Missing", metadata: { requiredConfig: [] }, available: () => false, deliver: () => { delivered.push("missing"); return Promise.resolve(true); } };
+    const available: Notifier = { id: "works", label: "Works", metadata: { requiredConfig: [] }, available: () => true, deliver: () => { delivered.push("works"); return Promise.resolve(true); } };
     const warnings: string[] = [];
     const registry = createNotifierRegistry([unavailable, available], { warn: (message) => warnings.push(message) });
 
@@ -63,20 +63,22 @@ describe("notifier registry and built-in adapters", () => {
 
   test("webhook POST contains the canonical payload", async () => {
     const originalFetch = globalThis.fetch;
-    let request: RequestInfo | undefined;
+    let request: string | URL | Request | undefined;
     let init: RequestInit | undefined;
-    globalThis.fetch = (async (input, options) => {
+    globalThis.fetch = ((input, options) => {
       request = input;
       init = options;
-      return new Response("ok", { status: 200 });
+      return Promise.resolve(new Response("ok", { status: 200 }));
     }) as typeof fetch;
     try {
       const registry = createNotifierRegistry(createBuiltinNotifiers());
       expect(await registry.deliver("webhook", { url: "https://example.test/hook" }, event)).toBe(true);
       expect(request).toBe("https://example.test/hook");
       expect(init?.method).toBe("POST");
-      const body = JSON.parse(String(init?.body));
-      expect(body).toMatchObject({ title: expect.any(String), workspace: "demo", workspaceColor: expect.any(String) });
+      const body: unknown = JSON.parse(typeof init?.body === "string" ? init.body : JSON.stringify(init?.body));
+      expect(body).toMatchObject({ workspace: "demo" });
+      expect(typeof (body as { title?: unknown }).title).toBe("string");
+      expect(typeof (body as { workspaceColor?: unknown }).workspaceColor).toBe("string");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -92,8 +94,10 @@ describe("notifier registry and built-in adapters", () => {
     ];
     const registry = createNotifierRegistry(createBuiltinNotifiers());
     expect(await registry.deliver("command", { command }, event)).toBe(true);
-    const body = JSON.parse(fs.readFileSync(output, "utf8"));
-    expect(body).toMatchObject({ title: expect.any(String), workspace: "demo", workspaceColor: expect.any(String) });
+    const body: unknown = JSON.parse(fs.readFileSync(output, "utf8"));
+    expect(body).toMatchObject({ workspace: "demo" });
+    expect(typeof (body as { title?: unknown }).title).toBe("string");
+    expect(typeof (body as { workspaceColor?: unknown }).workspaceColor).toBe("string");
   });
 
   test("desktop fallback selects notify-send, then WSL notify when it fails", async () => {
@@ -121,8 +125,8 @@ describe("notifier registry and built-in adapters", () => {
 
   test("isolates delivery failures and still delivers to other adapters", async () => {
     const delivered: string[] = [];
-    const bad: Notifier = { id: "bad", label: "Bad", metadata: { requiredConfig: [] }, available: () => true, deliver: async () => { throw new Error("boom"); } };
-    const good: Notifier = { id: "good", label: "Good", metadata: { requiredConfig: [] }, available: () => true, deliver: async () => { delivered.push("good"); return true; } };
+    const bad: Notifier = { id: "bad", label: "Bad", metadata: { requiredConfig: [] }, available: () => true, deliver: () => Promise.reject(new Error("boom")) };
+    const good: Notifier = { id: "good", label: "Good", metadata: { requiredConfig: [] }, available: () => true, deliver: () => { delivered.push("good"); return Promise.resolve(true); } };
     const result = await createNotifierRegistry([bad, good]).deliver(event, [
       { id: "bad", on: ["blocked"], config: {} }, { id: "good", on: ["blocked"], config: {} },
     ]);

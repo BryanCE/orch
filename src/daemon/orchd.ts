@@ -12,8 +12,17 @@ import { startConfigWatch, type ConfigWatch } from "./configwatch.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
 import { orchDir } from "../store.ts";
 import { errorMessage } from "../util.ts";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
+import { insertOutboxMessage, markOutboxDelivered } from "../store/sqlite.ts";
+import { drainOutbox, type OutboxDeps } from "./outbox.ts";
+import { herdrBestEffort } from "../herdr.ts";
+import { presenceAgentDir, loadPresence } from "../store.ts";
+import { piAdapter } from "../adapters/pi.ts";
 
-const entrypoint = process.env.ORCHD_ENTRYPOINT ?? import.meta.path;
+const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
 const bootCodeHash = computeCodeHash(entrypoint);
 const startedAt = new Date();
 let server: RpcServer | undefined;
@@ -40,6 +49,73 @@ async function socketAnswers(directory: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+interface WriteParams {
+  id?: unknown;
+  target?: unknown;
+  text?: unknown;
+  model?: unknown;
+}
+
+function writeParams(params: unknown): WriteParams {
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    throw new Error("RPC params must be an object");
+  }
+  return params;
+}
+
+function requiredString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${name} is required`);
+  return value;
+}
+
+function isWritePayload(value: unknown): value is { action?: unknown; text?: unknown } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deliverBackend(target: string, payload: unknown): Promise<boolean> {
+  const value = isWritePayload(payload) ? payload : {};
+  const text = requiredString(value.text, "text");
+  if (value.action === "dispatch") return Promise.resolve(herdrBestEffort(["pane", "run", target, text]));
+  const presence = loadPresence().get(target);
+  if (presence) {
+    piAdapter.steer({ key: target, text });
+    return Promise.resolve(true);
+  }
+  return Promise.resolve(herdrBestEffort(["agent", "send", target, text]) && herdrBestEffort(["pane", "send-keys", target, "Enter"]));
+}
+
+function outboxDeps(): OutboxDeps {
+  return {
+    deliver: (target, payload) => deliverBackend(target, payload),
+    now: () => Date.now(),
+  };
+}
+
+export function validateWriteParams(params: unknown): { target: string; text: string } {
+  const value = writeParams(params);
+  return {
+    target: requiredString(value.target, "target"),
+    text: requiredString(value.text, "text"),
+  };
+}
+
+async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
+  const { target, text } = validateWriteParams(params);
+  const id = randomUUID();
+  insertOutboxMessage(directory, { id, target, payload: { action, text } });
+  await drainOutbox(directory, outboxDeps());
+  return { accepted: true, id };
+}
+
+function setModel(directory: string, params: unknown): { ok: true } {
+  const value = writeParams(params);
+  const target = requiredString(value.target, "target");
+  const model = requiredString(value.model, "model");
+  const dir = presenceAgentDir(target, directory);
+  appendFileSync(`${dir}/inbox.jsonl`, `${JSON.stringify({ cmd: "model", model, ts: new Date().toISOString() })}\n`);
+  return { ok: true };
 }
 
 async function shutDown(directory: string): Promise<void> {
@@ -75,6 +151,15 @@ async function main(): Promise<void> {
         },
       }),
       "subscribe-events": () => ({ subscribed: true }),
+      dispatch: (params) => acceptWrite(directory, "dispatch", params),
+      steer: (params) => acceptWrite(directory, "steer", params),
+      "set-model": (params) => setModel(directory, params),
+      ack: (params) => {
+        const value = writeParams(params);
+        const id = requiredString(value.id, "id");
+        markOutboxDelivered(directory, id);
+        return { ok: true };
+      },
       reload: () => {
         setTimeout(() => {
           void server?.stop().then(() => reexecSelf(directory));
@@ -87,10 +172,13 @@ async function main(): Promise<void> {
     throw error;
   }
 
+  let configLoaded = false;
   configWatch = startConfigWatch(directory, {
     onChange: (config) => {
       currentConfig = config;
       sinks = undefined;
+      if (configLoaded) process.stderr.write("config reloaded\n");
+      configLoaded = true;
     },
     onWarn: (message) => process.stderr.write(`orchd config: ${message}\n`),
   });
@@ -102,16 +190,24 @@ async function main(): Promise<void> {
   workLoop = runWorkLoop({
     orchDir: directory,
     pollIntervalMs: 500,
-    maxRetries: getConfig(directory).queue.max_retries,
+    getConfig: () => getConfig(directory),
     signal: workController.signal,
     continuous: true,
+    onEvent: (event) => emitAndNotify((value) => server?.emit(value), getSinks(directory), event),
   }).finally(() => { workLoopRunning = false; });
 
   process.once("SIGTERM", () => void shutDown(directory));
   process.once("SIGINT", () => void shutDown(directory));
 }
 
-if (import.meta.main) {
+function invokedAsMain(): boolean {
+  const arg = process.argv[1];
+  if (!arg) return false;
+  try { return realpathSync(arg) === realpathSync(fileURLToPath(import.meta.url)); }
+  catch { return false; }
+}
+
+if (invokedAsMain()) {
   void main().catch((error: unknown) => {
     process.stderr.write(`${errorMessage(error)}\n`);
     process.exit(1);

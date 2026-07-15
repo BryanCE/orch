@@ -24,12 +24,12 @@ async function waitForFile(file: string): Promise<void> {
 }
 
 function captureStderr<T>(callback: () => T): { value: T; stderr: string } {
-  const original = process.stderr.write;
+  const original = process.stderr.write.bind(process.stderr);
   let stderr = "";
-  process.stderr.write = ((chunk: string | Uint8Array) => {
+  process.stderr.write = (chunk: string | Uint8Array) => {
     stderr += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
     return true;
-  }) as typeof process.stderr.write;
+  };
   try {
     return { value: callback(), stderr };
   } finally {
@@ -202,11 +202,11 @@ on = ["done"]
 
   test("webhook failure is non-fatal and reports a warning", async () => {
     let stderr = "";
-    const original = process.stderr.write;
-    process.stderr.write = ((chunk: string | Uint8Array) => {
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: string | Uint8Array) => {
       stderr += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
       return true;
-    }) as typeof process.stderr.write;
+    };
     try {
       notify(
         [{ type: "webhook", on: ["error"], url: "http://127.0.0.1:1/unreachable" }],

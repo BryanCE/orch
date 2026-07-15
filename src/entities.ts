@@ -4,7 +4,7 @@ import { loadPresence, orchDir, type PresenceEntry } from "./store.ts";
 import { checkWall, scopeToWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
 
-export { workspaceName, workspaceOf } from "./policy/workspace.ts";
+export { workspaceOf } from "./policy/workspace.ts";
 
 export interface Entity {
   key: string;
@@ -21,10 +21,10 @@ export interface Entity {
   host?: string;
 }
 
-export type TargetRef = {
+export interface TargetRef {
   host: string | null;
   target: string;
-};
+}
 
 /** Split `<host>/<target>` without changing the meaning of targets without `/`. */
 export function parseTarget(target: string, hosts?: Record<string, HostConfig>): TargetRef {
@@ -50,13 +50,13 @@ export function collapse(value: string): string {
 }
 
 function paneSessionPath(pane: Pick<HerdrPane, "agent_session">): string | null {
-  const session = pane?.agent_session;
-  return session && session.kind === "path" && typeof session.value === "string" ? session.value : null;
+  const session = pane.agent_session;
+  return session?.kind === "path" && typeof session.value === "string" ? session.value : null;
 }
 
 function naturalPaneOrder(id: string): [string, number] {
   const match = /^(.*?):p?(\d+)$/.exec(id);
-  return match ? [match[1], parseInt(match[2], 10)] : [id, 0];
+  return match ? [match[1]!, parseInt(match[2]!, 10)] : [id, 0];
 }
 
 export function entityWorkspace(e: Entity): string | null {
@@ -98,7 +98,7 @@ export function buildEntities(): Entity[] {
       key: paneId,
       paneId,
       name: names.get(paneId) ?? pane.name ?? null,
-      tabLabel: tab ? tab.label : null,
+      tabLabel: tab?.label ?? null,
       agent: pane.agent ?? null,
       focused: !!pane.focused,
       herdrStatus: pane.agent_status ?? null,
@@ -158,19 +158,19 @@ function matchInPool(entities: Entity[], localTarget: string, target: string, ho
   const withHost = (entity: Entity): Entity => (host ? { ...entity, host } : entity);
 
   const exact = dedupeEntities(entities.filter((entity) => entity.key === localTarget || entity.paneId === localTarget || entity.name === localTarget));
-  if (exact.length === 1) return withHost(exact[0]);
+  if (exact.length === 1) return withHost(exact[0]!);
   if (exact.length > 1) ambiguous(target, exact);
 
   const suffix = dedupeEntities(entities.filter((entity) => [entity.key, entity.paneId].filter(Boolean).some((id) => {
-    const value = id as string;
+    const value = id!;
     const short = value.slice(value.lastIndexOf(":") + 1);
     return value === localTarget || value.endsWith(":" + localTarget) || short.startsWith(localTarget) || value.endsWith(localTarget);
   })));
-  if (suffix.length === 1) return withHost(suffix[0]);
+  if (suffix.length === 1) return withHost(suffix[0]!);
   if (suffix.length > 1) ambiguous(target, suffix);
 
   const byAgent = dedupeEntities(entities.filter((entity) => entity.agent === localTarget));
-  if (byAgent.length === 1) return withHost(byAgent[0]);
+  if (byAgent.length === 1) return withHost(byAgent[0]!);
   if (byAgent.length > 1) ambiguous(target, byAgent);
   return null;
 }

@@ -20,6 +20,10 @@ describe("worker tool policy", () => {
     expect(tools).not.toContain("orch_read");
   });
 
+  test("explicitly disabled peer tools are omitted", () => {
+    expect(workerTools(config(false))).toBe("read,write,edit,bash,orch_ask");
+  });
+
   test("config enables all peer tools", () => {
     expect(workerTools(config(true))).toBe(
       "read,write,edit,bash,orch_ask,orch_agents,orch_send,orch_read",

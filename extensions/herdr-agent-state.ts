@@ -1,11 +1,20 @@
+// fallow-ignore-file unused-file
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
 // HERDR_INTEGRATION_VERSION=4
-// @ts-nocheck
-
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createConnection } from "node:net";
+
+function hashExtensionFile(file: string): string {
+  return createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 12);
+}
+
+const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 const HERDR_ENV = process.env.HERDR_ENV;
 const socketPath = process.env.HERDR_SOCKET_PATH;
@@ -53,11 +62,11 @@ async function sendRequest(request: unknown): Promise<void> {
 
 type AgentState = "working" | "blocked" | "idle";
 
-type QueuedState = {
+interface QueuedState {
   state: AgentState;
   message?: string;
   seq: number;
-};
+}
 
 const idleDebounceMs = parseDurationEnv("HERDR_PI_IDLE_DEBOUNCE_MS", 250);
 const retryGraceMs = parseDurationEnv("HERDR_PI_RETRY_GRACE_MS", 2500);
@@ -84,7 +93,7 @@ function parseDurationEnv(name: string, fallback: number): number {
   return parsed;
 }
 
-function updateSessionRef(ctx: any): void {
+function updateSessionRef(ctx: ExtensionContext): void {
   try {
     const file = ctx?.sessionManager?.getSessionFile?.();
     currentAgentSessionPath =
@@ -150,6 +159,7 @@ function sendState(state: AgentState, message?: string, seq = nextReportSeq()): 
       agent: "pi",
       state,
       message,
+      extensionHash: EXTENSION_HASH,
       seq,
     }),
   });
@@ -168,7 +178,7 @@ function releaseAgent(): Promise<void> {
   });
 }
 
-function shouldReleaseOnSessionShutdown(event: any): boolean {
+function shouldReleaseOnSessionShutdown(event: { reason?: string }): boolean {
   // Pi tears down and rebinds extension runtimes for internal lifecycle actions
   // such as /reload, /new, /resume, and /fork. Those do not mean the pane's
   // agent process has exited, and releasing hook authority there can suppress
@@ -208,31 +218,52 @@ async function drainStateQueue(): Promise<void> {
   }
 }
 
-function lastAssistantMessage(messages: unknown[]): any | undefined {
+interface MessageRecord {
+  role?: unknown;
+  stopReason?: unknown;
+  errorMessage?: unknown;
+}
+
+function lastAssistantMessage(messages: unknown[]): MessageRecord | undefined {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i] as any;
-    if (message?.role === "assistant") {
-      return message;
+    const message = messages[i];
+    if (typeof message === "object" && message !== null && "role" in message) {
+      const record = message as MessageRecord;
+      if (record.role === "assistant") {
+        return record;
+      }
     }
   }
   return undefined;
 }
 
-function retryableErrorMessage(event: any): string | undefined {
+function retryableErrorMessage(event: { messages?: unknown[] }): string | undefined {
   const messages = Array.isArray(event?.messages) ? event.messages : [];
   const assistant = lastAssistantMessage(messages);
   if (assistant?.stopReason !== "error") {
     return undefined;
   }
 
-  const errorMessage = String(assistant.errorMessage ?? "");
+  const errorMessage =
+    typeof assistant.errorMessage === "string"
+      ? assistant.errorMessage
+      : JSON.stringify(assistant.errorMessage ?? "") ?? "";
   if (!retryableErrorPattern.test(errorMessage)) {
     return undefined;
   }
   return errorMessage || "retryable provider error";
 }
 
-export default function (pi) {
+interface BlockedEvent {
+  active?: unknown;
+  label?: unknown;
+}
+
+function isBlockedEvent(data: unknown): data is BlockedEvent {
+  return typeof data === "object" && data !== null;
+}
+
+function herdrAgentStateExtension(pi: ExtensionAPI): void {
   if (!enabled()) {
     return;
   }
@@ -317,8 +348,8 @@ export default function (pi) {
     retryTimer.unref?.();
   }
 
-  pi.events.on("herdr:blocked", (data) => {
-    if (!rootSession) {
+  pi.events.on("herdr:blocked", (data: unknown) => {
+    if (!rootSession || !isBlockedEvent(data)) {
       return;
     }
     if (!data?.active) {
@@ -332,11 +363,11 @@ export default function (pi) {
 
     clearPendingTimers();
     blockedCount += 1;
-    blockedMessage = data.label;
+    blockedMessage = typeof data.label === "string" ? data.label : undefined;
     publishState();
   });
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", (_event, ctx: ExtensionContext) => {
     if (ctx?.hasUI !== true) {
       return;
     }
@@ -396,3 +427,5 @@ export default function (pi) {
     }
   });
 }
+
+export default herdrAgentStateExtension;

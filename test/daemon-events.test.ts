@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  derivePresenceTransition,
   emitAndNotify,
   startPreferredEvents,
   startPresenceWatch,
@@ -48,7 +49,7 @@ async function waitFor(check: () => boolean, timeoutMs = 2_000): Promise<void> {
 
 function eventState(value: unknown): string | undefined {
   return value && typeof value === "object" && typeof Reflect.get(value, "newState") === "string"
-    ? Reflect.get(value, "newState")
+    ? Reflect.get(value, "newState") as string
     : undefined;
 }
 
@@ -67,7 +68,7 @@ describe("daemon presence events", () => {
       "subscribe-events": () => ({ subscribed: true }),
     });
     servers.push(server);
-    const watcher = startPresenceWatch({ orchDir, onEvent: server.emit });
+    const watcher = startPresenceWatch({ orchDir, onEvent: (event) => server.emit(event) });
     presenceWatches.push(watcher);
     const received: unknown[] = [];
     const stop = await rpcSubscribe(orchDir, "subscribe-events", (event) => received.push(event));
@@ -76,6 +77,19 @@ describe("daemon presence events", () => {
     await waitFor(() => received.some((event) => eventState(event) === "idle"));
     stop();
     expect(eventState(received[0])).toBe("idle");
+  });
+
+  test("presence transitions resolve the human name before emission", () => {
+    const key = "w6:p-name";
+    const states = new Map([[key, "working"]]);
+    const event = derivePresenceTransition(
+      key,
+      { pid: process.pid, state: "done", agent: "Ada" },
+      { name: null, tab: null },
+      states,
+    );
+    expect(event?.agent).toBe("Ada");
+    expect(event?.agent).not.toContain(key);
   });
 
   test("a blocked transition drives command sink delivery", async () => {
@@ -89,19 +103,21 @@ describe("daemon presence events", () => {
     };
     const watcher = startPresenceWatch({
       orchDir,
-      onEvent: (event) => emitAndNotify(() => {}, [sink], event),
+      onEvent: (event) => emitAndNotify(() => { /* noop */ }, [sink], event),
     });
     presenceWatches.push(watcher);
 
     writeStatus(orchDir, "workspace:p2", "working", { asking: { question: "Need input" } });
     await waitFor(() => {
       try {
-        return JSON.parse(readFileSync(output, "utf8")).newState === "blocked";
+        const payload = JSON.parse(readFileSync(output, "utf8")) as { newState?: string };
+        return payload.newState === "blocked";
       } catch {
         return false;
       }
     });
-    expect(JSON.parse(readFileSync(output, "utf8")).title).toStartWith("BLOCKED");
+    const payload = JSON.parse(readFileSync(output, "utf8")) as { title?: string };
+    expect(payload.title).toStartWith("BLOCKED");
   });
 
   test("a dead daemon falls back once and diffs the switch snapshot", async () => {
@@ -122,7 +138,7 @@ describe("daemon presence events", () => {
       probeIntervalMs: 20,
       onEvent: (value) => {
         if (!value || typeof value !== "object") return;
-        const newState = Reflect.get(value, "newState");
+        const newState = Reflect.get(value, "newState") as unknown;
         if (typeof newState === "string") states.set(key, newState);
       },
       onDisconnect: () => { notices++; },

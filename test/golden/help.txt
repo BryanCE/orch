@@ -2,10 +2,11 @@ orch — the single controller for pi agents in herdr panes.
 The orchestrator never needs raw herdr for the normal loop.
 
 OBSERVE
-  orch status [--json] [--all]   Glanceable table of every pane (default command).
+  orch status [--json] [--all] [--offline]
+                                 Glanceable table of every pane (default command); --offline reads agent files only.
   orch questions                 List pending agent questions.
-  orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json]
-                                 Continuous stream of pane state transitions (forever).
+  orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json] [--offline]
+                                 Continuous stream of pane state transitions; --offline uses read-only agent files.
 
 QUEUE
   orch queue add "<task text>" [--worktree] [--json]
@@ -25,28 +26,29 @@ REVIEW
 
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
-                                 Send a prompt with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]
-                                 One-shot: optional model set, run, wait, or forward its result on done.
+                                 Queue a prompt through orchd with the worker header (or exact prompt with --raw).
+  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter]
+                                 Durably accept a prompt through orchd.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).
   orch pipe <src> <dst> ["instruction"]
-                                 Send a completed result to another agent's inbox.
+                                 Send a completed result through orchd.
   orch broadcast "<text>" [target ...|--all]
-                                 Steer named targets, or every live pane agent by default.
-  orch model <target> <provider/model[:thinking]> [--no-wait]
-                                 Switch a pane's model via the bridge inbox; waits up to 10s by default.
+                                 Steer named targets through orchd.
+  orch model <target> <provider/model[:thinking]>
+                                 Durably accept a model change through orchd.
   orch notify test [--state <state>]
                                  Send a synthetic transition to each configured notification sink.
-  orch steer <target> <text…>    Append a mid-run steer to the agent's inbox.
+  orch steer <target> <text…>    Durably accept a mid-run steer through orchd.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
   orch result <target> [--json]  Print a target's result (result.json or session fallback).
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.
-  orch new <target>              Clear the pane's session (/new).
-  orch restart <target>… | --all [--hard] [--cmd pi]
-                                 Reload extensions in place; --hard fully restarts pi for version upgrades.
+  orch reload <target>… | --all   Reload panes, signal watchers via reload.signal, and report each outcome.
+  orch reset  <target>… | --all   Start a fresh session/context, keep model. (alias: new)
+  orch restart <target>… | --all [--cmd pi]
+                                 Fully close the harness process and relaunch it.
 
 PANES (create / arrange / lifecycle — never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]

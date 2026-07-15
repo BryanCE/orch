@@ -12,6 +12,13 @@ import {
   readDaemonLock,
 } from "../src/daemon/lifecycle";
 
+interface LockData {
+  pid?: number;
+  codeHash?: string;
+  startedAt?: string;
+  startTicks?: string;
+}
+
 const tempDirs: string[] = [];
 
 function makeOrchDir(): string {
@@ -31,13 +38,11 @@ describe("daemon lifecycle", () => {
     expect(acquireDaemonLock(orchDir, () => false)).toBe(true);
     expect(acquireDaemonLock(orchDir, () => false)).toBe(false);
 
-    const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8"));
-    expect(lock).toEqual({
-      pid: process.pid,
-      codeHash: expect.any(String),
-      startedAt: expect.any(String),
-      ...(process.platform === "win32" ? {} : { startTicks: expect.any(String) }),
-    });
+    const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8")) as LockData;
+    expect(lock.pid).toBe(process.pid);
+    expect(typeof lock.codeHash).toBe("string");
+    expect(typeof lock.startedAt).toBe("string");
+    if (process.platform !== "win32") expect(typeof lock.startTicks).toBe("string");
     releaseDaemonLock(orchDir);
   });
 
@@ -67,7 +72,7 @@ describe("daemon lifecycle", () => {
     expect(acquireDaemonLock(orchDir, () => false)).toBe(false);
 
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify({ pid: 0, codeHash: "old", startedAt: "now" }));
-    expect(acquireDaemonLock(orchDir, () => { throw new Error("probe failed"); })).toBe(false);
+    expect(acquireDaemonLock(orchDir, () => { /* noop before throwing */ throw new Error("probe failed"); })).toBe(false);
     releaseDaemonLock(orchDir);
     releaseDaemonLock(orchDir);
   });
@@ -132,7 +137,7 @@ describe("daemon lifecycle", () => {
       releaseDaemonLock(orchDir);
       return;
     }
-    const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8"));
+    const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8")) as LockData;
     lock.startTicks = "not-the-current-process";
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify(lock));
 

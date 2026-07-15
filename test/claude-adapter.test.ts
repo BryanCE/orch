@@ -17,7 +17,7 @@ function agentDir(key: string): string {
   return directory;
 }
 
-function runHook(event: string, key: string, input: Record<string, unknown> = {}): Record<string, any> {
+function runHook(event: string, key: string, input: Record<string, unknown> = {}): Record<string, unknown> {
   const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
   try {
     execFileSync(process.execPath, [hookScript, event], {
@@ -25,7 +25,7 @@ function runHook(event: string, key: string, input: Record<string, unknown> = {}
       input: JSON.stringify(input),
       encoding: "utf8",
     });
-    return JSON.parse(readFileSync(join(hookOrchDir, "agents", fakePaneId, "status.json"), "utf8"));
+    return JSON.parse(readFileSync(join(hookOrchDir, "agents", fakePaneId, "status.json"), "utf8")) as Record<string, unknown>;
   } finally {
     rmSync(hookOrchDir, { recursive: true, force: true });
   }

@@ -7,7 +7,14 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));
 const storePath = path.join(import.meta.dir, "../src/store.ts");
 
-function readStatuses(): Record<string, any> {
+interface PresenceStatus {
+  schema?: number;
+  agent?: string;
+  pid?: number;
+  state?: string;
+}
+
+function readStatuses(): Record<string, PresenceStatus> {
   const script = `
     const store = await import(${JSON.stringify(storePath)});
     const statuses = {};
@@ -17,7 +24,7 @@ function readStatuses(): Record<string, any> {
   return JSON.parse(execFileSync(process.execPath, ["-e", script], {
     env: { ...process.env, ORCH_DIR: orchDir },
     encoding: "utf8",
-  }));
+  })) as Record<string, PresenceStatus>;
 }
 
 function writeStatus(key: string, status: object): void {
@@ -38,14 +45,14 @@ describe("presence status schema", () => {
   test("reads a schema-2 status with its adapter id", () => {
     writeStatus("pi-2", { schema: 2, agent: "pi", pid: process.pid, state: "working" });
 
-    expect(readStatuses()["pi-2"]).toMatchObject({ schema: 2, agent: "pi", state: "working" });
+    expect(readStatuses()["pi-2"]!).toMatchObject({ schema: 2, agent: "pi", state: "working" });
   });
 
   test("keeps schema-1 status records valid without adding fields", () => {
     writeStatus("legacy", { pid: process.pid, state: "idle" });
 
-    expect(readStatuses()["legacy"]).toEqual({ pid: process.pid, state: "idle" });
-    expect(readStatuses()["legacy"].agent).toBeUndefined();
+    expect(readStatuses().legacy!).toEqual({ pid: process.pid, state: "idle" });
+    expect(readStatuses().legacy!.agent).toBeUndefined();
   });
 
   test("loads a mixed directory of schema-1 and schema-2 records", () => {
@@ -54,7 +61,7 @@ describe("presence status schema", () => {
 
     const statuses = readStatuses();
     expect(Object.keys(statuses)).toHaveLength(2);
-    expect(statuses["legacy"].agent).toBeUndefined();
-    expect(statuses["current"]).toMatchObject({ schema: 2, agent: "pi" });
+    expect(statuses.legacy!.agent).toBeUndefined();
+    expect(statuses.current!).toMatchObject({ schema: 2, agent: "pi" });
   });
 });

@@ -229,6 +229,8 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Resume a headless session; callers may set CODEX_INTERACTIVE=1 for a pane continuation. */
+  // Required by the AgentAdapter contract; Codex supports session continuation.
+  // fallow-ignore-next-line unused-class-member
   steer(request: SteerRequest): AdapterCommand {
     const sessionId = request.opts?.env?.CODEX_SESSION_ID ?? request.key;
     const interactive = request.opts?.env?.CODEX_INTERACTIVE === "1";
@@ -240,6 +242,8 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Codex has no proven blocking answer protocol. */
+  // Required by the AgentAdapter contract; Codex has no answer protocol.
+  // fallow-ignore-next-line unused-class-member
   answer(_request: AnswerRequest): AdapterCommand | undefined {
     return undefined;
   }

@@ -30,8 +30,8 @@ async function waitForLine(lines: string[], index: number): Promise<void> {
 
 async function start(dir: string): Promise<RpcServer> {
   const server = await startRpcServer(dir, {
-    echo: async (params) => params,
-    "subscribe-events": async (_params, emit) => {
+    echo: (params) => params,
+    "subscribe-events": (_params, emit) => {
       setTimeout(() => emit({ kind: "pushed", value: 1 }), 5);
       return { subscribed: true };
     },
@@ -49,14 +49,14 @@ describe("daemon RPC", () => {
   test("round-trips a call over the real unix socket", async () => {
     const dir = tempOrchDir();
     await start(dir);
-    await expect(rpcCall(dir, "echo", { ok: true })).resolves.toEqual({ ok: true });
+    expect(rpcCall(dir, "echo", { ok: true })).resolves.toEqual({ ok: true });
   });
 
   test("returns an error for an unknown method", async () => {
     const dir = tempOrchDir();
     await start(dir);
-    await expect(rpcCall(dir, "missing")).rejects.toBeInstanceOf(RpcError);
-    await expect(rpcCall(dir, "missing")).rejects.toThrow("Unknown method");
+    expect(rpcCall(dir, "missing")).rejects.toBeInstanceOf(RpcError);
+    expect(rpcCall(dir, "missing")).rejects.toThrow("Unknown method");
   });
 
   test("reports malformed lines and keeps the connection alive", async () => {
@@ -72,10 +72,11 @@ describe("daemon RPC", () => {
     socket.on("data", (chunk: string) => lines.push(...chunk.trim().split("\n")));
     socket.write("not json\n");
     await waitForLine(lines, 0);
-    expect(JSON.parse(lines[0]).error.code).toBe("INVALID_REQUEST");
+    const malformed: unknown = JSON.parse(lines[0]!);
+    expect(malformed).toMatchObject({ error: { code: "INVALID_REQUEST" } });
     socket.write('{"id":7,"method":"echo","params":"still alive"}\n');
     await waitForLine(lines, 1);
-    expect(JSON.parse(lines[1])).toMatchObject({ id: 7, result: "still alive" });
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 7, result: "still alive" });
     socket.destroy();
   });
 
@@ -85,7 +86,7 @@ describe("daemon RPC", () => {
     const event = new Promise((resolve) => {
       void rpcSubscribe(dir, "subscribe-events", resolve);
     });
-    await expect(event).resolves.toEqual({ kind: "pushed", value: 1 });
+    expect(event).resolves.toEqual({ kind: "pushed", value: 1 });
     server.emit({ kind: "broadcast", value: 2 });
   });
 
@@ -95,11 +96,11 @@ describe("daemon RPC", () => {
     expect(acquireDaemonLock(dir)).toBe(true);
     const server = await start(dir);
     expect(server.transport).toBe("unix");
-    await expect(rpcCall(dir, "echo", "after-reclaim")).resolves.toBe("after-reclaim");
+    expect(rpcCall(dir, "echo", "after-reclaim")).resolves.toBe("after-reclaim");
   });
 
-  test("has a catchable absent-daemon error", async () => {
+  test("has a catchable absent-daemon error", () => {
     const dir = tempOrchDir();
-    await expect(rpcCall(dir, "echo")).rejects.toBeInstanceOf(DaemonAbsentError);
+    expect(rpcCall(dir, "echo")).rejects.toBeInstanceOf(DaemonAbsentError);
   });
 });

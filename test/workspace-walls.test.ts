@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { entityWorkspace, scopeEntitiesToWorkspace, workspaceOf, type Entity } from "../src/entities.ts";
+import { checkWall } from "../src/policy/workspace.ts";
 import { nextQueuedTask, type TaskRec } from "../src/queue.ts";
 
 function fakeEntity(key: string, paneId: string | null): Entity {
@@ -36,6 +37,27 @@ describe("workspace helpers", () => {
   test("returns the same entities when all workspaces are requested", () => {
     const entities = [fakeEntity("w6:p1", "w6:p1")];
     expect(scopeEntitiesToWorkspace(entities, { all: true })).toBe(entities);
+  });
+});
+
+describe("workspace wall writes", () => {
+  test("allows a write within the same workspace", () => {
+    expect(checkWall("w1:p1", "w1:p2", { crossWorkspace: false })).toEqual({ allowed: true });
+  });
+
+  test("denies a cross-workspace write with both workspaces in the reason", () => {
+    const decision = checkWall("w1:p1", "w2:p2", { crossWorkspace: false });
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain("w1");
+    expect(decision.reason).toContain("w2");
+  });
+
+  test("allows a cross-workspace write with an explicit override", () => {
+    expect(checkWall("w1:p1", "w2:p2", { crossWorkspace: true })).toEqual({ allowed: true });
+  });
+
+  test("allows legacy unscoped targets", () => {
+    expect(checkWall("w1:p1", "legacy-target", { crossWorkspace: false })).toEqual({ allowed: true });
   });
 });
 

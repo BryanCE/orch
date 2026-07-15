@@ -7,7 +7,7 @@ import type { AgentAdapter } from "../src/adapters/adapter.ts";
 // Replace the CLI boundary before loading HerdrBackend. This records argv without
 // ever starting a herdr process (and therefore cannot create a live pane).
 const herdrArgv: string[][] = [];
-mock.module("../src/herdr.ts", () => ({
+void mock.module("../src/herdr.ts", () => ({
   herdrPanes: () => {
     herdrArgv.push(["pane", "list"]);
     return [
@@ -22,7 +22,7 @@ mock.module("../src/herdr.ts", () => ({
   herdrExec: () => "",
   herdrJSON: (args: string[]) => {
     herdrArgv.push([...args]);
-    return { tab: { label: "work" }, root_pane: { pane_id: "w0:p3" } };
+    return { agent: { pane_id: "w0:p3" } };
   },
   herdrBestEffort: (args: string[]) => {
     herdrArgv.push([...args]);
@@ -51,7 +51,7 @@ afterAll(() => {
 });
 
 describe("HerdrBackend", () => {
-  test("creates a pane and runs the adapter command", () => {
+  test("starts an authority-bearing herdr agent with the adapter command", () => {
     expect(backend.id).toBe("herdr");
     expect(backend.panes).toBe(true);
     expect(backend.focusable).toBe(true);
@@ -62,8 +62,7 @@ describe("HerdrBackend", () => {
     expect(handle).toBe("w0:p3");
     expect(herdrArgv).toEqual([
       ["pane", "list"],
-      ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--label", "work", "--no-focus"],
-      ["pane", "run", "w0:p3", "fake-agent"],
+      ["agent", "start", "pi-agent", "--workspace", "ws-test", "--cwd", testDir, "--no-focus", "--", "bash", "-lc", "fake-agent"],
     ]);
   });
 

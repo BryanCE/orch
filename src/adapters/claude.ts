@@ -12,17 +12,14 @@ import type {
 } from "./adapter.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
-export interface ClaudeStateDetectionInput extends StateDetectionInput {
+interface ClaudeStateDetectionInput extends StateDetectionInput {
   readonly key: string;
 }
 
 /** Result input for Claude, identified by its hook-owned presence key. */
-export interface ClaudeResultExtractionInput extends ResultExtractionInput {
+interface ClaudeResultExtractionInput extends ResultExtractionInput {
   readonly key: string;
 }
-
-/** Claude's hooks provide authoritative state updates (rather than heuristics). */
-export const CLAUDE_STATE_HOOK_MARKER = "hookDriven" as const;
 
 const AGENT_STATES = new Set<AgentState>([
   "idle",
@@ -36,10 +33,6 @@ const AGENT_STATES = new Set<AgentState>([
 ]);
 
 type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function textValue(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
@@ -119,12 +112,8 @@ function stateFrom(value: unknown): AgentState {
     : "unknown";
 }
 
-export function presenceFor(key: string): PresenceEntry | undefined {
+function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function paneFor(request: { key: string; opts?: SpawnOpts }): string {
@@ -138,7 +127,7 @@ function degradedKeysCommand(pane: string, text: string): AdapterCommand {
 }
 
 /** Claude Code adapter; lifecycle state/result data is supplied by scripts/claude-hooks.ts. */
-export class ClaudeAdapter implements AgentAdapter {
+class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 
   /** Claude has no inbox or answer protocol; hooks provide state/session tails. */

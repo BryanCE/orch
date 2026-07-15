@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// fallow-ignore-file unused-file
 // Rewrites `||` to `??` (and `||=` to `??=`) at the exact byte offsets oxlint's
 // typescript(prefer-nullish-coalescing) rule reports via --format=json. Runs
 // oxlint itself, so offsets are always fresh. Same-length replacement, so no
@@ -40,7 +41,7 @@ function runOxlintJson(): { stdout: string; stderr: string; exitCode: number } {
 }
 
 function parseDiagnostics(stdout: string): OxlintDiagnostic[] | null {
-  const start = stdout.indexOf("{") === -1 ? stdout.indexOf("[") : Math.min(...[stdout.indexOf("{"), stdout.indexOf("[")].filter((i) => i !== -1));
+  const start = !stdout.includes("{") ? stdout.indexOf("[") : Math.min(...[stdout.indexOf("{"), stdout.indexOf("[")].filter((i) => i !== -1));
   if (start === -1) return null;
   try {
     const parsed: unknown = JSON.parse(stdout.slice(start));

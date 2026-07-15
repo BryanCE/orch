@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import type { HostConfig } from "./config.ts";
 
-export const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
+const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
 
 export type RemoteFailureKind = "dead-host" | "timeout" | "non-json" | "invalid-config";
 
@@ -17,13 +17,18 @@ export type RemoteResult =
   | { ok: true; value: unknown }
   | { ok: false; failure: RemoteFailure };
 
-export type RemoteOptions = {
+export interface RemoteOptions {
   timeoutMs?: number;
   /** Primarily for hermetic callers; ORCH_SSH_BIN is used otherwise. */
   sshBin?: string;
-};
+}
 
-export type SshResult = { ok: boolean; stdout: string; stderr: string; code?: number };
+export interface SshResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  code?: number;
+}
 
 /** Execute an arbitrary command over SSH (used by diagnostics and remote probes). */
 export function runSSH(destination: string, command: string, options: RemoteOptions = {}): SshResult {
@@ -54,7 +59,9 @@ function windowsCommandShell(sshBin: string): boolean {
 function outputText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value instanceof Uint8Array) return new TextDecoder().decode(value);
-  return value === undefined || value === null ? "" : String(value);
+  if (value === undefined || value === null) return "";
+  if (typeof value === "object") return JSON.stringify(value) ?? "";
+  return JSON.stringify(value) ?? "";
 }
 
 function errorField(error: unknown, field: string): unknown {
@@ -72,7 +79,7 @@ function shellQuote(value: string): string {
 }
 
 function commandArgs(command: string | readonly string[]): string[] {
-  if (Array.isArray(command)) return [...command];
+  if (typeof command !== "string") return command.slice();
   return command.trim() ? command.trim().split(/\s+/) : [];
 }
 

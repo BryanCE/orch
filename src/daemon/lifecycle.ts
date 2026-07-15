@@ -17,12 +17,12 @@ const SOCKET_NAME = "orchd.sock";
 const LOG_NAME = "orchd.log";
 const HASH_LENGTH = 12;
 
-type LockRecord = {
+interface LockRecord {
   pid: number;
   codeHash: string;
   startedAt: string;
   startTicks?: string;
-};
+}
 
 export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startTicks">;
 
@@ -148,7 +148,7 @@ export function releaseDaemonLock(orchDir: string): void {
 }
 
 function commandFor(entrypoint: string, args: string[]): [string, string[]] {
-  if (/\.(?:[cm]?tsx?|mts|cts)$/i.test(entrypoint)) {
+  if (/\.(?:[cm]?jsx?|[cm]?tsx?)$/i.test(entrypoint)) {
     return [process.execPath, [entrypoint, ...args]];
   }
   return [entrypoint, args];

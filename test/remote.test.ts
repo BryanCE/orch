@@ -42,7 +42,7 @@ function recorded(record: string): string {
   expect(existsSync(record)).toBe(true);
   const lines = readFileSync(record, "utf8").trim().split("\n");
   expect(lines.length).toBeGreaterThan(0);
-  return lines[lines.length - 1];
+  return lines[lines.length - 1]!;
 }
 
 function failure(result: RemoteResult) {

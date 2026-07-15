@@ -17,7 +17,7 @@ export function presenceDir(): string {
 }
 
 /** Map logical pane keys to filesystem-safe directory names on Windows. */
-export function presenceDirectoryName(key: string): string {
+function presenceDirectoryName(key: string): string {
   if (process.platform !== "win32") return key;
   return key.replaceAll("%", "%25").replaceAll(":", "%3A");
 }
@@ -66,7 +66,7 @@ export interface PresenceEntry {
   key: string;
   dir: string;
   status: PresenceStatus | null;
-  result: unknown | null;
+  result: unknown;
   alive: boolean;
 }
 
@@ -163,18 +163,6 @@ export function statusForPresence(presence: PresenceEntry): PresenceStatus | nul
 
 export function bridgeRegistered(pane: string): boolean {
   return readJSON(presencePath(pane, "status.json")) !== null;
-}
-
-export function readPaneModel(pane: string): string | null {
-  const status = readJSON(presencePath(pane, "status.json"));
-  if (!isRecord(status) || !isRecord(status.model) || typeof status.model.id !== "string" || !status.model.id) return null;
-  const provider = typeof status.model.provider === "string" ? status.model.provider : "";
-  const thinking = typeof status.thinking === "string" && status.thinking ? `:${status.thinking}` : "";
-  return `${provider}/${status.model.id}${thinking}`;
-}
-
-export function appendPresenceInbox(presence: PresenceEntry, entry: unknown): void {
-  appendFileSync(join(presence.dir, "inbox.jsonl"), JSON.stringify(entry) + "\n");
 }
 
 export function steerPresence(presence: PresenceEntry, text: string): void {

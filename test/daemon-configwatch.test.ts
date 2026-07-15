@@ -44,11 +44,11 @@ describe("config watch", () => {
     watches.push(watchHandle);
 
     expect(changes).toHaveLength(1);
-    expect(changes[0].defaults.spawn_cap).toBe(2);
+    expect(changes[0]!.defaults.spawn_cap).toBe(2);
 
     writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(4));
     expect(await poll(() => changes.length === 2)).toBe(true);
-    expect(changes[1].defaults.spawn_cap).toBe(4);
+    expect(changes[1]!.defaults.spawn_cap).toBe(4);
   });
 
   test("keeps the last good config on invalid TOML and recovers", async () => {
@@ -67,11 +67,11 @@ describe("config watch", () => {
     expect(await poll(() => warnings.length > 0)).toBe(true);
     expect(warnings).toHaveLength(1);
     expect(changes).toHaveLength(1);
-    expect(changes[0].defaults.spawn_cap).toBe(2);
+    expect(changes[0]!.defaults.spawn_cap).toBe(2);
 
     writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(6));
     expect(await poll(() => changes.length === 2)).toBe(true);
-    expect(changes[1].defaults.spawn_cap).toBe(6);
+    expect(changes[1]!.defaults.spawn_cap).toBe(6);
   });
 
   test("stops all callbacks", async () => {

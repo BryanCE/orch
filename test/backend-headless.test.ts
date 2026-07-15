@@ -2,13 +2,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { AgentAdapter } from "../src/adapters/adapter.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
 
 const { HeadlessBackend } = await import("../src/backends/headless.ts");
 const backend = new HeadlessBackend();
-const handles: Array<{ pid: number; key: string }> = [];
+const handles: { pid: number; key: string }[] = [];
 
 const fakeAdapter = {
   id: "fake",
@@ -57,17 +58,21 @@ afterAll(() => {
 describe("HeadlessBackend", () => {
   test("spawns a detached process and records its handle", async () => {
     expect(backend.caps).toEqual({ panes: false, focusable: false });
-    const handle = backend.spawn(fakeAdapter as any, { key: "fake-1", prompt: "sleep" });
+    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-1", prompt: "sleep" });
     handles.push(handle);
 
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-1", "status.json")));
-    const record = JSON.parse(fs.readFileSync(path.join(testOrchDir, "spawned.jsonl"), "utf8").trim());
+    const record = JSON.parse(fs.readFileSync(path.join(testOrchDir, "spawned.jsonl"), "utf8").trim()) as {
+      backend: string;
+      handle: { pid: number; key: string };
+      adapter: string;
+    };
     expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake" });
     expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
   });
 
   test("closes only when registry and presence pid/key both match", async () => {
-    const handle = backend.spawn(fakeAdapter as any, { key: "fake-2" });
+    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-2" });
     handles.push(handle);
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-2", "status.json")));
 
@@ -80,7 +85,7 @@ describe("HeadlessBackend", () => {
   });
 
   test("signals a matching recorded handle through the injected killer", () => {
-    const calls: Array<{ pid: number; signal: string }> = [];
+    const calls: { pid: number; signal: string }[] = [];
     const hermetic = new HeadlessBackend({
       pidAlive: () => true,
       killer: (pid, signal) => calls.push({ pid, signal }),

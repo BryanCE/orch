@@ -6,7 +6,7 @@ import { errorMessage } from "../util.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
-export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter) => unknown | Promise<unknown>;
+export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter) => unknown;
 export type RpcHandlers = Record<string, RpcHandler>;
 
 export class DaemonAbsentError extends Error {
@@ -30,10 +30,44 @@ export class RpcError extends Error {
   }
 }
 
-export type RpcServerOptions = {
+export interface RpcServerOptions {
   /** Allow one stale unix endpoint to be removed during daemon boot. */
   holdsDaemonLock?: boolean;
 };
+
+export interface BufferedEvent {
+  seq: number;
+  event: unknown;
+}
+
+export interface ReplayResult {
+  events: BufferedEvent[];
+  gap: boolean;
+  oldestSeq?: number;
+}
+
+export const REPLAY_WINDOW = 1_000;
+
+export class ReplayBuffer {
+  private readonly events: BufferedEvent[] = [];
+  private nextSeq = 1;
+
+  push(event: unknown): BufferedEvent {
+    const buffered: BufferedEvent = { event, seq: this.nextSeq++ };
+    this.events.push(buffered);
+    if (this.events.length > REPLAY_WINDOW) this.events.shift();
+    return buffered;
+  }
+
+  since(seq: number): ReplayResult {
+    const oldestSeq = this.events[0]?.seq;
+    return {
+      events: this.events.filter((event) => event.seq > seq),
+      gap: oldestSeq !== undefined && oldestSeq > seq + 1,
+      ...(oldestSeq === undefined ? {} : { oldestSeq }),
+    };
+  }
+}
 
 export interface RpcServer {
   /** Stop accepting connections and remove the endpoint files. */
@@ -48,7 +82,11 @@ export interface RpcServer {
 }
 
 interface RpcResponse {
-  id: unknown;
+  id?: unknown;
+  event?: unknown;
+  seq?: number;
+  gap?: boolean;
+  oldestSeq?: number;
   result?: unknown;
   error?: { code?: string | number; message?: string; data?: unknown } | string;
 }
@@ -91,13 +129,28 @@ function parseRequest(line: string): { id: unknown; method: string; params: unkn
   return { id: value.id ?? null, method: value.method, params: value.params };
 }
 
-function handleLine(socket: Socket, line: string, handlers: RpcHandlers, subscriptions: Set<Socket>): void {
+function handleLine(
+  socket: Socket,
+  line: string,
+  handlers: RpcHandlers,
+  subscriptions: Set<Socket>,
+  replayBuffer: ReplayBuffer,
+): void {
   const request = parseRequest(line);
-  if ("error" in request) {
+  if (!("method" in request)) {
     lineResponse(socket, request);
     return;
   }
-  if (request.method === "subscribe-events") subscriptions.add(socket);
+  if (request.method === "subscribe-events") {
+    const params = isObject(request.params) ? request.params : undefined;
+    const since = params?.since;
+    if (typeof since === "number" && Number.isInteger(since)) {
+      const replay = replayBuffer.since(since);
+      if (replay.gap) lineResponse(socket, { gap: true, oldestSeq: replay.oldestSeq });
+      for (const buffered of replay.events) lineResponse(socket, buffered);
+    }
+    subscriptions.add(socket);
+  }
   const emit: RpcEventEmitter = (event) => lineResponse(socket, { event });
   const handler = handlers[request.method];
   if (!handler) {
@@ -112,7 +165,12 @@ function handleLine(socket: Socket, line: string, handlers: RpcHandlers, subscri
     });
 }
 
-function attachConnection(socket: Socket, handlers: RpcHandlers, subscriptions: Set<Socket>): void {
+function attachConnection(
+  socket: Socket,
+  handlers: RpcHandlers,
+  subscriptions: Set<Socket>,
+  replayBuffer: ReplayBuffer,
+): void {
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
@@ -121,7 +179,7 @@ function attachConnection(socket: Socket, handlers: RpcHandlers, subscriptions: 
     while (newline >= 0) {
       const line = buffer.slice(0, newline).replace(/\r$/, "");
       buffer = buffer.slice(newline + 1);
-      handleLine(socket, line, handlers, subscriptions);
+      handleLine(socket, line, handlers, subscriptions, replayBuffer);
       newline = buffer.indexOf("\n");
     }
   });
@@ -155,7 +213,7 @@ function readPort(portFile: string): number | null {
   try {
     const parsed: unknown = JSON.parse(text);
     const port = typeof parsed === "number" ? parsed : isObject(parsed) ? parsed.port : undefined;
-    if (Number.isInteger(port) && port > 0 && port < 65536) return port;
+    if (typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536) return port;
   } catch {
     const port = Number(text);
     if (Number.isInteger(port) && port > 0 && port < 65536) return port;
@@ -225,7 +283,7 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
           try {
             const parsed: unknown = JSON.parse(line);
             if (!isObject(parsed)) continue;
-            const message = parsed as RpcResponse;
+            const message = parsed as unknown as RpcResponse;
             if (message.id === id) {
               clearTimeout(timer);
               socket.off("data", onData);
@@ -261,9 +319,10 @@ export async function startRpcServer(
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
   const sockets = new Set<Socket>();
+  const replayBuffer = new ReplayBuffer();
   const server = createServer((socket) => {
     sockets.add(socket);
-    attachConnection(socket, handlers, subscriptions);
+    attachConnection(socket, handlers, subscriptions, replayBuffer);
     socket.once("close", () => sockets.delete(socket));
   });
   let transport: "unix" | "tcp";
@@ -284,7 +343,7 @@ export async function startRpcServer(
         try {
           unlinkSync(paths.port);
         } catch {}
-        return makeRpcServer(server, sockets, subscriptions, paths, transport);
+        return makeRpcServer(server, sockets, subscriptions, replayBuffer, paths, transport);
       } catch {
         // A live endpoint or an unremovable path still requires TCP fallback.
       }
@@ -294,22 +353,23 @@ export async function startRpcServer(
     } catch {}
     const tcpServer = createServer((socket) => {
       sockets.add(socket);
-      attachConnection(socket, handlers, subscriptions);
+      attachConnection(socket, handlers, subscriptions, replayBuffer);
       socket.once("close", () => sockets.delete(socket));
     });
     await listen(tcpServer, { host: "127.0.0.1", port: 0 });
     port = (tcpServer.address() as { port: number }).port;
     writeFileSync(paths.port, `${port}\n`, { mode: 0o600 });
     transport = "tcp";
-    return makeRpcServer(tcpServer, sockets, subscriptions, paths, transport);
+    return makeRpcServer(tcpServer, sockets, subscriptions, replayBuffer, paths, transport);
   }
-  return makeRpcServer(server, sockets, subscriptions, paths, transport);
+  return makeRpcServer(server, sockets, subscriptions, replayBuffer, paths, transport);
 }
 
 function makeRpcServer(
   server: Server,
   sockets: Set<Socket>,
   subscriptions: Set<Socket>,
+  replayBuffer: ReplayBuffer,
   paths: { socket: string; port: string },
   transport: "unix" | "tcp",
 ): RpcServer {
@@ -334,7 +394,8 @@ function makeRpcServer(
     close,
     stop: close,
     emit: (event) => {
-      for (const socket of subscriptions) lineResponse(socket, { event });
+      const buffered = replayBuffer.push(event);
+      for (const socket of subscriptions) lineResponse(socket, buffered);
     },
     transport,
     socketPath: paths.socket,
@@ -361,6 +422,86 @@ export async function rpcCall(
   }
 }
 
+export interface EventSubscription {
+  close(): void;
+  readonly lastSeq: () => number;
+}
+
+/**
+ * Subscribe to daemon-pushed events. A caller can reconnect by passing
+ * `lastSeq()` as `since`; the daemon then replays events after that sequence.
+ */
+export function subscribeEvents(
+  orchDir: string,
+  opts: { since?: number },
+  onEvent: (event: unknown, seq: number) => void,
+  onGap?: (oldestSeq: number) => void,
+): EventSubscription {
+  let last = opts.since ?? 0;
+  let socket: Socket | undefined;
+  let closed = false;
+
+  const subscription: EventSubscription = {
+    close: () => {
+      closed = true;
+      socket?.destroy();
+    },
+    lastSeq: () => last,
+  };
+
+  void connectDaemon(orchDir, DEFAULT_TIMEOUT_MS)
+    .then((connected) => {
+      if (closed) {
+        connected.destroy();
+        return;
+      }
+      socket = connected;
+      let buffer = "";
+      connected.setEncoding("utf8");
+      connected.on("data", (chunk: string) => {
+        buffer += chunk;
+        let newline = buffer.indexOf("\n");
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (line) {
+            try {
+              const parsed: unknown = JSON.parse(line);
+              if (!isObject(parsed)) {
+                newline = buffer.indexOf("\n");
+                continue;
+              }
+              const message = parsed as RpcResponse;
+              if (message.gap === true && typeof message.oldestSeq === "number") {
+                onGap?.(message.oldestSeq);
+              } else if (message.seq !== undefined && typeof message.seq === "number" && "event" in message) {
+                last = Math.max(last, message.seq);
+                onEvent(message.event, message.seq);
+              }
+            } catch {
+              // Ignore malformed unsolicited data from the daemon.
+            }
+          }
+          newline = buffer.indexOf("\n");
+        }
+      });
+      connected.on("error", () => {
+        // The caller can reconnect using the sequence exposed by lastSeq().
+      });
+      connected.write(`${JSON.stringify({
+        id: nextRequestId++,
+        method: "subscribe-events",
+        params: { since: opts.since },
+      })}\n`);
+    })
+    .catch(() => {
+      // A failed initial connection is surfaced by an empty subscription;
+      // callers may retry with lastSeq() and a new subscription.
+    });
+
+  return subscription;
+}
+
 /** Subscribe to pushed events; the returned function closes the subscription. */
 export async function rpcSubscribe(
   orchDir: string,
@@ -370,8 +511,8 @@ export async function rpcSubscribe(
   const socket = await connectDaemon(orchDir, DEFAULT_TIMEOUT_MS);
   const id = nextRequestId++;
   let buffer = "";
-  let responseResolve: (value: unknown) => void;
-  let responseReject: (reason?: unknown) => void;
+  let responseResolve!: (value: unknown) => void;
+  let responseReject!: (reason?: unknown) => void;
   const response = new Promise<unknown>((resolve, reject) => {
     responseResolve = resolve;
     responseReject = reject;
@@ -387,7 +528,7 @@ export async function rpcSubscribe(
         try {
           const parsed: unknown = JSON.parse(line);
           if (!isObject(parsed)) continue;
-          const message = parsed as RpcResponse & { event?: unknown };
+          const message = parsed as unknown as RpcResponse;
           if (Object.prototype.hasOwnProperty.call(message, "event")) {
             try {
               onEvent(message.event);

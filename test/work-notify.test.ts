@@ -54,9 +54,9 @@ describe("orch work notifications", () => {
       try {
         // runWorkLoop seeds the initial idle state before its first delay.
         writeFileSync(join(agentsDir, "status.json"), JSON.stringify({ state: "working", label: "Test agent", pid: process.pid }));
-        const payload = await waitForFile(output);
+        const payload: Record<string, unknown> = await waitForFile(output);
         expect(payload).toMatchObject({
-          title: expect.stringContaining("WORKING [workspace] Test agent"),
+          title: expect.stringContaining("WORKING [workspace] Test agent") as unknown as string,
           workspace: "workspace",
           newState: "working",
         });

@@ -56,7 +56,8 @@ describe("queue workspace replay", () => {
     const next = nextQueuedTask(replayed, "agent", "w8");
 
     expect(next?.id).toBe(w8.id);
-    expect([w8.id, legacy.id]).toContain(next?.id);
+    if (!next) throw new Error("expected a queued task");
+    expect([w8.id, legacy.id]).toContain(next.id);
     expect(next?.id).not.toBe(w1.id);
   });
 });

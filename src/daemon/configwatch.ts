@@ -3,15 +3,16 @@ import { loadConfig, type OrchConfig } from "../config.ts";
 import { errorMessage } from "../util.ts";
 
 const CONFIG_FILE = "config.toml";
+const RELOAD_SIGNAL_FILE = "reload.signal";
 const DEFAULT_DEBOUNCE_MS = 250;
 
-export type ConfigWatchOptions = {
+export interface ConfigWatchOptions {
   onChange: (config: OrchConfig) => void;
   onWarn?: (message: string) => void;
   debounceMs?: number;
 };
 
-export type ConfigWatch = {
+export interface ConfigWatch {
   stop: () => void;
 };
 
@@ -19,8 +20,9 @@ function warningMessage(error: unknown): string {
   return errorMessage(error);
 }
 
-function isConfigFile(filename: string | Buffer | null): boolean {
-  return filename !== null && filename.toString() === CONFIG_FILE;
+function isReloadFile(filename: string | Buffer | null): boolean {
+  const name = filename?.toString();
+  return name === CONFIG_FILE || name === RELOAD_SIGNAL_FILE;
 }
 
 function scheduleReload(
@@ -52,7 +54,7 @@ export function startConfigWatch(orchDir: string, opts: ConfigWatchOptions): Con
   };
 
   const onFileChange = (_event: string, filename: string | Buffer | null): void => {
-    if (stopped || !isConfigFile(filename)) return;
+    if (stopped || !isReloadFile(filename)) return;
     timer = scheduleReload(timer, reload, debounceMs);
   };
 

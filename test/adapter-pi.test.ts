@@ -73,7 +73,7 @@ describe("PiAdapter", () => {
     adapter.steer({ key: "pi-steer", text: "run the tests" });
 
     const lines = fs.readFileSync(path.join(storePresenceDir(), "pi-steer", "inbox.jsonl"), "utf8").trim().split("\n");
-    expect(JSON.parse(lines[0])).toMatchObject({ text: "run the tests" });
+    expect(JSON.parse(lines[0]!)).toMatchObject({ text: "run the tests" });
   });
 
   test("writes a blocking answer to the presence answer file", () => {

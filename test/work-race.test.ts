@@ -68,10 +68,12 @@ describe("orch work claim race", () => {
 
       // SQLite's conditional claim UPDATE is the exactly-once boundary now: two
       // OS processes contend, only one row transitions to claimed.
-      expect(listTasks(orchDir).filter((task) => task.state === "claimed")).toHaveLength(1);
-      expect(listTasks(orchDir).filter((task) => task.id === taskId)).toEqual([
-        expect.objectContaining({ id: taskId, state: "claimed", agentKey }),
-      ]);
+      const claimedTasks = listTasks(orchDir).filter((task) => task.state === "claimed");
+      expect(claimedTasks).toHaveLength(1);
+      const claimedTask = claimedTasks[0];
+      expect(claimedTask?.id).toBe(taskId);
+      expect(claimedTask?.state).toBe("claimed");
+      expect(claimedTask?.agentKey).toBe(agentKey);
     },
     30_000,
   );

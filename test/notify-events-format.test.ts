@@ -31,34 +31,61 @@ describe("notification and presence event formatting", () => {
     expect(first).toMatch(/^#[0-9a-f]{6}$/);
   });
 
-  test("notificationText formats done, error, and blocked summaries without color", () => {
-    const done = notificationText(event(), { colorize: false });
-    expect(done.title).toContain("[w6]");
-    expect(done.title).toContain("w-2");
-    expect(done.title).toContain("DONE");
-    expect(done.title).toContain("build the thing");
+  test("nameless events use an abstract agent label, never the harness pane key", () => {
+    const before = "DONE [w6] w6:p21: build the thing";
+    const after = notificationText(event({ agent: null }), { colorize: false }).title;
+    expect(before).toContain("w6:p21");
+    expect(after).not.toContain("w6:p21");
+    expect(after).toContain("w6/agent-p21");
+    expect(after).toContain("[w6]");
+  });
 
-    expect(notificationText(event({ newState: "error", task: "old task", lastError: "build exploded" }), { colorize: false }).title)
-      .toContain("build exploded");
-    expect(notificationText(event({ newState: "blocked", task: "Q: need approval" }), { colorize: false }).title)
-      .toContain("need approval");
+  test("notificationText pins the canonical done, error, and blocked golden vectors", () => {
+    expect(notificationText(event(), { colorize: false })).toEqual({
+      title: "DONE [w6] w-2: build the thing",
+      body: "DONE [w6] w-2: build the thing\nWorkspace: w6 (#2563eb)\nTask: build the thing",
+    });
+    expect(notificationText(event({ newState: "error", task: "old task", lastError: "build exploded" }), { colorize: false })).toEqual({
+      title: "ERROR [w6] w-2: build exploded",
+      body: "ERROR [w6] w-2: build exploded\nWorkspace: w6 (#2563eb)\nTask: old task",
+    });
+    expect(notificationText(event({ newState: "blocked", task: "Q: need approval" }), { colorize: false })).toEqual({
+      title: "BLOCKED [w6] w-2: need approval",
+      body: "BLOCKED [w6] w-2: need approval\nWorkspace: w6 (#2563eb)",
+    });
   });
 
   test("webhook payload includes workspace and workspaceColor", async () => {
     let body = "";
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-      body = String(init?.body ?? "");
-      return { ok: true } as Response;
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+      const value = init?.body;
+      body = typeof value === "string" ? value : JSON.stringify(value ?? "");
+      return Promise.resolve({ ok: true } as Response);
     }) as typeof fetch;
     try {
-      await expect(deliverToSink({ type: "webhook", on: ["done"], url: "https://example.test/hook" }, event())).resolves.toBe(true);
+      const delivered = await deliverToSink({ type: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
+      expect(delivered).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
-    const payload = JSON.parse(body);
-    expect(payload.workspace).toBe("w6");
-    expect(payload.workspaceColor).toBe(workspaceColor("w6"));
+    expect(JSON.parse(body)).toEqual({
+      title: "DONE [w6] w-2: build the thing",
+      body: "DONE [w6] w-2: build the thing\nWorkspace: w6 (#2563eb)\nTask: build the thing",
+      workspace: "w6",
+      workspaceColor: workspaceColor("w6"),
+      host: null,
+      key: "w6:p21",
+      agent: "w-2",
+      tab: null,
+      model: null,
+      oldState: "working",
+      newState: "done",
+      task: "build the thing",
+      cost: null,
+      ts: "2026-01-01T00:00:00.000Z",
+      lastError: null,
+    });
   });
 
   test("presence eventTask strips worker preamble, truncates plain tasks, and formats questions", () => {

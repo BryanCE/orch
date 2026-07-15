@@ -65,7 +65,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function isContentBlock(value: unknown): value is ContentBlock {
+function isContentBlock(value: unknown): value is ContentBlock {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   if (value.type === "text") return value.text === undefined || typeof value.text === "string";
   if (value.type === "toolCall") {
@@ -75,7 +75,7 @@ export function isContentBlock(value: unknown): value is ContentBlock {
   return true;
 }
 
-export function isTextContentBlock(value: unknown): value is TextContentBlock {
+function isTextContentBlock(value: unknown): value is TextContentBlock {
   return isContentBlock(value) && value.type === "text";
 }
 

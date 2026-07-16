@@ -1,11 +1,13 @@
-#!/usr/bin/env bun
 // fallow-ignore-file unused-file
 /**
  * Claude Code settings.json hook shim for orch presence.
  *
- * Usage: bun scripts/claude-hooks.ts SessionStart|Stop|Notification
- * Claude sends the hook payload as JSON on stdin. This file is intentionally
- * standalone because it may be copied into ~/.claude or run outside this repo.
+ * Bundled by `bun run build:hooks` into dist/scripts/claude-hooks.js as plain
+ * node-compatible ESM. The installed hook runs it with WHATEVER runtime the
+ * user has — node, deno, or bun (`installClaudeHooks` probes their PATH);
+ * never assume one. Usage: `<runtime> <shim> SessionStart|Stop|Notification`;
+ * Claude sends the hook payload as JSON on stdin. Identity parsing stays in
+ * its one boundary module (src/backends/identity.ts); the bundle inlines it.
  */
 import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -150,9 +152,13 @@ function loadStatus(file: string): JsonRecord {
   }
 }
 
+// No ORCH_AGENT_KEY means a regular (non-orch) Claude session — nothing to
+// record, exit silently. Only a present-but-malformed key is a wiring error.
+const key = process.env.ORCH_AGENT_KEY;
+if (!key) process.exit(0);
 let identity: ReturnType<typeof parseIdentity>;
 try {
-  identity = parseIdentity(process.env.ORCH_AGENT_KEY ?? "");
+  identity = parseIdentity(key);
 } catch (error: unknown) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
@@ -162,7 +168,6 @@ const input = readStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const pid = agentPid(input);
-const key = process.env.ORCH_AGENT_KEY!;
 const paneId = identity.backend === "herdr" ? identity.handle : null;
 const directory = join(PRESENCE_ROOT, key);
 try {

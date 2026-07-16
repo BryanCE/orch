@@ -90,11 +90,27 @@ describe("Claude adapter", () => {
     expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: 2, agent: "claude", state: "done" });
   });
 
-  test("fails hard and writes no presence without ORCH_AGENT_KEY", () => {
+  test("exits silently and writes no presence without ORCH_AGENT_KEY (a non-orch session)", () => {
     const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
     try {
       const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir };
       delete env.ORCH_AGENT_KEY;
+      expect(() => execFileSync(process.execPath, [hookScript, "SessionStart"], {
+        env,
+        input: JSON.stringify({ pid: process.pid }),
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      })).not.toThrow();
+      expect(existsSync(join(hookOrchDir, "agents"))).toBe(false);
+    } finally {
+      rmSync(hookOrchDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails hard and writes no presence on a malformed ORCH_AGENT_KEY", () => {
+    const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
+    try {
+      const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir, ORCH_AGENT_KEY: "garbage" };
       expect(() => execFileSync(process.execPath, [hookScript, "SessionStart"], {
         env,
         input: JSON.stringify({ pid: process.pid }),

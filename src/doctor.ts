@@ -268,6 +268,30 @@ function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Built hook shim inside a package root (source: scripts/claude-hooks.ts); plain ESM JS any runtime can run. */
+export function claudeHookShimPath(root: string): string {
+  return path.join(root, "dist", "scripts", "claude-hooks.js");
+}
+
+/**
+ * Runtimes a user may run the hook shim with — whichever is on their PATH.
+ * orch never requires one specific runtime; node, deno, and bun all work.
+ * Order is the installer's preference when several are available.
+ */
+export const CLAUDE_HOOK_RUNTIMES = ["node", "deno", "bun"] as const;
+export type ClaudeHookRuntime = (typeof CLAUDE_HOOK_RUNTIMES)[number];
+
+/**
+ * The exact settings.json command for one orch Claude hook event under one
+ * runtime. The env gate makes non-orch sessions skip the shim without
+ * spawning a runtime at all; the shim also self-gates, so this is defense in
+ * depth.
+ */
+export function claudeHookCommand(shim: string, event: string, runtime: ClaudeHookRuntime): string {
+  const run = runtime === "deno" ? "deno run --allow-all" : runtime;
+  return `[ -n "$ORCH_AGENT_KEY" ] || exit 0; ${run} ${shim} ${event}`;
+}
+
 /** Verify Claude's orch hooks are installed and target this checkout's shim. */
 export async function checkClaudeHooks(
   settingsPath = path.join(os.homedir(), ".claude", "settings.json"),
@@ -297,14 +321,15 @@ export async function checkClaudeHooks(
   }
 
   const hooks = settings.hooks;
-  const shim = path.join(repoDir, "scripts", "claude-hooks.ts");
+  const shim = claudeHookShimPath(repoDir);
   const missing: string[] = [];
   for (const event of ["SessionStart", "Stop", "Notification"] as const) {
-    const expected = `bun ${shim} ${event}`;
+    // Any runtime's command form is current — the user picks node, deno, or bun.
+    const expected = new Set(CLAUDE_HOOK_RUNTIMES.map((runtime) => claudeHookCommand(shim, event, runtime)));
     const entries = isJsonObject(hooks) ? hooks[event] : undefined;
     const present = Array.isArray(entries) && entries.some((entry) =>
       isJsonObject(entry) && Array.isArray(entry.hooks) && entry.hooks.some((hook) =>
-        isJsonObject(hook) && hook.type === "command" && hook.command === expected));
+        isJsonObject(hook) && hook.type === "command" && typeof hook.command === "string" && expected.has(hook.command)));
     if (!present) missing.push(event);
   }
 

@@ -12,6 +12,7 @@
         "react": "^19.2.7",
         "react-dom": "^19.2.7",
         "typebox": "^1.1.38",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@types/bun": "^1.3.14",

@@ -4,7 +4,7 @@
 TBD - created by archiving change make-orch-general-purpose. Update Purpose after archive.
 ## Requirements
 ### Requirement: Config file
-orch SHALL read `$ORCH_DIR/config.toml` (TOML) at startup when present, with precedence: CLI flags > `ORCH_*` environment variables > config file > built-in defaults. Supported sections SHALL include `[defaults]` (adapter, backend, model, spawn cap, worktree), `[queue]`, `[[notify]]`, and `[hosts.<name>]`. An invalid config SHALL produce a clear parse error naming the offending key/line, not a stack trace; a missing config SHALL be silently fine.
+orch SHALL read `$ORCH_DIR/settings.json` (JSON, `schemaVersion`-stamped, zod-validated) at startup when present, with precedence: CLI flags > `ORCH_*` environment variables > config file > built-in defaults. Supported sections SHALL include `defaults` (adapter, backend, model, spawn cap, worktree), `queue`, `notify`, and `hosts`. An invalid config SHALL produce a clear validation error naming the offending key, not a stack trace; a missing config SHALL be silently fine.
 
 #### Scenario: Config default is used
 - **WHEN** config sets `defaults.adapter = "claude"` and the user runs `orch spawn 2` with no `--agent` flag
@@ -15,7 +15,7 @@ orch SHALL read `$ORCH_DIR/config.toml` (TOML) at startup when present, with pre
 - **THEN** pi agents spawn
 
 #### Scenario: Broken config fails helpfully
-- **WHEN** config.toml contains a syntax error
+- **WHEN** settings.json contains a syntax or schema error
 - **THEN** orch exits 1 naming the file and the problem, and suggests `orch doctor`
 
 ### Requirement: Doctor diagnostics

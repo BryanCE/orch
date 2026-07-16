@@ -133,7 +133,7 @@ export function runRemote(
   command: string | readonly string[],
   options: RemoteOptions = {},
 ): RemoteResult {
-  const destination = host.dest ?? host.ssh;
+  const destination = host.dest;
   if (!destination) {
     return {
       ok: false,
@@ -162,7 +162,7 @@ export function runRemoteAsync(
   command: string | readonly string[],
   options: RemoteOptions = {},
 ): Promise<RemoteResult> {
-  const destination = host.dest ?? host.ssh;
+  const destination = host.dest;
   if (!destination) {
     return Promise.resolve({
       ok: false,

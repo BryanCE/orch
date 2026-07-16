@@ -254,6 +254,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   }
 
   /** Headless has no console UI, so it cannot apply a pane layout. */
+  // fallow-ignore-next-line unused-class-member
   applyLayout(_group: string, _layout: "tiled"): boolean {
     return false;
   }

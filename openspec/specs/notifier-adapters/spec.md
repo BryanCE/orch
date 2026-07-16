@@ -37,11 +37,11 @@ The built-in adapters SHALL preserve the existing integration behavior behind th
 - **THEN** it supplies the canonical JSON event on the command's standard input
 
 ### Requirement: Notifier setup and doctor validation
-`orch setup` SHALL discover available built-in notifier integrations, present an onboarding pick-list, ask selected adapters only for their declared required configuration fields, and persist selections as `[[notify]]` entries in `~/.orch/config.toml` including `id/type`, `on`, and adapter-specific metadata. `orch doctor` SHALL load those entries, validate required fields, re-run availability checks, and report actionable fixes including WSL/desktop fallback status.
+`orch setup` SHALL discover available built-in notifier integrations, present an onboarding pick-list, ask selected adapters only for their declared required configuration fields, and persist selections as `notify` entries in `~/.orch/settings.json` including `id`, `on`, and adapter-specific metadata. `orch doctor` SHALL load those entries, validate required fields, re-run availability checks, and report actionable fixes including WSL/desktop fallback status.
 
 #### Scenario: Configure an available notifier
 - **WHEN** `orch setup` finds an available adapter and the operator selects it
-- **THEN** setup asks only for that adapter's declared required fields and persists the selection as a `[[notify]]` config entry
+- **THEN** setup asks only for that adapter's declared required fields and persists the selection as a `notify` config entry
 
 #### Scenario: Doctor finds a broken notifier configuration
 - **WHEN** `orch doctor` checks a configured notifier with missing required fields or unavailable host integration

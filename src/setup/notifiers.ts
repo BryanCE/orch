@@ -65,27 +65,16 @@ export function collectRequiredConfig(
   return missing.length ? { ok: false, missing } : { ok: true, config };
 }
 
-function tomlValue(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) return String(value);
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-    return `[${value.map((item) => JSON.stringify(item)).join(", ")}]`;
-  }
-  throw new Error("notifier config contains a value that cannot be represented in TOML");
-}
-
-/** Render one selected notifier in the config parser's [[notify]] shape. */
-export function renderNotifyEntry(id: string, config: Record<string, unknown>): string {
+/** Render one selected notifier as a settings.json `notify` entry. */
+export function renderNotifyEntry(id: string, config: Record<string, unknown>): Record<string, unknown> {
   if (!findNotifier(id)) throw new Error(`unknown notifier: ${id}`);
-  const lines = [`[[notify]]`, `id = ${JSON.stringify(id)}`];
-  for (const [key, value] of Object.entries(config)) lines.push(`${key} = ${tomlValue(value)}`);
-  return `${lines.join("\n")}\n`;
+  return { id, ...config };
 }
 
 export async function buildSelectedNotifyEntries(
   selections: { id: string; config: Record<string, unknown> }[],
-): Promise<{ toml: string; errors: { id: string; missing: string[] }[] }> {
-  const entries: string[] = [];
+): Promise<{ entries: Record<string, unknown>[]; errors: { id: string; missing: string[] }[] }> {
+  const entries: Record<string, unknown>[] = [];
   const errors: { id: string; missing: string[] }[] = [];
   for (const selection of selections) {
     const result = collectRequiredConfig(selection.id, selection.config);
@@ -93,5 +82,5 @@ export async function buildSelectedNotifyEntries(
     else entries.push(renderNotifyEntry(selection.id, result.config));
   }
   await Promise.resolve();
-  return { toml: entries.join("\n"), errors };
+  return { entries, errors };
 }

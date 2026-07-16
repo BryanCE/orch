@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startConfigWatch, type ConfigWatch } from "../src/daemon/configwatch.ts";
-import type { OrchConfig } from "../src/config.ts";
+import { settingsPath, type OrchConfig } from "../src/config.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
 const watches: ConfigWatch[] = [];
@@ -23,10 +24,6 @@ async function poll(predicate: () => boolean, timeoutMs = 2_000): Promise<boolea
   return predicate();
 }
 
-function configWithSpawnCap(spawnCap: number): string {
-  return `[defaults]\nspawn_cap = ${spawnCap}\n`;
-}
-
 afterEach(() => {
   while (watches.length > 0) watches.pop()!.stop();
   while (directories.length > 0) rmSync(directories.pop()!, { recursive: true, force: true });
@@ -35,7 +32,7 @@ afterEach(() => {
 describe("config watch", () => {
   test("loads initially and applies edits", async () => {
     const orchDir = tempOrchDir();
-    writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(2));
+    writeSettingsFixture(orchDir, { defaults: { spawn_cap: 2 } });
     const changes: OrchConfig[] = [];
     const watchHandle = startConfigWatch(orchDir, {
       debounceMs: 20,
@@ -46,14 +43,14 @@ describe("config watch", () => {
     expect(changes).toHaveLength(1);
     expect(changes[0]!.defaults.spawn_cap).toBe(2);
 
-    writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(4));
+    writeSettingsFixture(orchDir, { defaults: { spawn_cap: 4 } });
     expect(await poll(() => changes.length === 2)).toBe(true);
     expect(changes[1]!.defaults.spawn_cap).toBe(4);
   });
 
-  test("keeps the last good config on invalid TOML and recovers", async () => {
+  test("keeps the last good config on invalid JSON and recovers", async () => {
     const orchDir = tempOrchDir();
-    writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(2));
+    writeSettingsFixture(orchDir, { defaults: { spawn_cap: 2 } });
     const changes: OrchConfig[] = [];
     const warnings: string[] = [];
     const watchHandle = startConfigWatch(orchDir, {
@@ -63,20 +60,20 @@ describe("config watch", () => {
     });
     watches.push(watchHandle);
 
-    writeFileSync(join(orchDir, "config.toml"), "[defaults\nspawn_cap = 8\n");
+    writeFileSync(settingsPath(orchDir), "{ not json");
     expect(await poll(() => warnings.length > 0)).toBe(true);
     expect(warnings).toHaveLength(1);
     expect(changes).toHaveLength(1);
     expect(changes[0]!.defaults.spawn_cap).toBe(2);
 
-    writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(6));
+    writeSettingsFixture(orchDir, { defaults: { spawn_cap: 6 } });
     expect(await poll(() => changes.length === 2)).toBe(true);
     expect(changes[1]!.defaults.spawn_cap).toBe(6);
   });
 
   test("stops all callbacks", async () => {
     const orchDir = tempOrchDir();
-    writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(2));
+    writeSettingsFixture(orchDir, { defaults: { spawn_cap: 2 } });
     let changes = 0;
     const watchHandle = startConfigWatch(orchDir, {
       debounceMs: 20,
@@ -86,7 +83,7 @@ describe("config watch", () => {
     expect(changes).toBe(1);
 
     watchHandle.stop();
-    writeFileSync(join(orchDir, "config.toml"), configWithSpawnCap(9));
+    writeSettingsFixture(orchDir, { defaults: { spawn_cap: 9 } });
     expect(await poll(() => changes > 1, 250)).toBe(false);
     expect(changes).toBe(1);
   });

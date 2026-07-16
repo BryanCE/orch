@@ -9,6 +9,7 @@ import {
   probeNotifiers,
   renderNotifyEntry,
 } from "../src/setup/notifiers.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 describe("notifier setup logic", () => {
   test("probes the built-in adapters", async () => {
@@ -26,13 +27,12 @@ describe("notifier setup logic", () => {
     });
   });
 
-  test("renders a command entry that loadConfig can parse", async () => {
-    const toml = renderNotifyEntry("command", { command: ["sh", "-c", "echo ok"], ignored: "not collected" });
-    expect(toml).toContain("[[notify]]");
-    expect(toml).toContain('id = "command"');
+  test("renders a command entry that loadConfig can parse", () => {
+    const entry = renderNotifyEntry("command", { command: ["sh", "-c", "echo ok"], ignored: "not collected" });
+    expect(entry).toEqual({ id: "command", command: ["sh", "-c", "echo ok"], ignored: "not collected" });
     const directory = mkdtempSync(join(tmpdir(), "orch-setup-notifiers-"));
     try {
-      await Bun.write(join(directory, "config.toml"), toml);
+      writeSettingsFixture(directory, { notify: [entry] });
       expect(loadConfig(directory).notify).toEqual([{
         id: "command",
         command: ["sh", "-c", "echo ok"],
@@ -49,6 +49,6 @@ describe("notifier setup logic", () => {
       { id: "command", config: { command: ["sh"] } },
     ]);
     expect(result.errors).toEqual([{ id: "webhook", missing: ["url"] }]);
-    expect(result.toml).toContain('id = "command"');
+    expect(result.entries).toEqual([{ id: "command", command: ["sh"] }]);
   });
 });

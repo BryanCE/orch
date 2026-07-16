@@ -4,7 +4,7 @@ import { checkWall } from "../src/policy/workspace.ts";
 import { nextQueuedTask, type TaskRec } from "../src/queue.ts";
 
 function fakeEntity(key: string, paneId: string | null): Entity {
-  return { key, paneId, name: null, tabLabel: null, agent: null, focused: false, herdrStatus: null, presence: null, sessionPath: null, presenceOnly: true };
+  return { key, paneId, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, presence: null, sessionPath: null, presenceOnly: true };
 }
 
 function fakeTask(id: string, createdAt: string, workspace?: string, agent?: string): TaskRec {

@@ -15,7 +15,7 @@
     "ctxPercent": 42,
     "task": "Exercise the smoke fixture",
     "lastText": "Fixture is healthy",
-    "herdrStatus": null,
+    "backendStatus": null,
     "sessionPath": null,
     "presenceDir": "<ORCH_DIR>/agents/<PANE_ID>",
     "presenceOnly": true,

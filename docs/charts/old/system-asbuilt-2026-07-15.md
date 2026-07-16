@@ -1,4 +1,6 @@
-# orch — current (as-built) architecture
+# orch — architecture snapshot (as-built 2026-07-15) — HISTORICAL
+
+> **STATUS: historical snapshot, superseded 2026-07-16.** This chart faithfully draws the as-built flow of 2026-07-15 — **including the defect**: control delivery terminates in `piAdapter.steer` / `inbox.jsonl` drawn as if universal (the pi-hardcoded write path the 2026-07-16 audit condemned). Do not build against this. The binding design is `docs/reference/design-patterns.md` + `docs/charts/current/target-system-wiring.md`; the gap audit is `docs/reviews/architecture-review-2026-07-16.md`. Regenerate this snapshot after the six open changes land (formerly `orch-architecture-current.md` at repo root).
 
 Verified against disk 2026-07-15 (working tree, tests 231/0). Proof lines in `doc-consistency-checklist.md`.
 
@@ -107,4 +109,4 @@ The shipped architecture keeps the two axes independent: agent adapters (pi/clau
 
 The backend is the identity authority. Its PORT exposes `mintIdentity(handle)` → `{backend, workspace, handle}`, `isAvailable()`, `isInsideSession()`, `spawn(adapter, opts)`, `close(handle)`, and `list()`, plus delivery/control operations (`deliver`, `focus`, `sendKeys`, `applyLayout`). Capability flags `panes`, `focusable`, and `canSendKeys` gate unsupported operations. Workspace policy consumes the backend-reported workspace; no core code parses a plexer string.
 
-Spawn mints the identity before the agent starts and passes its opaque serialized key in `ORCH_AGENT_KEY`. Bridges are plexer-agnostic and never read `HERDR_PANE_ID` (or another backend variable); backends are agent-agnostic. Presence uses the versioned flat key/record format documented in `docs/files-and-data-layout.md`.
+Spawn mints the identity before the agent starts and passes its opaque serialized key in `ORCH_AGENT_KEY`. Bridges are plexer-agnostic and never read `HERDR_PANE_ID` (or another backend variable); backends are agent-agnostic. Presence uses the versioned flat key/record format documented in `docs/reference/files-and-data-layout.md`.

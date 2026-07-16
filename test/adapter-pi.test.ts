@@ -57,7 +57,13 @@ describe("PiAdapter", () => {
       "openai/gpt-5",
       "fix tests",
     ]);
-    expect(adapter.caps).toEqual({ steer: "inbox", ask: true, setModel: true, sessionTail: true });
+    expect(adapter.caps).toEqual({ steer: "inbox", ask: true, setModel: true, sessionTail: true, lifecycle: ["reset", "reload", "restart"] });
+  });
+
+  test("declares its lifecycle slash-commands", () => {
+    expect(adapter.lifecycleCmd("reset")).toEqual({ text: "/new" });
+    expect(adapter.lifecycleCmd("reload")).toEqual({ text: "/reload" });
+    expect(adapter.lifecycleCmd("restart")).toEqual({ text: "/quit" });
   });
 
   test("reads state from the presence status through store helpers", () => {

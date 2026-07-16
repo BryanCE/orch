@@ -19,15 +19,14 @@ The npm package includes the prebuilt `dist/` bundle, so npm users do not need B
 
 ### Development (Bun)
 
-From a checkout, install dependencies and link the local CLI:
+From a checkout, install dependencies and do a real global install of the CLI:
 
 ```sh
 bun install
-bun run build
-bun link
+bun run build:dev
 ```
 
-`bun link` makes the checkout's `orch` and `pif` commands available globally. `bun run build` refreshes the prebuilt extension bundle in `dist/`.
+`bun run build:dev` builds the CLI (`build:cli`), runs `npm pack`, and does an `npm install -g` of the resulting tarball — a real copied global install under the active node prefix, identical to what an npm end user gets (`orch` bin = `dist/bin/orch.js`, node shebang, node runtime). There is no `bun link` and no symlink from any bin dir into the repo: the installed CLI does not run live from source. Editing repo source does not change the installed `orch` — re-run `bun run build:dev` to pick up CLI changes.
 
 ## Quickstart
 
@@ -122,34 +121,33 @@ A workspace is a herdr grouping of tabs and panes. Pull-oriented commands such a
 
 ## Configuration
 
-Configuration lives at `~/.orch/config.toml` (or `$ORCH_DIR/config.toml`). Flags override `ORCH_*` environment variables, which override this file, which overrides built-in defaults.
+Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) — a `schemaVersion`-stamped, zod-validated JSON file. Flags override `ORCH_*` environment variables, which override this file, which overrides built-in defaults.
 
-```toml
-[defaults]
-adapter = "pi"
-backend = "herdr"
-model = "provider/model:thinking"
-spawn_cap = 8
-worktree = false
-
-[[notify]]
-id = "desktop"
-on = ["blocked", "error"]
-
-[[notify]]
-id = "webhook"
-url = "https://example.test/orch-events"
-on = ["done", "error"]
-
-[hosts]
-worker = { dest = "user@example.org", orch_dir = "/home/user/.orch", timeout_ms = 10000 }
+```json
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "adapter": "pi",
+    "backend": "herdr",
+    "model": "provider/model:thinking",
+    "spawn_cap": 8,
+    "worktree": false
+  },
+  "notify": [
+    { "id": "desktop", "on": ["blocked", "error"] },
+    { "id": "webhook", "url": "https://example.test/orch-events", "on": ["done", "error"] }
+  ],
+  "hosts": {
+    "worker": { "dest": "user@example.org", "orch_dir": "/home/user/.orch", "timeout_ms": 10000 }
+  }
+}
 ```
 
-`[defaults]` supports `adapter`, `backend`, `model`, `allowed_models`, `spawn_cap`, `worktree`, and `worker_peer_tools`. Each `[[notify]]` entry selects a notifier with `id` (the legacy `type` spelling is also accepted). `[hosts]` entries define remote SSH destinations with `dest` (or legacy `ssh`), optional `orch_dir`, and `timeout_ms`.
+`defaults` supports `adapter`, `backend`, `model`, `allowed_models`, `spawn_cap`, `worktree`, and `worker_peer_tools`. Each `notify` entry selects a notifier with `id`. `hosts` entries define remote SSH destinations with `dest`, optional `orch_dir`, and `timeout_ms`.
 
 ## Files and data layout
 
-orch keeps all state under one directory (`$ORCH_DIR`, default `~/.orch`), including the SQLite database `orch.db`, the daemon socket/lock, and the per-agent presence dirs. See [docs/files-and-data-layout.md](docs/files-and-data-layout.md) for the full on-disk map.
+orch keeps all state under one directory (`$ORCH_DIR`, default `~/.orch`), including the SQLite database `orch.db`, the daemon socket/lock, and the per-agent presence dirs. See [docs/reference/files-and-data-layout.md](docs/reference/files-and-data-layout.md) for the full on-disk map.
 
 ## Notifications and events
 

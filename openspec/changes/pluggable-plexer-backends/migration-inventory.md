@@ -107,7 +107,7 @@ Source of truth: `openspec/changes/pluggable-plexer-backends/design.md`. Line nu
 | Site | Current code/data contract | Must become |
 |---|---|---|
 | `orch-architecture-*.md` (repository docs) | Describes pane-key identity and herdr-derived workspace. | Describe backend-owned structured identity, `ORCH_AGENT_KEY`, factory selection, and workspace field. |
-| `docs/files-and-data-layout.md:15` | The exact directory contract says `<key> = herdr "ws:pane" id, or "session-<pid>" headless`. | Replace this migration assertion with the flat serialized identity contract, including backend/workspace fields, escaping, headless null workspace, and abandoned old-directory cleanup behavior; add a documentation/fixture assertion that the old examples are no longer accepted as canonical keys. |
+| `docs/reference/files-and-data-layout.md:15` | The exact directory contract says `<key> = herdr "ws:pane" id, or "session-<pid>" headless`. | Replace this migration assertion with the flat serialized identity contract, including backend/workspace fields, escaping, headless null workspace, and abandoned old-directory cleanup behavior; add a documentation/fixture assertion that the old examples are no longer accepted as canonical keys. |
 | CLI/config documentation | Backend selection is herdr/headless-specific. | Document `[defaults] backend`, `--backend tmux`, probing semantics, and explicit-config precedence. |
 
 ## Per-file change count

@@ -95,4 +95,94 @@ const backendFiles = scanDirectory("src/backends", new Set(["backend.ts", "ident
   return undefined;
 }, true);
 
-console.log(`check:bridge OK (${bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles} files scanned)`);
+/**
+ * Adapter wire-format literals banned from core (src/** outside src/adapters
+ * and src/backends). This is the single exhaustive place the set lives —
+ * adding a new adapter's literal here is the only change a new adapter needs.
+ */
+const ADAPTER_WIRE_LITERALS: ReadonlyArray<{ readonly owner: string; readonly literal: string }> = [
+  { owner: "pi", literal: "inbox.jsonl" },
+  { owner: "pi", literal: "answer.json" },
+  { owner: "codex", literal: "agent-turn-complete" },
+  { owner: "codex", literal: "agent_turn_complete" },
+  { owner: "codex", literal: "turn.completed" },
+  { owner: "codex", literal: "turn-complete" },
+  { owner: "codex", literal: "turn_complete" },
+  { owner: "claude", literal: "SessionStart" },
+  { owner: "claude", literal: "Stop" },
+  { owner: "claude", literal: "Notification" },
+  { owner: "claude", literal: "claude-hooks" },
+];
+
+function quotedLiteralPattern(literal: string): RegExp {
+  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`["']${escaped}["']`);
+}
+
+/**
+ * Pre-existing core-scope violations not owned by port-boundary-guard (section 7).
+ * Each is a real gap left open for its owning task to close — the rule stays
+ * strict; remove an entry only when the named file is actually fixed.
+ */
+const CORE_SCOPE_ALLOWLIST = new Set<string>([
+  // src/commands.ts imports the pi adapter's presence reader and the concrete
+  // headless backend directly instead of going through the registries.
+  // Tracked under tasks 1/2/5, not section 7.
+  "src/commands.ts:16",
+  "src/commands.ts:23",
+  // src/doctor.ts's checkClaudeHooks reimplements claude's hook-event names
+  // and the "claude-hooks" id in core instead of delegating to
+  // src/adapters/claude.ts. Not part of section 7's scope.
+  "src/doctor.ts:280",
+  "src/doctor.ts:305",
+  "src/doctor.ts:825",
+]);
+
+function checkCoreScopeLine(line: string): string | undefined {
+  if (/from\s+["'][^"']*\/(?:pi|claude|codex)(?:\.ts)?["']/.test(line)) {
+    return "concrete adapter imports are forbidden in core; resolve via src/adapters/registry.ts";
+  }
+  if (/from\s+["'][^"']*backends\/(?:herdr|tmux|headless)\//.test(line)) {
+    return "concrete backend imports are forbidden in core; resolve via src/backends/registry.ts";
+  }
+  if (/\b(?:adapter|backend)\.id\s*(?:===|!==)/.test(line)) {
+    return "adapter/backend identity branching is forbidden in core; branch on declared capabilities instead";
+  }
+  for (const { owner, literal } of ADAPTER_WIRE_LITERALS) {
+    if (quotedLiteralPattern(literal).test(line)) {
+      return `${owner} adapter wire literal ${JSON.stringify(literal)} is forbidden in core; keep it inside src/adapters/${owner}.ts`;
+    }
+  }
+  return undefined;
+}
+
+/** Recursively scan src/** for port-boundary violations, excluding the adapter/backend port dirs. */
+function scanCoreScope(): number {
+  let count = 0;
+  function walk(directory: string, relPath: string): void {
+    const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (directory === "src" && (entry.name === "adapters" || entry.name === "backends")) continue;
+      const entryRelPath = `${relPath}/${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(join(directory, entry.name), entryRelPath);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
+      const file = join(directory, entry.name);
+      const lines = readFileSync(file, "utf8").split(/\r?\n/);
+      for (let index = 0; index < lines.length; index++) {
+        if (CORE_SCOPE_ALLOWLIST.has(`${entryRelPath}:${index + 1}`)) continue;
+        const reason = checkCoreScopeLine(lines[index]!);
+        if (reason) fail(file, index + 1, reason);
+      }
+      count++;
+    }
+  }
+  walk("src", "src");
+  return count;
+}
+
+const coreScopeFiles = scanCoreScope();
+
+console.log(`check:bridge OK (${bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles + coreScopeFiles} files scanned)`);

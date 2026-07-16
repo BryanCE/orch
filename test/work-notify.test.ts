@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
 
@@ -40,10 +41,9 @@ describe("orch work notifications", () => {
     const agentsDir = presenceAgentDir(key, orchDir);
     mkdirSync(agentsDir, { recursive: true });
     writeFileSync(join(agentsDir, "status.json"), JSON.stringify({ state: "idle", label: "Test agent", pid: process.pid }));
-    writeFileSync(
-      join(orchDir, "config.toml"),
-      `[[notify]]\ntype = "command"\non = ["working"]\ncommand = ${JSON.stringify(command)}\n`,
-    );
+    writeSettingsFixture(orchDir, {
+      notify: [{ id: "command", on: ["working"], command }],
+    });
 
     try {
       const { runWorkLoop } = await import("../src/work.ts");

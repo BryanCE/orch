@@ -1,10 +1,12 @@
-# orch — TARGET architecture (daemon as broker)
+# orch — broker target (daemon as broker, scoped 2026-07-15) — PARTIALLY SUPERSEDED
 
-Compare with `orch-architecture-current.md`. The target moves agent control-message writes that today go *beside* the daemon *through* it. Socket for live push, durable store underneath, control writes brokered + governed.
+> **STATUS: the broker/transport half of this target stands; its adapter claims were premature.** The 2026-07-16 audit (`docs/reviews/architecture-review-2026-07-16.md`) confirmed the broker, outbox, and governance as implemented — but this doc's "backend Bridge … IMPLEMENTED" claim covered only the plexer axis. The agent axis was NOT done: the broker's delivery leg hardcodes `piAdapter.steer` and the pi inbox for `setModel`, adapter port methods go uncalled, and codex has no presence writer. The binding design that completes this target is `docs/reference/design-patterns.md` + `docs/charts/current/target-system-wiring.md`; the broker described here is retained, with its delivery leg rewritten to call the L5 control dispatcher. (Formerly `orch-architecture-target.md` at repo root; compares with `docs/charts/old/system-asbuilt-2026-07-15.md`.)
 
-## Status (as of 2026-07-15)
+Compare with `docs/charts/old/system-asbuilt-2026-07-15.md`. The target moves agent control-message writes that today go *beside* the daemon *through* it. Socket for live push, durable store underneath, control writes brokered + governed.
 
-The broker, durable outbox, governance (ownership + workspace wall, with `--steal`/`--cross-workspace` overrides), backend Bridge, versioned flat presence identity, and in-memory sequence replay are IMPLEMENTED. What remains toward this target is: transport-agnostic remote TCP/TLS or SSH transport, durable replay beyond the daemon's in-memory window, and workspace-scoped workLoop assignment.
+## Status (as of 2026-07-15, corrected 2026-07-16)
+
+The broker, durable outbox, governance (ownership + workspace wall, with `--steal`/`--cross-workspace` overrides), the plexer-side backend port, versioned flat presence identity, and in-memory sequence replay are implemented. The agent-adapter side of the Bridge was NOT implemented at the call sites (see status banner above). Remaining toward this target: the six 2026-07-16 changes (adapter control authority foremost), transport-agnostic remote TCP/TLS or SSH transport, durable replay beyond the daemon's in-memory window, and workspace-scoped workLoop assignment.
 
 ```mermaid
 flowchart TB

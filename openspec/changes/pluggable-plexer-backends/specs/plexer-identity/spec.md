@@ -14,9 +14,9 @@ A plexer backend SHALL mint one stable identity containing `backend`, `workspace
 ### Requirement: Filesystem-safe presence key
 The system SHALL serialize each identity as a filesystem-safe key namespaced by backend, and SHALL use that key for the agent presence directory under `~/.orch/agents/<key>/`.
 
-#### Scenario: Presence directory uses the serialized key
+#### Scenario: Presence directory uses the flat serialized key
 - **WHEN** an agent is spawned with identity `{backend: tmux, workspace: main, handle: %5}`
-- **THEN** a presence directory exists at `~/.orch/agents/tmux/main/%5/` using the backend-namespaced serialized identity
+- **THEN** a presence directory exists at `~/.orch/agents/tmux~main~%255/`, one flat segment where the handle's `%` is escaped to `%25`, and no nested `~/.orch/agents/tmux/main/` path is created
 
 #### Scenario: Backend namespaces prevent collisions
 - **WHEN** agents from different backends have equal workspace and handle values

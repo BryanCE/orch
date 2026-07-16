@@ -1,4 +1,4 @@
-import { select, multiselect, spinner, isCancel, cancel } from "@clack/prompts";
+import { select, multiselect, text, spinner, isCancel, cancel } from "@clack/prompts";
 
 /** Unwrap a clack prompt result, or emit a cancel line and return null when the user aborts. */
 function guardCancel<T>(value: T | symbol): T | null {
@@ -7,6 +7,15 @@ function guardCancel<T>(value: T | symbol): T | null {
     return null;
   }
   return value;
+}
+
+/** Prompt for one free-text value; return the trimmed answer, or null when the user cancels. */
+export async function promptText(message: string, placeholder?: string): Promise<string | null> {
+  const answer = guardCancel(await text({
+    message,
+    ...(placeholder !== undefined ? { placeholder } : {}),
+  }));
+  return answer === null ? null : answer.trim();
 }
 
 /** Run a clack single-select over id options; return the chosen id, or null when the user cancels. */

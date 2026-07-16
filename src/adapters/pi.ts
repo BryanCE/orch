@@ -1,18 +1,26 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   isRecord,
   loadPresence,
   statusForPresence,
-  steerPresence,
-  writeAnswer,
   type PresenceEntry,
 } from "../store.ts";
 import { parseSession } from "../session.ts";
+import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
+import { packageRoot } from "../util.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
   AgentState,
   AnswerRequest,
+  LifecycleVerb,
+  ModelRequest,
   ResultExtractionInput,
+  SessionView,
+  SessionViewInput,
+  ShimInstallOpts,
   SpawnOpts,
   StateDetectionInput,
   SteerRequest,
@@ -63,6 +71,27 @@ export function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
 
+// pi's wire format lives here and nowhere else: the bridge extension reads
+// inbox.jsonl lines and answer.json from the agent's presence dir.
+
+/** Append one steer/model line to pi's inbox.jsonl in the agent's presence dir. */
+function appendInboxLine(presence: PresenceEntry, line: Record<string, unknown>): void {
+  fs.mkdirSync(presence.dir, { recursive: true });
+  fs.appendFileSync(path.join(presence.dir, "inbox.jsonl"), JSON.stringify({ ...line, ts: new Date().toISOString() }) + "\n");
+}
+
+/** Write pi's blocking answer.json in the agent's presence dir. */
+function writeAnswerFile(presence: PresenceEntry, text: string): void {
+  fs.writeFileSync(path.join(presence.dir, "answer.json"), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
+}
+
+/** pi's native slash-commands for each lifecycle verb; these strings live only here. */
+const PI_LIFECYCLE_TEXT: Record<LifecycleVerb, string> = {
+  reset: "/new",
+  reload: "/reload",
+  restart: "/quit",
+};
+
 function stateFrom(value: unknown): AgentState {
   return typeof value === "string" && AGENT_STATES.has(value as AgentState)
     ? value as AgentState
@@ -79,6 +108,7 @@ export class PiAdapter implements AgentAdapter {
     ask: true,
     setModel: true,
     sessionTail: true,
+    lifecycle: ["reset", "reload", "restart"] as const,
   };
 
   /** Start pi directly in an interactive backend session. */
@@ -113,20 +143,33 @@ export class PiAdapter implements AgentAdapter {
     return presence ? stateFrom(statusForPresence(presence)?.state) : "unknown";
   }
 
-  /** Append pi's steer message to inbox.jsonl through the shared store helper. */
+  /** Append pi's steer message to its inbox.jsonl. */
   steer(request: SteerRequest): AdapterCommand | undefined {
     const presence = presenceFor(request.key);
     if (!presence) return undefined;
-    steerPresence(presence, request.text);
+    appendInboxLine(presence, { text: request.text });
     return undefined;
   }
 
-  /** Write pi's blocking answer through the shared store helper. */
+  /** Write pi's blocking answer.json. */
   answer(request: AnswerRequest): AdapterCommand | undefined {
     const presence = presenceFor(request.key);
     if (!presence) return undefined;
-    writeAnswer(presence, request.text);
+    writeAnswerFile(presence, request.text);
     return undefined;
+  }
+
+  /** Append pi's model-switch command to its inbox.jsonl. */
+  setModel(request: ModelRequest): AdapterCommand | undefined {
+    const presence = presenceFor(request.key);
+    if (!presence) return undefined;
+    appendInboxLine(presence, { cmd: "model", model: request.model });
+    return undefined;
+  }
+
+  /** Return pi's slash-command text for a lifecycle verb. */
+  lifecycleCmd(verb: LifecycleVerb): { text: string } | undefined {
+    return { text: PI_LIFECYCLE_TEXT[verb] };
   }
 
   /** Read result.json first, then fall back to the last assistant session entry. */
@@ -138,6 +181,46 @@ export class PiAdapter implements AgentAdapter {
       return parseSession(input.sessionPath).lastAssistant?.trim() ?? undefined;
     } catch {
       return undefined;
+    }
+  }
+
+  /** Read pi's session tail via parseSession and map it to the shared session-view shape. */
+  readSessionView(input: SessionViewInput): SessionView | undefined {
+    if (!input.sessionPath) return undefined;
+    const data = parseSession(input.sessionPath);
+    if (!data.exists) return undefined;
+    return {
+      model: data.model ?? undefined,
+      provider: data.provider ?? undefined,
+      thinking: data.thinking ?? undefined,
+      task: data.task ?? undefined,
+      lastText: data.lastAssistant ?? undefined,
+      cost: data.cost,
+      tokens: data.tokens,
+      turns: data.turns,
+    };
+  }
+
+  /** Link the prebuilt bridge bundle into pi's extension directory, building it from a checkout when absent. */
+  installShim(opts?: ShimInstallOpts): void {
+    const root = packageRoot();
+    const extDir = path.join(os.homedir(), ".pi", "agent", "extensions");
+    process.stdout.write("pi extensions:\n");
+    for (const name of PI_EXTENSION_NAMES) {
+      let bundle = extensionBundlePath(root, name);
+      if (!fs.existsSync(bundle)) {
+        process.stdout.write(`  building ${name} bundle…\n`);
+        bundle = buildExtensionBundle(root, name);
+      }
+      // Raw .ts links from older installs resolve ../src against the symlink
+      // location and break pi at launch; only the bundle may be linked.
+      fs.rmSync(path.join(extDir, `${name}.ts`), { force: true });
+      const dest = path.join(extDir, `${name}.js`);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.rmSync(dest, { recursive: true, force: true });
+      if (opts?.copy) fs.cpSync(bundle, dest, { recursive: true });
+      else fs.symlinkSync(bundle, dest);
+      process.stdout.write(`  ${dest} ${opts?.copy ? "(copy)" : "→ " + bundle}\n`);
     }
   }
 }

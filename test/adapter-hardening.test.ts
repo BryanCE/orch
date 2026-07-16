@@ -10,6 +10,7 @@ import { checkNotifiers, checkExtensionStaleness } from "../src/doctor.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { parseIdentity } from "../src/backends/identity.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening-"));
 
@@ -25,15 +26,14 @@ describe("adapter and runtime hardening", () => {
 
   test("rejects unknown config keys with a useful path", () => {
     const directory = temp();
-    const file = path.join(directory, "config.toml");
-    fs.writeFileSync(file, "[defaults]\nmodle = \"typo\"\n");
-    expect(() => loadConfig(directory)).toThrow(`${file}: defaults.modle: unknown config key`);
+    writeSettingsFixture(directory, { defaults: { modle: "typo" } });
+    expect(() => loadConfig(directory)).toThrow(/modle/);
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
   test("doctor returns failures for malformed notifier config and broken agent directories", async () => {
     const directory = temp();
-    fs.writeFileSync(path.join(directory, "config.toml"), "[queue]\nmax_retries = \"never\"\n");
+    writeSettingsFixture(directory, { queue: { max_retries: "never" } });
     expect(await checkNotifiers(directory)).toMatchObject({ status: "fail", id: "notifiers" });
     const agents = path.join(directory, "agents");
     fs.writeFileSync(agents, "not a directory");

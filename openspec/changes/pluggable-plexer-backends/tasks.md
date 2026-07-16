@@ -49,7 +49,7 @@
 
 ## 7. Documentation
 - [x] 7.1 Update `orch-architecture-*.md` documents with the Bridge, backend port, registry, and factory model
-- [x] 7.2 Update `docs/files-and-data-layout.md` with the flat serialized identity key and structured presence identity fields
+- [x] 7.2 Update `docs/reference/files-and-data-layout.md` with the flat serialized identity key and structured presence identity fields
 - [x] 7.3 Document `ORCH_AGENT_KEY`, backend selection, `[defaults] backend`, capability probes, and workspace behavior
 - [x] 7.4 Document that old `ws:pane`-era presence directories are abandoned and may be reaped by `orch clean`
 

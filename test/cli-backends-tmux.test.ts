@@ -18,10 +18,12 @@ describe("tmux backend registry and capabilities", () => {
 
   test("explicit selection follows tmux availability", () => {
     const backend = getBackend("tmux")!;
-    if (backend.isAvailable()) {
-      expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
-    } else {
+    if (!backend.isAvailable()) {
       expect(() => resolveBackend({ explicit: "tmux", configured: null })).toThrow(/unavailable/);
+    } else if (!backend.isInsideSession()) {
+      expect(() => resolveBackend({ explicit: "tmux", configured: null })).toThrow(/requires running inside a live tmux session/);
+    } else {
+      expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
     }
   });
 

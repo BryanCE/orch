@@ -1,10 +1,16 @@
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
+import { CODEX_NOTIFY_RUNTIMES, codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
   AgentState,
   AnswerRequest,
   ResultExtractionInput,
+  SessionView,
+  SessionViewInput,
   SpawnOpts,
   StateDetectionInput,
   SteerRequest,
@@ -182,6 +188,56 @@ export function codexStateFallback(input: StateDetectionInput): boolean {
   return !records.some((record) => hasEvent(record, COMPLETION_EVENTS) || hasEvent(record, PERMISSION_EVENTS));
 }
 
+/**
+ * Wire the orch notify shim into `~/.codex/config.toml`'s top-level `notify`
+ * key (D2a fallback). A cleaner per-spawn `-c notify=[...]` override exists on
+ * current Codex CLI versions (`-c key=value` overlays ConfigToml) and needs no
+ * global-config write at all, but wiring it requires changing every codex
+ * spawn command (`interactiveCmd`/`headlessCmd`), which is out of scope here;
+ * this fallback covers `orch setup` and any codex session not launched
+ * through orch's own argv. Never overwrites a foreign value (law #5).
+ */
+function installCodexNotifyShim(root: string): void {
+  const shim = codexNotifyShimPath(root);
+  const runtime = CODEX_NOTIFY_RUNTIMES.find(binaryOnPath) ?? "node";
+  const argv = codexNotifyArgv(shim, runtime);
+  const codexDir = join(homedir(), ".codex");
+  const configPath = join(codexDir, "config.toml");
+
+  let raw = "";
+  if (existsSync(configPath)) {
+    try {
+      raw = readFileSync(configPath, "utf8");
+    } catch (error: unknown) {
+      process.stderr.write(`  warning: could not read ${configPath}; Codex notify not changed (${errorMessage(error)})\n`);
+      return;
+    }
+  }
+
+  const edit = editCodexNotifyConfig(raw, argv);
+  if (edit.status === "ambiguous") {
+    process.stderr.write(`  warning: could not read the top-level notify key in ${configPath}; Codex notify not changed\n`);
+    return;
+  }
+  if (edit.status === "foreign") {
+    process.stderr.write(
+      `  warning: ${configPath} already has a non-orch notify program (${edit.foreignValue}); leaving it — `
+      + "codex notify presence is disabled (headless session-tail parsing still works)\n",
+    );
+    return;
+  }
+  if (edit.status === "unchanged") {
+    process.stdout.write(`Codex notify: already configured (${runtime}) in ${configPath}\n`);
+    return;
+  }
+  mkdirSync(codexDir, { recursive: true });
+  writeFileSync(configPath, edit.text);
+  process.stdout.write(`Codex notify: ${edit.status === "inserted" ? "added" : "updated"} (${runtime}) in ${configPath}\n`);
+  if (!existsSync(shim)) {
+    process.stderr.write(`  warning: ${shim} is not built yet — run: bun run build\n`);
+  }
+}
+
 /** Codex CLI adapter using notify completion events and resume-based steering. */
 export class CodexAdapter implements AgentAdapter {
   readonly id = "codex" as const;
@@ -192,6 +248,7 @@ export class CodexAdapter implements AgentAdapter {
     ask: false,
     setModel: false,
     sessionTail: true,
+    lifecycle: [] as const,
   };
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
@@ -229,8 +286,6 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Resume a headless session; callers may set CODEX_INTERACTIVE=1 for a pane continuation. */
-  // Required by the AgentAdapter contract; Codex supports session continuation.
-  // fallow-ignore-next-line unused-class-member
   steer(request: SteerRequest): AdapterCommand {
     const sessionId = request.opts?.env?.CODEX_SESSION_ID ?? request.key;
     const interactive = request.opts?.env?.CODEX_INTERACTIVE === "1";

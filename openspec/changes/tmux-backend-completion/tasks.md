@@ -1,0 +1,42 @@
+## 1. Orch-pane marking and enumeration
+
+- [ ] 1.1 Stamp pane user options (`@orch_agent_key`, `@orch_agent`) on the new pane in `TmuxBackend.spawn` via `set-option -p`, keeping the existing `-e ORCH_AGENT_KEY` env (D1)
+- [ ] 1.2 Add a `bestEffortTmux` inventory query in `src/backends/tmux/cli.ts` that runs one `list-panes -a -F` returning pane id, session, window id, window name, pane title, active flags, and the `@orch_*` markers as tab-joined rows
+- [ ] 1.3 Filter `TmuxBackend.list()` to panes with a non-empty `@orch_agent_key`, replacing the current unfiltered `list-panes -a`
+
+## 2. Fleet inventory and status
+
+- [ ] 2.1 Implement `TmuxBackend.inventory()` from the 1.2 query: workspace=session, group=window id, groupLabel=window name, name from `@orch_agent_name` falling back to pane title, agent from `@orch_agent`, focused from the active-pane/active-window/attached-session flags (D1)
+- [ ] 2.2 Source `inventory().status` from the presence protocol by resolving each pane's `@orch_agent_key` and reading `presenceAgentDir(key)/status.json`; null when absent (D2). Surface it through the entity status field, consuming whichever name is current at implementation time — coordinate with `adapter-presence-writers`, which renames `herdrStatus`→`backendStatus` (`entities.ts:104`); rebase onto that rename rather than reintroduce the old name (m6)
+- [ ] 2.3 Implement `TmuxBackend.waitAgentStatus(handle, status, timeoutMs)` by polling the pane's presence `status.json` until the state matches or the deadline passes (D2)
+
+## 3. Read, rename, groups, and creation
+
+- [ ] 3.1 Implement `TmuxBackend.read(handle, lines)` via `capture-pane -p -S -<lines>` through a strict execFile helper that throws on failure (D7)
+- [ ] 3.2 Implement `TmuxBackend.renamePane` (`select-pane -T`) and `TmuxBackend.renameAgent` (`set-option -p @orch_agent_name`) as two distinct writes (D3)
+- [ ] 3.3 Implement `TmuxBackend.groups()` and `TmuxBackend.workspaces()` scoped to windows/sessions that contain at least one orch pane, derived from the 1.2 listing (D4)
+- [ ] 3.4 Implement `TmuxBackend.createGroup({workspace, cwd, label})` via `new-window` targeting the session, returning the `BackendGroup` and root pane handle; throw on failure (non-nullable return per `backend.ts:183`), and report `BackendWorkspace.number = null` for tmux sessions in `workspaces()` (D4)
+- [ ] 3.5 Extend `TmuxBackend.spawn` to honor `opts.group`/`opts.split`: when `opts.group` names an existing window, place the agent with `split-window -t <window>` (orientation from `opts.split` via `-h`/`-v`) instead of `new-window`, stamping the same pane user options + env and re-tiling the window; keep `new-window` when no group is given — mirrors herdr's `--tab`/`--split` handling at `herdr/index.ts:156-157` so agents can be placed into a created group (D8, M2)
+
+## 4. Auto-detection and validation
+
+- [ ] 4.1 Add a tmux rung to `resolveBackend` in `src/backends/registry.ts`: select tmux when `isAvailable() && isInsideSession()`, after the herdr-inside-session probe and before the headless fallback (D5)
+- [ ] 4.2 Add the uniform `isInsideSession()` check to `validateBackend`, throwing an actionable session-required message; verify headless (always inside) still passes (D5). Note this also makes `--backend herdr`/`defaults.backend = "herdr"` fail fast outside a herdr session — a declared breaking behavior change (see proposal); confirm no existing flow selects herdr outside a session
+
+## 5. Cross-session workspace wall — fix the broken wiring (pluggable-plexer-backends task 6.4)
+
+- [x] 5.1 In `src/entities.ts`, pass the serialized identity (`foreign.key`) not the bare pane id (`foreign.paneId`) into `checkWall` at the foreign-fallback (`entities.ts:204`), so `workspaceOf` parses a real target workspace and the wall can refuse instead of silently allowing (D6, B1)
+- [x] 5.2 Give `resolveTarget` a `crossWorkspace` opt: when set, widen the search pool to the unscoped set so a cross-session target is findable, and pass it as the `crossWorkspace` value into `checkWall` so an authorized override returns the entity rather than dying "No target matches" (D6, B1)
+- [x] 5.3 Thread `gov.crossWorkspace` from `cmdSteer` (`commands.ts:1142`) and the local-resolve dispatch/run paths into `resolveTarget(target, { crossWorkspace })` (D6, B1)
+- [ ] 5.4 **Gate:** do NOT mark pluggable-plexer-backends task 6.4 complete until the section-6 scenario run (task 6.6) shows a **real workspace-wall refusal message** on a cross-session steer without `--cross-workspace` AND a **real cross-workspace delivery** with the flag. Task 6.4 completion is gated on that observed behavior, not on the wiring edits merely landing (D6, B1)
+
+## 6. Tests and gates
+
+- [ ] 6.1 Extend `test/backend-tmux.test.ts` with hermetic tmux stubs covering orch-only `list()`/`inventory()`, status from presence, `waitAgentStatus`, `read` throw-on-failure, rename split, `spawn` placement into an existing group via `split-window` (task 3.5), and orch-scoped `groups()`/`workspaces()`
+- [ ] 6.2 Extend `test/cli-backends-tmux.test.ts` for implicit tmux selection inside a session, fail-fast validation outside a session, herdr's new fail-fast when selected outside a herdr session (M3, task 4.2), and cross-session steer refusal without `--cross-workspace` (explicit 15-30s timeouts per the WSL note)
+- [ ] 6.3 Run `bun run check` and `bun run check:bridge` clean
+- [ ] 6.4 Run `bun test test/backend-tmux.test.ts test/cli-backends-tmux.test.ts` green
+- [ ] 6.5 Execute the spec scenarios end to end: inventory inside tmux lists only orch panes, auto-probe selects tmux inside a session, configured tmux outside a session fails fast at validation, and cross-session steer is refused without `--cross-workspace` (real refusal message) and delivered with it (task 5.4 gate). Verify `waitAgentStatus`'s polled `status.json` state vocabulary (`working`/`done`/`blocked`/`idle`) matches the states `orch wait` passes (m7)
+- [ ] 6.6 **Must-verify (gated on `adapter-control-authority`):** after that change lands its daemon-side dispatcher/`deliverBackend` rewrite, run the tmux steer scenarios end-to-end against a **real tmux pane** — today `cmdSteer` sends the bare pane id as the RPC target while orchd's `deliverBackend` parses/keys by serialized identity, so daemon delivery misses (`commands.ts:1159-1160`, `orchd.ts:88-96`, M4). This task closes the wall scenarios' delivery leg; it and task 5.4 are not complete until this passes on a real pane
+- [ ] 6.7 **Archive gate:** do not archive this change until `plexer-base-sync` has synced the pluggable-plexer-backends base tmux-backend/fleet-backends specs into the main specs; this change's `ADDED` requirements merge additively onto that base
+- [ ] 6.8 Assert registry authority for tmux (F6): a tmux spawn appears in `spawned.jsonl` via the command-layer `recordSpawned` (no backend-internal registry needed — verified: `store.ts:106`, `commands.ts:2013/2043/2105`), and `orch close --all` closes that orch tmux pane by cross-referencing the new `inventory()` against the registry (`commands.ts:2414-2424`) while leaving the user's own panes untouched

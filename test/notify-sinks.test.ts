@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliverToSink, loadSinks, workspaceColor, type NotifyEvent } from "../src/notify";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
 
@@ -55,16 +56,12 @@ describe("notify sinks", () => {
 
   test("loadSinks parses command and webhook declarations", () => {
     const directory = tempDir();
-    writeFileSync(join(directory, "config.toml"), `[[notify]]
-type = "command"
-on = ["done"]
-command = [${JSON.stringify(process.execPath)}, "-e", ""]
-
-[[notify]]
-type = "webhook"
-on = ["error"]
-url = "https://example.test/notify"
-`);
+    writeSettingsFixture(directory, {
+      notify: [
+        { id: "command", on: ["done"], command: nodeCommand("") },
+        { id: "webhook", on: ["error"], url: "https://example.test/notify" },
+      ],
+    });
 
     expect(loadSinks(directory)).toEqual([
       { type: "command", on: ["done"], command: nodeCommand("") },

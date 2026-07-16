@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-file
 /**
  * Claude Code settings.json hook shim for orch presence.
  *
@@ -13,10 +12,10 @@ import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseIdentity } from "../src/backends/identity.ts";
+import { PRESENCE_SCHEMA } from "../src/presence-schema.ts";
 
 const ORCH_DIR = process.env.ORCH_DIR ?? join(homedir(), ".orch");
 const PRESENCE_ROOT = join(ORCH_DIR, "agents");
-const SCHEMA_VERSION = 2;
 const AGENT_ID = "claude";
 const MAX_TEXT = 400;
 const MAX_TASK = 200;
@@ -190,7 +189,7 @@ const lastText = truncate(transcriptText ?? existingText, MAX_TEXT);
 
 const status: JsonRecord = {
   ...previous,
-  schema: SCHEMA_VERSION,
+  schema: PRESENCE_SCHEMA,
   agent: AGENT_ID,
   key,
   paneId,
@@ -226,7 +225,7 @@ if (event === "sessionstart" || event === "sessionstarted") {
   delete status.blockedMessage;
   if (transcriptText) {
     atomicWrite(join(directory, "result.json"), {
-      schema: SCHEMA_VERSION,
+      schema: PRESENCE_SCHEMA,
       agent: AGENT_ID,
       key,
       text: transcriptText,

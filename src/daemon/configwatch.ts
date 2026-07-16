@@ -2,7 +2,7 @@ import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { errorMessage } from "../util.ts";
 
-const CONFIG_FILE = "config.toml";
+const CONFIG_FILE = "settings.json";
 const RELOAD_SIGNAL_FILE = "reload.signal";
 const DEFAULT_DEBOUNCE_MS = 250;
 
@@ -34,7 +34,7 @@ function scheduleReload(
   return setTimeout(reload, debounceMs);
 }
 
-/** Watch config.toml and publish only successfully loaded configurations. */
+/** Watch settings.json and publish only successfully loaded configurations. */
 export function startConfigWatch(orchDir: string, opts: ConfigWatchOptions): ConfigWatch {
   mkdirSync(orchDir, { recursive: true });
   let stopped = false;

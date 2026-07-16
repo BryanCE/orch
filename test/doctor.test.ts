@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
 import { applyFixes, checkExtensionStaleness, isDrvFsPath, runDoctor } from "../src/doctor.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
@@ -230,19 +231,13 @@ describe("runDoctor", () => {
 
     const unavailable = tempDir();
     const missingCommand = path.join(unavailable, "missing-notifier-command");
-    fs.writeFileSync(
-      path.join(unavailable, "config.toml"),
-      `[[notify]]\nid = "command"\ncommand = [${JSON.stringify(missingCommand)}]\n`,
-    );
+    writeSettingsFixture(unavailable, { notify: [{ id: "command", command: [missingCommand] }] });
     const commandFailure = check(await runDoctor(unavailable), "notifiers");
     expect(commandFailure.status).toBe("fail");
     expect(commandFailure.detail).toContain(`fix: install ${missingCommand}`);
 
     const command = tempDir();
-    fs.writeFileSync(
-      path.join(command, "config.toml"),
-      `[[notify]]\nid = "command"\ncommand = [${JSON.stringify(process.execPath)}]\n`,
-    );
+    writeSettingsFixture(command, { notify: [{ id: "command", command: [process.execPath] }] });
     expect(check(await runDoctor(command), "notifiers")).toMatchObject({
       status: "ok",
       detail: "1 configured notifier are available",
@@ -251,13 +246,13 @@ describe("runDoctor", () => {
 
   test("reports invalid config and accepts missing config", async () => {
     const invalid = tempDir();
-    fs.writeFileSync(path.join(invalid, "config.toml"), "[queue]\nmax_retries = \"never\"\n");
+    writeSettingsFixture(invalid, { queue: { max_retries: "never" } });
     const missing = tempDir();
 
     const configResult = check(await runDoctor(invalid), "config");
     expect(configResult.status).toBe("fail");
-    expect(configResult.detail).toContain("config.toml");
-    expect(check(await runDoctor(missing), "config")).toEqual({ id: "config", label: "Config validity", status: "ok", detail: "no config" });
+    expect(configResult.detail).toContain("settings.json");
+    expect(check(await runDoctor(missing), "config")).toEqual({ id: "config", label: "Config validity", status: "ok", detail: "no settings.json" });
   });
 
   test("never throws when individual checks encounter broken inputs", async () => {

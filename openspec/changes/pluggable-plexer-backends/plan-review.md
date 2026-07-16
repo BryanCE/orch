@@ -27,7 +27,7 @@ The inventory misses these current identity/plexer assumptions:
 - `test/workspace-walls.test.ts` and `test/workspace-policy.test.ts`: dozens of assertions encode the old `ws:pane` grammar and must be replaced, not merely supplemented.
 - `src/commands.ts` has broader direct herdr operation assumptions (`herdrBestEffort` and concrete backend use around 2010, 2246–2794). The inventory lists selected spawn/close sites, but not the full set of target/control operations that prevents a true backend-independent route.
 - `src/daemon/orchd.ts:81-90` directly dispatches through herdr. The inventory notes the file, but the design’s promised generic backend delivery port is absent from the proposed `Backend` API; this needs both an inventory site and an API decision.
-- `docs/files-and-data-layout.md:15` is listed, but its exact old-key contract must be treated as a migration assertion, including examples and tests.
+- `docs/reference/files-and-data-layout.md:15` is listed, but its exact old-key contract must be treated as a migration assertion, including examples and tests.
 
 The inventory is therefore not complete enough to serve as a source of truth.
 

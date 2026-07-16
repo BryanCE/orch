@@ -58,7 +58,8 @@
     "@tanstack/react-start": "^1.168.28",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "typebox": "^1.1.38"
+    "typebox": "^1.1.38",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

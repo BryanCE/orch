@@ -28,6 +28,9 @@ function validateBackend(id: string): Backend {
   const backend = getBackend(id);
   if (!backend) throw new Error(`Unknown backend ${JSON.stringify(id)}. Supported backends: ${supportedIds()}`);
   if (!backend.isAvailable()) throw new Error(`Backend ${JSON.stringify(id)} is unavailable`);
+  if (!backend.isInsideSession()) {
+    throw new Error(`Backend ${JSON.stringify(id)} requires running inside a live ${id} session; start one and retry`);
+  }
   return backend;
 }
 
@@ -36,6 +39,7 @@ export function resolveBackend(opts: { explicit?: string | null; configured?: st
   if (opts.explicit !== undefined && opts.explicit !== null) return validateBackend(opts.explicit);
   if (opts.configured !== undefined && opts.configured !== null) return validateBackend(opts.configured);
   if (herdrBackend.isAvailable() && herdrBackend.isInsideSession()) return herdrBackend;
+  if (tmuxBackend.isAvailable() && tmuxBackend.isInsideSession()) return tmuxBackend;
   return headlessBackend;
 }
 

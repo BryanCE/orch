@@ -1,6 +1,7 @@
 import { spawn, execFile } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
+import { loadConfig } from "./config.ts";
 import { workspaceOf } from "./policy/workspace.ts";
 import { errorMessage, packageRoot } from "./util.ts";
 
@@ -83,7 +84,7 @@ export function registerSinkProvider(provider: SinkProvider): void {
   notifierRegistry?.register(providerNotifier(provider));
 }
 
-/** A configured notifier entry. `type` is accepted as the legacy spelling of `id`. */
+/** A configured notifier entry from the settings.json `notify` array. */
 export interface NotifierEntry {
   id: string;
   on: string[];
@@ -96,156 +97,10 @@ export interface CommandSink { type: "command"; on: string[]; command: string[] 
 export interface RegisteredSink { type: string; on: string[]; [key: string]: unknown }
 export type Sink = DesktopSink | WebhookSink | CommandSink | RegisteredSink;
 
-type TomlTable = Record<string, unknown>;
-
 function warning(message: string): void {
   process.stderr.write(`notify: ${message}\n`);
 }
 
-function stripComment(line: string): string {
-  let quoted = false;
-  let escaped = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (quoted && escaped) {
-      escaped = false;
-    } else if (quoted && char === "\\") {
-      escaped = true;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (!quoted && char === "#") {
-      return line.slice(0, i);
-    }
-  }
-  return line;
-}
-
-function splitValues(value: string): string[] {
-  const values: string[] = [];
-  let quoted = false;
-  let escaped = false;
-  let start = 0;
-  for (let i = 0; i < value.length; i++) {
-    const char = value[i];
-    if (quoted && escaped) {
-      escaped = false;
-    } else if (quoted && char === "\\") {
-      escaped = true;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (!quoted && char === ",") {
-      values.push(value.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  if (quoted) throw new Error("unterminated string");
-  values.push(value.slice(start).trim());
-  return values;
-}
-
-function parseValue(value: string, line: number): unknown {
-  if (value.startsWith('"')) {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      if (typeof parsed !== "string") throw new Error("not a string");
-      return parsed;
-    } catch {
-      throw new Error(`line ${line}: invalid string`);
-    }
-  }
-  if (value === "true") return true;
-  if (value === "false") return false;
-  if (/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(value)) return Number(value);
-  if (value.startsWith("[") && value.endsWith("]")) {
-    const inner = value.slice(1, -1).trim();
-    if (!inner) return [];
-    const entries = splitValues(inner).map((entry) => parseValue(entry, line));
-    if (!entries.every((entry) => typeof entry === "string")) {
-      throw new Error(`line ${line}: arrays may contain only strings`);
-    }
-    return entries;
-  }
-  throw new Error(`line ${line}: unsupported value`);
-}
-
-function splitAssignment(line: string): number {
-  let quoted = false;
-  let escaped = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (quoted && escaped) {
-      escaped = false;
-    } else if (quoted && char === "\\") {
-      escaped = true;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (!quoted && char === "=") {
-      return i;
-    }
-  }
-  return -1;
-}
-
-function tableAt(root: TomlTable, parts: string[], line: number): TomlTable {
-  let current = root;
-  for (const part of parts) {
-    if (!part) throw new Error(`line ${line}: invalid table name`);
-    const existing = current[part];
-    if (existing === undefined) current[part] = {};
-    else if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
-      throw new Error(`line ${line}: ${part} is not a table`);
-    }
-    current = current[part] as TomlTable;
-  }
-  return current;
-}
-
-/** Minimal TOML parser used when native TOML is unavailable. */
-function parseToml(text: string): TomlTable {
-  const root: TomlTable = {};
-  let current = root;
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
-
-  for (let index = 0; index < lines.length; index++) {
-    const lineNumber = index + 1;
-    const line = stripComment(lines[index] ?? "").trim();
-    if (!line) continue;
-
-    const arrayTable = /^\[\[([^\]]+)\]\]$/.exec(line);
-    if (arrayTable) {
-      const parts = (arrayTable[1] ?? "").split(".").map((part) => part.trim());
-      const key = parts.pop();
-      if (!key || parts.some((part) => !part)) throw new Error(`line ${lineNumber}: invalid table name`);
-      const parent = tableAt(root, parts, lineNumber);
-      const existing = parent[key];
-      if (existing === undefined) parent[key] = [];
-      if (!Array.isArray(parent[key])) throw new Error(`line ${lineNumber}: ${key} is not an array`);
-      current = {};
-      (parent[key] as TomlTable[]).push(current);
-      continue;
-    }
-
-    const table = /^\[([^\]]+)\]$/.exec(line);
-    if (table) {
-      current = tableAt(root, (table[1] ?? "").split(".").map((part) => part.trim()), lineNumber);
-      continue;
-    }
-
-    const equals = splitAssignment(line);
-    if (equals < 1) throw new Error(`line ${lineNumber}: expected key = value`);
-    const key = line.slice(0, equals).trim();
-    if (!/^[A-Za-z0-9_-]+$/.test(key)) throw new Error(`line ${lineNumber}: invalid key ${key}`);
-    current[key] = parseValue(line.slice(equals + 1).trim(), lineNumber);
-  }
-
-  return root;
-}
-
-function parseConfig(text: string): TomlTable {
-  const bunToml = (globalThis as { Bun?: { TOML?: { parse?: (source: string) => unknown } } }).Bun?.TOML;
-  if (bunToml?.parse) return bunToml.parse(text) as TomlTable;
-  return parseToml(text);
-}
 
 function stringArray(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) return null;
@@ -254,30 +109,22 @@ function stringArray(value: unknown): string[] | null {
 
 /** Read configured notifier entries, accepting both `id` and legacy `type`. */
 function loadNotifierEntries(orchDir: string): NotifierEntry[] {
-  let config: TomlTable;
+  let entries: unknown[];
   try {
-    config = parseConfig(filesystem.readFileSync(path.join(orchDir, "config.toml"), "utf8"));
+    entries = loadConfig(orchDir).notify;
   } catch (error) {
-    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return [];
-    warning(`could not parse config.toml: ${oneLine(error)}`);
-    return [];
-  }
-
-  const entries = config.notify;
-  if (entries === undefined) return [];
-  if (!Array.isArray(entries)) {
-    warning("invalid notify entry: [[notify]] must be an array of tables");
+    warning(`could not load settings.json: ${oneLine(error)}`);
     return [];
   }
 
   const configured: NotifierEntry[] = [];
   for (const entry of entries) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      warning("invalid notify entry: expected a table");
+      warning("invalid notify entry: expected an object");
       continue;
     }
-    const value = entry as TomlTable;
-    const id = typeof value.id === "string" ? value.id : value.type;
+    const value = entry as Record<string, unknown>;
+    const id = value.id;
     const provider = typeof id === "string" ? sinkProviders.get(id) : undefined;
     const on = value.on === undefined ? [...(provider?.onDefaults ?? ["blocked", "error"])] : stringArray(value.on);
     if (!on) {
@@ -290,7 +137,7 @@ function loadNotifierEntries(orchDir: string): NotifierEntry[] {
     }
     const config: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
-      if (key !== "id" && key !== "type" && key !== "on") config[key] = item;
+      if (key !== "id" && key !== "on") config[key] = item;
     }
     if (id === "webhook" && (typeof config.url !== "string" || !config.url)) {
       warning("invalid notify entry: webhook sink requires url");
@@ -314,7 +161,7 @@ function loadNotifierEntries(orchDir: string): NotifierEntry[] {
   return configured;
 }
 
-/** Load valid legacy sink declarations from an orch config file. */
+/** Load valid sink declarations from the settings.json `notify` array. */
 export function loadSinks(orchDir: string): Sink[] {
   return loadNotifierEntries(orchDir).map((entry): Sink => {
     if (entry.id === "desktop") return { type: entry.id, on: entry.on };

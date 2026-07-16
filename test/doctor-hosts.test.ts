@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor } from "../src/doctor.ts";
 import type { SshResult } from "../src/remote.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
 
@@ -19,8 +20,8 @@ function result(results: Awaited<ReturnType<typeof runDoctor>>, id: string) {
   return check;
 }
 
-function writeHosts(directory: string, config: string): void {
-  fs.writeFileSync(path.join(directory, "config.toml"), config);
+function writeHosts(directory: string, settings: Record<string, unknown>): void {
+  writeSettingsFixture(directory, settings);
 }
 
 function successfulRunner(_destination: string, command: string): SshResult {
@@ -35,7 +36,7 @@ afterEach(() => {
 describe("doctor remote host checks", () => {
   test("accepts a reachable host with matching orch version and writable ORCH_DIR", async () => {
     const directory = tempDir();
-    writeHosts(directory, '[hosts.good]\ndest = "user@good.example"\n');
+    writeHosts(directory, { hosts: { good: { dest: "user@good.example" } } });
 
     const results = await runDoctor(directory, successfulRunner);
 
@@ -46,7 +47,7 @@ describe("doctor remote host checks", () => {
 
   test("reports unreachable hosts with a copy-paste SSH fix hint", async () => {
     const directory = tempDir();
-    writeHosts(directory, '[hosts.down]\ndest = "user@down.example"\n');
+    writeHosts(directory, { hosts: { down: { dest: "user@down.example" } } });
     const unreachable = (): SshResult => {
       throw new Error("connection refused");
     };
@@ -59,7 +60,7 @@ describe("doctor remote host checks", () => {
 
   test("flags a remote orch version/schema mismatch in detail", async () => {
     const directory = tempDir();
-    writeHosts(directory, '[hosts.old]\ndest = "user@old.example"\n');
+    writeHosts(directory, { hosts: { old: { dest: "user@old.example" } } });
     const mismatch = (_destination: string, command: string): SshResult =>
       command === "orch --version"
         ? { ok: true, stdout: "orch 9.9.9\n", stderr: "", code: 0 }

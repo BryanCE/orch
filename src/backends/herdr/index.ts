@@ -216,6 +216,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Herdr tiles at spawn via split placement; it has no re-tile operation. */
+  // fallow-ignore-next-line unused-class-member
   applyLayout(_group: string, _layout: "tiled"): boolean {
     return false;
   }

@@ -2,7 +2,7 @@ import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./store.ts";
 import { serializeIdentity } from "./backends/identity.ts";
-import { checkWall, scopeToWorkspace, workspaceOf } from "./policy/workspace.ts";
+import { sameWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
 
 export { workspaceOf } from "./policy/workspace.ts";
@@ -14,10 +14,12 @@ export interface Entity {
   tabLabel: string | null;
   agent: string | null;
   focused: boolean;
-  herdrStatus: string | null;
+  backendStatus: string | null;
   presence: PresenceEntry | null;
   sessionPath: string | null;
   presenceOnly: boolean;
+  /** Real workspace reported by the backend (or recovered from a spawned key). */
+  workspace: string | null;
   /** Set when this entity was addressed with a configured host prefix. */
   host?: string;
 }
@@ -56,7 +58,7 @@ function naturalPaneOrder(id: string): [string, number] {
 }
 
 export function entityWorkspace(e: Entity): string | null {
-  return workspaceOf(e.key);
+  return e.workspace ?? workspaceOf(e.key);
 }
 
 export function currentWorkspace(): string | null {
@@ -70,7 +72,9 @@ export function selfActor(): string | null {
 }
 
 export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
-  return scopeToWorkspace(entities, (entity) => entity.key, currentWorkspace(), { all: opts?.all === true });
+  const currentWs = currentWorkspace();
+  if (opts?.all === true || currentWs === null) return entities;
+  return entities.filter((entity) => sameWorkspace(entityWorkspace(entity), currentWs));
 }
 
 export function buildEntities(): Entity[] {
@@ -97,10 +101,11 @@ export function buildEntities(): Entity[] {
         tabLabel: target.groupLabel,
         agent: target.agent,
         focused: target.focused,
-        herdrStatus: target.status,
+        backendStatus: target.status,
         presence: pres,
         sessionPath: target.sessionPath ?? pres?.status?.sessionPath ?? null,
         presenceOnly: false,
+        workspace: target.workspace ?? workspaceOf(key),
       });
     }
   }
@@ -112,12 +117,13 @@ export function buildEntities(): Entity[] {
       paneId: entry.status?.paneId ?? null,
       name: null,
       tabLabel: null,
-      agent: "pi",
+      agent: entry.status?.agent ?? null,
       focused: false,
-      herdrStatus: null,
+      backendStatus: null,
       presence: entry,
       sessionPath: entry.status?.sessionPath ?? null,
       presenceOnly: true,
+      workspace: entry.status?.workspace ?? workspaceOf(entry.key),
     });
   }
   return entities;
@@ -176,7 +182,7 @@ function matchInPool(entities: Entity[], localTarget: string, target: string, ho
 // default — crossing the wall is never an accident of typing a foreign key.
 // A host-prefixed (<host>/<target>) or --all target opts out; headless runs
 // (no current workspace) are unscoped.
-export function resolveTarget(target: string, opts?: { all?: boolean }): Entity {
+export function resolveTarget(target: string, opts?: { all?: boolean; crossWorkspace?: boolean }): Entity {
   let ref: TargetRef;
   try {
     ref = parseTarget(target);
@@ -185,7 +191,8 @@ export function resolveTarget(target: string, opts?: { all?: boolean }): Entity 
   }
   const localTarget = ref.target;
   const everything = buildEntities();
-  const crossWall = opts?.all === true || ref.host !== null;
+  const crossWorkspace = opts?.crossWorkspace === true;
+  const crossWall = opts?.all === true || crossWorkspace || ref.host !== null;
   const pool = scopeEntitiesToWorkspace(everything, { all: crossWall });
 
   const match = matchInPool(pool, localTarget, target, ref.host);
@@ -194,9 +201,11 @@ export function resolveTarget(target: string, opts?: { all?: boolean }): Entity 
   if (!crossWall) {
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
-      const ownKey = selfActor();
-      const decision = checkWall(ownKey, foreign.paneId ?? foreign.key, { crossWorkspace: false });
-      if (!decision.allowed) die(decision.reason ?? `Target "${target}" is outside the current workspace.`);
+      const ownWorkspace = currentWorkspace();
+      const targetWorkspace = entityWorkspace(foreign);
+      if (ownWorkspace !== null && targetWorkspace !== null && !sameWorkspace(ownWorkspace, targetWorkspace)) {
+        die(`workspace wall: actor workspace ${ownWorkspace} cannot write to target workspace ${targetWorkspace} (${foreign.key})`);
+      }
     }
   }
   die(`No target matches "${target}". Run 'orch panes' to list.`);

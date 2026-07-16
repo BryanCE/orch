@@ -33,4 +33,4 @@ orch's two axes — *what runs* (agent: pi/claude/codex) and *where it runs* (pl
 - **Modified (port + policy)**: `src/backends/backend.ts` (port shape), `src/backends/herdr.ts` and `src/backends/headless.ts` (implement identity/workspace/probing), `src/policy/workspace.ts` (consume structured workspace), `src/store.ts` (key serialization / presence-dir naming).
 - **Modified (identity threading — the ~7 assumers)**: `src/commands.ts`, `src/entities.ts`, `src/adapters/claude.ts`, `src/daemon/orchd.ts`, `extensions/orchestrator-bridge.ts`, `extensions/herdr-agent-state.ts`.
 - **Config**: `[defaults] backend` selects the plexer; new backends need no call-site edits.
-- **Docs**: architecture diagrams (`orch-architecture-*.md`) and `docs/files-and-data-layout.md` (key format) update to the new identity model.
+- **Docs**: architecture diagrams (`orch-architecture-*.md`) and `docs/reference/files-and-data-layout.md` (key format) update to the new identity model.

@@ -10,19 +10,15 @@ import { loadSinks, type Sink } from "../notify.ts";
 import { runWorkLoop } from "../work.ts";
 import { startConfigWatch, type ConfigWatch } from "./configwatch.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
-import { orchDir, spawnedRecords } from "../store.ts";
+import { orchDir } from "../store.ts";
 import { errorMessage } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
 import { insertOutboxMessage, markOutboxDelivered, checkOwnerWrite } from "../store/sqlite.ts";
 import { checkWall } from "../policy/workspace.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
-import { getBackend } from "../backends/registry.ts";
-import { parseIdentity } from "../backends/identity.ts";
-import { presenceAgentDir, loadPresence } from "../store.ts";
-import { piAdapter } from "../adapters/pi.ts";
+import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 
 const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
 const bootCodeHash = computeCodeHash(entrypoint);
@@ -79,29 +75,26 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function deliverBackend(target: string, payload: unknown): Promise<boolean> {
+async function deliverBackend(target: string, payload: unknown): Promise<boolean> {
   const value = isWritePayload(payload) ? payload : {};
   const text = requiredString(value.text, "text");
-  let backend: ReturnType<typeof getBackend>;
-  let handle: string | undefined;
-  try {
-    const id = parseIdentity(target);
-    backend = getBackend(id.backend);
-    handle = id.handle;
-  } catch {
-    const record = spawnedRecords().get(target);
-    if (!record?.backend || record.handle === undefined) return Promise.resolve(false);
-    backend = getBackend(record.backend);
-    handle = record.handle;
+  if (value.action === "dispatch") {
+    const route = resolveTargetRoute(target);
+    return route !== undefined && route.backend.deliver(route.handle, { kind: "run", text });
   }
-  if (!backend || handle === undefined) return Promise.resolve(false);
-  if (value.action === "dispatch") return Promise.resolve(backend.deliver(handle, { kind: "run", text }));
-  const presence = loadPresence().get(target);
-  if (presence) {
-    piAdapter.steer({ key: target, text });
-    return Promise.resolve(true);
+  // Steer: agents route through the control dispatcher (adapter-gated); a
+  // target with no recorded adapter is a bare pane and gets a plain message.
+  if (resolveTargetAdapter(target)) {
+    try {
+      await deliverControl(target, { kind: "steer", text });
+      return true;
+    } catch (error) {
+      process.stderr.write(`steer ${target} failed: ${errorMessage(error)}\n`);
+      return false;
+    }
   }
-  return Promise.resolve(backend.deliver(handle, { kind: "message", text }));
+  const route = resolveTargetRoute(target);
+  return route !== undefined && route.backend.deliver(route.handle, { kind: "message", text });
 }
 
 function outboxDeps(): OutboxDeps {
@@ -143,13 +136,12 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
   return { accepted: true, id };
 }
 
-function setModel(directory: string, params: unknown): { ok: true } {
+async function setModel(directory: string, params: unknown): Promise<{ ok: true }> {
   const value = writeParams(params);
   const target = requiredString(value.target, "target");
   const model = requiredString(value.model, "model");
   governWrite(directory, target, params);
-  const dir = presenceAgentDir(target, directory);
-  appendFileSync(`${dir}/inbox.jsonl`, `${JSON.stringify({ cmd: "model", model, ts: new Date().toISOString() })}\n`);
+  await deliverControl(target, { kind: "model", model });
   return { ok: true };
 }
 

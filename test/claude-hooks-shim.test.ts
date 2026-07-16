@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { CLAUDE_HOOK_RUNTIMES, claudeHookShimPath, type ClaudeHookRuntime } from "../src/doctor.ts";
+import { CLAUDE_HOOK_RUNTIMES, claudeHookShimPath, type ClaudeHookRuntime } from "../src/adapters/claude-hooks.ts";
 import { binaryOnPath } from "../src/util.ts";
 
 const shim = claudeHookShimPath(process.cwd());

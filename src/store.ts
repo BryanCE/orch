@@ -32,10 +32,8 @@ export function presenceAgentDir(key: string, root = orchDir()): string {
 }
 
 export interface PresenceStatus {
-  /** Schema 2 identifies the adapter; schema 1 records may omit both fields. */
+  /** Must equal PRESENCE_SCHEMA (src/presence-schema.ts); anything else is malformed. */
   schema?: number;
-  /** Identity record version; v1 carries the structured backend/workspace/handle. */
-  schemaVersion?: number;
   agent?: string;
   key?: string;
   /** Backend that minted this agent's identity (herdr/tmux/headless). */
@@ -179,15 +177,6 @@ export function statusForPresence(presence: PresenceEntry): PresenceStatus | nul
 
 export function bridgeRegistered(pane: string): boolean {
   return readJSON(presencePath(pane, "status.json")) !== null;
-}
-
-export function steerPresence(presence: PresenceEntry, text: string): void {
-  mkdirSync(presence.dir, { recursive: true });
-  appendFileSync(join(presence.dir, "inbox.jsonl"), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
-}
-
-export function writeAnswer(presence: PresenceEntry, text: string): void {
-  writeFileSync(join(presence.dir, "answer.json"), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
 }
 
 let cachedSettings: Record<string, unknown> | undefined;

@@ -1,279 +1,145 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
+import { z } from "zod";
+import { allAdapters } from "./adapters/registry.ts";
+import { allBackends } from "./backends/registry.ts";
 import { errorMessage } from "./util.ts";
 
-type TomlTable = Record<string, unknown>;
+/** The one settings.json schema version. Pre-publish there is no legacy support:
+ * a file with any other version is invalid and must be fixed by hand or recreated
+ * by `orch setup`. On a shape change, bump this and fix every writer/reader/test
+ * in the same commit. */
+export const SETTINGS_SCHEMA = 1;
 
-export interface HostConfig {
+const HostSchema = z.strictObject({
   /** SSH destination (for example, user@example.org). */
-  dest?: string;
-  /** Legacy spelling accepted for configs written before the remote-host schema. */
-  ssh?: string;
-  orch_dir?: string;
-  timeout_ms?: number;
-}
+  dest: z.string().min(1),
+  orch_dir: z.string().optional(),
+  timeout_ms: z.number().int().positive().optional(),
+});
 
+/** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
+ * JSON round-trip, schemaVersion-stamped, validated loudly on every load. */
+export const SettingsFileSchema = z.strictObject({
+  schemaVersion: z.literal(SETTINGS_SCHEMA),
+  /** Providers whose integrations setup installed; any of them can be spawned. */
+  installed: z.strictObject({
+    adapters: z.array(z.string()),
+    backends: z.array(z.string()),
+  }).optional(),
+  defaults: z.strictObject({
+    adapter: z.string().optional(),
+    backend: z.string().optional(),
+    model: z.string().optional(),
+    allowed_models: z.array(z.string()).optional(),
+    spawn_cap: z.number().optional(),
+    worktree: z.boolean().optional(),
+    worker_peer_tools: z.boolean().optional(),
+  }).optional(),
+  queue: z.strictObject({
+    max_retries: z.number().optional(),
+  }).optional(),
+  notify: z.array(z.unknown()).optional(),
+  hosts: z.record(z.string(), HostSchema).optional(),
+  workspaces: z.record(z.string(), z.string()).optional(),
+});
+
+export type SettingsFile = z.infer<typeof SettingsFileSchema>;
+export type HostConfig = z.infer<typeof HostSchema>;
+
+/** Settings normalized for consumers: every section present, queue defaults applied. */
 export interface OrchConfig {
-  defaults: {
-    adapter?: string;
-    backend?: string;
-    model?: string;
-    allowed_models?: string[];
-    spawn_cap?: number;
-    worktree?: boolean;
-    worker_peer_tools?: boolean;
-  };
+  installed: { adapters: string[]; backends: string[] };
+  defaults: NonNullable<SettingsFile["defaults"]>;
   queue: { max_retries: number };
   notify: unknown[];
   hosts: Record<string, HostConfig>;
   workspaces: Record<string, string>;
 }
 
-function stripComment(line: string): string {
-  let quoted = false;
-  let escaped = false;
-  for (let index = 0; index < line.length; index++) {
-    const character = line[index];
-    if (quoted && escaped) escaped = false;
-    else if (quoted && character === "\\") escaped = true;
-    else if (character === "\"") quoted = !quoted;
-    else if (!quoted && character === "#") return line.slice(0, index);
-  }
-  return line;
+/** User-editable composition storage: `$orchDir/settings.json`. */
+export function settingsPath(orchDir: string): string {
+  return path.join(orchDir, "settings.json");
 }
 
-function splitValues(value: string): string[] {
-  const values: string[] = [];
-  let quoted = false;
-  let escaped = false;
-  let start = 0;
-  for (let index = 0; index < value.length; index++) {
-    const character = value[index];
-    if (quoted && escaped) escaped = false;
-    else if (quoted && character === "\\") escaped = true;
-    else if (character === "\"") quoted = !quoted;
-    else if (!quoted && character === ",") {
-      values.push(value.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  if (quoted) throw new Error("unterminated string");
-  values.push(value.slice(start).trim());
-  return values;
-}
-
-function parseValue(value: string, line: number): unknown {
-  if (value.startsWith("\"")) {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      if (typeof parsed !== "string") throw new Error();
-      return parsed;
-    } catch {
-      throw new Error(`line ${line}: invalid string`);
-    }
-  }
-  if (value === "true") return true;
-  if (value === "false") return false;
-  if (/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(value)) return Number(value);
-  if (value.startsWith("[") && value.endsWith("]")) {
-    const inner = value.slice(1, -1).trim();
-    if (!inner) return [];
-    const entries = splitValues(inner).map((entry) => parseValue(entry, line));
-    if (!entries.every((entry) => typeof entry === "string")) {
-      throw new Error(`line ${line}: arrays may contain only strings`);
-    }
-    return entries;
-  }
-  throw new Error(`line ${line}: unsupported value`);
-}
-
-function tableAt(root: TomlTable, parts: string[], line: number): TomlTable {
-  let current = root;
-  for (const part of parts) {
-    if (!part) throw new Error(`line ${line}: invalid table name`);
-    const existing = current[part];
-    if (existing === undefined) current[part] = {};
-    else if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
-      throw new Error(`line ${line}: ${part} is not a table`);
-    }
-    current = current[part] as TomlTable;
-  }
-  return current;
-}
-
-/** Minimal TOML parser for orch's supported config syntax. */
-function parseFallbackToml(text: string): TomlTable {
-  const root: TomlTable = {};
-  let current = root;
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
-
-  for (let index = 0; index < lines.length; index++) {
-    const lineNumber = index + 1;
-    const line = stripComment(lines[index]!).trim();
-    if (!line) continue;
-
-    const arrayTable = /^\[\[([^\]]+)\]\]$/.exec(line);
-    if (arrayTable) {
-      const parts = arrayTable[1]!.split(".").map((part) => part.trim());
-      const key = parts.pop();
-      if (!key || parts.some((part) => !part)) throw new Error(`line ${lineNumber}: invalid table name`);
-      const parent = tableAt(root, parts, lineNumber);
-      if (parent[key] === undefined) parent[key] = [];
-      if (!Array.isArray(parent[key])) throw new Error(`line ${lineNumber}: ${key} is not an array`);
-      current = {};
-      (parent[key] as TomlTable[]).push(current);
-      continue;
-    }
-
-    const table = /^\[([^\]]+)\]$/.exec(line);
-    if (table) {
-      current = tableAt(root, table[1]!.split(".").map((part) => part.trim()), lineNumber);
-      continue;
-    }
-
-    const equals = line.indexOf("=");
-    if (equals < 1) throw new Error(`line ${lineNumber}: expected key = value`);
-    const key = line.slice(0, equals).trim();
-    if (!/^[A-Za-z0-9_-]+$/.test(key)) throw new Error(`line ${lineNumber}: invalid key ${key}`);
-    current[key] = parseValue(line.slice(equals + 1).trim(), lineNumber);
-  }
-  return root;
-}
-
-function parseToml(text: string): TomlTable {
-  const bunToml = (globalThis as { Bun?: { TOML?: { parse?: (source: string) => unknown } } }).Bun?.TOML;
-  return bunToml?.parse ? bunToml.parse(text) as TomlTable : parseFallbackToml(text);
-}
-
-function found(value: unknown): string {
-  if (value === undefined) return "missing";
-  if (Array.isArray(value)) return "array";
-  if (value === null) return "null";
-  return typeof value;
-}
-
-function fail(file: string, key: string, expected: string, value: unknown): never {
-  throw new Error(`${file}: ${key}: expected ${expected}, found ${found(value)}`);
-}
-
-function rejectUnknown(file: string, key: string): never {
-  throw new Error(`${file}: ${key}: unknown config key`);
-}
-
-function table(value: unknown, file: string, key: string): TomlTable {
-  if (!value || typeof value !== "object" || Array.isArray(value)) fail(file, key, "table", value);
-  return value as TomlTable;
-}
-
-function knownKeys(value: TomlTable, file: string, prefix: string, keys: string[]): void {
-  for (const key of Object.keys(value)) {
-    if (!keys.includes(key)) rejectUnknown(file, prefix ? `${prefix}.${key}` : key);
-  }
-}
-
-/** Load and validate `the orch config directory/config.toml`; a missing file uses built-in defaults. */
-export function loadConfig(orchDir: string): OrchConfig {
-  const file = path.join(orchDir, "config.toml");
-  let root: TomlTable;
+/** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
+function readSettingsFile(file: string): SettingsFile | null {
+  let text: string;
   try {
-    root = parseToml(filesystem.readFileSync(file, "utf8"));
+    text = filesystem.readFileSync(file, "utf8");
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { defaults: {}, queue: { max_retries: 1 }, notify: [], hosts: {}, workspaces: {} };
-    }
-    throw new Error(`${file}: config: expected valid TOML, found ${errorMessage(error)}`);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
-
-  knownKeys(root, file, "", ["defaults", "queue", "notify", "hosts", "workspaces"]);
-  const defaults: OrchConfig["defaults"] = {};
-  if (root.defaults !== undefined) {
-    const source = table(root.defaults, file, "defaults");
-    knownKeys(source, file, "defaults", ["adapter", "backend", "model", "allowed_models", "spawn_cap", "worktree", "worker_peer_tools"]);
-    for (const key of ["adapter", "backend", "model"] as const) {
-      if (source[key] !== undefined) {
-        if (typeof source[key] !== "string") fail(file, `defaults.${key}`, "string", source[key]);
-        defaults[key] = source[key];
-      }
-    }
-    if (source.allowed_models !== undefined) {
-      if (!Array.isArray(source.allowed_models) || !source.allowed_models.every((entry) => typeof entry === "string")) {
-        fail(file, "defaults.allowed_models", "string array", source.allowed_models);
-      }
-      defaults.allowed_models = source.allowed_models;
-    }
-    if (source.spawn_cap !== undefined) {
-      if (typeof source.spawn_cap !== "number") fail(file, "defaults.spawn_cap", "number", source.spawn_cap);
-      defaults.spawn_cap = source.spawn_cap;
-    }
-    if (source.worktree !== undefined) {
-      if (typeof source.worktree !== "boolean") fail(file, "defaults.worktree", "boolean", source.worktree);
-      defaults.worktree = source.worktree;
-    }
-    if (source.worker_peer_tools !== undefined) {
-      if (typeof source.worker_peer_tools !== "boolean") fail(file, "defaults.worker_peer_tools", "boolean", source.worker_peer_tools);
-      defaults.worker_peer_tools = source.worker_peer_tools;
-    }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error: unknown) {
+    throw new Error(`${file}: expected valid JSON, found ${errorMessage(error)}`);
   }
-
-  const queue = { max_retries: 1 };
-  if (root.queue !== undefined) {
-    const source = table(root.queue, file, "queue");
-    knownKeys(source, file, "queue", ["max_retries"]);
-    if (source.max_retries !== undefined) {
-      if (typeof source.max_retries !== "number") fail(file, "queue.max_retries", "number", source.max_retries);
-      queue.max_retries = source.max_retries;
+  const result = SettingsFileSchema.safeParse(parsed);
+  if (!result.success) {
+    // A version mismatch means the whole file predates the current schema; every
+    // other defect gets the per-key prettified message.
+    if (result.error.issues.some((issue) => issue.path[0] === "schemaVersion")) {
+      throw new Error(`${file}: schemaVersion must be ${SETTINGS_SCHEMA} — this file predates the current schema; re-run orch setup`);
     }
+    throw new Error(`${file}: invalid settings:\n${z.prettifyError(result.error)}`);
   }
-
-  let notify: unknown[] = [];
-  if (root.notify !== undefined) {
-    if (!Array.isArray(root.notify)) fail(file, "notify", "array", root.notify);
-    notify = root.notify;
-  }
-
-  const hosts: OrchConfig["hosts"] = {};
-  if (root.hosts !== undefined) {
-    const source = table(root.hosts, file, "hosts");
-    for (const [name, host] of Object.entries(source)) {
-      const hostTable = table(host, file, `hosts.${name}`);
-      knownKeys(hostTable, file, `hosts.${name}`, ["dest", "ssh", "orch_dir", "timeout_ms"]);
-      const destination = hostTable.dest ?? hostTable.ssh;
-      if (typeof destination !== "string") fail(file, `hosts.${name}.dest`, "string", destination);
-      if (hostTable.orch_dir !== undefined && typeof hostTable.orch_dir !== "string") {
-        fail(file, `hosts.${name}.orch_dir`, "string", hostTable.orch_dir);
-      }
-      if (hostTable.timeout_ms !== undefined &&
-          (typeof hostTable.timeout_ms !== "number" || !Number.isFinite(hostTable.timeout_ms) || hostTable.timeout_ms <= 0 || !Number.isInteger(hostTable.timeout_ms))) {
-        throw new Error(`${file}: hosts.${name}.timeout_ms: expected a positive integer, found ${found(hostTable.timeout_ms)}`);
-      }
-      const parsed: HostConfig = {};
-      if (hostTable.dest !== undefined) parsed.dest = destination!;
-      else parsed.ssh = destination!;
-      if (typeof hostTable.orch_dir === "string") parsed.orch_dir = hostTable.orch_dir;
-      if (typeof hostTable.timeout_ms === "number") parsed.timeout_ms = hostTable.timeout_ms;
-      hosts[name] = parsed;
-    }
-  }
-
-  const workspaces: OrchConfig["workspaces"] = {};
-  if (root.workspaces !== undefined) {
-    const source = table(root.workspaces, file, "workspaces");
-    for (const [id, name] of Object.entries(source)) {
-      if (typeof name !== "string") fail(file, `workspaces.${id}`, "string", name);
-      workspaces[id] = name;
-    }
-  }
-
-  return { defaults, queue, notify, hosts, workspaces };
+  return result.data;
 }
 
-/** Watch config.toml and publish successfully loaded configurations. */
+/** Reject unknown provider ids and defaults outside the installed sets — composition validation the pure schema can't do. */
+function requireInstalledComposition(file: string, root: SettingsFile): void {
+  const adapterIds = allAdapters().map((adapter) => adapter.id);
+  const backendIds = allBackends().map((backend) => backend.id);
+  const installed = root.installed ?? { adapters: [], backends: [] };
+  for (const id of installed.adapters) {
+    if (!adapterIds.includes(id)) throw new Error(`${file}: installed.adapters: unknown adapter "${id}" — supported adapters: ${adapterIds.join(", ")}`);
+  }
+  for (const id of installed.backends) {
+    if (!backendIds.includes(id)) throw new Error(`${file}: installed.backends: unknown backend "${id}" — supported backends: ${backendIds.join(", ")}`);
+  }
+  const adapter = root.defaults?.adapter;
+  if (adapter !== undefined && !installed.adapters.includes(adapter)) {
+    throw new Error(`${file}: defaults.adapter: "${adapter}" is not an installed adapter — installed: ${installed.adapters.join(", ") || "(none)"}; re-run orch setup`);
+  }
+  const backend = root.defaults?.backend;
+  if (backend !== undefined && !installed.backends.includes(backend)) {
+    throw new Error(`${file}: defaults.backend: "${backend}" is not an installed backend — installed: ${installed.backends.join(", ") || "(none)"}; re-run orch setup`);
+  }
+}
+
+/** Load and validate `$orchDir/settings.json`; a missing file uses built-in defaults. */
+export function loadConfig(orchDir: string): OrchConfig {
+  const file = settingsPath(orchDir);
+  const root = readSettingsFile(file);
+  if (root === null) {
+    // Rule 8: a legacy config.toml is never read or migrated — its presence is an error.
+    const legacy = path.join(orchDir, "config.toml");
+    if (filesystem.existsSync(legacy)) {
+      throw new Error(`${legacy}: legacy config.toml detected — settings now live in ${file}; re-run orch setup (the old values are not read)`);
+    }
+    return { installed: { adapters: [], backends: [] }, defaults: {}, queue: { max_retries: 1 }, notify: [], hosts: {}, workspaces: {} };
+  }
+  requireInstalledComposition(file, root);
+  return {
+    installed: { adapters: root.installed?.adapters ?? [], backends: root.installed?.backends ?? [] },
+    defaults: root.defaults ?? {},
+    queue: { max_retries: root.queue?.max_retries ?? 1 },
+    notify: root.notify ?? [],
+    hosts: root.hosts ?? {},
+    workspaces: root.workspaces ?? {},
+  };
+}
+
+/** Watch settings.json and publish successfully loaded configurations. */
 export function watchConfig(
   orchDir: string,
   onChange: (config: OrchConfig) => void,
   onWarn?: (msg: string) => void,
 ): { stop(): void } {
-  const file = path.join(orchDir, "config.toml");
+  const file = settingsPath(orchDir);
   const debounceMs = 250;
   const pollMs = 5_000;
   let stopped = false;
@@ -363,14 +229,22 @@ function coerceEnvironment(value: string, fallback: unknown, name: string): unkn
   return value;
 }
 
+/** Where a resolved setting's winning value came from. */
+export type SettingSource = "flag" | "env" | "settings.json" | "default";
+
+/** Resolve a setting with its winning source. The ONE precedence order — flag > env > settings.json > default; `resolveSetting` delegates here so the two can never drift. */
+export function resolveWithSource<T>(opts: { flag?: T; env?: string; config?: T; fallback: T }): { value: T; source: SettingSource } {
+  if (opts.flag !== undefined) return { value: opts.flag, source: "flag" };
+  if (opts.env && process.env[opts.env] !== undefined) {
+    return { value: coerceEnvironment(process.env[opts.env]!, opts.fallback, opts.env) as T, source: "env" };
+  }
+  if (opts.config !== undefined) return { value: opts.config, source: "settings.json" };
+  return { value: opts.fallback, source: "default" };
+}
+
 /** Resolve a setting with flag, ORCH_* environment, config, and fallback precedence. */
 export function resolveSetting<T>(opts: { flag?: T; env?: string; config?: T; fallback: T }): T {
-  if (opts.flag !== undefined) return opts.flag;
-  if (opts.env && process.env[opts.env] !== undefined) {
-    return coerceEnvironment(process.env[opts.env]!, opts.fallback, opts.env) as T;
-  }
-  if (opts.config !== undefined) return opts.config;
-  return opts.fallback;
+  return resolveWithSource(opts).value;
 }
 
 /** Model allowlist applied when `defaults.allowed_models` is unset. `openai-codex/*` is always allowed. */
@@ -387,41 +261,32 @@ export function allowedModelPatterns(orchDir: string): string[] {
   return DEFAULT_ALLOWED_MODELS;
 }
 
-/** Line range [start, end) of a top-level table's body, or null when the header is absent. */
-function tableBodyRange(lines: string[], section: string): { start: number; end: number } | null {
-  const header = `[${section}]`;
-  const headerIndex = lines.findIndex((line) => line.trim() === header);
-  if (headerIndex === -1) return null;
-  const start = headerIndex + 1;
-  let end = lines.length;
-  for (let index = start; index < lines.length; index++) {
-    if (/^\s*\[/.test(lines[index]!)) { end = index; break; }
-  }
-  return { start, end };
+/** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. */
+function updateSettingsFile(orchDir: string, mutate: (root: SettingsFile) => SettingsFile): void {
+  const file = settingsPath(orchDir);
+  const root = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
+  const updated = SettingsFileSchema.parse(mutate(root));
+  requireInstalledComposition(file, updated);
+  filesystem.mkdirSync(orchDir, { recursive: true });
+  filesystem.writeFileSync(file, JSON.stringify(updated, null, 2) + "\n");
 }
 
-/** Upsert a quoted-string assignment into the `[defaults]` table of `$orchDir/config.toml`, preserving all other content. */
-export function writeDefaultEntry(orchDir: string, key: string, value: string): void {
-  const file = path.join(orchDir, "config.toml");
-  let text = "";
-  try {
-    text = filesystem.readFileSync(file, "utf8");
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  const lines = text.length ? text.split(/\r?\n/) : [];
-  const assignment = `${key} = ${JSON.stringify(value)}`;
-  const range = tableBodyRange(lines, "defaults");
-  if (!range) {
-    lines.unshift("[defaults]", assignment, "");
-  } else {
-    let replaced = false;
-    for (let index = range.start; index < range.end; index++) {
-      const match = /^\s*([A-Za-z0-9_-]+)\s*=/.exec(lines[index]!);
-      if (match?.[1] === key) { lines[index] = assignment; replaced = true; break; }
-    }
-    if (!replaced) lines.splice(range.end, 0, assignment);
-  }
-  filesystem.mkdirSync(orchDir, { recursive: true });
-  filesystem.writeFileSync(file, lines.join("\n"));
+/** Upsert one string entry in the `defaults` section of settings.json. */
+export function writeSettingsDefault(orchDir: string, key: "adapter" | "backend" | "model", value: string): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, [key]: value } }));
+}
+
+/** Record the setup-installed provider sets in settings.json. */
+export function writeSettingsInstalled(orchDir: string, installed: { adapters: readonly string[]; backends: readonly string[] }): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, installed: { adapters: [...installed.adapters], backends: [...installed.backends] } }));
+}
+
+/** Append setup-selected notifier entries to the settings.json `notify` array, skipping ids already configured. */
+export function writeSettingsNotify(orchDir: string, entries: readonly Record<string, unknown>[]): void {
+  updateSettingsFile(orchDir, (root) => {
+    const existing = root.notify ?? [];
+    const configured = new Set(existing.map((entry) => (entry as { id?: unknown })?.id).filter((id) => typeof id === "string"));
+    const added = entries.filter((entry) => typeof entry.id === "string" && !configured.has(entry.id));
+    return { ...root, notify: [...existing, ...added] };
+  });
 }

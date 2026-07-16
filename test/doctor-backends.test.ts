@@ -36,7 +36,7 @@ describe("doctor backend and presence checks", () => {
     try {
       const agents = path.join(directory, "agents");
       fs.mkdirSync(path.join(agents, "herdr~wD~p2"), { recursive: true });
-      fs.writeFileSync(path.join(agents, "herdr~wD~p2", "status.json"), JSON.stringify({ schemaVersion: 1 }));
+      fs.writeFileSync(path.join(agents, "herdr~wD~p2", "status.json"), JSON.stringify({ schema: 2 }));
       fs.mkdirSync(path.join(agents, "wD:p1"), { recursive: true });
       fs.writeFileSync(path.join(agents, "wD:p1", "status.json"), JSON.stringify({}));
 

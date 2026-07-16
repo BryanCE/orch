@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliverToSink, loadSinks, notificationText, notify, type NotifyEvent } from "../src/notify";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 // Registers the herdr sink provider, as the real CLI does, so herdr entries parse deterministically.
 import "../src/backends/herdr/index.ts";
 
@@ -46,40 +47,18 @@ afterEach(() => {
 describe("notify", () => {
   test("parses valid sinks and warns about unknown types and missing fields", () => {
     const directory = tempDir();
-    writeFileSync(
-      join(directory, "config.toml"),
-      `[[notify]]
-type = "desktop"
-
-[[notify]]
-type = "webhook"
-on = ["done", "error"]
-url = "https://example.test/hook"
-
-[[notify]]
-type = "command"
-command = [${JSON.stringify(process.execPath)}, "-e", ""]
-
-[[notify]]
-type = "email"
-on = ["done"]
-
-[[notify]]
-type = "webhook"
-
-[[notify]]
-type = "command"
-on = ["done"]
-
-[[notify]]
-type = "desktop"
-on = [1]
-
-[[notify]]
-type = "herdr"
-on = ["done"]
-`,
-    );
+    writeSettingsFixture(directory, {
+      notify: [
+        { id: "desktop" },
+        { id: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
+        { id: "command", command: nodeCommand("") },
+        { id: "email", on: ["done"] },
+        { id: "webhook" },
+        { id: "command", on: ["done"] },
+        { id: "desktop", on: [1] },
+        { id: "herdr", on: ["done"] },
+      ],
+    });
 
     const result = captureStderr(() => loadSinks(directory));
 

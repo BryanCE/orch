@@ -22,6 +22,7 @@ import { Type } from "typebox";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../src/policy/workspace.ts";
 import { allowedModelPatterns } from "../src/config.ts";
 import { serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
+import { PRESENCE_SCHEMA } from "../src/presence-schema.ts";
 
 // The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
 function hashExtensionFile(file: string): string {
@@ -32,7 +33,6 @@ const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 const ORCH_DIR = process.env.ORCH_DIR ?? path.join(os.homedir(), ".orch");
 const PRESENCE_ROOT = path.join(ORCH_DIR, "agents");
-const SCHEMA_VERSION = 2;
 const AGENT_ID = "pi";
 
 type JsonRecord = Record<string, unknown>;
@@ -384,7 +384,296 @@ function atomicWrite(file: string, data: unknown): void {
   }
 }
 
+// ---- herdr pane-state reporting (absorbed from the retired herdr-agent-state extension) ----
+// Reports working/blocked/idle to herdr's pane HUD over the herdr socket, with
+// idle debounce and a retry-grace hold for retryable provider errors.
+function registerHerdrPaneState(pi: ExtensionAPI): void {
+  if (HERDR_ENV !== "1" || !HERDR_SOCKET_PATH || AGENT_IDENTITY?.backend !== "herdr") return;
+
+  const source = "herdr:pi";
+  type AgentState = "working" | "blocked" | "idle";
+
+  function parseDurationEnv(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  }
+
+  const idleDebounceMs = parseDurationEnv("HERDR_PI_IDLE_DEBOUNCE_MS", 250);
+  const retryGraceMs = parseDurationEnv("HERDR_PI_RETRY_GRACE_MS", 2500);
+  const retryableErrorPattern =
+    /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
+
+  let reportSeq = Date.now() * 1000;
+  let sessionId: string | undefined;
+  let sessionPath: string | undefined;
+  let sendInFlight = false;
+  let queuedState: { state: AgentState; message?: string; seq: number } | undefined;
+
+  function nextReportSeq(): number {
+    reportSeq += 1;
+    return reportSeq;
+  }
+
+  function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      let done = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const finish = (delivered: boolean) => {
+        if (done) return;
+        done = true;
+        if (timeout) clearTimeout(timeout);
+        socket.destroy();
+        resolve(delivered);
+      };
+      const socket = createConnection(HERDR_SOCKET_PATH!);
+      socket.on("error", () => finish(false));
+      socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+      socket.on("data", () => finish(true));
+      socket.on("end", () => finish(true));
+      timeout = setTimeout(() => finish(false), timeoutMs);
+      timeout.unref?.();
+    });
+  }
+
+  async function sendRequest(request: unknown): Promise<void> {
+    if (await sendRequestAttempt(request, 500)) return;
+    await sendRequestAttempt(request, 1500);
+  }
+
+  function updateSessionRef(ctx: ExtensionContext): void {
+    try {
+      const file = ctx?.sessionManager?.getSessionFile?.();
+      sessionPath = typeof file === "string" && file.startsWith("/") ? file : undefined;
+    } catch {
+      sessionPath = undefined;
+    }
+    try {
+      const id = ctx?.sessionManager?.getSessionId?.();
+      sessionId = typeof id === "string" && id.length > 0 ? id : undefined;
+    } catch {
+      sessionId = undefined;
+    }
+  }
+
+  function sessionRef(): Record<string, unknown> | undefined {
+    if (sessionPath) return { agent_session_path: sessionPath };
+    if (sessionId) return { agent_session_id: sessionId };
+    return undefined;
+  }
+
+  function reportSession(): Promise<void> {
+    const ref = sessionRef();
+    if (!ref) return Promise.resolve();
+    return sendRequest({
+      id: `${source}:session:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      method: "pane.report_agent_session",
+      params: { pane_id: AGENT_IDENTITY?.handle, source, agent: AGENT_ID, seq: nextReportSeq(), ...ref },
+    });
+  }
+
+  function sendState(state: AgentState, message: string | undefined, seq: number): Promise<void> {
+    return sendRequest({
+      id: `${source}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      method: "pane.report_agent",
+      params: {
+        pane_id: AGENT_IDENTITY?.handle,
+        source,
+        agent: AGENT_ID,
+        state,
+        message,
+        extensionHash: EXTENSION_HASH,
+        seq,
+        ...(sessionRef() ?? {}),
+      },
+    });
+  }
+
+  function releaseAgent(): Promise<void> {
+    return sendRequest({
+      id: `${source}:release:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      method: "pane.release_agent",
+      params: { pane_id: AGENT_IDENTITY?.handle, source, agent: AGENT_ID, seq: nextReportSeq() },
+    });
+  }
+
+  async function drainStateQueue(): Promise<void> {
+    if (sendInFlight) return;
+    sendInFlight = true;
+    try {
+      while (queuedState) {
+        const next = queuedState;
+        queuedState = undefined;
+        await sendState(next.state, next.message, next.seq);
+      }
+    } finally {
+      sendInFlight = false;
+      if (queuedState) void drainStateQueue();
+    }
+  }
+
+  function queueState(state: AgentState, message?: string): void {
+    queuedState = { state, message, seq: nextReportSeq() };
+    if (!sendInFlight) void drainStateQueue();
+  }
+
+  interface MessageRecord {
+    role?: unknown;
+    stopReason?: unknown;
+    errorMessage?: unknown;
+  }
+
+  function lastAssistantMessage(messages: unknown[]): MessageRecord | undefined {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (typeof message === "object" && message !== null && "role" in message) {
+        const record = message as MessageRecord;
+        if (record.role === "assistant") return record;
+      }
+    }
+    return undefined;
+  }
+
+  function retryableErrorMessage(event: { messages?: unknown[] }): string | undefined {
+    const messages = Array.isArray(event?.messages) ? event.messages : [];
+    const assistant = lastAssistantMessage(messages);
+    if (assistant?.stopReason !== "error") return undefined;
+    const message = typeof assistant.errorMessage === "string"
+      ? assistant.errorMessage
+      : JSON.stringify(assistant.errorMessage ?? "") ?? "";
+    if (!retryableErrorPattern.test(message)) return undefined;
+    return message || "retryable provider error";
+  }
+
+  let agentActive = false;
+  let retryHoldActive = false;
+  let failureBlocked = false;
+  let failureMessage: string | undefined;
+  let blockedCount = 0;
+  let blockedMessage: string | undefined;
+  let lastState: AgentState | undefined;
+  let lastMessage: string | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let rootSession = false;
+
+  function clearPendingTimers() {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (retryTimer) clearTimeout(retryTimer);
+    idleTimer = undefined;
+    retryTimer = undefined;
+  }
+
+  function clearFailureState() {
+    retryHoldActive = false;
+    failureBlocked = false;
+    failureMessage = undefined;
+  }
+
+  function desiredState(): { state: AgentState; message?: string } {
+    if (blockedCount > 0) return { state: "blocked", message: blockedMessage };
+    if (failureBlocked) return { state: "blocked", message: failureMessage };
+    if (agentActive || retryHoldActive) return { state: "working" };
+    return { state: "idle" };
+  }
+
+  function publishState(force = false) {
+    const next = desiredState();
+    if (!force && next.state === lastState && next.message === lastMessage) return;
+    lastState = next.state;
+    lastMessage = next.message;
+    queueState(next.state, next.message);
+  }
+
+  function scheduleIdle() {
+    clearPendingTimers();
+    clearFailureState();
+    idleTimer = setTimeout(() => {
+      idleTimer = undefined;
+      publishState();
+    }, idleDebounceMs);
+    idleTimer.unref?.();
+  }
+
+  function holdForRetry(message: string) {
+    clearPendingTimers();
+    retryHoldActive = true;
+    failureBlocked = false;
+    failureMessage = message;
+    publishState();
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      retryHoldActive = false;
+      failureBlocked = true;
+      publishState();
+    }, retryGraceMs);
+    retryTimer.unref?.();
+  }
+
+  pi.events.on("herdr:blocked", (data: unknown) => {
+    if (!rootSession || !isHerdrBlockedEvent(data)) return;
+    if (!data.active) {
+      blockedCount = Math.max(0, blockedCount - 1);
+      if (blockedCount === 0) blockedMessage = undefined;
+      publishState();
+      return;
+    }
+    clearPendingTimers();
+    blockedCount += 1;
+    blockedMessage = typeof data.label === "string" ? data.label : undefined;
+    publishState();
+  });
+
+  pi.on("session_start", (_event, ctx: ExtensionContext) => {
+    if (ctx?.hasUI !== true) return;
+    rootSession = true;
+    updateSessionRef(ctx);
+    void reportSession();
+    // A reload can replace this extension mid-run without emitting another agent_start.
+    try {
+      agentActive = ctx?.isIdle?.() === false;
+    } catch {
+      agentActive = false;
+    }
+    publishState(true);
+  });
+
+  pi.on("agent_start", (_event, ctx) => {
+    if (!rootSession) return;
+    updateSessionRef(ctx);
+    void reportSession();
+    clearPendingTimers();
+    clearFailureState();
+    agentActive = true;
+    publishState();
+  });
+
+  pi.on("agent_end", (event) => {
+    if (!rootSession) return;
+    // Pi can emit duplicate/late end events while auto-retry is already holding
+    // the pane in Working; an unqualified duplicate end must not publish a false Idle.
+    if (!agentActive) return;
+    agentActive = false;
+    const retryableMessage = retryableErrorMessage(event);
+    if (retryableMessage) {
+      holdForRetry(retryableMessage);
+      return;
+    }
+    scheduleIdle();
+  });
+
+  pi.on("session_shutdown", async (event: { reason?: string }) => {
+    if (!rootSession) return;
+    clearPendingTimers();
+    // Pi tears down extension runtimes for /reload, /new, /resume, /fork; only a
+    // real quit should release herdr's full-lifecycle authority for this pane.
+    if (event?.reason === "quit") await releaseAgent();
+  });
+}
+
 function orchestratorBridgeExtension(pi: ExtensionAPI): void {
+  registerHerdrPaneState(pi);
   let dir: string | undefined;
   let statusFile = "";
   let resultFile = "";
@@ -394,7 +683,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
 
   let lastCtx: ExtensionContext | undefined;
   const state = {
-    schema: SCHEMA_VERSION,
+    schema: PRESENCE_SCHEMA,
     agent: AGENT_ID,
     key: "",
     paneId: AGENT_IDENTITY?.backend === "herdr" ? AGENT_IDENTITY.handle : null,
@@ -467,7 +756,6 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
     const out: JsonRecord = {
       ...state,
       extensionHash: EXTENSION_HASH,
-      schemaVersion: 1,
       key: state.key,
       ...(identity ? {
         backend: identity.backend,
@@ -1059,7 +1347,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
 
   function writeResult(text: string, details: JsonRecord = {}): void {
     atomicWrite(resultFile, {
-      schema: SCHEMA_VERSION,
+      schema: PRESENCE_SCHEMA,
       text,
       ...details,
       task: state.task,

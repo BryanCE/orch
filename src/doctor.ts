@@ -2,15 +2,17 @@ import * as filesystem from "node:fs";
 import { execFile } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadConfig, type HostConfig } from "./config.ts";
+import { loadConfig, settingsPath, type HostConfig } from "./config.ts";
 import { createNotifierRegistry, loadSinks, type Sink } from "./notify.ts";
 import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
 import { rpcCall } from "./daemon/rpc.ts";
 import { runSSH, type SshResult } from "./remote.ts";
-import { bridgeBundlePath, buildBridgeBundle } from "./bridge-bundle.ts";
+import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "./bridge-bundle.ts";
 import { allBackends } from "./backends/registry.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { presenceDir, presenceKeyFromDirectoryName } from "./store.ts";
+import { CLAUDE_HOOK_RUNTIMES, claudeHookCommand, claudeHookShimPath } from "./adapters/claude-hooks.ts";
+import { PRESENCE_SCHEMA } from "./presence-schema.ts";
 import { packageRoot } from "./util.ts";
 
 export interface FixDescriptor {
@@ -196,7 +198,8 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
     if (!tryParseIdentity(key)) reasons.push("malformed identity key");
     let status: unknown = null;
     try { status = readJson(path.join(recordPath, "status.json")); } catch {}
-    if (!isRecord(status) || status.schemaVersion !== 1) reasons.push("missing or invalid schemaVersion (expected 1)");
+    if (!isRecord(status) || status.schema !== PRESENCE_SCHEMA)
+      reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
     if (reasons.length) ignoredRecords.push({ path: recordPath, reason: reasons.join("; ") });
   }
 
@@ -252,7 +255,7 @@ function isAgentStatus(value: unknown): value is AgentStatus {
 }
 
 /** Compare a bridge presence hash with the bundled bridge currently installed on disk. */
-export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath = bridgeBundlePath(repoDir)): boolean {
+export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath = extensionBundlePath(repoDir, "orchestrator-bridge")): boolean {
   if (extensionHash === undefined) return false;
   try {
     return extensionHash !== computeCodeHash(bundlePath);
@@ -266,30 +269,6 @@ type SettingsReader = (file: string) => string;
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Built hook shim inside a package root (source: scripts/claude-hooks.ts); plain ESM JS any runtime can run. */
-export function claudeHookShimPath(root: string): string {
-  return path.join(root, "dist", "scripts", "claude-hooks.js");
-}
-
-/**
- * Runtimes a user may run the hook shim with — whichever is on their PATH.
- * orch never requires one specific runtime; node, deno, and bun all work.
- * Order is the installer's preference when several are available.
- */
-export const CLAUDE_HOOK_RUNTIMES = ["node", "deno", "bun"] as const;
-export type ClaudeHookRuntime = (typeof CLAUDE_HOOK_RUNTIMES)[number];
-
-/**
- * The exact settings.json command for one orch Claude hook event under one
- * runtime. The env gate makes non-orch sessions skip the shim without
- * spawning a runtime at all; the shim also self-gates, so this is defense in
- * depth.
- */
-export function claudeHookCommand(shim: string, event: string, runtime: ClaudeHookRuntime): string {
-  const run = runtime === "deno" ? "deno run --allow-all" : runtime;
-  return `[ -n "$ORCH_AGENT_KEY" ] || exit 0; ${run} ${shim} ${event}`;
 }
 
 /** Verify Claude's orch hooks are installed and target this checkout's shim. */
@@ -338,7 +317,7 @@ export async function checkClaudeHooks(
     : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
 }
 
-export async function checkExtensionStaleness(orchDir: string, bundlePath: string = bridgeBundlePath(repoDir)): Promise<CheckResult> {
+export async function checkExtensionStaleness(orchDir: string, bundlePath: string = extensionBundlePath(repoDir, "orchestrator-bridge")): Promise<CheckResult> {
   await Promise.resolve();
   const id = "extension-staleness";
   const label = "Extension staleness";
@@ -408,8 +387,8 @@ async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
 
 async function checkConfig(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
-  const file = path.join(orchDir, "config.toml");
-  if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "ok", detail: "no config" };
+  const file = settingsPath(orchDir);
+  if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "ok", detail: "no settings.json" };
   try {
     loadConfig(orchDir);
     return { id: "config", label: "Config validity", status: "ok", detail: file };
@@ -526,8 +505,8 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
   await Promise.resolve();
   if (!bins.pi) return { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi is not installed" };
   const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
-  const bridgeBundle = bridgeBundlePath(repoDir);
-  const names = ["orchestrator-bridge.js", "herdr-agent-state.ts"];
+  const bundleFor = new Map(PI_EXTENSION_NAMES.map((name) => [`${name}.js`, extensionBundlePath(repoDir, name)]));
+  const names = [...bundleFor.keys()];
   const stale: string[] = [];
   const fixable: string[] = [];
   let extensionDirMissing = false;
@@ -539,10 +518,12 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
   };
 
   let bundleMissing = false;
-  try {
-    bundleMissing = !filesystem.statSync(bridgeBundle).isFile();
-  } catch {
-    bundleMissing = true;
+  for (const bundle of bundleFor.values()) {
+    try {
+      if (!filesystem.statSync(bundle).isFile()) bundleMissing = true;
+    } catch {
+      bundleMissing = true;
+    }
   }
 
   try {
@@ -552,20 +533,13 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
   }
   for (const name of names) {
     const destination = path.join(extensionDir, name);
-    if (name === "orchestrator-bridge.js" && bundleMissing) {
-      addStale(name);
-      addFixable(name);
-      continue;
-    }
-    const source = name === "orchestrator-bridge.js"
-      ? bridgeBundle
-      : path.join(repoDir, "extensions", name);
+    const source = bundleFor.get(name)!;
     let sourcePath: string;
     try {
       sourcePath = filesystem.realpathSync(source);
     } catch {
       addStale(name);
-      if (name === "orchestrator-bridge.js") addFixable(name);
+      addFixable(name);
       continue;
     }
     try {
@@ -585,15 +559,15 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
     }
   }
   const applyExtensionFix = (): void => {
-    if (fixable.includes("orchestrator-bridge.js")) {
-      buildBridgeBundle(repoDir);
+    for (const name of PI_EXTENSION_NAMES) {
+      if (fixable.includes(`${name}.js`)) buildExtensionBundle(repoDir, name);
     }
     filesystem.mkdirSync(extensionDir, { recursive: true });
     for (const name of fixable) {
       const destination = path.join(extensionDir, name);
-      const source = name === "orchestrator-bridge.js"
-        ? bridgeBundle
-        : path.join(repoDir, "extensions", name);
+      const source = bundleFor.get(name)!;
+      // Raw .ts links from older installs break pi at launch; reap them with the fix.
+      filesystem.rmSync(destination.replace(/\.js$/, ".ts"), { force: true });
       filesystem.rmSync(destination, { recursive: true, force: true });
       filesystem.symlinkSync(source, destination);
     }
@@ -616,7 +590,7 @@ export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> 
     }
     return result;
   }
-  if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge and herdr-agent-state are current" };
+  if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge extension is current" };
   const result: CheckResult = {
     id: "pi-extensions",
     label: "pi extensions",
@@ -760,9 +734,8 @@ function configuredHosts(orchDir: string): [string, HostConfig][] {
 }
 
 function hostDestination(name: string, host: HostConfig): string {
-  const destination = host.dest ?? host.ssh;
-  if (!destination) throw new Error(`Host "${name}" has no SSH destination`);
-  return destination;
+  if (!host.dest) throw new Error(`Host "${name}" has no SSH destination`);
+  return host.dest;
 }
 
 function hostResult(id: string, label: string, failures: string[], total: number, failureStatus: "warn" | "fail"): CheckResult {
@@ -780,7 +753,7 @@ async function checkRemoteReachability(orchDir: string, runner: SshRunner = runS
       const destination = hostDestination(name, host);
       const result = runner(destination, "true", { timeoutMs: 5000 });
       if (!result.ok) failures.push(`${name}: SSH unreachable (${result.stderr || "connection failed"}); fix: ssh -o BatchMode=yes -o ConnectTimeout=5 ${destination} true`);
-    } catch (error) { failures.push(`${name}: SSH probe failed (${String(error)}); fix: ssh -o BatchMode=yes -o ConnectTimeout=5 ${host.dest ?? host.ssh ?? name} true`); }
+    } catch (error) { failures.push(`${name}: SSH probe failed (${String(error)}); fix: ssh -o BatchMode=yes -o ConnectTimeout=5 ${host.dest || name} true`); }
   }
   return hostResult("remote-ssh", "Remote SSH reachability", failures, hosts.length, "fail");
 }

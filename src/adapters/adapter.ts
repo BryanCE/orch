@@ -4,6 +4,9 @@ export type AdapterId = "pi" | "claude" | "codex";
 /** Ways an adapter can deliver a mid-run steering message. */
 export type SteerMechanism = "inbox" | "keys" | "resume" | "none";
 
+/** Session-lifecycle verbs an adapter may declare a native mechanism for. */
+export type LifecycleVerb = "reset" | "reload" | "restart";
+
 /** States an adapter may expose through orch's presence protocol. */
 export type AgentState = "idle" | "working" | "blocked" | "done" | "error" | "aborted" | "exited" | "unknown";
 
@@ -43,6 +46,14 @@ export interface SteerRequest {
   readonly opts?: SpawnOpts;
 }
 
+/** Request passed to an adapter when switching a live session's model. */
+export interface ModelRequest {
+  /** Target presence key or adapter-native session identifier. */
+  readonly key: string;
+  /** Model specification to switch the running session to. */
+  readonly model: string;
+}
+
 /** Request passed to an adapter when answering a blocking question. */
 export interface AnswerRequest {
   /** Target presence key or adapter-native session identifier. */
@@ -61,12 +72,48 @@ export interface AdapterCommand {
   readonly stdin?: string;
 }
 
+/** Options for adapter shim installation during setup. */
+export interface ShimInstallOpts {
+  /** Copy shim artifacts instead of symlinking them. */
+  readonly copy?: boolean;
+}
+
 /** Native output supplied to an adapter for final-result extraction. */
 export interface ResultExtractionInput {
   /** Complete adapter-native output, when available. */
   readonly output?: string;
   /** Path to a native session transcript, when the adapter exposes one. */
   readonly sessionPath?: string;
+}
+
+/** Supplementary display data an adapter can recover from its native session output. */
+export interface SessionView {
+  /** Presence-protocol state inferred from session content, when the adapter derives one. */
+  readonly state?: AgentState;
+  /** Active model identifier, when the session records one. */
+  readonly model?: string;
+  /** Model provider, when the session records one. */
+  readonly provider?: string;
+  /** Active thinking/reasoning level, when the session records one. */
+  readonly thinking?: string;
+  /** Most recent user task/prompt text, when the session records one. */
+  readonly task?: string;
+  /** Most recent assistant text, when the session records one. */
+  readonly lastText?: string;
+  /** Accumulated cost, when the session records one. */
+  readonly cost?: number;
+  /** Token usage totals, when the session records them. */
+  readonly tokens?: unknown;
+  /** Completed turn count, when the session records one. */
+  readonly turns?: number;
+}
+
+/** Input to an adapter's session-tail read. */
+export interface SessionViewInput {
+  /** Path to the adapter-native session/transcript file, when one exists on disk. */
+  readonly sessionPath?: string;
+  /** Native process output captured in memory, when no on-disk session path applies. */
+  readonly output?: string;
 }
 
 /**
@@ -90,6 +137,8 @@ export interface AgentAdapter {
     readonly setModel: boolean;
     /** Whether native session output can be tailed for supplementary state/result data. */
     readonly sessionTail: boolean;
+    /** Session-lifecycle verbs (reset/reload/restart) this adapter declares a native mechanism for; empty when none. */
+    readonly lifecycle: readonly LifecycleVerb[];
   };
   /** Build the normal shell command used to start one agent in an interactive pane. */
   interactiveCmd(opts: SpawnOpts): string;
@@ -113,8 +162,18 @@ export interface AgentAdapter {
   steer(request: SteerRequest): AdapterCommand | undefined;
   /** Build the command or presence action used to answer a blocking question. */
   answer(request: AnswerRequest): AdapterCommand | undefined;
+  /** Build the command or presence action used to switch the active model; present only when caps.setModel is true. */
+  setModel?(request: ModelRequest): AdapterCommand | undefined;
+  /** Build the delivery text for a lifecycle verb; called only when caps.lifecycle includes that verb. */
+  lifecycleCmd?(verb: LifecycleVerb): { text: string } | undefined;
   /** Extract the final assistant text that should be written to `result.json`. */
   extractResult(input: ResultExtractionInput): string | undefined;
+  /**
+   * Read supplementary state/model/cost/task/result data from the adapter's
+   * native session output. Declared only by adapters with `caps.sessionTail`;
+   * callers must gate on that capability, never on method presence.
+   */
+  readSessionView?(input: SessionViewInput): SessionView | undefined;
   /** Install adapter-specific hooks/shims without removing unrelated user setup. */
-  installShim?(): void | Promise<void>;
+  installShim?(opts?: ShimInstallOpts): void | Promise<void>;
 }

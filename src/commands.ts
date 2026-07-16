@@ -5,18 +5,18 @@ import * as os from "node:os";
 import { randomUUID } from "node:crypto";
 import { deliverToSink, loadSinks, notify, notificationText, type NotifyEvent, type Sink } from "./notify.ts";
 import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "./queue.ts";
-import { runDoctor, applyFixes, binaryStatus, checkBins, checkExtensions, claudeHookCommand, claudeHookShimPath, CLAUDE_HOOK_RUNTIMES, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
-import { setupIntro, setupOutro, selectAdapter, selectBackend, chooseInstalls } from "./setup/wizard.ts";
+import { runDoctor, applyFixes, binaryStatus, checkExtensions, isBridgeExtensionStale, type CheckResult } from "./doctor.ts";
+import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectNotifiers, chooseInstalls } from "./setup/wizard.ts";
 import { renderDoctorResults, pickFixes } from "./setup/doctor-wizard.ts";
-import { withSpinner } from "./setup/io.ts";
-import { bridgeBundlePath, buildBridgeBundle } from "./bridge-bundle.ts";
-import { loadConfig, resolveSetting, writeDefaultEntry, type HostConfig, type OrchConfig } from "./config.ts";
+import { withSpinner, promptText } from "./setup/io.ts";
+import { probeNotifiers, buildSelectedNotifyEntries } from "./setup/notifiers.ts";
+import { buildExtensionBundle, PI_EXTENSION_NAMES } from "./bridge-bundle.ts";
+import { loadConfig, resolveSetting, resolveWithSource, settingsPath, writeSettingsDefault, writeSettingsInstalled, writeSettingsNotify, type HostConfig, type OrchConfig } from "./config.ts";
 import { bridgeRegistered, defaultModelString, isRecord, loadPresence, orchDir, pidAlive, presenceDir, presenceAgentDir, readJSON, recordSpawned, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "./store.ts";
-import { piAdapter, presenceFor } from "./adapters/pi.ts";
-import { codexAdapter } from "./adapters/codex.ts";
-import { claudeAdapter } from "./adapters/claude.ts";
-import type { AgentAdapter } from "./adapters/adapter.ts";
-import { blockText, isToolCallContentBlock, parseSession, type SessionData, type SessionEntry, type ToolCallContentBlock } from "./session.ts";
+import { presenceFor } from "./adapters/pi.ts";
+import { allAdapters, getAdapter, resolveAdapter as resolveRegisteredAdapter } from "./adapters/registry.ts";
+import type { AgentAdapter, SessionView } from "./adapters/adapter.ts";
+import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "./session.ts";
 import { buildEntities, collapse, currentWorkspace, entityWorkspace, parseTarget, resolvePane, resolveTarget, scopeEntitiesToWorkspace, selfActor, sortEntities, workspaceOf, type Entity } from "./entities.ts";
 import { serializeIdentity, parseIdentity, tryParseIdentity } from "./backends/identity.ts";
 import { runRemoteAsync, runSSH } from "./remote.ts";
@@ -24,7 +24,7 @@ import { headlessBackend, type HeadlessHandle } from "./backends/headless/index.
 import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle } from "./backends/backend.ts";
 import { allBackends, getBackend, resolveBackend } from "./backends/registry.ts";
 import { renderTable, truncate } from "./table.ts";
-import { binaryOnPath, errorMessage, packageRoot } from "./util.ts";
+import { errorMessage, packageRoot } from "./util.ts";
 import { daemonize, runForeground } from "./daemon/lifecycle.ts";
 import { DaemonAbsentError, rpcCall } from "./daemon/rpc.ts";
 import { derivePresenceTransition, startPreferredEvents, startPresenceWatch, type PresenceMetadata, type PresenceWatch } from "./daemon/events.ts";
@@ -104,13 +104,14 @@ interface View {
   task: string;
   last: string;
   exited: boolean;
-  session: SessionData | null;
+  sview: SessionView | null;
 }
 
 function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
   const pres = ent.presence;
   const isPi = ent.agent === "pi";
-  const session = isPi ? parseSession(ent.sessionPath) : null;
+  const adapter = getAdapter(spawned.get(ent.key)?.adapter ?? pres?.status?.agent ?? ent.agent ?? "");
+  const sview = (adapter?.caps.sessionTail && ent.sessionPath ? adapter.readSessionView?.({ sessionPath: ent.sessionPath }) : undefined) ?? null;
 
   // ---- model ----
   let modelFull = "";
@@ -118,10 +119,10 @@ function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
     const m = pres.status.model;
     const think = pres.status.thinking ?? "";
     modelFull = `${m.provider ?? ""}/${m.id}${think ? ":" + think : ""}`;
-  } else if (session?.exists && session.model) {
-    const prov = session.provider ?? "";
-    const think = session.thinking ?? "";
-    modelFull = `${prov}/${session.model}${think ? ":" + think : ""}`;
+  } else if (sview?.model) {
+    const prov = sview.provider ?? "";
+    const think = sview.thinking ?? "";
+    modelFull = `${prov}/${sview.model}${think ? ":" + think : ""}`;
   } else if (isPi) {
     modelFull = defaultModelString() + " (default)";
   } else {
@@ -143,14 +144,14 @@ function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
     // presence = live bridge → no fallback marker
   } else {
     // no live bridge → backend status or session fallback
-    state = ent.herdrStatus ?? (session?.exists ? "idle" : "unknown");
+    state = ent.backendStatus ?? sview?.state ?? (sview ? "idle" : "unknown");
     stateFallback = true;
   }
 
   // ---- cost ----
   let cost = 0;
   if (pres?.status && typeof pres.status.cost === "number") cost = pres.status.cost;
-  else if (session?.exists) cost = session.cost;
+  else if (typeof sview?.cost === "number") cost = sview.cost;
 
   // ---- ctx percent ----
   let ctxPercent: number | null = null;
@@ -161,12 +162,12 @@ function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
   const task = firstNonEmptyText(
     pres?.status?.asking?.question ? `Q: ${pres.status.asking.question}` : undefined,
     pres?.status?.task,
-    session?.task,
+    sview?.task,
   );
   const last = firstNonEmptyText(
     pres?.status?.lastText,
     resultText(pres?.result),
-    session?.lastAssistant,
+    sview?.lastText,
   );
 
   const paneLabel = (ent.paneId ?? ent.key) + (ent.focused ? "*" : "");
@@ -186,7 +187,7 @@ function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
     task: collapse(task),
     last: collapse(last),
     exited,
-    session,
+    sview,
   };
 }
 
@@ -227,18 +228,18 @@ function cmdStatusLocal(args: string[]) {
       ctxPercent: v.ctxPercent,
       task: v.entity.presence?.status?.asking?.question
         ? `Q: ${v.entity.presence.status.asking.question}`
-        : v.entity.presence?.status?.task ?? v.session?.task ?? null,
+        : v.entity.presence?.status?.task ?? v.sview?.task ?? null,
       lastText:
         v.entity.presence?.status?.lastText ??
         resultText(v.entity.presence?.result) ??
-        v.session?.lastAssistant ??
+        v.sview?.lastText ??
         null,
-      herdrStatus: v.entity.herdrStatus,
+      backendStatus: v.entity.backendStatus,
       sessionPath: v.entity.sessionPath,
       presenceDir: v.entity.presence?.dir ?? null,
       presenceOnly: v.entity.presenceOnly,
-      tokens: v.session?.exists ? v.session.tokens : v.entity.presence?.status?.tokens ?? null,
-      turns: v.entity.presence?.status?.turns ?? v.session?.turns ?? null,
+      tokens: v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null,
+      turns: v.entity.presence?.status?.turns ?? v.sview?.turns ?? null,
       workspace: entityWorkspace(v.entity),
       workspaceName: workspaceName(entityWorkspace(v.entity), workspaces),
       staleExtension: v.staleExtension,
@@ -299,7 +300,7 @@ interface StatusRow {
   ctxPercent: number | null;
   task: string | null;
   lastText: string | null;
-  herdrStatus: string | null;
+  backendStatus: string | null;
   sessionPath: string | null;
   presenceDir: string | null;
   presenceOnly: boolean;
@@ -335,14 +336,14 @@ function localStatusRows(args: string[]): StatusRow[] {
       ctxPercent: v.ctxPercent,
       task: v.entity.presence?.status?.asking?.question
         ? `Q: ${v.entity.presence.status.asking.question}`
-        : v.entity.presence?.status?.task ?? v.session?.task ?? null,
-      lastText: v.entity.presence?.status?.lastText ?? resultText(v.entity.presence?.result) ?? v.session?.lastAssistant ?? null,
-      herdrStatus: v.entity.herdrStatus,
+        : v.entity.presence?.status?.task ?? v.sview?.task ?? null,
+      lastText: v.entity.presence?.status?.lastText ?? resultText(v.entity.presence?.result) ?? v.sview?.lastText ?? null,
+      backendStatus: v.entity.backendStatus,
       sessionPath: v.entity.sessionPath,
       presenceDir: v.entity.presence?.dir ?? null,
       presenceOnly: v.entity.presenceOnly,
-      tokens: v.session?.exists ? v.session.tokens : v.entity.presence?.status?.tokens ?? null,
-      turns: v.entity.presence?.status?.turns ?? v.session?.turns ?? null,
+      tokens: v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null,
+      turns: v.entity.presence?.status?.turns ?? v.sview?.turns ?? null,
       workspace: entityWorkspace(v.entity),
       workspaceName: workspaceName(entityWorkspace(v.entity), workspaces),
       staleExtension: v.staleExtension,
@@ -355,7 +356,7 @@ function warningStatusRow(host: string, warning: string): StatusRow {
     key: `warning:${host}`, paneId: null, name: "WARNING", tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
     exited: false, cost: 0, ctxPercent: null, task: warning, lastText: null,
-    herdrStatus: null, sessionPath: null, presenceDir: null, presenceOnly: false,
+    backendStatus: null, sessionPath: null, presenceDir: null, presenceOnly: false,
     tokens: null, turns: null, host, warning,
   };
 }
@@ -368,7 +369,7 @@ function remoteCommandArgs(host: HostConfig, command: string, args: readonly str
 
 function remoteWrite(hostName: string, command: string, args: readonly string[]): void {
   const host = loadConfig(orchDir()).hosts[hostName];
-  const destination = host?.dest ?? host?.ssh;
+  const destination = host?.dest;
   if (!host || !destination) die(`Host "${hostName}" has no SSH destination.`);
   const result = runSSH(destination, remoteCommandArgs(host, command, args), { timeoutMs: host.timeout_ms });
   if (!result.ok) die(`Host "${hostName}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
@@ -826,7 +827,9 @@ function cmdAnswer(args: string[]) {
   if (!force && (!questionPath || !files.existsSync(questionPath)))
     die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
-  files.writeFileSync(path.join(ent.presence.dir, "answer.json"), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
+  const answerAdapter = resolveAdapter(ent.agent ?? ent.presence.status?.agent ?? "pi");
+  if (!answerAdapter.caps.ask) die(`Adapter ${answerAdapter.id} cannot answer blocking questions (caps.ask false).`);
+  answerAdapter.answer({ key: ent.presence.key, text });
   if (json) process.stdout.write(JSON.stringify({ target: ent.presence.key, answered: true }) + "\n");
   else process.stdout.write(`Answered ${ent.presence.key}.\n`);
 }
@@ -1085,7 +1088,7 @@ function cmdResult(args: string[]) {
   const remote = targetHost(target);
   if (remote) {
     const host = loadConfig(orchDir()).hosts[remote.host];
-    const destination = host?.dest ?? host?.ssh;
+    const destination = host?.dest;
     if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
     const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
     if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
@@ -1139,21 +1142,14 @@ async function cmdSteer(args: string[]): Promise<void> {
     remoteWrite(remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
     return;
   }
-  const entity = resolveTarget(target);
+  const entity = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
   if (!entity.paneId) {
     if (!entity.presence) die(`Target "${target}" has no agent presence.`);
-    const agentId = entity.agent ?? entity.presence.status?.agent;
-    if (!agentId) die(`Target "${target}" has no recorded harness.`);
-    const adapter = resolveAdapter(agentId);
-    const command = adapter.steer({ key: entity.presence.key, text });
-    if (!command && adapter.id !== "pi") {
-      const id = parseIdentity(entity.presence.key);
-      const backend = getBackend(id.backend);
-      if (!backend) die(`Backend ${JSON.stringify(id.backend)} is not registered.`);
-      if (!backend.deliver(id.handle, { kind: "message", text })) die(`Could not steer ${entity.presence.key}.`);
-    }
-    if (json) process.stdout.write(JSON.stringify({ target: entity.presence.key, steered: true }) + "\n");
-    else process.stdout.write(`Steered ${entity.presence.key} → ${truncate(collapse(text), 60)}\n`);
+    // The daemon's control dispatcher applies the effect; the CLI never steers directly.
+    const key = entity.presence.key;
+    const result = await writeRpc("steer", { target: key, text }, gov);
+    if (json) process.stdout.write(JSON.stringify({ target: key, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
+    else process.stdout.write(`Steered ${key} → ${truncate(collapse(text), 60)}\n`);
     return;
   }
   const pane = entity.paneId;
@@ -1347,8 +1343,8 @@ function cmdPanes(args: string[]) {
   const workspaces = loadConfig(orchDir()).workspaces;
   if (json) {
     process.stdout.write(JSON.stringify(entities.map((e) => ({ key: e.key, paneId: e.paneId, name: e.name,
-      tab: e.tabLabel, agent: e.agent, focused: e.focused, state: e.herdrStatus ?? e.presence?.status?.state ?? null,
-      herdrStatus: e.herdrStatus, sessionPath: e.sessionPath, presenceOnly: e.presenceOnly,
+      tab: e.tabLabel, agent: e.agent, focused: e.focused, state: e.backendStatus ?? e.presence?.status?.state ?? null,
+      backendStatus: e.backendStatus, sessionPath: e.sessionPath, presenceOnly: e.presenceOnly,
       workspace: entityWorkspace(e), workspaceName: workspaceName(entityWorkspace(e), workspaces) })), null, 2) + "\n");
     return;
   }
@@ -1359,7 +1355,7 @@ function cmdPanes(args: string[]) {
       showWorkspace ? `${displayWorkspace(entityWorkspace(e), workspaces)} / ${e.name ?? "-"}` : (e.name ?? "-"),
       e.tabLabel ?? "-",
       e.agent ?? "-",
-      e.herdrStatus ?? (e.presence?.status?.state ?? "-"),
+      e.backendStatus ?? (e.presence?.status?.state ?? "-"),
       e.sessionPath ?? "-",
     ];
     process.stdout.write(parts.join("\t") + "\n");
@@ -1453,18 +1449,36 @@ function cmdClean(args: string[]) {
 
 // ---- setup (bootstrap a fresh machine) ----
 
-// Ordered: bun first — pi's installer needs it.
-const DEP_INSTALLERS: [string, string][] = [
-  ["bun", "curl -fsSL https://bun.sh/install | bash"],
-  ["plexer", "curl -fsSL https://example.invalid/install.sh | bash"],
-  ["pi", "bun add -g @earendil-works/pi-coding-agent"],
-  ["claude", "curl -fsSL https://claude.ai/install.sh | bash"],
-];
+/** The install action for one provider id: exactly one of a real install command or a
+ * documentation URL, plus an optional ordered list of prerequisite provider ids installed
+ * first. Keyed by real provider id, so an installer can never drift from its provider. */
+interface InstallerEntry {
+  install?: string;
+  docsUrl?: string;
+  needs?: readonly string[];
+}
+
+const INSTALLERS: Record<string, InstallerEntry> = {
+  // bun is never probed on its own — it surfaces only as pi's declared dependency.
+  pi: { install: "bun add -g @earendil-works/pi-coding-agent", needs: ["bun"] },
+  claude: { install: "curl -fsSL https://claude.ai/install.sh | bash" },
+  codex: { docsUrl: "https://github.com/openai/codex" },
+  bun: { install: "curl -fsSL https://bun.sh/install | bash" },
+  tmux: { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" },
+  herdr: { docsUrl: "https://github.com/BryanCE/orch#readme" },
+};
 
 /** Read the value following `name` in `args`, or undefined when the flag is absent. */
 function readValueFlag(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index !== -1 && index + 1 < args.length ? args[index + 1] : undefined;
+}
+
+/** Read a flag written as `--name value` or `--name=value`. */
+function readAssignFlag(args: string[], name: string): string | undefined {
+  const assigned = args.find((arg) => arg.startsWith(`${name}=`));
+  if (assigned !== undefined) return assigned.slice(name.length + 1);
+  return readValueFlag(args, name);
 }
 
 /** Validate a provided setup flag value against the supported ids, or exit. */
@@ -1473,18 +1487,39 @@ function validateSetupFlag(kind: string, value: string, supported: readonly stri
   die(`Unknown ${kind} "${value}". Supported ${kind}s: ${supported.join(", ")}.`);
 }
 
-/** Resolve one setup selection from its flag, the interactive picker, or exit in non-interactive mode. Null on cancel. */
-async function resolveSetupSelection(
+/** Resolve the setup harness set from a comma-separated flag, the multi-select wizard, or exit. Null on cancel. */
+async function resolveProviderSet(
   kind: string,
   flagName: string,
   flag: string | undefined,
   ids: readonly string[],
   interactive: boolean,
+  pick: (options: readonly string[]) => Promise<string[] | null>,
+): Promise<string[] | null> {
+  if (flag !== undefined) {
+    const list = [...new Set(flag.split(",").map((id) => id.trim()).filter(Boolean))];
+    if (!list.length) die(`${flagName} needs at least one ${kind} id.`);
+    for (const id of list) validateSetupFlag(kind, id, ids);
+    return list;
+  }
+  if (interactive) {
+    const picked = await pick(ids);
+    if (picked === null) return null;
+    if (!picked.length) die(`Select at least one ${kind}.`);
+    return picked;
+  }
+  die(`orch setup needs ${flagName} <id[,id...]> in non-interactive mode. Supported ${kind}s: ${ids.join(", ")}.`);
+}
+
+/** Pick the active default from a selected set: the sole member, the flag/non-interactive first entry, or a prompt. Null on cancel. */
+async function resolveActiveDefault(
+  selected: readonly string[],
+  flagProvided: boolean,
+  interactive: boolean,
   pick: (options: readonly string[]) => Promise<string | null>,
 ): Promise<string | null> {
-  if (flag !== undefined) return validateSetupFlag(kind, flag, ids);
-  if (interactive) return pick(ids);
-  die(`orch setup needs ${flagName} <id> in non-interactive mode. Supported ${kind}s: ${ids.join(", ")}.`);
+  if (selected.length === 1 || flagProvided || !interactive) return selected[0]!;
+  return pick(selected);
 }
 
 /** Print the manual install commands for each missing prerequisite. */
@@ -1530,84 +1565,6 @@ function runInstall(bin: string, cmd: string, interactive: boolean): void {
 }
 
 /** True for a settings hook entry whose command runs the orch claude-hooks shim (any path, any form). */
-function isOrchShimHook(hook: unknown): boolean {
-  return isRecord(hook) && hook.type === "command"
-    && typeof hook.command === "string" && hook.command.includes("claude-hooks");
-}
-
-/** Drop orch shim hooks that don't match `command` so the shim never fires twice; keep everything else. */
-function pruneStaleShimHooks(list: unknown[], command: string): { list: unknown[]; pruned: boolean } {
-  let pruned = false;
-  const kept = list.map((entry) => {
-    if (!isRecord(entry) || !Array.isArray(entry.hooks)) return entry;
-    const hooks = entry.hooks.filter((hook: unknown) => {
-      const stale = isOrchShimHook(hook) && (hook as Record<string, unknown>).command !== command;
-      if (stale) pruned = true;
-      return !stale;
-    });
-    return hooks.length === entry.hooks.length ? entry : { ...entry, hooks };
-  }).filter((entry) => !isRecord(entry) || !Array.isArray(entry.hooks) || entry.hooks.length > 0);
-  return { list: kept, pruned };
-}
-
-function installClaudeHooks(pkgRoot: string): void {
-  const claudeDir = path.join(HOME, ".claude");
-  const settingsPath = path.join(claudeDir, "settings.json");
-  let settings: Record<string, unknown>;
-  if (!files.existsSync(settingsPath)) {
-    settings = {};
-  } else {
-    try {
-      const parsed: unknown = JSON.parse(files.readFileSync(settingsPath, "utf8"));
-      if (!isRecord(parsed)) throw new Error("settings root is not an object");
-      settings = parsed;
-    } catch (error: unknown) {
-      process.stderr.write(`  warning: could not parse ${settingsPath}; Claude hooks not changed (${errorMessage(error)})\n`);
-      return;
-    }
-  }
-  const shim = claudeHookShimPath(pkgRoot);
-  // The shim is plain ESM JS; wire it to whichever runtime this user has.
-  const runtime = CLAUDE_HOOK_RUNTIMES.find(binaryOnPath) ?? "node";
-  const added: string[] = [];
-  let prunedStale = false;
-  const hooks = isRecord(settings.hooks) ? settings.hooks : (settings.hooks === undefined ? {} : null);
-  if (!hooks) {
-    process.stderr.write(`  warning: ${settingsPath} has a non-object hooks value; Claude hooks not changed\n`);
-    return;
-  }
-  settings.hooks = hooks;
-  for (const event of ["SessionStart", "Stop", "Notification"] as const) {
-    const command = claudeHookCommand(shim, event, runtime);
-    const entries = hooks[event];
-    if (entries !== undefined && !Array.isArray(entries)) {
-      process.stderr.write(`  warning: ${settingsPath} has a non-array ${event} hook value; skipped\n`);
-      continue;
-    }
-    const { list, pruned } = pruneStaleShimHooks(Array.isArray(entries) ? entries : [], command);
-    if (pruned) prunedStale = true;
-    const alreadyPresent = list.some((entry) => isRecord(entry) && Array.isArray(entry.hooks)
-      && entry.hooks.some((hook: unknown) => isRecord(hook) && hook.type === "command" && hook.command === command));
-    if (!alreadyPresent) {
-      list.push({ hooks: [{ type: "command", command }] });
-      added.push(event);
-    }
-    hooks[event] = list;
-  }
-  if (added.length || prunedStale) {
-    files.mkdirSync(claudeDir, { recursive: true });
-    files.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  }
-  const summary = [
-    added.length ? `added ${added.join(", ")} (${runtime}) in ${settingsPath}` : "",
-    prunedStale ? "pruned stale orch entries" : "",
-  ].filter(Boolean).join("; ") || "already configured";
-  process.stdout.write(`Claude Code hooks: ${summary}\n`);
-  if (!files.existsSync(shim)) {
-    process.stderr.write(`  warning: ${shim} is not built yet — run: bun run build\n`);
-  }
-}
-
 async function cmdSetup(args: string[]) {
   const copy = args.includes("--copy");
   const yes = args.includes("--yes") || args.includes("-y");
@@ -1628,40 +1585,73 @@ async function cmdSetup(args: string[]) {
     }
   };
 
-  const harnessFlag = readValueFlag(args, "--agent") ?? readValueFlag(args, "--adapter");
-  const backendFlag = readValueFlag(args, "--backend");
-  const adapterIds = adapters.map((adapter) => adapter.id);
+  const adapterFlag = readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--adapter") ?? readAssignFlag(args, "--harness");
+  const backendFlag = readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer");
+  const adapterIds = allAdapters().map((adapter) => adapter.id);
   const backendIds = allBackends().map((entry) => entry.id);
   const interactive = process.stdin.isTTY && !yes;
   if (interactive) setupIntro();
 
-  const harness = await resolveSetupSelection("harness", "--agent", harnessFlag, adapterIds, interactive, selectAdapter);
-  if (harness === null) return;
-  const backend = await resolveSetupSelection("backend", "--backend", backendFlag, backendIds, interactive, selectBackend);
-  if (backend === null) return;
+  const adapters = await resolveProviderSet("adapter", "--agent", adapterFlag, adapterIds, interactive, selectAdapters);
+  if (adapters === null) return;
+  const defaultAdapter = await resolveActiveDefault(adapters, adapterFlag !== undefined, interactive, selectDefaultAdapter);
+  if (defaultAdapter === null) return;
+  const backends = await resolveProviderSet("backend", "--backend", backendFlag, backendIds, interactive, selectBackends);
+  if (backends === null) return;
+  const defaultBackend = await resolveActiveDefault(backends, backendFlag !== undefined, interactive, selectDefaultBackend);
+  if (defaultBackend === null) return;
 
-  writeDefaultEntry(orchDir(), "adapter", harness);
-  writeDefaultEntry(orchDir(), "backend", backend);
-  process.stdout.write(`Selection recorded in ${path.join(orchDir(), "config.toml")}:\n  harness (adapter) = ${harness}\n  backend           = ${backend}\n`);
+  // Write the installed sets FIRST — writeSettingsDefault validates the default against them.
+  writeSettingsInstalled(orchDir(), { adapters, backends });
+  writeSettingsDefault(orchDir(), "adapter", defaultAdapter);
+  writeSettingsDefault(orchDir(), "backend", defaultBackend);
+  process.stdout.write(
+    `Selection recorded in ${settingsPath(orchDir())}:\n` +
+    `  adapters          = ${adapters.join(", ")}\n` +
+    `  default adapter   = ${defaultAdapter}\n` +
+    `  backends          = ${backends.join(", ")}\n` +
+    `  default backend   = ${defaultBackend}\n`,
+  );
 
+  // Prerequisites are scoped to the selected providers only. Each adapter is probed by its
+  // id (the id-is-binary invariant); each backend by its own availability check (headless
+  // needs no binary). A prerequisite required solely by an install path (bun for pi) is
+  // surfaced as that provider's declared dependency, never as an unconditional requirement.
   process.stdout.write("Prerequisites:\n");
-  // Keep prerequisite availability in sync with doctor. Claude is a setup-only
-  // dependency; runtime binaries use the shared doctor binary check.
-  const bins = binaryStatus();
-  checkBins(bins);
-  const missing: string[] = [];
-  for (const [bin] of DEP_INSTALLERS) {
-    const found = bin === "claude" ? which(bin) : bins[bin];
-    const resolved = found ? which(bin) : "";
-    if (!found) missing.push(bin);
-    process.stdout.write(`  ${found ? "ok      " : "MISSING "}${bin}${resolved ? `  (${resolved})` : ""}\n`);
+  const missing: { bin: string; cmd: string }[] = [];
+  const manual: { id: string; url: string }[] = [];
+  const queueInstall = (id: string): void => {
+    const entry = INSTALLERS[id];
+    if (entry?.install) {
+      for (const need of entry.needs ?? []) {
+        if (which(need)) continue;
+        const needCmd = INSTALLERS[need]?.install;
+        if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
+      }
+      if (!missing.some((candidate) => candidate.bin === id)) missing.push({ bin: id, cmd: entry.install });
+    } else if (entry?.docsUrl) {
+      manual.push({ id, url: entry.docsUrl });
+    } else {
+      manual.push({ id, url: "(no installer known — install manually)" });
+    }
+  };
+  for (const id of adapters) {
+    const resolved = which(id);
+    process.stdout.write(`  ${resolved ? "ok      " : "MISSING "}${id}${resolved ? `  (${resolved})` : ""}\n`);
+    if (!resolved) queueInstall(id);
   }
+  for (const id of backends) {
+    const available = getBackend(id)!.isAvailable();
+    const resolved = available ? which(id) : "";
+    process.stdout.write(`  ${available ? "ok      " : "MISSING "}${id}${resolved ? `  (${resolved})` : ""}\n`);
+    if (!available) queueInstall(id);
+  }
+  for (const { id, url } of manual) process.stdout.write(`  install ${id} manually: ${url}\n`);
 
-  const missingWithCmd = missing.map((bin) => ({ bin, cmd: DEP_INSTALLERS.find(([b]) => b === bin)![1] }));
-  const toInstall = await resolveInstallTargets(missingWithCmd, interactive, yes, noInstall);
+  const toInstall = await resolveInstallTargets(missing, interactive, yes, noInstall);
   if (toInstall === null) return;
-  for (const bin of toInstall) {
-    const cmd = DEP_INSTALLERS.find(([b]) => b === bin)![1];
+  // Install in the queued order so a provider's `needs` (e.g. bun before pi) land first.
+  for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
     runInstall(bin, cmd, interactive);
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
     process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
@@ -1673,44 +1663,30 @@ async function cmdSetup(args: string[]) {
   files.mkdirSync(presenceDir(), { recursive: true });
   process.stdout.write(`  ${presenceDir()}\n`);
 
-  if (harness === "pi") {
-    process.stdout.write("pi extensions:\n");
-    const extDir = path.join(HOME, ".pi", "agent", "extensions");
-    let bridgeBundle = bridgeBundlePath(pkgRoot);
-    if (!files.existsSync(bridgeBundle)) {
-      process.stdout.write("  building bridge bundle…\n");
-      bridgeBundle = buildBridgeBundle(pkgRoot);
-    }
-    link(bridgeBundle, path.join(extDir, "orchestrator-bridge.js"));
-    for (const f of files.readdirSync(path.join(pkgRoot, "extensions"))) {
-      if (f === "orchestrator-bridge.ts") continue;
-      link(path.join(pkgRoot, "extensions", f), path.join(extDir, f));
-    }
-  }
-
-  const skillsSrc = path.join(pkgRoot, "skills", "claude");
-  if (files.existsSync(skillsSrc)) {
-    process.stdout.write("Claude Code skills:\n");
-    for (const s of files.readdirSync(skillsSrc)) {
-      const dest = path.join(HOME, ".claude", "skills", s);
-      files.mkdirSync(path.dirname(dest), { recursive: true });
-      files.rmSync(dest, { recursive: true, force: true });
-      files.cpSync(path.join(skillsSrc, s), dest, { recursive: true });
-      process.stdout.write(`  ${dest}\n`);
-    }
-  }
-  const agentsSrc = path.join(pkgRoot, "agents");
-  if (files.existsSync(agentsSrc)) {
-    process.stdout.write("Claude Code agents:\n");
-    for (const a of files.readdirSync(agentsSrc)) {
-      const dest = path.join(HOME, ".claude", "agents", a);
-      files.mkdirSync(path.dirname(dest), { recursive: true });
-      files.cpSync(path.join(agentsSrc, a), dest);
-      process.stdout.write(`  ${dest}\n`);
+  // Each selected adapter installs its own integration (L4 Builder — no identity branch).
+  // An adapter with no installShim is a loud, recorded gap (D10): its integration is
+  // expected but unbuildable, never silently skipped.
+  const gaps: string[] = [];
+  for (const id of adapters) {
+    const adapter = resolveAdapter(id);
+    if (adapter.installShim) {
+      try {
+        await adapter.installShim({ copy });
+      } catch (error: unknown) {
+        const gap = `${id}: integration install failed — ${errorMessage(error)}`;
+        process.stderr.write(`  WARNING ${gap}\n`);
+        gaps.push(gap);
+      }
+    } else {
+      const gap = `${id}: no integration installer available yet — ${id} agents will lack presence reporting`;
+      process.stderr.write(`  WARNING ${gap}\n`);
+      gaps.push(gap);
     }
   }
 
-  if (harness === "claude") installClaudeHooks(pkgRoot);
+  // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
+  if (interactive) await configureNotifiers();
+
 
   // bins on PATH (repo-clone case; bun add -g already links bins)
   process.stdout.write("bins:\n");
@@ -1747,9 +1723,118 @@ async function cmdSetup(args: string[]) {
   process.stdout.write("Running doctor checks...\n");
   const doctorResults = await runDoctor(orchDir());
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
+  if (gaps.length) {
+    process.stdout.write("Setup incomplete:\n" + gaps.map((gap) => `  - ${gap}`).join("\n") + "\n");
+    process.exitCode = 1;
+    return;
+  }
   const doneMessage = "Done. Open a backend workspace and try: orch spawn 2 --tab Team1";
   if (interactive) setupOutro(doneMessage);
   else process.stdout.write(`${doneMessage}\n`);
+}
+
+/** Interactive notifier onboarding: probe available notifiers, pick a set, collect each one's
+ * declared fields, and persist them as settings.json `notify` entries. A cancel skips the step. */
+async function configureNotifiers(): Promise<void> {
+  const available = (await probeNotifiers()).filter((notifier) => notifier.available);
+  if (!available.length) return;
+  const picked = await selectNotifiers(available.map((notifier) => notifier.id));
+  if (picked === null || !picked.length) return;
+  const selections: { id: string; config: Record<string, unknown> }[] = [];
+  for (const id of picked) {
+    const choice = available.find((notifier) => notifier.id === id)!;
+    const config: Record<string, unknown> = {};
+    for (const field of choice.requiredFields) {
+      const answer = await promptText(`${id}: ${field.label ?? field.name}`);
+      if (answer === null) return; // cancel skips the whole notifier step
+      // A "command" field is a shell string orch runs via `sh -c`.
+      config[field.name] = field.name === "command" ? ["sh", "-c", answer] : answer;
+    }
+    selections.push({ id, config });
+  }
+  const result = await buildSelectedNotifyEntries(selections);
+  for (const error of result.errors) {
+    process.stderr.write(`  notifier ${error.id}: missing required fields — ${error.missing.join(", ")}\n`);
+  }
+  if (result.entries.length) {
+    writeSettingsNotify(orchDir(), result.entries);
+    process.stdout.write(`  recorded ${result.entries.length} notifier(s): ${result.entries.map((entry) => entry.id).join(", ")}\n`);
+  }
+}
+
+// ---- settings (inspect effective settings + provenance, switch active defaults) ----
+
+/** The raw `queue.max_retries` set in settings.json, or undefined when the file omits it —
+ * so its provenance reads honestly rather than the value loadConfig defaults it to. */
+function rawMaxRetries(orchDirPath: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(files.readFileSync(settingsPath(orchDirPath), "utf8"));
+    if (isRecord(parsed) && isRecord(parsed.queue) && typeof parsed.queue.max_retries === "number") return parsed.queue.max_retries;
+  } catch {
+    // Absent or invalid — loadConfig already surfaced any real error before this ran.
+  }
+  return undefined;
+}
+
+/** Switch the active default adapter/backend; writeSettingsDefault throws when the id is not installed. */
+function switchDefault(key: "adapter" | "backend", value: string): void {
+  try {
+    writeSettingsDefault(orchDir(), key, value);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  process.stdout.write(`default ${key} = ${value}\n`);
+}
+
+/** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
+function cmdSettings(args: string[]): void {
+  const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
+  const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
+  const json = args.includes("--json");
+
+  // A load error (invalid settings, legacy config.toml) surfaces loudly with no partial table.
+  let config: OrchConfig;
+  try {
+    config = loadConfig(orchDir());
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+
+  if (harness !== undefined) switchDefault("adapter", harness);
+  if (plexer !== undefined) switchDefault("backend", plexer);
+  if (harness !== undefined || plexer !== undefined) return;
+
+  const provenance = [
+    { key: "adapter", ...resolveWithSource<string>({ env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "(none)" }) },
+    { key: "backend", ...resolveWithSource<string>({ env: "ORCH_BACKEND", config: config.defaults.backend, fallback: "(auto)" }) },
+    { key: "model", ...resolveWithSource<string>({ env: "ORCH_MODEL", config: config.defaults.model, fallback: "(none)" }) },
+    { key: "spawn_cap", ...resolveWithSource<number>({ env: "ORCH_SPAWN_CAP", config: config.defaults.spawn_cap, fallback: 8 }) },
+    { key: "worktree", ...resolveWithSource<boolean>({ env: "ORCH_WORKTREE", config: config.defaults.worktree, fallback: false }) },
+    { key: "worker_peer_tools", ...resolveWithSource<boolean>({ config: config.defaults.worker_peer_tools, fallback: false }) },
+    { key: "queue.max_retries", ...resolveWithSource<number>({ config: rawMaxRetries(orchDir()), fallback: 1 }) },
+  ];
+
+  const installedSet = config.installed.adapters.length > 0 || config.installed.backends.length > 0;
+  if (json) {
+    const out: Record<string, unknown> = {};
+    for (const { key, value, source } of provenance) out[key] = { value, source };
+    out.installed = { value: config.installed, source: installedSet ? "settings.json" : "default" };
+    process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+    return;
+  }
+
+  const width = Math.max(...provenance.map((row) => row.key.length));
+  const valueWidth = Math.max(...provenance.map((row) => String(row.value).length));
+  process.stdout.write(`settings  ${settingsPath(orchDir())}\n\n`);
+  for (const { key, value, source } of provenance) {
+    process.stdout.write(`  ${key.padEnd(width)}  ${String(value).padEnd(valueWidth)}  ${source}\n`);
+  }
+  process.stdout.write("\n");
+  process.stdout.write(`  installed.adapters  ${config.installed.adapters.join(", ") || "(none)"}\n`);
+  process.stdout.write(`  installed.backends  ${config.installed.backends.join(", ") || "(none)"}\n`);
+  process.stdout.write(`  hosts               ${Object.keys(config.hosts).length}\n`);
+  process.stdout.write(`  workspaces          ${Object.keys(config.workspaces).length}\n`);
+  process.stdout.write(`  notify              ${config.notify.length}\n`);
 }
 
 // ---- spawn / tile (geometry-driven tiler) ----
@@ -1835,7 +1920,6 @@ function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
     process.stdout.write(`  ${r[0]!.padEnd(w0)}  ${r[1]!.padEnd(w1)}  ${r[2]!}\n`);
 }
 
-const adapters: readonly AgentAdapter[] = [piAdapter, codexAdapter, claudeAdapter];
 
 const WORKER_BASE_TOOLS = ["read", "write", "edit", "bash", "orch_ask"] as const;
 const WORKER_PEER_TOOLS = ["orch_agents", "orch_send", "orch_read"] as const;
@@ -1849,9 +1933,11 @@ export function workerTools(config: OrchConfig): string {
 }
 
 function resolveAdapter(id: string): AgentAdapter {
-  const adapter = adapters.find((candidate) => candidate.id === id);
-  if (adapter) return adapter;
-  die(`Unknown adapter "${id}". Supported adapters: ${adapters.map((candidate) => candidate.id).join(", ")}.`);
+  try {
+    return resolveRegisteredAdapter(id);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
 }
 
 function adapterCommand(adapter: string, config = loadConfig(orchDir())): string {
@@ -2184,7 +2270,7 @@ async function cmdRun(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
-  const { pane } = resolvePane(target);
+  const { pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
   const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw) }, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${pane}.\n`);
@@ -2207,7 +2293,7 @@ async function cmdModel(args: string[]): Promise<void> {
   const target = rest[0];
   const modelArg = rest[1];
   if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
-  const { pane } = resolvePane(target);
+  const { pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
   const result = await setAgentModel(pane, modelArg, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
@@ -2263,11 +2349,14 @@ function cmdNew(args: string[]) {
   for (const target of targets) {
     const { ent } = resolvePane(target);
     const { backend, handle } = backendTarget(target, "reset");
+    const adapter = resolveAdapter(ent.agent ?? ent.presence?.status?.agent ?? "pi");
+    const resetCmd = adapter.caps.lifecycle.includes("reset") ? adapter.lifecycleCmd?.("reset") : undefined;
+    if (!resetCmd) die(`${handle}: adapter ${adapter.id} has no reset mechanism.`);
     const statusPath = path.join(presenceAgentDir(ent.key), "status.json");
     const before = readJSON<StatusFile>(statusPath);
     const beforeUpdated = Date.parse(typeof before?.updatedAt === "string" ? before.updatedAt : "");
     const sentAt = Date.now();
-    if (!backend.deliver(handle, { kind: "run", text: "/new" })) die(`Could not reset ${handle}.`);
+    if (!backend.deliver(handle, { kind: "run", text: resetCmd.text })) die(`Could not reset ${handle}.`);
 
     const deadline = sentAt + 75_000;
     let ready = false;
@@ -2280,9 +2369,9 @@ function cmdNew(args: string[]) {
       if (advanced && status?.state === "idle") { ready = true; break; }
       sleepMs(250);
     }
-    if (!ready) die(`${handle}: /new did not become ready within 75s.`);
+    if (!ready) die(`${handle}: ${adapter.id} reset (${resetCmd.text}) did not become ready within 75s.`);
     results.push({ target: handle, cleared: true, ready: true });
-    if (!json) process.stdout.write(`Cleared session on ${handle} (/new); ready.\n`);
+    if (!json) process.stdout.write(`Cleared session on ${handle} (${resetCmd.text}); ready.\n`);
   }
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
 }
@@ -2299,7 +2388,7 @@ interface ReloadResult {
   reason?: string;
 }
 
-function doReload(backend: Backend, pane: string, presenceKey: string): ReloadResult {
+function doReload(backend: Backend, pane: string, presenceKey: string, reloadText: string): ReloadResult {
   try {
     const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
     const old = readJSON<StatusFile>(statusPath);
@@ -2309,8 +2398,8 @@ function doReload(backend: Backend, pane: string, presenceKey: string): ReloadRe
     }
     if (!backend.sendKeys(pane, ["Escape"])) return { pane, ok: false, reason: errorMessage("escape failed") };
     sleepMs(500);
-    if (!backend.deliver(pane, { kind: "run", text: "/reload" })) {
-      return { pane, ok: false, reason: errorMessage("/reload failed") };
+    if (!backend.deliver(pane, { kind: "run", text: reloadText })) {
+      return { pane, ok: false, reason: errorMessage(`${reloadText} failed`) };
     }
     for (let i = 0; i < 60; i++) {
       sleepMs(500);
@@ -2318,7 +2407,7 @@ function doReload(backend: Backend, pane: string, presenceKey: string): ReloadRe
       if (typeof st?.pid === "number" && typeof st.updatedAt === "string"
         && pidAlive(st.pid) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt)) return { pane, ok: true };
     }
-    return { pane, ok: false, reason: errorMessage("bridge status.json did not refresh within 30s after /reload") };
+    return { pane, ok: false, reason: errorMessage(`bridge status.json did not refresh within 30s after ${reloadText}`) };
   } catch (error: unknown) {
     return { pane, ok: false, reason: errorMessage(error) };
   }
@@ -2330,14 +2419,14 @@ function touchReloadSignal(): void {
   files.closeSync(fd);
 }
 
-// Full process restart for pi version upgrades. Escape first, /quit, wait for
-// the shell, relaunch, then wait for a fresh bridge pid.
-function doHardRestart(backend: Backend, pane: string, cmd: string, presenceKey: string): boolean {
+// Full process restart for pi version upgrades. Escape first, the adapter's
+// quit mechanism, wait for the shell, relaunch, then wait for a fresh bridge pid.
+function doHardRestart(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
   const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
   const oldPid = readJSON<StatusFile>(statusPath)?.pid ?? null;
   backend.sendKeys(pane, ["Escape"]);
   sleepMs(500);
-  backend.deliver(pane, { kind: "run", text: "/quit" });
+  backend.deliver(pane, { kind: "run", text: quitText });
   let shellSeen = false;
   for (let i = 0; i < 16; i++) {
     sleepMs(500);
@@ -2345,7 +2434,7 @@ function doHardRestart(backend: Backend, pane: string, cmd: string, presenceKey:
     if (fg.length && fg.every((n) => /sh$|^bash$|^zsh$|^fish$/.test(n))) { shellSeen = true; break; }
   }
   if (!shellSeen) {
-    process.stderr.write(`${pane}: agent did not exit after /quit — skipping relaunch.\n`);
+    process.stderr.write(`${pane}: agent did not exit after ${quitText} — skipping relaunch.\n`);
     return false;
   }
   backend.deliver(pane, { kind: "run", text: cmd });
@@ -2373,16 +2462,19 @@ function cmdReload(args: string[]) {
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
   try {
-    buildBridgeBundle(packageRoot());
+    for (const name of PI_EXTENSION_NAMES) buildExtensionBundle(packageRoot(), name);
   } catch (error: unknown) {
-    process.stderr.write(`warning: could not rebuild bridge bundle: ${errorMessage(error)}\n`);
+    process.stderr.write(`warning: could not rebuild extension bundles: ${errorMessage(error)}\n`);
   }
   const results: ReloadResult[] = [];
   for (const target of targets) {
     try {
       const { ent } = resolvePane(target);
       const { backend, handle } = backendTarget(target, "reload");
-      results.push(doReload(backend, handle, ent.key));
+      const adapter = resolveAdapter(ent.agent ?? ent.presence?.status?.agent ?? "pi");
+      const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
+      if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
+      results.push(doReload(backend, handle, ent.key, reloadCmd.text));
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
@@ -2420,11 +2512,14 @@ function cmdRestart(args: string[]) {
   for (const target of targets) {
     const { ent } = resolvePane(target);
     const agentId = ent.agent ?? ent.presence?.status?.agent;
-    if (!cmd && !agentId) die(`Target "${target}" has no recorded harness — pass --cmd.`);
-    const launch = cmd ?? adapterCommand(resolveAdapter(agentId!));
+    if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its restart mechanism.`);
+    const adapter = resolveAdapter(agentId);
+    const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
+    if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
+    const launch = cmd ?? adapterCommand(agentId);
     const { backend, handle } = backendTarget(target, "restart");
     if (!json) process.stdout.write(`Restarting ${handle} (${launch})...\n`);
-    if (doHardRestart(backend, handle, launch, ent.key)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
+    if (doHardRestart(backend, handle, launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
   }
   if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);
@@ -2814,11 +2909,11 @@ type DispatchSettings = AgentSettings & {
   destination: Entity | null;
 };
 
-function resolveDispatchSettings(flags: DispatchFlags): DispatchSettings {
+function resolveDispatchSettings(flags: DispatchFlags, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = flags.positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
-  const { ent, pane } = resolvePane(target);
+  const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
   const settings = resolveAgentSettings(flags);
   resolveAdapter(settings.adapter);
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
@@ -2841,7 +2936,7 @@ async function cmdDispatch(args: string[]) {
       return;
     }
   }
-  const settings = resolveDispatchSettings(flags);
+  const settings = resolveDispatchSettings(flags, gov);
   if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
   const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw) }, gov);
   recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined, owner: selfActor() ?? undefined });
@@ -3158,13 +3253,18 @@ MAINTENANCE
                                  unattended (also how CI/non-TTY repairs run).
   orch clean [--worktrees [--force]]
                                  Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
-  orch setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]
-                                 Onboarding wizard: pick a harness (--agent) and backend,
-                                 record them to ~/.orch/config.toml, install missing deps
-                                 (runtime/agent tools), and wire the chosen harness. Prompts
-                                 interactively when a selection is omitted on a TTY; --yes
-                                 auto-installs deps, --no-install just reports, --copy copies
-                                 instead of symlinking.
+  orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--yes] [--no-install] [--copy]
+                                 Onboarding wizard: multi-select the adapters and backends
+                                 you use (--agent pi,claude / --backend herdr,headless — the
+                                 first of each is the active default), record the installed
+                                 sets to ~/.orch/settings.json, install missing deps, and wire
+                                 every selected adapter's shim. Prompts interactively when a
+                                 selection is omitted on a TTY; --yes auto-installs deps,
+                                 --no-install just reports, --copy copies instead of symlinking.
+  orch settings [--json] [--harness=<id>] [--plexer=<id>]
+                                 Print each effective setting with its source (flag > env >
+                                 settings.json > default), or switch the active default
+                                 adapter/plexer among the installed set.
   orch help                      This message.
 
 RECOVER
@@ -3190,9 +3290,34 @@ function readOrchVersion(): string {
 
 const VERSION = readOrchVersion();
 
+/** True while setup has never recorded a harness selection. */
+function compositionUnrecorded(): boolean {
+  return !loadConfig(orchDir()).defaults.adapter;
+}
+
+/** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them. */
+function needsFirstRunSetup(cmd: string | undefined): boolean {
+  if (cmd === "setup" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version") return false;
+  if (!process.stdin.isTTY) return false;
+  return compositionUnrecorded();
+}
+
+/** Walk the first run through the setup wizard, then dispatch the original command. */
+async function runFirstTimeSetup(argv: string[]): Promise<void> {
+  process.stdout.write("First run — no harness/backend recorded yet, walking through setup.\n\n");
+  await cmdSetup([]);
+  // A cancelled wizard records nothing; exit instead of looping back into the gate.
+  if (compositionUnrecorded()) process.exit(1);
+  runCommand(argv);
+}
+
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
   const rest = argv.slice(1);
+  if (needsFirstRunSetup(cmd)) {
+    void runFirstTimeSetup(argv).catch((error: unknown) => die(errorMessage(error)));
+    return;
+  }
   switch (cmd) {
     case undefined: case "status": void cmdStatus(cmd === undefined ? argv : rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "events": void cmdEvents(rest).catch((error: unknown) => die(errorMessage(error))); break;
@@ -3235,6 +3360,7 @@ export function runCommand(argv: string[]): void {
     case "move": cmdMove(rest); break;
     case "ws": cmdWs(rest); break;
     case "clean": cmdClean(rest); break;
+    case "settings": cmdSettings(rest); break;
     case "setup": void cmdSetup(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "--version": case "-V": case "version": process.stdout.write(`orch ${VERSION}\n`); break;
     case "help": case "-h": case "--help": usage(); break;

@@ -15,12 +15,12 @@ function makeFixture(): { orchDir: string; agentKey: string; taskId: string } {
 
   // This is deliberately an unreachable-but-idle herdr pane. The race assertion
   // stops at the claim boundary; no real dispatch can happen in this fixture.
-  const agentKey = "fake:p1";
+  const agentKey = "herdr~fake~p1";
   const agentDir = presenceAgentDir(agentKey, orchDir);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "status.json"),
-    JSON.stringify({ pid: process.pid, paneId: agentKey, agent: "pi", state: "idle" }),
+    JSON.stringify({ schema: 2, key: agentKey, backend: "herdr", workspace: "fake", handle: "p1", pid: process.pid, paneId: "p1", agent: "pi", state: "idle" }),
   );
 
   return { orchDir, agentKey, taskId: addTask(orchDir, "race this task").id };
@@ -60,7 +60,7 @@ describe("orch work claim race", () => {
       // unreachable, so this only verifies O_EXCL claim ownership, not dispatch.
       writeFileSync(
         join(presenceAgentDir(agentKey, orchDir), "status.json"),
-        JSON.stringify({ pid: process.pid, paneId: agentKey, agent: "pi", state: "working" }),
+        JSON.stringify({ schema: 2, key: agentKey, backend: "herdr", workspace: "fake", handle: "p1", pid: process.pid, paneId: "p1", agent: "pi", state: "working" }),
       );
 
       const exits = await Promise.all(runners.map((runner) => runner.exited));

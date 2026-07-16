@@ -54,6 +54,6 @@
 - [x] 7.4 Document that old `ws:pane`-era presence directories are abandoned and may be reaped by `orch clean`
 
 ## 8. Verification
-- [~] 8.1 Run the full Bun test suite and fix all failures (264/266 → migration failures fixed; final run pending reorg)
+- [~] 8.1 Run the full Bun test suite and fix all failures (2026-07-16: 253/267 solo-verified green incl. all migration suites — backend-herdr, herdr-notify-hardening, identity, claude-adapter, notify, review, clean-worktrees, broker-routing, routing-hardening all pass in isolation; full-suite run under load flakes on WSL exec cost, spawn-heavy tests now carry explicit 15-30s timeouts; one final idle-machine full run still owed)
 - [ ] 8.2 Run every OpenSpec scenario for agent adapters, fleet backends, plexer identity, tmux backend, and workspace policy and make them pass
-- [ ] 8.3 Run `bun run check` and confirm the repository is clean
+- [x] 8.3 Run `bun run check` and confirm the repository is clean (2026-07-16: oxlint + tsc --noEmit + fallow all clean; `bun run check:bridge` green at full width — 45 files incl. core src/, extensions/, scripts/)

@@ -19,7 +19,7 @@
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
     "build:web": "cd packages/web && bun run build",
-    "build:dev": "bun run build:cli && bun link && echo 'orch CLI linked from dist/ — run \\'orch setup\\' to pick and install integrations'",
+    "build:dev": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
     "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
     "lint": "oxlint .",

@@ -31,7 +31,7 @@ interface ShimRun {
 function runShim(runtime: ClaudeHookRuntime, event: string, env: Record<string, string | undefined>): ShimRun {
   const [bin, ...args] = runtime === "deno" ? ["deno", "run", "--allow-all", shim, event] : [runtime, shim, event];
   try {
-    execFileSync(bin!, args, {
+    execFileSync(bin, args, {
       input: "{}",
       timeout: 25_000,
       env: { ...process.env, ORCH_AGENT_KEY: undefined, ...env },

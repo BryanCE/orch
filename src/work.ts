@@ -174,9 +174,11 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       // A worker may claim tasks from its own workspace and legacy unscoped
       // tasks only; nextQueuedTask enforces this origin-workspace wall.
       const workerWorkspace = workspaceOf(entry.key) ?? entry.key.split(":", 1)[0];
+      const workerAgent = entry.status?.agent;
+      if (!workerAgent) continue;
       const task = nextQueuedTask(
         listTasks(options.orchDir),
-        entry.status?.agent ?? "pi",
+        workerAgent,
         workerWorkspace,
       );
       if (!task || !claimTask(options.orchDir, task.id, entry.key)) continue;

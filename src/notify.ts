@@ -1,9 +1,8 @@
 import { spawn, execFile } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { workspaceOf } from "./policy/workspace.ts";
-import { errorMessage } from "./util.ts";
+import { errorMessage, packageRoot } from "./util.ts";
 
 export interface NotifyEvent {
   host?: string;
@@ -473,7 +472,7 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
 
 async function windowsToast(title: string, body: string): Promise<boolean> {
   if (!commandOnPath("powershell.exe")) return false;
-  const script = fileURLToPath(new URL("../scripts/wsl-toast.ps1", import.meta.url));
+  const script = path.join(packageRoot(), "scripts", "wsl-toast.ps1");
   if (!filesystem.existsSync(script)) return false;
   try {
     const windowsPath = await new Promise<string>((resolve) => {
@@ -497,7 +496,7 @@ async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
 
 function desktopAvailable(): boolean {
   if (commandOnPath("notify-send") || commandOnPath("wsl-notify-send")) return true;
-  return commandOnPath("powershell.exe") && commandOnPath("wslpath") && filesystem.existsSync(fileURLToPath(new URL("../scripts/wsl-toast.ps1", import.meta.url)));
+  return commandOnPath("powershell.exe") && commandOnPath("wslpath") && filesystem.existsSync(path.join(packageRoot(), "scripts", "wsl-toast.ps1"));
 }
 
 function commandAvailable(config: Record<string, unknown>): boolean {

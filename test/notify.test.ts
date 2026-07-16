@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliverToSink, loadSinks, notificationText, notify, type NotifyEvent } from "../src/notify";
+// Registers the herdr sink provider, as the real CLI does, so herdr entries parse deterministically.
+import "../src/backends/herdr/index.ts";
 
 const tempDirs: string[] = [];
 
@@ -85,6 +87,7 @@ on = ["done"]
       { type: "desktop", on: ["blocked", "error"] },
       { type: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
       { type: "command", on: ["blocked", "error"], command: nodeCommand("") },
+      { type: "herdr", on: ["done"] },
     ]);
     expect(result.stderr).toContain("unknown sink type");
     expect(result.stderr).toContain("webhook sink requires url");

@@ -468,6 +468,8 @@ function reviewItems(): ReviewItem[] {
       if (details.commitsAhead === 0) continue;
       const entry = presence.get(record.pane);
       const status = entry?.status;
+      const adapter = record.adapter ?? status?.agent;
+      if (!adapter) continue;
       const resultSummary = resultText(entry?.result) ? collapse(resultText(entry?.result)!) : "";
       items.push({
         target: reviewTarget(record),
@@ -480,7 +482,7 @@ function reviewItems(): ReviewItem[] {
         summary: resultSummary || details.summary,
         diff: details.diff,
         commitsAhead: details.commitsAhead,
-        adapter: record.adapter ?? status?.agent ?? "pi",
+        adapter,
         repoRoot: baseRoot,
       });
     } catch {
@@ -1140,7 +1142,9 @@ async function cmdSteer(args: string[]): Promise<void> {
   const entity = resolveTarget(target);
   if (!entity.paneId) {
     if (!entity.presence) die(`Target "${target}" has no agent presence.`);
-    const adapter = resolveAdapter(entity.agent ?? entity.presence.status?.agent ?? "pi");
+    const agentId = entity.agent ?? entity.presence.status?.agent;
+    if (!agentId) die(`Target "${target}" has no recorded harness.`);
+    const adapter = resolveAdapter(agentId);
     const command = adapter.steer({ key: entity.presence.key, text });
     if (!command && adapter.id !== "pi") {
       const id = parseIdentity(entity.presence.key);
@@ -1608,9 +1612,7 @@ async function cmdSetup(args: string[]) {
   const copy = args.includes("--copy");
   const yes = args.includes("--yes") || args.includes("-y");
   const noInstall = args.includes("--no-install");
-  const entrypoint = process.argv[1];
-  if (!entrypoint) die("Cannot determine orch executable path.");
-  const pkgRoot = path.resolve(path.dirname(files.realpathSync(entrypoint)), "..");
+  const pkgRoot = packageRoot();
   const link = (src: string, dest: string) => {
     files.mkdirSync(path.dirname(dest), { recursive: true });
     files.rmSync(dest, { recursive: true, force: true });
@@ -1870,7 +1872,8 @@ interface AgentSettings {
 }
 
 function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
-  const adapter = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "pi" });
+  const adapter = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "" });
+  if (!adapter) die("no harness selected — pass --agent <id> or run `orch setup` to pick one");
   // Selection flows through the backend factory: explicit flag/env, then config
   // default, then a capability-probed fallback. No per-backend branch is hard-coded here.
   let backend: Backend;
@@ -2092,7 +2095,7 @@ async function cmdSpawn(args: string[]) {
 async function cmdTile(args: string[]) {
   const json = args.includes("--json");
   let cwd = process.cwd();
-  let cmd = "pi";
+  let cmd = "";
   let commandFlag = false;
   let name: string | null = null;
   let modelFlag: string | undefined;
@@ -2370,10 +2373,7 @@ function cmdReload(args: string[]) {
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
   try {
-    const entrypoint = process.argv[1];
-    if (!entrypoint) throw new Error("Cannot determine orch executable path.");
-    const pkgRoot = path.resolve(path.dirname(files.realpathSync(entrypoint)), "..");
-    buildBridgeBundle(pkgRoot);
+    buildBridgeBundle(packageRoot());
   } catch (error: unknown) {
     process.stderr.write(`warning: could not rebuild bridge bundle: ${errorMessage(error)}\n`);
   }
@@ -2405,7 +2405,7 @@ function cmdReload(args: string[]) {
 }
 
 function cmdRestart(args: string[]) {
-  let cmd = "pi";
+  let cmd: string | null = null;
   const json = args.includes("--json");
   const targets: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -2419,9 +2419,12 @@ function cmdRestart(args: string[]) {
   let ok = 0;
   for (const target of targets) {
     const { ent } = resolvePane(target);
+    const agentId = ent.agent ?? ent.presence?.status?.agent;
+    if (!cmd && !agentId) die(`Target "${target}" has no recorded harness — pass --cmd.`);
+    const launch = cmd ?? adapterCommand(resolveAdapter(agentId!));
     const { backend, handle } = backendTarget(target, "restart");
-    if (!json) process.stdout.write(`Restarting ${handle} (${cmd})...\n`);
-    if (doHardRestart(backend, handle, cmd, ent.key)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
+    if (!json) process.stdout.write(`Restarting ${handle} (${launch})...\n`);
+    if (doHardRestart(backend, handle, launch, ent.key)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
   }
   if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);

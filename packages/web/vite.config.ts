@@ -9,6 +9,11 @@ import { nitroV2Plugin } from '@tanstack/nitro-v2-vite-plugin'
 // native/domain externals (ssh2, libsql, google, canvas, papaparse). Add
 // orch-specific SSR externals here when we wire the daemon socket client.
 export default defineConfig({
+  // allow server fns to import orch's src/ from the repo root (../..)
+  server: { fs: { allow: ["../.."] } },
+  // orch's store selects bun:sqlite at runtime — never bundle it
+  optimizeDeps: { exclude: ["bun:sqlite"] },
+  ssr: { external: ["bun:sqlite", "node:sqlite"] },
   plugins: [
     nitroV2Plugin({
       compatibilityDate: '2026-02-03',

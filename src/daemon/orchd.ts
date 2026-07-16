@@ -10,7 +10,7 @@ import { loadSinks, type Sink } from "../notify.ts";
 import { runWorkLoop } from "../work.ts";
 import { startConfigWatch, type ConfigWatch } from "./configwatch.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
-import { orchDir } from "../store.ts";
+import { orchDir, spawnedRecords } from "../store.ts";
 import { errorMessage } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -19,7 +19,8 @@ import { appendFileSync } from "node:fs";
 import { insertOutboxMessage, markOutboxDelivered, checkOwnerWrite } from "../store/sqlite.ts";
 import { checkWall } from "../policy/workspace.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
-import { herdrBestEffort } from "../backends/herdr/cli.ts";
+import { getBackend } from "../backends/registry.ts";
+import { parseIdentity } from "../backends/identity.ts";
 import { presenceAgentDir, loadPresence } from "../store.ts";
 import { piAdapter } from "../adapters/pi.ts";
 
@@ -81,13 +82,26 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
 function deliverBackend(target: string, payload: unknown): Promise<boolean> {
   const value = isWritePayload(payload) ? payload : {};
   const text = requiredString(value.text, "text");
-  if (value.action === "dispatch") return Promise.resolve(herdrBestEffort(["pane", "run", target, text]));
+  let backend: ReturnType<typeof getBackend>;
+  let handle: string | undefined;
+  try {
+    const id = parseIdentity(target);
+    backend = getBackend(id.backend);
+    handle = id.handle;
+  } catch {
+    const record = spawnedRecords().get(target);
+    if (!record?.backend || record.handle === undefined) return Promise.resolve(false);
+    backend = getBackend(record.backend);
+    handle = record.handle;
+  }
+  if (!backend || handle === undefined) return Promise.resolve(false);
+  if (value.action === "dispatch") return Promise.resolve(backend.deliver(handle, { kind: "run", text }));
   const presence = loadPresence().get(target);
   if (presence) {
     piAdapter.steer({ key: target, text });
     return Promise.resolve(true);
   }
-  return Promise.resolve(herdrBestEffort(["agent", "send", target, text]) && herdrBestEffort(["pane", "send-keys", target, "Enter"]));
+  return Promise.resolve(backend.deliver(handle, { kind: "message", text }));
 }
 
 function outboxDeps(): OutboxDeps {
@@ -106,8 +120,8 @@ export function validateWriteParams(params: unknown): { target: string; text: st
 }
 
 /** Enforce the workspace wall, then ownership, before a write is accepted.
- *  An unscoped actor (no HERDR_PANE_ID; e.g. headless operator) is wall-eligible
- *  and unattributable, so ownership is skipped for it. Throws to reject the write. */
+ *  An unscoped actor is wall-eligible and unattributable, so ownership is skipped
+ *  for it. Throws to reject the write. */
 export function governWrite(directory: string, target: string, params: unknown): void {
   const value = writeParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;

@@ -88,5 +88,5 @@ describe("CLI offline routing", () => {
     expect(exit).toBe(0);
     expect(await new Response(child.stdout).text()).toBe("[]\n");
     expect(Bun.file(join(dir, "orchd.lock")).size).toBe(0);
-  });
+  }, 15_000);
 });

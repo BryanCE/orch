@@ -13,14 +13,14 @@ function isValidMode(value: string | null | undefined): value is ThemeMode {
   return !!value && (VALID as readonly string[]).includes(value)
 }
 
-export const getThemeModeCookie = createServerFn({ method: 'GET' }).handler(async (): Promise<ThemeMode> => {
+export const getThemeModeCookie = createServerFn({ method: 'GET' }).handler((): ThemeMode => {
   const cookie = getCookie(COOKIE_NAME)
   return isValidMode(cookie) ? cookie : DEFAULT_MODE
 })
 
 export const setThemeModeCookie = createServerFn({ method: 'POST' })
-  .inputValidator(z.object({ mode: z.enum(['light', 'dark', 'system']) }))
-  .handler(async ({ data }) => {
+  .validator(z.object({ mode: z.enum(['light', 'dark', 'system']) }))
+  .handler(({ data }) => {
     setCookie(COOKIE_NAME, data.mode, {
       path: '/',
       maxAge: 31536000,

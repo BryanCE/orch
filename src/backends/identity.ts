@@ -25,7 +25,7 @@ const SEP = "~";
  * Percent-escapes applied within each segment. `%` MUST come first so the
  * escape marker introduced by later rules is never itself re-escaped.
  */
-const ESCAPES: ReadonlyArray<readonly [string, string]> = [
+const ESCAPES: readonly (readonly [string, string])[] = [
   ["%", "%25"],
   ["~", "%7E"],
   [":", "%3A"],

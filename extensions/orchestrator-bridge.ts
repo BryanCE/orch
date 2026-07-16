@@ -21,7 +21,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../src/policy/workspace.ts";
 import { allowedModelPatterns } from "../src/config.ts";
-import { tryParseIdentity } from "../src/backends/identity.ts";
+import { serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
 
 // The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
 function hashExtensionFile(file: string): string {
@@ -217,7 +217,11 @@ function isHerdrBlockedEvent(value: unknown): value is HerdrBlockedEventLike {
 // Orch-spawned agents use their opaque identity key. The owner's interactive
 // pane has a local pid key when no orch key is present; otherwise skip presence.
 function computeKey(hasUI: boolean): string | undefined {
-  if (process.env.ORCH_AGENT_KEY) return process.env.ORCH_AGENT_KEY;
+  const rawKey = process.env.ORCH_AGENT_KEY;
+  if (rawKey) {
+    const identity = tryParseIdentity(rawKey);
+    return identity ? serializeIdentity(identity) : undefined;
+  }
   if (hasUI && process.pid > 0) return `session-${process.pid}`;
   return undefined;
 }
@@ -242,7 +246,7 @@ const HEARTBEAT_MS = 3000;
 const INBOX_POLL_MS = 1000;
 const HERDR_ENV = process.env.HERDR_ENV;
 const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH;
-const HERDR_PANE_ID = process.env.HERDR_PANE_ID;
+const AGENT_IDENTITY = tryParseIdentity(process.env.ORCH_AGENT_KEY);
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
 let metadataSeq = Date.now() * 1000;
@@ -253,14 +257,14 @@ function nextMetadataSeq(): number {
 }
 
 function sendHerdrMetadata(customStatus: string): void {
-  if (HERDR_ENV !== "1" || !HERDR_SOCKET_PATH || !HERDR_PANE_ID) return;
+  if (HERDR_ENV !== "1" || !HERDR_SOCKET_PATH || AGENT_IDENTITY?.backend !== "herdr") return;
 
   try {
     const request = {
       id: `${HERDR_METADATA_SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
       method: "pane.report_metadata",
       params: {
-        pane_id: HERDR_PANE_ID,
+        pane_id: AGENT_IDENTITY.handle,
         source: HERDR_METADATA_SOURCE,
         custom_status: customStatus,
         seq: nextMetadataSeq(),
@@ -393,7 +397,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
     schema: SCHEMA_VERSION,
     agent: AGENT_ID,
     key: "",
-    paneId: process.env.HERDR_PANE_ID ?? null,
+    paneId: AGENT_IDENTITY?.backend === "herdr" ? AGENT_IDENTITY.handle : null,
     label: null as string | null,
     tabLabel: null as string | null,
     pid: process.pid,
@@ -433,9 +437,8 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
     return (
       HERDR_ENV === "1" &&
       !!HERDR_SOCKET_PATH &&
-      !!HERDR_PANE_ID &&
-      !!state.paneId &&
-      state.key === state.paneId
+      AGENT_IDENTITY?.backend === "herdr" &&
+      state.paneId === AGENT_IDENTITY.handle
     );
   }
 
@@ -512,7 +515,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   function findHerdrPane(panes: unknown): HerdrEntityLike | undefined {
     if (!isUnknownArray(panes)) return undefined;
     return panes.find((candidate: unknown): candidate is HerdrEntityLike =>
-      isHerdrEntity(candidate) && candidate.pane_id === HERDR_PANE_ID);
+      isHerdrEntity(candidate) && candidate.pane_id === AGENT_IDENTITY?.handle);
   }
 
   function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEntityLike | undefined {
@@ -522,7 +525,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   }
 
   async function readHerdrIdentity(): Promise<void> {
-    if (!HERDR_PANE_ID) return;
+    if (AGENT_IDENTITY?.backend !== "herdr") return;
     try {
       const [paneOutput, tabOutput] = await Promise.all([
         runHerdrJson(["pane", "list"]),
@@ -935,7 +938,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
 
   function ownPresenceKey(ctx: ExtensionContext): string {
     initPresence(ctx.hasUI);
-    return state.key || computeKey(ctx.hasUI) || "";
+    return state.key !== undefined && state.key !== "" ? state.key : computeKey(ctx.hasUI) ?? "";
   }
 
   function peerSummaries(ownKey: string, allWorkspaces = false): PeerSummary[] {
@@ -1224,7 +1227,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
       const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
       return executeTool(() => {
         initPresence(ctx.hasUI);
-        const ownKey = state.key || computeKey(ctx.hasUI) || "";
+        const ownKey = state.key !== undefined && state.key !== "" ? state.key : computeKey(ctx.hasUI) ?? "";
         const resolved = resolvePeer(params.target, ownKey, crossWorkspace);
         if ("error" in resolved) return resolved.error;
         const result = readJson(path.join(resolved.peer.dir, "result.json"));
@@ -1421,7 +1424,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
       writeResult(lastFullText);
     }
     if (pendingHandoff && runFullText) {
-      deliverPendingHandoff(runFullText, state.key || computeKey(ctx.hasUI) || "");
+      deliverPendingHandoff(runFullText, state.key !== undefined && state.key !== "" ? state.key : computeKey(ctx.hasUI) ?? "");
     }
     writeStatus();
   }

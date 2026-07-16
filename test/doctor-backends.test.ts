@@ -17,8 +17,8 @@ afterEach(() => {
 });
 
 describe("doctor backend and presence checks", () => {
-  test("reports every registered backend and boolean capability fields", async () => {
-    const result = await checkBackendCapabilities();
+  test("reports every registered backend and boolean capability fields", () => {
+    const result = checkBackendCapabilities();
     expect(result.backends?.map((backend) => backend.id)).toEqual(["herdr", "headless", "tmux"]);
     for (const backend of result.backends ?? []) {
       expect(typeof backend.available).toBe("boolean");
@@ -29,7 +29,7 @@ describe("doctor backend and presence checks", () => {
     }
   });
 
-  test("reports only malformed or legacy presence records", async () => {
+  test("reports only malformed or legacy presence records", () => {
     const directory = tempDir();
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
@@ -40,9 +40,12 @@ describe("doctor backend and presence checks", () => {
       fs.mkdirSync(path.join(agents, "wD:p1"), { recursive: true });
       fs.writeFileSync(path.join(agents, "wD:p1", "status.json"), JSON.stringify({}));
 
-      const result = await checkMalformedPresenceRecords();
+      const result = checkMalformedPresenceRecords();
       expect(result.status).toBe("fail");
-      expect(result.ignoredRecords).toEqual([{ path: path.join(agents, "wD:p1"), reason: expect.any(String) }]);
+      const ignored = result.ignoredRecords ?? [];
+      expect(ignored).toHaveLength(1);
+      expect(ignored[0]?.path).toBe(path.join(agents, "wD:p1"));
+      expect(typeof ignored[0]?.reason).toBe("string");
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;

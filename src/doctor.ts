@@ -2,7 +2,6 @@ import * as filesystem from "node:fs";
 import { execFile } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { loadConfig, type HostConfig } from "./config.ts";
 import { createNotifierRegistry, loadSinks, type Sink } from "./notify.ts";
 import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
@@ -12,6 +11,7 @@ import { bridgeBundlePath, buildBridgeBundle } from "./bridge-bundle.ts";
 import { allBackends } from "./backends/registry.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { presenceDir, presenceKeyFromDirectoryName } from "./store.ts";
+import { packageRoot } from "./util.ts";
 
 export interface FixDescriptor {
   description: string;
@@ -27,6 +27,7 @@ export interface DoctorBackendReport {
   panes: boolean;
   focusable: boolean;
   canSendKeys: boolean;
+  workspace: string | null;
 }
 
 export interface IgnoredPresenceRecord {
@@ -46,7 +47,7 @@ export interface CheckResult {
 
 export type BinaryStatus = Record<string, boolean>;
 
-const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoDir = packageRoot();
 
 function onPath(command: string): boolean {
   const extensions = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
@@ -95,30 +96,20 @@ function commandOutput(command: string, args: string[]): Promise<{ ok: boolean; 
 }
 
 export function binaryStatus(): BinaryStatus {
-  return { bun: onPath("bun"), herdr: onPath("herdr"), pi: onPath("pi") };
+  // Plexer availability belongs to the backend registry, not this runtime check.
+  return { bun: onPath("bun"), pi: onPath("pi") };
 }
 
-export async function checkBins(bins: BinaryStatus): Promise<CheckResult> {
-  await Promise.resolve();
-  const missing = ["bun", "herdr", "pi"].filter((bin) => !bins[bin]);
-  if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: "bun, herdr, and pi are on PATH" };
+export function checkBins(bins: BinaryStatus): CheckResult {
+  const missing = ["bun", "pi"].filter((bin) => !bins[bin]);
+  if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: "bun and pi are on PATH" };
   if (!bins.bun) return { id: "bins", label: "Required binaries", status: "fail", detail: "bun is not on PATH" };
   return {
     id: "bins",
     label: "Required binaries",
     status: "warn",
-    detail: `${missing.join(" and ")} ${missing.length === 1 ? "is" : "are"} not on PATH${!bins.herdr ? " (herdr is optional)" : ""}`,
+    detail: `${missing.join(" and ")} ${missing.length === 1 ? "is" : "are"} not on PATH`,
   };
-}
-
-async function checkHerdrVersion(bins: BinaryStatus): Promise<CheckResult> {
-  if (!bins.herdr) return { id: "herdr-version", label: "herdr version", status: "skip", detail: "herdr is not installed" };
-  const result = await commandOutput("herdr", ["--version"]);
-  const version = /\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/.exec(result.output)?.[0];
-  if (!result.ok || !version) {
-    return { id: "herdr-version", label: "herdr version", status: "warn", detail: "could not parse herdr --version output" };
-  }
-  return { id: "herdr-version", label: "herdr version", status: "ok", detail: `herdr ${version}` };
 }
 
 function readAgentEntries(orchDir: string): filesystem.Dirent[] | undefined {
@@ -165,11 +156,12 @@ function describePresenceDir(agentsDir: string, name: string): string {
     .join(" · ");
 }
 
-export async function checkBackendCapabilities(): Promise<CheckResult> {
+export function checkBackendCapabilities(): CheckResult {
   const backends: DoctorBackendReport[] = allBackends().map((backend) => ({
     id: backend.id,
     available: backend.isAvailable(),
     insideSession: backend.isInsideSession(),
+    workspace: backend.currentIdentity?.()?.workspace ?? null,
     panes: backend.panes,
     focusable: backend.focusable,
     canSendKeys: backend.canSendKeys,
@@ -183,7 +175,7 @@ export async function checkBackendCapabilities(): Promise<CheckResult> {
   };
 }
 
-export async function checkMalformedPresenceRecords(orchDir?: string): Promise<CheckResult> {
+export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
   const agentsDir = orchDir === undefined ? presenceDir() : path.join(orchDir, "agents");
   let entries: filesystem.Dirent[];
   try {
@@ -401,10 +393,9 @@ async function checkConfig(orchDir: string): Promise<CheckResult> {
   }
 }
 
-async function checkNotifications(bins: BinaryStatus): Promise<CheckResult> {
-  await Promise.resolve();
-  if (process.env.HERDR_ENV === "1" && bins.herdr) {
-    return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "herdr notification tier is available" };
+function checkNotifications(_bins: BinaryStatus): CheckResult {
+  if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
+    return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "native backend notification tier is available" };
   }
   if (onPath("notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "notify-send tier is available" };
   if (onPath("wsl-notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "wsl-notify-send tier is available" };
@@ -462,8 +453,6 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
         remediation = isWslRuntime()
           ? "fix: install notify-send (`sudo apt install libnotify-bin`) or ensure powershell.exe and wslpath are reachable"
           : "fix: install notify-send (`sudo apt install libnotify-bin`)";
-      } else if (adapter === "herdr") {
-        remediation = "fix: install herdr (`bun install -g herdr`)";
       } else if (adapter === "command") {
         const command = Array.isArray(config.command) && typeof config.command[0] === "string" ? config.command[0] : "the command";
         remediation = `fix: install ${command} (for example: sudo apt install ${command})`;
@@ -477,25 +466,26 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
     : { id, label, status: "ok", detail: `${configured.length} configured notifier${configured.length === 1 ? "" : "s"} are available` };
 }
 
-async function checkNotifySinks(orchDir: string, bins: BinaryStatus): Promise<CheckResult> {
+function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResult {
   const id = "notify-sinks";
   const label = "Notification sinks";
   const sinks = loadSinks(orchDir);
   if (!sinks.length) return { id, label, status: "ok", detail: "no notify sinks configured" };
 
-  const desktop = await checkNotifications(bins);
+  const desktop = checkNotifications(bins);
   const unavailable: string[] = [];
   sinks.forEach((sink: Sink, index) => {
     const name = `${sink.type} sink #${index + 1}`;
     if (sink.type === "webhook") {
       try {
-        const url = new URL(sink.url);
+        const url = new URL(String(sink.url));
         if (url.protocol !== "http:" && url.protocol !== "https:") unavailable.push(`${name} URL is not http/https`);
       } catch {
         unavailable.push(`${name} URL is not well-formed`);
       }
     } else if (sink.type === "command") {
-      const binary = sink.command[0];
+      const command = (sink as { command?: unknown }).command;
+      const binary = Array.isArray(command) && typeof command[0] === "string" ? command[0] : undefined;
       if (!binary || !onPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
     } else if (desktop.status !== "ok") {
       unavailable.push(`${name} has no available desktop notification tier`);
@@ -649,7 +639,7 @@ async function checkOrchDirLocation(orchDir: string): Promise<CheckResult> {
   };
 }
 
-const defaultDaemonEntrypoint = path.join(repoDir, "src", "daemon", "orchd.ts");
+const defaultDaemonEntrypoint = path.join(repoDir, "dist", "daemon", "orchd.js");
 
 function daemonEntrypoint(): string {
   return process.env.ORCHD_ENTRYPOINT ?? defaultDaemonEntrypoint;
@@ -817,7 +807,7 @@ async function checkWorktreeGitignore(): Promise<CheckResult> {
       };
 }
 
-async function isolated(id: string, label: string, check: () => Promise<CheckResult>): Promise<CheckResult> {
+async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   try {
     return await check();
   } catch (error: unknown) {
@@ -830,7 +820,6 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
   const bins = binaryStatus();
   return Promise.all([
     isolated("bins", "Required binaries", () => checkBins(bins)),
-    isolated("herdr-version", "herdr version", () => checkHerdrVersion(bins)),
     isolated("backend-capabilities", "Backend capabilities", checkBackendCapabilities),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),

@@ -44,7 +44,7 @@ const AGENT_STATES = new Set<AgentState>([
 /**
  * Tools a spawned pi worker may load. Keep this explicit: --no-builtin-tools
  * prevents globally installed tools/extensions from silently expanding it.
- * The bridge registers the four orch_* tools; herdr-agent-state registers none.
+ * The bridge registers the four orch_* tools; the state integration registers none.
  */
 export const PI_APPROVED_TOOLS = [
   "read",
@@ -81,7 +81,7 @@ export class PiAdapter implements AgentAdapter {
     sessionTail: true,
   };
 
-  /** Start pi directly in an interactive herdr pane. */
+  /** Start pi directly in an interactive backend session. */
   interactiveCmd(_opts: SpawnOpts): string {
     return "pi";
   }

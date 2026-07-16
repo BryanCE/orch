@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseIdentity, serializeIdentity, tryParseIdentity, type Identity } from "../src/backends/identity.ts";
 
 describe("serializeIdentity / parseIdentity round-trip", () => {
-  const cases: ReadonlyArray<readonly [string, Identity]> = [
+  const cases: readonly (readonly [string, Identity])[] = [
     ["herdr", { backend: "herdr", workspace: "wD", handle: "p2" }],
     ["tmux with % handle", { backend: "tmux", workspace: "main", handle: "%5" }],
     ["tmux with : and % handle", { backend: "tmux", workspace: "main:pane", handle: "%5" }],

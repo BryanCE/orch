@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { deliverToSink, loadSinks, notify, notificationText, type NotifyEvent, type Sink } from "./notify.ts";
 import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "./queue.ts";
@@ -19,15 +18,13 @@ import { claudeAdapter } from "./adapters/claude.ts";
 import type { AgentAdapter } from "./adapters/adapter.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionData, type SessionEntry, type ToolCallContentBlock } from "./session.ts";
 import { buildEntities, collapse, currentWorkspace, entityWorkspace, parseTarget, resolvePane, resolveTarget, scopeEntitiesToWorkspace, selfActor, sortEntities, workspaceOf, type Entity } from "./entities.ts";
-import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./backends/herdr/cli.ts";
-import { herdrBackend } from "./backends/herdr/index.ts";
-import { serializeIdentity, tryParseIdentity } from "./backends/identity.ts";
+import { serializeIdentity, parseIdentity, tryParseIdentity } from "./backends/identity.ts";
 import { runRemoteAsync, runSSH } from "./remote.ts";
 import { headlessBackend, type HeadlessHandle } from "./backends/headless/index.ts";
-import type { Backend } from "./backends/backend.ts";
-import { allBackends, resolveBackend } from "./backends/registry.ts";
+import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle } from "./backends/backend.ts";
+import { allBackends, getBackend, resolveBackend } from "./backends/registry.ts";
 import { renderTable, truncate } from "./table.ts";
-import { errorMessage } from "./util.ts";
+import { errorMessage, packageRoot } from "./util.ts";
 import { daemonize, runForeground } from "./daemon/lifecycle.ts";
 import { DaemonAbsentError, rpcCall } from "./daemon/rpc.ts";
 import { derivePresenceTransition, startPreferredEvents, startPresenceWatch, type PresenceMetadata, type PresenceWatch } from "./daemon/events.ts";
@@ -145,7 +142,7 @@ function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
     }
     // presence = live bridge → no fallback marker
   } else {
-    // no live bridge → herdr status or session fallback
+    // no live bridge → backend status or session fallback
     state = ent.herdrStatus ?? (session?.exists ? "idle" : "unknown");
     stateFallback = true;
   }
@@ -271,7 +268,7 @@ function cmdStatusLocal(args: string[]) {
     rawExited.push(v.exited);
   }
   if (rows.length === 0) {
-    process.stdout.write("No panes found (herdr down and no agent dirs).\n");
+    process.stdout.write("No panes found (backend down and no agent dirs).\n");
     return;
   }
   // render with dim for exited rows
@@ -430,7 +427,7 @@ async function cmdStatus(args: string[]): Promise<void> {
     truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),
   ]);
   if (!tableRows.length) {
-    process.stdout.write("No panes found (herdr down and no agent dirs).\n");
+    process.stdout.write("No panes found (backend down and no agent dirs).\n");
     return;
   }
   process.stdout.write(renderTable(headers, tableRows,
@@ -835,7 +832,7 @@ function cmdAnswer(args: string[]) {
 // ---- watch ----
 
 function looksLikePaneKey(key: string): boolean {
-  return tryParseIdentity(key)?.backend === "herdr";
+  return tryParseIdentity(key) !== null;
 }
 
 interface WatchItem {
@@ -894,10 +891,11 @@ function parseEventsOptions(args: string[]): EventsOptions {
 
 function eventsSinks(enabled: boolean): Sink[] {
   if (!enabled) return [];
-  const herdrAvailable = herdrReachable();
-  const sinks = loadSinks(orchDir()).filter((sink) => sink.type !== "herdr" || herdrAvailable);
-  if (herdrAvailable && !sinks.some((sink) => sink.type === "herdr")) {
-    sinks.push({ type: "herdr", on: ["blocked", "error"] });
+  const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
+  const available = backend.isAvailable() && backend.isInsideSession();
+  const sinks = loadSinks(orchDir()).filter((sink) => sink.type !== backend.id || available);
+  if (available && !sinks.some((sink) => sink.type === backend.id)) {
+    sinks.push({ type: backend.id, on: ["blocked", "error"] });
   }
   if (!sinks.length) process.stderr.write("notify: no sinks configured\n");
   return sinks;
@@ -1063,8 +1061,14 @@ async function cmdNotify(args: string[]) {
 }
 
 function sinkLabel(sink: Sink): string {
-  if (sink.type === "webhook") return `webhook ${sink.url}`;
-  if (sink.type === "command") return `command ${sink.command.join(" ")}`;
+  if (sink.type === "webhook") {
+    const url = sink.url;
+    return `webhook ${typeof url === "string" ? url : ""}`;
+  }
+  if (sink.type === "command") {
+    const command = sink.command;
+    return `command ${Array.isArray(command) ? command.map((part) => String(part)).join(" ") : ""}`;
+  }
   return sink.type;
 }
 
@@ -1137,7 +1141,13 @@ async function cmdSteer(args: string[]): Promise<void> {
   if (!entity.paneId) {
     if (!entity.presence) die(`Target "${target}" has no agent presence.`);
     const adapter = resolveAdapter(entity.agent ?? entity.presence.status?.agent ?? "pi");
-    adapter.steer?.({ key: entity.presence.key, text });
+    const command = adapter.steer({ key: entity.presence.key, text });
+    if (!command && adapter.id !== "pi") {
+      const id = parseIdentity(entity.presence.key);
+      const backend = getBackend(id.backend);
+      if (!backend) die(`Backend ${JSON.stringify(id.backend)} is not registered.`);
+      if (!backend.deliver(id.handle, { kind: "message", text })) die(`Could not steer ${entity.presence.key}.`);
+    }
     if (json) process.stdout.write(JSON.stringify({ target: entity.presence.key, steered: true }) + "\n");
     else process.stdout.write(`Steered ${entity.presence.key} → ${truncate(collapse(text), 60)}\n`);
     return;
@@ -1442,7 +1452,7 @@ function cmdClean(args: string[]) {
 // Ordered: bun first — pi's installer needs it.
 const DEP_INSTALLERS: [string, string][] = [
   ["bun", "curl -fsSL https://bun.sh/install | bash"],
-  ["herdr", "curl -fsSL https://herdr.dev/install.sh | bash"],
+  ["plexer", "curl -fsSL https://example.invalid/install.sh | bash"],
   ["pi", "bun add -g @earendil-works/pi-coding-agent"],
   ["claude", "curl -fsSL https://claude.ai/install.sh | bash"],
 ];
@@ -1502,10 +1512,10 @@ async function resolveInstallTargets(
 }
 
 /** Install one prerequisite: silent under a spinner when interactive, streamed otherwise. */
-async function runInstall(bin: string, cmd: string, interactive: boolean): Promise<void> {
+function runInstall(bin: string, cmd: string, interactive: boolean): void {
   try {
     if (interactive) {
-      await withSpinner(`Installing ${bin}…`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
+      withSpinner(`Installing ${bin}…`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
     } else {
       process.stdout.write(`  Installing ${bin}…\n`);
       execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
@@ -1601,9 +1611,9 @@ async function cmdSetup(args: string[]) {
 
   process.stdout.write("Prerequisites:\n");
   // Keep prerequisite availability in sync with doctor. Claude is a setup-only
-  // dependency; bun, herdr, and pi use the shared doctor binary check.
+  // dependency; runtime binaries use the shared doctor binary check.
   const bins = binaryStatus();
-  await checkBins(bins);
+  checkBins(bins);
   const missing: string[] = [];
   for (const [bin] of DEP_INSTALLERS) {
     const found = bin === "claude" ? which(bin) : bins[bin];
@@ -1617,7 +1627,7 @@ async function cmdSetup(args: string[]) {
   if (toInstall === null) return;
   for (const bin of toInstall) {
     const cmd = DEP_INSTALLERS.find(([b]) => b === bin)![1];
-    await runInstall(bin, cmd, interactive);
+    runInstall(bin, cmd, interactive);
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
     process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
     const now = which(bin);
@@ -1671,7 +1681,7 @@ async function cmdSetup(args: string[]) {
   process.stdout.write("bins:\n");
   const binDir = path.join(HOME, ".local", "bin");
   for (const [name, rel] of [
-    ["orch", path.join("bin", "orch.ts")],
+    ["orch", path.join("dist", "bin", "orch.js")],
     ["pif", path.join("bin", "pif")],
   ] as const) {
     const resolved = which(name);
@@ -1702,7 +1712,7 @@ async function cmdSetup(args: string[]) {
   process.stdout.write("Running doctor checks...\n");
   const doctorResults = await runDoctor(orchDir());
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
-  const doneMessage = "Done. Open a herdr workspace and try: orch spawn 2 --tab Team1";
+  const doneMessage = "Done. Open a backend workspace and try: orch spawn 2 --tab Team1";
   if (interactive) setupOutro(doneMessage);
   else process.stdout.write(`${doneMessage}\n`);
 }
@@ -1710,29 +1720,23 @@ async function cmdSetup(args: string[]) {
 // ---- spawn / tile (geometry-driven tiler) ----
 
 
-interface Rect {
-  width: number;
-  height: number;
-  x: number;
-  y: number;
+// Fetch the group layout that contains `refPane`.
+function paneLayout(refPane: BackendHandle, backend: Backend): BackendGroupLayout {
+  if (!backend.layoutOf) throw new Error(`backend ${backend.id} does not provide layout`);
+  return backend.layoutOf(refPane);
 }
 
-// Fetch the tab layout that contains `refPane`. Returns {tab_id, panes:[{pane_id,rect}]}.
-function paneLayout(refPane: string): { tab_id: string; panes: { pane_id: string; rect: Rect }[] } {
-  const r = herdrJSON<{ layout: { tab_id: string; panes: { pane_id: string; rect: Rect }[] } }>(["pane", "layout", "--pane", refPane]);
-  const layout = r?.layout;
-  if (!layout || !Array.isArray(layout.panes)) throw new Error(`no layout for ${refPane}`);
-  return { tab_id: layout.tab_id, panes: layout.panes };
-}
-
-
-// Start `cmd` in `pane` and give the agent `name`. Best-effort; warns on failure.
-// Spawn into the ORCHESTRATOR'S workspace, not whichever workspace happens to
-// list first — the invoking pane's id carries the right one.
 function callerWorkspace(): string | null {
-  const paneId = process.env.HERDR_PANE_ID;
-  if (!paneId) return null;
-  return herdrPanes().find((p) => p.pane_id === paneId)?.workspace_id ?? null;
+  const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
+  return backend.currentIdentity?.()?.workspace ?? null;
+}
+
+function backendTarget(target: string, command: string): { backend: Backend; handle: string } {
+  const ent = resolveTarget(target);
+  const id = parseIdentity(ent.key);
+  const backend = getBackend(id.backend);
+  if (!backend) die(`orch ${command}: backend ${JSON.stringify(id.backend)} is not registered.`);
+  return { backend, handle: id.handle };
 }
 
 const TRUST_FILE = path.join(HOME, ".pi", "agent", "trust.json");
@@ -1754,29 +1758,7 @@ function writeTrustEntry(cwd: string) {
   process.stdout.write(`Pre-trusted ${resolved} in ~/.pi/agent/trust.json\n`);
 }
 
-// Launch an agent directly into a pane through herdr's integration. The argv is
-// exec'd, never typed into a shell — so nothing echoes into the pane, no launch
-// keystroke can be lost, and no resend is ever needed. The agent's name is set
-// at start, so there is no separate rename step. `tab` targets an existing tab;
-// `split` splits within it (the caller owns tiling direction).
-function startAgentPane(opts: { name: string; key: string; cmd: string; cwd: string; workspace?: string; tab?: string; split?: "down" | "right" }): { pane: string; key: string } {
-  const argv = opts.cmd.trim().split(/\s+/).filter(Boolean);
-  const flags = ["agent", "start", opts.name, "--cwd", opts.cwd, "--no-focus"];
-  if (opts.workspace) flags.push("--workspace", opts.workspace);
-  if (opts.tab) flags.push("--tab", opts.tab);
-  if (opts.split) flags.push("--split", opts.split);
-  const result = herdrJSON<{ agent: HerdrPane }>([
-    ...flags,
-    "--",
-    "env",
-    `ORCH_AGENT_KEY=${opts.key}`,
-    `ORCH_DIR=${orchDir()}`,
-    ...argv,
-  ]);
-  const pane = result?.agent?.pane_id;
-  if (!pane) throw new Error(`agent start ${opts.name} returned no pane_id`);
-  return { pane, key: opts.key };
-}
+
 
 // A worker is ready once its bridge presence dir appears. `agent start` cannot
 // drop a launch keystroke, so this only waits — it never re-launches.
@@ -1798,18 +1780,18 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
 }
 
 // Print the final layout of the tab containing refPane, with names.
-function printLayout(refPane: string, header: string) {
-  let layout: { tab_id: string; panes: { pane_id: string; rect: Rect }[] };
+function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
+  let layout: BackendGroupLayout;
   try {
-    layout = paneLayout(refPane);
+    layout = paneLayout(refPane, backend);
   } catch {
     return;
   }
-  const names = herdrNames();
+  const names = new Map((backend.inventory?.() ?? []).map((target) => [String(target.handle), target.name ?? "-"]));
   process.stdout.write(header + "\n");
   const rows = layout.panes.map((p) => [
-    p.pane_id,
-    names.get(p.pane_id) ?? "-",
+    String(p.handle),
+    names.get(String(p.handle)) ?? "-", 
     `${p.rect.width}x${p.rect.height} @${p.rect.x},${p.rect.y}`,
   ]);
   const w0 = Math.max(...rows.map((r) => r[0]!.length), 4);
@@ -1857,8 +1839,7 @@ interface AgentSettings {
 function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
   const adapter = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "pi" });
   // Selection flows through the backend factory: explicit flag/env, then config
-  // default, then a capability-probed fallback (herdr if inside a session, else
-  // headless). No per-backend branch is hard-coded here.
+  // default, then a capability-probed fallback. No per-backend branch is hard-coded here.
   let backend: Backend;
   try {
     backend = resolveBackend({
@@ -1952,7 +1933,7 @@ interface SpawnRoot { root: string; key: string; workspace: string; tabId: strin
 interface CreatedAgent { key: string; pane: string; name: string }
 
 function executeHeadlessSpawn(settings: SpawnSettings): void {
-  if (settings.commandFlag) die("--cmd requires the herdr backend; headless launches use the selected adapter.");
+  if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
   const adapter = resolveAdapter(settings.adapter);
   const created: HeadlessHandle[] = [];
   for (let index = 1; index <= settings.n; index++) {
@@ -1984,36 +1965,35 @@ function executeHeadlessSpawn(settings: SpawnSettings): void {
   }
   if (settings.json) process.stdout.write(JSON.stringify({ backend: "headless", agents: created }) + "\n");
   else {
-    process.stdout.write(`\nSpawned ${created.length} headless agent(s) (no herdr panes).\n`);
+    process.stdout.write(`\nSpawned ${created.length} headless agent(s) (no panes).\n`);
     process.stdout.write("'orch status' shows the fleet.\n");
   }
 }
 
 function resolveSpawnWorkspace(requested: string | null): string {
-  const workspace = requested ?? callerWorkspace() ?? herdrPanes()[0]?.workspace_id;
-  if (!workspace) die("Could not determine workspace id (herdr down?). Pass --workspace <id>.");
+  const workspace = requested ?? callerWorkspace();
+  if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
   return workspace;
 }
 
-function createSpawnRoot(settings: SpawnSettings, workspace: string): SpawnRoot {
+function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter): SpawnRoot {
   const rootName = `${settings.prefix}-1`;
   const rootCwd = settings.worktree ? createAgentWorktree(settings.cwd, rootName) : settings.cwd;
   if (launchesPi(settings.cmd)) writeTrustEntry(rootCwd);
-  let tabId: string, shellRoot: string, tabLabel: string;
+  if (!backend.createGroup) die(`backend ${backend.id} lacks group creation.`);
+  let group: BackendGroup;
+  let shellRoot: BackendHandle;
   try {
-    const result = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(["tab", "create", "--workspace", workspace, "--cwd", rootCwd, "--label", settings.label, "--no-focus"]);
-    tabId = result?.tab?.tab_id;
-    shellRoot = result?.root_pane?.pane_id;
-    tabLabel = result?.tab?.label ?? settings.label;
-    if (!tabId || !shellRoot) throw new Error("tab create returned no tab_id / root_pane");
+    const created = backend.createGroup({ workspace, cwd: rootCwd, label: settings.label });
+    group = created.group;
+    shellRoot = created.rootHandle;
   } catch (error: unknown) {
-    die(`tab create failed: ${errorMessage(error)}`);
+    die(`group create failed: ${errorMessage(error)}`);
   }
-  const key = serializeIdentity({ backend: "herdr", workspace, handle: rootName });
-  const started = startAgentPane({ name: rootName, key, cmd: settings.cmd, cwd: rootCwd, workspace, tab: tabId });
-  // tab create leaves an empty shell pane; the agent runs in its own pane, so drop the shell.
-  herdrBestEffort(["pane", "close", shellRoot]);
-  return { root: started.pane, key: started.key, workspace, tabId, tabLabel, rootCwd, rootName };
+  const handle = backend.spawn(adapter, { key: serializeIdentity({ backend: backend.id, workspace, handle: rootName }), cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
+  backend.close(shellRoot);
+  const key = serializeIdentity(backend.mintIdentity(handle));
+  return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
 
 function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): void {
@@ -2023,21 +2003,21 @@ function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, create
       const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
       let split: "down" | "right" = "down";
       if (i > 2) {
-        const layout = paneLayout(root.root);
+        const layout = paneLayout(root.root, resolveBackend({ configured: settings.backend }));
         const largest = layout.panes.reduce((current, pane) => {
           const currentArea = current.rect.width * current.rect.height;
           const paneArea = pane.rect.width * pane.rect.height;
           return paneArea > currentArea ? pane : current;
         });
-        // herdr agent start splits the active/last pane; it cannot select a
-        // pane by id. Still derive the direction from the largest cell so
-        // wide cells split horizontally and tall cells split vertically.
         split = largest.rect.width >= largest.rect.height ? "right" : "down";
       }
-      const key = serializeIdentity({ backend: "herdr", workspace: root.workspace, handle: name });
-      const started = startAgentPane({ name, key, cmd: settings.cmd, cwd, workspace: root.workspace, tab: root.tabId, split });
-      recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: "herdr", handle: started.pane, cwd, worktree: settings.worktree ? cwd : undefined, branch: settings.worktree ? `orch/${name}` : undefined, owner: selfActor() ?? undefined });
-      created.push({ key: started.key, pane: started.pane, name });
+      const backend = resolveBackend({ configured: settings.backend });
+      const adapter = resolveAdapter(settings.adapter);
+      const key = serializeIdentity({ backend: backend.id, workspace: root.workspace, handle: name });
+      const handle = backend.spawn(adapter, { key, cwd, name, workspace: root.workspace, group: root.tabId, split, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
+      const identityKey = serializeIdentity(backend.mintIdentity(handle));
+      recordSpawned(identityKey, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, handle: String(handle), cwd, worktree: settings.worktree ? cwd : undefined, branch: settings.worktree ? `orch/${name}` : undefined, owner: selfActor() ?? undefined });
+      created.push({ key: identityKey, pane: String(handle), name });
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
@@ -2048,7 +2028,7 @@ async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, crea
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${root.tabLabel}]  ${settings.cmd}\n`);
     process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${root.tabLabel}" (no focus stolen).\n`);
-    printLayout(root.root, "\nFinal tiling:");
+    printLayout(root.root, resolveBackend({ configured: settings.backend }), "\nFinal tiling:");
   }
   if (launchesPi(settings.cmd)) await awaitBridgeRegistration(created, settings.json);
   if (settings.model) await pinModels(created, settings.model);
@@ -2062,9 +2042,11 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
     return;
   }
   const workspace = resolveSpawnWorkspace(settings.workspace);
-  const root = createSpawnRoot(settings, workspace);
+  const backend = resolveBackend({ configured: settings.backend });
+  const adapter = resolveAdapter(settings.adapter);
+  const root = createSpawnRoot(settings, workspace, backend, adapter);
   const created: CreatedAgent[] = [];
-  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: "herdr", handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: selfActor() ?? undefined });
+  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: selfActor() ?? undefined });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created);
   await reportSpawnResults(settings, root, created);
@@ -2095,41 +2077,44 @@ async function cmdTile(args: string[]) {
     else if (a === "--json") continue;
     else positional.push(a!);
   }
-  const { adapter, backend, model } = resolveAgentSettings({ adapterFlag, backendFlag, modelFlag });
-  if (backend === headlessBackend.id) die("orch tile requires the herdr backend; headless agents have no panes to tile.");
+  const { adapter, model } = resolveAgentSettings({ adapterFlag, backendFlag, modelFlag });
+  const selectedBackend = resolveBackend({ explicit: backendFlag ?? null, configured: loadConfig(orchDir()).defaults.backend ?? null });
+  if (!selectedBackend.panes) die(`orch tile requires a pane-capable backend; ${selectedBackend.id} has no panes to tile.`);
   resolveAdapter(adapter);
   if (!commandFlag) cmd = adapterCommand(adapter);
   const target = positional[0];
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
 
   const tab = resolveTab(target);
-  const refPane = herdrPanes().find((item) => item.tab_id === tab.tab_id)?.pane_id;
-  if (!refPane) die(`No panes found on tab "${tab.tab_id}".`);
+  const refPane = selectedBackend.inventory?.().find((item) => item.group === tab.id)?.handle;
+  if (refPane === undefined) die(`No panes found on group "${tab.id}".`);
 
   let layout;
   try {
-    layout = paneLayout(refPane);
+    layout = paneLayout(refPane, selectedBackend);
   } catch (e: unknown) {
-    die(`could not read layout for ${refPane}: ${errorMessage(e)}`);
+    die(`could not read layout for ${JSON.stringify(refPane)}: ${errorMessage(e)}`);
   }
   const autoName = name ?? `tile-${layout.panes.length + 1}`;
 
-  const workspace = herdrPanes().find((item) => item.pane_id === refPane)?.workspace_id;
-  if (!workspace) die(`Could not determine workspace for pane ${refPane}.`);
-  const key = serializeIdentity({ backend: "herdr", workspace, handle: autoName });
-  let started: { pane: string; key: string };
+  const workspace = selectedBackend.inventory?.().find((item) => item.handle === refPane)?.workspace;
+  if (!workspace) die(`Could not determine workspace for pane ${JSON.stringify(refPane)}.`);
+  const key = serializeIdentity({ backend: selectedBackend.id, workspace, handle: autoName });
+  const selectedAdapter = resolveAdapter(adapter);
+  let handle: BackendHandle;
   try {
-    started = startAgentPane({ name: autoName, key, cmd, cwd, workspace, tab: tab.tab_id, split: "down" });
+    handle = selectedBackend.spawn(selectedAdapter, { key, cwd, name: autoName, workspace, group: tab.id, split: "down", orchDir: orchDir(), model: model ?? undefined });
   } catch (e: unknown) {
     die(`tile failed: ${errorMessage(e)}`);
   }
-  recordSpawned(key, { adapter, model: model ?? undefined, backend: "herdr", handle: started.pane, cwd, owner: selfActor() ?? undefined });
-  if (json) process.stdout.write(JSON.stringify({ pane: started.pane, key, name: autoName, tab: layout.tab_id, added: true }) + "\n");
+  const identityKey = serializeIdentity(selectedBackend.mintIdentity(handle));
+  recordSpawned(identityKey, { adapter, model: model ?? undefined, backend: selectedBackend.id, handle: String(handle), cwd, owner: selfActor() ?? undefined });
+  if (json) process.stdout.write(JSON.stringify({ pane: String(handle), key: identityKey, name: autoName, tab: layout.group, added: true }) + "\n");
   else {
-    process.stdout.write(`Added ${started.pane} (${autoName}) to tab ${layout.tab_id} running "${cmd}".\n`);
-    printLayout(refPane, "\nFinal tiling:");
+    process.stdout.write(`Added ${String(handle)} (${autoName}) to group ${layout.group} running "${cmd}".\n`);
+    printLayout(refPane, selectedBackend, "\nFinal tiling:");
   }
-  if (model) await pinModels([{ key, pane: started.pane, name: autoName }], model);
+  if (model) await pinModels([{ key: identityKey, pane: String(handle), name: autoName }], model);
 }
 
 // ---- unified pane control: run / model / wait / new / close / dispatch ----
@@ -2221,18 +2206,11 @@ function cmdWait(args: string[]) {
   }
   const target = positional[0];
   if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");
-  const { pane } = resolvePane(target);
-  try {
-    herdrExec( ["wait", "agent-status", pane, "--status", status, "--timeout", String(timeout)], {
-      timeout: timeout + 5000,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (json) process.stdout.write(JSON.stringify({ target: pane, status, reached: true }) + "\n");
-    else process.stdout.write(`${pane} reached "${status}".\n`);
-  } catch (e: unknown) {
-    die(`wait for ${pane} → "${status}" failed/timed out: ${errorMessage(e)}`);
-  }
+  const { backend, handle } = backendTarget(target, "wait");
+  if (!backend.waitAgentStatus) die(`backend ${backend.id} lacks agent status waiting.`);
+  if (!backend.waitAgentStatus(handle, status, timeout)) die(`wait for ${handle} → "${status}" failed/timed out.`);
+  if (json) process.stdout.write(JSON.stringify({ target: handle, status, reached: true }) + "\n");
+  else process.stdout.write(`${handle} reached "${status}".\n`);
 }
 
 function cmdNew(args: string[]) {
@@ -2247,14 +2225,15 @@ function cmdNew(args: string[]) {
   if (!targets.length) die("usage: orch reset <target>... | --all [--json]");
   const results: { target: string; cleared: true; ready: true }[] = [];
   for (const target of targets) {
-    const { pane } = resolvePane(target);
-    const statusPath = path.join(presenceAgentDir(pane), "status.json");
+    const { ent } = resolvePane(target);
+    const { backend, handle } = backendTarget(target, "reset");
+    const statusPath = path.join(presenceAgentDir(ent.key), "status.json");
     const before = readJSON<StatusFile>(statusPath);
     const beforeUpdated = Date.parse(typeof before?.updatedAt === "string" ? before.updatedAt : "");
     const sentAt = Date.now();
-    if (!herdrBestEffort(["pane", "run", pane, "/new"])) die(`Could not reset ${pane}.`);
+    if (!backend.deliver(handle, { kind: "run", text: "/new" })) die(`Could not reset ${handle}.`);
 
-    const deadline = sentAt + 15_000;
+    const deadline = sentAt + 75_000;
     let ready = false;
     while (Date.now() < deadline) {
       const status = readJSON<StatusFile>(statusPath);
@@ -2265,50 +2244,15 @@ function cmdNew(args: string[]) {
       if (advanced && status?.state === "idle") { ready = true; break; }
       sleepMs(250);
     }
-    if (!ready) die(`${pane}: /new did not become ready within 15s.`);
-    results.push({ target: pane, cleared: true, ready: true });
-    if (!json) process.stdout.write(`Cleared session on ${pane} (/new); ready.\n`);
+    if (!ready) die(`${handle}: /new did not become ready within 75s.`);
+    results.push({ target: handle, cleared: true, ready: true });
+    if (!json) process.stdout.write(`Cleared session on ${handle} (/new); ready.\n`);
   }
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
 }
 
-interface HerdrForegroundProcess {
-  name?: string;
-}
-
-interface HerdrProcessInfo {
-  result?: {
-    process_info?: {
-      foreground_processes?: HerdrForegroundProcess[];
-    };
-  };
-}
-
-function isHerdrForegroundProcess(value: unknown): value is HerdrForegroundProcess {
-  return isRecord(value) && (value.name === undefined || typeof value.name === "string");
-}
-
-function isHerdrProcessInfo(value: unknown): value is HerdrProcessInfo {
-  if (!isRecord(value)) return false;
-  if (value.result === undefined) return true;
-  if (!isRecord(value.result)) return false;
-  if (value.result.process_info === undefined) return true;
-  if (!isRecord(value.result.process_info)) return false;
-  const processes = value.result.process_info.foreground_processes;
-  return processes === undefined || (Array.isArray(processes) && processes.every(isHerdrForegroundProcess));
-}
-
-function paneForeground(pane: string): string[] {
-  try {
-    const out = herdrExec( ["pane", "process-info", "--pane", pane], {
-      timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
-    }).toString();
-    const parsed = JSON.parse(out) as unknown;
-    if (!isHerdrProcessInfo(parsed)) return [];
-    return parsed.result?.process_info?.foreground_processes?.map((process) => String(process.name)) ?? [];
-  } catch {
-    return [];
-  }
+function paneForeground(backend: Backend, handle: string): string[] {
+  return backend.foregroundProcesses?.(handle) ?? [];
 }
 
 // Reload extensions in place. Escape first dismisses any stuck overlay; the
@@ -2319,26 +2263,26 @@ interface ReloadResult {
   reason?: string;
 }
 
-function doReload(pane: string): ReloadResult {
+function doReload(backend: Backend, pane: string, presenceKey: string): ReloadResult {
   try {
-    const statusPath = path.join(presenceAgentDir(pane), "status.json");
+    const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
     const old = readJSON<StatusFile>(statusPath);
     const oldUpdatedAt = typeof old?.updatedAt === "string" ? old.updatedAt : "";
     if (typeof old?.pid !== "number") {
       return { pane, ok: false, reason: errorMessage("no bridge status.json pid to verify reload") };
     }
-    herdrBestEffort(["pane", "send-keys", pane, "Escape"]);
+    if (!backend.sendKeys(pane, ["Escape"])) return { pane, ok: false, reason: errorMessage("escape failed") };
     sleepMs(500);
-    if (!herdrBestEffort(["pane", "run", pane, "/reload"])) {
+    if (!backend.deliver(pane, { kind: "run", text: "/reload" })) {
       return { pane, ok: false, reason: errorMessage("/reload failed") };
     }
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 60; i++) {
       sleepMs(500);
       const st = readJSON<StatusFile>(statusPath);
       if (typeof st?.pid === "number" && typeof st.updatedAt === "string"
         && pidAlive(st.pid) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt)) return { pane, ok: true };
     }
-    return { pane, ok: false, reason: errorMessage("bridge status.json did not refresh within 8s after /reload") };
+    return { pane, ok: false, reason: errorMessage("bridge status.json did not refresh within 30s after /reload") };
   } catch (error: unknown) {
     return { pane, ok: false, reason: errorMessage(error) };
   }
@@ -2352,23 +2296,23 @@ function touchReloadSignal(): void {
 
 // Full process restart for pi version upgrades. Escape first, /quit, wait for
 // the shell, relaunch, then wait for a fresh bridge pid.
-function doHardRestart(pane: string, cmd: string): boolean {
-  const statusPath = path.join(presenceAgentDir(pane), "status.json");
+function doHardRestart(backend: Backend, pane: string, cmd: string, presenceKey: string): boolean {
+  const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
   const oldPid = readJSON<StatusFile>(statusPath)?.pid ?? null;
-  herdrBestEffort(["pane", "send-keys", pane, "Escape"]);
+  backend.sendKeys(pane, ["Escape"]);
   sleepMs(500);
-  herdrBestEffort(["pane", "run", pane, "/quit"]);
+  backend.deliver(pane, { kind: "run", text: "/quit" });
   let shellSeen = false;
   for (let i = 0; i < 16; i++) {
     sleepMs(500);
-    const fg = paneForeground(pane);
+    const fg = paneForeground(backend, pane);
     if (fg.length && fg.every((n) => /sh$|^bash$|^zsh$|^fish$/.test(n))) { shellSeen = true; break; }
   }
   if (!shellSeen) {
     process.stderr.write(`${pane}: agent did not exit after /quit — skipping relaunch.\n`);
     return false;
   }
-  herdrBestEffort(["pane", "run", pane, cmd]);
+  backend.deliver(pane, { kind: "run", text: cmd });
   for (let i = 0; i < 40; i++) {
     sleepMs(500);
     const st = readJSON<StatusFile>(statusPath);
@@ -2403,8 +2347,9 @@ function cmdReload(args: string[]) {
   const results: ReloadResult[] = [];
   for (const target of targets) {
     try {
-      const { pane } = resolvePane(target);
-      results.push(doReload(pane));
+      const { ent } = resolvePane(target);
+      const { backend, handle } = backendTarget(target, "reload");
+      results.push(doReload(backend, handle, ent.key));
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
@@ -2440,9 +2385,10 @@ function cmdRestart(args: string[]) {
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
   let ok = 0;
   for (const target of targets) {
-    const { pane } = resolvePane(target);
-    if (!json) process.stdout.write(`Restarting ${pane} (${cmd})...\n`);
-    if (doHardRestart(pane, cmd)) { ok++; if (!json) process.stdout.write(`${pane}: bridge live.\n`); }
+    const { ent } = resolvePane(target);
+    const { backend, handle } = backendTarget(target, "restart");
+    if (!json) process.stdout.write(`Restarting ${handle} (${cmd})...\n`);
+    if (doHardRestart(backend, handle, cmd, ent.key)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
   }
   if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);
@@ -2450,32 +2396,17 @@ function cmdRestart(args: string[]) {
 }
 
 function cmdRename(args: string[]) {
-  let paneLabel = false;
+  const paneLabel = args.includes("--pane");
   const json = args.includes("--json");
-  const positional: string[] = [];
-  for (const a of args) {
-    if (a === "--pane") paneLabel = true;
-    else if (a === "--json") continue;
-    else positional.push(a);
-  }
+  const positional = args.filter((arg) => arg !== "--pane" && arg !== "--json");
   const target = positional[0];
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane]");
-  const { pane } = resolvePane(target);
-  if (paneLabel) {
-    // pane border label, not the agent name
-    if (herdrBestEffort(["pane", "rename", pane, name])) {
-      if (json) process.stdout.write(JSON.stringify({ target: pane, name, paneLabel: true, renamed: true }) + "\n");
-      else process.stdout.write(`${pane} → pane label "${name}".\n`);
-    }
-    else die(`Could not rename pane ${pane}.`);
-    return;
-  }
-  if (herdrBestEffort(["agent", "rename", pane, name])) {
-    if (json) process.stdout.write(JSON.stringify({ target: pane, name, paneLabel: false, renamed: true }) + "\n");
-    else process.stdout.write(`${pane} → named "${name}".\n`);
-  }
-  else die(`Could not rename ${pane}.`);
+  const { backend, handle } = backendTarget(target, "rename");
+  const renamed = paneLabel ? backend.renamePane?.(handle, name) : backend.renameAgent?.(handle, name);
+  if (!renamed) die(`Could not rename ${handle}.`);
+  if (json) process.stdout.write(JSON.stringify({ target: handle, name, paneLabel, renamed: true }) + "\n");
+  else process.stdout.write(`${handle} → ${paneLabel ? "pane label" : "named"} "${name}".\n`);
 }
 
 function cmdClose(args: string[]) {
@@ -2485,45 +2416,31 @@ function cmdClose(args: string[]) {
   const json = enabled.has("--json");
   if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream]");
 
-  const herdrTargets: string[] = [];
-  const headlessTargets: HeadlessHandle[] = [];
+  const targets: { backend: Backend; handle: BackendHandle }[] = [];
   if (all) {
-    // Only panes in orch's spawn registry are eligible; user panes are never touched.
-    const self = process.env.HERDR_PANE_ID ?? null;
+    const selfByBackend = new Map(allBackends().map((backend) => [backend.id, backend.currentIdentity?.()?.handle ?? null]));
     const mine = spawnedRecords();
-    for (const p of herdrPanes()) {
-      if (p.pane_id === self) continue;
-      const record = [...mine.values()].find((candidate) => candidate.backend === "herdr" && candidate.handle === p.pane_id);
-      if (!record?.handle) continue;
-      herdrTargets.push(record.handle);
-    }
-    // HeadlessBackend.close performs the registry + presence pid/key safety checks.
-    for (const handle of headlessBackend.list()) {
-      if (handle.alive !== false) headlessTargets.push(handle);
+    for (const backend of allBackends()) {
+      const inventory = backend.inventory?.() ?? [];
+      for (const item of inventory) {
+        if (item.handle === selfByBackend.get(backend.id)) continue;
+        const record = [...mine.values()].find((candidate) => candidate.backend === backend.id && candidate.handle === String(item.handle));
+        if (record) targets.push({ backend, handle: item.handle });
+      }
     }
   }
   for (const target of positional) {
-    const ent = resolveTarget(target);
-    if (ent.paneId) {
-      herdrTargets.push(ent.paneId);
-      continue;
-    }
-    const handle = headlessBackend.list().find((candidate) => candidate.key === ent.key);
-    if (!handle) die(`Target "${target}" is not an orch-managed headless agent.`);
-    headlessTargets.push(handle);
+    const { backend, handle } = backendTarget(target, "close");
+    targets.push({ backend, handle });
   }
 
   let ok = 0;
   const closed: string[] = [];
-  for (const pane of herdrTargets) {
-    if (herdrBackend.close(pane)) { ok++; closed.push(pane); if (!json) process.stdout.write(`Closed ${pane}.\n`); }
-    else if (!json) process.stderr.write(`Could not close ${pane}.\n`);
+  for (const target of targets) {
+    if (target.backend.close(target.handle)) { ok++; closed.push(String(target.handle)); if (!json) process.stdout.write(`Closed ${String(target.handle)}.\n`); }
+    else if (!json) process.stderr.write(`Could not close ${String(target.handle)}.\n`);
   }
-  for (const handle of headlessTargets) {
-    if (headlessBackend.close(handle)) { ok++; closed.push(handle.key); if (!json) process.stdout.write(`Closed ${handle.key}.\n`); }
-    else if (!all && !json) process.stderr.write(`Could not close ${handle.key}.\n`);
-  }
-  const targetCount = herdrTargets.length + headlessTargets.length;
+  const targetCount = targets.length;
   if (all && !targetCount && !json) process.stdout.write("No fleet agents to close.\n");
   if (stream) {
     let pids: number[] = [];
@@ -2545,20 +2462,19 @@ function cmdAbort(args: string[]) {
   const json = args.includes("--json");
   const target = args.find((arg) => arg !== "--json");
   if (!target) die("usage: orch abort <target> [--json]");
-  const { pane } = resolvePane(target);
-  if (!herdrBestEffort(["pane", "send-keys", pane, "Escape"])) die(`Could not abort ${pane}.`);
+  const { backend, handle } = backendTarget(target, "abort");
+  if (!backend.canSendKeys) die(`backend ${backend.id} cannot send keys.`);
+  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${handle}.`);
   sleepMs(500);
-  if (!herdrBestEffort(["pane", "send-keys", pane, "Escape"])) die(`Could not abort ${pane}.`);
-  if (json) process.stdout.write(JSON.stringify({ target: pane, aborted: true }) + "\n");
-  else process.stdout.write(`Aborted ${pane}.\n`);
+  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${handle}.`);
+  if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
+  else process.stdout.write(`Aborted ${handle}.\n`);
 }
 
-function requireHerdrTarget(target: string, command: string): string {
-  const ent = resolveTarget(target);
-  if (!ent.paneId) {
-    die(`orch ${command} requires the herdr backend; target "${target}" is headless (not a herdr pane).`);
-  }
-  return ent.paneId;
+function requirePaneTarget(target: string, command: string): { backend: Backend; handle: string } {
+  const resolved = backendTarget(target, command);
+  if (!resolved.backend.panes) die(`orch ${command}: backend ${resolved.backend.id} lacks pane control.`);
+  return resolved;
 }
 
 function cmdKeys(args: string[]) {
@@ -2567,12 +2483,13 @@ function cmdKeys(args: string[]) {
   const target = cleanArgs[0];
   const keys = cleanArgs.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...]");
-  const pane = requireHerdrTarget(target, "keys");
-  if (herdrBestEffort(["pane", "send-keys", pane, ...keys])) {
-    if (json) process.stdout.write(JSON.stringify({ target: pane, keys, sent: true }) + "\n");
-    else process.stdout.write(`Sent keys to ${pane}: ${keys.join(" ")}\n`);
+  const { backend, handle } = requirePaneTarget(target, "keys");
+  if (!backend.canSendKeys) die(`backend ${backend.id} cannot send keys.`);
+  if (backend.sendKeys(handle, keys)) {
+    if (json) process.stdout.write(JSON.stringify({ target: handle, keys, sent: true }) + "\n");
+    else process.stdout.write(`Sent keys to ${handle}: ${keys.join(" ")}\n`);
   }
-  else die(`Could not send keys to ${pane}.`);
+  else die(`Could not send keys to ${handle}.`);
 }
 
 function cmdPeek(args: string[]) {
@@ -2586,19 +2503,16 @@ function cmdPeek(args: string[]) {
   }
   const target = positional[0];
   if (!target) die("usage: orch peek <target> [-n N] [--json]");
-  const pane = requireHerdrTarget(target, "peek");
+  const { backend, handle } = requirePaneTarget(target, "peek");
+  if (!backend.read) die(`backend ${backend.id} lacks screen reading.`);
   let screen: string;
   try {
-    screen = herdrExec( ["pane", "read", pane, "--source", "visible", "--lines", String(n)], {
-      timeout: 5000,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    screen = backend.read(handle, n);
   } catch (e: unknown) {
-    die(`Could not read ${pane}: ${errorMessage(e)}`);
+    die(`Could not read ${handle}: ${errorMessage(e)}`);
   }
   if (json) {
-    process.stdout.write(JSON.stringify({ target, pane, screen, lines: n }) + "\n");
+    process.stdout.write(JSON.stringify({ target, pane: handle, screen, lines: n }) + "\n");
     return;
   }
   process.stdout.write("screen (eyeball only — status/result/tail are the truth channel)\n");
@@ -2607,58 +2521,56 @@ function cmdPeek(args: string[]) {
 
 // ---- tab CRUD ----
 
-function resolveTab(target: string): HerdrTab {
-  const r = herdrJSON<{ tabs: HerdrTab[] }>(["tab", "list"]);
-  const tabs = Array.isArray(r?.tabs) ? r.tabs : [];
-  if (!tabs.length) die("No tabs (herdr down?).");
-  if (/:t[0-9a-zA-Z]+$/.test(target)) {
-    const tab = tabs.find((item) => item.tab_id === target);
-    if (tab) return tab;
-    die(`No tab matches "${target}". Run 'orch tabs' to list.`);
-  }
-  const exact = tabs.filter((item) => (item.label ?? "") === target);
-  if (exact.length === 1) return exact[0]!;
-  const insensitive = tabs.filter((item) => (item.label ?? "").toLowerCase() === target.toLowerCase());
-  if (!exact.length && insensitive.length === 1) return insensitive[0]!;
-  const candidates = exact.length > 1 ? exact : insensitive;
+function selectedGroups(): { backend: Backend; groups: BackendGroup[] } {
+  const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
+  return { backend, groups: backend.groups?.() ?? [] };
+}
+
+function resolveTab(target: string): BackendGroup {
+  const { backend, groups } = selectedGroups();
+  if (!groups.length) die("No groups available.");
+  const exact = groups.filter((group) => group.id === target || group.label === target);
+  const insensitive = groups.filter((group) => (group.label ?? "").toLowerCase() === target.toLowerCase());
+  const candidates = exact.length ? exact : insensitive;
+  if (candidates.length === 1) return candidates[0]!;
   if (candidates.length > 1) {
-    process.stderr.write(`Ambiguous tab "${target}". Candidates:\n`);
-    for (const tab of candidates) process.stderr.write(`  ${tab.tab_id}  ${tab.label}\n`);
+    process.stderr.write(`Ambiguous group "${target}". Candidates:\n`);
+    for (const group of candidates) process.stderr.write(`  ${group.id}  ${group.label}\n`);
     process.exit(1);
   }
   const ent = resolveTarget(target);
-  if (!ent.paneId) die(`Target "${target}" has no herdr pane to resolve a tab.`);
-  const pane = herdrPanes().find((item) => item.pane_id === ent.paneId);
-  if (!pane?.tab_id) die(`No tab found for pane "${ent.paneId}".`);
-  const tab = tabs.find((item) => item.tab_id === pane.tab_id);
-  if (!tab) die(`No tab matches "${pane.tab_id}". Run 'orch tabs' to list.`);
-  return tab;
+  const id = parseIdentity(ent.key);
+  if (id.backend !== backend.id) die(`Target "${target}" belongs to backend ${id.backend}.`);
+  const found = groups.find((group) => group.id === (backend.inventory?.().find((item) => String(item.handle) === id.handle)?.group ?? null));
+  if (!found) die(`No group found for target "${target}".`);
+  return found;
 }
 
 function cmdTabs(args: string[]) {
   const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
   const json = enabled.has("--json");
-  const workspace = currentWorkspace();
-  const tabs = [...herdrTabs().values()].filter((tab) => all || workspace === null || tab.workspace_id === workspace);
+  const { backend, groups } = selectedGroups();
+  const workspace = backend.currentIdentity?.()?.workspace ?? null;
+  const tabs = groups.filter((tab) => all || workspace === null || tab.workspace === workspace);
   if (!tabs.length) {
     if (json) process.stdout.write("[]\n");
-    else process.stdout.write("No tabs (herdr down?).\n");
+    else process.stdout.write("No groups available.\n");
     return;
   }
   if (json) {
     process.stdout.write(JSON.stringify(tabs, null, 2) + "\n");
     return;
   }
-  const showWorkspace = all && new Set(tabs.map((t) => t.workspace_id ?? "-")).size > 1;
+  const showWorkspace = all && new Set(tabs.map((t) => t.workspace ?? "-")).size > 1;
   const headers = showWorkspace ? ["TAB", "LABEL", "NUM", "PANES", "STATUS", "WS"] : ["TAB", "LABEL", "NUM", "PANES", "STATUS"];
   const rows = tabs.map((t) => [
-    t.tab_id + (t.focused ? "*" : ""),
+    t.id + (t.focused ? "*" : ""),
     t.label ?? "-",
     String(t.number ?? "-"),
-    String(t.pane_count ?? "-"),
-    t.agent_status ?? "-",
-    ...(showWorkspace ? [t.workspace_id ?? "-"] : []),
+    String(t.paneCount ?? "-"),
+    t.status ?? "-",
+    ...(showWorkspace ? [t.workspace ?? "-"] : []),
   ]);
   process.stdout.write(renderTable(headers, rows, showWorkspace ? [12, 20, 4, 5, 10, 12] : [12, 20, 4, 5, 10]) + "\n");
 }
@@ -2677,46 +2589,45 @@ function cmdTab(args: string[]) {
       else if (rest[i] === "--workspace") workspace = rest[++i]!;
       else if (rest[i] === "--cwd") cwd = rest[++i]!;
     }
-    workspace ??= herdrPanes()[0]?.workspace_id ?? null;
-    if (!workspace) die("Could not determine workspace id (herdr down?). Pass --workspace <id>.");
-    const cargs = ["tab", "create", "--workspace", workspace, "--cwd", cwd, "--no-focus"];
-    if (label) cargs.push("--label", label);
+    const { backend } = selectedGroups();
+    workspace ??= backend.currentIdentity?.()?.workspace ?? null;
+    if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
+    if (!backend.createGroup) die(`backend ${backend.id} lacks group creation.`);
     try {
-      const r = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(cargs);
+      const r = backend.createGroup({ workspace, cwd, label });
       if (json) process.stdout.write(JSON.stringify(r) + "\n");
-      else process.stdout.write(
-        `Created tab ${r?.tab?.tab_id} "${r?.tab?.label}" — root pane ${r?.root_pane?.pane_id}\n`
-      );
+      else process.stdout.write(`Created group ${r.group.id} "${r.group.label}" — root handle ${String(r.rootHandle)}\n`);
+      backend.close(r.rootHandle);
     } catch (e: unknown) {
-      die(`tab new failed: ${errorMessage(e)}`);
+      die(`group new failed: ${errorMessage(e)}`);
     }
   } else if (sub === "rename") {
     const [t, label] = rest;
     if (!t || !label) die("usage: orch tab rename <tab_id|label> <new-label>");
     const tab = resolveTab(t);
-    if (herdrBestEffort(["tab", "rename", tab.tab_id, label])) {
-      if (json) process.stdout.write(JSON.stringify({ tab: tab.tab_id, label, renamed: true }) + "\n");
-      else process.stdout.write(`${tab.tab_id}: "${tab.label}" → "${label}"\n`);
-    }
-    else die(`Could not rename tab ${tab.tab_id}.`);
+    const { backend } = selectedGroups();
+    if (backend.renameGroup?.(tab.id, label)) {
+      if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
+      else process.stdout.write(`${tab.id}: "${tab.label}" → "${label}"\n`);
+    } else die(`Could not rename group ${tab.id}.`);
   } else if (sub === "close") {
     const t = rest[0];
     if (!t) die("usage: orch tab close <tab_id|label>");
     const tab = resolveTab(t);
-    if (herdrBestEffort(["tab", "close", tab.tab_id])) {
-      if (json) process.stdout.write(JSON.stringify({ tab: tab.tab_id, closed: true }) + "\n");
-      else process.stdout.write(`Closed tab ${tab.tab_id} "${tab.label}".\n`);
-    }
-    else die(`Could not close tab ${tab.tab_id}.`);
+    const { backend } = selectedGroups();
+    if (backend.closeGroup?.(tab.id)) {
+      if (json) process.stdout.write(JSON.stringify({ tab: tab.id, closed: true }) + "\n");
+      else process.stdout.write(`Closed group ${tab.id} "${tab.label}".\n`);
+    } else die(`Could not close group ${tab.id}.`);
   } else if (sub === "focus") {
     const t = rest[0];
     if (!t) die("usage: orch tab focus <tab_id|label>");
     const tab = resolveTab(t);
-    if (herdrBestEffort(["tab", "focus", tab.tab_id])) {
-      if (json) process.stdout.write(JSON.stringify({ tab: tab.tab_id, focused: true }) + "\n");
-      else process.stdout.write(`Focused tab ${tab.tab_id} "${tab.label}".\n`);
-    }
-    else die(`Could not focus tab ${tab.tab_id}.`);
+    const { backend } = selectedGroups();
+    if (backend.focusGroup?.(tab.id)) {
+      if (json) process.stdout.write(JSON.stringify({ tab: tab.id, focused: true }) + "\n");
+      else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
+    } else die(`Could not focus group ${tab.id}.`);
   } else {
     die("usage: orch tab new|rename|close|focus …  (orch tabs to list)");
   }
@@ -2728,13 +2639,11 @@ function cmdFocus(args: string[]) {
   const json = args.includes("--json");
   const target = args.find((arg) => arg !== "--json");
   if (!target) die("usage: orch focus <target> [--json]");
-  const pane = requireHerdrTarget(target, "focus");
-  // herdr agent focus accepts pane ids and jumps the view (tab + pane).
-  if (herdrBestEffort(["agent", "focus", pane])) {
-    if (json) process.stdout.write(JSON.stringify({ target: pane, focused: true }) + "\n");
-    else process.stdout.write(`Focused ${pane}.\n`);
-  }
-  else die(`Could not focus ${pane}.`);
+  const { backend, handle } = requirePaneTarget(target, "focus");
+  if (backend.focus(handle)) {
+    if (json) process.stdout.write(JSON.stringify({ target: handle, focused: true }) + "\n");
+    else process.stdout.write(`Focused ${handle}.\n`);
+  } else die(`Could not focus ${handle}.`);
 }
 
 function cmdZoom(args: string[]) {
@@ -2749,12 +2658,13 @@ function cmdZoom(args: string[]) {
   }
   const target = positional[0];
   if (!target) die("usage: orch zoom <target> [--on|--off]  (default: toggle)");
-  const pane = requireHerdrTarget(target, "zoom");
-  if (herdrBestEffort(["pane", "zoom", pane, mode])) {
-    if (json) process.stdout.write(JSON.stringify({ target: pane, mode: mode.replace("--", ""), zoomed: true }) + "\n");
-    else process.stdout.write(`Zoom ${mode.replace("--", "")} on ${pane}.\n`);
-  }
-  else die(`Could not zoom ${pane}.`);
+  const { backend, handle } = requirePaneTarget(target, "zoom");
+  if (!backend.zoom) die(`backend ${backend.id} lacks zoom.`);
+  const zoomMode = mode === "--on" ? "on" : mode === "--off" ? "off" : "toggle";
+  if (backend.zoom(handle, zoomMode)) {
+    if (json) process.stdout.write(JSON.stringify({ target: handle, mode: zoomMode, zoomed: true }) + "\n");
+    else process.stdout.write(`Zoom ${zoomMode} on ${handle}.\n`);
+  } else die(`Could not zoom ${handle}.`);
 }
 
 function cmdMove(args: string[]) {
@@ -2775,19 +2685,13 @@ function cmdMove(args: string[]) {
   const target = positional[0];
   if (!target || (!tab && !newTab))
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X]");
-  const pane = requireHerdrTarget(target, "move");
-  let margs: string[];
-  if (newTab) {
-    margs = ["pane", "move", pane, "--new-tab", "--no-focus"];
-    if (label) margs.push("--label", label);
-  } else {
-    const t = resolveTab(tab!);
-    margs = ["pane", "move", pane, "--tab", t.tab_id, "--split", split, "--no-focus"];
-  }
+  const { backend, handle } = requirePaneTarget(target, "move");
   try {
-    herdrJSON<unknown>(margs);
-    if (json) process.stdout.write(JSON.stringify({ target: pane, moved: true, newTab, tab: newTab ? null : resolveTab(tab!).tab_id }) + "\n");
-    else process.stdout.write(`Moved ${pane} ${newTab ? "to a new tab" : `to tab ${resolveTab(tab!).tab_id}`}.\n`);
+    const moved = newTab ? backend.moveToNewGroup?.(handle, label) : backend.moveToGroup?.(handle, resolveTab(tab!).id, split as "down" | "right");
+    if (!moved) die(`move failed: backend ${backend.id} rejected the move.`);
+    const group = newTab ? null : resolveTab(tab!).id;
+    if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: group }) + "\n");
+    else process.stdout.write(`Moved ${handle} ${newTab ? "to a new group" : `to group ${group}`}.\n`);
   } catch (e: unknown) {
     die(`move failed: ${errorMessage(e)}`);
   }
@@ -2802,21 +2706,20 @@ function cmdWs(args: string[]) {
   if (sub === "focus") {
     const id = positional[1];
     if (!id) die("usage: orch ws focus <workspace_id> [--json]");
-    if (herdrBestEffort(["workspace", "focus", id])) {
-      if (json) process.stdout.write(JSON.stringify({ workspace: id, focused: true }) + "\n");
-      else process.stdout.write(`Focused workspace ${id}.\n`);
-    }
-    else die(`Could not focus workspace ${id}.`);
+    const { backend } = selectedGroups();
+    if (!backend.focusWorkspace?.(id)) die(`Could not focus workspace ${id}.`);
+    if (json) process.stdout.write(JSON.stringify({ workspace: id, focused: true }) + "\n");
+    else process.stdout.write(`Focused workspace ${id}.\n`);
     return;
   }
   if (sub && sub !== "list") die("usage: orch ws [list|focus <workspace_id>] [--json]");
-  let r: { workspaces: HerdrWorkspace[] };
+  const { backend } = selectedGroups();
+  let wss;
   try {
-    r = herdrJSON<{ workspaces: HerdrWorkspace[] }>(["workspace", "list"]);
+    wss = backend.workspaces?.() ?? [];
   } catch (e: unknown) {
     die(`workspace list failed: ${errorMessage(e)}`);
   }
-  const wss = r?.workspaces ?? [];
   if (!wss.length) {
     if (json) process.stdout.write("[]\n");
     else process.stdout.write("No workspaces.\n");
@@ -2828,12 +2731,12 @@ function cmdWs(args: string[]) {
   }
   const headers = ["WS", "LABEL", "NUM", "TABS", "PANES", "STATUS"];
   const rows = wss.map((w) => [
-    w.workspace_id + (w.focused ? "*" : ""),
+    w.id + (w.focused ? "*" : ""),
     w.label ?? "-",
     String(w.number ?? "-"),
-    String(w.tab_count ?? "-"),
-    String(w.pane_count ?? "-"),
-    w.agent_status ?? "-",
+    String(w.tabCount ?? "-"),
+    String(w.paneCount ?? "-"),
+    w.status ?? "-",
   ]);
   process.stdout.write(renderTable(headers, rows, [8, 24, 4, 5, 6, 10]) + "\n");
 }
@@ -2919,7 +2822,7 @@ interface DaemonStatus {
 }
 
 function daemonEntrypoint(): string {
-  return path.join(import.meta.dir, "daemon", "orchd.ts");
+  return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
 }
 
 function daemonLockPid(directory = orchDir()): number | undefined {
@@ -3081,7 +2984,7 @@ async function runInteractiveDoctor(initial: CheckResult[]): Promise<void> {
   if (selected.length) {
     const chosen = new Set(selected);
     const toApply = results.filter((r) => r.fix && chosen.has(r.id));
-    await withSpinner(
+    withSpinner(
       `Applying ${toApply.length} fix${toApply.length === 1 ? "" : "es"}…`,
       "fixes applied",
       () => { for (const r of toApply) r.fix!.apply(); },
@@ -3126,8 +3029,8 @@ async function cmdWork(args: string[]) {
 
 function usage() {
   process.stdout.write(
-    `orch — the single controller for pi agents in herdr panes.
-The orchestrator never needs raw herdr for the normal loop.
+    `orch — the single controller for agents in backend targets.
+The orchestrator routes control through the backend port.
 
 OBSERVE
   orch status [--json] [--all] [--offline]
@@ -3186,7 +3089,7 @@ PANES (create / arrange / lifecycle — never steals focus except 'focus')
   orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
-                                 Set the herdr agent name (NAME column); --pane sets the pane
+                                 Set the agent name (NAME column); --pane sets the pane
                                  border label instead.
   orch focus <target>            Jump the user's view to that pane (this one DOES steal focus).
   orch zoom <target> [--on|--off]
@@ -3222,7 +3125,7 @@ MAINTENANCE
   orch setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]
                                  Onboarding wizard: pick a harness (--agent) and backend,
                                  record them to ~/.orch/config.toml, install missing deps
-                                 (bun/herdr/pi/claude), and wire the chosen harness. Prompts
+                                 (runtime/agent tools), and wire the chosen harness. Prompts
                                  interactively when a selection is omitted on a TTY; --yes
                                  auto-installs deps, --no-install just reports, --copy copies
                                  instead of symlinking.
@@ -3234,16 +3137,15 @@ RECOVER
                                  Send raw keys to a pane.
   orch peek <target> [-n N]      Read visible pane screen (default 25 lines).
 
-Target: agent name, agent-dir key (w6:p3, session-1234), herdr pane_id, or unique suffix (p3).
-Tabs resolve by tab_id or unique label.
+Target: agent name, identity key, or unique handle suffix.
+Groups resolve by id or unique label.
 `
   );
 }
 
 function readOrchVersion(): string {
   try {
-    const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const parsed: unknown = JSON.parse(files.readFileSync(path.join(repoDir, "package.json"), "utf8"));
+    const parsed: unknown = JSON.parse(files.readFileSync(path.join(packageRoot(), "package.json"), "utf8"));
     return isRecord(parsed) && typeof parsed.version === "string" ? parsed.version : "0.0.0";
   } catch {
     return "0.0.0";

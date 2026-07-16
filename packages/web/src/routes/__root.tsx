@@ -1,11 +1,15 @@
-import { HeadContent, Scripts, createRootRoute, Link } from "@tanstack/react-router";
+import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { ThemeProvider } from "next-themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { Toaster } from "@/components/ui/sonner";
-import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { DaemonGate } from "@/components/DaemonGate";
+import { AppSidebar } from "@/components/AppSidebar";
+import { AppBreadcrumbs } from "@/components/PageBreadcrumbs";
+import { NotFoundPage } from "@/components/common/NotFoundPage";
 import { getColorSchemeCookie } from "@/lib/color-scheme";
 import { getThemeModeCookie } from "@/lib/theme-mode";
 
@@ -18,13 +22,7 @@ const queryClient = new QueryClient({
 });
 
 export const Route = createRootRoute({
-  notFoundComponent: () => (
-    <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-      <p className="text-lg font-semibold text-foreground">404</p>
-      <p>Nothing here.</p>
-      <Link to="/" className="text-primary underline">back to cockpit</Link>
-    </div>
-  ),
+  notFoundComponent: NotFoundPage,
   loader: async () => ({
     colorScheme: await getColorSchemeCookie(),
     themeMode: await getThemeModeCookie(),
@@ -71,18 +69,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             <div className="pointer-events-none fixed top-0 left-0 h-64 w-64 bg-primary/10 blur-[100px]" />
             <div className="pointer-events-none fixed bottom-0 right-0 h-64 w-64 bg-chart-2/10 blur-[100px]" />
 
-            <div className="flex h-screen flex-col">
-              <header className="flex h-12 shrink-0 items-center gap-4 border-b px-4">
-                <Link to="/" className="font-mono text-sm font-bold tracking-tight text-primary">
-                  orch
-                </Link>
-                <span className="text-xs text-muted-foreground">cockpit</span>
-                <div className="ml-auto">
-                  <AnimatedThemeToggler initialScheme={colorScheme} />
-                </div>
-              </header>
-              <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
-            </div>
+            <DaemonGate>
+              <SidebarProvider>
+                <AppSidebar initialScheme={colorScheme} />
+                <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <AppBreadcrumbs />
+                  <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
+                </SidebarInset>
+              </SidebarProvider>
+            </DaemonGate>
           </QueryClientProvider>
           <Toaster />
           <TanStackDevtools

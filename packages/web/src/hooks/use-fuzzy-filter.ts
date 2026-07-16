@@ -9,7 +9,7 @@ import { useMemo } from 'react'
 interface FuzzyMatch<T> {
   item: T
   score: number | undefined
-  matches: ReadonlyArray<FuseResultMatch> | undefined
+  matches: readonly FuseResultMatch[] | undefined
 }
 
 /**

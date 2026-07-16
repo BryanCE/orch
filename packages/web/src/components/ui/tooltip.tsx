@@ -16,7 +16,7 @@ function TooltipProvider({
   )
 }
 
-const PinContext = React.createContext<{ pinned: boolean; setPinned: (v: boolean) => void }>({ pinned: false, setPinned: () => {} })
+const PinContext = React.createContext<{ pinned: boolean; setPinned: (v: boolean) => void }>({ pinned: false, setPinned: () => undefined })
 
 function Tooltip({
   open: controlledOpen,

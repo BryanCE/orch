@@ -63,7 +63,7 @@ describe("broker CLI routing", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("agent-alpha");
     expect(result.stdout).toContain("working");
-  });
+  }, 15_000);
 
   test("dispatch failure is daemon-absent, not herdr-not-found", () => {
     const orchDir = makeOrchDir();

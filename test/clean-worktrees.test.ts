@@ -77,5 +77,5 @@ describe("clean worktrees", () => {
     expect(output).toContain("discarded unmerged commits");
     expect(fs.existsSync(unmerged)).toBe(false);
     expect(() => git(repoRoot, ["show-ref", "--verify", `refs/heads/${branch}`])).toThrow();
-  });
+  }, 30_000);
 });

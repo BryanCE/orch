@@ -112,8 +112,7 @@ export const Tooltip = ({
   };
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    // e.touches[0] always exists on touchstart - using ! assertion
-    const touch = e.touches[0]!;
+    const touch = e.touches[0];
     const rect = e.currentTarget.getBoundingClientRect();
     const mouseX = touch.clientX - rect.left;
     const mouseY = touch.clientY - rect.top;

@@ -85,7 +85,6 @@ on = ["done"]
       { type: "desktop", on: ["blocked", "error"] },
       { type: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
       { type: "command", on: ["blocked", "error"], command: nodeCommand("") },
-      { type: "herdr", on: ["done"] },
     ]);
     expect(result.stderr).toContain("unknown sink type");
     expect(result.stderr).toContain("webhook sink requires url");

@@ -83,7 +83,7 @@ export const AnimatedThemeToggler = ({
 
       // Persist for the next SSR paint only — next-themes owns the client from
       // here. Fire the server round-trip after the animation so it can't jank it.
-      animation.finished.finally(() => {
+      void animation.finished.finally(() => {
         setThemeModeCookie({ data: { mode: newTheme } }).catch((err) => {
           console.error("Failed to persist theme mode cookie", err)
         })
@@ -114,17 +114,17 @@ export const AnimatedThemeToggler = ({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[16rem]">
-        <DropdownMenuItem onClick={() => handleThemeChange("light")}>
+        <DropdownMenuItem onClick={() => void handleThemeChange("light")}>
           <Sun className="mr-2 h-4 w-4" />
           Light
           {theme === "light" && <Check className="ml-auto h-4 w-4" />}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("dark")}>
+        <DropdownMenuItem onClick={() => void handleThemeChange("dark")}>
           <Moon className="mr-2 h-4 w-4" />
           Dark
           {theme === "dark" && <Check className="ml-auto h-4 w-4" />}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("system")}>
+        <DropdownMenuItem onClick={() => void handleThemeChange("system")}>
           <Monitor className="mr-2 h-4 w-4" />
           System
           {theme === "system" && <Check className="ml-auto h-4 w-4" />}

@@ -9,6 +9,7 @@ import type {
   BackendCapabilities,
   BackendRegistryRecord,
   BackendSpawnOpts,
+  DeliverPayload,
 } from "../backend.ts";
 import { parseIdentity, serializeIdentity, type Identity } from "../identity.ts";
 
@@ -235,6 +236,26 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       ...handle,
       alive: this.isPidAlive(handle.pid),
     }));
+  }
+
+  /** Headless has no console UI, so it cannot deliver text. */
+  deliver(_handle: HeadlessHandle, _payload: DeliverPayload): boolean {
+    return false;
+  }
+
+  /** Headless has no console UI, so it cannot focus a target. */
+  focus(_handle: HeadlessHandle): boolean {
+    return false;
+  }
+
+  /** Headless has no console UI, so it cannot send keystrokes. */
+  sendKeys(_handle: HeadlessHandle, _keys: readonly string[]): boolean {
+    return false;
+  }
+
+  /** Headless has no console UI, so it cannot apply a pane layout. */
+  applyLayout(_group: string, _layout: "tiled"): boolean {
+    return false;
   }
 }
 

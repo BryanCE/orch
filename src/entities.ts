@@ -1,5 +1,5 @@
 import { loadConfig, type HostConfig } from "./config.ts";
-import { herdrNames, herdrPanes, herdrTabs, type HerdrPane } from "./backends/herdr/cli.ts";
+import { allBackends, resolveBackend } from "./backends/registry.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./store.ts";
 import { serializeIdentity } from "./backends/identity.ts";
 import { checkWall, scopeToWorkspace, workspaceOf } from "./policy/workspace.ts";
@@ -50,11 +50,6 @@ export function collapse(value: string): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
-function paneSessionPath(pane: Pick<HerdrPane, "agent_session">): string | null {
-  const session = pane.agent_session;
-  return session?.kind === "path" && typeof session.value === "string" ? session.value : null;
-}
-
 function naturalPaneOrder(id: string): [string, number] {
   const match = /^(.*?):p?(\d+)$/.exec(id);
   return match ? [match[1]!, parseInt(match[2]!, 10)] : [id, 0];
@@ -65,16 +60,13 @@ export function entityWorkspace(e: Entity): string | null {
 }
 
 export function currentWorkspace(): string | null {
-  const paneId = process.env.HERDR_PANE_ID;
-  if (!paneId) return null;
-  return herdrPanes().find((pane) => pane.pane_id === paneId)?.workspace_id ?? null;
+  return resolveBackend({}).currentIdentity?.()?.workspace ?? null;
 }
 
-/** The orchestrator's own pane key — the actor used for ownership and wall checks
- *  on writes. Null when unscoped (headless / not inside a herdr pane). */
+/** The orchestrator's own target key, used for ownership and wall checks. */
 export function selfActor(): string | null {
-  const workspace = currentWorkspace();
-  return workspace ? serializeIdentity({ backend: "herdr", workspace, handle: "operator" }) : null;
+  const id = resolveBackend({}).currentIdentity?.();
+  return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, handle: "operator" }) : null;
 }
 
 export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
@@ -82,36 +74,35 @@ export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: bool
 }
 
 export function buildEntities(): Entity[] {
-  const panes = herdrPanes();
-  const tabs = herdrTabs();
-  const names = herdrNames();
   const presence = loadPresence();
   const records = spawnedRecords();
-  const keyByPane = new Map<string, string>();
-  for (const [key, record] of records) {
-    if (record.backend === "herdr" && record.handle) keyByPane.set(record.handle, key);
-  }
   const usedPresence = new Set<string>();
   const entities: Entity[] = [];
 
-  for (const pane of panes) {
-    const paneId: string = pane.pane_id;
-    const key = keyByPane.get(paneId) ?? paneId;
-    const pres: PresenceEntry | null = presence.get(key) ?? null;
-    if (pres) usedPresence.add(pres.key);
-    const tab = pane.tab_id ? tabs.get(pane.tab_id) : null;
-    entities.push({
-      key,
-      paneId,
-      name: names.get(paneId) ?? pane.name ?? null,
-      tabLabel: tab?.label ?? null,
-      agent: pane.agent ?? null,
-      focused: !!pane.focused,
-      herdrStatus: pane.agent_status ?? null,
-      presence: pres,
-      sessionPath: paneSessionPath(pane) ?? pres?.status?.sessionPath ?? null,
-      presenceOnly: false,
-    });
+  for (const backend of allBackends()) {
+    if (!backend.inventory || !backend.isInsideSession()) continue;
+    const keyByHandle = new Map<string, string>();
+    for (const [key, record] of records) {
+      if (record.backend === backend.id && record.handle) keyByHandle.set(record.handle, key);
+    }
+    for (const target of backend.inventory()) {
+      const paneId = String(target.handle);
+      const key = keyByHandle.get(paneId) ?? paneId;
+      const pres: PresenceEntry | null = presence.get(key) ?? null;
+      if (pres) usedPresence.add(pres.key);
+      entities.push({
+        key,
+        paneId,
+        name: target.name,
+        tabLabel: target.groupLabel,
+        agent: target.agent,
+        focused: target.focused,
+        herdrStatus: target.status,
+        presence: pres,
+        sessionPath: target.sessionPath ?? pres?.status?.sessionPath ?? null,
+        presenceOnly: false,
+      });
+    }
   }
 
   for (const entry of presence.values()) {
@@ -119,7 +110,7 @@ export function buildEntities(): Entity[] {
     entities.push({
       key: entry.key,
       paneId: entry.status?.paneId ?? null,
-      name: (entry.status?.paneId && names.get(entry.status.paneId)) ?? null,
+      name: null,
       tabLabel: null,
       agent: "pi",
       focused: false,
@@ -133,15 +124,15 @@ export function buildEntities(): Entity[] {
 }
 
 export function sortEntities(entities: Entity[]): Entity[] {
-  const herdr = entities.filter((entity) => !entity.presenceOnly);
+  const live = entities.filter((entity) => !entity.presenceOnly);
   const only = entities.filter((entity) => entity.presenceOnly);
-  herdr.sort((left, right) => {
+  live.sort((left, right) => {
     const [leftWorkspace, leftNumber] = naturalPaneOrder(left.paneId ?? left.key);
     const [rightWorkspace, rightNumber] = naturalPaneOrder(right.paneId ?? right.key);
     return leftWorkspace === rightWorkspace ? leftNumber - rightNumber : leftWorkspace < rightWorkspace ? -1 : 1;
   });
   only.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
-  return [...herdr, ...only];
+  return [...live, ...only];
 }
 
 function die(message: string): never {
@@ -203,9 +194,7 @@ export function resolveTarget(target: string, opts?: { all?: boolean }): Entity 
   if (!crossWall) {
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
-      const ownKey = currentWorkspace() === null
-        ? null
-        : serializeIdentity({ backend: "herdr", workspace: currentWorkspace()!, handle: "operator" });
+      const ownKey = selfActor();
       const decision = checkWall(ownKey, foreign.paneId ?? foreign.key, { crossWorkspace: false });
       if (!decision.allowed) die(decision.reason ?? `Target "${target}" is outside the current workspace.`);
     }
@@ -215,6 +204,6 @@ export function resolveTarget(target: string, opts?: { all?: boolean }): Entity 
 
 export function resolvePane(target: string, opts?: { all?: boolean }): { ent: Entity; pane: string } {
   const ent = resolveTarget(target, opts);
-  if (!ent.paneId) die(`Target "${target}" has no herdr pane.`);
+  if (!ent.paneId) die(`Target "${target}" has no pane.`);
   return { ent, pane: ent.paneId };
 }

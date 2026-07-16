@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { herdrBestEffort } from "./backends/herdr/cli.ts";
+import { getBackend } from "./backends/registry.ts";
+import { parseIdentity } from "./backends/identity.ts";
 import {
   claimTask,
   listTasks,
@@ -57,12 +58,24 @@ function waitForWorking(entry: PresenceEntry, timeoutMs: number): string | null 
 async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
   await Promise.resolve();
   const prompt = `${WORKER_PROMPT_HEADER}\n\n${task.text}`;
-  herdrBestEffort(["pane", "run", entry.key, prompt]);
+  let id: ReturnType<typeof parseIdentity>;
+  try {
+    id = parseIdentity(entry.key);
+  } catch (error: unknown) {
+    process.stderr.write(`Warning: cannot dispatch ${entry.key}: ${String(error)}\n`);
+    return;
+  }
+  const backend = getBackend(id.backend);
+  if (!backend) {
+    process.stderr.write(`Warning: cannot dispatch ${entry.key}: unknown backend ${id.backend}\n`);
+    return;
+  }
+  backend.deliver(id.handle, { kind: "run", text: prompt });
   let status = waitForWorking(entry, 10_000);
   let retried = false;
   if (status !== "working") {
     retried = true;
-    herdrBestEffort(["pane", "run", entry.key, prompt]);
+    backend.deliver(id.handle, { kind: "run", text: prompt });
     status = waitForWorking(entry, 10_000);
   }
   if (!options.json) process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);

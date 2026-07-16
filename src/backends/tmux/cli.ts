@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 
-type ExecOptions = {
+interface ExecOptions {
   readonly encoding: "utf8";
   readonly timeout: number;
   readonly stdio: ["ignore", "pipe", "pipe"];
-};
+}
 
 function runTmux(args: string[]): string {
   const options: ExecOptions = {

@@ -1,15 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { serializeIdentity } from "../src/backends/identity.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
 const { claudeAdapter } = await import("../src/adapters/claude.ts");
 const hookScript = join(import.meta.dir, "../scripts/claude-hooks.ts");
-// Windows forbids ':' in the presence directory name; the hook contract is otherwise unchanged.
-const fakePaneId = process.platform === "win32" ? "w9_p1" : "w9:p1";
+// The hook receives its identity only through the opaque serialized key.
+const fakeKey = serializeIdentity({ backend: "herdr", workspace: "w9", handle: "p1" });
 
 function agentDir(key: string): string {
   const directory = join(orchDir, "agents", key);
@@ -21,11 +22,11 @@ function runHook(event: string, key: string, input: Record<string, unknown> = {}
   const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
   try {
     execFileSync(process.execPath, [hookScript, event], {
-      env: { ...process.env, ORCH_DIR: hookOrchDir, HERDR_PANE_ID: fakePaneId },
+      env: { ...process.env, ORCH_DIR: hookOrchDir, ORCH_AGENT_KEY: fakeKey },
       input: JSON.stringify(input),
       encoding: "utf8",
     });
-    return JSON.parse(readFileSync(join(hookOrchDir, "agents", fakePaneId, "status.json"), "utf8")) as Record<string, unknown>;
+    return JSON.parse(readFileSync(join(hookOrchDir, "agents", fakeKey, "status.json"), "utf8")) as Record<string, unknown>;
   } finally {
     rmSync(hookOrchDir, { recursive: true, force: true });
   }
@@ -80,12 +81,29 @@ describe("Claude adapter", () => {
 
   test("maps Claude hook events to presence states and schema", () => {
     const key = "claude-hooks";
-    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 2, agent: "claude", key: fakePaneId, pid: process.pid, state: "working" });
+    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 2, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
     expect(runHook("Notification", key, { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: 2, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
     expect(runHook("Stop", key, { pid: process.pid })).toMatchObject({ schema: 2, agent: "claude", state: "idle" });
 
     const transcript = join(agentDir(key), "session.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "Finished" })}\n`);
     expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: 2, agent: "claude", state: "done" });
+  });
+
+  test("fails hard and writes no presence without ORCH_AGENT_KEY", () => {
+    const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
+    try {
+      const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir };
+      delete env.ORCH_AGENT_KEY;
+      expect(() => execFileSync(process.execPath, [hookScript, "SessionStart"], {
+        env,
+        input: JSON.stringify({ pid: process.pid }),
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      })).toThrow();
+      expect(existsSync(join(hookOrchDir, "agents"))).toBe(false);
+    } finally {
+      rmSync(hookOrchDir, { recursive: true, force: true });
+    }
   });
 });

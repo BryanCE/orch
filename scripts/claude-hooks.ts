@@ -10,6 +10,7 @@
 import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseIdentity } from "../src/backends/identity.ts";
 
 const ORCH_DIR = process.env.ORCH_DIR ?? join(homedir(), ".orch");
 const PRESENCE_ROOT = join(ORCH_DIR, "agents");
@@ -116,16 +117,6 @@ function agentPid(input: JsonRecord): number {
     ?? process.pid;
 }
 
-function safeKey(value: string): string {
-  const key = value.replace(/[\\/]/g, "_").trim();
-  return key && key !== "." && key !== ".." ? key : `session-${process.pid}`;
-}
-
-function presenceDirectoryName(key: string): string {
-  if (process.platform !== "win32") return key;
-  return key.replaceAll("%", "%25").replaceAll(":", "%3A");
-}
-
 function eventName(argument: string | undefined, input: JsonRecord): string {
   const hookEventName = textValue(input.hook_event_name) ?? "";
   return (argument ?? hookEventName).toLowerCase().replace(/[^a-z]/g, "");
@@ -159,13 +150,21 @@ function loadStatus(file: string): JsonRecord {
   }
 }
 
+let identity: ReturnType<typeof parseIdentity>;
+try {
+  identity = parseIdentity(process.env.ORCH_AGENT_KEY ?? "");
+} catch (error: unknown) {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
+}
+
 const input = readStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const pid = agentPid(input);
-const paneId = textValue(process.env.HERDR_PANE_ID) ?? null;
-const key = safeKey(paneId ?? `session-${pid}`);
-const directory = join(PRESENCE_ROOT, presenceDirectoryName(key));
+const key = process.env.ORCH_AGENT_KEY!;
+const paneId = identity.backend === "herdr" ? identity.handle : null;
+const directory = join(PRESENCE_ROOT, key);
 try {
   mkdirSync(directory, { recursive: true });
 } catch {

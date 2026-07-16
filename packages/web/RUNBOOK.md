@@ -17,25 +17,42 @@ bun run dev          # http://localhost:3717  (vite generates src/routeTree.gen.
 - If a dep version resolves oddly, `bun add <pkg>@latest` — versions here were
   pinned from the proven `workspace-onboarding` set.
 
-## 2. What's in place (copied building blocks)
+## 2. What's in place (real app structure)
+
+Primary nav is a **collapsible-to-icon sidebar** (the LMS sub-tool pattern promoted
+to app chrome), NOT a header. Breadcrumbs are route-`staticData.crumbs`-driven.
 
 ```
 packages/web/
-  package.json        trimmed base deps (dropped ssh2/google/mysql/drizzle/canvas/…)
-  vite.config.ts      tanstackStart + react + tailwind v4 + nitro(bun) + tsconfig-paths
-  tsconfig.json       @/* -> ./src/*   @shadcn/* -> ./src/components/ui/*
-  components.json     shadcn new-york, neutral, css=src/styles.css
+  package.json / vite.config.ts / tsconfig.json / components.json   (base config)
   src/
-    styles.css        tailwind v4 entry + @theme tokens (IBM Plex Mono, synthwave)
-    router.tsx        getRouter()
-    routes/__root.tsx theme system + react-query + toaster + devtools + shell (domain providers stripped)
-    routes/index.tsx  placeholder god-view (3 fake workspace cards)
-    components/ui/*    47 shadcn components
-    components/ColorSchemeDialog.tsx   theme picker (used by animated-theme-toggler)
-    lib/               utils(cn), color-scheme, theme-mode
-    hooks/             use-mobile, use-fuzzy-filter, use-session-storage-state
-    themes/            20 color schemes (import.meta.glob wired)
+    styles.css                      tailwind v4 @theme tokens (IBM Plex Mono, synthwave)
+    router.tsx                      getRouter()
+    routes/
+      __root.tsx                    SidebarProvider shell: <AppSidebar/> + <SidebarInset>(crumbs + Outlet)
+      index.tsx                     GOD-VIEW — workspace cards (NAME + herdr id badge, agent rollup, Σcost)
+      ws/$slug.tsx                  workspace detail — Fleet/Activity/Overview tabs + agent focus panel
+                                    (focus panel has steer/message boxes = first-class control scaffolding)
+      events.tsx / queue.tsx        placeholder global views (sidebar targets)
+    components/
+      AppSidebar.tsx                primary collapsible sidebar: Cockpit group + Workspaces (by name)
+      AgentCard.tsx                 live agent tile (state/model/cost/file/lastText/ctx)
+      SubToolSidebar.tsx            per-section collapsible sidebar (copied — for later nested tools)
+      PageBreadcrumbs.tsx           AppBreadcrumbs (staticData.crumbs) — copied
+      ColorSchemeDialog.tsx         theme picker
+      common/NotFoundPage.tsx       404
+      ui/*                          47 shadcn components
+    lib/
+      mock-fleet.ts                 typed WORKSPACES data, shaped to orch PresenceStatus — swap for server fns
+      utils.ts / color-scheme.ts / theme-mode.ts
+    hooks/    use-mobile, use-fuzzy-filter, use-session-storage-state
+    themes/   19 color schemes (import.meta.glob wired) + index/types
 ```
+
+Workspace display: **name is the title, herdr id (`wD`) is a muted secondary** — real
+data resolves the name from herdr's workspace list (the CLI does the same). Everything
+renders off `src/lib/mock-fleet.ts` today; wiring = replace that module with server fns
+reading `loadPresence()` + `subscribeEvents()` (see §3).
 
 Deliberately NOT copied: domain routes/components/servers (vici, lms, wiw, google,
 onboard, intake, print, sigs), domain hooks, `env.ts`, drizzle/db.

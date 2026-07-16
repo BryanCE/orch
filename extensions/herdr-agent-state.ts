@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createConnection } from "node:net";
+import { tryParseIdentity } from "../src/backends/identity.ts";
 
 function hashExtensionFile(file: string): string {
   return createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 12);
@@ -18,13 +19,11 @@ const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 const HERDR_ENV = process.env.HERDR_ENV;
 const socketPath = process.env.HERDR_SOCKET_PATH;
-// This pane id is used only in herdr control-socket payloads. Presence identity
-// belongs to orch and is supplied separately as ORCH_AGENT_KEY.
-const herdrPaneId = process.env.HERDR_PANE_ID;
+const agentIdentity = tryParseIdentity(process.env.ORCH_AGENT_KEY);
 const source = "herdr:pi";
 
 function enabled() {
-  return HERDR_ENV === "1" && !!socketPath && !!herdrPaneId;
+  return HERDR_ENV === "1" && !!socketPath && agentIdentity?.backend === "herdr";
 }
 
 function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
@@ -142,7 +141,7 @@ function reportSession(): Promise<void> {
     id: `${source}:session:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.report_agent_session",
     params: {
-      pane_id: herdrPaneId,
+      pane_id: agentIdentity?.handle,
       source,
       agent: "pi",
       seq: nextReportSeq(),
@@ -156,7 +155,7 @@ function sendState(state: AgentState, message?: string, seq = nextReportSeq()): 
     id: `${source}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.report_agent",
     params: withSessionRef({
-      pane_id: herdrPaneId,
+      pane_id: agentIdentity?.handle,
       source,
       agent: "pi",
       state,
@@ -172,7 +171,7 @@ function releaseAgent(): Promise<void> {
     id: `${source}:release:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.release_agent",
     params: {
-      pane_id: herdrPaneId,
+      pane_id: agentIdentity?.handle,
       source,
       agent: "pi",
       seq: nextReportSeq(),

@@ -5,6 +5,7 @@
 - [x] 1.4 Export the identity module and verify existing code remains green without consuming the new key format
 
 ## 2. Backend Port and Spawn Identity
+- [x] 2.0 Complete the D2 control surface on the `Backend` port (deliver/focus/sendKeys/applyLayout + read/zoom/rename/group/workspace/layout/wait/inventory/currentIdentity ops); implement fully on herdr, minimally on tmux/headless; route ALL core call sites (commands/entities/work/orchd) through the port and delete every direct herdr call from core (2026-07-16 — this was previously claimed done but had never been built)
 - [x] 2.1 Extend the `Backend` port with `mintIdentity`, `isAvailable`, and `isInsideSession` while preserving existing backend operations
 - [x] 2.2 Implement identity minting and capability probes for the herdr backend
 - [x] 2.3 Implement identity minting and capability probes for the headless backend using pid handles and a null or local workspace
@@ -17,7 +18,7 @@
 ## 3. Bridge Identity Input
 - [x] 3.1 Update every bridge extension to read and validate `ORCH_AGENT_KEY` for presence paths
 - [x] 3.2 Remove bridge identity derivation from `HERDR_PANE_ID` and other plexer-specific variables
-- [ ] 3.3 Add bridge tests for the opaque key, missing-key failure, and operation without herdr environment variables
+- [~] 3.3 Add bridge tests for the opaque key, missing-key failure, and operation without herdr environment variables (claude hook covered: opaque-key fixture + hard-fail missing-key test in test/claude-adapter.test.ts; orchestrator-bridge extension itself still untested)
 
 ## 4. Workspace Policy Migration
 - [x] 4.1 Add presence-record helpers that read and expose the structured identity workspace field

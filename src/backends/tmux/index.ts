@@ -1,5 +1,5 @@
 import type { AgentAdapter } from "../../adapters/adapter.ts";
-import type { Backend, BackendCapabilities, BackendSpawnOpts } from "../backend.ts";
+import type { Backend, BackendCapabilities, BackendSpawnOpts, DeliverPayload } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { bestEffortTmux } from "./cli.ts";
@@ -39,6 +39,15 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     };
   }
 
+  /** Identity of the calling pane, resolved from tmux's environment. */
+  currentIdentity(): Identity | null {
+    const handle = process.env.TMUX_PANE;
+    if (!handle) return null;
+    const workspace = this.sessionOf(handle);
+    if (!workspace) return null;
+    return { backend: TMUX_BACKEND, workspace, handle };
+  }
+
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {
     if (!this.isInsideSession()) throw new Error("tmux spawn requires running inside a tmux session");
     const command = adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
@@ -76,6 +85,28 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   list(): TmuxHandle[] {
     const output = bestEffortTmux(["list-panes", "-a", "-F", "#{pane_id}"]);
     return output?.split(/\r?\n/).filter((pane) => pane.length > 0) ?? [];
+  }
+
+  /** Submit either payload kind as text followed by Enter. */
+  deliver(handle: TmuxHandle, payload: DeliverPayload): boolean {
+    return bestEffortTmux(["send-keys", "-t", handle, "--", payload.text]) !== null
+      && bestEffortTmux(["send-keys", "-t", handle, "--", "Enter"]) !== null;
+  }
+
+  /** Select the target window and pane in tmux. */
+  focus(handle: TmuxHandle): boolean {
+    return bestEffortTmux(["select-window", "-t", handle]) !== null
+      && bestEffortTmux(["select-pane", "-t", handle]) !== null;
+  }
+
+  /** Pass backend key names through to tmux unchanged. */
+  sendKeys(handle: TmuxHandle, keys: readonly string[]): boolean {
+    return bestEffortTmux(["send-keys", "-t", handle, "--", ...keys]) !== null;
+  }
+
+  /** Apply tmux's built-in tiled layout to the target group. */
+  applyLayout(group: string, layout: "tiled"): boolean {
+    return bestEffortTmux(["select-layout", "-t", group, layout]) !== null;
   }
 }
 

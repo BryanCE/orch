@@ -17,14 +17,14 @@ function isValidScheme(value: string | null | undefined): value is ColorSchemeId
 }
 
 // Server functions for SSR
-export const getColorSchemeCookie = createServerFn({ method: 'GET' }).handler(async (): Promise<ColorSchemeId> => {
+export const getColorSchemeCookie = createServerFn({ method: 'GET' }).handler((): ColorSchemeId => {
   const cookie = getCookie(COOKIE_NAME)
   return isValidScheme(cookie) ? cookie : DEFAULT_SCHEME
 })
 
 export const setColorSchemeCookie = createServerFn({ method: 'POST' })
-  .inputValidator(z.object({ colorScheme: z.string() }))
-  .handler(async ({ data }) => {
+  .validator(z.object({ colorScheme: z.string() }))
+  .handler(({ data }) => {
     setCookie(COOKIE_NAME, data.colorScheme, {
       path: '/',
       maxAge: 31536000,
@@ -71,7 +71,7 @@ export function hydrateColorScheme(ssrValue: ColorSchemeId): void {
   currentScheme = resolved
   applyToDom(resolved)
   if (resolved !== ssrValue) {
-    setColorSchemeCookie({ data: { colorScheme: resolved } })
+    void setColorSchemeCookie({ data: { colorScheme: resolved } })
   }
   subscribers.forEach((fn) => fn())
 }
@@ -87,5 +87,5 @@ export function setColorScheme(scheme: ColorSchemeId): void {
   applyToDom(scheme)
   currentScheme = scheme
   subscribers.forEach((fn) => fn())
-  setColorSchemeCookie({ data: { colorScheme: scheme } })
+  void setColorSchemeCookie({ data: { colorScheme: scheme } })
 }

@@ -116,18 +116,6 @@ function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
 
-function paneFor(request: { key: string; opts?: SpawnOpts }): string {
-  // Bridge boundary: the adapter uses the opaque orch-provided key, never a
-  // plexer-specific pane/session environment variable.
-  return request.key;
-}
-
-function degradedKeysCommand(pane: string, text: string): AdapterCommand {
-  // `herdr agent send` injects text into the pane's foreground agent.  The
-  // adapter deliberately does not pretend this is lossless (or an inbox).
-  return { argv: ["herdr", "agent", "send", pane, text] };
-}
-
 /** Claude Code adapter; lifecycle state/result data is supplied by scripts/claude-hooks.ts. */
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
@@ -143,7 +131,7 @@ class ClaudeAdapter implements AgentAdapter {
   /** State is authoritative only when the Claude settings hooks are installed. */
   readonly hookDriven = true;
 
-  /** Start Claude Code directly in an interactive herdr pane. */
+  /** Start Claude Code directly in an interactive backend session. */
   interactiveCmd(_opts: SpawnOpts): string {
     return "claude";
   }
@@ -168,18 +156,14 @@ class ClaudeAdapter implements AgentAdapter {
     return "unknown";
   }
 
-  /** Degraded pane injection: no Claude inbox exists, so warn and send text. */
-  steer(request: SteerRequest): AdapterCommand {
-    const pane = paneFor(request);
-    console.warn(`warning: Claude has no inbox; steering ${pane} via herdr agent send (keys fallback)`);
-    return degradedKeysCommand(pane, request.text);
+  /** Claude has no inbox; the caller must route degraded steering via the target backend. */
+  steer(_request: SteerRequest): AdapterCommand | undefined {
+    return undefined;
   }
 
-  /** Answers use the same best-effort pane injection as steering. */
-  answer(request: AnswerRequest): AdapterCommand {
-    const pane = paneFor(request);
-    console.warn(`warning: Claude has no answer protocol; answering ${pane} via herdr agent send (keys fallback)`);
-    return degradedKeysCommand(pane, request.text);
+  /** Claude has no answer protocol; the caller must route via the target backend. */
+  answer(_request: AnswerRequest): AdapterCommand | undefined {
+    return undefined;
   }
 
   /** Prefer hook result.json, then Claude transcript JSONL, then native output. */

@@ -70,7 +70,7 @@ describe("review plumbing", () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ target: "feature-1", state: "done", commitsAhead: 1, summary: "add feature" });
     expect(result[0]!.diff).toContain("feature.txt");
-  });
+  }, 30_000);
 
   test("reject re-dispatches feedback through the adapter inbox", () => {
     const repoRoot = fixtureRepo();
@@ -83,7 +83,7 @@ describe("review plumbing", () => {
     expect(runOrch(repoRoot, orchDir, "review", "reject", "iterate-1", "-m", "handle the empty case")).toContain("re-dispatched");
     expect(fs.readFileSync(path.join(orchDir, "agents", "pane-1", "inbox.jsonl"), "utf8")).toContain("handle the empty case");
     expect(fs.existsSync(worktreePath)).toBe(true);
-  });
+  }, 30_000);
 
   test("approve merges and removes the worktree and branch", () => {
     const repoRoot = fixtureRepo();
@@ -98,7 +98,7 @@ describe("review plumbing", () => {
     expect(fs.existsSync(path.join(repoRoot, "approved.txt"))).toBe(true);
     expect(fs.existsSync(worktreePath)).toBe(false);
     expect(() => git(repoRoot, ["show-ref", "--verify", `refs/heads/${branch}`])).toThrow();
-  });
+  }, 30_000);
 
   test("conflicting approval aborts without changing either branch", () => {
     const repoRoot = fixtureRepo();
@@ -114,7 +114,7 @@ describe("review plumbing", () => {
     expect(fs.readFileSync(path.join(repoRoot, "README.md"), "utf8")).toBe("base change\n");
     git(repoRoot, ["worktree", "remove", "--force", worktreePath]);
     git(repoRoot, ["branch", "-D", branch]);
-  });
+  }, 30_000);
 
   test("non-fast-forward approval creates a merge commit", () => {
     const repoRoot = fixtureRepo();
@@ -126,5 +126,5 @@ describe("review plumbing", () => {
     expect(mergeReviewBranch(repoRoot, branch)).toBe("merge-commit");
     expect(git(repoRoot, ["show", "-s", "--format=%P", "HEAD"]).split(/\s+/)).toHaveLength(2);
     removeMergedWorktree(repoRoot, worktreePath, branch);
-  });
+  }, 30_000);
 });

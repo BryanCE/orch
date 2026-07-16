@@ -27,6 +27,54 @@ function scanDirectory(directory: string, excluded: Set<string>, check: (line: s
   return count;
 }
 
+function scanSrcOutsideBackends(check: (line: string) => string | undefined): number {
+  const entries = readdirSync("src", { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name));
+  let count = 0;
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name === "backends") continue;
+    if (entry.isDirectory()) {
+      count += scanDirectory(join("src", entry.name), new Set(), check, true);
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
+    const file = join("src", entry.name);
+    const lines = readFileSync(file, "utf8").split(/\r?\n/);
+    for (let index = 0; index < lines.length; index++) {
+      const reason = check(lines[index]!);
+      if (reason) fail(file, index + 1, reason);
+    }
+    count++;
+  }
+  return count;
+}
+
+const bridgeSourceFiles = scanSrcOutsideBackends((line) => {
+  if (/backends\/(?:herdr|tmux)\//.test(line)) return "herdr/tmux backend subpath imports are forbidden outside backends";
+  if (/\b(?:herdrBestEffort|herdrJSON|herdrExec|herdrPanes|herdrTabs|herdrNames|herdrReachable|HERDR_PANE_ID|TMUX_PANE)\b/.test(line)) {
+    return "backend-specific herdr/tmux identifiers are forbidden outside backends";
+  }
+  if (line.includes("process.env.HERDR")) return "process.env.HERDR is forbidden outside backends";
+  if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden outside backends";
+  if (/[\"'](herdr|tmux)[\"']/.test(line)) return "quoted herdr/tmux literals are forbidden outside backends";
+  return undefined;
+});
+
+const extensionFiles = scanDirectory("extensions", new Set(), (line) => {
+  if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in extensions";
+  if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in extensions";
+  if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in extensions";
+  if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden in extensions";
+  return undefined;
+});
+
+const scriptFiles = scanDirectory("scripts", new Set(["check-bridge.ts"]), (line) => {
+  if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in scripts";
+  if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in scripts";
+  if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in scripts";
+  if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden in scripts";
+  return undefined;
+});
+
 const adapterFiles = scanDirectory("src/adapters", new Set(["adapter.ts"]), (line) => {
   if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in agent adapters";
   if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in agent adapters";
@@ -47,4 +95,4 @@ const backendFiles = scanDirectory("src/backends", new Set(["backend.ts", "ident
   return undefined;
 }, true);
 
-console.log(`check:bridge OK (${adapterFiles + backendFiles} files scanned)`);
+console.log(`check:bridge OK (${bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles} files scanned)`);

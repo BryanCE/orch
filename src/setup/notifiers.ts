@@ -1,3 +1,6 @@
+// Load backend-owned providers before building the setup choices. The registry
+// import is intentionally side-effect-only: notify.ts stays harness-neutral.
+import "../backends/registry.ts";
 import {
   createBuiltinNotifiers,
   type Notifier,

@@ -6,7 +6,7 @@ function guardCancel<T>(value: T | symbol): T | null {
     cancel("Cancelled.");
     return null;
   }
-  return value as T;
+  return value;
 }
 
 /** Run a clack single-select over id options; return the chosen id, or null when the user cancels. */
@@ -38,7 +38,7 @@ export async function promptMultiselect(
 }
 
 /** Wrap a synchronous side-effecting thunk in a clack spinner, marking the stop line failed if it throws. */
-export async function withSpinner<T>(startMsg: string, stopMsg: string, fn: () => T): Promise<T> {
+export function withSpinner<T>(startMsg: string, stopMsg: string, fn: () => T): T {
   const s = spinner();
   s.start(startMsg);
   try {

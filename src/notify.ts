@@ -52,6 +52,38 @@ export interface Notifier {
   deliver(event: NotifyEvent, config?: Record<string, unknown>): Promise<boolean>;
 };
 
+/** Provider port used by backend-owned notification sinks. */
+export interface SinkProvider {
+  id: string;
+  onDefaults: readonly string[];
+  available(): boolean | Promise<boolean>;
+  send(title: string, body: string): boolean | Promise<boolean>;
+  remediation?: string;
+  label?: string;
+  description?: string;
+}
+
+const sinkProviders = new Map<string, SinkProvider>();
+
+function providerNotifier(provider: SinkProvider): Notifier {
+  return {
+    id: provider.id,
+    label: provider.label ?? provider.id,
+    metadata: { description: provider.description, requiredConfig: [] },
+    available: () => provider.available(),
+    deliver: async (event) => {
+      const { title, body } = notificationText(event);
+      return !!(await provider.send(title, body));
+    },
+  };
+}
+
+/** Register a backend-owned notification provider. */
+export function registerSinkProvider(provider: SinkProvider): void {
+  sinkProviders.set(provider.id, provider);
+  notifierRegistry?.register(providerNotifier(provider));
+}
+
 /** A configured notifier entry. `type` is accepted as the legacy spelling of `id`. */
 export interface NotifierEntry {
   id: string;
@@ -60,10 +92,10 @@ export interface NotifierEntry {
 };
 
 export interface DesktopSink { type: "desktop"; on: string[] }
-export interface HerdrSink { type: "herdr"; on: string[] }
 export interface WebhookSink { type: "webhook"; on: string[]; url: string }
 export interface CommandSink { type: "command"; on: string[]; command: string[] }
-export type Sink = DesktopSink | HerdrSink | WebhookSink | CommandSink;
+export interface RegisteredSink { type: string; on: string[]; [key: string]: unknown }
+export type Sink = DesktopSink | WebhookSink | CommandSink | RegisteredSink;
 
 type TomlTable = Record<string, unknown>;
 
@@ -247,7 +279,8 @@ function loadNotifierEntries(orchDir: string): NotifierEntry[] {
     }
     const value = entry as TomlTable;
     const id = typeof value.id === "string" ? value.id : value.type;
-    const on = value.on === undefined ? ["blocked", "error"] : stringArray(value.on);
+    const provider = typeof id === "string" ? sinkProviders.get(id) : undefined;
+    const on = value.on === undefined ? [...(provider?.onDefaults ?? ["blocked", "error"])] : stringArray(value.on);
     if (!on) {
       warning("invalid notify entry: on must be an array of strings");
       continue;
@@ -273,7 +306,7 @@ function loadNotifierEntries(orchDir: string): NotifierEntry[] {
       }
       config.command = command;
     }
-    if (!["desktop", "herdr", "webhook", "command"].includes(id)) {
+    if (!isRegisteredSink(id)) {
       warning(`invalid notify entry: unknown sink type ${JSON.stringify(id)}`);
       continue;
     }
@@ -284,10 +317,11 @@ function loadNotifierEntries(orchDir: string): NotifierEntry[] {
 
 /** Load valid legacy sink declarations from an orch config file. */
 export function loadSinks(orchDir: string): Sink[] {
-  return loadNotifierEntries(orchDir).flatMap((entry): Sink[] => {
-    if (entry.id === "desktop" || entry.id === "herdr") return [{ type: entry.id, on: entry.on }];
-    if (entry.id === "webhook") return [{ type: "webhook", on: entry.on, url: entry.config.url as string }];
-    return [{ type: "command", on: entry.on, command: entry.config.command as string[] }];
+  return loadNotifierEntries(orchDir).map((entry): Sink => {
+    if (entry.id === "desktop") return { type: entry.id, on: entry.on };
+    if (entry.id === "webhook") return { type: "webhook", on: entry.on, url: entry.config.url as string };
+    if (entry.id === "command") return { type: "command", on: entry.on, command: entry.config.command as string[] };
+    return { type: entry.id, on: entry.on };
   });
 }
 
@@ -387,6 +421,10 @@ function payload(event: NotifyEvent): string {
   return JSON.stringify(notificationPayload(event));
 }
 
+function isRegisteredSink(id: string): boolean {
+  return id === "desktop" || id === "webhook" || id === "command" || sinkProviders.has(id);
+}
+
 function commandOnPath(command: string): boolean {
   for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
     if (dir && filesystem.existsSync(path.join(dir, command))) return true;
@@ -450,21 +488,14 @@ async function windowsToast(title: string, body: string): Promise<boolean> {
   }
 }
 
-async function deliverHerdr(event: NotifyEvent, colorize = true): Promise<boolean> {
-  const { title, body } = notificationText(event, { colorize });
-  return run(["herdr", "notification", "show", title, "--body", body]);
-}
-
 async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
   const { title, body } = notificationText(event);
-  if (process.env.HERDR_ENV === "1" && await deliverHerdr(event, false)) return true;
   if (await run(["notify-send", title, body])) return true;
   if (commandOnPath("wsl-notify-send") && await run(["wsl-notify-send", title, body])) return true;
   return windowsToast(title, body);
 }
 
 function desktopAvailable(): boolean {
-  if (process.env.HERDR_ENV === "1" && commandOnPath("herdr")) return true;
   if (commandOnPath("notify-send") || commandOnPath("wsl-notify-send")) return true;
   return commandOnPath("powershell.exe") && commandOnPath("wslpath") && filesystem.existsSync(fileURLToPath(new URL("../scripts/wsl-toast.ps1", import.meta.url)));
 }
@@ -477,13 +508,7 @@ function commandAvailable(config: Record<string, unknown>): boolean {
 /** Built-in host integrations. Delivery always uses the canonical formatter above. */
 export function createBuiltinNotifiers(): Notifier[] {
   return [
-    {
-      id: "herdr",
-      label: "Herdr",
-      metadata: { description: "Herdr native notifications", requiredConfig: [] },
-      available: () => commandOnPath("herdr"),
-      deliver: (event) => deliverHerdr(event),
-    },
+    ...[...sinkProviders.values()].map(providerNotifier),
     {
       id: "desktop",
       label: "Desktop",
@@ -529,9 +554,10 @@ export function createBuiltinNotifiers(): Notifier[] {
 const builtinNotifiers = createBuiltinNotifiers();
 
 function entryFromSink(sink: Sink): NotifierEntry {
-  if (sink.type === "desktop" || sink.type === "herdr") return { id: sink.type, on: sink.on, config: {} };
-  if (sink.type === "webhook") return { id: sink.type, on: sink.on, config: { url: sink.url } };
-  return { id: sink.type, on: sink.on, config: { command: sink.command } };
+  // RegisteredSink's string discriminant defeats union narrowing; gate on the property instead.
+  if (sink.type === "webhook" && "url" in sink) return { id: sink.type, on: sink.on, config: { url: sink.url } };
+  if (sink.type === "command" && "command" in sink) return { id: sink.type, on: sink.on, config: { command: sink.command } };
+  return { id: sink.type, on: sink.on, config: {} };
 }
 
 function timeoutResult<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
@@ -651,10 +677,19 @@ class NotifierRegistry {
 }
 
 export function createNotifierRegistry(notifiers?: readonly Notifier[], options: { timeoutMs?: number; warn?: (message: string) => void } = {}): NotifierRegistry {
-  return new NotifierRegistry(notifiers ?? builtinNotifiers, options);
+  // Providers can register during a backend import after the initial built-ins
+  // were created. Include them in the default registry without importing any
+  // backend here.
+  const defaults = notifiers ?? [
+    ...builtinNotifiers,
+    ...[...sinkProviders.values()]
+      .filter((provider) => !builtinNotifiers.some((notifier) => notifier.id === provider.id))
+      .map(providerNotifier),
+  ];
+  return new NotifierRegistry(defaults, options);
 }
 
-const notifierRegistry = createNotifierRegistry();
+const notifierRegistry: NotifierRegistry = createNotifierRegistry();
 
 export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boolean> {
   const configured = entryFromSink(sink);

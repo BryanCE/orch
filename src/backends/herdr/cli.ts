@@ -69,16 +69,30 @@ function isHerdrAgent(value: unknown): value is HerdrAgent {
     && (value.name === undefined || typeof value.name === "string");
 }
 
+/** Each herdr exec costs whole seconds under WSL load; one CLI action must
+ *  never pay twice for the same listing. Long-lived processes (orchd) stay
+ *  fresh because entries expire after a short TTL. */
+const LIST_CACHE_TTL_MS = 1500;
+const listCache = new Map<string, { at: number; value: unknown }>();
+
 function herdr(args: string[]): unknown {
+  const cacheKey = args.join(" ");
+  const cached = listCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.value;
+  let value: unknown;
   try {
     const output: string = execFileSync("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    return parseHerdrOutput(output);
+    value = parseHerdrOutput(output);
   } catch {
-    return null;
+    value = null;
   }
+  listCache.set(cacheKey, { at: Date.now(), value });
+  return value;
 }
 
 export function herdrJSON<T = unknown>(args: string[]): T {
+  // Assume a mutation: listings must not serve pre-mutation state.
+  listCache.clear();
   let output: string;
   try {
     output = execFileSync("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -123,6 +137,8 @@ export function herdrTabs(): Map<string, HerdrTab> {
 }
 
 export function herdrBestEffort(args: string[]): boolean {
+  // Assume a mutation: listings must not serve pre-mutation state.
+  listCache.clear();
   try {
     execFileSync("herdr", args, { timeout: 8000, stdio: ["ignore", "pipe", "pipe"] });
     return true;

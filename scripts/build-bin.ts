@@ -1,9 +1,7 @@
-const output = "dist/bin/orch.js";
-const source = await Bun.file(output).text();
-const fixed = source.replace(/^#![^\r\n]*/, "#!/usr/bin/env node");
-await Bun.write(output, fixed);
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 
-const chmod = Bun.spawnSync(["chmod", "+x", output], { stdout: "inherit", stderr: "inherit" });
-if (chmod.exitCode !== 0) {
-  process.exit(chmod.exitCode ?? 1);
-}
+const output = "dist/bin/orch.js";
+const source = readFileSync(output, "utf8");
+const fixed = source.replace(/^#![^\r\n]*/, "#!/usr/bin/env node");
+writeFileSync(output, fixed);
+chmodSync(output, 0o755);

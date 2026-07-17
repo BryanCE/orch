@@ -1,10 +1,10 @@
 import type { AgentAdapter } from "./adapters/adapter.ts";
 
 /** Always-on worker header: the pane is unattended. */
-export const WORKER_HEADER_BASE = "[orch worker] No human watches this pane.";
+const WORKER_HEADER_BASE = "[orch worker] No human watches this pane.";
 
 /** Appended only for adapters that support orch's blocking ask flow. */
-export const WORKER_HEADER_ASK_CLAUSE =
+const WORKER_HEADER_ASK_CLAUSE =
   " For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
 
 /** Compose the worker header from one resolved adapter's ask capability. */

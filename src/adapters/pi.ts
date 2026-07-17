@@ -67,7 +67,7 @@ export const PI_APPROVED_TOOLS = [
 
 const PI_TOOL_ALLOWLIST = PI_APPROVED_TOOLS.join(",");
 
-export function presenceFor(key: string): PresenceEntry | undefined {
+function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
 

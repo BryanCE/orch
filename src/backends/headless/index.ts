@@ -194,7 +194,10 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       child = spawnProcess(argv[0], argv.slice(1), {
         cwd: opts.cwd,
         detached: true,
-        env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ...(opts.env ?? {}) },
+        // ORCH_AGENT_LOG mirrors the recorded log path (D3a) to the presence
+        // writer running inside the child, so its own status.json can stamp
+        // the same sessionPath the backend registry records below.
+        env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ...(opts.env ?? {}) },
         stdio: ["ignore", logFd, logFd],
       });
     } catch (error) {
@@ -207,7 +210,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
     const handle: HeadlessHandle = { pid, key };
-    appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: String(adapter.id), cwd: opts.cwd }, directory);
+    appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: String(adapter.id), cwd: opts.cwd, log: logPath }, directory);
     return handle;
   }
 

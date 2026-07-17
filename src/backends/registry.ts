@@ -6,7 +6,7 @@ import { tmuxBackend } from "./tmux/index.ts";
 const backends = new Map<string, Backend>();
 
 /** Register a backend by its stable id. Later registrations replace earlier ones. */
-export function registerBackend(backend: Backend): void {
+function registerBackend(backend: Backend): void {
   backends.set(backend.id, backend);
 }
 

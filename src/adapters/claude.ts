@@ -122,7 +122,6 @@ function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
 
-/** Claude Code adapter; lifecycle state/result data is supplied by scripts/claude-hooks.ts. */
 const HOME = os.homedir();
 
 function isOrchShimHook(hook: unknown): boolean {
@@ -231,6 +230,13 @@ function installClaudeAgents(pkgRoot: string): void {
   }
 }
 
+/**
+ * Claude Code adapter. Presence fidelity is coarse by design: `working` on
+ * SessionStart, `blocked` on Notification, `done`/`idle` on Stop, and nothing
+ * in between — Claude's hooks fire only at those three points, so there are
+ * no mid-run tool/token/cost transitions the way pi's live extension reports
+ * them. State and session-tail data are supplied by scripts/claude-hooks.ts.
+ */
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 

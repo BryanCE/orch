@@ -49,7 +49,7 @@ describe("command workspace fields", () => {
       stderr: "pipe",
     });
     expect(await child.exited).toBe(0);
-    const rows = JSON.parse(await new Response(child.stdout).text()) as Array<{ key: string; workspace: string }>;
+    const rows = JSON.parse(await new Response(child.stdout).text()) as { key: string; workspace: string }[];
     expect(rows.find((row) => row.key === key)?.workspace).toBe("reported-workspace");
   }, 30_000);
 });

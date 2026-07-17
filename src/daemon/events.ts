@@ -6,8 +6,7 @@ import { pidAlive, presenceAgentDir, presenceKeyFromDirectoryName, readJSON } fr
 import { truncate } from "../table.ts";
 import { rpcCall, rpcSubscribe } from "./rpc.ts";
 import { workspaceOf } from "../policy/workspace.ts";
-
-const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
+import { stripWorkerHeader } from "../worker-prompt.ts";
 
 export interface PresenceMetadata {
   name: string | null;
@@ -84,9 +83,7 @@ function eventTask(status: object): string | undefined {
   }
   const task = property(status, "task");
   if (typeof task !== "string") return undefined;
-  const realTask = (task.startsWith(WORKER_PROMPT_HEADER)
-    ? task.slice(WORKER_PROMPT_HEADER.length)
-    : task).trimStart();
+  const realTask = stripWorkerHeader(task);
   if (!realTask) return undefined;
   return truncate(collapse(realTask), 80);
 }

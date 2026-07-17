@@ -1,8 +1,12 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-import { allAdapters } from "./adapters/registry.ts";
-import { allBackends } from "./backends/registry.ts";
+// config.ts is a leaf module imported during almost every module graph's init
+// (notify.ts → config.ts among others). It must never import the provider
+// registries — they evaluate every concrete adapter/backend, re-entering this
+// graph mid-initialization. The closed id sets live in the pure port modules.
+import { ADAPTER_IDS } from "./adapters/adapter.ts";
+import { BACKEND_IDS } from "./backends/backend.ts";
 import { errorMessage } from "./util.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
@@ -20,7 +24,7 @@ const HostSchema = z.strictObject({
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
  * JSON round-trip, schemaVersion-stamped, validated loudly on every load. */
-export const SettingsFileSchema = z.strictObject({
+const SettingsFileSchema = z.strictObject({
   schemaVersion: z.literal(SETTINGS_SCHEMA),
   /** Providers whose integrations setup installed; any of them can be spawned. */
   installed: z.strictObject({
@@ -91,8 +95,8 @@ function readSettingsFile(file: string): SettingsFile | null {
 
 /** Reject unknown provider ids and defaults outside the installed sets — composition validation the pure schema can't do. */
 function requireInstalledComposition(file: string, root: SettingsFile): void {
-  const adapterIds = allAdapters().map((adapter) => adapter.id);
-  const backendIds = allBackends().map((backend) => backend.id);
+  const adapterIds: readonly string[] = ADAPTER_IDS;
+  const backendIds: readonly string[] = BACKEND_IDS;
   const installed = root.installed ?? { adapters: [], backends: [] };
   for (const id of installed.adapters) {
     if (!adapterIds.includes(id)) throw new Error(`${file}: installed.adapters: unknown adapter "${id}" — supported adapters: ${adapterIds.join(", ")}`);

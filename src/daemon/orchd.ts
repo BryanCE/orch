@@ -80,7 +80,7 @@ async function deliverBackend(target: string, payload: unknown): Promise<boolean
   const text = requiredString(value.text, "text");
   if (value.action === "dispatch") {
     const route = resolveTargetRoute(target);
-    return route !== undefined && route.backend.deliver(route.handle, { kind: "run", text });
+    return route?.backend.deliver(route.handle, { kind: "run", text }) ?? false;
   }
   // Steer: agents route through the control dispatcher (adapter-gated); a
   // target with no recorded adapter is a bare pane and gets a plain message.
@@ -94,7 +94,7 @@ async function deliverBackend(target: string, payload: unknown): Promise<boolean
     }
   }
   const route = resolveTargetRoute(target);
-  return route !== undefined && route.backend.deliver(route.handle, { kind: "message", text });
+  return route?.backend.deliver(route.handle, { kind: "message", text }) ?? false;
 }
 
 function outboxDeps(): OutboxDeps {

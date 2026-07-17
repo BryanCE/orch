@@ -102,7 +102,7 @@ export function binaryStatus(): BinaryStatus {
   return { bun: onPath("bun"), pi: onPath("pi") };
 }
 
-export function checkBins(bins: BinaryStatus): CheckResult {
+function checkBins(bins: BinaryStatus): CheckResult {
   const missing = ["bun", "pi"].filter((bin) => !bins[bin]);
   if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: "bun and pi are on PATH" };
   if (!bins.bun) return { id: "bins", label: "Required binaries", status: "fail", detail: "bun is not on PATH" };

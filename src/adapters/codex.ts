@@ -297,8 +297,6 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Codex has no proven blocking answer protocol. */
-  // Required by the AgentAdapter contract; Codex has no answer protocol.
-  // fallow-ignore-next-line unused-class-member
   answer(_request: AnswerRequest): AdapterCommand | undefined {
     return undefined;
   }
@@ -317,6 +315,26 @@ export class CodexAdapter implements AgentAdapter {
       if (value !== undefined) return value;
     }
     return transcriptResult(input.sessionPath);
+  }
+
+  /**
+   * Read the headless `--json` log at the recorded session path (D3a) through
+   * the same state/result parsers notify and headless output use. Returns
+   * undefined when no log path was recorded — it never scans a directory for
+   * one, since headless logs are flat under `$ORCH_DIR/logs/`, not per-agent.
+   */
+  readSessionView(input: SessionViewInput): SessionView | undefined {
+    const output = readTextFile(input.sessionPath);
+    if (output === undefined) return undefined;
+    return {
+      state: this.detectState({ output }),
+      lastText: this.extractResult({ output }),
+    };
+  }
+
+  /** Register the orch notify shim as codex's completion writer (D2/D2a). */
+  installShim(): void {
+    installCodexNotifyShim(packageRoot());
   }
 }
 

@@ -1,6 +1,9 @@
 /** Agent CLIs supported by orch. */
 export type AdapterId = "pi" | "claude" | "codex";
 
+/** The closed adapter-id set, importable without pulling any provider code. */
+export const ADAPTER_IDS: readonly AdapterId[] = ["pi", "claude", "codex"];
+
 /** Ways an adapter can deliver a mid-run steering message. */
 export type SteerMechanism = "inbox" | "keys" | "resume" | "none";
 

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { insertSpawnedRecord, selectSpawnedRecords, setOwner } from "./store/sqlite.ts";
@@ -142,10 +142,6 @@ export function spawnedRecords(): Map<string, SpawnedRecord> {
     for (const record of selectSpawnedRecords(orchDir())) records.set(record.pane, record);
   } catch {}
   return records;
-}
-
-export function spawnedPanes(): Set<string> {
-  return new Set(spawnedRecords().keys());
 }
 
 export function loadPresence(): Map<string, PresenceEntry> {

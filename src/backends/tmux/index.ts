@@ -39,7 +39,7 @@ function statusForAgentKey(key: string): string | null {
 }
 
 function groupFromWindowPanes(windowId: string, panes: readonly TmuxPane[]): BackendGroup {
-  const first = panes[0];
+  const first = panes[0]!;
   const index = Number(first.windowIndex);
   return {
     id: windowId,
@@ -212,6 +212,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   /** Apply tmux's built-in tiled layout to the target group. */
+  // fallow-ignore-next-line unused-class-member
   applyLayout(group: string, layout: "tiled"): boolean {
     return bestEffortTmux(["select-layout", "-t", group, layout]) !== null;
   }

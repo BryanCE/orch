@@ -2,6 +2,7 @@ import { spawn, execFile } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { loadConfig } from "./config.ts";
+import { allSinkProviders, getSinkProvider, hasSinkProvider, onSinkProviderRegistered, type SinkProvider } from "./notify-sinks.ts";
 import { workspaceOf } from "./policy/workspace.ts";
 import { errorMessage, packageRoot } from "./util.ts";
 
@@ -52,19 +53,6 @@ export interface Notifier {
   deliver(event: NotifyEvent, config?: Record<string, unknown>): Promise<boolean>;
 };
 
-/** Provider port used by backend-owned notification sinks. */
-export interface SinkProvider {
-  id: string;
-  onDefaults: readonly string[];
-  available(): boolean | Promise<boolean>;
-  send(title: string, body: string): boolean | Promise<boolean>;
-  remediation?: string;
-  label?: string;
-  description?: string;
-}
-
-const sinkProviders = new Map<string, SinkProvider>();
-
 function providerNotifier(provider: SinkProvider): Notifier {
   return {
     id: provider.id,
@@ -76,12 +64,6 @@ function providerNotifier(provider: SinkProvider): Notifier {
       return !!(await provider.send(title, body));
     },
   };
-}
-
-/** Register a backend-owned notification provider. */
-export function registerSinkProvider(provider: SinkProvider): void {
-  sinkProviders.set(provider.id, provider);
-  notifierRegistry?.register(providerNotifier(provider));
 }
 
 /** A configured notifier entry from the settings.json `notify` array. */
@@ -125,7 +107,7 @@ function loadNotifierEntries(orchDir: string): NotifierEntry[] {
     }
     const value = entry as Record<string, unknown>;
     const id = value.id;
-    const provider = typeof id === "string" ? sinkProviders.get(id) : undefined;
+    const provider = typeof id === "string" ? getSinkProvider(id) : undefined;
     const on = value.on === undefined ? [...(provider?.onDefaults ?? ["blocked", "error"])] : stringArray(value.on);
     if (!on) {
       warning("invalid notify entry: on must be an array of strings");
@@ -268,7 +250,7 @@ function payload(event: NotifyEvent): string {
 }
 
 function isRegisteredSink(id: string): boolean {
-  return id === "desktop" || id === "webhook" || id === "command" || sinkProviders.has(id);
+  return id === "desktop" || id === "webhook" || id === "command" || hasSinkProvider(id);
 }
 
 function commandOnPath(command: string): boolean {
@@ -354,7 +336,7 @@ function commandAvailable(config: Record<string, unknown>): boolean {
 /** Built-in host integrations. Delivery always uses the canonical formatter above. */
 export function createBuiltinNotifiers(): Notifier[] {
   return [
-    ...[...sinkProviders.values()].map(providerNotifier),
+    ...allSinkProviders().map(providerNotifier),
     {
       id: "desktop",
       label: "Desktop",
@@ -528,7 +510,7 @@ export function createNotifierRegistry(notifiers?: readonly Notifier[], options:
   // backend here.
   const defaults = notifiers ?? [
     ...builtinNotifiers,
-    ...[...sinkProviders.values()]
+    ...allSinkProviders()
       .filter((provider) => !builtinNotifiers.some((notifier) => notifier.id === provider.id))
       .map(providerNotifier),
   ];
@@ -536,6 +518,8 @@ export function createNotifierRegistry(notifiers?: readonly Notifier[], options:
 }
 
 const notifierRegistry: NotifierRegistry = createNotifierRegistry();
+// Providers that register after this module initialized still reach the default registry.
+onSinkProviderRegistered((provider) => notifierRegistry.register(providerNotifier(provider)));
 
 export async function deliverToSink(sink: Sink, event: NotifyEvent): Promise<boolean> {
   const configured = entryFromSink(sink);

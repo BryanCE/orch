@@ -10,11 +10,12 @@
     "agents"
   ],
   "scripts": {
-    "check": "oxlint . && bunx tsc --noEmit && fallow check",
+    "check": "oxlint . && bunx tsc --noEmit && fallow check && bun run check:bridge",
     "check:bridge": "bun scripts/check-bridge.ts",
     "build": "bun run build:cli && bun run build:web",
-    "build:cli": "bun run build:ext && bun run build:bin && bun run build:daemon && bun run build:hooks",
+    "build:cli": "bun run build:ext && bun run build:bin && bun run build:daemon && bun run build:hooks && bun run build:notify",
     "build:hooks": "bun build scripts/claude-hooks.ts --target=node --format=esm --outfile dist/scripts/claude-hooks.js",
+    "build:notify": "bun build scripts/codex-notify.ts --target=node --format=esm --outfile dist/scripts/codex-notify.js",
     "build:ext": "bun build extensions/orchestrator-bridge.ts --target=node --format=esm --outfile dist/extensions/orchestrator-bridge.js",
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",

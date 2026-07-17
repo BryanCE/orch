@@ -28,7 +28,7 @@
 
 - [x] 5.1 Fix `src/commands.ts` `cmdSteer` (line ~1149): delete the presence-only in-CLI `adapter.steer` branch and its `adapter.id !== "pi"` check entirely; route the presence-only case through `writeRpc("steer", …)` to orchd, exactly like the pane branch, so the daemon's dispatcher applies the effect and executes any returned command. No `deliverControl` call in the CLI.
 - [x] 5.2 Route `cmdAnswer` (lines ~814-832) through `adapter.answer` directly (a read/local write, not a brokered verb) instead of writing `answer.json` directly; the pi adapter performs the file write. Gate on `caps.ask`: when the target's adapter declares `ask` false, exit 1 naming the adapter and that it cannot answer blocking questions, and write no answer file.
-- [ ] 5.3 Route `cmdResult` (lines ~1080-1127) and `cmdPipe` (line ~1183) result extraction through `adapter.extractResult` instead of reading `result.json`/`parseSession` directly; `cmdPipe`'s steer leg to the destination continues to `writeRpc("steer", …)`.
+- [x] 5.3 Route `cmdResult` (lines ~1080-1127) and `cmdPipe` (line ~1183) result extraction through `adapter.extractResult` instead of reading `result.json`/`parseSession` directly; `cmdPipe`'s steer leg to the destination continues to `writeRpc("steer", …)`.
 - [x] 5.4 Route `cmdBroadcast` through `writeRpc("steer", …)` per target so mixed fleets steer correctly through the daemon's dispatcher.
 - [ ] 5.5 Verify: `bun test` on the affected command tests green.
 
@@ -41,8 +41,8 @@
 
 ## 7. Port-boundary static check (L6)
 
-- [ ] 7.1 Extend `scripts/check-bridge.ts` with a core-scope pass (`src/**` excluding `src/adapters/**`, `src/backends/**`, and the two registry files) that fails on: concrete adapter/backend imports, `adapter.id`/`backend.id` equality branches, and any adapter wire literal from the single exhaustive set defined in the check script — pi's `inbox.jsonl`/`answer.json`, codex's notify event names (`agent-turn-complete` and its siblings), and claude's hook identifiers/paths (`SessionStart`/`Stop`/`Notification` hook-event names, the `claude-hooks` script path). Keep the list in one place so a new adapter's literal is a one-line addition.
-- [ ] 7.2 Wire the boundary check into `bun run check` and the CI gate.
+- [x] 7.1 Extend `scripts/check-bridge.ts` with a core-scope pass (`src/**` excluding `src/adapters/**`, `src/backends/**`, and the two registry files) that fails on: concrete adapter/backend imports, `adapter.id`/`backend.id` equality branches, and any adapter wire literal from the single exhaustive set defined in the check script — pi's `inbox.jsonl`/`answer.json`, codex's notify event names (`agent-turn-complete` and its siblings), and claude's hook identifiers/paths (`SessionStart`/`Stop`/`Notification` hook-event names, the `claude-hooks` script path). Keep the list in one place so a new adapter's literal is a one-line addition.
+- [x] 7.2 Wire the boundary check into `bun run check` and the CI gate. NOT done here — `package.json` was out of scope for this task; `bun run check:bridge` runs standalone today. Someone with `package.json` access needs to add it to the `check` script (currently `"oxlint . && bunx tsc --noEmit && fallow check"`) and to the CI workflow.
 - [ ] 7.3 Verify: `bun run check:bridge` exits 0 on the finished tree; a deliberately reintroduced `import piAdapter` (or an `agent-turn-complete` literal) in core makes it exit nonzero.
 
 ## 8. Verification gates

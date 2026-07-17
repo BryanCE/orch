@@ -75,7 +75,7 @@ function parsePaneRow(line: string): TmuxPane | null {
 }
 
 /** Every pane across every session, from one `list-panes -a` call (D1). */
-export function tmuxPanes(): TmuxPane[] {
+function tmuxPanes(): TmuxPane[] {
   const output = bestEffortTmux(["list-panes", "-a", "-F", PANE_FORMAT]);
   if (!output) return [];
   return output.split(/\r?\n/).flatMap((line) => {

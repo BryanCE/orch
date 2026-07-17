@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 interface CliResult {
   status: number | null;
@@ -17,6 +18,10 @@ const controlledPath = mkdtempSync(join(tmpdir(), "orch-routing-path-"));
 function makeOrchDir(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-broker-routing-"));
   tempDirs.push(directory);
+  // Dispatch resolves the adapter before probing the daemon; without an
+  // installed default it dies on "no harness selected" instead of the
+  // daemon-absent failure these tests assert.
+  writeSettingsFixture(directory, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
   return directory;
 }
 

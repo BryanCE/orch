@@ -44,7 +44,7 @@ export function resolveTargetRoute(target: string): { backend: Backend; handle: 
 }
 
 /** Execute an adapter-built argv machine-locally, throwing on spawn failure or nonzero exit. */
-export function runAdapterCommand(command: AdapterCommand): Promise<void> {
+function runAdapterCommand(command: AdapterCommand): Promise<void> {
   const [bin, ...args] = command.argv;
   if (!bin) return Promise.reject(new Error("adapter returned an empty command"));
   return new Promise((resolve, reject) => {

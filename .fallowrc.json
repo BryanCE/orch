@@ -1,6 +1,6 @@
 {
 	"ignorePatterns": ["packages/web/**"],
-	"ignoreDependencies": ["@tanstack/react-db"],
+	"ignoreDependencies": ["@tanstack/react-db", "react"],
 	"duplicates": {
 		"mode": "semantic",
 		"minTokens": 35,

@@ -100,7 +100,7 @@ const backendFiles = scanDirectory("src/backends", new Set(["backend.ts", "ident
  * and src/backends). This is the single exhaustive place the set lives —
  * adding a new adapter's literal here is the only change a new adapter needs.
  */
-const ADAPTER_WIRE_LITERALS: ReadonlyArray<{ readonly owner: string; readonly literal: string }> = [
+const ADAPTER_WIRE_LITERALS: readonly { readonly owner: string; readonly literal: string }[] = [
   { owner: "pi", literal: "inbox.jsonl" },
   { owner: "pi", literal: "answer.json" },
   { owner: "codex", literal: "agent-turn-complete" },
@@ -123,19 +123,21 @@ function quotedLiteralPattern(literal: string): RegExp {
  * Pre-existing core-scope violations not owned by port-boundary-guard (section 7).
  * Each is a real gap left open for its owning task to close — the rule stays
  * strict; remove an entry only when the named file is actually fixed.
+ *
+ * Keyed by exact (trimmed) line content rather than line number: other tasks
+ * in this change edit these same files concurrently, and a line-number key
+ * would silently stop matching (or silently match the wrong line) on every
+ * unrelated insertion/deletion above it.
  */
-const CORE_SCOPE_ALLOWLIST = new Set<string>([
-  // src/commands.ts imports the pi adapter's presence reader and the concrete
-  // headless backend directly instead of going through the registries.
-  // Tracked under tasks 1/2/5, not section 7.
-  "src/commands.ts:16",
-  "src/commands.ts:23",
+const CORE_SCOPE_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   // src/doctor.ts's checkClaudeHooks reimplements claude's hook-event names
   // and the "claude-hooks" id in core instead of delegating to
   // src/adapters/claude.ts. Not part of section 7's scope.
-  "src/doctor.ts:280",
-  "src/doctor.ts:305",
-  "src/doctor.ts:825",
+  ["src/doctor.ts", new Set([
+    'const id = "claude-hooks";',
+    'for (const event of ["SessionStart", "Stop", "Notification"] as const) {',
+    'isolated("claude-hooks", "Claude hooks shim", () => checkClaudeHooks()),',
+  ])],
 ]);
 
 function checkCoreScopeLine(line: string): string | undefined {
@@ -170,9 +172,10 @@ function scanCoreScope(): number {
       }
       if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
       const file = join(directory, entry.name);
+      const allowed = CORE_SCOPE_ALLOWLIST.get(entryRelPath);
       const lines = readFileSync(file, "utf8").split(/\r?\n/);
       for (let index = 0; index < lines.length; index++) {
-        if (CORE_SCOPE_ALLOWLIST.has(`${entryRelPath}:${index + 1}`)) continue;
+        if (allowed?.has(lines[index]!.trim())) continue;
         const reason = checkCoreScopeLine(lines[index]!);
         if (reason) fail(file, index + 1, reason);
       }

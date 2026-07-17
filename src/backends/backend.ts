@@ -1,6 +1,12 @@
 import type { AgentAdapter } from "../adapters/adapter.ts";
 import type { Identity } from "./identity.ts";
 
+/** Plexer backends supported by orch. */
+export type BackendId = "herdr" | "tmux" | "headless";
+
+/** The closed backend-id set, importable without pulling any provider code. */
+export const BACKEND_IDS: readonly BackendId[] = ["herdr", "tmux", "headless"];
+
 /** Capabilities exposed by a backend. */
 export interface BackendCapabilities {
   /** Whether the backend creates or manages visible panes. */
@@ -118,6 +124,8 @@ export interface BackendRegistryRecord<Handle = BackendHandle> {
   readonly adapter: string;
   /** Working directory the agent was launched in, when known. */
   readonly cwd?: string;
+  /** Captured output log path recorded at spawn time (D3a), when the backend writes one. */
+  readonly log?: string;
 }
 
 /**

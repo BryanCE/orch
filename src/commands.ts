@@ -13,14 +13,13 @@ import { probeNotifiers, buildSelectedNotifyEntries } from "./setup/notifiers.ts
 import { buildExtensionBundle, PI_EXTENSION_NAMES } from "./bridge-bundle.ts";
 import { loadConfig, resolveSetting, resolveWithSource, settingsPath, writeSettingsDefault, writeSettingsInstalled, writeSettingsNotify, type HostConfig, type OrchConfig } from "./config.ts";
 import { bridgeRegistered, defaultModelString, isRecord, loadPresence, orchDir, pidAlive, presenceDir, presenceAgentDir, readJSON, recordSpawned, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "./store.ts";
-import { presenceFor } from "./adapters/pi.ts";
 import { allAdapters, getAdapter, resolveAdapter as resolveRegisteredAdapter } from "./adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "./adapters/adapter.ts";
+import { workerHeaderFor } from "./worker-prompt.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "./session.ts";
 import { buildEntities, collapse, currentWorkspace, entityWorkspace, parseTarget, resolvePane, resolveTarget, scopeEntitiesToWorkspace, selfActor, sortEntities, workspaceOf, type Entity } from "./entities.ts";
 import { serializeIdentity, parseIdentity, tryParseIdentity } from "./backends/identity.ts";
 import { runRemoteAsync, runSSH } from "./remote.ts";
-import { headlessBackend, type HeadlessHandle } from "./backends/headless/index.ts";
 import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle } from "./backends/backend.ts";
 import { allBackends, getBackend, resolveBackend } from "./backends/registry.ts";
 import { renderTable, truncate } from "./table.ts";
@@ -107,10 +106,15 @@ interface View {
   sview: SessionView | null;
 }
 
+/** Resolve the adapter recorded for one entity (spawn registry, then presence, then backend report). */
+function entityAdapter(ent: Entity, spawned = spawnedRecords()): AgentAdapter | undefined {
+  return getAdapter(spawned.get(ent.key)?.adapter ?? ent.presence?.status?.agent ?? ent.agent ?? "");
+}
+
 function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
   const pres = ent.presence;
   const isPi = ent.agent === "pi";
-  const adapter = getAdapter(spawned.get(ent.key)?.adapter ?? pres?.status?.agent ?? ent.agent ?? "");
+  const adapter = entityAdapter(ent, spawned);
   const sview = (adapter?.caps.sessionTail && ent.sessionPath ? adapter.readSessionView?.({ sessionPath: ent.sessionPath }) : undefined) ?? null;
 
   // ---- model ----
@@ -576,7 +580,7 @@ async function cmdReview(args: string[]): Promise<void> {
     const feedback = messageIndex >= 0 ? args[messageIndex + 1] : undefined;
     const allowedReject = new Set(["reject", target, "-m", feedback, "--json"]);
     if (messageIndex < 0 || !feedback || args.some((arg) => !allowedReject.has(arg))) die('usage: orch review reject <target> -m "feedback" [--json]');
-    if (!presenceFor(item.pane)) die(`Cannot reject ${item.target}: agent presence is missing.`);
+    if (!loadPresence().get(item.pane)) die(`Cannot reject ${item.target}: agent presence is missing.`);
     await writeRpc("steer", { target: item.pane, text: feedback });
     if (json) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
     else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
@@ -1102,31 +1106,36 @@ function cmdResult(args: string[]) {
     else process.stdout.write((resultText(pres.result) ?? "") + "\n");
     return;
   }
-  // fallback: last assistant text from session
-  const session = parseSession(ent.sessionPath);
-  if (session.exists && session.lastAssistant) {
-    process.stderr.write("(no result.json — falling back to last assistant text from session)\n");
-    if (json)
+  // fallback: adapter-extracted final text from the native session tail
+  const adapter = entityAdapter(ent);
+  const extractInput = { key: ent.key, sessionPath: ent.sessionPath ?? undefined };
+  const text = adapter?.extractResult(extractInput);
+  if (text) {
+    process.stderr.write("(no result.json — falling back to adapter-extracted session text)\n");
+    if (json) {
+      const sview = adapter?.caps.sessionTail
+        ? adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined })
+        : undefined;
       process.stdout.write(
         JSON.stringify(
           {
-            text: session.lastAssistant,
-            task: session.task,
-            model: session.model,
-            thinking: session.thinking,
-            tokens: session.tokens,
-            cost: session.cost,
-            turns: session.turns,
+            text,
+            task: sview?.task ?? null,
+            model: sview?.model ?? null,
+            thinking: sview?.thinking ?? null,
+            tokens: sview?.tokens ?? null,
+            cost: sview?.cost ?? null,
+            turns: sview?.turns ?? null,
             sessionPath: ent.sessionPath,
           },
           null,
           2
         ) + "\n"
       );
-    else process.stdout.write(session.lastAssistant + "\n");
+    } else process.stdout.write(text + "\n");
     return;
   }
-  die(`No result available for "${target}" (no result.json and no assistant text in session).`);
+  die(`No result available for "${target}" (no result.json and no adapter-extractable session text).`);
 }
 
 // ---- steer ----
@@ -1176,9 +1185,9 @@ async function cmdPipe(args: string[]) {
   const instruction = cleanArgs.slice(2).join(" ");
   if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
   const source = requirePresenceTarget(src);
-  const result = readJSON(path.join(source.presence!.dir, "result.json"));
-  const resultTextValue = resultText(result);
-  if (!resultTextValue) die(`No result.json text available for "${src}".`);
+  const extractInput = { key: source.presence!.key, sessionPath: source.sessionPath ?? undefined };
+  const resultTextValue = entityAdapter(source)?.extractResult(extractInput) ?? resultText(source.presence!.result);
+  if (!resultTextValue) die(`No result text available for "${src}".`);
   const destination = requirePresenceTarget(dst);
   const text = `[piped from ${source.presence!.key}] ${instruction ? instruction + "\n" : ""}${resultTextValue}`;
   await writeRpc("steer", { target: destination.presence!.key, text });
@@ -1739,7 +1748,7 @@ async function configureNotifiers(): Promise<void> {
   const available = (await probeNotifiers()).filter((notifier) => notifier.available);
   if (!available.length) return;
   const picked = await selectNotifiers(available.map((notifier) => notifier.id));
-  if (picked === null || !picked.length) return;
+  if (!picked?.length) return;
   const selections: { id: string; config: Record<string, unknown> }[] = [];
   for (const id of picked) {
     const choice = available.find((notifier) => notifier.id === id)!;
@@ -2054,25 +2063,26 @@ interface SpawnRoot { root: string; key: string; workspace: string; tabId: strin
 
 interface CreatedAgent { key: string; pane: string; name: string }
 
-function executeHeadlessSpawn(settings: SpawnSettings): void {
+function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
   if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
   const adapter = resolveAdapter(settings.adapter);
-  const created: HeadlessHandle[] = [];
+  const created: { key: string }[] = [];
   for (let index = 1; index <= settings.n; index++) {
     const name = `${settings.prefix}-${index}`;
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     if (launchesPi(settings.cmd)) writeTrustEntry(cwd);
     try {
-      // Headless pi identifies itself as session-<pid>; omitting key keeps the
-      // registry handle aligned with the presence protocol's actual key.
-      const handle = headlessBackend.spawn(adapter, {
+      // Detached agents identify themselves by their minted identity key;
+      // omitting key keeps the registry aligned with the presence protocol.
+      const handle = backend.spawn(adapter, {
         cwd,
         model: settings.model ?? undefined,
         orchDir: orchDir(),
         tools: settings.tools,
       });
-      created.push(handle);
-      recordSpawned(handle.key, {
+      const key = serializeIdentity(backend.mintIdentity(handle));
+      created.push({ key });
+      recordSpawned(key, {
         adapter: settings.adapter,
         model: settings.model ?? undefined,
         backend: settings.backend,
@@ -2080,14 +2090,14 @@ function executeHeadlessSpawn(settings: SpawnSettings): void {
         branch: settings.worktree ? `orch/${name}` : undefined,
         owner: selfActor() ?? undefined,
       });
-      if (!settings.json) process.stdout.write(`${handle.key}  ${name}  [headless]\n`);
+      if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
       die(`headless spawn failed for ${name}: ${errorMessage(error)}`);
     }
   }
-  if (settings.json) process.stdout.write(JSON.stringify({ backend: "headless", agents: created }) + "\n");
+  if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, agents: created }) + "\n");
   else {
-    process.stdout.write(`\nSpawned ${created.length} headless agent(s) (no panes).\n`);
+    process.stdout.write(`\nSpawned ${created.length} detached agent(s) (no panes).\n`);
     process.stdout.write("'orch status' shows the fleet.\n");
   }
 }
@@ -2159,12 +2169,13 @@ async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, crea
 }
 
 async function executeSpawn(settings: SpawnSettings): Promise<void> {
-  if (settings.backend === headlessBackend.id) {
-    executeHeadlessSpawn(settings);
+  const backend = resolveBackend({ configured: settings.backend });
+  // A backend without group creation has no panes to tile into: spawn detached.
+  if (!backend.createGroup) {
+    executeDetachedSpawn(settings, backend);
     return;
   }
   const workspace = resolveSpawnWorkspace(settings.workspace);
-  const backend = resolveBackend({ configured: settings.backend });
   const adapter = resolveAdapter(settings.adapter);
   const root = createSpawnRoot(settings, workspace, backend, adapter);
   const created: CreatedAgent[] = [];
@@ -2248,10 +2259,8 @@ function sleepMs(ms: number) {
 }
 
 
-const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
-
-function workerPrompt(prompt: string, raw: boolean): string {
-  return raw ? prompt : `${WORKER_PROMPT_HEADER}\n\n${prompt}`;
+function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined): string {
+  return raw ? prompt : `${workerHeaderFor(adapter)}\n\n${prompt}`;
 }
 
 interface StatusFile {
@@ -2270,8 +2279,8 @@ async function cmdRun(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
-  const { pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
-  const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw) }, gov);
+  const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
+  const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw, entityAdapter(ent)) }, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${pane}.\n`);
 }
@@ -2938,7 +2947,7 @@ async function cmdDispatch(args: string[]) {
   }
   const settings = resolveDispatchSettings(flags, gov);
   if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
-  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw) }, gov);
+  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent)) }, gov);
   recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined, owner: selfActor() ?? undefined });
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${settings.pane}.\n`);

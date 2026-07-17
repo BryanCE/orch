@@ -10,7 +10,7 @@
 - [ ] 1.3 Change `binaryStatus()` (`doctor.ts:99-102`) to `binaryStatus(ids: readonly string[]): BinaryStatus`, probing exactly the passed ids under the id-is-binary invariant (`onPath(id)`). Update its two setup call sites in lockstep: `commands.ts:1650` (`const bins = binaryStatus()`) passes the selected providers' ids; `commands.ts:1751` (`await checkExtensions(binaryStatus())`) is removed — setup's post-install validation runs `diagnoseShim()` per installed adapter instead (see 2.5).
 - [x] 1.4 Re-key `DEP_INSTALLERS` (`src/commands.ts:1458`) by real provider id; each entry carries exactly one of `install` (real command) or `docsUrl`, plus optional `needs: string[]` (ordered prerequisite ids). Set pi `needs: ["bun"]`; add a `codex` entry (real command or docs URL); herdr/tmux use `docsUrl`. Delete any placeholder / `example.invalid` entry. `bun` stays present only as pi's `needs` target, never probed on its own.
 - [x] 1.5 Rewrite the setup prerequisite loop (`commands.ts:1652-1662`) to probe only the selected providers' ids (id-is-binary), resolving each install action and its `needs` (installed first, in declared order) by provider id.
-- [ ] 1.6 Gate: `bun run check` and `bun run check:bridge` clean.
+- [x] 1.6 Gate: `bun run check` and `bun run check:bridge` clean.
 
 ## 2. Setup is the multi-select Builder (no identity branches)
 
@@ -26,7 +26,7 @@
 
 - [x] 3.1 Add the notifier step to `cmdSetup` after the provider sets are installed: `probeNotifiers()` → pick-list → `collectRequiredConfig` per selection → persist through the settings writer (settings-json-config). This satisfies the MODIFIED `notifier-adapters` "Notifier setup and doctor validation" requirement — do NOT add a parallel provider-setup notifier requirement.
 - [x] 3.2 Skip the notifier pick-list on non-interactive / `--yes` runs (add no notify entries).
-- [ ] 3.3 Gate: targeted `bun test test/notifiers*.test.ts` green; `bun run check` clean.
+- [x] 3.3 Gate: targeted notifier tests green (test/notifier-adapters.test.ts, test/notify*.test.ts); `bun run check` clean.
 
 ## 4. Doctor derives checks from the installed sets via `diagnoseShim()`
 
@@ -45,7 +45,7 @@
 - [x] 6.2 Replace `writeSettingsHarnesses` (`config.ts:230-231`) with a writer matching the `installed` shape (writes `installed.adapters` and `installed.backends`).
 - [x] 6.3 Update `cmdSetup`'s write (`commands.ts:1598`) and the "Selection recorded…" echo text (`commands.ts:1601`) to the `installed` shape and new field labels; retarget every reader — `config.harnesses` in `orch config` (`commands.ts:1691,1698-1699`) and any other consumer.
 - [x] 6.4 Fix `test/config.test.ts` (`harnesses` fixtures at :29,:41,:50 and the `writeSettingsHarnesses` import) to the new shape and writer.
-- [ ] 6.5 Gate: `bun run check` clean; `bun test test/config*.test.ts` green.
+- [x] 6.5 Gate: `bun run check` clean; `bun test test/config*.test.ts` green.
 
 ## 7. Verification — run the spec scenarios end-to-end
 

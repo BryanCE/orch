@@ -7,6 +7,11 @@
  * never assume one. Usage: `<runtime> <shim> SessionStart|Stop|Notification`;
  * Claude sends the hook payload as JSON on stdin. Identity parsing stays in
  * its one boundary module (src/backends/identity.ts); the bundle inlines it.
+ *
+ * Presence fidelity is coarse by design: SessionStart writes `working`,
+ * Notification writes `blocked`, and Stop writes `done`/`idle` — those are
+ * the only three hook events this shim wires, so there are no mid-run
+ * tool/token/cost transitions between them (unlike pi's live extension).
  */
 import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";

@@ -16,8 +16,9 @@ import { loadSinks, type NotifyEvent } from "./notify.ts";
 import { loadPresence, statusForPresence, type PresenceEntry } from "./store.ts";
 import { workspaceOf } from "./policy/workspace.ts";
 import type { OrchConfig } from "./config.ts";
-
-const WORKER_PROMPT_HEADER = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
+import { workerHeaderFor } from "./worker-prompt.ts";
+import { getAdapter } from "./adapters/registry.ts";
+import { spawnedRecords } from "./store.ts";
 
 export interface WorkOptions {
   orchDir: string;
@@ -57,7 +58,8 @@ function waitForWorking(entry: PresenceEntry, timeoutMs: number): string | null 
 
 async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
   await Promise.resolve();
-  const prompt = `${WORKER_PROMPT_HEADER}\n\n${task.text}`;
+  const adapterId = spawnedRecords().get(entry.key)?.adapter ?? entry.status?.agent;
+  const prompt = `${workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined)}\n\n${task.text}`;
   let id: ReturnType<typeof parseIdentity>;
   try {
     id = parseIdentity(entry.key);

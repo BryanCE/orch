@@ -2,7 +2,7 @@ import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./store.ts";
 import { serializeIdentity } from "./backends/identity.ts";
-import { sameWorkspace, workspaceOf } from "./policy/workspace.ts";
+import { checkWall, sameWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
 
 export { workspaceOf } from "./policy/workspace.ts";
@@ -201,17 +201,15 @@ export function resolveTarget(target: string, opts?: { all?: boolean; crossWorks
   if (!crossWall) {
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
-      const ownWorkspace = currentWorkspace();
-      const targetWorkspace = entityWorkspace(foreign);
-      if (ownWorkspace !== null && targetWorkspace !== null && !sameWorkspace(ownWorkspace, targetWorkspace)) {
-        die(`workspace wall: actor workspace ${ownWorkspace} cannot write to target workspace ${targetWorkspace} (${foreign.key})`);
-      }
+      // The wall decision lives in policy/workspace.ts alone; this only relays it.
+      const decision = checkWall(selfActor(), foreign.key, { crossWorkspace: false });
+      if (!decision.allowed) die(decision.reason ?? "workspace-wall denied the write");
     }
   }
   die(`No target matches "${target}". Run 'orch panes' to list.`);
 }
 
-export function resolvePane(target: string, opts?: { all?: boolean }): { ent: Entity; pane: string } {
+export function resolvePane(target: string, opts?: { all?: boolean; crossWorkspace?: boolean }): { ent: Entity; pane: string } {
   const ent = resolveTarget(target, opts);
   if (!ent.paneId) die(`Target "${target}" has no pane.`);
   return { ent, pane: ent.paneId };

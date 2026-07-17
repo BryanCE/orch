@@ -66,8 +66,9 @@ describe("HeadlessBackend", () => {
       backend: string;
       handle: { pid: number; key: string };
       adapter: string;
+      log: string;
     };
-    expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake" });
+    expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake", log: expect.stringContaining("logs/") as string });
     expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
   });
 

@@ -9,7 +9,7 @@
 
 - [x] 2.1 In `loadConfig(orchDir)`: when `readSettingsFile` returns `null`, probe `path.join(orchDir, "config.toml")` with `filesystem.existsSync`; if present, throw a loud error explaining settings now live in `settings.json` and to re-run `orch setup` (do NOT read the `config.toml` values); if absent, keep returning built-in defaults.
 - [x] 2.2 In `readSettingsFile` (or the load path): when `SettingsFileSchema.safeParse` fails on a `schemaVersion` issue (missing / not current), replace the generic prettified message with one naming `settings.json` and directing the user to re-run `orch setup`. Other defects keep their per-key prettified message.
-- [ ] 2.3 `bun run check` clean; `bun test test/config.test.ts` (or targeted) green.
+- [x] 2.3 `bun run check` clean; `bun test test/config.test.ts` (or targeted) green.
 
 ## 3. Installed provider sets + id/membership validation at load, against the registries
 
@@ -18,14 +18,14 @@
 - [x] 3.3 In `config.ts`, after `SettingsFileSchema.safeParse` succeeds, run one post-parse validation pass (keep `SettingsFileSchema` free of registry imports):
   - reject any `installed.adapters` id not in the adapter registry ids, and any `installed.backends` id not in `allBackends().map(b => b.id)` (imported from `src/backends/registry.ts`) — throw file-path + offending-id + supported-ids;
   - require `defaults.adapter ∈ installed.adapters` and `defaults.backend ∈ installed.backends` when set — throw file-path + offending-key + the installed set.
-- [ ] 3.4 `bun run check` clean (no import cycle); targeted config tests: installed-set id rejection, `defaults`-not-in-installed rejection, and active-switch (change `defaults.adapter` between two installed ids → loads clean, new value effective).
+- [x] 3.4 `bun run check` clean (no import cycle); targeted config tests: installed-set id rejection, `defaults`-not-in-installed rejection, and active-switch (change `defaults.adapter` between two installed ids → loads clean, new value effective).
 
 ## 4. `orch settings` provenance command
 
 - [x] 4.1 Add `resolveWithSource({ flag, env, config, fallback }): { value, source }` beside `resolveSetting` in `config.ts`, sharing one precedence-order source so the two cannot drift. `resolveSetting` (bare `T`) stays unchanged.
 - [x] 4.2 Add `cmdSettings`: print an aligned table of each resolvable setting with value + source; support `--json` emitting `{ key: { value, source } }`; on a load error (invalid `settings.json` or legacy `config.toml` present), surface the same loud error and exit non-zero (no partial table).
 - [x] 4.3 Register `settings` in the CLI dispatch (`bin/orch.ts` / `commands.ts` routing) and help text.
-- [ ] 4.4 `bun run check` clean; targeted `orch settings` test green.
+- [x] 4.4 `bun run check` clean; targeted `orch settings` test green (test/settings-command.test.ts).
 
 ## 5. (Optional cleanup — not required by any scenario)
 
@@ -33,7 +33,7 @@
 
 ## 6. Verification gate (RUN the scenarios)
 
-- [ ] 6.1 `bun run check` clean across the whole change; `bun test` passing.
-- [ ] 6.2 Execute the doctor-config scenarios against a real `$ORCH_DIR`: valid load; unknown-key rejection; wrong-type rejection; unknown-adapter rejection (§3); non-installed `defaults` rejection naming the installed set (§3); active-switch between two installed providers is a plain edit that loads clean (§3); wrong/missing `schemaVersion` rejection with the `orch setup` message (§2.2); legacy `config.toml`-present error (§2.1); legacy `ssh` rejection; no-config defaults.
-- [ ] 6.3 Execute the settings-inspection scenarios (§4): provenance for settings.json / env / default; `--json` value+source shape; load error surfaced by `orch settings`.
+- [x] 6.1 `bun run check` clean across the whole change; `bun test` passing (309 pass / 0 fail).
+- [x] 6.2 Execute the doctor-config scenarios against a real `$ORCH_DIR`: valid load; unknown-key rejection; wrong-type rejection; unknown-adapter rejection (§3); non-installed `defaults` rejection naming the installed set (§3); active-switch between two installed providers is a plain edit that loads clean (§3); wrong/missing `schemaVersion` rejection with the `orch setup` message (§2.2); legacy `config.toml`-present error (§2.1); legacy `ssh` rejection; no-config defaults.
+- [x] 6.3 Execute the settings-inspection scenarios (§4): provenance for settings.json / env / default; `--json` value+source shape; load error surfaced by `orch settings`.
 - [ ] 6.4 Execute the live-reload scenario: append a `notify` sink to `settings.json` while `orch events --notify` runs and confirm reload; save invalid JSON mid-edit and confirm last-good config is kept with one warning.

@@ -91,12 +91,17 @@ function fakeTmux(args: string[]): string {
   return "";
 }
 
+// mock.module is process-global and this suite runs before most files alphabetically,
+// so the fake must keep the full real module surface and only intercept tmux/sleep —
+// a throwing default would break every later test file that shells out (git, ssh, bun).
+const realChildProcess = { ...(await import("node:child_process")) };
 void mock.module("node:child_process", () => ({
-  execFileSync: (file: string, args: string[] = []): string => {
+  ...realChildProcess,
+  execFileSync: (file: string, args: string[] = [], options?: unknown): unknown => {
     execCalls.push({ file, args: [...args] });
     if (file === "sleep") return "";
     if (file === "tmux") return fakeTmux(args);
-    throw new Error(`unexpected execFileSync(${file})`);
+    return realChildProcess.execFileSync(file, args, options as never);
   },
 }));
 
@@ -108,7 +113,7 @@ const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-tmux-"))
 
 const fakeAdapter: AgentAdapter = {
   id: "pi",
-  caps: { steer: "none", ask: false, setModel: false, sessionTail: false },
+  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, lifecycle: [] },
   interactiveCmd: () => "fake-agent",
   headlessCmd: () => ["true"],
   detectState: () => "unknown",

@@ -1,27 +1,27 @@
 ## 1. Orch-pane marking and enumeration
 
-- [ ] 1.1 Stamp pane user options (`@orch_agent_key`, `@orch_agent`) on the new pane in `TmuxBackend.spawn` via `set-option -p`, keeping the existing `-e ORCH_AGENT_KEY` env (D1)
-- [ ] 1.2 Add a `bestEffortTmux` inventory query in `src/backends/tmux/cli.ts` that runs one `list-panes -a -F` returning pane id, session, window id, window name, pane title, active flags, and the `@orch_*` markers as tab-joined rows
-- [ ] 1.3 Filter `TmuxBackend.list()` to panes with a non-empty `@orch_agent_key`, replacing the current unfiltered `list-panes -a`
+- [x] 1.1 Stamp pane user options (`@orch_agent_key`, `@orch_agent`) on the new pane in `TmuxBackend.spawn` via `set-option -p`, keeping the existing `-e ORCH_AGENT_KEY` env (D1)
+- [x] 1.2 Add a `bestEffortTmux` inventory query in `src/backends/tmux/cli.ts` that runs one `list-panes -a -F` returning pane id, session, window id, window name, pane title, active flags, and the `@orch_*` markers as tab-joined rows
+- [x] 1.3 Filter `TmuxBackend.list()` to panes with a non-empty `@orch_agent_key`, replacing the current unfiltered `list-panes -a`
 
 ## 2. Fleet inventory and status
 
-- [ ] 2.1 Implement `TmuxBackend.inventory()` from the 1.2 query: workspace=session, group=window id, groupLabel=window name, name from `@orch_agent_name` falling back to pane title, agent from `@orch_agent`, focused from the active-pane/active-window/attached-session flags (D1)
-- [ ] 2.2 Source `inventory().status` from the presence protocol by resolving each pane's `@orch_agent_key` and reading `presenceAgentDir(key)/status.json`; null when absent (D2). Surface it through the entity status field, consuming whichever name is current at implementation time — coordinate with `adapter-presence-writers`, which renames `herdrStatus`→`backendStatus` (`entities.ts:104`); rebase onto that rename rather than reintroduce the old name (m6)
-- [ ] 2.3 Implement `TmuxBackend.waitAgentStatus(handle, status, timeoutMs)` by polling the pane's presence `status.json` until the state matches or the deadline passes (D2)
+- [x] 2.1 Implement `TmuxBackend.inventory()` from the 1.2 query: workspace=session, group=window id, groupLabel=window name, name from `@orch_agent_name` falling back to pane title, agent from `@orch_agent`, focused from the active-pane/active-window/attached-session flags (D1)
+- [x] 2.2 Source `inventory().status` from the presence protocol by resolving each pane's `@orch_agent_key` and reading `presenceAgentDir(key)/status.json`; null when absent (D2). Surface it through the entity status field, consuming whichever name is current at implementation time — coordinate with `adapter-presence-writers`, which renames `herdrStatus`→`backendStatus` (`entities.ts:104`); rebase onto that rename rather than reintroduce the old name (m6)
+- [x] 2.3 Implement `TmuxBackend.waitAgentStatus(handle, status, timeoutMs)` by polling the pane's presence `status.json` until the state matches or the deadline passes (D2)
 
 ## 3. Read, rename, groups, and creation
 
-- [ ] 3.1 Implement `TmuxBackend.read(handle, lines)` via `capture-pane -p -S -<lines>` through a strict execFile helper that throws on failure (D7)
-- [ ] 3.2 Implement `TmuxBackend.renamePane` (`select-pane -T`) and `TmuxBackend.renameAgent` (`set-option -p @orch_agent_name`) as two distinct writes (D3)
-- [ ] 3.3 Implement `TmuxBackend.groups()` and `TmuxBackend.workspaces()` scoped to windows/sessions that contain at least one orch pane, derived from the 1.2 listing (D4)
-- [ ] 3.4 Implement `TmuxBackend.createGroup({workspace, cwd, label})` via `new-window` targeting the session, returning the `BackendGroup` and root pane handle; throw on failure (non-nullable return per `backend.ts:183`), and report `BackendWorkspace.number = null` for tmux sessions in `workspaces()` (D4)
-- [ ] 3.5 Extend `TmuxBackend.spawn` to honor `opts.group`/`opts.split`: when `opts.group` names an existing window, place the agent with `split-window -t <window>` (orientation from `opts.split` via `-h`/`-v`) instead of `new-window`, stamping the same pane user options + env and re-tiling the window; keep `new-window` when no group is given — mirrors herdr's `--tab`/`--split` handling at `herdr/index.ts:156-157` so agents can be placed into a created group (D8, M2)
+- [x] 3.1 Implement `TmuxBackend.read(handle, lines)` via `capture-pane -p -S -<lines>` through a strict execFile helper that throws on failure (D7)
+- [x] 3.2 Implement `TmuxBackend.renamePane` (`select-pane -T`) and `TmuxBackend.renameAgent` (`set-option -p @orch_agent_name`) as two distinct writes (D3)
+- [x] 3.3 Implement `TmuxBackend.groups()` and `TmuxBackend.workspaces()` scoped to windows/sessions that contain at least one orch pane, derived from the 1.2 listing (D4)
+- [x] 3.4 Implement `TmuxBackend.createGroup({workspace, cwd, label})` via `new-window` targeting the session, returning the `BackendGroup` and root pane handle; throw on failure (non-nullable return per `backend.ts:183`), and report `BackendWorkspace.number = null` for tmux sessions in `workspaces()` (D4)
+- [x] 3.5 Extend `TmuxBackend.spawn` to honor `opts.group`/`opts.split`: when `opts.group` names an existing window, place the agent with `split-window -t <window>` (orientation from `opts.split` via `-h`/`-v`) instead of `new-window`, stamping the same pane user options + env and re-tiling the window; keep `new-window` when no group is given — mirrors herdr's `--tab`/`--split` handling at `herdr/index.ts:156-157` so agents can be placed into a created group (D8, M2)
 
 ## 4. Auto-detection and validation
 
-- [ ] 4.1 Add a tmux rung to `resolveBackend` in `src/backends/registry.ts`: select tmux when `isAvailable() && isInsideSession()`, after the herdr-inside-session probe and before the headless fallback (D5)
-- [ ] 4.2 Add the uniform `isInsideSession()` check to `validateBackend`, throwing an actionable session-required message; verify headless (always inside) still passes (D5). Note this also makes `--backend herdr`/`defaults.backend = "herdr"` fail fast outside a herdr session — a declared breaking behavior change (see proposal); confirm no existing flow selects herdr outside a session
+- [x] 4.1 Add a tmux rung to `resolveBackend` in `src/backends/registry.ts`: select tmux when `isAvailable() && isInsideSession()`, after the herdr-inside-session probe and before the headless fallback (D5)
+- [x] 4.2 Add the uniform `isInsideSession()` check to `validateBackend`, throwing an actionable session-required message; verify headless (always inside) still passes (D5). Note this also makes `--backend herdr`/`defaults.backend = "herdr"` fail fast outside a herdr session — a declared breaking behavior change (see proposal); confirm no existing flow selects herdr outside a session
 
 ## 5. Cross-session workspace wall — fix the broken wiring (pluggable-plexer-backends task 6.4)
 
@@ -32,7 +32,7 @@
 
 ## 6. Tests and gates
 
-- [ ] 6.1 Extend `test/backend-tmux.test.ts` with hermetic tmux stubs covering orch-only `list()`/`inventory()`, status from presence, `waitAgentStatus`, `read` throw-on-failure, rename split, `spawn` placement into an existing group via `split-window` (task 3.5), and orch-scoped `groups()`/`workspaces()`
+- [x] 6.1 Extend `test/backend-tmux.test.ts` with hermetic tmux stubs covering orch-only `list()`/`inventory()`, status from presence, `waitAgentStatus`, `read` throw-on-failure, rename split, `spawn` placement into an existing group via `split-window` (task 3.5), and orch-scoped `groups()`/`workspaces()`
 - [ ] 6.2 Extend `test/cli-backends-tmux.test.ts` for implicit tmux selection inside a session, fail-fast validation outside a session, herdr's new fail-fast when selected outside a herdr session (M3, task 4.2), and cross-session steer refusal without `--cross-workspace` (explicit 15-30s timeouts per the WSL note)
 - [ ] 6.3 Run `bun run check` and `bun run check:bridge` clean
 - [ ] 6.4 Run `bun test test/backend-tmux.test.ts test/cli-backends-tmux.test.ts` green

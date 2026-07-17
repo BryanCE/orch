@@ -1,5 +1,5 @@
 import type { AgentAdapter } from "../../adapters/adapter.ts";
-import { registerSinkProvider } from "../../notify.ts";
+import { registerSinkProvider } from "../../notify-sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
 import { binaryOnPath } from "../../util.ts";
 import { isRecord } from "../../store.ts";

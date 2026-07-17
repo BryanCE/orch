@@ -3,6 +3,7 @@ import { workerTools } from "../src/commands.ts";
 import type { OrchConfig } from "../src/config.ts";
 
 const config = (workerPeerTools?: boolean): OrchConfig => ({
+  installed: { adapters: [], backends: [] },
   defaults: workerPeerTools === undefined ? {} : { worker_peer_tools: workerPeerTools },
   queue: { max_retries: 1 },
   notify: [],

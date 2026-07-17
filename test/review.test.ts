@@ -48,13 +48,28 @@ function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, 
 function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
   return execFileSync("bun", [path.join(import.meta.dir, "../bin/orch.ts"), ...args], {
     cwd: repoRoot,
-    env: { ...process.env, ORCH_DIR: orchDir },
+    // The daemon must run today's source, not a possibly stale dist/ build —
+    // write commands auto-start it and deliver through its code.
+    env: { ...process.env, ORCH_DIR: orchDir, ORCHD_ENTRYPOINT: path.join(import.meta.dir, "../src/daemon/orchd.ts") },
     encoding: "utf8",
   });
 }
 
+function stopDaemon(orchDir: string): void {
+  try {
+    const lock = JSON.parse(fs.readFileSync(path.join(orchDir, "orchd.lock"), "utf8")) as { pid?: number };
+    if (lock.pid) process.kill(lock.pid, "SIGTERM");
+  } catch {
+    // No daemon was started for this directory.
+  }
+}
+
 afterEach(() => {
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) {
+    const directory = directories.pop()!;
+    stopDaemon(directory);
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 describe("review plumbing", () => {
@@ -72,7 +87,7 @@ describe("review plumbing", () => {
     expect(result[0]!.diff).toContain("feature.txt");
   }, 30_000);
 
-  test("reject re-dispatches feedback through the adapter inbox", () => {
+  test("reject re-dispatches feedback through the adapter inbox", async () => {
     const repoRoot = fixtureRepo();
     const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
     directories.push(orchDir);
@@ -81,7 +96,11 @@ describe("review plumbing", () => {
     registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
 
     expect(runOrch(repoRoot, orchDir, "review", "reject", "iterate-1", "-m", "handle the empty case")).toContain("re-dispatched");
-    expect(fs.readFileSync(path.join(orchDir, "agents", "pane-1", "inbox.jsonl"), "utf8")).toContain("handle the empty case");
+    // The daemon accepts the steer and delivers it asynchronously; wait for the inbox write.
+    const inbox = path.join(orchDir, "agents", "pane-1", "inbox.jsonl");
+    const deadline = Date.now() + 15_000;
+    while (!fs.existsSync(inbox) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(fs.readFileSync(inbox, "utf8")).toContain("handle the empty case");
     expect(fs.existsSync(worktreePath)).toBe(true);
   }, 30_000);
 

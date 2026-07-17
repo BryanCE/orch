@@ -7,15 +7,15 @@ import { createNotifierRegistry, loadSinks, type Sink } from "./notify.ts";
 import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
 import { rpcCall } from "./daemon/rpc.ts";
 import { runSSH, type SshResult } from "./remote.ts";
-import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "./bridge-bundle.ts";
+import { extensionBundlePath } from "./bridge-bundle.ts";
 import { allBackends, getBackend } from "./backends/registry.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { presenceDir, presenceKeyFromDirectoryName } from "./store.ts";
 import { resolveAdapter } from "./adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "./presence-schema.ts";
 import { packageRoot } from "./util.ts";
-import type { CheckResult, DoctorBackendReport, FixDescriptor, IgnoredPresenceRecord } from "./doctor-types.ts";
-export type { CheckResult, DoctorBackendReport, FixDescriptor, IgnoredPresenceRecord } from "./doctor-types.ts";
+import type { CheckResult, DoctorBackendReport, IgnoredPresenceRecord } from "./doctor-types.ts";
+export type { CheckResult } from "./doctor-types.ts";
 
 export type BinaryStatus = Record<string, boolean>;
 
@@ -316,6 +316,20 @@ async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
     label: "Spawn limits",
     status: "warn",
     detail: violations.map(([workspace, cap]) => `limits.workspaces.${workspace} (${cap}) exceeds limits.maxAgents (${globalCap})`).join("; "),
+  };
+}
+
+async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
+  const config = loadConfig(orchDir);
+  if (config.locked_commands.length === 0) return { id: "command-locks", label: "Command locks", status: "skip", detail: "no locked_commands configured" };
+  const unenforced = config.installed.adapters.filter((id) => !resolveAdapter(id).caps.enforcesCommandLocks);
+  if (unenforced.length === 0) return { id: "command-locks", label: "Command locks", status: "ok", detail: `${config.locked_commands.length} locked command(s); every installed adapter enforces them` };
+  return {
+    id: "command-locks",
+    label: "Command locks",
+    status: "warn",
+    detail: `locked_commands set but ${unenforced.join(", ")} cannot enforce them (no pre-tool seam) — those agents get the worker-prompt clause only; the pi fleet is hard-enforced`,
   };
 }
 
@@ -694,7 +708,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
   return Promise.all([
     isolated("bins", "Required binaries", () => checkBins(bins, installedAdapters)),
     ...providerChecks,
-    ...livePairs,
+    ...livePairs.map((pair) => Promise.resolve(pair)),
     isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(installedBackends)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entityWorkspace, type Entity } from "../src/entities.ts";
@@ -11,7 +12,7 @@ const originalOrchDir = process.env.ORCH_DIR;
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 function presenceFixture(): { orchDir: string; key: string } {

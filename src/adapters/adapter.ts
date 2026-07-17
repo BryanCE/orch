@@ -144,6 +144,8 @@ export interface AgentAdapter {
     readonly sessionTail: boolean;
     /** Session-lifecycle verbs (reset/reload/restart) this adapter declares a native mechanism for; empty when none. */
     readonly lifecycle: readonly LifecycleVerb[];
+    /** Whether the adapter has a pre-tool seam that can transparently wrap locked commands in the machine-wide lock (pi bridge); false adapters get the worker-prompt clause only, and doctor/setup report the gap. */
+    readonly enforcesCommandLocks: boolean;
   };
   /** Build the normal shell command used to start one agent in an interactive pane. */
   interactiveCmd(opts: SpawnOpts): string;

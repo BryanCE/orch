@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -55,7 +56,7 @@ afterEach(() => {
   process.env.PATH = originalPath;
   delete process.env.CODEX_TEST_EXIT;
   delete process.env.TMUX_DELIVER_EXIT;
-  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of tempDirs.splice(0)) removeTempDir(dir);
 });
 
 describe("deliverControl", () => {
@@ -99,7 +100,12 @@ describe("deliverControl", () => {
     expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/cannot steer .*backend cannot deliver/);
   }, 15_000);
 
-  test("executes codex steer command and accepts exit zero", async () => {
+  // These two exercise POSIX exec of a chmod'd shell-script stub on PATH. orch's
+  // runtime is POSIX (it shells out to sleep/pgrep/bash), and native-Windows bun
+  // cannot run an extensionless #!/bin/sh stub, so they only run off win32.
+  const posixExec = test.skipIf(process.platform === "win32");
+
+  posixExec("executes codex steer command and accepts exit zero", async () => {
     const directory = tempDir();
     const bin = tempDir("orch-control-bin-");
     process.env.ORCH_DIR = directory;
@@ -110,7 +116,7 @@ describe("deliverControl", () => {
     await deliverControl(key, { kind: "steer", text: "resume me" });
   }, 15_000);
 
-  test("treats a nonzero codex command exit as failure", () => {
+  posixExec("treats a nonzero codex command exit as failure", () => {
     const directory = tempDir();
     const bin = tempDir("orch-control-bin-");
     process.env.ORCH_DIR = directory;

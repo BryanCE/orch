@@ -6,7 +6,7 @@ import { orchDir } from "../store.ts";
 import { acquireCommandLock, matchesLockedCommand, readCommandLock, releaseCommandLock, type CommandLock } from "../cmd-lock.ts";
 
 function holderName(): string {
-  return process.env.ORCH_AGENT_KEY || `user:${process.pid}`;
+  return process.env.ORCH_AGENT_KEY ?? `user:${process.pid}`;
 }
 
 function numberOption(args: string[], name: string, index: number): number | undefined {
@@ -81,7 +81,9 @@ async function runLocked(args: string[], directory: string): Promise<number> {
   process.once("SIGINT", stopChild);
   process.once("SIGTERM", stopChild);
   try {
-    const result = spawnSync(args[separator + 1], args.slice(separator + 2), { stdio: "inherit" });
+    const command = args[separator + 1];
+    if (command === undefined) throw new Error("usage: orch lock run [--note <why>] [--timeout <ms>] -- <argv...>");
+    const result = spawnSync(command, args.slice(separator + 2), { stdio: "inherit" });
     childPid = result.pid;
     const exitCode = result.status ?? 1;
     return exitCode;

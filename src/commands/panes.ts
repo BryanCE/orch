@@ -36,7 +36,7 @@ export function cmdPanes(args: string[]) {
   }
 }
 
-export function requirePaneTarget(target: string, command: string): { backend: Backend; handle: string } {
+function requirePaneTarget(target: string, command: string): { backend: Backend; handle: string } {
   const resolved = backendTarget(target, command);
   if (!resolved.backend.panes) die(`orch ${command}: backend ${resolved.backend.id} lacks pane control.`);
   return resolved;
@@ -84,7 +84,7 @@ export function cmdPeek(args: string[]) {
   process.stdout.write(screen.endsWith("\n") ? screen : screen + "\n");
 }
 
-export function selectedGroups(): { backend: Backend; groups: BackendGroup[] } {
+function selectedGroups(): { backend: Backend; groups: BackendGroup[] } {
   const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
   return { backend, groups: backend.groups?.() ?? [] };
 }

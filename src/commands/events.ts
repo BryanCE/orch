@@ -122,7 +122,7 @@ export function parseEventsOptions(args: string[]): EventsOptions {
   return { statusFilter, all, notifications, json, offline, targets };
 }
 
-export function eventsSinks(enabled: boolean): Sink[] {
+function eventsSinks(enabled: boolean): Sink[] {
   if (!enabled) return [];
   const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
   const available = backend.isAvailable() && backend.isInsideSession();
@@ -134,12 +134,12 @@ export function eventsSinks(enabled: boolean): Sink[] {
   return sinks;
 }
 
-export function presenceMetadata(key: string): PresenceMetadata {
+function presenceMetadata(key: string): PresenceMetadata {
   const entity = buildEntities().find((candidate) => candidate.presence?.key === key || candidate.key === key);
   return { name: entity?.name ?? null, tab: entity?.tabLabel ?? null, pid: entity?.presence?.status?.pid };
 }
 
-export function eventsItems(options: EventsOptions): Map<string, WatchItem> {
+function eventsItems(options: EventsOptions): Map<string, WatchItem> {
   const items = new Map<string, WatchItem>();
   if (!options.targets.length) {
     const presences = scopeToWorkspace(
@@ -174,7 +174,7 @@ export function eventsItems(options: EventsOptions): Map<string, WatchItem> {
   return items;
 }
 
-export function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"]): (event: NotifyEvent) => void {
+function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"]): (event: NotifyEvent) => void {
   return (event): void => {
     if (options.statusFilter && !options.statusFilter.has(event.newState)) return;
     const id = event.workspace ?? workspaceOf(event.key);
@@ -191,14 +191,14 @@ export function eventWriter(options: EventsOptions, resolver: OrchConfig["worksp
   };
 }
 
-export function seedEventStates(context: EventsContext): void {
+function seedEventStates(context: EventsContext): void {
   for (const presence of loadPresence().values()) {
     if (!context.accepts(presence.key)) continue;
     derivePresenceTransition(presence.key, presence.status, context.metadata(presence.key), context.states);
   }
 }
 
-export async function startEventsTransport(context: EventsContext): Promise<() => void> {
+async function startEventsTransport(context: EventsContext): Promise<() => void> {
   let fileWatch: PresenceWatch | undefined;
   const startFiles = (): void => {
     if (fileWatch) return;

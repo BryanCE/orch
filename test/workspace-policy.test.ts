@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entityWorkspace } from "../src/entities.ts";
@@ -13,7 +14,7 @@ const fixtureDirs: string[] = [];
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  while (fixtureDirs.length) rmSync(fixtureDirs.pop()!, { recursive: true, force: true });
+  while (fixtureDirs.length) removeTempDir(fixtureDirs.pop()!);
 });
 
 function identityFixture() {

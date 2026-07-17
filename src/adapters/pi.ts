@@ -111,6 +111,7 @@ export class PiAdapter implements AgentAdapter {
     setModel: true,
     sessionTail: true,
     lifecycle: ["reset", "reload", "restart"] as const,
+    enforcesCommandLocks: true,
   };
 
   /** Start pi directly in an interactive backend session. */
@@ -204,6 +205,7 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Verify the extension links and bundles written by installShim. */
+  // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
     const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
     const bundleFor = new Map(PI_EXTENSION_NAMES.map((name) => [`${name}.js`, extensionBundlePath(packageRoot(), name)]));
@@ -249,6 +251,7 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory, building it from a checkout when absent. */
+  // fallow-ignore-next-line unused-class-member
   installShim(opts?: ShimInstallOpts): void {
     const root = packageRoot();
     const extDir = path.join(os.homedir(), ".pi", "agent", "extensions");

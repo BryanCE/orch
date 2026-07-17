@@ -12,24 +12,24 @@ import { resolveBackend } from "../backends/registry.ts";
 import { selfActor } from "../entities.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { errorMessage } from "../util.ts";
-import { pinModels } from "./control.ts";
+import { writeRpc } from "./daemon.ts";
 import { callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 const HOME = os.homedir();
 
-export function paneLayout(refPane: BackendHandle, backend: Backend): BackendGroupLayout {
+function paneLayout(refPane: BackendHandle, backend: Backend): BackendGroupLayout {
   if (!backend.layoutOf) throw new Error(`backend ${backend.id} does not provide layout`);
   return backend.layoutOf(refPane);
 }
 
-export const TRUST_FILE = path.join(HOME, ".pi", "agent", "trust.json");
+const TRUST_FILE = path.join(HOME, ".pi", "agent", "trust.json");
 
 export function launchesPi(cmd: string): boolean {
   const bin = cmd.trim().split(/\s+/)[0];
   return bin === "pi" || bin === "pif";
 }
 
-export function writeTrustEntry(cwd: string) {
+function writeTrustEntry(cwd: string) {
   const resolved = path.resolve(cwd);
   const map = readJSON<Record<string, unknown>>(TRUST_FILE) ?? {};
   if (map[resolved] === true) return;
@@ -39,7 +39,7 @@ export function writeTrustEntry(cwd: string) {
   process.stdout.write(`Pre-trusted ${resolved} in ~/.pi/agent/trust.json\n`);
 }
 
-export async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false) {
+async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false) {
   const pending = new Map(created.map((c) => [c.key, c]));
   const deadline = Date.now() + 60_000;
   if (!json) process.stdout.write("\nWaiting for agents to register:\n");
@@ -56,7 +56,7 @@ export async function awaitBridgeRegistration(created: { key: string; pane: stri
     process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} — no bridge dir; try: orch restart ${agent.name}\n`);
 }
 
-export function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
+function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
   let layout: BackendGroupLayout;
   try {
     layout = paneLayout(refPane, backend);
@@ -76,9 +76,9 @@ export function printLayout(refPane: BackendHandle, backend: Backend, header: st
     process.stdout.write(`  ${r[0]!.padEnd(w0)}  ${r[1]!.padEnd(w1)}  ${r[2]!}\n`);
 }
 
-export const WORKER_BASE_TOOLS = ["read", "write", "edit", "bash", "orch_ask"] as const;
+const WORKER_BASE_TOOLS = ["read", "write", "edit", "bash", "orch_ask"] as const;
 
-export const WORKER_PEER_TOOLS = ["orch_agents", "orch_send", "orch_read"] as const;
+const WORKER_PEER_TOOLS = ["orch_agents", "orch_send", "orch_read"] as const;
 
 export function workerTools(config: OrchConfig): string {
   const tools: string[] = [...WORKER_BASE_TOOLS];
@@ -87,7 +87,7 @@ export function workerTools(config: OrchConfig): string {
   return tools.join(",");
 }
 
-export function resolveAdapter(id: string): AgentAdapter {
+export function resolveAdapterOrDie(id: string): AgentAdapter {
   try {
     return resolveRegisteredAdapter(id);
   } catch (error: unknown) {
@@ -96,8 +96,23 @@ export function resolveAdapter(id: string): AgentAdapter {
 }
 
 export function adapterCommand(adapter: string, config = loadConfig(orchDir())): string {
-  const resolved = resolveAdapter(adapter);
+  const resolved = resolveAdapterOrDie(adapter);
   return resolved.restrictedInteractiveCmd?.({ tools: workerTools(config) }) ?? resolved.interactiveCmd({});
+}
+
+async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
+  const results = await Promise.all(created.map(async ({ key, pane, name }) => {
+    try {
+      await writeRpc("set-model", { target: key, model });
+      return { pane, name, ok: true };
+    } catch {
+      return { pane, name, ok: false };
+    }
+  }));
+  for (const result of results) {
+    if (!result.ok) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}.\n`);
+  }
+  if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
 
 export interface AgentFlags {
@@ -143,7 +158,7 @@ type SpawnFlags = AgentFlags & {
   positional: string[];
 };
 
-export function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number {
+function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number {
   const argument = args[index];
   switch (argument) {
     case "--tab": flags.label = args[index + 1]!; return 1;
@@ -190,7 +205,7 @@ type SpawnSettings = AgentSettings & {
   limits: OrchConfig["limits"];
 };
 
-export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
+function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   const config = loadConfig(orchDir());
   const settings = resolveAgentSettings(flags, config);
   const spawnCap = resolveSetting({ flag: flags.spawnCapFlag, env: "ORCH_SPAWN_CAP", config: config.defaults.spawn_cap, fallback: 8 });
@@ -200,7 +215,7 @@ export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   if (!Number.isFinite(n) || n < 1)
     die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <provider/model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--spawn-cap <N>] [--worktree]");
   if (n > spawnCap) die(`Refusing to spawn ${n} panes — cap is ${spawnCap}.`);
-  resolveAdapter(settings.adapter);
+  resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
   const cmd = flags.commandFlag ? flags.cmd : adapterCommand(settings.adapter, config);
   return { ...settings, tools, json: flags.json, label: flags.namePrefix ?? flags.label, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix: flags.namePrefix ?? flags.label, n, worktree, limits: config.limits };
@@ -221,7 +236,7 @@ export function liveSpawnCounts(records: Map<string, SpawnedRecord>, presence: M
   return counts;
 }
 
-export function assertSpawnCapacity(settings: Pick<OrchConfig, "limits">, workspace: string, requested: number): void {
+function assertSpawnCapacity(settings: Pick<OrchConfig, "limits">, workspace: string, requested: number): void {
   const counts = liveSpawnCounts(spawnedRecords(), loadPresence());
   const live = [...counts.values()].reduce((total, count) => total + count, 0);
   const workspaceLive = counts.get(workspace) ?? 0;
@@ -235,11 +250,13 @@ export function assertSpawnCapacity(settings: Pick<OrchConfig, "limits">, worksp
   }
 }
 
-export function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
+function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
   if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
-  const workspace = settings.workspace ?? callerWorkspace() ?? "local";
+  // Detached agents mint their identity under the backend's own workspace (headless → "local"),
+  // never the caller's herdr identity; the cap check must match that same bucket, not callerWorkspace().
+  const workspace = settings.workspace ?? "local";
   assertSpawnCapacity(settings, workspace, settings.n);
-  const adapter = resolveAdapter(settings.adapter);
+  const adapter = resolveAdapterOrDie(settings.adapter);
   const created: { key: string }[] = [];
   for (let index = 1; index <= settings.n; index++) {
     const name = `${settings.prefix}-${index}`;
@@ -277,13 +294,13 @@ export function executeDetachedSpawn(settings: SpawnSettings, backend: Backend):
   }
 }
 
-export function resolveSpawnWorkspace(requested: string | null): string {
+function resolveSpawnWorkspace(requested: string | null): string {
   const workspace = requested ?? callerWorkspace();
   if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
   return workspace;
 }
 
-export function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter): SpawnRoot {
+function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter): SpawnRoot {
   const rootName = `${settings.prefix}-1`;
   const rootCwd = settings.worktree ? createAgentWorktree(settings.cwd, rootName) : settings.cwd;
   if (launchesPi(settings.cmd)) writeTrustEntry(rootCwd);
@@ -303,7 +320,7 @@ export function createSpawnRoot(settings: SpawnSettings, workspace: string, back
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
 
-export function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): void {
+function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): void {
   for (let i = 2; i <= settings.n; i++) {
     try {
       const name = `${settings.prefix}-${i}`;
@@ -319,7 +336,7 @@ export function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot,
         split = largest.rect.width >= largest.rect.height ? "right" : "down";
       }
       const backend = resolveBackend({ configured: settings.backend });
-      const adapter = resolveAdapter(settings.adapter);
+      const adapter = resolveAdapterOrDie(settings.adapter);
       const key = serializeIdentity({ backend: backend.id, workspace: root.workspace, handle: name });
       const handle = backend.spawn(adapter, { key, cwd, name, workspace: root.workspace, group: root.tabId, split, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
       const identityKey = serializeIdentity(backend.mintIdentity(handle));
@@ -331,7 +348,7 @@ export function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot,
   }
 }
 
-export async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): Promise<void> {
+async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): Promise<void> {
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${root.tabLabel}]  ${settings.cmd}\n`);
     process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${root.tabLabel}" (no focus stolen).\n`);
@@ -343,7 +360,7 @@ export async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoo
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }
 
-export async function executeSpawn(settings: SpawnSettings): Promise<void> {
+async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const backend = resolveBackend({ configured: settings.backend });
   // A backend without group creation has no panes to tile into: spawn detached.
   if (!backend.createGroup) {
@@ -351,8 +368,8 @@ export async function executeSpawn(settings: SpawnSettings): Promise<void> {
     return;
   }
   const workspace = resolveSpawnWorkspace(settings.workspace);
-  if (backend.createGroup) assertSpawnCapacity(settings, workspace, settings.n);
-  const adapter = resolveAdapter(settings.adapter);
+  assertSpawnCapacity(settings, workspace, settings.n);
+  const adapter = resolveAdapterOrDie(settings.adapter);
   const root = createSpawnRoot(settings, workspace, backend, adapter);
   const created: CreatedAgent[] = [];
   recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: selfActor() ?? undefined });
@@ -389,7 +406,7 @@ export async function cmdTile(args: string[]) {
   const { adapter, model } = resolveAgentSettings({ adapterFlag, backendFlag, modelFlag });
   const selectedBackend = resolveBackend({ explicit: backendFlag ?? null, configured: loadConfig(orchDir()).defaults.backend ?? null });
   if (!selectedBackend.panes) die(`orch tile requires a pane-capable backend; ${selectedBackend.id} has no panes to tile.`);
-  resolveAdapter(adapter);
+  resolveAdapterOrDie(adapter);
   if (!commandFlag) cmd = adapterCommand(adapter);
   const target = positional[0];
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
@@ -410,7 +427,7 @@ export async function cmdTile(args: string[]) {
   if (!workspace) die(`Could not determine workspace for pane ${JSON.stringify(refPane)}.`);
   assertSpawnCapacity(loadConfig(orchDir()), workspace, 1);
   const key = serializeIdentity({ backend: selectedBackend.id, workspace, handle: autoName });
-  const selectedAdapter = resolveAdapter(adapter);
+  const selectedAdapter = resolveAdapterOrDie(adapter);
   let handle: BackendHandle;
   try {
     handle = selectedBackend.spawn(selectedAdapter, { key, cwd, name: autoName, workspace, group: tab.id, split: "down", orchDir: orchDir(), model: model ?? undefined });
@@ -427,8 +444,8 @@ export async function cmdTile(args: string[]) {
   if (model) await pinModels([{ key: identityKey, pane: String(handle), name: autoName }], model);
 }
 
-export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined): string {
-  return raw ? prompt : `${workerHeaderFor(adapter)}\n\n${prompt}`;
+export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, lockedCommands: readonly string[] = []): string {
+  return raw ? prompt : `${workerHeaderFor(adapter, lockedCommands)}\n\n${prompt}`;
 }
 
 function delay(ms: number): Promise<void> {

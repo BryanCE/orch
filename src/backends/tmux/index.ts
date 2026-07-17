@@ -201,6 +201,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   /** Select the target window and pane in tmux. */
+  // fallow-ignore-next-line unused-class-member
   focus(handle: TmuxHandle): boolean {
     return bestEffortTmux(["select-window", "-t", handle]) !== null
       && bestEffortTmux(["select-pane", "-t", handle]) !== null;

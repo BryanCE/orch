@@ -20,10 +20,13 @@ function nodeCommand(script: string): string[] {
 }
 
 async function waitForFile(file: string): Promise<void> {
-  for (let attempt = 0; attempt < 40; attempt++) {
+  // A command sink spawns a fresh runtime to write the file; under a loaded
+  // full-suite run that cold start can take seconds, so wait generously.
+  for (let attempt = 0; attempt < 400; attempt++) {
     if (existsSync(file) && readFileSync(file, "utf8").length > 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  throw new Error(`timed out waiting for ${file}`);
 }
 
 function captureStderr<T>(callback: () => T): { value: T; stderr: string } {
@@ -102,7 +105,7 @@ describe("notify", () => {
 
     expect(readFileSync(matchingFile, "utf8")).toBe("matched");
     expect(existsSync(nonMatchingFile)).toBe(false);
-  });
+  }, 20_000);
 
   test("command sink writes the event payload as JSON on stdin", async () => {
     const directory = tempDir();
@@ -146,7 +149,7 @@ describe("notify", () => {
       ts: "2026-01-01T00:00:00.000Z",
       lastError: "boom",
     });
-  });
+  }, 20_000);
 
   test("titles lead with exactly one terminal state and agent", () => {
     expect(notificationText({

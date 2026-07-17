@@ -105,7 +105,7 @@ export async function cmdQuestions(args: string[]): Promise<void> {
   process.stdout.write(renderTable(["HOST", "PANE", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
 }
 
-export function cmdQuestionsLocal(args: string[]) {
+function cmdQuestionsLocal(args: string[]) {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
   const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
@@ -174,7 +174,7 @@ export function questionText(value: unknown): string {
   return isRecord(value) && typeof value.question === "string" ? value.question : "";
 }
 
-export function localQuestionRows(args: string[]): QuestionRow[] {
+function localQuestionRows(args: string[]): QuestionRow[] {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
   const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
@@ -200,7 +200,7 @@ export function localQuestionRows(args: string[]): QuestionRow[] {
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
-export function warningQuestionRow(host: string, warning: string): QuestionRow {
+function warningQuestionRow(host: string, warning: string): QuestionRow {
   return { key: `warning:${host}`, name: "WARNING", age: "-", question: warning, host, warning };
 }
 
@@ -295,7 +295,7 @@ export function cmdSession(args: string[]) {
   );
 }
 
-export function toolCallSummary(block: ToolCallContentBlock): string {
+function toolCallSummary(block: ToolCallContentBlock): string {
   const name = block.name ?? "tool";
   const a = block.arguments ?? {};
   let arg = "";
@@ -313,7 +313,7 @@ export function toolCallSummary(block: ToolCallContentBlock): string {
   return `${name}(${collapse(truncate(arg, 60))})`;
 }
 
-export function hms(entry: SessionEntry): string {
+function hms(entry: SessionEntry): string {
   const ts = entry.timestamp ?? entry.message?.timestamp;
   const d = ts ? new Date(ts) : null;
   if (!d || isNaN(d.getTime())) return "        ";

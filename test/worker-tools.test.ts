@@ -11,6 +11,7 @@ import type { OrchConfig } from "../src/config.ts";
 
 const config = (workerPeerTools?: boolean): OrchConfig => ({
   installed: { adapters: [], backends: [] },
+  locked_commands: [],
   defaults: workerPeerTools === undefined ? {} : { worker_peer_tools: workerPeerTools },
   queue: { max_retries: 1 },
   notify: [],

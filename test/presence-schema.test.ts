@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { execFileSync } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -43,13 +44,13 @@ function writeStatus(key: string, status: object): void {
 const originalOrchDir = process.env.ORCH_DIR;
 
 afterEach(() => {
-  fs.rmSync(path.join(orchDir, "agents"), { recursive: true, force: true });
+  removeTempDir(path.join(orchDir, "agents"));
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
 });
 
 afterAll(() => {
-  fs.rmSync(orchDir, { recursive: true, force: true });
+  removeTempDir(orchDir);
 });
 
 describe("presence status schema", () => {
@@ -74,8 +75,8 @@ describe("presence status schema", () => {
     process.env.ORCH_DIR = orchDir;
 
     expect(readStatuses()).toEqual(expect.objectContaining({
-      [key]: expect.objectContaining({ key, backend: "headless", workspace: "workspace-a", handle: "1234", agent: "pi" }),
-    }));
+      [key]: expect.objectContaining({ key, backend: "headless", workspace: "workspace-a", handle: "1234", agent: "pi" }) as PresenceStatus,
+    }) as Record<string, PresenceStatus>);
     expect(parseIdentity(key)).toEqual({ backend: "headless", workspace: "workspace-a", handle: "1234" });
   });
 
@@ -90,7 +91,7 @@ describe("presence status schema", () => {
     const status = readStatuses()[key]!;
     const listed = buildEntities().find((entity) => entity.key === key)!;
     expect({ key: status.key, workspace: status.workspace, agent: status.agent }).toEqual({
-      key: listed.key, workspace: listed.workspace, agent: listed.agent,
+      key: listed.key, workspace: listed.workspace ?? undefined, agent: listed.agent ?? undefined,
     });
     expect(parseIdentity(status.key!)).toMatchObject({ backend: "headless", workspace: status.workspace, handle: "1234" });
   });

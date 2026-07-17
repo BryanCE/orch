@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, cancelTask, listTasks } from "../src/queue.ts";
@@ -14,7 +15,7 @@ describe("commands/queue", () => {
       expect(cancelTask(dir, task.id)).toMatchObject({ id: task.id, state: "cancelled" });
       expect(listTasks(dir).filter((entry) => entry.state === "cancelled")).toHaveLength(1);
       expect(() => cancelTask(dir, "missing")).toThrow("Unknown queue task");
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally { removeTempDir(dir); }
   });
   test("renders empty queues without throwing", () => renderQueueTasks([]));
 });

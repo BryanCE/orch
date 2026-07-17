@@ -32,14 +32,14 @@ describe("command lock", () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
     expect(readCommandLock(directory)?.holder).toBe("first");
     releaseCommandLock(directory, first.pid);
-    await expect(waiting).resolves.toMatchObject({ holder: "second" });
+    expect(await waiting).toMatchObject({ holder: "second" });
     releaseCommandLock(directory);
   });
 
   test("dead-pid lock is reaped", async () => {
     const directory = tempDirectory();
     writeFileSync(join(directory, "cmd-lock.json"), JSON.stringify({ pid: 999999999, holder: "dead", ts: Date.now() }));
-    await expect(acquireCommandLock(directory, { holder: "live", pollMs: 5, timeoutMs: 500 })).resolves.toMatchObject({ holder: "live" });
+    expect(await acquireCommandLock(directory, { holder: "live", pollMs: 5, timeoutMs: 500 })).toMatchObject({ holder: "live" });
     releaseCommandLock(directory);
   });
 
@@ -55,12 +55,12 @@ describe("command lock", () => {
     expect(matchesLockedCommand(["bun", "test", "test/x.test.ts"], ["bun test"])).toBe(true);
     expect(matchesLockedCommand(["bun", "run", "check"], ["bun test"])).toBe(false);
     const directory = tempDirectory();
-    writeFileSync(join(directory, "settings.json"), JSON.stringify({ schemaVersion: 3, locked_commands: ["bun test", "npm run build"] }));
+    writeFileSync(join(directory, "settings.json"), JSON.stringify({ schemaVersion: 1, locked_commands: ["bun test", "npm run build"] }));
     const previousDir = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
     try {
-      await expect(cmdLock(["check", "--", "bun", "test", "test/x.test.ts"])).resolves.toBe(3);
-      await expect(cmdLock(["check", "--", "bun", "run", "lint"])).resolves.toBe(0);
+      expect(await cmdLock(["check", "--", "bun", "test", "test/x.test.ts"])).toBe(3);
+      expect(await cmdLock(["check", "--", "bun", "run", "lint"])).toBe(0);
     } finally {
       if (previousDir === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previousDir;
@@ -72,7 +72,7 @@ describe("command lock", () => {
     const previousDir = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
     try {
-      await expect(cmdLock(["run", "--", process.execPath, "-e", "process.exit(7)"])).resolves.toBe(7);
+      expect(await cmdLock(["run", "--", process.execPath, "-e", "process.exit(7)"])).toBe(7);
       expect(existsSync(join(directory, "cmd-lock.json"))).toBe(false);
     } finally {
       if (previousDir === undefined) delete process.env.ORCH_DIR;

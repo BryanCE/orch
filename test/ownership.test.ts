@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkOwnerWrite, getOwner, setOwner } from "../src/store/sqlite";
@@ -13,7 +14,7 @@ function makeOrchDir(): string {
 }
 
 afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
 describe("agent ownership", () => {

@@ -10,14 +10,22 @@ const WORKER_HEADER_BASE =
 const WORKER_HEADER_ASK_CLAUSE =
   " For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
 
-/** Compose the worker header from one resolved adapter's ask capability. */
-export function workerHeaderFor(adapter: AgentAdapter | undefined): string {
-  return adapter?.caps.ask ? WORKER_HEADER_BASE + WORKER_HEADER_ASK_CLAUSE : WORKER_HEADER_BASE;
+/** Names the machine-wide locked commands; empty when the user declared none. */
+function lockedCommandsClause(lockedCommands: readonly string[]): string {
+  if (lockedCommands.length === 0) return "";
+  return ` These commands are locked machine-wide: ${lockedCommands.join(", ")}.` +
+    " Prefer reporting so the orchestrator verifies; when one genuinely serves your task, run it as `orch lock run -- <cmd>`.";
 }
 
-/** Strip either worker-header variant from a dispatched task's text. */
+/** Compose the worker header from one resolved adapter's ask capability and the locked-command list. */
+export function workerHeaderFor(adapter: AgentAdapter | undefined, lockedCommands: readonly string[] = []): string {
+  const ask = adapter?.caps.ask ? WORKER_HEADER_ASK_CLAUSE : "";
+  return WORKER_HEADER_BASE + ask + lockedCommandsClause(lockedCommands);
+}
+
+/** Strip the composed worker header (base + any clauses) from a dispatched task's text. */
 export function stripWorkerHeader(task: string): string {
   if (!task.startsWith(WORKER_HEADER_BASE)) return task;
-  const rest = task.slice(WORKER_HEADER_BASE.length);
-  return (rest.startsWith(WORKER_HEADER_ASK_CLAUSE) ? rest.slice(WORKER_HEADER_ASK_CLAUSE.length) : rest).trimStart();
+  const separator = task.indexOf("\n\n");
+  return separator === -1 ? "" : task.slice(separator + 2);
 }

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/config.ts";
 import { runDoctor, applyFixes } from "../src/doctor.ts";
 import { liveSpawnCounts } from "../src/commands/spawn.ts";
-import { presenceAgentDir, recordSpawned, type PresenceEntry, type SpawnedRecord } from "../src/store.ts";
+import { presenceAgentDir, type PresenceEntry, type SpawnedRecord } from "../src/store.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const dirs: string[] = [];
@@ -25,7 +25,7 @@ function presence(key: string, workspace: string, pid = process.pid): PresenceEn
   return { key, dir, status: { key, workspace, pid }, result: null, alive: pid === process.pid };
 }
 
-function records(entries: Array<[string, string, number?]>): { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> } {
+function records(entries: [string, string, number?][]): { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> } {
   const registry = new Map<string, SpawnedRecord>();
   const live = new Map<string, PresenceEntry>();
   for (const [key, workspace, pid] of entries) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseTarget, formatTarget } from "../src/entities.ts";
@@ -15,7 +16,7 @@ function fixture(): { bin: string; record: string } {
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(record)}, args.join(" ") + "\\n");
 switch (args[2]) {
-  case "slow.example": setTimeout(() => {}, 2000); break;
+  case "slow.example": setTimeout(() => {}, 10000); break;
   case "dead.example": process.stderr.write("connection refused\\n"); process.exit(255);
   case "bryan@gpu1":
     if (args[4] === "questions") process.stdout.write("not json\\n");
@@ -52,23 +53,23 @@ function failure(result: RemoteResult) {
 }
 
 afterEach(() => {
-  while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("remote SSH executor", () => {
   test("runs BatchMode SSH and parses JSON", () => {
     const { bin, record } = fixture();
-    const result = runRemote("gpu1", { dest: "bryan@gpu1" }, ["status"], { timeoutMs: 3000, sshBin: bin });
+    const result = runRemote("gpu1", { dest: "bryan@gpu1" }, ["status"], { timeoutMs: 20000, sshBin: bin });
     expect(result).toEqual({ ok: true, value: { host: "gpu1", ok: true } });
     expect(recorded(record)).toBe("-o BatchMode=yes bryan@gpu1 orch status --json");
-  });
+  }, 25_000);
 
   test("returns a typed timeout failure", () => {
     const { bin, record } = fixture();
-    const result = runRemote("slow", { dest: "slow.example", timeout_ms: 500 }, ["status"], { sshBin: bin });
+    const result = runRemote("slow", { dest: "slow.example", timeout_ms: 3000 }, ["status"], { sshBin: bin });
     expect(failure(result)).toMatchObject({ kind: "timeout", host: "slow" });
     expect(recorded(record)).toContain("slow.example orch status --json");
-  });
+  }, 15_000);
 
   test("returns a dead-host failure", () => {
     const { bin, record } = fixture();

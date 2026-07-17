@@ -248,6 +248,7 @@ class ClaudeAdapter implements AgentAdapter {
     setModel: false,
     sessionTail: true,
     lifecycle: [] as const,
+    enforcesCommandLocks: false,
   };
 
   /** State is authoritative only when the Claude settings hooks are installed. */

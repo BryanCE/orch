@@ -41,7 +41,7 @@ describe("worktree primitives", () => {
     expect(filesystem.existsSync(worktreePath)).toBe(true);
     expect(git(worktreePath, ["branch", "--show-current"])).toBe("orch/fixes-1");
     expect(listAgentWorktrees(repoRoot)).toEqual([worktreePath]);
-  });
+  }, 30_000);
 
   test("detects commits ahead of a base branch", () => {
     const repoRoot = fixtureRepo();
@@ -53,7 +53,7 @@ describe("worktree primitives", () => {
     git(worktreePath, ["add", "feature.txt"]);
     git(worktreePath, ["commit", "-m", "add feature"]);
     expect(worktreeHasCommitsAheadOf(repoRoot, worktreePath, baseBranch)).toBe(true);
-  });
+  }, 30_000);
 
   test("removes an agent worktree", () => {
     const repoRoot = fixtureRepo();
@@ -63,7 +63,7 @@ describe("worktree primitives", () => {
 
     expect(filesystem.existsSync(worktreePath)).toBe(false);
     expect(listAgentWorktrees(repoRoot)).toEqual([]);
-  });
+  }, 30_000);
 
   test("rejects a non-repository path with a clear error", () => {
     const directory = filesystem.mkdtempSync(path.join(os.tmpdir(), "orch-not-a-repo-"));

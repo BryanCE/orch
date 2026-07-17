@@ -8,7 +8,8 @@ import { errorMessage, packageRoot } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 
 import { allBackends } from "../backends/registry.ts";
-import { adapterCommand, resolveAdapter, workerPrompt } from "./spawn.ts";
+import { loadConfig } from "../config.ts";
+import { adapterCommand, resolveAdapterOrDie, workerPrompt } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { splitOptionFlags, die, backendTarget, parseTargetPrompt } from "./target.ts";
@@ -25,7 +26,7 @@ export async function cmdRun(args: string[]): Promise<void> {
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
-  const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw, entityAdapter(ent)) }, gov);
+  const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw, entityAdapter(ent), loadConfig(orchDir()).locked_commands) }, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${pane}.\n`);
 }
@@ -64,7 +65,7 @@ export function cmdNew(args: string[]) {
   for (const target of targets) {
     const { ent } = resolvePane(target);
     const { backend, handle } = backendTarget(target, "reset");
-    const adapter = resolveAdapter(ent.agent ?? ent.presence?.status?.agent ?? "pi");
+    const adapter = resolveAdapterOrDie(ent.agent ?? ent.presence?.status?.agent ?? "pi");
     const resetCmd = adapter.caps.lifecycle.includes("reset") ? adapter.lifecycleCmd?.("reset") : undefined;
     if (!resetCmd) die(`${handle}: adapter ${adapter.id} has no reset mechanism.`);
     const statusPath = path.join(presenceAgentDir(ent.key), "status.json");
@@ -126,13 +127,13 @@ export function doReload(backend: Backend, pane: string, presenceKey: string, re
   }
 }
 
-export function touchReloadSignal(): void {
+function touchReloadSignal(): void {
   const signalPath = path.join(orchDir(), "reload.signal");
   const fd = files.openSync(signalPath, "a");
   files.closeSync(fd);
 }
 
-export function doHardRestart(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
+function doHardRestart(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
   const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
   const oldPid = readJSON<StatusFile>(statusPath)?.pid ?? null;
   backend.sendKeys(pane, ["Escape"]);
@@ -182,7 +183,7 @@ export function cmdReload(args: string[]) {
     try {
       const { ent } = resolvePane(target);
       const { backend, handle } = backendTarget(target, "reload");
-      const adapter = resolveAdapter(ent.agent ?? ent.presence?.status?.agent ?? "pi");
+      const adapter = resolveAdapterOrDie(ent.agent ?? ent.presence?.status?.agent ?? "pi");
       const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
       results.push(doReload(backend, handle, ent.key, reloadCmd.text));
@@ -224,7 +225,7 @@ export function cmdRestart(args: string[]) {
     const { ent } = resolvePane(target);
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its restart mechanism.`);
-    const adapter = resolveAdapter(agentId);
+    const adapter = resolveAdapterOrDie(agentId);
     const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
     const launch = cmd ?? adapterCommand(agentId);

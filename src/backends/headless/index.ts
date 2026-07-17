@@ -247,6 +247,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   }
 
   /** Headless has no console UI, so it cannot focus a target. */
+  // fallow-ignore-next-line unused-class-member
   focus(_handle: HeadlessHandle): boolean {
     return false;
   }

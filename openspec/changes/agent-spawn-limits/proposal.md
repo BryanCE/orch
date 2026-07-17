@@ -22,7 +22,7 @@ An uncapped multi-orchestrator session can spawn enough concurrent agents to exh
 
 ## Impact
 
-- `src/config.ts`: extend the one settings.json schema (bump the shared schema constant per Rule 8; no legacy acceptance) with the `limits` shape.
+- `src/config.ts`: add the `limits` field to the one settings.json schema (no version bump — `SETTINGS_SCHEMA` stays 1 pre-publish; no legacy acceptance).
 - `src/commands/spawn.ts`: count live orch-spawned agents (registry ∩ live presence, the same cross-reference `orch close --all` uses) and gate the spawn before any pane is created.
 - `orch doctor` (`doctor-config`): optionally surfaces a nonsensical configuration (per-workspace entries summing above the global max) as a warning — report-only, no fix.
 - Tests: schema validation cases plus spawn-gate unit tests (global cap, per-workspace cap, unset = unlimited, whole-request check).

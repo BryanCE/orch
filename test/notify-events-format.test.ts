@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { deliverToSink, notificationText, workspaceColor, type NotifyEvent } from "../src/notify.ts";
+import { workerHeaderFor } from "../src/worker-prompt.ts";
 
 const PALETTE = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"];
 
@@ -89,8 +90,8 @@ describe("notification and presence event formatting", () => {
   });
 
   test("presence eventTask strips worker preamble, truncates plain tasks, and formats questions", () => {
-    const preamble = "[orch worker] No human watches this pane. For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
-    expect(transition("herdr~w8~p3", { state: "done", task: `${preamble} build the real thing` })?.task).toBe("build the real thing");
+    const dispatched = `${workerHeaderFor(undefined)}\n\nbuild the real thing`;
+    expect(transition("herdr~w8~p3", { state: "done", task: dispatched })?.task).toBe("build the real thing");
 
     const longTask = "x".repeat(100);
     expect(transition("herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(79)}…`);

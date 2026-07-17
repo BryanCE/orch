@@ -24,7 +24,7 @@ export function renderQueueTasks(tasks: TaskRec[]): void {
   process.stdout.write(renderTable(headers, rows, caps) + "\n");
 }
 
-export function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
+function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
   if (json) process.stdout.write(JSON.stringify(task, null, 2) + "\n");
   else process.stdout.write(plainText + "\n");
 }

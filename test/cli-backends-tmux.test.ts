@@ -74,7 +74,9 @@ describe("tmux backend registry and capabilities", () => {
 
   test("implicitly selects tmux inside a session", () => {
     const previous = process.env.TMUX;
+    // eslint-disable-next-line typescript/unbound-method
     const oldHerdrInside = HerdrBackend.prototype.isInsideSession;
+    // eslint-disable-next-line typescript/unbound-method
     const oldTmuxAvailable = TmuxBackend.prototype.isAvailable;
     try {
       HerdrBackend.prototype.isInsideSession = () => false;
@@ -91,6 +93,7 @@ describe("tmux backend registry and capabilities", () => {
 
   test("fails tmux validation outside a session before pane work", () => {
     const previous = process.env.TMUX;
+    // eslint-disable-next-line typescript/unbound-method
     const oldTmuxAvailable = TmuxBackend.prototype.isAvailable;
     try {
       TmuxBackend.prototype.isAvailable = () => true;
@@ -104,12 +107,17 @@ describe("tmux backend registry and capabilities", () => {
   });
 
   test("fails herdr validation outside a herdr session before pane work", () => {
+    /* eslint-disable typescript/unbound-method */
     const oldHerdrInside = HerdrBackend.prototype.isInsideSession;
+    const oldHerdrAvailable = HerdrBackend.prototype.isAvailable;
+    /* eslint-enable typescript/unbound-method */
     try {
+      HerdrBackend.prototype.isAvailable = () => true;
       HerdrBackend.prototype.isInsideSession = () => false;
       expect(() => resolveBackend({ explicit: "herdr", configured: null })).toThrow(/requires running inside a live herdr session/);
     } finally {
       HerdrBackend.prototype.isInsideSession = oldHerdrInside;
+      HerdrBackend.prototype.isAvailable = oldHerdrAvailable;
     }
   });
 

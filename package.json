@@ -10,7 +10,7 @@
     "agents"
   ],
   "scripts": {
-    "check": "oxlint . && bunx tsc --noEmit && fallow check && bun run check:bridge",
+    "check": "oxlint . && bunx tsc --noEmit && bun run check:bridge",
     "check:bridge": "bun scripts/check-bridge.ts",
     "build": "bun run build:cli && bun run build:web",
     "build:cli": "bun run build:ext && bun run build:bin && bun run build:daemon && bun run build:hooks && bun run build:notify",

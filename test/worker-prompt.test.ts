@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
@@ -53,7 +54,7 @@ async function dispatchedPrompt(adapter: "codex" | "pi"): Promise<string> {
     headlessBackend.deliver = original;
     if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
     else process.env.ORCH_DIR = previousOrchDir;
-    rmSync(orchDir, { recursive: true, force: true });
+    removeTempDir(orchDir);
   }
 }
 

@@ -14,13 +14,13 @@ import {
 } from "../worktree.ts";
 import { die } from "./target.ts";
 
-export function liveWorktreeOwner(worktreePath: string, records: Map<string, SpawnedRecord>, presence: Map<string, PresenceEntry>): boolean {
+function liveWorktreeOwner(worktreePath: string, records: Map<string, SpawnedRecord>, presence: Map<string, PresenceEntry>): boolean {
   const owner = [...records.values()].find((record) =>
     record.worktree && path.resolve(record.worktree) === path.resolve(worktreePath));
   return Boolean(owner && presence.get(owner.pane)?.alive);
 }
 
-export function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, json = false): boolean {
+function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, json = false): boolean {
   try {
     const branch = worktreeBranch(worktreePath);
     const hasCommitsAhead = worktreeHasCommitsAheadOf(repoRoot, worktreePath, baseBranch);
@@ -42,7 +42,7 @@ export function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreeP
   return true;
 }
 
-export function cleanWorktrees(force: boolean, json = false): number {
+function cleanWorktrees(force: boolean, json = false): number {
   let repoRoot: string;
   try {
     repoRoot = repositoryCommonRoot(process.cwd());
@@ -62,7 +62,7 @@ export function cleanWorktrees(force: boolean, json = false): number {
   return worktrees.length;
 }
 
-export function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean } {
+function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean } {
   const worktrees = args.includes("--worktrees");
   const force = args.includes("--force");
   if (args.some((arg) => arg !== "--worktrees" && arg !== "--force") || (force && !worktrees))

@@ -19,9 +19,16 @@ const LOCK_NAME = "cmd-lock.json";
 const DEFAULT_TIMEOUT_MS = 600_000;
 const DEFAULT_POLL_MS = 500;
 
+function normalizeCommandText(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
+
 export function matchesLockedCommand(argv: readonly string[], patterns: readonly string[]): boolean {
-  const command = argv.join(" ");
-  return patterns.some((pattern) => command.startsWith(pattern));
+  const command = normalizeCommandText(argv.join(" "));
+  return patterns.some((pattern) => {
+    const prefix = normalizeCommandText(pattern);
+    return prefix.length > 0 && (command === prefix || command.startsWith(prefix + " "));
+  });
 }
 
 function lockPath(orchDir: string): string {
@@ -47,7 +54,7 @@ function loadLock(path: string): CommandLock | null {
     const value: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!value || typeof value !== "object") return null;
     const record = value as Partial<CommandLock>;
-    if (!Number.isInteger(record.pid) || typeof record.holder !== "string" || typeof record.ts !== "number") return null;
+    if (typeof record.pid !== "number" || !Number.isInteger(record.pid) || typeof record.holder !== "string" || typeof record.ts !== "number") return null;
     return { pid: record.pid, holder: record.holder, ...(record.note === undefined ? {} : { note: record.note }), ts: record.ts };
   } catch {
     return null;
@@ -94,7 +101,9 @@ export async function acquireCommandLock(orchDir: string, options: CommandLockOp
     if (Date.now() - started >= timeoutMs) break;
     await pause(pollMs);
   }
-  throw new Error(`timed out waiting for command lock after ${timeoutMs}ms`);
+  const holder = loadLock(path);
+  const heldBy = holder ? `${holder.holder} (pid ${holder.pid})` : "an unknown holder";
+  throw new Error(`timed out after ${timeoutMs}ms waiting for command lock held by ${heldBy}`);
 }
 
 export function releaseCommandLock(orchDir: string, pid = process.pid): boolean {

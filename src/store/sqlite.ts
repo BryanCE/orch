@@ -17,6 +17,7 @@ interface StatementLike {
 interface DatabaseLike {
   exec(sql: string): void;
   query(sql: string): StatementLike;
+  close(): void;
 }
 
 interface NodeStatement {
@@ -28,6 +29,7 @@ interface NodeStatement {
 interface NodeDatabase {
   exec(sql: string): void;
   prepare(sql: string): NodeStatement;
+  close(): void;
 }
 
 class NodeDatabaseAdapter implements DatabaseLike {
@@ -35,6 +37,10 @@ class NodeDatabaseAdapter implements DatabaseLike {
 
   exec(sql: string): void {
     this.database.exec(sql);
+  }
+
+  close(): void {
+    this.database.close();
   }
 
   query(sql: string): StatementLike {
@@ -143,6 +149,14 @@ function openStore(orchDir: string): DatabaseLike {
   createTables(db);
   connections.set(path, db);
   return db;
+}
+
+/** Close every cached connection; tests call this before removing their temp dirs. */
+export function closeAllStores(): void {
+  for (const [path, db] of connections) {
+    db.close();
+    connections.delete(path);
+  }
 }
 
 interface QueueRow {

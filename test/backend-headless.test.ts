@@ -84,15 +84,15 @@ describe("HeadlessBackend", () => {
       adapter: string;
       log: string;
     };
-    expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake", log: expect.stringContaining("logs/") as string });
+    expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake", log: expect.stringMatching(/logs[\\/]/) as string });
     expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
-    expect(JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", "fake-1", "status.json"), "utf8")).key).toBe("fake-1");
+    expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", "fake-1", "status.json"), "utf8")) as { key: string }).key).toBe("fake-1");
   });
 
   test("completes a headless dispatch round-trip and leaves a readable result", async () => {
-    const adapter: AgentAdapter = {
+    const adapter = {
       ...fakeAdapter,
-      headlessCmd: (_prompt, opts) => {
+      headlessCmd: (_prompt: string, opts: { key?: string; orchDir?: string }) => {
         const dir = path.join(opts.orchDir!, "agents", opts.key!);
         return [process.execPath, "-e", [
           "const fs=require('node:fs');",
@@ -103,11 +103,11 @@ describe("HeadlessBackend", () => {
         ].join(" ")];
       },
     };
-    const handle = backend.spawn(adapter, { key: "round-trip", prompt: "dispatch" });
+    const handle = backend.spawn(adapter as unknown as AgentAdapter, { key: "round-trip", prompt: "dispatch" });
     handles.push(handle);
     const dir = path.join(testOrchDir, "agents", "round-trip");
     await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
-    await waitFor(() => JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")).state === "done");
+    await waitFor(() => (JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")) as { state: string }).state === "done");
     expect(JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"))).toEqual({ text: "headless result" });
   });
 

@@ -24,11 +24,11 @@
 - **D2 — Cap semantics.** The global cap bounds the machine-wide total of live orch-spawned agents. A workspace cap bounds that workspace's total. Both are checked; the stricter one wins. With only a global cap set, one workspace may consume the full allotment by design. A workspace cap larger than the global cap is legal but unsatisfiable beyond the global — doctor surfaces it as a report-only warning.
 - **D3 — Counting.** Live count = registry records whose presence shows a live pid, grouped by the identity `workspace` field (never parsed from key text — workspace-policy invariant). Counting is a pure function over (registry, presence) injected the same way the existing liveness checks are, so it is unit-testable without live agents.
 - **D4 — Gate placement.** One shared guard `assertSpawnCapacity(settings, workspace, requested)` in the command layer, called before ANY pane/process is created in each spawn flow (tab spawn, worktree spawn, single spawn). Whole-request check: `live + requested > cap` refuses the entire request — no partial fleets.
-- **D5 — Schema version.** `SETTINGS_SCHEMA` bumps 1 → 2 (Rule 8: the shape changed; one current schema, no optional-field ambiguity across versions). Existing files fail loudly with the established "re-run orch setup" message; the default writer stamps 2.
+- **D5 — Schema version stays 1.** `SETTINGS_SCHEMA` is NOT bumped. Pre-publish (0.1.0) there is exactly one live schema; the `limits` field is added to it and all writers/readers/tests fixed in the same change. There is no old data to migrate, so the stamp never increments (bumping it created a stale-binary mismatch — the installed CLI expected an older stamp — and was reverted).
 - **D6 — Error text.** `spawn refused: would put <workspace> at <n>/<cap> agents (limits.workspaces.<id>)` and the global analog naming `limits.maxAgents`. Exit 1, nothing spawned.
 
 ## Risks / Trade-offs
 
 - **TOCTOU between concurrent orchestrators**: two simultaneous spawns can each pass the check then exceed the cap. Accepted — the gate is a resource guard, not a mutex; the daemon-brokered spawn path can tighten this later without a schema change.
 - **Stale presence inflates counts** (dead agents not yet reaped): a refused spawn may follow `orch clean`. The error message includes the live count so the state is visible; `orch clean` already exists as the remedy.
-- **Schema bump friction**: every existing settings.json errors until re-run of setup. Accepted pre-publish (Rule 8), and the error names the fix.
+- **Adding a field to the live schema**: a settings.json written before the field simply omits it (optional, normalized to empty). No version bump, so no forced re-setup.

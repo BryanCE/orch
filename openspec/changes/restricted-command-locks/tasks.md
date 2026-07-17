@@ -2,7 +2,7 @@
 
 ## 1. Settings + matcher
 
-- [ ] 1.1 Add optional `locked_commands: string[]` to the settings schema in `src/config.ts` and the normalized consumer type (always-present, `[]` when omitted). Coordinate the schema-constant bump with `agent-spawn-limits` — ONE bump total; whichever lands second rebases onto the bumped constant (design risk note).
+- [ ] 1.1 Add optional `locked_commands: string[]` to the settings schema in `src/config.ts` and the normalized consumer type (always-present, `[]` when omitted). DO NOT touch `SETTINGS_SCHEMA` — pre-publish (0.1.0) it stays `1`; add the field to the one live schema and fix every writer/reader/test in the same change (no version bump, no legacy acceptance).
 - [ ] 1.2 Add the whitespace-normalized token-boundary prefix matcher (`matchesLockedCommand`) as a pure function; `"bun test"` matches `bun test x` and never `bun tester`.
 - [ ] 1.3 Schema + matcher tests: list loads, boundary matching, omitted list disables the feature.
 

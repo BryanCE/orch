@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatAge, isQuestionPayload, questionText, cmdResult } from "../src/commands/results.ts";
@@ -26,9 +27,10 @@ describe("commands/results", () => {
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 2, key, backend: "headless", workspace: "wD", handle: "4242", pid: process.pid, agent: "pi", state: "done" }));
     writeFileSync(join(dir, "result.json"), JSON.stringify({ text: "finished" }));
     const output: string[] = [];
+    // eslint-disable-next-line typescript/unbound-method
     const originalWrite = process.stdout.write;
-    process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; }) as typeof process.stdout.write;
-    try { cmdResult([key]); } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; rmSync(root, { recursive: true, force: true }); }
+    process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
+    try { cmdResult([key]); } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(output.join("")).toBe("finished\n");
   });
 });

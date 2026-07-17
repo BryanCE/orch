@@ -8,7 +8,7 @@ describe("commands/setup", () => {
     expect(readValueFlag([], "--agent")).toBeUndefined();
   });
   test("resolves noninteractive provider sets and defaults", async () => {
-    expect(await resolveProviderSet("adapter", "--agent", "pi,claude", ["pi", "claude"], false, async () => null)).toEqual(["pi", "claude"]);
-    expect(await resolveActiveDefault(["pi", "claude"], false, false, async () => null)).toBe("pi");
+    expect(await resolveProviderSet("adapter", "--agent", "pi,claude", ["pi", "claude"], false, () => Promise.resolve(null))).toEqual(["pi", "claude"]);
+    expect(await resolveActiveDefault(["pi", "claude"], false, false, () => Promise.resolve(null))).toBe("pi");
   });
 });

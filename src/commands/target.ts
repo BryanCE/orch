@@ -7,8 +7,6 @@ import { runSSH } from "../remote.ts";
 import { isRecord, loadPresence, orchDir, type PresenceEntry } from "../store.ts";
 import { errorMessage } from "../util.ts";
 
-export { resolveTarget } from "../entities.ts";
-
 export function die(msg: string): never {
   process.stderr.write(msg + "\n");
   process.exit(1);

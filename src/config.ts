@@ -11,9 +11,11 @@ import { errorMessage } from "./util.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * a file with any other version is invalid and must be fixed by hand or recreated
- * by `orch setup`. On a shape change, bump this and fix every writer/reader/test
- * in the same commit. */
-export const SETTINGS_SCHEMA = 3;
+ * by `orch setup`. Pre-publish (0.1.0) there is exactly ONE live schema and it
+ * stays `1` — never bump it. On a shape change, edit the shape and fix every
+ * writer/reader/test in the same commit; there is no old data to migrate, so the
+ * stamp does not increment. */
+export const SETTINGS_SCHEMA = 1;
 
 const PositiveInt = z.number().int().positive();
 
@@ -276,14 +278,16 @@ export function allowedModelPatterns(orchDir: string): string[] {
   return DEFAULT_ALLOWED_MODELS;
 }
 
-/** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. */
+/** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */
 function updateSettingsFile(orchDir: string, mutate: (root: SettingsFile) => SettingsFile): void {
   const file = settingsPath(orchDir);
   const root = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
   const updated = SettingsFileSchema.parse(mutate(root));
   requireInstalledComposition(file, updated);
   filesystem.mkdirSync(orchDir, { recursive: true });
-  filesystem.writeFileSync(file, JSON.stringify(updated, null, 2) + "\n");
+  const tmp = `${file}.${process.pid}.tmp`;
+  filesystem.writeFileSync(tmp, JSON.stringify(updated, null, 2) + "\n");
+  filesystem.renameSync(tmp, file);
 }
 
 /** Upsert one string entry in the `defaults` section of settings.json. */

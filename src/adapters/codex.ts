@@ -250,6 +250,7 @@ export class CodexAdapter implements AgentAdapter {
     setModel: false,
     sessionTail: true,
     lifecycle: [] as const,
+    enforcesCommandLocks: false,
   };
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
@@ -298,6 +299,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Codex has no proven blocking answer protocol. */
+  // fallow-ignore-next-line unused-class-member
   answer(_request: AnswerRequest): AdapterCommand | undefined {
     return undefined;
   }
@@ -334,6 +336,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Verify the top-level notify artifact written by installShim. */
+  // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
     const configPath = join(homedir(), ".codex", "config.toml");
     const shim = codexNotifyShimPath(packageRoot());
@@ -351,6 +354,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Register the orch notify shim as codex's completion writer (D2/D2a). */
+  // fallow-ignore-next-line unused-class-member
   installShim(): void {
     installCodexNotifyShim(packageRoot());
   }

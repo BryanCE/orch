@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -68,7 +69,7 @@ afterEach(() => {
   while (directories.length) {
     const directory = directories.pop()!;
     stopDaemon(directory);
-    fs.rmSync(directory, { recursive: true, force: true });
+    removeTempDir(directory);
   }
 });
 

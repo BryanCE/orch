@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Settings declare agent spawn limits
-`$ORCH_DIR/settings.json` SHALL accept an optional `limits` section with `maxAgents` (positive integer, machine-wide cap on concurrently live orch-spawned agents) and `workspaces` (map of workspace id → positive-integer cap for that workspace). The section is part of the one current settings schema (schema constant bumped, no legacy acceptance); invalid values fail the load loudly naming the file and key.
+`$ORCH_DIR/settings.json` SHALL accept an optional `limits` section with `maxAgents` (positive integer, machine-wide cap on concurrently live orch-spawned agents) and `workspaces` (map of workspace id → positive-integer cap for that workspace). The section is an optional field on the one live settings schema (version stays 1, no legacy acceptance); invalid values fail the load loudly naming the file and key.
 
 #### Scenario: Valid limits load
 - **WHEN** settings.json contains `"limits": { "maxAgents": 12, "workspaces": { "wD": 4 } }`

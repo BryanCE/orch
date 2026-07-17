@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks } from "../src/queue";
@@ -45,7 +46,7 @@ function startRunner(orchDir: string): Runner {
 }
 
 afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
 describe("orch work claim race", () => {

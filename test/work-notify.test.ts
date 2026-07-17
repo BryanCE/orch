@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -25,7 +26,7 @@ async function waitForFile(file: string): Promise<Record<string, unknown>> {
 }
 
 afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
 describe("orch work notifications", () => {
@@ -33,7 +34,7 @@ describe("orch work notifications", () => {
     const orchDir = mkdtempSync(join(tmpdir(), "orch-work-notify-"));
     tempDirs.push(orchDir);
     const output = join(orchDir, "notification.json");
-    const key = "workspace:test-agent";
+    const key = "headless~workspace~test-agent";
     const command = nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`);
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
@@ -65,7 +66,7 @@ describe("orch work notifications", () => {
         await loop;
       }
     } finally {
-      rmSync(agentsDir, { recursive: true, force: true });
+      removeTempDir(agentsDir);
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;
     }

@@ -1,7 +1,8 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, resolvePane, resolveTarget, selfActor, type Entity } from "../entities.ts";
-import { isRecord, presenceAgentDir, readJSON, recordSpawned, type PresenceEntry } from "../store.ts";
+import { isRecord, orchDir, presenceAgentDir, readJSON, recordSpawned, type PresenceEntry } from "../store.ts";
+import { loadConfig } from "../config.ts";
 import { truncate } from "../table.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
@@ -137,26 +138,11 @@ export async function cmdModel(args: string[]): Promise<void> {
   else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} → ${result.now} (accepted)\n`);
 }
 
-export async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; confirmed: true; unchanged: boolean }> {
+async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; confirmed: true; unchanged: boolean }> {
   const old = readJSON<{ model?: unknown }>(path.join(presenceAgentDir(agentKey), "status.json"));
   const previous = typeof old?.model === "string" ? old.model : null;
   await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, confirmed: true, unchanged: previous === modelArg };
-}
-
-export async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
-  const results = await Promise.all(created.map(async ({ key, pane, name }) => {
-    try {
-      const result = await setAgentModel(key, model);
-      return { pane, name, ok: result.confirmed };
-    } catch {
-      return { pane, name, ok: false };
-    }
-  }));
-  for (const result of results) {
-    if (!result.ok) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}.\n`);
-  }
-  if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
 
 export async function cmdDispatch(args: string[]) {
@@ -176,7 +162,7 @@ export async function cmdDispatch(args: string[]) {
   }
   const settings = resolveDispatchSettings(flags, gov);
   if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
-  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent)) }, gov);
+  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), loadConfig(orchDir()).locked_commands) }, gov);
   recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined, owner: selfActor() ?? undefined });
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${settings.pane}.\n`);
@@ -199,7 +185,7 @@ export function parseDispatchFlags(args: string[]): DispatchFlags {
   return flags;
 }
 
-export function resolveDispatchSettings(flags: DispatchFlags, gov: WriteGovernance = {}): DispatchSettings {
+function resolveDispatchSettings(flags: DispatchFlags, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = flags.positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');

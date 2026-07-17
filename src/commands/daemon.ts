@@ -22,7 +22,7 @@ export interface DaemonStatus {
   socket: string;
 }
 
-export function daemonEntrypoint(): string {
+function daemonEntrypoint(): string {
   return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
 }
 
@@ -40,13 +40,13 @@ export function validDaemonStatus(value: unknown): value is DaemonStatus {
     && typeof value.socket === "string";
 }
 
-export async function fetchDaemonStatus(timeoutMs = 5000): Promise<DaemonStatus> {
+async function fetchDaemonStatus(timeoutMs = 5000): Promise<DaemonStatus> {
   const result = await rpcCall(orchDir(), "daemon-status", undefined, timeoutMs);
   if (!validDaemonStatus(result)) throw new Error("orchd returned an invalid status");
   return result;
 }
 
-export async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> {
+async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     try {
@@ -112,7 +112,7 @@ export async function writeRpc(method: string, params: Record<string, unknown>, 
   }
 }
 
-export async function startDaemon(foreground: boolean, json = false): Promise<void> {
+async function startDaemon(foreground: boolean, json = false): Promise<void> {
   const existingPid = daemonLockPid();
   if (existingPid && pidAlive(existingPid)) {
     if (json) process.stdout.write(JSON.stringify({ running: true, pid: existingPid, started: false }) + "\n");
@@ -130,7 +130,7 @@ export async function startDaemon(foreground: boolean, json = false): Promise<vo
   else process.stdout.write(`started (pid ${status.pid})\n`);
 }
 
-export async function stopDaemon(json = false): Promise<void> {
+async function stopDaemon(json = false): Promise<void> {
   const pid = daemonLockPid();
   if (!pid || !pidAlive(pid)) {
     if (json) process.stdout.write(JSON.stringify({ running: false, stopped: false }) + "\n");
@@ -145,7 +145,7 @@ export async function stopDaemon(json = false): Promise<void> {
   else process.stdout.write(`stopped (pid ${pid})\n`);
 }
 
-export async function statusDaemon(json: boolean): Promise<void> {
+async function statusDaemon(json: boolean): Promise<void> {
   try {
     const status = await fetchDaemonStatus();
     if (json) process.stdout.write(`${JSON.stringify(status)}\n`);
@@ -157,7 +157,7 @@ export async function statusDaemon(json: boolean): Promise<void> {
   }
 }
 
-export async function reloadDaemon(json = false): Promise<void> {
+async function reloadDaemon(json = false): Promise<void> {
   const before = await fetchDaemonStatus();
   await rpcCall(orchDir(), "reload");
   const after = await waitForDaemon(before.startedAt);

@@ -33,7 +33,7 @@ describe("doctor stale presence safety", () => {
 
   test("describes a dead agent by name and project, not a bare key", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, "wD:p1A", {
+    writeDeadAgent(directory, "wD-p1A", {
       pid: DEAD_PID,
       label: "docs-2",
       agent: "pi",
@@ -44,12 +44,12 @@ describe("doctor stale presence safety", () => {
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("docs-2");
     expect(result.detail).toContain("project orch");
-    expect(result.detail).toContain("wD:p1A");
+    expect(result.detail).toContain("wD-p1A");
   });
 
   test("the removal fix is marked destructive so UIs never pre-select it", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, "wD:p1A", { pid: DEAD_PID, label: "docs-2", agent: "pi", cwd: "/x/orch" });
+    writeDeadAgent(directory, "wD-p1A", { pid: DEAD_PID, label: "docs-2", agent: "pi", cwd: "/x/orch" });
     const result = staleResult(await runDoctor(directory));
     expect(result.fix?.destructive).toBe(true);
     expect(result.fix?.description).toContain("docs-2");
@@ -57,7 +57,7 @@ describe("doctor stale presence safety", () => {
 
   test("no dead agents leaves nothing to remove", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, "wD:p1B", { pid: process.pid, label: "alive", agent: "pi", cwd: "/x/orch" });
+    writeDeadAgent(directory, "wD-p1B", { pid: process.pid, label: "alive", agent: "pi", cwd: "/x/orch" });
     const result = staleResult(await runDoctor(directory));
     expect(result.status).toBe("ok");
     expect(result.fix).toBeUndefined();

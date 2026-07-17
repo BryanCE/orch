@@ -88,9 +88,13 @@ describe("backend registry selection is backend-independent", () => {
   });
 
   test("implicit selection falls back to headless when no herdr session exists", () => {
+    // eslint-disable-next-line typescript/unbound-method
     const herdrAvailable = HerdrBackend.prototype.isAvailable;
+    // eslint-disable-next-line typescript/unbound-method
     const herdrInside = HerdrBackend.prototype.isInsideSession;
+    // eslint-disable-next-line typescript/unbound-method
     const tmuxAvailable = TmuxBackend.prototype.isAvailable;
+    // eslint-disable-next-line typescript/unbound-method
     const tmuxInside = TmuxBackend.prototype.isInsideSession;
     try {
       HerdrBackend.prototype.isAvailable = () => false;

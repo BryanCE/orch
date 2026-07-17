@@ -110,7 +110,7 @@ export async function cmdReviewInteractive(): Promise<void> {
   }
 }
 
-export function reviewItems(): ReviewItem[] {
+function reviewItems(): ReviewItem[] {
   const records = spawnedRecords();
   const presence = loadPresence();
   const items: ReviewItem[] = [];
@@ -148,7 +148,7 @@ export function reviewItems(): ReviewItem[] {
   return items;
 }
 
-export function findReviewItem(target: string): ReviewItem {
+function findReviewItem(target: string): ReviewItem {
   const item = reviewItems().find((candidate) => [candidate.target, candidate.pane, candidate.branch, candidate.worktree].includes(target));
   if (!item) die(`No reviewable worktree matches "${target}". Run 'orch review list'.`);
   return item;

@@ -3,11 +3,11 @@ OpenSpec Dashboard
 
 ════════════════════════════════════════════════════════════
 Summary:
-  ● Specifications: 15 specs, 58 requirements
+  ● Specifications: 15 specs, 59 requirements
   ● Draft Changes: 1
-  ● Active Changes: 10 in progress
-  ● Completed Changes: 0
-  ● Task Progress: 218/291 (75% complete)
+  ● Active Changes: 6 in progress
+  ● Completed Changes: 3
+  ● Task Progress: 141/203 (69% complete)
 
 Draft Changes
 ────────────────────────────────────────────────────────────
@@ -17,19 +17,21 @@ Active Changes
 ────────────────────────────────────────────────────────────
   ◉ restricted-command-locks       [░░░░░░░░░░░░░░░░░░░░] 0%
   ◉ monolith-file-breakdown        [████░░░░░░░░░░░░░░░░] 19%
-  ◉ agent-spawn-limits             [███████████████░░░░░] 75%
   ◉ provider-driven-setup-doctor   [████████████████░░░░] 78%
   ◉ tmux-backend-completion        [████████████████░░░░] 80%
   ◉ plexer-base-sync               [████████████████░░░░] 82%
-  ◉ adapter-presence-writers       [██████████████████░░] 89%
-  ◉ adapter-control-authority      [██████████████████░░] 90%
-  ◉ settings-json-config           [██████████████████░░] 90%
   ◉ pluggable-plexer-backends      [████████████████████] 98%
+
+Completed Changes
+────────────────────────────────────────────────────────────
+  ✓ adapter-control-authority
+  ✓ agent-spawn-limits
+  ✓ settings-json-config
 
 Specifications
 ────────────────────────────────────────────────────────────
+  ▪ agent-adapters                 6 requirements
   ▪ fleet-steering                 6 requirements
-  ▪ agent-adapters                 5 requirements
   ▪ remote-hosts                   5 requirements
   ▪ task-queue                     5 requirements
   ▪ worktree-review                5 requirements

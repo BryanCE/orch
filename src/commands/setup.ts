@@ -13,7 +13,6 @@ import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBac
 import { isRecord, orchDir, presenceDir } from "../store.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage, packageRoot } from "../util.ts";
-import { runCommand } from "./index.ts";
 import { die } from "./target.ts";
 
 const HOME = os.homedir();
@@ -21,7 +20,7 @@ const HOME = os.homedir();
 /** The install action for one provider id: exactly one of a real install command or a
  * documentation URL, plus an optional ordered list of prerequisite provider ids installed
  * first. Keyed by real provider id, so an installer can never drift from its provider. */
-export interface InstallerEntry {
+interface InstallerEntry {
   install?: string;
   docsUrl?: string;
   needs?: readonly string[];
@@ -51,7 +50,7 @@ export function readAssignFlag(args: string[], name: string): string | undefined
 }
 
 /** Validate a provided setup flag value against the supported ids, or exit. */
-export function validateSetupFlag(kind: string, value: string, supported: readonly string[]): string {
+function validateSetupFlag(kind: string, value: string, supported: readonly string[]): string {
   if (supported.includes(value)) return value;
   die(`Unknown ${kind} "${value}". Supported ${kind}s: ${supported.join(", ")}.`);
 }
@@ -92,12 +91,12 @@ export async function resolveActiveDefault(
 }
 
 /** Print the manual install commands for each missing prerequisite. */
-export function printInstallHints(missing: readonly { bin: string; cmd: string }[]): void {
+function printInstallHints(missing: readonly { bin: string; cmd: string }[]): void {
   for (const { bin, cmd } of missing) process.stdout.write(`  install ${bin}: ${cmd}\n`);
 }
 
 /** Decide which missing prerequisites to install: multiselect when interactive, all with -y, none otherwise. Null on cancel. */
-export async function resolveInstallTargets(
+async function resolveInstallTargets(
   missing: readonly { bin: string; cmd: string }[],
   interactive: boolean,
   yes: boolean,
@@ -120,7 +119,7 @@ export async function resolveInstallTargets(
 }
 
 /** Install one prerequisite: silent under a spinner when interactive, streamed otherwise. */
-export function runInstall(bin: string, cmd: string, interactive: boolean): void {
+function runInstall(bin: string, cmd: string, interactive: boolean): void {
   try {
     if (interactive) {
       withSpinner(`Installing ${bin}…`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
@@ -310,7 +309,7 @@ export async function cmdSetup(args: string[]) {
 
 /** Interactive notifier onboarding: probe available notifiers, pick a set, collect each one's
  * declared fields, and persist them as settings.json `notify` entries. A cancel skips the step. */
-export async function configureNotifiers(): Promise<void> {
+async function configureNotifiers(): Promise<void> {
   const available = (await probeNotifiers()).filter((notifier) => notifier.available);
   if (!available.length) return;
   const picked = await selectNotifiers(available.map((notifier) => notifier.id));
@@ -341,7 +340,7 @@ export async function configureNotifiers(): Promise<void> {
 
 /** The raw `queue.max_retries` set in settings.json, or undefined when the file omits it —
  * so its provenance reads honestly rather than the value loadConfig defaults it to. */
-export function rawMaxRetries(orchDirPath: string): number | undefined {
+function rawMaxRetries(orchDirPath: string): number | undefined {
   try {
     const parsed: unknown = JSON.parse(files.readFileSync(settingsPath(orchDirPath), "utf8"));
     if (isRecord(parsed) && isRecord(parsed.queue) && typeof parsed.queue.max_retries === "number") return parsed.queue.max_retries;
@@ -352,7 +351,7 @@ export function rawMaxRetries(orchDirPath: string): number | undefined {
 }
 
 /** Switch the active default adapter/backend; writeSettingsDefault throws when the id is not installed. */
-export function switchDefault(key: "adapter" | "backend", value: string): void {
+function switchDefault(key: "adapter" | "backend", value: string): void {
   try {
     writeSettingsDefault(orchDir(), key, value);
   } catch (error: unknown) {
@@ -412,7 +411,7 @@ export function cmdSettings(args: string[]): void {
   process.stdout.write(`  notify              ${config.notify.length}\n`);
 }
 
-export async function runInteractiveDoctor(initial: CheckResult[]): Promise<void> {
+async function runInteractiveDoctor(initial: CheckResult[]): Promise<void> {
   let results = initial;
   renderDoctorResults(results);
   const fixable = results.filter((r) => r.fix && (r.id.startsWith("shim-") || r.id.startsWith("fleet-pair-"))).map((r) => ({ id: r.id, label: r.label, description: r.fix!.description, destructive: r.fix!.destructive }));
@@ -460,11 +459,11 @@ export function compositionUnrecorded(): boolean {
   return !loadConfig(orchDir()).defaults.adapter;
 }
 
-/** Walk the first run through the setup wizard, then dispatch the original command. */
-export async function runFirstTimeSetup(argv: string[]): Promise<void> {
+/** Walk the first run through the setup wizard, then dispatch the original command via the injected dispatcher. */
+export async function runFirstTimeSetup(argv: string[], dispatch: (argv: string[]) => void): Promise<void> {
   process.stdout.write("First run — no harness/backend recorded yet, walking through setup.\n\n");
   await cmdSetup([]);
   // A cancelled wizard records nothing; exit instead of looping back into the gate.
   if (compositionUnrecorded()) process.exit(1);
-  runCommand(argv);
+  dispatch(argv);
 }

@@ -37,14 +37,14 @@ describe("doctor backend and presence checks", () => {
       const agents = path.join(directory, "agents");
       fs.mkdirSync(path.join(agents, "herdr~wD~p2"), { recursive: true });
       fs.writeFileSync(path.join(agents, "herdr~wD~p2", "status.json"), JSON.stringify({ schema: 2 }));
-      fs.mkdirSync(path.join(agents, "wD:p1"), { recursive: true });
-      fs.writeFileSync(path.join(agents, "wD:p1", "status.json"), JSON.stringify({}));
+      fs.mkdirSync(path.join(agents, "wD-p1"), { recursive: true });
+      fs.writeFileSync(path.join(agents, "wD-p1", "status.json"), JSON.stringify({}));
 
       const result = checkMalformedPresenceRecords();
       expect(result.status).toBe("fail");
       const ignored = result.ignoredRecords ?? [];
       expect(ignored).toHaveLength(1);
-      expect(ignored[0]?.path).toBe(path.join(agents, "wD:p1"));
+      expect(ignored[0]?.path).toBe(path.join(agents, "wD-p1"));
       expect(typeof ignored[0]?.reason).toBe("string");
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;

@@ -134,7 +134,7 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
   };
 }
 
-export function cmdStatusLocal(args: string[]) {
+function cmdStatusLocal(args: string[]) {
   const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
   const json = enabled.has("--json");
   const all = enabled.has("--all");
@@ -254,7 +254,7 @@ interface StatusRow {
   warning?: string;
 }
 
-export function localStatusRows(args: string[]): StatusRow[] {
+function localStatusRows(args: string[]): StatusRow[] {
   const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
   const all = enabled.has("--all");
   const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });

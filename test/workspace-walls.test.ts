@@ -52,6 +52,19 @@ describe("workspace wall writes", () => {
     expect(decision.reason).toContain("w2");
   });
 
+  test("applies the same wall rule to herdr, tmux, and headless identities", () => {
+    const identities = [
+      ["herdr~w1~p1", "herdr~w2~p2"],
+      ["tmux~w1~%251", "tmux~w2~%252"],
+      ["headless~w1~1001", "headless~w2~1002"],
+    ] as const;
+
+    for (const [actor, target] of identities) {
+      expect(checkWall(actor, target, { crossWorkspace: false })).toMatchObject({ allowed: false });
+      expect(checkWall(actor, target, { crossWorkspace: true })).toEqual({ allowed: true });
+    }
+  });
+
   test("allows a cross-workspace write with an explicit override", () => {
     expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
   });

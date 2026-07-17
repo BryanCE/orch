@@ -8,44 +8,14 @@ import { computeCodeHash, readDaemonLock } from "./daemon/lifecycle.ts";
 import { rpcCall } from "./daemon/rpc.ts";
 import { runSSH, type SshResult } from "./remote.ts";
 import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "./bridge-bundle.ts";
-import { allBackends } from "./backends/registry.ts";
+import { allBackends, getBackend } from "./backends/registry.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { presenceDir, presenceKeyFromDirectoryName } from "./store.ts";
-import { CLAUDE_HOOK_RUNTIMES, claudeHookCommand, claudeHookShimPath } from "./adapters/claude-hooks.ts";
+import { resolveAdapter } from "./adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "./presence-schema.ts";
 import { packageRoot } from "./util.ts";
-
-export interface FixDescriptor {
-  description: string;
-  apply(): void;
-  /** True for fixes that delete data. UIs must render these clearly and never pre-select them. */
-  destructive?: boolean;
-}
-
-export interface DoctorBackendReport {
-  id: string;
-  available: boolean;
-  insideSession: boolean;
-  panes: boolean;
-  focusable: boolean;
-  canSendKeys: boolean;
-  workspace: string | null;
-}
-
-export interface IgnoredPresenceRecord {
-  path: string;
-  reason: string;
-}
-
-export interface CheckResult {
-  id: string;
-  label: string;
-  status: "ok" | "warn" | "fail" | "skip";
-  detail: string;
-  fix?: FixDescriptor;
-  backends?: DoctorBackendReport[];
-  ignoredRecords?: IgnoredPresenceRecord[];
-}
+import type { CheckResult, DoctorBackendReport, FixDescriptor, IgnoredPresenceRecord } from "./doctor-types.ts";
+export type { CheckResult, DoctorBackendReport, FixDescriptor, IgnoredPresenceRecord } from "./doctor-types.ts";
 
 export type BinaryStatus = Record<string, boolean>;
 
@@ -97,19 +67,17 @@ function commandOutput(command: string, args: string[]): Promise<{ ok: boolean; 
   });
 }
 
-export function binaryStatus(): BinaryStatus {
-  // Plexer availability belongs to the backend registry, not this runtime check.
-  return { bun: onPath("bun"), pi: onPath("pi") };
+export function binaryStatus(ids: readonly string[]): BinaryStatus {
+  return Object.fromEntries(ids.map((id) => [id, onPath(id)]));
 }
 
-function checkBins(bins: BinaryStatus): CheckResult {
-  const missing = ["bun", "pi"].filter((bin) => !bins[bin]);
-  if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: "bun and pi are on PATH" };
-  if (!bins.bun) return { id: "bins", label: "Required binaries", status: "fail", detail: "bun is not on PATH" };
+function checkBins(bins: BinaryStatus, ids: readonly string[]): CheckResult {
+  const missing = ids.filter((id) => !bins[id]);
+  if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: ids.length ? `${ids.join(" and ")} ${ids.length === 1 ? "is" : "are"} on PATH` : "no adapters installed" };
   return {
     id: "bins",
     label: "Required binaries",
-    status: "warn",
+    status: "fail",
     detail: `${missing.join(" and ")} ${missing.length === 1 ? "is" : "are"} not on PATH`,
   };
 }
@@ -158,8 +126,9 @@ function describePresenceDir(agentsDir: string, name: string): string {
     .join(" · ");
 }
 
-export function checkBackendCapabilities(): CheckResult {
-  const backends: DoctorBackendReport[] = allBackends().map((backend) => ({
+export function checkBackendCapabilities(ids: readonly string[] = allBackends().map((backend) => backend.id)): CheckResult {
+  const selected = new Set(ids);
+  const backends: DoctorBackendReport[] = allBackends().filter((backend) => selected.has(backend.id)).map((backend) => ({
     id: backend.id,
     available: backend.isAvailable(),
     insideSession: backend.isInsideSession(),
@@ -171,8 +140,9 @@ export function checkBackendCapabilities(): CheckResult {
   return {
     id: "backend-capabilities",
     label: "Backend capabilities",
-    status: "ok",
-    detail: backends.map((backend) => `${backend.id}: available=${backend.available}, insideSession=${backend.insideSession}, panes=${backend.panes}, focusable=${backend.focusable}, canSendKeys=${backend.canSendKeys}`).join("\\n"),
+    status: backends.some((backend) => !backend.available || !backend.insideSession) ? "fail" : "ok",
+    detail: backends.map((backend) => `${backend.id}: available=${backend.available}, insideSession=${backend.insideSession}, panes=${backend.panes}, focusable=${backend.focusable}, canSendKeys=${backend.canSendKeys}`).join("\\n") || "no installed backends",
+
     backends,
   };
 }
@@ -264,59 +234,7 @@ export function isBridgeExtensionStale(extensionHash: string | undefined, bundle
   }
 }
 
-type JsonObject = Record<string, unknown>;
-type SettingsReader = (file: string) => string;
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** Verify Claude's orch hooks are installed and target this checkout's shim. */
-export async function checkClaudeHooks(
-  settingsPath = path.join(os.homedir(), ".claude", "settings.json"),
-  readSettings: SettingsReader = (file) => filesystem.readFileSync(file, "utf8"),
-): Promise<CheckResult> {
-  await Promise.resolve();
-  const id = "claude-hooks";
-  const label = "Claude hooks shim";
-  let raw: string;
-  try {
-    raw = readSettings(settingsPath);
-  } catch (error: unknown) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return { id, label, status: "ok", detail: "Claude is not set up (no settings.json)" };
-    }
-    return { id, label, status: "warn", detail: `could not read ${settingsPath}; fix: run orch setup` };
-  }
-
-  let settings: unknown;
-  try {
-    settings = JSON.parse(raw);
-  } catch {
-    return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
-  }
-  if (!isJsonObject(settings)) {
-    return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
-  }
-
-  const hooks = settings.hooks;
-  const shim = claudeHookShimPath(repoDir);
-  const missing: string[] = [];
-  for (const event of ["SessionStart", "Stop", "Notification"] as const) {
-    // Any runtime's command form is current — the user picks node, deno, or bun.
-    const expected = new Set(CLAUDE_HOOK_RUNTIMES.map((runtime) => claudeHookCommand(shim, event, runtime)));
-    const entries = isJsonObject(hooks) ? hooks[event] : undefined;
-    const present = Array.isArray(entries) && entries.some((entry) =>
-      isJsonObject(entry) && Array.isArray(entry.hooks) && entry.hooks.some((hook) =>
-        isJsonObject(hook) && hook.type === "command" && typeof hook.command === "string" && expected.has(hook.command)));
-    if (!present) missing.push(event);
-  }
-
-  return missing.length
-    ? { id, label, status: "warn", detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}; fix: run orch setup` }
-    : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
-}
-
 export async function checkExtensionStaleness(orchDir: string, bundlePath: string = extensionBundlePath(repoDir, "orchestrator-bridge")): Promise<CheckResult> {
   await Promise.resolve();
   const id = "extension-staleness";
@@ -383,6 +301,22 @@ async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
   return corrupt.length
     ? { id: "spawned-registry", label: "Spawn registry", status: "warn", detail: `corrupt JSON on line${corrupt.length === 1 ? "" : "s"} ${corrupt.join(", ")}` }
     : { id: "spawned-registry", label: "Spawn registry", status: "ok", detail: "all registry entries are valid JSON" };
+}
+
+async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
+  const limits = loadConfig(orchDir).limits;
+  const globalCap = limits.maxAgents;
+  const violations = globalCap === undefined
+    ? []
+    : Object.entries(limits.workspaces ?? {}).filter(([, cap]) => cap > globalCap);
+  if (!violations.length) return { id: "spawn-limits", label: "Spawn limits", status: "ok", detail: "spawn limits are satisfiable" };
+  return {
+    id: "spawn-limits",
+    label: "Spawn limits",
+    status: "warn",
+    detail: violations.map(([workspace, cap]) => `limits.workspaces.${workspace} (${cap}) exceeds limits.maxAgents (${globalCap})`).join("; "),
+  };
 }
 
 async function checkConfig(orchDir: string): Promise<CheckResult> {
@@ -499,113 +433,6 @@ function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResult {
   return unavailable.length
     ? { id, label, status: "warn", detail: `undeliverable: ${unavailable.join("; ")}` }
     : { id, label, status: "ok", detail: `${sinks.length} configured sink${sinks.length === 1 ? "" : "s"} look deliverable` };
-}
-
-export async function checkExtensions(bins: BinaryStatus): Promise<CheckResult> {
-  await Promise.resolve();
-  if (!bins.pi) return { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi is not installed" };
-  const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
-  const bundleFor = new Map(PI_EXTENSION_NAMES.map((name) => [`${name}.js`, extensionBundlePath(repoDir, name)]));
-  const names = [...bundleFor.keys()];
-  const stale: string[] = [];
-  const fixable: string[] = [];
-  let extensionDirMissing = false;
-  const addStale = (name: string): void => {
-    if (!stale.includes(name)) stale.push(name);
-  };
-  const addFixable = (name: string): void => {
-    if (!fixable.includes(name)) fixable.push(name);
-  };
-
-  let bundleMissing = false;
-  for (const bundle of bundleFor.values()) {
-    try {
-      if (!filesystem.statSync(bundle).isFile()) bundleMissing = true;
-    } catch {
-      bundleMissing = true;
-    }
-  }
-
-  try {
-    if (!filesystem.lstatSync(extensionDir).isDirectory()) extensionDirMissing = false;
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") extensionDirMissing = true;
-  }
-  for (const name of names) {
-    const destination = path.join(extensionDir, name);
-    const source = bundleFor.get(name)!;
-    let sourcePath: string;
-    try {
-      sourcePath = filesystem.realpathSync(source);
-    } catch {
-      addStale(name);
-      addFixable(name);
-      continue;
-    }
-    try {
-      const destinationStat = filesystem.lstatSync(destination);
-      if (destinationStat.isSymbolicLink()) {
-        if (filesystem.realpathSync(destination) !== sourcePath) {
-          addStale(name);
-          addFixable(name);
-        }
-      } else if (computeCodeHash(destination) !== computeCodeHash(source)) {
-        addStale(name);
-        addFixable(name);
-      }
-    } catch (error: unknown) {
-      addStale(name);
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") addFixable(name);
-    }
-  }
-  const applyExtensionFix = (): void => {
-    for (const name of PI_EXTENSION_NAMES) {
-      if (fixable.includes(`${name}.js`)) buildExtensionBundle(repoDir, name);
-    }
-    filesystem.mkdirSync(extensionDir, { recursive: true });
-    for (const name of fixable) {
-      const destination = path.join(extensionDir, name);
-      const source = bundleFor.get(name)!;
-      // Raw .ts links from older installs break pi at launch; reap them with the fix.
-      filesystem.rmSync(destination.replace(/\.js$/, ".ts"), { force: true });
-      filesystem.rmSync(destination, { recursive: true, force: true });
-      filesystem.symlinkSync(source, destination);
-    }
-  };
-
-  if (bundleMissing) {
-    const result: CheckResult = {
-      id: "pi-extensions",
-      label: "pi extensions",
-      status: "warn",
-      detail: "extension bundle not built; run: bun run build:ext",
-    };
-    if (fixable.length) {
-      result.fix = {
-        description: extensionDirMissing
-          ? `Build bundled bridge, create missing extension dir, and redeploy: ${fixable.join(", ")}`
-          : `Build bundled bridge and redeploy: ${fixable.join(", ")}`,
-        apply: applyExtensionFix,
-      };
-    }
-    return result;
-  }
-  if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge extension is current" };
-  const result: CheckResult = {
-    id: "pi-extensions",
-    label: "pi extensions",
-    status: "fail",
-    detail: `missing or stale: ${stale.join(", ")}`,
-  };
-  if (fixable.length) {
-    result.fix = {
-      description: extensionDirMissing
-        ? `Build bundled bridge, create missing extension dir, and redeploy: ${fixable.join(", ")}`
-        : `Build bundled bridge and redeploy: ${fixable.join(", ")}`,
-      apply: applyExtensionFix,
-    };
-  }
-  return result;
 }
 
 function isWslRuntime(): boolean {
@@ -813,22 +640,71 @@ async function isolated(id: string, label: string, check: () => Promise<CheckRes
   }
 }
 
+/** Validate every distinct live adapter/backend composition independently. */
+async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
+  const pairs = new Set<string>();
+  const agentsDir = path.join(orchDir, "agents");
+  let entries: filesystem.Dirent[] = [];
+  try { entries = filesystem.readdirSync(agentsDir, { withFileTypes: true }); } catch {}
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const status = readJson(path.join(agentsDir, entry.name, "status.json"));
+    if (!isRecord(status) || !pidAlive(status.pid)) continue;
+    const adapter = typeof status.agent === "string" ? status.agent : undefined;
+    const backend = typeof status.backend === "string" ? status.backend : undefined;
+    if (adapter && backend) pairs.add(`${adapter}\u0000${backend}`);
+  }
+  return Promise.all([...pairs].map(async (encoded) => {
+    const [adapterId, backendId] = encoded.split("\u0000");
+    const id = `fleet-pair-${adapterId}-${backendId}`;
+    try {
+      const adapter = resolveAdapter(adapterId!);
+      const backend = getBackend(backendId!);
+      if (!backend) return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail", detail: `unknown backend ${JSON.stringify(backendId)}` };
+      const diagnosis = adapter.diagnoseShim ? await adapter.diagnoseShim() : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
+      return { ...diagnosis, id, label: `${adapterId} + ${backendId} live pair`, detail: `${adapterId}/${backendId}: ${diagnosis.detail}` };
+    } catch (error: unknown) {
+      return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: error instanceof Error ? error.message : String(error) };
+    }
+  }));
+}
+
 /** Run independent environment diagnostics; individual check failures never reject this function. */
 export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH): Promise<CheckResult[]> {
-  const bins = binaryStatus();
+  // Read settings only to derive provider checks. checkConfig owns the user-facing
+  // failure result, so a malformed file cannot prevent neutral checks from running.
+  let installedAdapters: string[] = [];
+  let installedBackends: string[] = [];
+  try {
+    const config = loadConfig(orchDir);
+    installedAdapters = config.installed.adapters;
+    installedBackends = config.installed.backends;
+  } catch {}
+  const bins = binaryStatus(installedAdapters);
+  const providerChecks = installedAdapters.map((id) => [
+    isolated(`bin-${id}`, `${id} binary`, () => bins[id]
+      ? { id: `bin-${id}`, label: `${id} binary`, status: "ok", detail: `${id} is on PATH` }
+      : { id: `bin-${id}`, label: `${id} binary`, status: "fail", detail: `${id} is not on PATH` }),
+    isolated(`shim-${id}`, `${id} integration`, async () => {
+      const adapter = resolveAdapter(id);
+      return adapter.diagnoseShim ? await adapter.diagnoseShim() : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
+    }),
+  ]).flat();
+  const livePairs = await checkLiveFleetPairs(orchDir);
   return Promise.all([
-    isolated("bins", "Required binaries", () => checkBins(bins)),
-    isolated("backend-capabilities", "Backend capabilities", checkBackendCapabilities),
+    isolated("bins", "Required binaries", () => checkBins(bins, installedAdapters)),
+    ...providerChecks,
+    ...livePairs,
+    isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(installedBackends)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
-    isolated("claude-hooks", "Claude hooks shim", () => checkClaudeHooks()),
     isolated("spawned-registry", "Spawn registry", () => checkSpawnedRegistry(orchDir)),
     isolated("config", "Config validity", () => checkConfig(orchDir)),
+    isolated("spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
     isolated("notifiers", "Notifiers", () => checkNotifiers(orchDir)),
-    isolated("pi-extensions", "pi extensions", () => checkExtensions(bins)),
     isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
     isolated("orchd-staleness", "orchd code", () => checkDaemonStaleness(orchDir)),

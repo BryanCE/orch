@@ -15,9 +15,10 @@ import { errorMessage } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { insertOutboxMessage, markOutboxDelivered, checkOwnerWrite } from "../store/sqlite.ts";
+import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox, checkOwnerWrite } from "../store/sqlite.ts";
 import { checkWall } from "../policy/workspace.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
+import { normalizeControlTarget } from "../backends/identity.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 
 const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
@@ -76,24 +77,25 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
 }
 
 async function deliverBackend(target: string, payload: unknown): Promise<boolean> {
+  const canonicalTarget = normalizeControlTarget(target);
   const value = isWritePayload(payload) ? payload : {};
   const text = requiredString(value.text, "text");
   if (value.action === "dispatch") {
-    const route = resolveTargetRoute(target);
+    const route = resolveTargetRoute(canonicalTarget);
     return route?.backend.deliver(route.handle, { kind: "run", text }) ?? false;
   }
   // Steer: agents route through the control dispatcher (adapter-gated); a
   // target with no recorded adapter is a bare pane and gets a plain message.
-  if (resolveTargetAdapter(target)) {
+  if (resolveTargetAdapter(canonicalTarget)) {
     try {
-      await deliverControl(target, { kind: "steer", text });
+      await deliverControl(canonicalTarget, { kind: "steer", text });
       return true;
     } catch (error) {
-      process.stderr.write(`steer ${target} failed: ${errorMessage(error)}\n`);
+      process.stderr.write(`steer ${canonicalTarget} failed: ${errorMessage(error)}\n`);
       return false;
     }
   }
-  const route = resolveTargetRoute(target);
+  const route = resolveTargetRoute(canonicalTarget);
   return route?.backend.deliver(route.handle, { kind: "message", text }) ?? false;
 }
 
@@ -133,6 +135,8 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
   const id = randomUUID();
   insertOutboxMessage(directory, { id, target, payload: { action, text } });
   await drainOutbox(directory, outboxDeps());
+  const stillPending = selectPendingOutbox(directory, Number.MAX_SAFE_INTEGER).some((message) => message.id === id);
+  if (stillPending) throw new Error(`write ${id} was not applied or acknowledged for target ${target}`);
   return { accepted: true, id };
 }
 

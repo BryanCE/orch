@@ -225,6 +225,11 @@ describe("TmuxBackend", () => {
     ]);
   });
 
+  test("status-facing inventory displays the tmux session workspace", () => {
+    panes = [orchPane({ paneId: "%1", session: "main", agentKey: "tmux~main~%251", agent: "claude" })];
+    expect(new TmuxBackend().inventory()[0]).toEqual(expect.objectContaining({ workspace: "main", agent: "claude" }));
+  });
+
   test("inventory status is read from the pane's presence status.json", () => {
     panes = [orchPane({ paneId: "%1", agentKey: "tmux~main~%251" })];
     writeStatus("tmux~main~%251", { state: "working" });

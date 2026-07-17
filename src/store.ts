@@ -105,13 +105,14 @@ export function pidAlive(pid: number | undefined): boolean {
 
 export function recordSpawned(
   pane: string,
-  metadata: { adapter?: string; model?: string; backend?: string; handle?: string; cwd?: string; worktree?: string; branch?: string; owner?: string } = {},
+  metadata: { adapter?: string; model?: string; backend?: string; workspace?: string; handle?: string; cwd?: string; worktree?: string; branch?: string; owner?: string } = {},
 ): void {
   try {
     const record: SpawnedRecord = { pane, ts: new Date().toISOString() };
     if (metadata.adapter !== undefined) record.adapter = metadata.adapter;
     if (metadata.model !== undefined) record.model = metadata.model;
     if (metadata.backend !== undefined) record.backend = metadata.backend;
+    if (metadata.workspace !== undefined) record.workspace = metadata.workspace;
     if (metadata.handle !== undefined) record.handle = metadata.handle;
     if (metadata.cwd !== undefined) record.cwd = metadata.cwd;
     if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
@@ -128,6 +129,8 @@ export interface SpawnedRecord {
   adapter?: string;
   model?: string;
   backend?: string;
+  /** Identity workspace assigned by the spawning backend. */
+  workspace?: string;
   /** Backend-native control handle (herdr/tmux pane id) for close/focus/send-keys. */
   handle?: string;
   /** Working directory the agent launched in. */

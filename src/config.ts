@@ -13,7 +13,9 @@ import { errorMessage } from "./util.ts";
  * a file with any other version is invalid and must be fixed by hand or recreated
  * by `orch setup`. On a shape change, bump this and fix every writer/reader/test
  * in the same commit. */
-export const SETTINGS_SCHEMA = 1;
+export const SETTINGS_SCHEMA = 3;
+
+const PositiveInt = z.number().int().positive();
 
 const HostSchema = z.strictObject({
   /** SSH destination (for example, user@example.org). */
@@ -44,8 +46,13 @@ const SettingsFileSchema = z.strictObject({
     max_retries: z.number().optional(),
   }).optional(),
   notify: z.array(z.unknown()).optional(),
+  locked_commands: z.array(z.string()).optional(),
   hosts: z.record(z.string(), HostSchema).optional(),
   workspaces: z.record(z.string(), z.string()).optional(),
+  limits: z.strictObject({
+    maxAgents: PositiveInt.optional(),
+    workspaces: z.record(z.string(), PositiveInt).optional(),
+  }).optional(),
 });
 
 export type SettingsFile = z.infer<typeof SettingsFileSchema>;
@@ -57,8 +64,10 @@ export interface OrchConfig {
   defaults: NonNullable<SettingsFile["defaults"]>;
   queue: { max_retries: number };
   notify: unknown[];
+  locked_commands: string[];
   hosts: Record<string, HostConfig>;
   workspaces: Record<string, string>;
+  limits: { maxAgents?: number; workspaces?: Record<string, number> };
 }
 
 /** User-editable composition storage: `$orchDir/settings.json`. */
@@ -124,7 +133,7 @@ export function loadConfig(orchDir: string): OrchConfig {
     if (filesystem.existsSync(legacy)) {
       throw new Error(`${legacy}: legacy config.toml detected — settings now live in ${file}; re-run orch setup (the old values are not read)`);
     }
-    return { installed: { adapters: [], backends: [] }, defaults: {}, queue: { max_retries: 1 }, notify: [], hosts: {}, workspaces: {} };
+    return { installed: { adapters: [], backends: [] }, defaults: {}, queue: { max_retries: 1 }, notify: [], locked_commands: [], hosts: {}, workspaces: {}, limits: {} };
   }
   requireInstalledComposition(file, root);
   return {
@@ -132,8 +141,10 @@ export function loadConfig(orchDir: string): OrchConfig {
     defaults: root.defaults ?? {},
     queue: { max_retries: root.queue?.max_retries ?? 1 },
     notify: root.notify ?? [],
+    locked_commands: root.locked_commands ?? [],
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
+    limits: root.limits ?? {},
   };
 }
 

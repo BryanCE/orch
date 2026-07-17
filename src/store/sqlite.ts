@@ -105,6 +105,7 @@ function createTables(db: DatabaseLike): void {
       adapter TEXT,
       model TEXT,
       backend TEXT,
+      workspace TEXT,
       handle TEXT,
       cwd TEXT,
       worktree TEXT,
@@ -114,6 +115,7 @@ function createTables(db: DatabaseLike): void {
 
   // Keep migrations additive for databases created by earlier versions.
   addColumnIfMissing(db, "outbox", "next_attempt_at", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "spawned", "workspace", "TEXT");
   addColumnIfMissing(db, "spawned", "handle", "TEXT");
   addColumnIfMissing(db, "spawned", "cwd", "TEXT");
 }
@@ -288,6 +290,7 @@ interface SpawnedRow {
   adapter: string | null;
   model: string | null;
   backend: string | null;
+  workspace: string | null;
   handle: string | null;
   cwd: string | null;
   worktree: string | null;
@@ -300,6 +303,7 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
   if (row.adapter !== null) record.adapter = row.adapter;
   if (row.model !== null) record.model = row.model;
   if (row.backend !== null) record.backend = row.backend;
+  if (row.workspace !== null) record.workspace = row.workspace;
   if (row.handle !== null) record.handle = row.handle;
   if (row.cwd !== null) record.cwd = row.cwd;
   if (row.worktree !== null) record.worktree = row.worktree;
@@ -311,11 +315,11 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
 export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): void {
   openStore(orchDir)
     .query(
-      `INSERT INTO spawned (pane, ts, adapter, model, backend, handle, cwd, worktree, branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO spawned (pane, ts, adapter, model, backend, workspace, handle, cwd, worktree, branch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(pane) DO UPDATE SET
          ts = excluded.ts, adapter = excluded.adapter, model = excluded.model,
-         backend = excluded.backend, handle = excluded.handle, cwd = excluded.cwd,
+         backend = excluded.backend, workspace = excluded.workspace, handle = excluded.handle, cwd = excluded.cwd,
          worktree = excluded.worktree, branch = excluded.branch`,
     )
     .run(
@@ -324,6 +328,7 @@ export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): voi
       record.adapter ?? null,
       record.model ?? null,
       record.backend ?? null,
+      record.workspace ?? null,
       record.handle ?? null,
       record.cwd ?? null,
       record.worktree ?? null,

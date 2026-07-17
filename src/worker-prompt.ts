@@ -1,7 +1,10 @@
 import type { AgentAdapter } from "./adapters/adapter.ts";
 
 /** Always-on worker header: the pane is unattended. */
-const WORKER_HEADER_BASE = "[orch worker] No human watches this pane.";
+const WORKER_HEADER_BASE =
+  "[orch worker] No human watches this pane." +
+  " Never run tests, typecheck, lint, or builds unless your task explicitly grants it;" +
+  " when granted, wrap the command as `orch lock run -- <cmd>` so only one heavy command runs machine-wide.";
 
 /** Appended only for adapters that support orch's blocking ask flow. */
 const WORKER_HEADER_ASK_CLAUSE =

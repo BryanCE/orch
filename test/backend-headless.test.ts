@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { codexAdapter } from "../src/adapters/codex.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
@@ -21,8 +22,23 @@ const fakeAdapter = {
     const script = [
       "const fs = require(\"node:fs\");",
       `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
-      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ pid: process.pid, state: \"working\" }));`,
+      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ pid: process.pid, state: \"working\", key: process.env.ORCH_AGENT_KEY }));`,
       "setTimeout(() => {}, 5000);",
+    ].join(" ");
+    return [process.execPath, "-e", script];
+  },
+};
+
+const codexLogAdapter = {
+  id: "codex",
+  headlessCmd(_prompt: string, opts: { key?: string; orchDir?: string }): string[] {
+    const statusDir = path.join(opts.orchDir!, "agents", opts.key!);
+    const script = [
+      "const fs = require(\"node:fs\");",
+      `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
+      `fs.writeFileSync(${JSON.stringify(path.join(statusDir, "status.json"))}, JSON.stringify({ pid: process.pid, sessionPath: process.env.ORCH_AGENT_LOG }));`,
+      "console.log(JSON.stringify({ item: { type: 'agent_message', text: 'headless tail' } }));",
+      "console.log(JSON.stringify({ type: 'agent-turn-complete' }));",
     ].join(" ");
     return [process.execPath, "-e", script];
   },
@@ -70,6 +86,43 @@ describe("HeadlessBackend", () => {
     };
     expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake", log: expect.stringContaining("logs/") as string });
     expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
+    expect(JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", "fake-1", "status.json"), "utf8")).key).toBe("fake-1");
+  });
+
+  test("completes a headless dispatch round-trip and leaves a readable result", async () => {
+    const adapter: AgentAdapter = {
+      ...fakeAdapter,
+      headlessCmd: (_prompt, opts) => {
+        const dir = path.join(opts.orchDir!, "agents", opts.key!);
+        return [process.execPath, "-e", [
+          "const fs=require('node:fs');",
+          `fs.mkdirSync(${JSON.stringify(dir)}, {recursive:true});`,
+          `const status=${JSON.stringify(path.join(dir, "status.json"))}; const result=${JSON.stringify(path.join(dir, "result.json"))};`,
+          "fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'working'}));",
+          "setTimeout(()=>{fs.writeFileSync(result, JSON.stringify({text:'headless result'})); fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'done'}));}, 30);",
+        ].join(" ")];
+      },
+    };
+    const handle = backend.spawn(adapter, { key: "round-trip", prompt: "dispatch" });
+    handles.push(handle);
+    const dir = path.join(testOrchDir, "agents", "round-trip");
+    await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
+    await waitFor(() => JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")).state === "done");
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"))).toEqual({ text: "headless result" });
+  });
+
+  test("records and mirrors the headless log for Codex session-tail parsing", async () => {
+    const handle = backend.spawn(codexLogAdapter as unknown as AgentAdapter, { key: "codex-tail", prompt: "tail" });
+    handles.push(handle);
+    const statusPath = path.join(testOrchDir, "agents", "codex-tail", "status.json");
+    await waitFor(() => fs.existsSync(statusPath));
+    const record = JSON.parse(fs.readFileSync(path.join(testOrchDir, "spawned.jsonl"), "utf8").trim().split("\n").at(-1)!) as { log: string };
+    const status = JSON.parse(fs.readFileSync(statusPath, "utf8")) as { sessionPath: string };
+    expect(record.log).toBe(status.sessionPath);
+    expect(fs.existsSync(record.log)).toBe(true);
+    await waitFor(() => fs.existsSync(record.log) && fs.readFileSync(record.log, "utf8").includes("headless tail"));
+    expect(codexAdapter.readSessionView({ sessionPath: record.log })).toEqual({ state: "idle", lastText: "headless tail" });
+    expect(codexAdapter.readSessionView({})).toBeUndefined();
   });
 
   test("closes only when registry and presence pid/key both match", async () => {

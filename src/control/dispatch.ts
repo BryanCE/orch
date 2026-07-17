@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
-import { parseIdentity } from "../backends/identity.ts";
+import { normalizeControlTarget, parseIdentity } from "../backends/identity.ts";
 import { loadPresence, spawnedRecords } from "../store.ts";
 import type { AdapterCommand, AgentAdapter } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
@@ -27,20 +27,24 @@ export function resolveTargetAdapter(target: string): AgentAdapter | undefined {
   return resolveAdapter(agent);
 }
 
-/** Resolve the backend and native handle addressing a target, via identity key then spawn registry. */
+/** Resolve the backend and native handle addressing a canonical target. */
 export function resolveTargetRoute(target: string): { backend: Backend; handle: BackendHandle } | undefined {
+  // The registry owns the live native handle. Prefer it over the serialized
+  // identity's handle: a backend may mint the key from a display/name handle
+  // while the registry stores the actual pane id used for delivery.
+  const record = spawnedRecords().get(target);
+  if (record?.backend && record.handle !== undefined) {
+    const backend = getBackend(record.backend);
+    if (backend) return { backend, handle: record.handle };
+  }
   try {
     const id = parseIdentity(target);
     const backend = getBackend(id.backend);
     if (backend) return { backend, handle: id.handle };
   } catch {
-    // Not a serialized identity; fall through to the spawn registry.
+    // The canonical target has no parseable backend identity.
   }
-  const record = spawnedRecords().get(target);
-  if (!record?.backend || record.handle === undefined) return undefined;
-  const backend = getBackend(record.backend);
-  if (!backend) return undefined;
-  return { backend, handle: record.handle };
+  return undefined;
 }
 
 /** Execute an adapter-built argv machine-locally, throwing on spawn failure or nonzero exit. */
@@ -95,8 +99,9 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
 export async function deliverControl(target: string, action: ControlAction): Promise<void> {
-  const adapter = resolveTargetAdapter(target);
-  if (!adapter) throw new Error(`target ${target} has no recorded adapter (presence or spawn registry)`);
-  if (action.kind === "steer") await deliverSteer(target, adapter, action.text);
-  else await deliverModel(target, adapter, action.model);
+  const canonicalTarget = normalizeControlTarget(target);
+  const adapter = resolveTargetAdapter(canonicalTarget);
+  if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
+  if (action.kind === "steer") await deliverSteer(canonicalTarget, adapter, action.text);
+  else await deliverModel(canonicalTarget, adapter, action.model);
 }

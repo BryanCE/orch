@@ -5,10 +5,10 @@
 
 ## 1. Phase A — `src/commands.ts` → `src/commands/`
 
-- [ ] 1.1 Create `src/commands/target.ts`: move `resolveTarget`, `backendTarget`, `callerWorkspace`, `requirePresenceTarget`, `livePanePresenceEntries`, `targetHost`, `remoteCommandArgs`, `remoteWrite`, and the shared helpers (`die`, `splitOptionFlags`, `parseTargetPrompt`, `firstNonEmptyText`, `resultText`). This is the shared base other command modules import.
-- [ ] 1.2 Create `src/commands/status.ts` (view derivation + tables), `spawn.ts`, `control.ts`, `lifecycle.ts`, `panes.ts`, `results.ts`, `events.ts`, `review.ts`, `queue.ts`, `clean.ts`, `daemon.ts`, `setup.ts` per the design D1 mapping — moving each function verbatim (no logic edits) into its domain module, importing narrowed inputs from `target.ts`.
-- [ ] 1.3 Create `src/commands/index.ts` holding ONLY the argv→command dispatch table, `usage`, version read, and first-run detection. It imports command fns from the domain modules and contains no presence I/O, no `adapter.`/`backend.` calls, no `loadConfig`/`resolveTarget`/`resolveBackend`.
-- [ ] 1.4 Repoint every importer of `src/commands.ts` (`bin/orch.ts`, `src/daemon/*`, any test) to the new module paths; delete `src/commands.ts`.
+- [x] 1.1 Create `src/commands/target.ts`: move `resolveTarget`, `backendTarget`, `callerWorkspace`, `requirePresenceTarget`, `livePanePresenceEntries`, `targetHost`, `remoteCommandArgs`, `remoteWrite`, and the shared helpers (`die`, `splitOptionFlags`, `parseTargetPrompt`, `firstNonEmptyText`, `resultText`). This is the shared base other command modules import. (2026-07-17: verified on disk — `src/commands/target.ts` exists)
+- [x] 1.2 Create `src/commands/status.ts` (view derivation + tables), `spawn.ts`, `control.ts`, `lifecycle.ts`, `panes.ts`, `results.ts`, `events.ts`, `review.ts`, `queue.ts`, `clean.ts`, `daemon.ts`, `setup.ts` per the design D1 mapping — moving each function verbatim (no logic edits) into its domain module, importing narrowed inputs from `target.ts`. (2026-07-17: all 13 domain modules present under `src/commands/`)
+- [x] 1.3 Create `src/commands/index.ts` holding ONLY the argv→command dispatch table, `usage`, version read, and first-run detection. It imports command fns from the domain modules and contains no presence I/O, no `adapter.`/`backend.` calls, no `loadConfig`/`resolveTarget`/`resolveBackend`. (2026-07-17: grep confirms zero loadConfig/resolveTarget/resolveBackend in index.ts)
+- [x] 1.4 Repoint every importer of `src/commands.ts` (`bin/orch.ts`, `src/daemon/*`, any test) to the new module paths; delete `src/commands.ts`. (2026-07-17: `src/commands.ts` deleted; repo-wide grep finds zero remaining importers)
 - [ ] 1.5 Gate: `bun run check` exits 0, `bun run check:bridge` passes (the port-boundary check must stay green — command wrappers must not reintroduce a concrete-adapter import or wire literal), and `bun test` passes (WSL: give CLI-spawning/git-heavy tests 15–30s timeouts). Also run `wc -l src/commands/*.ts` and assert every module is ≤ 700 lines (the tree-wide sweep in task 7.1 still runs). Fix repoints until green.
 
 ## 2. Phase B — `extensions/orchestrator-bridge.ts` → `extensions/bridge/`
@@ -37,7 +37,7 @@
 
 ## 6. Phase F — module tests and purity audit
 
-- [ ] 6.1 Add or relocate direct unit tests so each new module is exercised in isolation (import the module, not the full CLI) — mirror the injectable-liveness style the backend/headless tests already use.
+- [x] 6.1 Add or relocate direct unit tests so each new module is exercised in isolation (import the module, not the full CLI) — mirror the injectable-liveness style the backend/headless tests already use. (2026-07-17: 14 new `test/commands-*.test.ts` files, one per domain module — target parsing, status derivation, lifecycle fail-fast, result routing, queue round-trip, daemon validation, clean reaping, spawn/setup/events/review/control/panes/index helpers; targeted run 33 pass / 0 fail)
 - [ ] 6.2 Audit leaf command modules: confirm no leaf (outside `target.ts` and the resolving command entry) calls `loadConfig`/`resolveTarget`/`resolveBackend` or performs raw `fs` reads/writes against `~/.orch/agents`; narrow any that do.
 - [ ] 6.3 Audit function names across the moved modules for banned vague qualifiers (`Standard`/`Default`/`Resolved`/`Generic`/`Common`/`Handle`/`Process`/`Manage`/…); rename offenders and their callers (rename only — no logic change).
 

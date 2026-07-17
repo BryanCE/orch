@@ -30,8 +30,10 @@ describe("loadConfig", () => {
       defaults: {},
       queue: { max_retries: 1 },
       notify: [],
+      locked_commands: [],
       hosts: {},
       workspaces: {},
+      limits: {},
     });
   });
 
@@ -57,8 +59,10 @@ describe("loadConfig", () => {
       },
       queue: { max_retries: 3 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
+      locked_commands: [],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
+      limits: {},
     });
   });
 

@@ -20,7 +20,8 @@ import { createHash } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../src/policy/workspace.ts";
-import { allowedModelPatterns } from "../src/config.ts";
+import { allowedModelPatterns, loadConfig } from "../src/config.ts";
+import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../src/cmd-lock.ts";
 import { serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence-schema.ts";
 
@@ -87,8 +88,14 @@ interface AgentEndEventLike {
 }
 
 interface ToolExecutionStartEventLike {
+  toolCallId?: unknown;
   toolName: unknown;
   args: unknown;
+}
+
+interface ToolExecutionEndEventLike {
+  toolCallId?: unknown;
+  toolName: unknown;
 }
 
 interface HerdrBlockedEventLike {
@@ -206,6 +213,10 @@ function isAgentEndEvent(value: unknown): value is AgentEndEventLike {
 
 function isToolExecutionStartEvent(value: unknown): value is ToolExecutionStartEventLike {
   return isRecord(value) && "toolName" in value && "args" in value;
+}
+
+function isToolExecutionEndEvent(value: unknown): value is ToolExecutionEndEventLike {
+  return isRecord(value) && "toolName" in value;
 }
 
 function isHerdrBlockedEvent(value: unknown): value is HerdrBlockedEventLike {
@@ -1655,6 +1666,77 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
 
   pi.on("tool_execution_start", handleToolExecutionStart);
 
+  // Pi awaits tool_execution_start before invoking the tool. This is the
+  // execution-side interception point: acquiring here avoids deadlocking the
+  // sequential tool_call preflight when a turn contains multiple bash calls.
+  const commandLocks = new Map<string, {
+    lock: CommandLock;
+    previousState: typeof state.state;
+    previousBlockedMessage: string | undefined;
+  }>();
+
+  function lockedCommandPatterns(): string[] {
+    try {
+      return loadConfig(ORCH_DIR).locked_commands;
+    } catch {
+      return [];
+    }
+  }
+
+  function bashCommand(args: unknown): string | undefined {
+    if (!isRecord(args) || typeof args.command !== "string") return undefined;
+    return args.command;
+  }
+
+  pi.on("tool_execution_start", async (event: unknown, ctx: ExtensionContext) => {
+    if (!isToolExecutionStartEvent(event) || event.toolName !== "bash") return;
+    const command = bashCommand(event.args);
+    const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+    if (!command || !toolCallId || !matchesLockedCommand(command.trim().split(/\\s+/), lockedCommandPatterns())) return;
+
+    const previousState = state.state;
+    const previousBlockedMessage = blockedMessage;
+    state.state = "blocked";
+    blockedMessage = "waiting on cmd-lock";
+    writeStatus();
+    try {
+      const holder = ownPresenceKey(ctx) || `session-${process.pid}`;
+      const lock = await acquireCommandLock(ORCH_DIR, {
+        holder,
+        note: command,
+        timeoutMs: 15 * 60 * 1000,
+        pollMs: 500,
+      });
+      commandLocks.set(toolCallId, { lock, previousState, previousBlockedMessage });
+      if (state.state === "blocked" && blockedMessage === "waiting on cmd-lock") {
+        state.state = previousState;
+        blockedMessage = previousBlockedMessage;
+        writeStatus();
+      }
+    } catch (error) {
+      if (state.state === "blocked" && blockedMessage === "waiting on cmd-lock") {
+        state.state = previousState;
+        blockedMessage = previousBlockedMessage;
+        writeStatus();
+      }
+      throw error;
+    }
+  });
+
+  pi.on("tool_execution_end", (event: unknown) => {
+    if (!isToolExecutionEndEvent(event)) return;
+    const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+    if (!toolCallId) return;
+    const held = commandLocks.get(toolCallId);
+    if (!held) return;
+    commandLocks.delete(toolCallId);
+    try {
+      releaseCommandLock(ORCH_DIR, held.lock.pid);
+    } catch {
+      // best-effort; the lock implementation also reaps dead holders
+    }
+  });
+
   function finalFailedAssistantMessage(messages: readonly unknown[]): AssistantMessageLike | undefined {
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
@@ -1764,6 +1846,14 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", () => {
+    for (const held of commandLocks.values()) {
+      try {
+        releaseCommandLock(ORCH_DIR, held.lock.pid);
+      } catch {
+        // best-effort
+      }
+    }
+    commandLocks.clear();
     if (heartbeat) clearInterval(heartbeat);
     if (poll) clearInterval(poll);
     try {

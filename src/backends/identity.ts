@@ -1,3 +1,5 @@
+import { loadPresence, spawnedRecords } from "../store.ts";
+
 /**
  * Backend-owned agent identity and its filesystem-safe serialized key.
  *
@@ -101,3 +103,46 @@ export function tryParseIdentity(key: string | null | undefined): Identity | nul
     return null;
   }
 }
+
+/**
+ * Resolve any control-plane target spelling to the one canonical presence key.
+ * Bare names and backend-native pane ids are aliases only; they are never used
+ * for adapter or backend lookup after this boundary.
+ */
+export function normalizeControlTarget(target: string): string {
+  if (typeof target !== "string" || target.trim().length === 0) {
+    throw new Error(`control target must be a non-empty string: ${JSON.stringify(target)}`);
+  }
+
+  const presence = loadPresence();
+  const records = spawnedRecords();
+
+  if (presence.has(target)) return target;
+
+  const candidates = new Set<string>();
+  for (const [key, entry] of presence) {
+    if (entry.status?.handle === target || entry.status?.paneId === target) candidates.add(key);
+  }
+  for (const record of records.values()) {
+    if (record.pane !== target && record.handle !== target) continue;
+    if (presence.has(record.pane)) {
+      candidates.add(record.pane);
+      continue;
+    }
+    const joined = [...presence].filter(([, entry]) =>
+      entry.status?.handle === record.handle || entry.status?.paneId === record.handle,
+    );
+    if (joined.length > 0) {
+      for (const [key] of joined) candidates.add(key);
+    } else {
+      candidates.add(record.pane);
+    }
+  }
+
+  if (candidates.size === 1) return [...candidates][0]!;
+  if (candidates.size > 1) {
+    throw new Error(`control target ${target} is ambiguous: ${[...candidates].join(", ")}`);
+  }
+  throw new Error(`control target ${target} does not resolve to a presence identity`);
+}
+

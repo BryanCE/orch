@@ -16,6 +16,7 @@ import type {
   StateDetectionInput,
   SteerRequest,
 } from "./adapter.ts";
+import type { CheckResult } from "../doctor-types.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -319,6 +320,43 @@ class ClaudeAdapter implements AgentAdapter {
     installClaudeHooks(root);
     installClaudeSkills(root);
     installClaudeAgents(root);
+  }
+
+  /** Verify the same Claude hook entries written by installShim. */
+  diagnoseShim(): CheckResult {
+    const settingsPath = path.join(HOME, ".claude", "settings.json");
+    const id = "claude-hooks";
+    const label = "Claude hooks shim";
+    let raw: string;
+    try {
+      raw = fs.readFileSync(settingsPath, "utf8");
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return { id, label, status: "ok", detail: "Claude is not set up (no settings.json)" };
+      }
+      return { id, label, status: "warn", detail: `could not read ${settingsPath}; fix: run orch setup` };
+    }
+    let settings: unknown;
+    try {
+      settings = JSON.parse(raw);
+    } catch {
+      return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
+    }
+    if (!isRecord(settings)) return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
+
+    const shim = claudeHookShimPath(packageRoot());
+    const missing: string[] = [];
+    for (const event of ["SessionStart", "Stop", "Notification"] as const) {
+      const expected = new Set(CLAUDE_HOOK_RUNTIMES.map((runtime) => claudeHookCommand(shim, event, runtime)));
+      const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
+      const present = Array.isArray(entries) && entries.some((entry) =>
+        isRecord(entry) && Array.isArray(entry.hooks) && entry.hooks.some((hook) =>
+          isRecord(hook) && hook.type === "command" && typeof hook.command === "string" && expected.has(hook.command)));
+      if (!present) missing.push(event);
+    }
+    return missing.length
+      ? { id, label, status: "warn", detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}; fix: run orch setup` }
+      : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
   }
 }
 

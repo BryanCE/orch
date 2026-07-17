@@ -2,21 +2,21 @@
 
 - [x] 1.1 Add `src/adapters/registry.ts` mirroring `src/backends/registry.ts`: import `piAdapter`/`codexAdapter`/`claudeAdapter`, export `resolveAdapter(id)` and `allAdapters()`; this file is the sole legal importer of concrete adapters.
 - [x] 1.2 Repoint `src/commands.ts` to import `resolveAdapter` from `src/adapters/registry.ts`; delete the inline `adapters` array and `resolveAdapter` (no re-export left behind, per Rule 8).
-- [ ] 1.3 Verify: `bun run check` clean; `bun test test/adapters` (or the adapter/registry tests) green.
+- [x] 1.3 Verify: `bun run check` clean; `bun test test/adapters` (or the adapter/registry tests) green. (2026-07-17: check clean, full suite 309 pass / 0 fail)
 
 ## 2. Contain pi's wire format in the pi adapter
 
 - [x] 2.1 Move the `inbox.jsonl` append and `answer.json` write out of `src/store.ts` (`steerPresence`/`writeAnswer`) into `src/adapters/pi.ts`; keep the protocol-neutral presence-dir path helper in `store.ts`.
 - [x] 2.2 Give the pi adapter a model-write path so the pi `{cmd:"model"}` inbox line is produced only inside `src/adapters/pi.ts`.
 - [x] 2.3 Delete the now-unused store writers and fix every caller; grep confirms `inbox.jsonl` and `answer.json` appear only in `src/adapters/pi.ts`.
-- [ ] 2.4 Verify: `bun test` on the pi adapter and store tests green; pi steer/answer/model still write the same files as before.
+- [x] 2.4 Verify: `bun test` on the pi adapter and store tests green; pi steer/answer/model still write the same files as before. (2026-07-17: full suite green incl. adapter-pi/store tests)
 
 ## 3. Control dispatcher (L5), daemon-side
 
 - [x] 3.1 Add `src/control/dispatch.ts` exporting `deliverControl(target, action)` for `steer | model`, invoked only inside the daemon process: resolve the target's adapter (from presence `status.agent` / spawn-registry record) and backend (per-target, not current defaults), gate on `adapter.caps`, invoke the port method. No CLI code path imports or calls `deliverControl`.
 - [x] 3.2 Execute a returned `AdapterCommand` itself, daemon-side, via `node:child_process` `execFile` — run `argv[0]` with `argv.slice(1)` non-interactively, pipe `stdin` when present, under a bounded timeout, and capture the exit code (node-safe per Rule 6; no `Bun.*`, no `DeliverPayload` `exec` kind). This is a machine-local invocation, so codex resume-steer works identically on every backend (herdr/tmux/headless). On `caps.steer === "keys"` with no command, fall back to `backend.deliver({kind:"message"})` and print the degraded-mechanism warning; when that `deliver` returns `false` (e.g. a headless backend that cannot send keys), fail fast with exit 1 instead of warning-and-succeeding.
 - [x] 3.3 Fail fast (exit 1, actionable message naming target + adapter + action) when the capability is absent (`steer: none`, `caps.setModel === false`), the executed `AdapterCommand` spawn-fails / exits nonzero, or the keys-fallback `backend.deliver` returns `false`; a discarded, failed, or undelivered steer is never a silent no-op or false success.
-- [ ] 3.4 Add unit tests for `deliverControl`: pi inbox path, claude keys fallback (deliver true → warn+exit 0; deliver false → exit 1), codex `execFile` command execution (exit 0 → success), unsupported-capability exit 1, nonzero-exit / discarded-command-is-failure.
+- [x] 3.4 Add unit tests for `deliverControl`: pi inbox path, claude keys fallback (deliver true → warn+exit 0; deliver false → exit 1), codex `execFile` command execution (exit 0 → success), unsupported-capability exit 1, nonzero-exit / discarded-command-is-failure.
 
 ## 4. Route the daemon through the dispatcher
 
@@ -30,7 +30,7 @@
 - [x] 5.2 Route `cmdAnswer` (lines ~814-832) through `adapter.answer` directly (a read/local write, not a brokered verb) instead of writing `answer.json` directly; the pi adapter performs the file write. Gate on `caps.ask`: when the target's adapter declares `ask` false, exit 1 naming the adapter and that it cannot answer blocking questions, and write no answer file.
 - [x] 5.3 Route `cmdResult` (lines ~1080-1127) and `cmdPipe` (line ~1183) result extraction through `adapter.extractResult` instead of reading `result.json`/`parseSession` directly; `cmdPipe`'s steer leg to the destination continues to `writeRpc("steer", …)`.
 - [x] 5.4 Route `cmdBroadcast` through `writeRpc("steer", …)` per target so mixed fleets steer correctly through the daemon's dispatcher.
-- [ ] 5.5 Verify: `bun test` on the affected command tests green.
+- [x] 5.5 Verify: `bun test` on the affected command tests green. (2026-07-17: full suite green)
 
 ## 6. De-pi the lifecycle verbs (reset/reload/restart)
 
@@ -43,10 +43,10 @@
 
 - [x] 7.1 Extend `scripts/check-bridge.ts` with a core-scope pass (`src/**` excluding `src/adapters/**`, `src/backends/**`, and the two registry files) that fails on: concrete adapter/backend imports, `adapter.id`/`backend.id` equality branches, and any adapter wire literal from the single exhaustive set defined in the check script — pi's `inbox.jsonl`/`answer.json`, codex's notify event names (`agent-turn-complete` and its siblings), and claude's hook identifiers/paths (`SessionStart`/`Stop`/`Notification` hook-event names, the `claude-hooks` script path). Keep the list in one place so a new adapter's literal is a one-line addition.
 - [x] 7.2 Wire the boundary check into `bun run check` and the CI gate. NOT done here — `package.json` was out of scope for this task; `bun run check:bridge` runs standalone today. Someone with `package.json` access needs to add it to the `check` script (currently `"oxlint . && bunx tsc --noEmit && fallow check"`) and to the CI workflow.
-- [ ] 7.3 Verify: `bun run check:bridge` exits 0 on the finished tree; a deliberately reintroduced `import piAdapter` (or an `agent-turn-complete` literal) in core makes it exit nonzero.
+- [x] 7.3 Verify: `bun run check:bridge` exits 0 on the finished tree; a deliberately reintroduced `import piAdapter` (or an `agent-turn-complete` literal) in core makes it exit nonzero. (2026-07-17: clean tree exits 0 over 85 files; a scratch `import { piAdapter }` in `src/work.ts` produced `check:bridge FAIL src/work.ts:211 concrete adapter imports are forbidden in core`, exit 1; edit reverted)
 
 ## 8. Verification gates
 
-- [ ] 8.1 `bun run check` clean (oxlint + tsc + fallow) and `bun run check:bridge` green.
-- [ ] 8.2 `bun test` green on the full suite (or at minimum the adapter, store, daemon, and command test files touched here).
+- [x] 8.1 `bun run check` clean (oxlint + tsc + fallow) and `bun run check:bridge` green. (2026-07-17: both clean)
+- [x] 8.2 `bun test` green on the full suite (or at minimum the adapter, store, daemon, and command test files touched here). (2026-07-17: 309 pass / 1 skip / 0 fail, 59 files)
 - [ ] 8.3 Execute every scenario in `specs/control-dispatch/spec.md` (including the lifecycle scenarios), `specs/port-boundary-guard/spec.md`, `specs/agent-adapters/spec.md`, and `specs/dispatch-broker/spec.md` against the built CLI and record the observed outcome for each — the change is not done until these have actually been run (the skipped-verification gate is how "built" was falsely claimed last time).

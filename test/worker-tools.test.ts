@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { workerTools } from "../src/commands.ts";
+import { describe, expect, mock, test } from "bun:test";
+
+void mock.module("../src/commands/daemon.ts", () => ({
+  parseGovernance: (args: string[]) => ({ gov: {}, rest: args }),
+  writeRpc: () => Promise.resolve(undefined),
+  ensureDaemon: () => Promise.resolve(),
+}));
+
+const { workerTools } = await import("../src/commands/spawn.ts");
 import type { OrchConfig } from "../src/config.ts";
 
 const config = (workerPeerTools?: boolean): OrchConfig => ({
@@ -9,6 +16,7 @@ const config = (workerPeerTools?: boolean): OrchConfig => ({
   notify: [],
   hosts: {},
   workspaces: {},
+  limits: {},
 });
 
 describe("worker tool policy", () => {

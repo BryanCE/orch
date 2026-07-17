@@ -61,6 +61,11 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.interactiveCmd({})).toBe("claude");
   });
 
+  test("pins headless print mode to the hook-driven presence path", () => {
+    expect(claudeAdapter.hookDriven).toBe(true);
+    expect(claudeAdapter.headlessCmd("reply", {})).toEqual(["claude", "-p", "reply"]);
+  });
+
   test("detects state from a live presence status", () => {
     const key = "claude-state";
     writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: 2, agent: "claude", pid: process.pid, state: "working" }));
@@ -77,6 +82,19 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("result text");
     rmSync(join(directory, "result.json"));
     expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("transcript text");
+  });
+
+  test("reads the final assistant text from a Stop-hook transcript", () => {
+    const key = "claude-session-view";
+    const transcript = join(agentDir(key), "stop-hook-session.jsonl");
+    writeFileSync(transcript, [
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Earlier answer" }] } }),
+      "not-json hook noise",
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Final answer" }] } }),
+    ].join("\n") + "\n");
+
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript })).toBe("Final answer");
+    expect(claudeAdapter.readSessionView?.({ sessionPath: transcript })).toEqual({ lastText: "Final answer" });
   });
 
   test("maps Claude hook events to presence states and schema", () => {

@@ -9,7 +9,9 @@ import {
 } from "../store.ts";
 import { parseSession } from "../session.ts";
 import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
+import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
+import type { CheckResult, FixDescriptor } from "../doctor-types.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -199,6 +201,51 @@ export class PiAdapter implements AgentAdapter {
       tokens: data.tokens,
       turns: data.turns,
     };
+  }
+
+  /** Verify the extension links and bundles written by installShim. */
+  diagnoseShim(): CheckResult {
+    const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
+    const bundleFor = new Map(PI_EXTENSION_NAMES.map((name) => [`${name}.js`, extensionBundlePath(packageRoot(), name)]));
+    const stale: string[] = [];
+    const fixable: string[] = [];
+    let extensionDirMissing = false;
+    let bundleMissing = false;
+    for (const bundle of bundleFor.values()) {
+      try { if (!fs.statSync(bundle).isFile()) bundleMissing = true; } catch { bundleMissing = true; }
+    }
+    try { if (!fs.lstatSync(extensionDir).isDirectory()) extensionDirMissing = false; }
+    catch (error: unknown) { if ((error as NodeJS.ErrnoException).code === "ENOENT") extensionDirMissing = true; }
+    for (const [name, source] of bundleFor) {
+      let sourcePath: string;
+      try { sourcePath = fs.realpathSync(source); }
+      catch { stale.push(name); fixable.push(name); continue; }
+      try {
+        const destinationStat = fs.lstatSync(path.join(extensionDir, name));
+        if (destinationStat.isSymbolicLink()) {
+          if (fs.realpathSync(path.join(extensionDir, name)) !== sourcePath) { stale.push(name); fixable.push(name); }
+        } else if (computeCodeHash(path.join(extensionDir, name)) !== computeCodeHash(source)) { stale.push(name); }
+      } catch (error: unknown) {
+        stale.push(name);
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") fixable.push(name);
+      }
+    }
+    const apply: FixDescriptor = {
+      description: extensionDirMissing ? `Build bundled bridge, create missing extension dir, and redeploy: ${fixable.join(", ")}` : `Build bundled bridge and redeploy: ${fixable.join(", ")}`,
+      apply: () => {
+        for (const name of PI_EXTENSION_NAMES) if (fixable.includes(`${name}.js`)) buildExtensionBundle(packageRoot(), name);
+        fs.mkdirSync(extensionDir, { recursive: true });
+        for (const name of fixable) {
+          const destination = path.join(extensionDir, name);
+          fs.rmSync(destination.replace(/\\.js$/, ".ts"), { force: true });
+          fs.rmSync(destination, { recursive: true, force: true });
+          fs.symlinkSync(bundleFor.get(name)!, destination);
+        }
+      },
+    };
+    if (bundleMissing) return { id: "pi-extensions", label: "pi extensions", status: "warn", detail: "extension bundle not built; run: bun run build:ext", ...(fixable.length ? { fix: apply } : {}) };
+    if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge extension is current" };
+    return { id: "pi-extensions", label: "pi extensions", status: "fail", detail: `missing or stale: ${stale.join(", ")}`, ...(fixable.length ? { fix: apply } : {}) };
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory, building it from a checkout when absent. */

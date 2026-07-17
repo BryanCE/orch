@@ -2,12 +2,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { parseIdentity, serializeIdentity } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
+import { HerdrBackend } from "../src/backends/herdr/index.ts";
 
 const originalTmux = process.env.TMUX;
+const originalHerdrEnv = process.env.HERDR_ENV;
 
 afterEach(() => {
   if (originalTmux === undefined) delete process.env.TMUX;
   else process.env.TMUX = originalTmux;
+  if (originalHerdrEnv === undefined) delete process.env.HERDR_ENV;
+  else process.env.HERDR_ENV = originalHerdrEnv;
 });
 
 describe("tmux backend registry and capabilities", () => {
@@ -66,5 +70,53 @@ describe("tmux backend registry and capabilities", () => {
 
   test("rejects an empty handle without invoking tmux", () => {
     expect(new TmuxBackend().close("")).toBe(false);
+  });
+
+  test("implicitly selects tmux inside a session", () => {
+    const previous = process.env.TMUX;
+    const oldHerdrInside = HerdrBackend.prototype.isInsideSession;
+    const oldTmuxAvailable = TmuxBackend.prototype.isAvailable;
+    try {
+      HerdrBackend.prototype.isInsideSession = () => false;
+      TmuxBackend.prototype.isAvailable = () => true;
+      process.env.TMUX = "/tmp/fake-tmux,0,0";
+      expect(resolveBackend({ explicit: null, configured: null }).id).toBe("tmux");
+    } finally {
+      HerdrBackend.prototype.isInsideSession = oldHerdrInside;
+      TmuxBackend.prototype.isAvailable = oldTmuxAvailable;
+      if (previous === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previous;
+    }
+  });
+
+  test("fails tmux validation outside a session before pane work", () => {
+    const previous = process.env.TMUX;
+    const oldTmuxAvailable = TmuxBackend.prototype.isAvailable;
+    try {
+      TmuxBackend.prototype.isAvailable = () => true;
+      delete process.env.TMUX;
+      expect(() => resolveBackend({ explicit: "tmux", configured: null })).toThrow(/requires running inside a live tmux session/);
+    } finally {
+      TmuxBackend.prototype.isAvailable = oldTmuxAvailable;
+      if (previous === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previous;
+    }
+  });
+
+  test("fails herdr validation outside a herdr session before pane work", () => {
+    const oldHerdrInside = HerdrBackend.prototype.isInsideSession;
+    try {
+      HerdrBackend.prototype.isInsideSession = () => false;
+      expect(() => resolveBackend({ explicit: "herdr", configured: null })).toThrow(/requires running inside a live herdr session/);
+    } finally {
+      HerdrBackend.prototype.isInsideSession = oldHerdrInside;
+    }
+  });
+
+  test("refuses cross-session tmux steer without --cross-workspace", async () => {
+    const { checkWall } = await import("../src/policy/workspace.ts");
+    const decision = checkWall("tmux~main~operator", "tmux~side~%25foreign", { crossWorkspace: false });
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toBe("workspace wall: actor workspace main cannot write to target workspace side (tmux~side~%25foreign)");
   });
 });

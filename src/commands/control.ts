@@ -1,0 +1,213 @@
+import * as files from "node:fs";
+import * as path from "node:path";
+import { collapse, resolvePane, resolveTarget, selfActor, type Entity } from "../entities.ts";
+import { isRecord, presenceAgentDir, readJSON, recordSpawned, type PresenceEntry } from "../store.ts";
+import { truncate } from "../table.ts";
+import { resolveAdapter } from "../adapters/registry.ts";
+import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
+import { die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requirePresenceTarget, resultText, targetHost } from "./target.ts";
+import { entityAdapter } from "./status.ts";
+import { resolveAgentSettings, workerPrompt, type AgentFlags, type AgentSettings } from "./spawn.ts";
+
+type DispatchFlags = AgentFlags & {
+  raw: boolean;
+  json: boolean;
+  doWait: boolean;
+  thenTarget: string | null;
+  thenNote: string;
+  positional: string[];
+};
+
+type DispatchSettings = AgentSettings & {
+  raw: boolean;
+  json: boolean;
+  doWait: boolean;
+  thenNote: string;
+  ent: Entity;
+  pane: string;
+  prompt: string;
+  destination: Entity | null;
+};
+
+
+export async function cmdSteer(args: string[]): Promise<void> {
+  const json = args.includes("--json");
+  const { gov, rest: cleanArgs } = parseGovernance(args.filter((arg) => arg !== "--json"));
+  const target = cleanArgs[0];
+  const text = cleanArgs.slice(1).join(" ");
+  if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-workspace] [--json]');
+  const remote = targetHost(target);
+  if (remote) {
+    remoteWrite(remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
+    return;
+  }
+  const entity = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  if (!entity.paneId) {
+    if (!entity.presence) die(`Target "${target}" has no agent presence.`);
+    // The daemon's control dispatcher applies the effect; the CLI never steers directly.
+    const key = entity.presence.key;
+    const result = await writeRpc("steer", { target: key, text }, gov);
+    if (json) process.stdout.write(JSON.stringify({ target: key, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
+    else process.stdout.write(`Steered ${key} → ${truncate(collapse(text), 60)}\n`);
+    return;
+  }
+  const pane = entity.paneId;
+  const result = await writeRpc("steer", { target: pane, text }, gov);
+  if (json) process.stdout.write(JSON.stringify({ target: pane, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  else process.stdout.write(`Steered ${pane} → ${truncate(collapse(text), 60)}\n`);
+}
+
+export async function cmdBroadcast(args: string[]) {
+  let all = false;
+  const json = args.includes("--json");
+  const positional: string[] = [];
+  for (const arg of args) {
+    if (arg === "--all") all = true;
+    else if (arg === "--json") continue;
+    else positional.push(arg);
+  }
+  const text = positional[0];
+  const targets = positional.slice(1);
+  if (!text) die('usage: orch broadcast "<text>" [target ...|--all]');
+  if (!targets.length) all = true;
+  const destinations = new Map<string, PresenceEntry>();
+  if (all) {
+    for (const pres of livePanePresenceEntries()) destinations.set(pres.key, pres);
+  }
+  for (const target of targets) {
+    const ent = requirePresenceTarget(target);
+    destinations.set(ent.presence!.key, ent.presence!);
+  }
+  if (!destinations.size) die("No live pane agent dirs to broadcast to.");
+  await Promise.all([...destinations.values()].map((pres) => writeRpc("steer", { target: pres.key, text })));
+  if (json) process.stdout.write(JSON.stringify({ count: destinations.size, broadcast: true }) + "\n");
+  else process.stdout.write(`Broadcast to ${destinations.size} agent(s).\n`);
+}
+
+export async function cmdPipe(args: string[]) {
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const src = cleanArgs[0];
+  const dst = cleanArgs[1];
+  const instruction = cleanArgs.slice(2).join(" ");
+  if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
+  const source = requirePresenceTarget(src);
+  const extractInput = { key: source.presence!.key, sessionPath: source.sessionPath ?? undefined };
+  const resultTextValue = entityAdapter(source)?.extractResult(extractInput) ?? resultText(source.presence!.result);
+  if (!resultTextValue) die(`No result text available for "${src}".`);
+  const destination = requirePresenceTarget(dst);
+  const text = `[piped from ${source.presence!.key}] ${instruction ? instruction + "\n" : ""}${resultTextValue}`;
+  await writeRpc("steer", { target: destination.presence!.key, text });
+  if (json) process.stdout.write(JSON.stringify({ source: source.presence!.key, destination: destination.presence!.key, piped: true }) + "\n");
+  else process.stdout.write(`Piped ${source.presence!.key} → ${destination.presence!.key}.\n`);
+}
+
+export function cmdAnswer(args: string[]) {
+  const force = args.includes("--force");
+  const json = args.includes("--json");
+  const cleanArgs = args.filter((arg) => arg !== "--json");
+  const { target, prompt: text } = parseTargetPrompt(cleanArgs, "--force", 'usage: orch answer <target> "<text>" [--force] [--json]');
+  const remote = targetHost(target);
+  if (remote) {
+    remoteWrite(remote.host, "answer", [remote.target, text, ...(force ? ["--force"] : []), ...(json ? ["--json"] : [])]);
+    return;
+  }
+  const ent = resolveTarget(target);
+  const questionPath = ent.presence ? path.join(ent.presence.dir, "question.json") : null;
+  if (!force && (!questionPath || !files.existsSync(questionPath)))
+    die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
+  if (!ent.presence) die(`Target "${target}" has no agent dir.`);
+  const answerAdapter = resolveAdapter(ent.agent ?? ent.presence.status?.agent ?? "pi");
+  if (!answerAdapter.caps.ask) die(`Adapter ${answerAdapter.id} cannot answer blocking questions (caps.ask false).`);
+  answerAdapter.answer({ key: ent.presence.key, text });
+  if (json) process.stdout.write(JSON.stringify({ target: ent.presence.key, answered: true }) + "\n");
+  else process.stdout.write(`Answered ${ent.presence.key}.\n`);
+}
+
+export async function cmdModel(args: string[]): Promise<void> {
+  const json = args.includes("--json");
+  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--no-wait" && arg !== "--json"));
+  const target = rest[0];
+  const modelArg = rest[1];
+  if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
+  const { pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
+  const result = await setAgentModel(pane, modelArg, gov);
+  if (json) process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");
+  else if (result.unchanged) process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
+  else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} → ${result.now} (accepted)\n`);
+}
+
+export async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; confirmed: true; unchanged: boolean }> {
+  const old = readJSON<{ model?: unknown }>(path.join(presenceAgentDir(agentKey), "status.json"));
+  const previous = typeof old?.model === "string" ? old.model : null;
+  await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
+  return { old: previous, now: modelArg, confirmed: true, unchanged: previous === modelArg };
+}
+
+export async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
+  const results = await Promise.all(created.map(async ({ key, pane, name }) => {
+    try {
+      const result = await setAgentModel(key, model);
+      return { pane, name, ok: result.confirmed };
+    } catch {
+      return { pane, name, ok: false };
+    }
+  }));
+  for (const result of results) {
+    if (!result.ok) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}.\n`);
+  }
+  if (results.some((result) => !result.ok)) process.exitCode = 1;
+}
+
+export async function cmdDispatch(args: string[]) {
+  const { gov, rest } = parseGovernance(args);
+  const flags = parseDispatchFlags(rest);
+  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-workspace]');
+  const target = flags.positional[0];
+  if (target) {
+    const remote = targetHost(target);
+    if (remote) {
+      const remoteArgs = [...args];
+      const index = remoteArgs.indexOf(target);
+      if (index >= 0) remoteArgs[index] = remote.target;
+      remoteWrite(remote.host, "dispatch", remoteArgs);
+      return;
+    }
+  }
+  const settings = resolveDispatchSettings(flags, gov);
+  if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
+  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent)) }, gov);
+  recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined, owner: selfActor() ?? undefined });
+  if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  else process.stdout.write(`Dispatched to ${settings.pane}.\n`);
+}
+
+export function parseDispatchFlags(args: string[]): DispatchFlags {
+  const commandArgs = args.filter((argument) => argument !== "--raw" && argument !== "--json");
+  const flags: DispatchFlags = { raw: args.includes("--raw"), json: args.includes("--json"), doWait: false, thenTarget: null, thenNote: "", positional: [] };
+  for (let i = 0; i < commandArgs.length; i++) {
+    const argument = commandArgs[i];
+    if (argument === "--model") flags.modelFlag = commandArgs[++i];
+    else if (argument === "--agent" || argument === "--adapter") flags.adapterFlag = commandArgs[++i];
+    else if (argument === "--wait") flags.doWait = true;
+    else if (argument === "--then") {
+      flags.thenTarget = commandArgs[++i] ?? null;
+      flags.thenNote = commandArgs.slice(i + 1).join(" ");
+      break;
+    } else flags.positional.push(argument!);
+  }
+  return flags;
+}
+
+export function resolveDispatchSettings(flags: DispatchFlags, gov: WriteGovernance = {}): DispatchSettings {
+  const target = flags.positional[0];
+  const prompt = flags.positional.slice(1).join(" ");
+  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
+  const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
+  const settings = resolveAgentSettings(flags);
+  resolveAdapter(settings.adapter);
+  const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
+  if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
+  return { ...settings, raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
+}
+

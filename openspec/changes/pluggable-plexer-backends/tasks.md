@@ -27,7 +27,7 @@
 - [x] 4.4 Update status, list, events, result, wait, questions, close, queue, and work assumers to use serialized identity parsing and presence identity fields
 - [x] 4.5 Update close safety checks to dispatch termination through the recorded backend and verify headless pid identity before signalling
 - [x] 4.6 Add workspace-policy tests for same-workspace, cross-workspace, override, null-workspace, and mixed-backend cases
-- [ ] 4.7 Add command-level tests proving status and wall decisions use workspace fields rather than serialized key text
+- [x] 4.7 Add command-level tests proving status and wall decisions use workspace fields rather than serialized key text (2026-07-17: `test/command-workspace-fields.test.ts` — key text differing from the persisted `workspace` field walls/displays by the field; plus structured-record assertions in `test/workspace-policy.test.ts`)
 
 ## 5. Backend Registry and Factory
 - [x] 5.1 Add a backend registry keyed by backend id with self-registration for herdr and headless

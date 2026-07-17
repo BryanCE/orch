@@ -1,5 +1,37 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildEntities, entityWorkspace } from "../src/entities.ts";
+import { serializeIdentity } from "../src/backends/identity.ts";
+import { presenceAgentDir } from "../src/store.ts";
 import { checkWall, sameWorkspace, scopeToWorkspace, workspaceName, workspaceOf } from "../src/policy/workspace.ts";
+
+const originalOrchDir = process.env.ORCH_DIR;
+const fixtureDirs: string[] = [];
+
+afterEach(() => {
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+  while (fixtureDirs.length) rmSync(fixtureDirs.pop()!, { recursive: true, force: true });
+});
+
+function identityFixture() {
+  const orchDir = mkdtempSync(join(tmpdir(), "orch-workspace-policy-"));
+  fixtureDirs.push(orchDir);
+  const actorKey = "headless~key-actor~actor-handle";
+  const targetKey = "headless~key-target~target-handle";
+  for (const [key, handle] of [[actorKey, "actor-handle"], [targetKey, "target-handle"]] as const) {
+    const directory = presenceAgentDir(key, orchDir);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "status.json"), JSON.stringify({
+      schema: 2, key, backend: "headless", workspace: "reported-workspace", handle,
+      paneId: handle, pid: process.pid, agent: "pi", state: "idle",
+    }));
+  }
+  process.env.ORCH_DIR = orchDir;
+  return { actorKey, targetKey };
+}
 
 describe("workspace policy", () => {
   test("reads workspaces from serialized identity keys", () => {
@@ -41,5 +73,33 @@ describe("workspace policy", () => {
   test("null current workspace leaves items unscoped", () => {
     const items = ["herdr~w1~p1", "herdr~w2~p2", "session-123"];
     expect(scopeToWorkspace(items, (item) => item, null, { all: false })).toBe(items);
+  });
+
+  test("2.7 status displays the reported workspace identity field", () => {
+    const { actorKey } = identityFixture();
+    const entity = buildEntities().find((candidate) => candidate.key === actorKey)!;
+
+    expect(entityWorkspace(entity)).toBe("reported-workspace");
+    expect(entityWorkspace(entity)).not.toBe("key-actor");
+  });
+
+  test("6.6 structured identity drives status and policy, not serialized key text", () => {
+    const { actorKey, targetKey } = identityFixture();
+    const entities = buildEntities();
+    const actor = entities.find((entity) => entity.key === actorKey)!;
+    const target = entities.find((entity) => entity.key === targetKey)!;
+    const actorWorkspace = entityWorkspace(actor);
+    const targetWorkspace = entityWorkspace(target);
+
+    expect(actorWorkspace).toBe("reported-workspace");
+    expect(targetWorkspace).toBe("reported-workspace");
+    expect(actorKey).not.toContain(actorWorkspace!);
+    expect(targetKey).not.toContain(targetWorkspace!);
+    expect(sameWorkspace(actorWorkspace, targetWorkspace)).toBe(true);
+    expect(checkWall(
+      serializeIdentity({ backend: "headless", workspace: actorWorkspace!, handle: "actor" }),
+      serializeIdentity({ backend: "headless", workspace: targetWorkspace!, handle: "target" }),
+      { crossWorkspace: false },
+    ).allowed).toBe(true);
   });
 });

@@ -15,6 +15,7 @@ import type {
   StateDetectionInput,
   SteerRequest,
 } from "./adapter.ts";
+import type { CheckResult } from "../doctor-types.ts";
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
 export const CODEX_TURN_COMPLETE = "agent-turn-complete";
@@ -330,6 +331,23 @@ export class CodexAdapter implements AgentAdapter {
       state: this.detectState({ output }),
       lastText: this.extractResult({ output }),
     };
+  }
+
+  /** Verify the top-level notify artifact written by installShim. */
+  diagnoseShim(): CheckResult {
+    const configPath = join(homedir(), ".codex", "config.toml");
+    const shim = codexNotifyShimPath(packageRoot());
+    if (!existsSync(shim)) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `${shim} is missing; fix: run orch setup` };
+    let raw: string;
+    try { raw = readFileSync(configPath, "utf8"); }
+    catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing ${configPath}; fix: run orch setup` };
+      return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `could not read ${configPath}; fix: run orch setup` };
+    }
+    const line = raw.split(/\r?\n/).find((entry) => /^\s*notify\s*=/.test(entry));
+    if (!line) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing notify in ${configPath}; fix: run orch setup` };
+    if (!line.includes("codex-notify")) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `foreign notify in ${configPath}; orch notify is disabled` };
+    return { id: "codex-notify", label: "Codex notify shim", status: "ok", detail: `Codex notify shim is current (${shim})` };
   }
 
   /** Register the orch notify shim as codex's completion writer (D2/D2a). */

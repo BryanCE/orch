@@ -60,10 +60,19 @@ export function editCodexNotifyConfig(raw: string, argv: readonly string[]): Cod
     if (trimmed.startsWith("[")) { inTable = true; continue; }
     if (inTable || trimmed.startsWith("#")) continue;
     const match = /^notify\s*=\s*(.+)$/.exec(trimmed);
-    if (!match) continue;
+    if (!match) {
+      if (/^notify\s*=/.test(trimmed)) return { status: "ambiguous" };
+      continue;
+    }
+    const candidate = match[1]!.trim();
+    // Refuse malformed notify literals rather than treating them as foreign
+    // (or silently inserting a second key).
+    if ((candidate.startsWith("[") && !candidate.endsWith("]"))
+      || (candidate.startsWith("\"") && !candidate.endsWith("\""))
+      || (candidate.startsWith("'") && !candidate.endsWith("'"))) return { status: "ambiguous" };
     if (matchIndex !== -1) return { status: "ambiguous" };
     matchIndex = index;
-    matchValue = match[1]!.trim();
+    matchValue = candidate;
   }
 
   const withLine = (index: number, line: string): string => {

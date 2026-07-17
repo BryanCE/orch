@@ -3,12 +3,19 @@ import { execFileSync } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { buildEntities } from "../src/entities.ts";
+import { parseIdentity } from "../src/backends/identity.ts";
+import { recordSpawned, spawnedRecords } from "../src/store.ts";
 
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));
 const storePath = path.join(import.meta.dir, "../src/store.ts");
 
 interface PresenceStatus {
   schema?: number;
+  key?: string;
+  backend?: string;
+  workspace?: string;
+  handle?: string;
   agent?: string;
   pid?: number;
   state?: string;
@@ -33,8 +40,12 @@ function writeStatus(key: string, status: object): void {
   fs.writeFileSync(path.join(directory, "status.json"), JSON.stringify(status));
 }
 
+const originalOrchDir = process.env.ORCH_DIR;
+
 afterEach(() => {
   fs.rmSync(path.join(orchDir, "agents"), { recursive: true, force: true });
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
 });
 
 afterAll(() => {
@@ -42,10 +53,69 @@ afterAll(() => {
 });
 
 describe("presence status schema", () => {
-  test("reads a schema-2 status with its adapter id", () => {
-    writeStatus("pi-2", { schema: 2, agent: "pi", pid: process.pid, state: "working" });
+  test("reads a spawned namespaced identity with backend, workspace, handle, and adapter", () => {
+    const key = "tmux~workspace-a~%255";
+    writeStatus(key, {
+      schema: 2, key, backend: "tmux", workspace: "workspace-a", handle: "%5",
+      agent: "pi", pid: process.pid, state: "working",
+    });
 
-    expect(readStatuses()["pi-2"]!).toMatchObject({ schema: 2, agent: "pi", state: "working" });
+    expect(readStatuses()[key]!).toMatchObject({
+      schema: 2, key, backend: "tmux", workspace: "workspace-a", handle: "%5", agent: "pi", state: "working",
+    });
+  });
+
+  test("orch status JSON exposes the complete spawned identity fields", () => {
+    const key = "headless~workspace-a~1234";
+    writeStatus(key, {
+      schema: 2, key, backend: "headless", workspace: "workspace-a", handle: "1234",
+      agent: "pi", pid: process.pid, state: "idle",
+    });
+    process.env.ORCH_DIR = orchDir;
+
+    expect(readStatuses()).toEqual(expect.objectContaining({
+      [key]: expect.objectContaining({ key, backend: "headless", workspace: "workspace-a", handle: "1234", agent: "pi" }),
+    }));
+    expect(parseIdentity(key)).toEqual({ backend: "headless", workspace: "workspace-a", handle: "1234" });
+  });
+
+  test("status and list report the same agent identity", () => {
+    const key = "headless~workspace-a~1234";
+    writeStatus(key, {
+      schema: 2, key, backend: "headless", workspace: "workspace-a", handle: "1234",
+      agent: "pi", pid: process.pid, state: "idle",
+    });
+    process.env.ORCH_DIR = orchDir;
+
+    const status = readStatuses()[key]!;
+    const listed = buildEntities().find((entity) => entity.key === key)!;
+    expect({ key: status.key, workspace: status.workspace, agent: status.agent }).toEqual({
+      key: listed.key, workspace: listed.workspace, agent: listed.agent,
+    });
+    expect(parseIdentity(status.key!)).toMatchObject({ backend: "headless", workspace: status.workspace, handle: "1234" });
+  });
+
+  test("mixed pi and Claude status rows carry the same identity field set", () => {
+    const piKey = "headless~workspace-a~1234";
+    const claudeKey = "headless~workspace-b~5678";
+    writeStatus(piKey, {
+      schema: 2, key: piKey, backend: "headless", workspace: "workspace-a", handle: "1234",
+      agent: "pi", pid: process.pid, state: "idle",
+    });
+    writeStatus(claudeKey, {
+      schema: 2, key: claudeKey, backend: "headless", workspace: "workspace-b", handle: "5678",
+      agent: "claude", pid: process.pid, state: "idle",
+    });
+    process.env.ORCH_DIR = orchDir;
+
+    const rows = Object.values(readStatuses()).filter((row) => row.key === piKey || row.key === claudeKey);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => Object.keys(row).sort())).toEqual([
+      ["agent", "backend", "handle", "key", "pid", "schema", "state", "workspace"],
+      ["agent", "backend", "handle", "key", "pid", "schema", "state", "workspace"],
+    ]);
+    expect(rows.map((row) => row.agent).sort()).toEqual(["claude", "pi"]);
+    for (const row of rows) expect(parseIdentity(row.key!)).toMatchObject({ backend: row.backend, workspace: row.workspace, handle: row.handle });
   });
 
   test("keeps schema-1 status records valid without adding fields", () => {
@@ -63,5 +133,23 @@ describe("presence status schema", () => {
     expect(Object.keys(statuses)).toHaveLength(2);
     expect(statuses.legacy!.agent).toBeUndefined();
     expect(statuses.current!).toMatchObject({ schema: 2, agent: "pi" });
+  });
+
+  test("persists the complete spawned identity record", () => {
+    process.env.ORCH_DIR = orchDir;
+    recordSpawned("tmux~workspace-a~%255", {
+      backend: "tmux",
+      handle: "%5",
+      adapter: "claude",
+      cwd: "/work/project",
+    });
+
+    expect(spawnedRecords().get("tmux~workspace-a~%255")).toMatchObject({
+      pane: "tmux~workspace-a~%255",
+      backend: "tmux",
+      handle: "%5",
+      adapter: "claude",
+      cwd: "/work/project",
+    });
   });
 });

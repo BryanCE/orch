@@ -1,3 +1,5 @@
+import type { CheckResult } from "../doctor-types.ts";
+
 /** Agent CLIs supported by orch. */
 export type AdapterId = "pi" | "claude" | "codex";
 
@@ -179,4 +181,9 @@ export interface AgentAdapter {
   readSessionView?(input: SessionViewInput): SessionView | undefined;
   /** Install adapter-specific hooks/shims without removing unrelated user setup. */
   installShim?(opts?: ShimInstallOpts): void | Promise<void>;
+  /**
+   * Verify exactly the integration artifacts written by installShim for this adapter.
+   * Omit this method when the adapter declares no integration shim.
+   */
+  diagnoseShim?(): CheckResult | Promise<CheckResult>;
 }

@@ -1,0 +1,149 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+// The current pi adapter imports computeCodeHash from util.ts, but util.ts does
+// not export it. Keep this test focused on dispatch until that source bug is fixed.
+void mock.module("../src/util.ts", () => ({
+  binaryOnPath: () => false,
+  computeCodeHash: () => "test-hash",
+  errorMessage: (error: unknown) => String(error),
+  packageRoot: () => process.cwd(),
+}));
+
+const [{ deliverControl }, { claudeAdapter }, { recordSpawned }, { serializeIdentity }, { getBackend }] = await Promise.all([
+  import("../src/control/dispatch.ts"),
+  import("../src/adapters/claude.ts"),
+  import("../src/store.ts"),
+  import("../src/backends/identity.ts"),
+  import("../src/backends/registry.ts"),
+]);
+const headlessBackend = getBackend("headless")!;
+
+const originalOrchDir = process.env.ORCH_DIR;
+const originalPath = process.env.PATH;
+const tempDirs: string[] = [];
+
+function tempDir(prefix = "orch-control-dispatch-"): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function target(backend: "headless" | "tmux", handle: string): string {
+  return serializeIdentity({ backend, workspace: backend === "headless" ? "local" : "test", handle });
+}
+
+function presence(directory: string, key: string, agent: string): string {
+  const dir = path.join(directory, "agents", key);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({ agent, pid: process.pid }));
+  return dir;
+}
+
+function executable(directory: string, name: string, body: string): void {
+  const file = path.join(directory, name);
+  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`);
+  fs.chmodSync(file, 0o755);
+  process.env.PATH = `${directory}${path.delimiter}${originalPath ?? ""}`;
+}
+
+afterEach(() => {
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+  process.env.PATH = originalPath;
+  delete process.env.CODEX_TEST_EXIT;
+  delete process.env.TMUX_DELIVER_EXIT;
+  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe("deliverControl", () => {
+  test("steers pi through its presence inbox", () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "pi-inbox");
+    const dir = presence(directory, key, "pi");
+
+    return deliverControl(key, { kind: "steer", text: "check the inbox" }).then(() => {
+      const line = JSON.parse(fs.readFileSync(path.join(dir, "inbox.jsonl"), "utf8")) as { text: string };
+      expect(line.text).toBe("check the inbox");
+    });
+  });
+
+  test("warns and succeeds when claude keys fallback delivers", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "claude-ok");
+    presence(directory, key, "claude");
+    const deliver = headlessBackend.deliver.bind(headlessBackend);
+    headlessBackend.deliver = () => true;
+    const writes: string[] = [];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: string | Uint8Array) => { writes.push(String(chunk)); return true; };
+    try {
+      await deliverControl(key, { kind: "steer", text: "hello claude" });
+    } finally {
+      process.stderr.write = originalWrite;
+      headlessBackend.deliver = deliver;
+    }
+    expect(writes.join("")).toContain("degraded delivery");
+  }, 15_000);
+
+  test("fails when claude keys fallback cannot deliver", () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "claude-fail");
+    presence(directory, key, "claude");
+
+    expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/cannot steer .*backend cannot deliver/);
+  }, 15_000);
+
+  test("executes codex steer command and accepts exit zero", async () => {
+    const directory = tempDir();
+    const bin = tempDir("orch-control-bin-");
+    process.env.ORCH_DIR = directory;
+    executable(bin, "codex", "exit \"${CODEX_TEST_EXIT:-0}\"");
+    const key = target("headless", "codex-ok");
+    presence(directory, key, "codex");
+
+    await deliverControl(key, { kind: "steer", text: "resume me" });
+  }, 15_000);
+
+  test("treats a nonzero codex command exit as failure", () => {
+    const directory = tempDir();
+    const bin = tempDir("orch-control-bin-");
+    process.env.ORCH_DIR = directory;
+    process.env.CODEX_TEST_EXIT = "7";
+    executable(bin, "codex", "exit \"${CODEX_TEST_EXIT:-0}\"");
+    const key = target("headless", "codex-fail");
+    presence(directory, key, "codex");
+
+    expect(deliverControl(key, { kind: "steer", text: "resume me" })).rejects.toThrow(/codex failed/);
+  }, 15_000);
+
+  test("fails unsupported steer and setModel capabilities", () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "unsupported");
+    presence(directory, key, "claude");
+    const caps: { steer: "inbox" | "keys" | "resume" | "none" } = claudeAdapter.caps;
+    const previousSteer = caps.steer;
+    caps.steer = "none";
+    try {
+      expect(deliverControl(key, { kind: "steer", text: "nope" })).rejects.toThrow(/steer.*none/);
+    } finally {
+      caps.steer = previousSteer;
+    }
+    expect(deliverControl(key, { kind: "model", model: "new-model" })).rejects.toThrow(/setModel false/);
+  });
+
+  test("requires presence for inbox delivery", () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "missing-presence");
+    recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
+
+    expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/no presence dir/);
+  });
+});

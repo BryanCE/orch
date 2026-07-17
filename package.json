@@ -24,7 +24,8 @@
     "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
     "lint": "oxlint .",
-    "test": "bun test"
+    "test": "bun test",
+    "reset": "bun scripts/reset.ts"
   },
   "license": "MIT",
   "author": "Bryan Edman",

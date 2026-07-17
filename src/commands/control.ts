@@ -2,7 +2,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, resolvePane, resolveTarget, selfActor, type Entity } from "../entities.ts";
 import { isRecord, orchDir, presenceAgentDir, readJSON, recordSpawned, type PresenceEntry } from "../store.ts";
-import { loadConfig } from "../config.ts";
+import { loadConfig, type OrchConfig } from "../config.ts";
 import { truncate } from "../table.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
@@ -160,9 +160,10 @@ export async function cmdDispatch(args: string[]) {
       return;
     }
   }
-  const settings = resolveDispatchSettings(flags, gov);
+  const config = loadConfig(orchDir());
+  const settings = resolveDispatchSettings(flags, config, gov);
   if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
-  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), loadConfig(orchDir()).locked_commands) }, gov);
+  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), config.locked_commands) }, gov);
   recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined, owner: selfActor() ?? undefined });
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${settings.pane}.\n`);
@@ -185,12 +186,12 @@ export function parseDispatchFlags(args: string[]): DispatchFlags {
   return flags;
 }
 
-function resolveDispatchSettings(flags: DispatchFlags, gov: WriteGovernance = {}): DispatchSettings {
+function resolveDispatchSettings(flags: DispatchFlags, config: OrchConfig, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = flags.positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
-  const settings = resolveAgentSettings(flags);
+  const settings = resolveAgentSettings(flags, config);
   resolveAdapter(settings.adapter);
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);

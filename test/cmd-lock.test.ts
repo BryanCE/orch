@@ -54,13 +54,25 @@ describe("command lock", () => {
   test("matches locked command prefixes and probes settings", async () => {
     expect(matchesLockedCommand(["bun", "test", "test/x.test.ts"], ["bun test"])).toBe(true);
     expect(matchesLockedCommand(["bun", "run", "check"], ["bun test"])).toBe(false);
+    // Token-boundary, not raw prefix: "bun test" must NOT match "bun tester".
+    expect(matchesLockedCommand(["bun", "tester"], ["bun test"])).toBe(false);
+    expect(matchesLockedCommand(["bun", "test"], ["bun test"])).toBe(true);
+    // Whitespace is normalized on both sides before comparison.
+    expect(matchesLockedCommand(["bun", "test", "x"], ["bun   test"])).toBe(true);
+    expect(matchesLockedCommand(["bun", "test"], [""])).toBe(false);
     const directory = tempDirectory();
     writeFileSync(join(directory, "settings.json"), JSON.stringify({ schemaVersion: 1, locked_commands: ["bun test", "npm run build"] }));
     const previousDir = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
     try {
-      expect(await cmdLock(["check", "--", "bun", "test", "test/x.test.ts"])).toBe(3);
+      // A locked command with the lock FREE is runnable → exit 0 (D3).
+      expect(await cmdLock(["check", "--", "bun", "test", "test/x.test.ts"])).toBe(0);
+      // A non-locked command is always runnable → exit 0.
       expect(await cmdLock(["check", "--", "bun", "run", "lint"])).toBe(0);
+      // A locked command whose lock is HELD by a live holder → exit 3.
+      const held = await acquireCommandLock(directory, { holder: "agent-a" });
+      expect(await cmdLock(["check", "--", "bun", "test", "test/x.test.ts"])).toBe(3);
+      releaseCommandLock(directory, held.pid);
     } finally {
       if (previousDir === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previousDir;

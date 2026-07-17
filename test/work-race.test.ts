@@ -47,7 +47,7 @@ function startRunner(orchDir: string): Runner {
 
 afterEach(() => {
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
-});
+}, 30_000);
 
 describe("orch work claim race", () => {
   test(

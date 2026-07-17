@@ -23,7 +23,7 @@ describe("CodexAdapter", () => {
     const adapter = new CodexAdapter();
 
     expect(codexAdapter.id).toBe("codex");
-    expect(adapter.caps).toEqual({ steer: "resume", ask: false, setModel: false, sessionTail: true, lifecycle: [] });
+    expect(adapter.caps).toEqual({ steer: "resume", ask: false, setModel: false, sessionTail: true, enforcesCommandLocks: false, lifecycle: [] });
     expect(adapter.stateFallback).toBe(true);
     expect(CODEX_STATE_FALLBACK_MARKER).toBe("stateFallback");
 

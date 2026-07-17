@@ -320,14 +320,14 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
 
-function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): void {
+function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): void {
   for (let i = 2; i <= settings.n; i++) {
     try {
       const name = `${settings.prefix}-${i}`;
       const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
       let split: "down" | "right" = "down";
       if (i > 2) {
-        const layout = paneLayout(root.root, resolveBackend({ configured: settings.backend }));
+        const layout = paneLayout(root.root, backend);
         const largest = layout.panes.reduce((current, pane) => {
           const currentArea = current.rect.width * current.rect.height;
           const paneArea = pane.rect.width * pane.rect.height;
@@ -335,7 +335,6 @@ function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, create
         });
         split = largest.rect.width >= largest.rect.height ? "right" : "down";
       }
-      const backend = resolveBackend({ configured: settings.backend });
       const adapter = resolveAdapterOrDie(settings.adapter);
       const key = serializeIdentity({ backend: backend.id, workspace: root.workspace, handle: name });
       const handle = backend.spawn(adapter, { key, cwd, name, workspace: root.workspace, group: root.tabId, split, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
@@ -348,13 +347,13 @@ function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, create
   }
 }
 
-async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[]): Promise<void> {
+async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): Promise<void> {
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${root.tabLabel}]  ${settings.cmd}\n`);
     process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${root.tabLabel}" (no focus stolen).\n`);
-    printLayout(root.root, resolveBackend({ configured: settings.backend }), "\nFinal tiling:");
+    printLayout(root.root, backend, "\nFinal tiling:");
   }
-  if (launchesPi(settings.cmd)) await awaitBridgeRegistration(created, settings.json);
+  if (resolveAdapterOrDie(settings.adapter).caps.steer === "inbox") await awaitBridgeRegistration(created, settings.json);
   if (settings.model) await pinModels(created, settings.model);
   if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, tab: root.tabLabel, agents: created }) + "\n");
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
@@ -374,8 +373,8 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const created: CreatedAgent[] = [];
   recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: selfActor() ?? undefined });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
-  launchAdditionalAgents(settings, root, created);
-  await reportSpawnResults(settings, root, created);
+  launchAdditionalAgents(settings, root, created, backend);
+  await reportSpawnResults(settings, root, created, backend);
 }
 
 export async function cmdSpawn(args: string[]) {
@@ -403,11 +402,12 @@ export async function cmdTile(args: string[]) {
     else if (a === "--json") continue;
     else positional.push(a!);
   }
-  const { adapter, model } = resolveAgentSettings({ adapterFlag, backendFlag, modelFlag });
-  const selectedBackend = resolveBackend({ explicit: backendFlag ?? null, configured: loadConfig(orchDir()).defaults.backend ?? null });
+  const config = loadConfig(orchDir());
+  const { adapter, model } = resolveAgentSettings({ adapterFlag, backendFlag, modelFlag }, config);
+  const selectedBackend = resolveBackend({ explicit: backendFlag ?? null, configured: config.defaults.backend ?? null });
   if (!selectedBackend.panes) die(`orch tile requires a pane-capable backend; ${selectedBackend.id} has no panes to tile.`);
   resolveAdapterOrDie(adapter);
-  if (!commandFlag) cmd = adapterCommand(adapter);
+  if (!commandFlag) cmd = adapterCommand(adapter, config);
   const target = positional[0];
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
 
@@ -425,7 +425,7 @@ export async function cmdTile(args: string[]) {
 
   const workspace = selectedBackend.inventory?.().find((item) => item.handle === refPane)?.workspace;
   if (!workspace) die(`Could not determine workspace for pane ${JSON.stringify(refPane)}.`);
-  assertSpawnCapacity(loadConfig(orchDir()), workspace, 1);
+  assertSpawnCapacity(config, workspace, 1);
   const key = serializeIdentity({ backend: selectedBackend.id, workspace, handle: autoName });
   const selectedAdapter = resolveAdapterOrDie(adapter);
   let handle: BackendHandle;

@@ -4,7 +4,7 @@ import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
 import { collapse, buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, type Entity } from "../entities.ts";
 import { runRemoteAsync } from "../remote.ts";
-import { defaultModelString, orchDir, spawnedRecords, type SpawnedRecord } from "../store.ts";
+import { orchDir, spawnedRecords, type SpawnedRecord } from "../store.ts";
 import { renderTable, truncate } from "../table.ts";
 import { workspaceName } from "../policy/workspace.ts";
 import { ensureDaemon } from "./daemon.ts";
@@ -52,7 +52,6 @@ export function entityAdapter(ent: Entity, spawned = spawnedRecords()): AgentAda
 
 export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
   const pres = ent.presence;
-  const isPi = ent.agent === "pi";
   const adapter = entityAdapter(ent, spawned);
   const sview = (adapter?.caps.sessionTail && ent.sessionPath ? adapter.readSessionView?.({ sessionPath: ent.sessionPath }) : undefined) ?? null;
 
@@ -66,10 +65,9 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
     const prov = sview.provider ?? "";
     const think = sview.thinking ?? "";
     modelFull = `${prov}/${sview.model}${think ? ":" + think : ""}`;
-  } else if (isPi) {
-    modelFull = defaultModelString() + " (default)";
   } else {
-    modelFull = "-";
+    const adapterDefault = adapter?.defaultModelString?.();
+    modelFull = adapterDefault ? `${adapterDefault} (default)` : "-";
   }
   const model = modelFull.replace(/^openai-codex\//, "");
 
@@ -134,12 +132,11 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
   };
 }
 
-function cmdStatusLocal(args: string[]) {
+function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
   const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
   const json = enabled.has("--json");
   const all = enabled.has("--all");
   const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
-  const workspaces = loadConfig(orchDir()).workspaces;
   const spawned = spawnedRecords();
   const views = entities.map((entity) => deriveView(entity, spawned));
 
@@ -254,11 +251,10 @@ interface StatusRow {
   warning?: string;
 }
 
-function localStatusRows(args: string[]): StatusRow[] {
+function localStatusRows(args: string[], workspaces: OrchConfig["workspaces"]): StatusRow[] {
   const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
   const all = enabled.has("--all");
   const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
-  const workspaces = loadConfig(orchDir()).workspaces;
   const spawned = spawnedRecords();
   const views = entities.map((entity) => deriveView(entity, spawned));
   return views.filter((v) => all || (!v.exited || !v.entity.presenceOnly) && !(v.entity.presenceOnly && v.entity.presence && !v.entity.presence.alive))
@@ -310,12 +306,13 @@ export async function cmdStatus(args: string[]): Promise<void> {
   const json = enabled.has("--json");
   const all = enabled.has("--all");
   const localOnly = enabled.has("--local");
-  const hosts = loadConfig(orchDir()).hosts;
+  const config = loadConfig(orchDir());
+  const hosts = config.hosts;
   if (localOnly || Object.keys(hosts).length === 0) {
-    cmdStatusLocal(args);
+    cmdStatusLocal(args, config.workspaces);
     return;
   }
-  const local = localStatusRows(args);
+  const local = localStatusRows(args, config.workspaces);
   const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
     name,
     result: await runRemoteAsync(name, host, ["status", ...(offline ? ["--offline"] : [])], { timeoutMs: host.timeout_ms }),

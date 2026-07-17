@@ -26,5 +26,13 @@ export function removeTempDir(dir: string): void {
       pauseMs(100);
     }
   }
-  rmSync(dir, { recursive: true, force: true });
+  // Final attempt: if a child's handle still lingers past the retry budget, a
+  // leaked temp dir under the OS temp root is harmless (the OS reaps it) and must
+  // not fail an otherwise-passing test, so swallow the transient Windows lock codes.
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code !== "EBUSY" && code !== "ENOTEMPTY" && code !== "EPERM") throw error;
+  }
 }

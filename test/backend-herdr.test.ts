@@ -36,7 +36,7 @@ const backend = new HerdrBackend();
 
 const fakeAdapter: AgentAdapter = {
   id: "pi",
-  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, lifecycle: [] },
+  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, lifecycle: [], enforcesCommandLocks: false },
   interactiveCmd: () => "fake-agent",
   headlessCmd: () => ["true"],
   detectState: () => "unknown",

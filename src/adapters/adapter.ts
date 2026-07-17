@@ -188,4 +188,6 @@ export interface AgentAdapter {
    * Omit this method when the adapter declares no integration shim.
    */
   diagnoseShim?(): CheckResult | Promise<CheckResult>;
+  /** The adapter's persisted default model, for display; undefined if it has none. */
+  defaultModelString?(): string | undefined;
 }

@@ -716,6 +716,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("spawned-registry", "Spawn registry", () => checkSpawnedRegistry(orchDir)),
     isolated("config", "Config validity", () => checkConfig(orchDir)),
     isolated("spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
+    isolated("command-locks", "Command locks", () => checkCommandLocks(orchDir)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
     isolated("notifiers", "Notifiers", () => checkNotifiers(orchDir)),

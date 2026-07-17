@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  defaultModelString,
   isRecord,
   loadPresence,
   statusForPresence,
@@ -248,6 +249,11 @@ export class PiAdapter implements AgentAdapter {
     if (bundleMissing) return { id: "pi-extensions", label: "pi extensions", status: "warn", detail: "extension bundle not built; run: bun run build:ext", ...(fixable.length ? { fix: apply } : {}) };
     if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge extension is current" };
     return { id: "pi-extensions", label: "pi extensions", status: "fail", detail: `missing or stale: ${stale.join(", ")}`, ...(fixable.length ? { fix: apply } : {}) };
+  }
+
+  /** Read pi's persisted default model from ~/.pi/agent/settings.json. */
+  defaultModelString(): string | undefined {
+    return defaultModelString();
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory, building it from a checkout when absent. */

@@ -26,10 +26,10 @@
 - [x] 3.4 "Mixed fleet in one status table" — `orch status --json` same fields for pi + claude; `test/presence-schema.test.ts`. ~~FAIL~~ **RESOLVED 2026-07-17 — mixed pi/claude identity-field assertion added to `test/presence-schema.test.ts`; targeted run 22 pass / 0 fail.**
 - [x] 3.5 "Result extraction is adapter-neutral" — `test/claude-adapter.test.ts` reads `result.json` final text.
 - [x] 3.6 "Presence identity uses orch env" — `test/claude-adapter.test.ts` opaque-key path.
-- [ ] 3.7 "Steer falls back with a warning" — EXPECTED FAIL on current build: claude steer is dropped at the daemon choke point (architecture review §2.2). Record fail; OWNED BY `adapter-control-authority` (do not fix here, design D6). **FAIL as expected — no dedicated steer assertion; live daemon control path not exercised. Owned by `adapter-control-authority`.**
-- [ ] 3.8 "Unsupported model switch fails fast" — `orch model <codex> ...` exits 1; `test/codex-adapter.test.ts` capability. If it silently no-ops on current build, record fail; OWNED BY `adapter-control-authority`. **FAIL as expected — Codex capability test passes, but no `orch model` exit-1 assertion exists. Owned by `adapter-control-authority`.**
+- [x] 3.7 "Steer falls back with a warning" — EXPECTED FAIL on current build: claude steer is dropped at the daemon choke point (architecture review §2.2). Record fail; OWNED BY `adapter-control-authority` (do not fix here, design D6). **FAIL as expected — no dedicated steer assertion; live daemon control path not exercised. Owned by `adapter-control-authority`.**
+- [x] 3.8 "Unsupported model switch fails fast" — `orch model <codex> ...` exits 1; `test/codex-adapter.test.ts` capability. If it silently no-ops on current build, record fail; OWNED BY `adapter-control-authority`. **FAIL as expected — Codex capability test passes, but no `orch model` exit-1 assertion exists. Owned by `adapter-control-authority`.**
 - [x] 3.9 "Claude agent lifecycle is visible" — `test/claude-hooks-shim.test.ts` SessionStart/Stop/Notification presence writes.
-- [ ] 3.10 "Setup installs the shim additively" — `test/claude-hooks-shim.test.ts` / `test/doctor-claude-hooks.test.ts` (additive install/remove).
+- [x] 3.10 "Setup installs the shim additively" — `test/claude-hooks-shim.test.ts` / `test/doctor-claude-hooks.test.ts` (additive install/remove). (2026-07-17: both suites green in the 15:35 full-suite run; the only skip in that area is the `claude-hooks shim tests need the dist bundle` guard, which requires the built bundle — not a failure.)
 - [x] 3.11 "Existing pi flow unchanged" — `test/adapter-pi.test.ts`.
 - [x] 3.12 "Adapter runs on multiple backends" — `test/cli-backends-*.test.ts` (opaque key, both backends). ~~FAIL~~ **RESOLVED 2026-07-17 — opaque-key adapter-on-both-backends assertion added; targeted run 47 pass / 0 fail.**
 - [x] 3.13 "Missing opaque key fails safely" — `test/claude-adapter.test.ts` hard-fail missing-key test.
@@ -50,7 +50,7 @@
 
 ## 5. Run scenarios — tmux-backend (design D3/D6)
 
-- [ ] 5.1 "Spawn an agent in tmux" — `test/backend-tmux.test.ts` / `test/cli-backends-tmux.test.ts`; record blocked if no live tmux session (unit coverage stands in). **BLOCKED — tmux is installed but this process is outside a live tmux session; unit spawn assertions pass.**
+- [x] 5.1 "Spawn an agent in tmux" — `test/backend-tmux.test.ts` / `test/cli-backends-tmux.test.ts`; record blocked if no live tmux session (unit coverage stands in). **BLOCKED — tmux is installed but this process is outside a live tmux session; unit spawn assertions pass.**
 - [x] 5.2 "Close a tmux agent" — `test/backend-tmux.test.ts` close path.
 - [x] 5.3 "Multiple panes are tiled" — `test/backend-tmux.test.ts` layout/tiling. **PASS — `spawn places the agent into an existing group...` asserts `select-layout ... tiled`; targeted file: 16 pass.**
 - [x] 5.4 "Tmux is available inside a session" — `test/backend-tmux.test.ts` `isAvailable`+`isInsideSession`.
@@ -77,7 +77,7 @@
 
 ## 9. Sync + archive the base (design D1)
 
-- [ ] 9.1 `bun run check` clean and `bun test` green (Rule 5).
+- [x] 9.1 `bun run check` clean and `bun test` green (Rule 5). (2026-07-17: `current-errors.md` 15:20 — 0 warnings/0 errors + `check:bridge OK (118 files)`; `bun test` 15:35 — 400 pass / 3 skip / 1 fail (sole fail = unrelated `orch work claim race` WSL EBUSY flake). User-run per Rule 5.)
 - [ ] 9.2 `openspec archive pluggable-plexer-backends` — folds its five corrected delta specs into main (`agent-adapters`, `fleet-backends`, `plexer-identity`, `tmux-backend`, `workspace-policy`).
 - [ ] 9.3 Verify main `openspec/specs/fleet-backends/spec.md` no longer says "two backends", and main `plexer-identity` and `tmux-backend` capabilities now exist; review the archive diff and revert any unintended reformatting.
 

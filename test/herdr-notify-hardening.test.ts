@@ -26,7 +26,7 @@ const { notificationText } = await import("../src/notify.ts");
 
 const adapter: AgentAdapter = {
   id: "pi",
-  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, lifecycle: [] },
+  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, lifecycle: [], enforcesCommandLocks: false },
   interactiveCmd: () => `printf 'quoted "value" spaces $HOME'`,
   headlessCmd: () => ["true"],
   detectState: () => "unknown",

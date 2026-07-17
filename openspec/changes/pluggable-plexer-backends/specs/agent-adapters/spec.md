@@ -17,7 +17,7 @@ orch SHALL support named agent adapters (`pi`, `claude`, `codex`), selectable pe
 - **THEN** orch selects the tmux backend and Claude Code adapter independently, with neither adapter selection nor backend selection requiring a hard-coded branch for the other
 
 ### Requirement: Presence protocol as the uniform contract
-Every adapter SHALL surface its agent's state through the presence protocol (`$ORCH_DIR/agents/<key>/status.json`, `result.json`, and where supported `inbox.jsonl`, `question.json`/`answer.json`), including a `schema` version and an `agent` field identifying the adapter. Core commands (`status`, `events`, `result`, `wait`, `questions`) SHALL operate on presence data only, never on agent-specific formats. The adapter SHALL receive agent identity through an opaque orch-provided environment key and MUST NOT obtain it from a plexer-specific variable.
+Every adapter SHALL surface its agent's state through the presence protocol (`$ORCH_DIR/agents/<key>/status.json`, `result.json`, and where supported `inbox.jsonl`, `question.json`/`answer.json`), including a `schema` version and an `agent` field identifying the adapter. Core commands (`status`, `events`, `result`, `wait`, `questions`) SHALL operate on presence data only, never on agent-specific formats. The displayed agent id SHALL come from the presence record or spawn registry, never a hardcoded default. When an agent has no live presence writer, view fallbacks (state, model, cost, task, last text) SHALL be derived from the resolved adapter's own session parsing, gated on that adapter's declared `sessionTail` capability — never from a parser hardcoded to one adapter. The adapter SHALL receive agent identity through an opaque orch-provided environment key and MUST NOT obtain it from a plexer-specific variable.
 
 #### Scenario: Mixed fleet in one status table
 - **WHEN** a pi agent and a claude agent are both running and `orch status --json` is invoked
@@ -26,6 +26,14 @@ Every adapter SHALL surface its agent's state through the presence protocol (`$O
 #### Scenario: Result extraction is adapter-neutral
 - **WHEN** a claude agent finishes a dispatched task
 - **THEN** `orch result <target>` prints the final assistant text from that agent's `result.json`
+
+#### Scenario: A presence-only agent is labeled by its real adapter
+- **WHEN** a codex agent has written presence but is not enumerated by the backend, and `orch status --json` is invoked
+- **THEN** its `AGENT` column reads `codex` (from the presence/spawn record), not `pi`
+
+#### Scenario: Session fallbacks come from the resolved adapter
+- **WHEN** an agent whose adapter declares `sessionTail` has a native session/log but no live presence writer, and `orch status` is invoked
+- **THEN** its state and last text are produced by that adapter's session parsing, and an adapter without `sessionTail` instead shows the backend-reported status
 
 #### Scenario: Presence identity uses orch env
 - **WHEN** an agent adapter starts under any supported backend

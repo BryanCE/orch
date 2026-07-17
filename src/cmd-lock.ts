@@ -122,3 +122,9 @@ export function releaseCommandLock(orchDir: string, pid = process.pid): boolean 
 export function readCommandLock(orchDir: string): CommandLock | null {
   return loadLock(lockPath(orchDir));
 }
+
+/** The current holder only when its pid is still alive; null when free or held by a dead pid. */
+export function readLiveCommandLock(orchDir: string): CommandLock | null {
+  const lock = loadLock(lockPath(orchDir));
+  return lock && processIsAlive(lock.pid) ? lock : null;
+}

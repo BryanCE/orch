@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
 import { orchDir } from "../store.ts";
-import { acquireCommandLock, matchesLockedCommand, readCommandLock, releaseCommandLock, type CommandLock } from "../cmd-lock.ts";
+import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock, type CommandLock } from "../cmd-lock.ts";
 
 function holderName(): string {
   return process.env.ORCH_AGENT_KEY ?? `user:${process.pid}`;
@@ -34,7 +34,9 @@ function checkLocked(args: string[], directory: string): number {
   const command = args.slice(separator + 1);
   const pattern = loadConfig(directory).locked_commands.find((candidate) => matchesLockedCommand(command, [candidate]));
   if (pattern === undefined) return 0;
-  process.stdout.write(`${pattern}\n`);
+  const held = readLiveCommandLock(directory);
+  if (!held) return 0;
+  process.stdout.write(`${pattern} held by ${held.holder} (pid ${held.pid})\n`);
   return 3;
 }
 

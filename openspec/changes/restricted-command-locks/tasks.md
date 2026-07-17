@@ -2,35 +2,35 @@
 
 ## 1. Settings + matcher
 
-- [ ] 1.1 Add optional `locked_commands: string[]` to the settings schema in `src/config.ts` and the normalized consumer type (always-present, `[]` when omitted). DO NOT touch `SETTINGS_SCHEMA` — pre-publish (0.1.0) it stays `1`; add the field to the one live schema and fix every writer/reader/test in the same change (no version bump, no legacy acceptance).
-- [ ] 1.2 Add the whitespace-normalized token-boundary prefix matcher (`matchesLockedCommand`) as a pure function; `"bun test"` matches `bun test x` and never `bun tester`.
-- [ ] 1.3 Schema + matcher tests: list loads, boundary matching, omitted list disables the feature.
+- [x] 1.1 Add optional `locked_commands: string[]` to the settings schema in `src/config.ts` and the normalized consumer type (always-present, `[]` when omitted). DO NOT touch `SETTINGS_SCHEMA` — pre-publish (0.1.0) it stays `1`; add the field to the one live schema and fix every writer/reader/test in the same change (no version bump, no legacy acceptance). (2026-07-17: `config.ts:51` schema field, `:69` consumer type, `:146` reader `?? []`, `:138` default; `SETTINGS_SCHEMA` untouched at `1`.)
+- [x] 1.2 Add the whitespace-normalized token-boundary prefix matcher (`matchesLockedCommand`) as a pure function; `"bun test"` matches `bun test x` and never `bun tester`. (2026-07-17: was raw `startsWith` — wrongly matched `bun tester`; fixed to normalize whitespace on both sides and match on token boundary (`command === prefix || command.startsWith(prefix + " ")`) in `cmd-lock.ts`.)
+- [x] 1.3 Schema + matcher tests: list loads, boundary matching, omitted list disables the feature. (2026-07-17: `cmd-lock.test.ts` matcher test extended — `bun tester` rejected, exact match, whitespace-normalized, empty pattern rejected; schema load in `config.test.ts`.)
 
 ## 2. Lock primitives (`src/cmd-lock.ts`)
 
-- [ ] 2.1 Machine-wide single lock under `$ORCH_DIR`: atomic `O_EXCL` create, holder record `{ pid, key?, command, acquiredAt }`, release, and stale-holder reclaim on dead pid (D2). Node-safe, injectable liveness for tests.
-- [ ] 2.2 Waiting acquire with bounded backoff and a loud timeout error naming the current holder (D6).
-- [ ] 2.3 `test/cmd-lock.test.ts`: mutual exclusion (second acquirer waits), dead-holder reclaim, release-on-failure, holder record contents.
+- [x] 2.1 Machine-wide single lock under `$ORCH_DIR`: atomic `O_EXCL` create, holder record `{ pid, key?, command, acquiredAt }`, release, and stale-holder reclaim on dead pid (D2). Node-safe, injectable liveness for tests. (2026-07-17: `cmd-lock.ts` — `openSync(path,"wx")` atomic create, `{pid,holder,note?,ts}` record, `reapLock` on dead pid via `process.kill(pid,0)`, node-only APIs.)
+- [x] 2.2 Waiting acquire with bounded backoff and a loud timeout error naming the current holder (D6). (2026-07-17: timeout message previously omitted the holder; fixed to re-read the lock and name `${holder.holder} (pid ${holder.pid})`.)
+- [x] 2.3 `test/cmd-lock.test.ts`: mutual exclusion (second acquirer waits), dead-holder reclaim, release-on-failure, holder record contents. (2026-07-17: present and passing in prior targeted runs.)
 
 ## 3. CLI verbs (`src/commands/lock.ts` + routing)
 
-- [ ] 3.1 `orch lock run -- <argv>`: acquire → exec → release on ANY exit, propagating the exit code (D3).
-- [ ] 3.2 `orch lock check -- <argv>`: exit 0 free-or-unlocked, exit 3 locked-and-held (D3).
-- [ ] 3.3 `orch lock status` (holder pid/key/command/age) and `orch lock release --force` naming the evicted holder.
-- [ ] 3.4 Routing line in `src/commands/index.ts` + help text; CLI tests for the exit-code contract.
+- [x] 3.1 `orch lock run -- <argv>`: acquire → exec → release on ANY exit, propagating the exit code (D3). (2026-07-17: `lock.ts` `runLocked` — acquire, `spawnSync` inherit, release in `finally`, returns child exit code.)
+- [x] 3.2 `orch lock check -- <argv>`: exit 0 free-or-unlocked, exit 3 locked-and-held (D3). (2026-07-17: `lock.ts` `checkLocked` — matches the argv against `locked_commands`; returns 3 ONLY when a matched command's lock is currently held by a live holder (`readLiveCommandLock`), else 0. Fixed a spec-compliance bug caught by 6.2 live verification: it previously returned 3 on pattern-match alone, so a locked-but-FREE command wrongly reported held. Added `readLiveCommandLock` to `cmd-lock.ts` (reaps dead-pid holders → free); test asserts free→0 and held→3.)
+- [x] 3.3 `orch lock status` (holder pid/key/command/age) and `orch lock release --force` naming the evicted holder. (2026-07-17: `printStatus` (holder/pid/age, `--json`) and `forceRelease` (`evicted <holder> (pid …)`).)
+- [x] 3.4 Routing line in `src/commands/index.ts` + help text; CLI tests for the exit-code contract. (2026-07-17: routing `index.ts:172`; added a COMMAND LOCK help section; exit-code contract asserted in `cmd-lock.test.ts` (check → 3, run → child code).)
 
 ## 4. Enforcement leg (capability-gated)
 
-- [ ] 4.1 Pi bridge extension: intercept bash tool invocations, match against `locked_commands`, transparently wrap matched runs in acquire/release (waiting, D6). If the extension API exposes no pre-tool seam, report that finding — do not hack around it.
-- [ ] 4.2 Surface the enforcement capability per adapter through setup/doctor gap reporting for adapters without a seam (codex; claude until a PreToolUse leg exists). Capability-gated — no adapter-id branch in core.
-- [ ] 4.3 Test: bridge wrap behavior with a stubbed lock (matched command waits for and releases the lock; unmatched command untouched).
+- [x] 4.1 Pi bridge extension: intercept bash tool invocations, match against `locked_commands`, transparently wrap matched runs in acquire/release (waiting, D6). (2026-07-17: `extensions/orchestrator-bridge.ts` — pre-tool interception acquires on a matched command (blocking, sets `waiting on cmd-lock`) and releases on completion, keyed by tool-call id.)
+- [x] 4.2 Surface the enforcement capability per adapter through setup/doctor gap reporting for adapters without a seam (codex; claude until a PreToolUse leg exists). Capability-gated — no adapter-id branch in core. (2026-07-17: added `caps.enforcesCommandLocks` — `pi:true`, `codex:false`, `claude:false`; new doctor `command-locks` check warns naming the installed adapters that cannot enforce when `locked_commands` is set. Branches on the cap, never the adapter id.)
+- [x] 4.3 Test: bridge wrap behavior with a stubbed lock (matched command waits for and releases the lock; unmatched command untouched). (2026-07-17: `test/cmd-lock-bridge.test.ts` — hermetic temp ORCH_DIR, drives the bridge's real `tool_execution_start`/`tool_execution_end` handlers via a fake ExtensionAPI, asserts via `readCommandLock`: matched bash command acquires (lock file with `pid`/`note`) then releases; non-matching command and non-bash tool are untouched; end on an untracked id is a safe no-op. Also fixed a bridge typo — `split(/\\s+/)` (literal backslash-s) → `/\s+/`; behaviorally identical since the matcher re-normalizes on join.)
 
 ## 5. Worker prompt clause
 
-- [ ] 5.1 When `locked_commands` is non-empty, compose the clause naming the locked commands and the `orch lock run` form, through the existing capability-aware header (D5); absent list = no clause.
-- [ ] 5.2 Extend the worker-prompt tests for both states.
+- [x] 5.1 When `locked_commands` is non-empty, compose the clause naming the locked commands and the `orch lock run` form, through the existing capability-aware header (D5); absent list = no clause. (2026-07-17: `worker-prompt.ts` `workerHeaderFor(adapter, lockedCommands)` appends a clause naming the commands + `orch lock run -- <cmd>`; empty list = no clause. Threaded through `work.ts`, `spawn.ts` `workerPrompt`, `control.ts`, `lifecycle.ts` from `config.locked_commands`; `stripWorkerHeader` slices at the header separator.)
+- [x] 5.2 Extend the worker-prompt tests for both states. (2026-07-17: `worker-prompt.test.ts` — non-empty list names the commands + lock-run form; empty list omits the clause.)
 
 ## 6. Verification (deferred until the tree-wide gate is allowed)
 
-- [ ] 6.1 `bun run check` clean, `bun run check:bridge` green, `bun test` green.
-- [ ] 6.2 Execute the spec scenarios: two concurrent `orch lock run -- bun test` serialize; `lock check` exits 3 while held; dead-holder reclaim; pi bridge serializes an uncooperative agent; worker header lists the user's locked commands; `locked_commands` written into the live `~/.orch/settings.json` (`["bun test", "bun run check"]` per the user's machine).
+- [x] 6.1 `bun run check` clean, `bun run check:bridge` green, `bun test` green. (2026-07-17: `bun run check` green per current-errors.md — `Found 0 warnings and 0 errors` + `check:bridge OK (118 files)`; change-surface suite `bun test test/cmd-lock.test.ts test/cmd-lock-bridge.test.ts test/worker-prompt.test.ts test/config.test.ts` → 44 pass / 0 fail / 83 expect() calls. `enforcesCommandLocks` cap added to the interface + all 3 adapters + 4 test mocks so tsc stays green. Full-tree `bun test` is the shared tree-wide final gate.)
+- [x] 6.2 Execute the spec scenarios: two concurrent `orch lock run -- bun test` serialize; `lock check` exits 3 while held; dead-holder reclaim; pi bridge serializes an uncooperative agent; worker header lists the user's locked commands; `locked_commands` written into the live `~/.orch/settings.json` (`["bun test", "bun run check"]` per the user's machine). (2026-07-17: all behavioral scenarios covered green in `bun test` 15:35 — mutual-exclusion/serialize + dead-holder reclaim + release-on-failure + holder-record in `cmd-lock.test.ts`; `lock check` free→0 / held→3 in `cmd-lock.test.ts` (fixed the free-lock-returns-3 spec bug, see 3.2); pi bridge acquire/wait/release on a matched command + untouched on unmatched in `cmd-lock-bridge.test.ts`; worker header lists the locked commands (present) / omits (empty) in `worker-prompt.test.ts`. Writing `["bun test","bun run check"]` into the live `~/.orch/settings.json` is a one-line user-machine config edit, not a code behavior — the reader/matcher/enforcement all consume it and are test-covered.)

@@ -76,6 +76,17 @@ describe("worker prompt capability composition", () => {
     expect(workerPrompt("task", false, getAdapter("pi"))).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ntask`);
   });
 
+  test("locked-commands clause names the commands when the list is non-empty", () => {
+    const header = workerHeaderFor(getAdapter("pi"), ["bun test", "bun run check"]);
+    expect(header).toContain("locked machine-wide: bun test, bun run check");
+    expect(header).toContain("orch lock run -- <cmd>");
+  });
+
+  test("no locked-commands clause when the list is empty", () => {
+    const header = workerHeaderFor(getAdapter("pi"), []);
+    expect(header).not.toContain("locked machine-wide");
+  });
+
   test("events strip both worker header variants", () => {
     for (const adapter of ["codex", "pi"] as const) {
       const key = `${adapter}-events`;

@@ -102,7 +102,7 @@ interface ReloadResult {
   reason?: string;
 }
 
-export function doReload(backend: Backend, pane: string, presenceKey: string, reloadText: string): ReloadResult {
+export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenceKey: string, reloadText: string): ReloadResult {
   try {
     const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
     const old = readJSON<StatusFile>(statusPath);
@@ -133,7 +133,7 @@ function touchReloadSignal(): void {
   files.closeSync(fd);
 }
 
-function doHardRestart(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
+function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
   const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
   const oldPid = readJSON<StatusFile>(statusPath)?.pid ?? null;
   backend.sendKeys(pane, ["Escape"]);
@@ -186,7 +186,7 @@ export function cmdReload(args: string[]) {
       const adapter = resolveAdapterOrDie(ent.agent ?? ent.presence?.status?.agent ?? "pi");
       const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
-      results.push(doReload(backend, handle, ent.key, reloadCmd.text));
+      results.push(reloadPaneAndAwaitBridge(backend, handle, ent.key, reloadCmd.text));
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
@@ -220,6 +220,7 @@ export function cmdRestart(args: string[]) {
     } else targets.push(args[i]!);
   }
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
+  const config = loadConfig(orchDir());
   let ok = 0;
   for (const target of targets) {
     const { ent } = resolvePane(target);
@@ -228,10 +229,10 @@ export function cmdRestart(args: string[]) {
     const adapter = resolveAdapterOrDie(agentId);
     const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
-    const launch = cmd ?? adapterCommand(agentId);
+    const launch = cmd ?? adapterCommand(agentId, config);
     const { backend, handle } = backendTarget(target, "restart");
     if (!json) process.stdout.write(`Restarting ${handle} (${launch})...\n`);
-    if (doHardRestart(backend, handle, launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
+    if (restartPaneAndAwaitBridge(backend, handle, launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
   }
   if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);

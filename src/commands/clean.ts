@@ -1,6 +1,5 @@
-import * as files from "node:fs";
 import * as path from "node:path";
-import { loadPresence, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "../store.ts";
+import { loadPresence, removePresenceAgentDir, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "../store.ts";
 import { errorMessage } from "../util.ts";
 import {
   listAgentWorktrees,
@@ -75,7 +74,7 @@ export function removeDeadAgentDirs(json = false): string[] {
   for (const e of loadPresence().values()) {
     if (!e.alive) {
       try {
-        files.rmSync(e.dir, { recursive: true, force: true });
+        removePresenceAgentDir(e.dir);
         removed.push(`${e.key} (pid ${e.status?.pid ?? "?"})`);
       } catch (err: unknown) {
         process.stderr.write(`failed to remove ${e.dir}: ${errorMessage(err)}\n`);

@@ -237,14 +237,15 @@ function computeKey(hasUI: boolean): string | undefined {
   return undefined;
 }
 
+// src/backends/identity.ts is the single escaping authority: every serialized
+// identity key segment is already percent-escaped on all platforms, so the
+// presence directory name IS the key — no remapping (see src/store.ts).
 function presenceDirectoryName(key: string): string {
-  if (process.platform !== "win32") return key;
-  return key.replaceAll("%", "%25").replaceAll(":", "%3A");
+  return key;
 }
 
 function presenceKeyFromDirectoryName(name: string): string {
-  if (process.platform !== "win32") return name;
-  return name.replace(/%25|%3A/g, (token) => token === "%25" ? "%" : ":");
+  return name;
 }
 
 function presenceAgentDir(key: string): string {
@@ -258,6 +259,8 @@ const INBOX_POLL_MS = 1000;
 const HERDR_ENV = process.env.HERDR_ENV;
 const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH;
 const AGENT_IDENTITY = tryParseIdentity(process.env.ORCH_AGENT_KEY);
+const HERDR_INTEGRATION_ACTIVE =
+  HERDR_ENV === "1" && !!HERDR_SOCKET_PATH && AGENT_IDENTITY?.backend === "herdr";
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
 let metadataSeq = Date.now() * 1000;
@@ -735,10 +738,8 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
 
   function metadataEnabledForState(): boolean {
     return (
-      HERDR_ENV === "1" &&
-      !!HERDR_SOCKET_PATH &&
-      AGENT_IDENTITY?.backend === "herdr" &&
-      state.paneId === AGENT_IDENTITY.handle
+      HERDR_INTEGRATION_ACTIVE &&
+      state.paneId === AGENT_IDENTITY?.handle
     );
   }
 
@@ -1692,7 +1693,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
     if (!isToolExecutionStartEvent(event) || event.toolName !== "bash") return;
     const command = bashCommand(event.args);
     const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
-    if (!command || !toolCallId || !matchesLockedCommand(command.trim().split(/\\s+/), lockedCommandPatterns())) return;
+    if (!command || !toolCallId || !matchesLockedCommand(command.trim().split(/\s+/), lockedCommandPatterns())) return;
 
     const previousState = state.state;
     const previousBlockedMessage = blockedMessage;

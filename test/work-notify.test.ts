@@ -12,7 +12,9 @@ function nodeCommand(script: string): string[] {
 }
 
 async function waitForFile(file: string): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + 2_000;
+  // A command sink cold-starts a fresh node runtime to write the file; under a
+  // loaded full-suite run on Windows that spawn can take several seconds.
+  const deadline = Date.now() + 8_000;
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
@@ -27,7 +29,7 @@ async function waitForFile(file: string): Promise<Record<string, unknown>> {
 
 afterEach(() => {
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
-});
+}, 20_000);
 
 describe("orch work notifications", () => {
   test("delivers a presence transition through a configured command sink", async () => {
@@ -70,5 +72,5 @@ describe("orch work notifications", () => {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;
     }
-  }, 10_000);
+  }, 20_000);
 });

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { insertSpawnedRecord, selectSpawnedRecords, setOwner } from "./store/sqlite.ts";
@@ -29,6 +29,10 @@ export function presenceKeyFromDirectoryName(name: string): string {
 
 export function presenceAgentDir(key: string, root = orchDir()): string {
   return join(root, "agents", presenceDirectoryName(key));
+}
+
+export function removePresenceAgentDir(dir: string): void {
+  rmSync(dir, { recursive: true, force: true });
 }
 
 export interface PresenceStatus {

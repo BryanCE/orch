@@ -71,6 +71,13 @@ DISPATCH WORK
   orch restart <target>… | --all [--cmd pi]
                                  Fully close the harness process and relaunch it.
 
+COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
+  orch lock run [--note <why>] [--timeout <ms>] -- <argv…>
+                                 Acquire the machine-wide lock, run argv, release on exit (propagates the exit code).
+  orch lock check -- <argv…>     Exit 3 if argv is a locked command held elsewhere, else exit 0.
+  orch lock status [--json]      Show the current holder (pid, note, age) or 'unlocked'.
+  orch lock release --force      Evict the current holder, naming it.
+
 PANES (create / arrange / lifecycle — never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
                    [--agent A] [--backend B] [--spawn-cap N] [--worktree]

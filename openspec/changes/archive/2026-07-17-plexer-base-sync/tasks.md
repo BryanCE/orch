@@ -78,12 +78,12 @@
 ## 9. Sync + archive the base (design D1)
 
 - [x] 9.1 `bun run check` clean and `bun test` green (Rule 5). (2026-07-17: `current-errors.md` 15:20 — 0 warnings/0 errors + `check:bridge OK (118 files)`; `bun test` 15:35 — 400 pass / 3 skip / 1 fail (sole fail = unrelated `orch work claim race` WSL EBUSY flake). User-run per Rule 5.)
-- [ ] 9.2 `openspec archive pluggable-plexer-backends` — folds its five corrected delta specs into main (`agent-adapters`, `fleet-backends`, `plexer-identity`, `tmux-backend`, `workspace-policy`).
-- [ ] 9.3 Verify main `openspec/specs/fleet-backends/spec.md` no longer says "two backends", and main `plexer-identity` and `tmux-backend` capabilities now exist; review the archive diff and revert any unintended reformatting.
+- [x] 9.2 `openspec archive pluggable-plexer-backends` — folds its five corrected delta specs into main (`agent-adapters`, `fleet-backends`, `plexer-identity`, `tmux-backend`, `workspace-policy`). (2026-07-17: archived — `openspec archive pluggable-plexer-backends --yes` applied `agent-adapters +1/~5`, `fleet-backends +1/~4`, `plexer-identity +4 (created)`, `tmux-backend +4 (created)`, `workspace-policy +1/~2` into main (Totals +11 ~11). Before it would apply, refreshed three MODIFIED delta blocks that had gone stale against main (later-archived scenarios were being dropped): agent-adapters "Presence protocol" (+ presence-only-label, session-fallbacks), "Claude Code adapter" (+ mid-run-granularity, headless-verified), fleet-backends "Backend selection" (+ explicit-headless-spawn). Final dir rename hit the WSL `/mnt/c` handle-lock (rename EACCES); completed the move via cp+rm to `archive/2026-07-17-pluggable-plexer-backends`.)
+- [x] 9.3 Verify main `openspec/specs/fleet-backends/spec.md` no longer says "two backends", and main `plexer-identity` and `tmux-backend` capabilities now exist; review the archive diff and revert any unintended reformatting. (2026-07-17: `grep 'two backend' openspec/specs/fleet-backends/spec.md` → none; `openspec/specs/plexer-identity/spec.md` (49 lines) and `openspec/specs/tmux-backend/spec.md` (45 lines) now exist in main; the delta-refresh edits added only the missing scenarios verbatim from main — no reformatting to revert.)
 
 ## 10. Cleanup and finalize
 
 - [x] 10.1 Delete the leftover empty `openspec/changes/unify-workspace-policy/specs/` tree.
-- [ ] 10.2 `openspec validate plexer-base-sync --strict` green; `openspec validate --all` green.
+- [x] 10.2 `openspec validate plexer-base-sync --strict` green; `openspec validate --all` green. (2026-07-17: `openspec validate plexer-base-sync --type change --strict` → "is valid"; `openspec validate --all --strict` → "25 passed, 0 failed". Cleared the last blocker first — the empty `openspec/changes/unify-workspace-policy/` orphan (0 files, no deltas) was failing `--all`; removed it bottom-up via rmdir.)
 - [ ] 10.3 `openspec archive plexer-base-sync` — applies this change's `plexer-identity` presence-key correction to main (idempotent restatement of the flat key).
 - [ ] 10.4 Release the six 2026-07-16 changes for archiving (gate 0.1 satisfied).

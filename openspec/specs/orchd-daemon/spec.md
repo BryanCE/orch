@@ -15,7 +15,7 @@ Resident daemon (orchd) contract: lifecycle management via `orch daemon`, reside
 
 #### Scenario: Reload after code change
 
-- **WHEN** src/ or settings.json changes on disk and `orch daemon reload` runs
+- **WHEN** `src/` or `$ORCH_DIR/settings.json` changes on disk and `orch daemon reload` runs
 - **THEN** the daemon re-execs with the same lock, subsystems resume, and `orch daemon status` shows the new code hash and a fresh start time
 
 ### Requirement: Resident subsystems

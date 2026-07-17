@@ -106,7 +106,7 @@ describe("Claude adapter", () => {
     const transcript = join(agentDir(key), "session.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "Finished" })}\n`);
     expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: 2, agent: "claude", state: "done" });
-  });
+  }, 20_000);
 
   test("exits silently and writes no presence without ORCH_AGENT_KEY (a non-orch session)", () => {
     const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));

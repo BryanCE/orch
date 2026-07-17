@@ -16,6 +16,10 @@
 - **WHEN** claude is among the installed adapters, its hooks shim is missing from the Claude settings file, and `orch doctor` runs
 - **THEN** the report shows a failing (or warning) check naming the missing shim with the exact command to fix it, does not show a pi extension check unless pi is also installed, and the exit code is non-zero
 
+#### Scenario: Detects an unlinked extension
+- **WHEN** the orchestrator-bridge extension is missing from `~/.pi/agent/extensions` and `orch doctor` runs
+- **THEN** the report shows a failing check with the exact command to fix it, and exit code is non-zero
+
 #### Scenario: Flags a broken integration for an installed-but-inactive provider
 
 - **WHEN** the installed adapter set is `{pi, claude}`, the active default adapter is `pi`, and claude's hooks shim is missing

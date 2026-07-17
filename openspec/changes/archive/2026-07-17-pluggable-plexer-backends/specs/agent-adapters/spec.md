@@ -51,7 +51,7 @@ Each adapter SHALL declare its capabilities (steer mechanism, blocking ask suppo
 - **THEN** orch exits 1 with a message stating the codex adapter cannot switch models
 
 ### Requirement: Claude Code adapter
-orch SHALL ship a Claude Code adapter whose shim (hook scripts installed by `orch setup`) writes presence protocol files for session start, state transitions, final results, and blocked/notification states. The shim SHALL be installable and removable without affecting the user's other Claude Code hooks.
+orch SHALL ship a Claude Code adapter whose shim (hook scripts installed through the adapter's `installShim()`) writes presence protocol files for session start, blocked/notification states, and final results on stop. The shim SHALL be installable without affecting the user's other Claude Code hooks. Claude presence granularity SHALL be documented honestly as coarse: `working` on session start, `blocked` on a notification, and `done`/`idle` on stop, with no mid-run tool, token, or cost transitions. Whether Claude's `settings.json` hooks fire under headless print mode (`claude -p`) SHALL be verified against the targeted Claude Code version, not assumed. If they fire, headless claude presence works as specified above. If they do NOT fire, claude result harvest SHALL fall back to `extractResult` over the recorded headless `-p` log (per the headless log-path requirement), and the see/steer capabilities SHALL surface as loud, documented gaps in `-p` mode — an explicit status such as `no presence in -p mode` and a non-zero exit on a steer attempt — never a silent `-`.
 
 #### Scenario: Claude agent lifecycle is visible
 - **WHEN** a claude agent spawned by orch starts working on a prompt and later finishes
@@ -60,6 +60,14 @@ orch SHALL ship a Claude Code adapter whose shim (hook scripts installed by `orc
 #### Scenario: Setup installs the shim additively
 - **WHEN** the user runs `orch setup` with an existing Claude Code hooks configuration
 - **THEN** orch's hooks are merged in without removing or overwriting unrelated user hooks
+
+#### Scenario: Mid-run granularity is coarse, not misreported
+- **WHEN** a claude agent is between session start and stop, invoking tools
+- **THEN** its `status.json` state remains `working` and does not claim per-tool or per-token transitions it cannot observe
+
+#### Scenario: Headless claude presence is verified, its gaps loud
+- **WHEN** a claude agent is run headless with `claude -p`, where hook firing under print mode has been checked against the targeted version
+- **THEN** if the hooks fire, its `status.json` reflects `working`/`done` as specified; and if they do not, `orch result` still returns the final text via the adapter parsing the recorded `-p` log, while a steer/see attempt reports an explicit unsupported-in-`-p` status and exits non-zero rather than showing a silent `-`
 
 ### Requirement: pi adapter preserves existing behavior
 The pi adapter SHALL retain current behavior exactly: `orchestrator-bridge.ts` as the presence writer, inbox steering, `orch_ask` blocking questions, model/thinking switching via inbox commands, and result extraction — with no changes required to existing user workflows.

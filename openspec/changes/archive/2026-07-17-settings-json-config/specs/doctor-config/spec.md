@@ -45,6 +45,10 @@ orch SHALL read `$ORCH_DIR/settings.json` (JSON) at startup when present, with p
 - **WHEN** neither `settings.json` nor `config.toml` exists
 - **THEN** orch runs on built-in defaults with no config error
 
+#### Scenario: Broken config fails helpfully
+- **WHEN** settings.json contains a syntax or schema error
+- **THEN** orch exits 1 naming the file and the problem, and suggests `orch doctor`
+
 ## ADDED Requirements
 
 ### Requirement: Installed provider sets

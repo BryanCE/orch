@@ -4,7 +4,7 @@
 TBD - created by archiving change make-orch-general-purpose. Update Purpose after archive.
 ## Requirements
 ### Requirement: Adapter selection
-orch SHALL support named agent adapters (`pi`, `claude`, `codex`), selectable per spawn via `--agent <id>` on `orch spawn`, `orch tile`, and `orch queue add`, with the default taken from config (`defaults.adapter`, built-in default `pi`). The chosen adapter SHALL be recorded in the spawn registry so later commands resolve it without re-specification.
+orch SHALL support named agent adapters (`pi`, `claude`, `codex`), selectable per spawn via `--agent <id>` on `orch spawn`, `orch tile`, and `orch queue add`, with the default taken from config (`defaults.adapter`, built-in default `pi`). The chosen adapter SHALL be recorded in the spawn registry so later commands resolve it without re-specification. Agent adapter selection SHALL be independent of the selected plexer backend.
 
 #### Scenario: Spawn a Claude Code fleet
 - **WHEN** the user runs `orch spawn 2 --agent claude --tab Team1`
@@ -14,8 +14,12 @@ orch SHALL support named agent adapters (`pi`, `claude`, `codex`), selectable pe
 - **WHEN** the user runs `orch spawn 1 --agent aider`
 - **THEN** orch exits non-zero with a message listing the supported adapter ids
 
+#### Scenario: Agent selection is backend-independent
+- **WHEN** the user runs `orch spawn 1 --backend tmux --agent claude`
+- **THEN** orch selects the tmux backend and Claude Code adapter independently, with neither adapter selection nor backend selection requiring a hard-coded branch for the other
+
 ### Requirement: Presence protocol as the uniform contract
-Every adapter SHALL surface its agent's state through the presence protocol (`$ORCH_DIR/agents/<key>/status.json`, `result.json`, and where supported `inbox.jsonl`, `question.json`/`answer.json`), including a `schema` version and an `agent` field identifying the adapter. Core commands (`status`, `events`, `result`, `wait`, `questions`) SHALL operate on presence data only, never on agent-specific formats. The displayed agent id SHALL come from the presence record or spawn registry, never a hardcoded default. When an agent has no live presence writer, view fallbacks (state, model, cost, task, last text) SHALL be derived from the resolved adapter's own session parsing, gated on that adapter's declared `sessionTail` capability — never from a parser hardcoded to one adapter.
+Every adapter SHALL surface its agent's state through the presence protocol (`$ORCH_DIR/agents/<key>/status.json`, `result.json`, and where supported `inbox.jsonl`, `question.json`/`answer.json`), including a `schema` version and an `agent` field identifying the adapter. Core commands (`status`, `events`, `result`, `wait`, `questions`) SHALL operate on presence data only, never on agent-specific formats. The displayed agent id SHALL come from the presence record or spawn registry, never a hardcoded default. When an agent has no live presence writer, view fallbacks (state, model, cost, task, last text) SHALL be derived from the resolved adapter's own session parsing, gated on that adapter's declared `sessionTail` capability — never from a parser hardcoded to one adapter. The adapter SHALL receive agent identity through an opaque orch-provided environment key and MUST NOT obtain it from a plexer-specific variable.
 
 #### Scenario: Mixed fleet in one status table
 - **WHEN** a pi agent and a claude agent are both running and `orch status --json` is invoked
@@ -32,6 +36,10 @@ Every adapter SHALL surface its agent's state through the presence protocol (`$O
 #### Scenario: Session fallbacks come from the resolved adapter
 - **WHEN** an agent whose adapter declares `sessionTail` has a native session/log but no live presence writer, and `orch status` is invoked
 - **THEN** its state and last text are produced by that adapter's session parsing, and an adapter without `sessionTail` instead shows the backend-reported status
+
+#### Scenario: Presence identity uses orch env
+- **WHEN** an agent adapter starts under any supported backend
+- **THEN** it reads its opaque identity from the orch-provided environment key and never reads `HERDR_PANE_ID` or another plexer-specific identity variable
 
 ### Requirement: Declared capabilities with explicit degraded modes
 Each adapter SHALL declare its capabilities (steer mechanism, blocking ask support, model switching, session tail). A command relying on an unsupported capability SHALL either fall back with a printed warning (e.g. steer via pane keystrokes when no inbox exists) or fail fast with exit code 1 and an actionable message — never silently no-op.
@@ -84,4 +92,43 @@ The worker prompt header SHALL reference the `orch_ask` tool only for adapters t
 #### Scenario: pi worker prompt keeps orch_ask
 - **WHEN** a worker is dispatched to a pi agent, whose adapter declares ask support
 - **THEN** the worker prompt instructs the agent to call `orch_ask` for decisions it cannot make itself
+
+### Requirement: Agent identity is an opaque orch key
+The orch spawn surface SHALL mint or receive an opaque identity key for each agent, pass it to the adapter through a documented orch-provided environment variable, and require the adapter to use that key for presence paths. The key MUST NOT be a plexer-specific value such as `HERDR_PANE_ID`, and agent adapters MUST NOT reference herdr or tmux types, variables, or commands.
+
+#### Scenario: Adapter runs on multiple backends
+- **WHEN** the user spawns the same agent adapter on herdr, tmux, and headless backends
+- **THEN** each process receives the same kind of orch-provided opaque identity environment key and the adapter code and behavior do not reference the concrete backend
+
+#### Scenario: Missing opaque key fails safely
+- **WHEN** an agent adapter starts without the orch-provided identity environment key
+- **THEN** it exits non-zero or writes a clear error state instead of deriving identity from `HERDR_PANE_ID` or another plexer variable
+
+### Requirement: An adapter's private wire format is contained in that adapter
+
+Each adapter's native file protocol SHALL be read and written in exactly one module — the adapter itself. pi's `inbox.jsonl` and `answer.json` SHALL be produced only by the pi adapter; no core command, daemon path, or shared store helper SHALL read or write those files. Core SHALL interact with agents only through the presence protocol and the adapter port.
+
+#### Scenario: Steering a pi agent still lands in its inbox
+
+- **WHEN** the user runs `orch steer <pi-target> "next task"`
+- **THEN** the text is appended to that pi agent's `inbox.jsonl` and the agent consumes it, with the write performed by the pi adapter
+
+#### Scenario: Answering a pi question still writes its answer file
+
+- **WHEN** a pi agent asks a blocking question and the user runs `orch answer <pi-target> "yes"`
+- **THEN** the answer is written to that agent's `answer.json` and the agent unblocks, with the write performed by the pi adapter
+
+### Requirement: Control commands execute the command an adapter returns
+
+When a control command (`steer`, `answer`, `model`, `pipe`, `broadcast`) routes to an adapter whose mechanism returns a command to run rather than writing a file, orch SHALL execute that command as a machine-local child process and SHALL treat delivery as failed if the command could not be run or exited nonzero. orch SHALL NOT report success for a control command whose returned command was discarded or failed.
+
+#### Scenario: A non-file steer mechanism runs its command
+
+- **WHEN** an adapter's steer mechanism produces a resume-style command and the user runs `orch steer <target> "…"`
+- **THEN** the command is run as a local child process and, on a zero exit, orch exits 0
+
+#### Scenario: A discarded or failed command is a failure, not a success
+
+- **WHEN** an adapter's steer mechanism produces a command but it is discarded, fails to spawn, or exits nonzero
+- **THEN** `orch steer <target> "…"` exits nonzero and does not print a success line
 

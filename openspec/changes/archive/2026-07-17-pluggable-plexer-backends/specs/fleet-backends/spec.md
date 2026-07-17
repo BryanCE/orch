@@ -8,6 +8,10 @@ orch SHALL support registered fleet backends — including `herdr`, `headless`, 
 - **WHEN** the user sets `[defaults] backend = "tmux"` and runs `orch spawn 2 --cwd ~/proj`
 - **THEN** orch selects the registered tmux backend through the factory, the backend mints handles and reports workspaces for both agents, and no call site-specific backend branch is required
 
+#### Scenario: Explicit headless spawn
+- **WHEN** the user runs `orch spawn 3 --backend headless --cwd ~/proj`
+- **THEN** three detached agent processes start in `~/proj`, no herdr command is invoked, and their keys appear in `orch status`
+
 #### Scenario: Explicit unavailable backend
 - **WHEN** the user runs `orch spawn 1 --backend tmux` and the tmux backend reports `isAvailable = false`
 - **THEN** orch exits non-zero with a message that the tmux backend is unavailable

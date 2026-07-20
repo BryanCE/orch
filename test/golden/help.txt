@@ -5,7 +5,7 @@ OBSERVE
   orch status [--json] [--all] [--offline]
                                  Glanceable table of every pane (default command); --offline reads agent files only.
   orch questions                 List pending agent questions.
-  orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json] [--offline]
+  orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json]
                                  Continuous stream of pane state transitions; --offline uses read-only agent files.
 
 QUEUE

@@ -82,7 +82,7 @@ const PRESENCE_SCOPE = "src/presence";
  * definition and fails this check.
  */
 const bridgeSourceFiles = scanSrcOutsideBackends((line) => {
-  if (/backends\/(?:herdr|tmux)\//.test(line)) return "herdr/tmux backend subpath imports are forbidden outside backends";
+  if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden outside backends (boundary modules live directly under backends/)";
   if (/\b(?:herdrBestEffort|herdrJSON|herdrExec|herdrPanes|herdrTabs|herdrNames|herdrReachable|HERDR_PANE_ID|TMUX_PANE)\b/.test(line)) {
     return "backend-specific herdr/tmux identifiers are forbidden outside backends";
   }
@@ -95,6 +95,7 @@ const bridgeSourceFiles = scanSrcOutsideBackends((line) => {
 const extensionFiles = scanDirectory("extensions", new Set(), (line, relPath) => {
   const presenceViolation = checkPresenceFilenameLine(line, relPath);
   if (presenceViolation) return presenceViolation;
+  if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden in extensions (boundary modules live directly under backends/)";
   if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in extensions";
   if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in extensions";
   if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in extensions";

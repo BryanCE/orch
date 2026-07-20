@@ -23,6 +23,19 @@ Presence files are orchd's *ingress*, not a client transport. Harness shims writ
 ### Modified Capabilities
 - `orchd-daemon`: the read-command resilience requirement currently grants `orch events` an explicit `--offline` file-watch mode. That clause is removed; `orch events` requires orchd unconditionally. The rest of the requirement — `status`/`result`/`doctor` staying file-readable, write commands refusing without the broker — is unchanged.
 
-## Open Question
+## Resolved Decision
 
-`--notify` on `orch events` is now inert in every mode: the daemon delivers to sinks, and the only client-side delivery lived in the deleted file path. It should either be removed from the command, or the client should deliver on received events (which would double-notify against the daemon's own sinks). Removal is the coherent answer under a daemon-only model, but it is a second user-facing flag deletion and is deliberately NOT bundled into this change.
+`--notify` on `orch events` is REMOVED, in a follow-up change.
+
+Verified inert on 2026-07-20: `cmdEvents` no longer builds sinks at all — `EventsContext`
+carries no `sinks` field and `eventsSinks` is not called. `parseEventsOptions` still parses
+`--notify` into `notifications`, and nothing reads it.
+
+Removal is the answer because delivery is orchd's under a daemon-only model: the daemon fans
+every transition to the sinks in `settings.json` whether or not a client is streaming. Having
+the client also deliver would double-notify against the daemon's own sinks — the flag cannot be
+made to work, only made redundant. A parsed flag that changes nothing is a help-text lie.
+
+Kept OUT of this change deliberately: deleting a user-facing flag also touches the usage string,
+`parseEventsOptions`, the `EventsOptions` shape, and `test/commands-events.test.ts`, which asserts
+`notifications: true`. That is a coherent unit of its own, not a rider on the transport change.

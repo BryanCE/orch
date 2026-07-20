@@ -64,6 +64,19 @@ export function herdrPaneHandle(): string | null {
   return AGENT_IDENTITY?.backend === "herdr" ? AGENT_IDENTITY.handle : null;
 }
 
+/**
+ * Capability probe for the pane-HUD port (`src/backends/hud.ts`): true when this
+ * process is a herdr pane.
+ *
+ * Deliberately the BROADEST gate any HUD entry point applies — identity alone.
+ * The socket- and env-dependent entry points keep their own stricter checks
+ * internally, so selecting this provider never grants more than each function
+ * already allowed itself.
+ */
+export function herdrHudActive(): boolean {
+  return AGENT_IDENTITY?.backend === "herdr";
+}
+
 // ---- pane custom-status metadata ----
 
 let metadataSeq = Date.now() * 1000;

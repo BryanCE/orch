@@ -19,14 +19,7 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  createPaneStatusReporter,
-  herdrPaneHandle,
-  notifyHerdr,
-  readPaneLabels,
-  registerBlockedSignalRelay,
-  registerPaneStateHud,
-} from "../../src/backends/herdr/hud.ts";
+import { activePaneHud } from "../../src/backends/hud.ts";
 import { createDaemonAck } from "./daemon-ack.ts";
 import { AGENT_ID, ORCH_DIR, createPiPresence } from "./presence.ts";
 import { registerPiTools } from "./tools.ts";
@@ -39,9 +32,10 @@ function hashExtensionFile(file: string): string {
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 function orchestratorBridgeExtension(pi: ExtensionAPI): void {
-  const paneId = herdrPaneHandle();
+  const hud = activePaneHud();
+  const paneId = hud.paneHandle;
 
-  registerPaneStateHud(
+  hud.registerPaneState(
     {
       onSessionStart: (handler) => pi.on("session_start", (_event, ctx) => handler(ctx)),
       onAgentStart: (handler) => pi.on("agent_start", (_event, ctx) => handler(ctx)),
@@ -57,11 +51,11 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
     paneId,
     extensionHash: EXTENSION_HASH,
     ack: createDaemonAck(ORCH_DIR),
-    reportStatus: createPaneStatusReporter(paneId),
+    reportStatus: hud.statusReporter(paneId),
   });
 
   async function refreshLabels(): Promise<void> {
-    const applied = await readPaneLabels((labels) => {
+    const applied = await hud.readLabels((labels) => {
       presence.state.label = labels.label;
       presence.state.tabLabel = labels.tabLabel;
     });
@@ -70,11 +64,11 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
 
   const { onBlockedChange } = registerPiTools(pi, {
     presence,
-    notify: notifyHerdr,
+    notify: hud.notify,
     refreshLabels,
   });
 
-  registerBlockedSignalRelay(pi.events, onBlockedChange);
+  hud.registerBlockedRelay(pi.events, onBlockedChange);
 }
 
 export default orchestratorBridgeExtension;

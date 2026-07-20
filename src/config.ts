@@ -48,7 +48,7 @@ const NotifyEntrySchema = z.discriminatedUnion("id", [
     on: NotifyOnSchema,
     command: z.union([
       z.string().min(1),
-      z.array(z.string().min(1)).min(1),
+      z.tuple([z.string().min(1)], z.string()),
     ]),
   }),
   z.strictObject({ id: z.literal("herdr"), on: NotifyOnSchema }),

@@ -106,7 +106,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
   /** Identity of the calling orchestrator, resolved from tmux's environment. */
   callerIdentity(): string | undefined {
-    return process.env.TMUX_PANE || undefined;
+    const value = process.env.TMUX_PANE;
+    return value === "" ? undefined : value;
   }
 
   /** Identity of the calling pane, resolved from tmux's environment. */

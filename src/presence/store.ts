@@ -8,7 +8,7 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
-import { insertSpawnedRecord, selectSpawnedRecords, setOwner, type SpawnedRecord } from "../store/sqlite.ts";
+import { deleteSpawnedRecord, insertSpawnedRecord, selectSpawnedRecords, setOwner, type SpawnedRecord } from "../store/sqlite.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 
 const HOME = homedir();
@@ -128,6 +128,11 @@ export function spawnedRecords(): Map<string, SpawnedRecord> {
     for (const record of selectSpawnedRecords(orchDir())) records.set(record.pane, record);
   } catch {}
   return records;
+}
+
+export function reapSpawnedRecord(key: string): void {
+  try { deleteSpawnedRecord(orchDir(), key); } catch {}
+  removePresenceAgentDir(presenceAgentDir(key));
 }
 
 export function loadPresence(): Map<string, PresenceEntry> {

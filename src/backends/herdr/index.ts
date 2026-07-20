@@ -113,7 +113,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 
   /** Identity of the calling orchestrator, resolved from herdr's own environment. */
   callerIdentity(): string | undefined {
-    return process.env.HERDR_PANE_ID || undefined;
+    const value = process.env.HERDR_PANE_ID;
+    return value === "" ? undefined : value;
   }
 
   /** Identity of the calling pane, resolved from herdr's own environment. */

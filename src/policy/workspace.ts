@@ -1,6 +1,5 @@
 import { tryParseIdentity } from "../backends/identity.ts";
-import { loadConfig } from "../config.ts";
-import { orchDir } from "../presence/store.ts";
+import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -33,7 +32,7 @@ export function sameWorkspace(a: string | null | undefined, b: string | null | u
 export function checkWall(
   ownKey: string | null | undefined,
   targetKey: string | null | undefined,
-  opts: { crossWorkspace: boolean },
+  opts: { crossWorkspace: boolean; orchDir?: string },
 ): WallDecision {
   const ownWorkspace = workspaceOf(ownKey);
   const targetWorkspace = workspaceOf(targetKey);
@@ -41,7 +40,10 @@ export function checkWall(
   // Unscoped actors and legacy/unscoped targets are eligible by policy.
   if (ownWorkspace === null || targetWorkspace === null) return { allowed: true };
   if (sameWorkspace(ownWorkspace, targetWorkspace)) return { allowed: true };
-  if (opts.crossWorkspace === true || loadConfig(orchDir()).fleet.cross_workspace) return { allowed: true };
+  const configuredCrossWorkspace = opts.orchDir === undefined
+    ? SETTINGS_DEFAULTS.fleet.cross_workspace
+    : loadConfigOrNull(opts.orchDir)?.fleet.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace;
+  if (opts.crossWorkspace === true || configuredCrossWorkspace) return { allowed: true };
   return {
     allowed: false,
     reason: `workspace wall: actor workspace ${ownWorkspace} cannot write to target workspace ${targetWorkspace} (${targetKey ?? "unknown"})`,

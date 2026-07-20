@@ -26,6 +26,19 @@ interface LockRecord {
 
 export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startTicks">;
 
+export interface DaemonCodeSkew {
+  daemonHash: string;
+  diskHash: string;
+}
+
+/** Read the exact live-daemon code-hash skew used by doctor. */
+export function readDaemonCodeSkew(orchDir: string, entrypoint: string): DaemonCodeSkew | null {
+  const lock = readDaemonLock(orchDir);
+  if (!lock || !processIsAlive(lock.pid)) return null;
+  const diskHash = computeCodeHash(entrypoint);
+  return lock.codeHash === diskHash ? null : { daemonHash: lock.codeHash, diskHash };
+}
+
 /** A synchronous socket answer check supplied by the RPC layer (and by tests). */
 export type SocketProbe = (socketPath: string) => boolean;
 

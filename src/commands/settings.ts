@@ -21,6 +21,14 @@ function rawSetting<T>(orchDirPath: string, ...keys: string[]): T | undefined {
 }
 
 /** Switch the active default adapter/backend; writeSettingsDefault throws when the id is not installed. */
+function formatValue(value: unknown): string {
+  if (value === undefined) return "(none)";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? "(none)";
+}
+
 function switchDefault(key: "adapter" | "backend", value: string): void {
   try {
     writeSettingsDefault(orchDir(), key, value);
@@ -50,9 +58,9 @@ export function cmdSettings(args: string[]): void {
 
   const provenance = [
     { key: "defaults.worktree", ...resolveWithSource<boolean>({ env: "ORCH_WORKTREE", config: rawSetting<boolean>(orchDir(), "defaults", "worktree"), fallback: config.defaults.worktree }) },
-    { key: "defaults.adapter", ...resolveWithSource<string>({ env: "ORCH_ADAPTER", config: rawSetting<string>(orchDir(), "defaults", "adapter"), fallback: "(none)" }) },
-    { key: "defaults.backend", ...resolveWithSource<string>({ env: "ORCH_BACKEND", config: rawSetting<string>(orchDir(), "defaults", "backend"), fallback: "(auto)" }) },
-    { key: "defaults.model", ...resolveWithSource<string>({ env: "ORCH_MODEL", config: rawSetting<string>(orchDir(), "defaults", "model"), fallback: "(none)" }) },
+    { key: "adapter", ...resolveWithSource<string>({ env: "ORCH_ADAPTER", config: rawSetting<string>(orchDir(), "defaults", "adapter"), fallback: "(none)" }) },
+    { key: "backend", ...resolveWithSource<string>({ env: "ORCH_BACKEND", config: rawSetting<string>(orchDir(), "defaults", "backend"), fallback: "(auto)" }) },
+    { key: "model", ...resolveWithSource<string>({ env: "ORCH_MODEL", config: rawSetting<string>(orchDir(), "defaults", "model"), fallback: "(none)" }) },
     { key: "daemon.tcp_port", ...resolveWithSource<number>({ env: "ORCH_DAEMON_PORT", config: rawSetting<number>(orchDir(), "daemon", "tcp_port"), fallback: config.daemon.tcp_port }) },
     { key: "fleet.spawn_cap", ...resolveWithSource<number>({ env: "ORCH_SPAWN_CAP", config: rawSetting<number>(orchDir(), "fleet", "spawn_cap"), fallback: config.fleet.spawn_cap }) },
     { key: "fleet.max_agents", ...resolveWithSource<number | string>({ config: rawSetting<number>(orchDir(), "fleet", "max_agents"), fallback: config.fleet.max_agents ?? "(none)" }) },
@@ -76,10 +84,10 @@ export function cmdSettings(args: string[]): void {
   }
 
   const width = Math.max(...provenance.map((row) => row.key.length));
-  const valueWidth = Math.max(...provenance.map((row) => String(row.value).length));
+  const valueWidth = Math.max(...provenance.map((row) => formatValue(row.value).length));
   process.stdout.write(`settings  ${settingsPath(orchDir())}\n\n`);
   for (const { key, value, source } of provenance) {
-    process.stdout.write(`  ${key.padEnd(width)}  ${String(value).padEnd(valueWidth)}  ${source}\n`);
+    process.stdout.write(`  ${key.padEnd(width)}  ${formatValue(value).padEnd(valueWidth)}  ${source}\n`);
   }
   process.stdout.write("\n");
   process.stdout.write(`  installed.adapters  ${config.installed.adapters.join(", ") || "(none)"}\n`);

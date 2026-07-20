@@ -193,6 +193,67 @@ export const CORE_SCOPE_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = ne
   ],
 ]);
 
+/** Exact backend-owned environment names in addition to the directory-derived prefix. */
+const BACKEND_ENV_PREFIX_EXTRAS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["tmux", ["TMUX"]],
+]);
+
+function backendEnvNames(): ReadonlyMap<string, string> {
+  const owners = new Map<string, string>();
+  let backends: string[];
+  try {
+    backends = readdirSync("src/backends", { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return owners;
+  }
+  for (const backend of backends) {
+    const prefix = `${backend.toUpperCase()}_`;
+    owners.set(prefix, backend);
+    for (const extra of BACKEND_ENV_PREFIX_EXTRAS.get(backend) ?? []) owners.set(extra, backend);
+    const lines = scanBackendEnvReferences(join("src/backends", backend));
+    for (const name of lines) if (!name.startsWith("ORCH_")) owners.set(name, backend);
+  }
+  return owners;
+}
+
+function scanBackendEnvReferences(directory: string): Set<string> {
+  const names = new Set<string>();
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(join(current, entry.name));
+      else if (entry.isFile() && entry.name.endsWith(".ts")) {
+        const text = readFileSync(join(current, entry.name), "utf8");
+        for (const match of text.matchAll(/process\.env(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])/g)) {
+          const name = match[1] ?? match[2];
+          if (name) names.add(name);
+        }
+      }
+    }
+  };
+  walk(directory);
+  return names;
+}
+
+const BACKEND_ENV_OWNERS = backendEnvNames();
+
+function checkBackendEnvLine(line: string, relPath: string): string | undefined {
+  const backendMatch = /^src\/backends\/([^/]+)\//.exec(relPath);
+  const backendOwner = backendMatch?.[1];
+  for (const match of line.matchAll(/process\.env(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])/g)) {
+    const name = match[1] ?? match[2];
+    if (!name || name.startsWith("ORCH_")) continue;
+    const owner = [...BACKEND_ENV_OWNERS.entries()]
+      .filter(([pattern]) => name === pattern || name.startsWith(pattern))
+      .sort(([left], [right]) => right.length - left.length)[0]?.[1];
+    if (!owner) continue;
+    if (backendOwner === owner || relPath.startsWith("extensions/")) continue;
+    return `backend-owned env ${name} is forbidden here; derive via the backend port capability, not env`;
+  }
+  return undefined;
+}
+
 function checkPresenceFilenameLine(line: string, relPath: string): string | undefined {
   if (relPath.startsWith(`${PRESENCE_SCOPE}/`)) return undefined;
   for (const filename of PRESENCE_FILENAMES) {
@@ -253,6 +314,8 @@ export function checkCommandsParserLine(line: string): string | undefined {
 }
 
 export function checkCoreScopeLine(line: string, relPath: string): string | undefined {
+  const backendEnvViolation = checkBackendEnvLine(line, relPath);
+  if (backendEnvViolation) return backendEnvViolation;
   const presenceViolation = checkPresenceFilenameLine(line, relPath);
   if (presenceViolation) return presenceViolation;
   if (/from\s+["'][^"']*\/(?:pi|claude|codex)(?:\.ts)?["']/.test(line)) {
@@ -312,7 +375,9 @@ function runAllChecks(): void {
    * imports the constants, so a raw quoted occurrence anywhere else is a second
    * definition and fails this check.
    */
-  const bridgeSourceFiles = scanSrcOutsideBackends((line) => {
+  const bridgeSourceFiles = scanSrcOutsideBackends((line, relPath) => {
+    const backendEnvViolation = checkBackendEnvLine(line, relPath);
+    if (backendEnvViolation) return backendEnvViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden outside backends (boundary modules live directly under backends/)";
     if (/\b(?:herdrBestEffort|herdrJSON|herdrExec|herdrPanes|herdrTabs|herdrNames|herdrReachable|HERDR_PANE_ID|TMUX_PANE)\b/.test(line)) {
       return "backend-specific herdr/tmux identifiers are forbidden outside backends";
@@ -327,10 +392,7 @@ function runAllChecks(): void {
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden in extensions (boundary modules live directly under backends/)";
-    if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in extensions";
-    if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in extensions";
-    if (line.includes("process.env.HERDR")) return "process.env.HERDR is forbidden in extensions";
-    if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden in extensions";
+    // Harness extensions may read the environment for their own harness integration.
     if (/["'](herdr|tmux)["']/.test(line)) return "quoted herdr/tmux literals are forbidden in extensions";
     return undefined;
     // Recursive: each harness owns extensions/<harness>/, so every file is one level down.
@@ -357,6 +419,8 @@ function runAllChecks(): void {
   });
 
   const backendFiles = scanDirectory("src/backends", new Set(["backend.ts", "identity.ts"]), (line, relPath) => {
+    const backendEnvViolation = checkBackendEnvLine(line, relPath);
+    if (backendEnvViolation) return backendEnvViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
     if (/from\s+["']\.\.\/adapters\/(?:pi|claude|codex)\.ts["']/.test(line)) {

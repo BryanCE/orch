@@ -163,6 +163,35 @@ A running `orchd` whose code hash no longer matches the installed daemon entrypo
 - **WHEN** `orchd` is running under a code hash that differs from the installed daemon entrypoint and `orch doctor` runs
 - **THEN** the orchd-code check reports a warning naming the lock and disk hashes and directing the user to run `orch daemon reload`, and doctor's exit code is unaffected by it
 
+### Requirement: Daemon code skew guard
+
+When a live `orchd` lock reports a code hash different from the installed daemon entrypoint hash, orch SHALL refuse mutating commands with a non-zero exit. The refusal SHALL name both hashes and direct the user to run `orch daemon reload`. Read-only commands SHALL continue to run. `--stale-ok` SHALL override the refusal for a mutating command. An absent or dead daemon SHALL not be treated as skew: the command SHALL proceed through normal daemon auto-start, which starts a fresh daemon. `orch doctor` SHALL report live daemon skew as a warning only, naming both hashes and `orch daemon reload`; the warning SHALL not make doctor exit non-zero.
+
+#### Scenario: Mutating command refuses daemon skew
+
+- **WHEN** `orchd` is running under a code hash different from the installed daemon entrypoint hash and the user runs a mutating command
+- **THEN** orch exits non-zero, names the live and installed hashes, and directs the user to run `orch daemon reload`
+
+#### Scenario: Read-only command proceeds during daemon skew
+
+- **WHEN** `orchd` is running under a code hash different from the installed daemon entrypoint hash and the user runs a read-only command
+- **THEN** the command runs without the skew refusal
+
+#### Scenario: Stale override permits mutation
+
+- **WHEN** `orchd` is running under a code hash different from the installed daemon entrypoint hash and the user runs a mutating command with `--stale-ok`
+- **THEN** orch does not refuse the command for skew and proceeds with normal command handling
+
+#### Scenario: No running daemon is not skew
+
+- **WHEN** no daemon is running and the user runs a mutating command
+- **THEN** orch does not report skew and normal daemon auto-start starts a fresh daemon before handling the command
+
+#### Scenario: Doctor reports skew as a warning
+
+- **WHEN** `orchd` is running under a code hash different from the installed daemon entrypoint hash and `orch doctor` runs
+- **THEN** doctor reports a warning naming both hashes and `orch daemon reload`, and exits successfully unless another check fails
+
 ### Requirement: Doctor separates broken installs from situational context
 
 `orch doctor` SHALL reserve FAIL for conditions where the installation itself is broken (missing integration, stale daemon code, invalid config, runtime mismatch). A condition that merely reflects where the command was run — a session-scoped backend reporting `insideSession = false` while its binary is available and another installed backend is usable — SHALL be reported as a warning naming the situational cause, not a failure. Doctor's exit code SHALL be non-zero only when a genuine failure is present.

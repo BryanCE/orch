@@ -54,7 +54,7 @@ describe("orch settings", () => {
     expect(report.adapter).toEqual({ value: "pi", source: "settings.json" });
     expect(report.backend).toEqual({ value: "headless", source: "settings.json" });
     expect(report.model!.source).toBe("default");
-    expect(report.spawn_cap).toEqual({ value: 8, source: "default" });
+    expect(report["fleet.spawn_cap"]).toEqual({ value: 8, source: "default" });
     expect(report.installed!.value).toEqual({ adapters: ["pi", "claude"], backends: ["headless"] });
   }, 30_000);
 

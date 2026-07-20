@@ -4,16 +4,15 @@ import * as path from "node:path";
 import { buildExtensionBundle, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { buildEntities, resolvePane } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, spawnedRecords } from "../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
 import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 
-import { allBackends } from "../backends/registry.ts";
 import { loadConfig } from "../config.ts";
 import { adapterCommand, resolveAdapterOrDie, workerPrompt } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
-import { assertAgentOwned, ownsAgent, splitOptionFlags, die, backendTarget, parseTargetPrompt } from "./target.ts";
+import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
 export async function cmdRun(args: string[]): Promise<void> {
@@ -52,6 +51,7 @@ export function cmdNew(args: string[]) {
   const json = args.includes("--json");
   const force = args.includes("--force");
   const targets: string[] = [];
+  if (args.includes("--all")) requireCallerOwnerToken();
   for (const arg of args) {
     if (arg === "--json" || arg === "--force") continue;
     if (arg === "--all") {
@@ -165,6 +165,7 @@ export function cmdReload(args: string[]) {
   const all = args.includes("--all");
   const force = args.includes("--force");
   const targets: string[] = [];
+  if (all) requireCallerOwnerToken();
   for (const arg of args) {
     if (arg === "--json" || arg === "--force") continue;
     if (arg === "--all") {
@@ -218,6 +219,7 @@ export function cmdRestart(args: string[]) {
   const json = args.includes("--json");
   const force = args.includes("--force");
   const targets: string[] = [];
+  if (args.includes("--all")) requireCallerOwnerToken();
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--cmd") cmd = args[++i]!;
     else if (args[i] === "--hard" || args[i] === "--json" || args[i] === "--force") continue;
@@ -268,31 +270,46 @@ export function cmdClose(args: string[]) {
   const force = enabled.has("--force");
   if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream]");
 
-  const targets: { backend: Backend; handle: BackendHandle }[] = [];
+  const targets: { backend: Backend; handle: BackendHandle; key: string; pid?: number }[] = [];
   if (all) {
-    const selfByBackend = new Map(allBackends().map((backend) => [backend.id, backend.currentIdentity?.()?.handle ?? null]));
-    const mine = spawnedRecords();
-    for (const backend of allBackends()) {
-      const inventory = backend.inventory?.() ?? [];
-      for (const item of inventory) {
-        if (item.handle === selfByBackend.get(backend.id)) continue;
-        const record = [...mine.values()].find((candidate) => candidate.backend === backend.id && candidate.handle === String(item.handle));
-        if (record && (force || ownsAgent(record))) targets.push({ backend, handle: item.handle });
-      }
+    // --all is deliberately owner-scoped, but not workspace-scoped. Dead and
+    // headless records are cleanup targets too.
+    requireCallerOwnerToken();
+    for (const record of spawnedRecords().values()) {
+      if (!ownsAgent(record)) continue;
+      const resolved = resolveLifecycleTarget(record.pane);
+      const pid = resolved.entity.presence?.status?.pid;
+      targets.push({ backend: resolved.backend, handle: resolved.handle, key: record.pane, pid });
     }
   }
   for (const target of positional) {
-    const { ent, pane } = resolvePane(target);
-    assertAgentOwned(target, ent, force);
-    const { backend, handle } = backendTarget(pane, "close");
-    targets.push({ backend, handle });
+    const resolved = resolveLifecycleTarget(target);
+    assertAgentOwned(target, resolved.entity, force);
+    if (resolved.record.owner && !ownsAgent(resolved.record) && !force) {
+      die(`Target "${target}" is owned by ${resolved.record.owner}. Use --force to override.`);
+    }
+    const pid = resolved.entity.presence?.status?.pid;
+    targets.push({ backend: resolved.backend, handle: resolved.handle, key: resolved.record.pane, pid });
   }
 
   let ok = 0;
   const closed: string[] = [];
+  const seen = new Set<string>();
   for (const target of targets) {
-    if (target.backend.close(target.handle)) { ok++; closed.push(String(target.handle)); if (!json) process.stdout.write(`Closed ${String(target.handle)}.\n`); }
-    else if (!json) process.stderr.write(`Could not close ${String(target.handle)}.\n`);
+    if (seen.has(target.key)) continue;
+    seen.add(target.key);
+    let closedByBackend = false;
+    try { closedByBackend = target.backend.close(target.handle); } catch {}
+    let signalled = false;
+    if (!closedByBackend && target.pid !== undefined && pidAlive(target.pid)) {
+      try { process.kill(target.pid, "SIGTERM"); signalled = true; } catch {}
+    }
+    // A missing pane is already clean. Always reap the orch-owned record and
+    // presence directory once ownership has been checked.
+    reapSpawnedRecord(target.key);
+    ok++;
+    closed.push(String(target.handle));
+    if (!json) process.stdout.write(`Closed ${String(target.handle)}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
   }
   const targetCount = targets.length;
   if (all && !targetCount && !json) process.stdout.write("No fleet agents to close.\n");

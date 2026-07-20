@@ -64,9 +64,9 @@ describe("notify", () => {
 
     expect(result.value).toEqual([
       { type: "desktop", on: ["blocked", "error"] },
-      { type: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
-      { type: "command", on: ["blocked", "error"], command: nodeCommand("") },
-      { type: "herdr", on: ["done"] },
+      { type: "webhook", on: ["done", "error"], url: "https://example.test/hook", timeoutMs: 3000 },
+      { type: "command", on: ["blocked", "error"], command: nodeCommand(""), timeoutMs: 3000 },
+      { type: "herdr", on: ["done"], timeoutMs: 3000 },
     ]);
     expect(result.stderr).toBe("");
   });

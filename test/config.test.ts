@@ -77,6 +77,7 @@ describe("loadConfig", () => {
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
+      daemon: { tcp_port: 4321 },
     });
 
     expect(loadConfig(directory)).toEqual({
@@ -96,6 +97,7 @@ describe("loadConfig", () => {
       locked_commands: [],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
+      daemon: { tcp_port: 4321 },
     });
   });
 
@@ -332,7 +334,7 @@ describe("config precedence", () => {
     writeSettingsFixture(directory);
     const config = loadConfig(directory);
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.spawn_cap, fallback: 2 })).toBe(2);
+    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.max_agents, fallback: 2 })).toBe(2);
   });
 
   test("uses the settings.json value over the fallback", () => {

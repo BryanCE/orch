@@ -65,8 +65,8 @@ describe("notify sinks", () => {
     });
 
     expect(loadSinks(directory)).toEqual([
-      { type: "command", on: ["done"], command: nodeCommand("") },
-      { type: "webhook", on: ["error"], url: "https://example.test/notify" },
+      { type: "command", on: ["done"], command: nodeCommand(""), timeoutMs: 3000 },
+      { type: "webhook", on: ["error"], url: "https://example.test/notify", timeoutMs: 3000 },
     ]);
   });
 });

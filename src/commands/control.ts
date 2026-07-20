@@ -7,7 +7,7 @@ import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
-import { assertAgentOwned, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
+import { assertAgentOwned, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { resolveAgentSettings, workerPrompt, type AgentFlags, type AgentSettings } from "./spawn.ts";
 
@@ -75,6 +75,7 @@ export async function cmdBroadcast(args: string[]) {
   if (!targets.length) all = true;
   const destinations = new Map<string, PresenceEntry>();
   if (all) {
+    requireCallerOwnerToken();
     for (const pres of livePanePresenceEntries()) {
       const record = spawnedRecords().get(pres.key);
       if (record && ownsAgent(record)) destinations.set(pres.key, pres);

@@ -3,7 +3,7 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget, parseIdentity } from "../backends/identity.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
-import { loadConfig, SETTINGS_DEFAULTS } from "../config.ts";
+import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 import type { AdapterCommand, AgentAdapter } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 
@@ -110,7 +110,7 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
 export async function deliverControl(target: string, action: ControlAction): Promise<void> {
-  const timeoutMs = loadConfig(orchDir()).timeouts.adapter_command_ms ?? ADAPTER_COMMAND_TIMEOUT_MS;
+  const timeoutMs = loadConfigOrNull(orchDir())?.timeouts.adapter_command_ms ?? ADAPTER_COMMAND_TIMEOUT_MS;
   const canonicalTarget = normalizeControlTarget(target);
   const adapter = resolveTargetAdapter(canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);

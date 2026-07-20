@@ -33,6 +33,21 @@ All workspace identity, scoping, and wall decisions SHALL use the shared workspa
 - **WHEN** the user performs the same cross-workspace write through herdr, tmux, and headless fleets
 - **THEN** each backend applies the same refusal or explicitly permitted override based on its reported `workspace` field
 
+### Requirement: Close and cleanup bypass the workspace wall
+Lifecycle cleanup verbs SHALL resolve and reap orch-owned targets without applying the workspace wall. This exception applies only to `close`/`kill` cleanup; agent-directed writes such as `steer` SHALL remain wall-protected. Closing a dead or pane-less target SHALL be a successful no-op that removes its registry row and presence directory.
+
+#### Scenario: Cross-workspace close succeeds
+- **WHEN** an orchestrator closes an orch-spawned target in another workspace by name, key, or pane id
+- **THEN** close succeeds without `--cross-workspace` and reaps the target
+
+#### Scenario: Dead-pane close reaps and exits successfully
+- **WHEN** an orchestrator closes an orch-spawned target whose pane is dead or missing
+- **THEN** close exits 0 as a no-op and removes the registry row and presence directory
+
+#### Scenario: Steer remains wall-blocked
+- **WHEN** an orchestrator in workspace A steers a target in workspace B without the cross-workspace override
+- **THEN** the workspace wall refuses the steer
+
 ### Requirement: Work loops remain within their origin workspace
 The work loop SHALL scope task selection and dispatch to the backend-reported workspace from which it originated, and SHALL not select or write to agents in another backend-reported workspace unless `fleet.cross_workspace` is true and the explicit cross-workspace policy override applies. It MUST NOT derive that workspace by parsing a plexer-specific key or handle string.
 
@@ -62,7 +77,7 @@ Every verb that writes to an agent — steer, answer, model, broadcast, pipe del
 - **THEN** the daemon refuses the write naming the owning orchestrator
 
 ### Requirement: Fleet operations are ownership-scoped
-The orchestrator SHALL derive its owner token from `ORCH_OWNER`, falling back to `HERDR_PANE_ID`, or remain ownerless when neither is set. A spawn record SHALL stamp that token as its optional `owner` field. Bulk lifecycle operations (`close`, `reset`, `reload`, and `restart` with `--all`) and `broadcast` SHALL act only on records whose owner equals the caller token; an absent owner matches an absent caller token. An explicit single-agent target owned by another orchestrator SHALL fail closed and name the owner, unless `--force` is supplied.
+The orchestrator SHALL derive its owner token from `ORCH_OWNER`, falling back to the first defined `callerIdentity()` capability across registered backends, or remain ownerless when none is available. A spawn record SHALL stamp that token as its optional `owner` field. Bulk lifecycle operations (`close`, `reset`, `reload`, and `restart` with `--all`) and `broadcast` SHALL refuse when no owner token is resolvable, naming `ORCH_OWNER` as the fix, and otherwise act only on records whose owner equals the caller token. An explicit single-agent target owned by another orchestrator SHALL fail closed and name the owner, unless `--force` is supplied; unowned explicit targets remain usable by unowned callers.
 
 #### Scenario: Bulk operation skips foreign-owned agents
 - **WHEN** an orchestrator runs a bulk lifecycle operation or `broadcast --all`
@@ -76,7 +91,7 @@ The orchestrator SHALL derive its owner token from `ORCH_OWNER`, falling back to
 - **WHEN** an orchestrator explicitly targets an agent owned by another orchestrator with `--force`
 - **THEN** the operation is allowed to act on that agent
 
-#### Scenario: Absent-owner legacy record matches absent-token caller
-- **WHEN** an agent record has no `owner` field and the caller has no owner token
-- **THEN** ownership scoping treats the record as owned by that caller for bulk and explicit operations
+#### Scenario: Headless bulk operation refuses without an owner token
+- **WHEN** a headless orchestrator runs a bulk lifecycle operation or `broadcast --all` without `ORCH_OWNER` and no backend caller identity is available
+- **THEN** the operation is refused loudly and names `ORCH_OWNER` with the instruction to set it, rather than matching ownerless records
 

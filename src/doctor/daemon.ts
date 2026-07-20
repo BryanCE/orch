@@ -1,6 +1,6 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { computeCodeHash, readDaemonLock } from "../daemon/lifecycle.ts";
+import { readDaemonCodeSkew, readDaemonLock } from "../daemon/lifecycle.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import type { CheckResult } from "../check-result.ts";
 import { repoDir } from "./shared.ts";
@@ -33,16 +33,16 @@ export async function checkDaemonStaleness(orchDir: string): Promise<CheckResult
   if (!lock || !pidAlive(lock.pid)) {
     return { id: "orchd-staleness", label: "orchd code", status: "skip", detail: "orchd is not running" };
   }
-  const diskHash = computeCodeHash(daemonEntrypoint());
-  if (lock.codeHash !== diskHash) {
+  const skew = readDaemonCodeSkew(orchDir, daemonEntrypoint());
+  if (skew) {
     return {
       id: "orchd-staleness",
       label: "orchd code",
       status: "warn",
-      detail: `orchd code is stale (lock ${lock.codeHash}, disk ${diskHash}); run orch daemon reload`,
+      detail: `orchd code is stale (lock ${skew.daemonHash}, disk ${skew.diskHash}); run orch daemon reload`,
     };
   }
-  return { id: "orchd-staleness", label: "orchd code", status: "ok", detail: `orchd code is current (${diskHash})` };
+  return { id: "orchd-staleness", label: "orchd code", status: "ok", detail: `orchd code is current (${lock.codeHash})` };
 }
 
 export async function checkDaemonLock(orchDir: string): Promise<CheckResult> {

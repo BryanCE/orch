@@ -51,7 +51,7 @@ describe("orch work notifications", () => {
     try {
       const { runWorkLoop } = await import("../src/daemon/work-loop.ts");
       const { loadSinks } = await import("../src/notify/router.ts");
-      expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command }]);
+      expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command, timeoutMs: 3_000 }]);
       const controller = new AbortController();
       const loop = runWorkLoop({ orchDir, pollIntervalMs: 20, continuous: true, signal: controller.signal });
       try {

@@ -236,6 +236,7 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
     const finishError = (error: Error) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       socket.destroy();
       reject(error);
     };
@@ -246,7 +247,9 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
       clearTimeout(timer);
       resolve(socket);
     });
-    socket.once("error", finishError);
+    // "on", not "once": a Windows pipe connect can emit a second error after the
+    // first settles the promise — an unlistened emission throws in the caller.
+    socket.on("error", finishError);
   });
 }
 

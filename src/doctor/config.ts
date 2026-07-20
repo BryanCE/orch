@@ -1,6 +1,6 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadConfig, loadConfigOrNull, settingsPath } from "../config.ts";
+import { loadConfig, loadConfigOrNull, settingsPath, type OrchConfig } from "../config.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import type { CheckResult } from "../check-result.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
@@ -32,11 +32,11 @@ export async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult
 
 export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
-  const fleet = loadConfigOrNull(orchDir)?.fleet ?? {};
-  const globalCap = fleet.max_agents;
-  const violations = globalCap === undefined
+  const fleet: OrchConfig["fleet"] | undefined = loadConfigOrNull(orchDir)?.fleet;
+  const globalCap = fleet?.max_agents;
+  const violations = globalCap === undefined || fleet === undefined
     ? []
-    : Object.entries(fleet.workspace_caps ?? {}).filter(([, cap]) => cap > globalCap);
+    : Object.entries(fleet.workspace_caps).filter(([, cap]) => cap > globalCap);
   if (!violations.length) return { id: "spawn-limits", label: "Spawn limits", status: "ok", detail: "spawn limits are satisfiable" };
   return {
     id: "spawn-limits",
@@ -63,7 +63,7 @@ export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
 export async function checkConfig(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const file = settingsPath(orchDir);
-  if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "fail", detail: `${file} is missing; run orch setup` };
+  if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "ok", detail: "no settings.json" };
   try {
     loadConfig(orchDir);
     return { id: "config", label: "Config validity", status: "ok", detail: file };

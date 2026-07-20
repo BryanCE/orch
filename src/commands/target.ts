@@ -1,10 +1,11 @@
 import { loadConfig, type HostConfig } from "../config.ts";
 import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
-import type { Backend } from "../backends/backend.ts";
+import type { Backend, BackendHandle } from "../backends/backend.ts";
 import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
-import { parseTarget, resolveTarget, type Entity } from "../entities.ts";
+import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import type { SpawnedRecord } from "../store/sqlite.ts";
 import { errorMessage, isRecord } from "../util.ts";
 
 export function die(msg: string): never {
@@ -106,6 +107,15 @@ export function assertAgentOwned(target: string, entity: Pick<Entity, "key">, fo
   }
 }
 
+/** Check a registry-addressable target before resolving its live pane. */
+export function assertRegisteredTargetOwned(target: string, force = false): void {
+  if (force) return;
+  const record = [...spawnedRecords().values()].find((candidate) => candidate.pane === target || candidate.handle === target);
+  if (record?.owner && !ownsAgent(record)) {
+    die(`Target "${target}" is owned by ${record.owner}. Use --force to override.`);
+  }
+}
+
 export function callerWorkspace(): string | null {
   const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
   return backend.currentIdentity?.()?.workspace ?? null;
@@ -119,4 +129,64 @@ export function backendTarget(target: string, command: string): { backend: Backe
   // Resolve the user-facing target once, then pass the backend's real pane
   // handle. Names are display metadata; herdr pane commands require paneId.
   return { backend, handle: ent.paneId ?? id.handle };
+}
+
+export interface LifecycleTarget {
+  readonly entity: Entity;
+  readonly record: SpawnedRecord;
+  readonly backend: Backend;
+  /** Backend-native handle, or a headless pid/key signal handle. */
+  readonly handle: BackendHandle;
+}
+
+function registryTargetMatches(record: SpawnedRecord, target: string): boolean {
+  if (record.pane === target || record.handle === target) return true;
+  try {
+    const id = parseIdentity(record.pane);
+    return id.handle === target;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve lifecycle targets from orch's registry, not the current workspace.
+ * Close is cleanup, so it must still resolve a dead or headless record after
+ * the backend has stopped reporting the pane.
+ */
+export function resolveLifecycleTarget(target: string): LifecycleTarget {
+  const currentRecords = spawnedRecords();
+  const entities = buildEntities();
+  const records = [...currentRecords.values()].filter((record) => registryTargetMatches(record, target)
+    || entities.some((entity) => entity.key === record.pane && entity.name === target));
+  if (records.length > 1) die(`Ambiguous target "${target}".`);
+  const record = records[0];
+  if (!record) {
+    const ent = resolveTarget(target, { all: true });
+    const id = parseIdentity(ent.key);
+    const backend = getBackend(id.backend);
+    if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(id.backend)}.`);
+    return { entity: ent, record: { pane: ent.key, backend: id.backend, handle: ent.paneId ?? id.handle }, backend, handle: ent.paneId ?? id.handle };
+  }
+
+  const id = parseIdentity(record.pane);
+  const backend = getBackend(record.backend ?? id.backend);
+  if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(record.backend ?? id.backend)}.`);
+  const ent = buildEntities().find((candidate) => candidate.key === record.pane)
+    ?? {
+      key: record.pane,
+      paneId: record.handle ?? null,
+      name: id.handle,
+      tabLabel: null,
+      agent: record.adapter ?? null,
+      focused: false,
+      backendStatus: null,
+      presence: loadPresence().get(record.pane) ?? null,
+      sessionPath: null,
+      presenceOnly: true,
+      workspace: record.workspace ?? id.workspace,
+    };
+  const pid = ent.presence?.status?.pid;
+  const handle = record.handle ?? ent.paneId ?? (typeof pid === "number" ? { pid, key: record.pane } : id.handle);
+  return { entity: ent, record, backend, handle };
 }

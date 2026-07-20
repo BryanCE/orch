@@ -361,6 +361,10 @@ export function selectSpawnedRecords(orchDir: string): SpawnedRecord[] {
   });
 }
 
+export function deleteSpawnedRecord(orchDir: string, pane: string): void {
+  openStore(orchDir).query("DELETE FROM spawned WHERE pane = ?").run(pane);
+}
+
 export interface OutboxMessageInput {
   id: string;
   target: string;

@@ -1,6 +1,8 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
+import { orchDir } from "../presence/store.ts";
+import { readDaemonCodeSkew } from "../daemon/lifecycle.ts";
 import { cmdStatus } from "./status.ts";
 import { cmdSpawn, cmdTile } from "./spawn.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
@@ -158,6 +160,31 @@ export function readOrchVersion(): string {
 
 const VERSION = readOrchVersion();
 
+const STALE_GUARD_COMMANDS = new Set([
+  "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
+  "queue", "work", "model", "broadcast",
+]);
+
+function daemonEntrypoint(): string {
+  return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
+}
+
+/** Refuse writes sent to a live daemon from a stale installed CLI. */
+function preflightSkew(argv: string[]): string[] {
+  const staleOk = argv.includes("--stale-ok");
+  const sanitized = argv.filter((arg) => arg !== "--stale-ok");
+  const cmd = sanitized[0];
+  const mutates = cmd === "queue"
+    ? sanitized[1] === "add" || sanitized[1] === "cancel"
+    : Boolean(cmd && STALE_GUARD_COMMANDS.has(cmd));
+  if (!mutates || staleOk) return sanitized;
+  const skew = readDaemonCodeSkew(orchDir(), daemonEntrypoint());
+  if (skew) {
+    die(`Refusing orch ${cmd}: daemon hash=${skew.daemonHash} differs from installed hash=${skew.diskHash}; fix: orch daemon reload  # or: bun run build:dev; override: --stale-ok`);
+  }
+  return sanitized;
+}
+
 /** Commands that must keep working before setup has recorded anything. `setup` records the
  * composition and `doctor` diagnoses an install that does not work yet — they are how a user
  * reaches a configured state, so neither may ever be refused for being unconfigured. */
@@ -174,7 +201,7 @@ export function needsFirstRunSetup(cmd: string | undefined): boolean {
 
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
-  const rest = argv.slice(1);
+  let rest = argv.slice(1);
   // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it
   // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
   // below is only ever reached with a real recorded configuration.
@@ -186,6 +213,8 @@ export function runCommand(argv: string[]): void {
     // Nothing recorded and no TTY to walk the wizard on: say exactly what to run, rather than
     // letting an unconfigured command surface a config error deeper in.
     if (!exemptFromSetupGate(cmd) && compositionUnrecorded()) die(setupRequiredMessage());
+    const sanitized = preflightSkew(argv);
+    rest = sanitized.slice(1);
   } catch (error: unknown) {
     // A present-but-invalid settings.json (stale schemaVersion, absent/unknown runtime): the
     // config layer already phrased these as plain guidance naming `orch setup`.

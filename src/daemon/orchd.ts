@@ -43,7 +43,7 @@ function getSinks(directory: string): Sink[] {
   return sinks ??= loadSinks(directory);
 }
 
-function presenceView(): { rows: Array<Record<string, unknown>> } {
+function presenceView(): { rows: Record<string, unknown>[] } {
   const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all: true });
   const spawned = spawnedRecords();
   return {
@@ -148,7 +148,7 @@ export function governWrite(directory: string, target: string, params: unknown):
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
   const steal = value.steal === true;
   const crossWorkspace = value.crossWorkspace === true;
-  const wall = checkWall(actor, target, { crossWorkspace });
+  const wall = checkWall(actor, target, { crossWorkspace, orchDir: directory });
   if (!wall.allowed) throw new Error(wall.reason ?? "workspace wall denied the write");
   if (actor === null) return;
   const owned = checkOwnerWrite(directory, target, actor, { steal });

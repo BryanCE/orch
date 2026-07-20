@@ -167,6 +167,10 @@ function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"])
   };
 }
 
+/** The message a dropped subscription exits on. Exported so the contract — non-zero exit
+ *  naming the command that recovers it — is pinned by test rather than by a manual kill. */
+export const DAEMON_DISCONNECTED = "orch events: daemon disconnected; restart it with: orch daemon start";
+
 /** The daemon is the only event source. Presence files are orchd's ingress, not a
  *  client transport: with the daemon gone there is nothing to degrade to, so a
  *  dropped subscription exits rather than silently watching files. */
@@ -178,7 +182,7 @@ async function startEventsTransport(context: EventsContext): Promise<() => void>
       if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
       context.emit(value);
     },
-    () => die("orch events: daemon disconnected; restart it with: orch daemon start"),
+    () => die(DAEMON_DISCONNECTED),
   );
 }
 

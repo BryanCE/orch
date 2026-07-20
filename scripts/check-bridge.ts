@@ -98,7 +98,7 @@ const extensionFiles = scanDirectory("extensions", new Set(), (line, relPath) =>
   if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden in extensions (boundary modules live directly under backends/)";
   if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in extensions";
   if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in extensions";
-  if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in extensions";
+  if (line.includes("process.env.HERDR")) return "process.env.HERDR is forbidden in extensions";
   if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden in extensions";
   return undefined;
   // Recursive: each harness owns extensions/<harness>/, so every file is one level down.

@@ -4,15 +4,14 @@ OpenSpec Dashboard
 ════════════════════════════════════════════════════════════
 Summary:
   ● Specifications: 22 specs, 108 requirements
-  ● Active Changes: 3 in progress
-  ● Completed Changes: 0
-  ● Task Progress: 72/85 (85% complete)
+  ● Active Changes: 0 in progress
+  ● Completed Changes: 3
 
-Active Changes
+Completed Changes
 ────────────────────────────────────────────────────────────
-  ◉ runtime-selection              [████████████████░░░░] 78%
-  ◉ daemon-only-events             [█████████████████░░░] 87%
-  ◉ monolith-file-breakdown        [██████████████████░░] 91%
+  ✓ daemon-only-events
+  ✓ monolith-file-breakdown
+  ✓ runtime-selection
 
 Specifications
 ────────────────────────────────────────────────────────────

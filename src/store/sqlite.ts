@@ -118,23 +118,6 @@ function createTables(db: DatabaseLike): void {
       branch TEXT
     );
   `);
-
-  // Keep migrations additive for databases created by earlier versions.
-  addColumnIfMissing(db, "outbox", "next_attempt_at", "INTEGER NOT NULL DEFAULT 0");
-  addColumnIfMissing(db, "spawned", "workspace", "TEXT");
-  addColumnIfMissing(db, "spawned", "handle", "TEXT");
-  addColumnIfMissing(db, "spawned", "cwd", "TEXT");
-}
-
-/** Apply an additive column migration, tolerating a concurrent applier's race. */
-function addColumnIfMissing(db: DatabaseLike, table: string, column: string, definition: string): void {
-  const columns = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (columns.some((existing) => existing.name === column)) return;
-  try {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-  } catch (error: unknown) {
-    if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) throw error;
-  }
 }
 
 /** Open (create-if-absent) the WAL store for one orch dir; connection is cached. */

@@ -10,12 +10,13 @@ import { BACKEND_IDS } from "./backends/backend.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errorMessage } from "./util.ts";
 
-/** The one settings.json schema version. Pre-publish there is no legacy support:
- * a file with any other version is invalid and must be fixed by hand or recreated
- * by `orch setup`. There is exactly ONE live schema at a time — no reader ever
- * accepts two. On a shape change, bump this stamp and fix every writer/reader/test
- * in the same commit; there is no old data to migrate, only files to recreate. */
-export const SETTINGS_SCHEMA = 2;
+/** The one settings.json schema version. This stays 1 until the project owner
+ * says otherwise — DO NOT BUMP IT, ever, for any shape change. Pre-publish there
+ * is no legacy support: exactly ONE live schema, no reader accepts two, a file
+ * with any other version is invalid and recreated by `orch setup`. On a shape
+ * change, alter the one live schema below and fix every writer/reader/test in
+ * the same commit; the stamp itself does not move. */
+export const SETTINGS_SCHEMA = 1;
 
 const PositiveInt = z.number().int().positive();
 

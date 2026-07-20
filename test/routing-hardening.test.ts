@@ -36,22 +36,13 @@ describe("store hardening", () => {
     expect(listTasks(dir)).toHaveLength(3);
   });
 
-  test("reopening an old outbox schema applies the migration idempotently and enables WAL", () => {
-    const dir = tempDir("orch-routing-migration-");
-    const db = new Database(join(dir, "orch.db"));
-    db.exec(`CREATE TABLE outbox (
-      id TEXT PRIMARY KEY, target TEXT NOT NULL, payload TEXT NOT NULL,
-      state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    )`);
-    db.close();
-
-    // Opening through the store must add the missing column without throwing.
+  test("a fresh store creates the full current schema with WAL enabled", () => {
+    const dir = tempDir("orch-routing-schema-");
     expect(() => listTasks(dir)).not.toThrow();
-    const reopened = new Database(join(dir, "orch.db"), { readonly: true });
-    const journal = reopened.query("PRAGMA journal_mode").get() as { journal_mode: string };
-    const columns = reopened.query("PRAGMA table_info(outbox)").all() as { name: string }[];
-    reopened.close();
+    const opened = new Database(join(dir, "orch.db"), { readonly: true });
+    const journal = opened.query("PRAGMA journal_mode").get() as { journal_mode: string };
+    const columns = opened.query("PRAGMA table_info(outbox)").all() as { name: string }[];
+    opened.close();
     expect(journal.journal_mode.toLowerCase()).toBe("wal");
     expect(columns.some((column) => column.name === "next_attempt_at")).toBe(true);
     expect(() => listTasks(dir)).not.toThrow();

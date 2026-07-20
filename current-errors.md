@@ -1,35 +1,7 @@
 $ bun run lint && bunx tsc --noEmit && bun run check:bridge
 $ oxlint bin src test extensions scripts
-
-  x eslint(no-unused-vars): Variable 'identity' is assigned a value but never used. Unused variables should start with a '_'.
-    ,-[extensions/codex/index.ts:52:5]
- 51 | if (!key) process.exit(0);
- 52 | let identity: ReturnType<typeof parseIdentity>;
-    :     ^^^^|^^^
-    :         `-- 'identity' is declared here
- 53 | try {
- 54 |   identity = parseIdentity(key);
-    :   ^^^^|^^^
-    :       `-- it was last assigned here
- 55 | } catch (error: unknown) {
-    `----
-  help: Did you mean to use this variable?
-
-  x eslint(no-unused-vars): Variable 'identity' is assigned a value but never used. Unused variables should start with a '_'.
-     ,-[extensions/claude/index.ts:129:5]
- 128 | if (!key) process.exit(0);
- 129 | let identity: ReturnType<typeof parseIdentity>;
-     :     ^^^^|^^^
-     :         `-- 'identity' is declared here
- 130 | try {
- 131 |   identity = parseIdentity(key);
-     :   ^^^^|^^^
-     :       `-- it was last assigned here
- 132 | } catch (error: unknown) {
-     `----
-  help: Did you mean to use this variable?
-
-Found 0 warnings and 2 errors.
-Finished in 606ms on 169 files with 65 rules using 8 threads.
-error: script "lint" exited with code 1
+Found 0 warnings and 0 errors.
+Finished in 3.1s on 169 files with 65 rules using 8 threads.
+extensions/pi/index.ts(71,39): error TS2345: Argument of type '(active: boolean, label: string | undefined) => void' is not assignable to parameter of type '(blocked: boolean) => void'.
+  Target signature provides too few arguments. Expected 2 or more, but got 1.
 error: script "check" exited with code 1

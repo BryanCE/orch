@@ -92,7 +92,7 @@ export interface PaneHud {
   /** Pull the pane/tab labels the user set; false when unavailable. */
   readLabels: (apply: (labels: PaneLabels) => void) => Promise<boolean>;
   /** Relay the plexer's blocked-state signal into the harness. */
-  registerBlockedRelay: (events: PaneHudEventBus, onBlockedChange: (blocked: boolean) => void) => void;
+  registerBlockedRelay: (events: PaneHudEventBus, onBlockedChange: (blocked: boolean, label: string | undefined) => void) => void;
 }
 
 const NO_HUD: PaneHud = {

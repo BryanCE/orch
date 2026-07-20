@@ -1,4 +1,6 @@
 import { tryParseIdentity } from "../backends/identity.ts";
+import { loadConfig } from "../config.ts";
+import { orchDir } from "../presence/store.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -39,7 +41,7 @@ export function checkWall(
   // Unscoped actors and legacy/unscoped targets are eligible by policy.
   if (ownWorkspace === null || targetWorkspace === null) return { allowed: true };
   if (sameWorkspace(ownWorkspace, targetWorkspace)) return { allowed: true };
-  if (opts.crossWorkspace === true) return { allowed: true };
+  if (opts.crossWorkspace === true || loadConfig(orchDir()).fleet.cross_workspace) return { allowed: true };
   return {
     allowed: false,
     reason: `workspace wall: actor workspace ${ownWorkspace} cannot write to target workspace ${targetWorkspace} (${targetKey ?? "unknown"})`,

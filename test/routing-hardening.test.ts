@@ -26,14 +26,14 @@ describe("store hardening", () => {
     const text = "'); DROP TABLE queue; --";
     const task = addTask(dir, text, { constraints: { value: text } }, "workspace-a");
     const other = addTask(dir, "other", {}, "workspace-b");
-    const legacy = addTask(dir, "legacy");
     const tasks = listTasks(dir);
 
     expect(tasks.find((candidate) => candidate.id === task.id)?.text).toBe(text);
     expect(nextQueuedTask(tasks, "worker", "workspace-a")?.id).toBe(task.id);
     expect(nextQueuedTask(tasks, "worker", "workspace-b")?.id).toBe(other.id);
-    expect(nextQueuedTask(tasks, "worker", "workspace-c")?.id).toBe(legacy.id);
-    expect(listTasks(dir)).toHaveLength(3);
+    // A task never crosses into a foreign workspace; nothing is claimable in workspace-c.
+    expect(nextQueuedTask(tasks, "worker", "workspace-c")).toBeUndefined();
+    expect(listTasks(dir)).toHaveLength(2);
   });
 
   test("a fresh store creates the full current schema with WAL enabled", () => {
@@ -60,7 +60,7 @@ describe("store hardening", () => {
 
   test("the conditional claim is exactly once", () => {
     const dir = tempDir("orch-routing-claim-");
-    const task = addTask(dir, "claim me");
+    const task = addTask(dir, "claim me", {}, "w1");
     expect(writeTaskClaim(dir, task.id, "worker-a", "2026-01-01T00:00:00.000Z")).toBe(true);
     expect(writeTaskClaim(dir, task.id, "worker-b", "2026-01-01T00:00:01.000Z")).toBe(false);
     expect(listTasks(dir).find((candidate) => candidate.id === task.id)?.agentKey).toBe("worker-a");

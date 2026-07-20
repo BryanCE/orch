@@ -16,7 +16,12 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
     ];
   },
   herdrNames: () => new Map(),
-  herdrTabs: () => new Map(),
+  herdrTabs: () => new Map([
+    ["t1", { tab_id: "t1", workspace_id: "ws-test", label: "Alpha" }],
+    ["t2", { tab_id: "t2", workspace_id: "ws-test", label: "Beta" }],
+    ["t3", { tab_id: "t3", workspace_id: "ws-2", label: "Gamma" }],
+    ["t4", { tab_id: "t4", workspace_id: "ws-3" }],
+  ]),
   herdrReachable: () => true,
   paneStatus: () => null,
   herdrExec: () => "",
@@ -71,5 +76,14 @@ describe("HerdrBackend", () => {
     expect(backend.close("")).toBe(false);
     expect(backend.close("w0:p2")).toBe(true);
     expect(herdrArgv.at(-1)).toEqual(["pane", "close", "w0:p2"]);
+  });
+
+  test("workspaceNames maps tab labels by workspace, first label wins, unlabeled skipped", () => {
+    expect(backend.workspaceNames()).toEqual(
+      new Map([
+        ["ws-test", "Alpha"],
+        ["ws-2", "Gamma"],
+      ]),
+    );
   });
 });

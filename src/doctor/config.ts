@@ -2,7 +2,7 @@ import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { loadConfig, loadConfigOrNull, settingsPath } from "../config.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
 
 export async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
@@ -32,20 +32,17 @@ export async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult
 
 export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
-  // doctor is the tool for a broken install, so a check whose subject is a configured section
-  // reads an absent settings.json as "nothing configured". `checkConfig` owns the settings file
-  // itself; a file that exists but is malformed still throws and is reported there.
-  const limits = loadConfigOrNull(orchDir)?.limits ?? {};
-  const globalCap = limits.maxAgents;
+  const fleet = loadConfigOrNull(orchDir)?.fleet ?? {};
+  const globalCap = fleet.max_agents;
   const violations = globalCap === undefined
     ? []
-    : Object.entries(limits.workspaces ?? {}).filter(([, cap]) => cap > globalCap);
+    : Object.entries(fleet.workspace_caps ?? {}).filter(([, cap]) => cap > globalCap);
   if (!violations.length) return { id: "spawn-limits", label: "Spawn limits", status: "ok", detail: "spawn limits are satisfiable" };
   return {
     id: "spawn-limits",
     label: "Spawn limits",
     status: "warn",
-    detail: violations.map(([workspace, cap]) => `limits.workspaces.${workspace} (${cap}) exceeds limits.maxAgents (${globalCap})`).join("; "),
+    detail: violations.map(([workspace, cap]) => `fleet.workspace_caps.${workspace} (${cap}) exceeds fleet.max_agents (${globalCap})`).join("; "),
   };
 }
 
@@ -66,7 +63,7 @@ export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
 export async function checkConfig(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const file = settingsPath(orchDir);
-  if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "ok", detail: "no settings.json" };
+  if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "fail", detail: `${file} is missing; run orch setup` };
   try {
     loadConfig(orchDir);
     return { id: "config", label: "Config validity", status: "ok", detail: file };

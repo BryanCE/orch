@@ -49,17 +49,13 @@ afterEach(() => {
 });
 
 describe("notify", () => {
-  test("parses valid sinks and warns about unknown types and missing fields", () => {
+  test("parses valid sinks and applies default on states", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
       notify: [
         { id: "desktop" },
         { id: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
         { id: "command", command: nodeCommand("") },
-        { id: "email", on: ["done"] },
-        { id: "webhook" },
-        { id: "command", on: ["done"] },
-        { id: "desktop", on: [1] },
         { id: "herdr", on: ["done"] },
       ],
     });
@@ -72,10 +68,7 @@ describe("notify", () => {
       { type: "command", on: ["blocked", "error"], command: nodeCommand("") },
       { type: "herdr", on: ["done"] },
     ]);
-    expect(result.stderr).toContain("unknown sink type");
-    expect(result.stderr).toContain("webhook sink requires url");
-    expect(result.stderr).toContain("command sink requires command");
-    expect(result.stderr).toContain("on must be an array of strings");
+    expect(result.stderr).toBe("");
   });
 
   test("delivers only to sinks whose on filter matches the event", async () => {

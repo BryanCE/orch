@@ -29,9 +29,6 @@ interface AgentStartResult {
   };
 }
 
-/** Workspace reported when a pane's workspace cannot be resolved from herdr. */
-const HERDR_FALLBACK_WORKSPACE = "herdr";
-
 /** Workspace of the invoking pane, falling back to the first listed pane. */
 function callerPaneWorkspace(): string | undefined {
   const panes = herdrPanes();
@@ -112,15 +109,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   /** True when a herdr control socket is reachable (inside a live herdr session). */
   isInsideSession(): boolean {
     return process.env.HERDR_ENV === "1" || herdrReachable();
-  }
-
-  /** Mint an identity for a pane, reading its workspace from herdr's listing. */
-  mintIdentity(handle: HerdrHandle): Identity {
-    const pane = herdrPanes().find((candidate) => candidate.pane_id === handle);
-    // An empty workspace_id is as unusable as a missing one.
-    let workspace = pane?.workspace_id ?? HERDR_FALLBACK_WORKSPACE;
-    if (workspace === "") workspace = HERDR_FALLBACK_WORKSPACE;
-    return { backend: HERDR_BACKEND, workspace, handle };
   }
 
   /** Identity of the calling pane, resolved from herdr's own environment. */
@@ -215,10 +203,23 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return herdrBestEffort(["pane", "send-keys", handle, ...keys]);
   }
 
-  /** Herdr tiles at spawn via split placement; it has no re-tile operation. */
-  // fallow-ignore-next-line unused-class-member
-  applyLayout(_group: string, _layout: "tiled"): boolean {
-    return false;
+  /**
+   * Workspace id → tab label, first label wins. Empty when herdr is
+   * unreachable; ids then stand in for names.
+   */
+  workspaceNames(): Map<string, string> {
+    const names = new Map<string, string>();
+    try {
+      if (!herdrReachable()) return names;
+      for (const tab of herdrTabs().values()) {
+        if (tab.workspace_id && tab.label && !names.has(tab.workspace_id)) {
+          names.set(tab.workspace_id, tab.label);
+        }
+      }
+    } catch {
+      // herdr not on PATH / socket down — ids stand in for names.
+    }
+    return names;
   }
 
   /** Read the last visible lines of a pane's screen. Throws on failure. */

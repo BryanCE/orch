@@ -46,20 +46,6 @@ describe("tmux backend registry and capabilities", () => {
     expect(new TmuxBackend().isInsideSession()).toBe(false);
   });
 
-  test("mints identity from a protected session seam", () => {
-    class FakeTmuxBackend extends TmuxBackend {
-      protected override sessionOf(_pane: string): string {
-        return "main";
-      }
-    }
-
-    expect(new FakeTmuxBackend().mintIdentity("%5")).toEqual({
-      backend: "tmux",
-      workspace: "main",
-      handle: "%5",
-    });
-  });
-
   test("serializes tmux identities as one flat key", () => {
     const identity = { backend: "tmux", workspace: "main", handle: "%5" } as const;
     const key = serializeIdentity(identity);

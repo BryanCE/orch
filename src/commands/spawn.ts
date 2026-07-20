@@ -1,4 +1,5 @@
-import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "../store.ts";
+import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import type { SpawnedRecord } from "../store/sqlite.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter } from "../adapters/adapter.ts";
@@ -61,7 +62,7 @@ const WORKER_PEER_TOOLS = ["orch_agents", "orch_send", "orch_read"] as const;
 
 export function workerTools(config: OrchConfig): string {
   const tools: string[] = [...WORKER_BASE_TOOLS];
-  const peerTools = config.defaults.worker_peer_tools ?? false;
+  const peerTools = config.fleet.worker_peer_tools;
   if (peerTools) tools.push(...WORKER_PEER_TOOLS);
   return tools.join(",");
 }
@@ -181,14 +182,14 @@ type SpawnSettings = AgentSettings & {
   prefix: string;
   n: number;
   worktree: boolean;
-  limits: OrchConfig["limits"];
+  fleet: OrchConfig["fleet"];
 };
 
 function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   const config = loadConfig(orchDir());
   const settings = resolveAgentSettings(flags, config);
-  const spawnCap = resolveSetting({ flag: flags.spawnCapFlag, env: "ORCH_SPAWN_CAP", config: config.defaults.spawn_cap, fallback: 8 });
-  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", config: config.defaults.worktree, fallback: false });
+  const spawnCap = resolveSetting({ flag: flags.spawnCapFlag, env: "ORCH_SPAWN_CAP", config: config.fleet.spawn_cap, fallback: config.fleet.spawn_cap });
+  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", config: config.defaults.worktree, fallback: config.defaults.worktree });
   if (!Number.isInteger(spawnCap) || spawnCap < 1) die(`Invalid spawn cap ${spawnCap}; expected a positive integer.`);
   const n = parseInt(flags.positional[0]!, 10);
   if (!Number.isFinite(n) || n < 1)
@@ -197,12 +198,12 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
   const cmd = flags.commandFlag ? flags.cmd : adapterCommand(settings.adapter, config);
-  return { ...settings, tools, json: flags.json, label: flags.namePrefix ?? flags.label, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix: flags.namePrefix ?? flags.label, n, worktree, limits: config.limits };
+  return { ...settings, tools, json: flags.json, label: flags.namePrefix ?? flags.label, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix: flags.namePrefix ?? flags.label, n, worktree, fleet: config.fleet };
 }
 
 interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
 
-interface CreatedAgent { key: string; pane: string; name: string }
+export interface CreatedAgent { key: string; pane: string; name: string }
 
 export function liveSpawnCounts(records: Map<string, SpawnedRecord>, presence: Map<string, PresenceEntry>): Map<string, number> {
   const counts = new Map<string, number>();
@@ -215,17 +216,17 @@ export function liveSpawnCounts(records: Map<string, SpawnedRecord>, presence: M
   return counts;
 }
 
-function assertSpawnCapacity(settings: Pick<OrchConfig, "limits">, workspace: string, requested: number): void {
+function assertSpawnCapacity(settings: Pick<OrchConfig, "fleet">, workspace: string, requested: number): void {
   const counts = liveSpawnCounts(spawnedRecords(), loadPresence());
   const live = [...counts.values()].reduce((total, count) => total + count, 0);
   const workspaceLive = counts.get(workspace) ?? 0;
-  const workspaceCap = settings.limits.workspaces?.[workspace];
+  const workspaceCap = settings.fleet.workspace_caps[workspace];
   if (workspaceCap !== undefined && workspaceLive + requested > workspaceCap) {
-    die(`spawn refused: would put ${workspace} at ${workspaceLive + requested}/${workspaceCap} agents (${workspaceLive} live + ${requested} requested; limits.workspaces.${workspace})`);
+    die(`spawn refused: would put ${workspace} at ${workspaceLive + requested}/${workspaceCap} agents (${workspaceLive} live + ${requested} requested; fleet.workspace_caps.${workspace})`);
   }
-  const globalCap = settings.limits.maxAgents;
+  const globalCap = settings.fleet.max_agents;
   if (globalCap !== undefined && live + requested > globalCap) {
-    die(`spawn refused: would put all workspaces at ${live + requested}/${globalCap} agents (${live} live + ${requested} requested; limits.maxAgents)`);
+    die(`spawn refused: would put all workspaces at ${live + requested}/${globalCap} agents (${live} live + ${requested} requested; fleet.max_agents)`);
   }
 }
 
@@ -242,15 +243,18 @@ function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.preTrustWorkspace?.(cwd, settings.cmd);
     try {
-      // Detached agents identify themselves by their minted identity key;
-      // omitting key keeps the registry aligned with the presence protocol.
-      const handle = backend.spawn(adapter, {
+      // ONE key per agent: mint the name-based identity BEFORE launch and pass
+      // it via ORCH_AGENT_KEY, exactly like the pane paths (spawnOneIntoTab).
+      // The backend records the OS pid separately for close ownership; the key
+      // never encodes it, and the backend never re-mints a second identity.
+      const key = serializeIdentity({ backend: backend.id, workspace, handle: name });
+      backend.spawn(adapter, {
+        key,
         cwd,
         model: settings.model ?? undefined,
         orchDir: orchDir(),
         tools: settings.tools,
       });
-      const key = serializeIdentity(backend.mintIdentity(handle));
       created.push({ key });
       recordSpawned(key, {
         adapter: settings.adapter,
@@ -293,10 +297,60 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   } catch (error: unknown) {
     die(`group create failed: ${errorMessage(error)}`);
   }
-  const handle = backend.spawn(adapter, { key: serializeIdentity({ backend: backend.id, workspace, handle: rootName }), cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
+  // ONE key per agent: the identity passed via ORCH_AGENT_KEY is THE key — the
+  // presence writer, registry, and daemon ack all join on it. The backend pane
+  // handle is recorded as a field, never re-minted into a second key.
+  const key = serializeIdentity({ backend: backend.id, workspace, handle: rootName });
+  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
   backend.close(shellRoot);
-  const key = serializeIdentity(backend.mintIdentity(handle));
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
+}
+
+export interface TabSpawnSpec {
+  backend: Backend;
+  adapter: AgentAdapter;
+  adapterId: string;
+  name: string;
+  cwd: string;
+  workspace: string;
+  group: string;
+  model: string | null;
+  split?: "down" | "right";
+  tools?: string;
+  worktree?: string;
+  branch?: string;
+}
+
+// The single spawn-into-a-tab pipeline shared by `orch spawn` (additional panes)
+// and `orch tile`. ONE key per agent: the identity is minted from the agent's
+// name-based handle and passed via ORCH_AGENT_KEY — the backend pane handle is
+// recorded as a field, never re-minted into a second key. The caller owns error
+// policy (warn-and-continue vs die); this throws on backend failure.
+export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
+  const key = serializeIdentity({ backend: spec.backend.id, workspace: spec.workspace, handle: spec.name });
+  const handle = spec.backend.spawn(spec.adapter, {
+    key,
+    cwd: spec.cwd,
+    name: spec.name,
+    workspace: spec.workspace,
+    group: spec.group,
+    split: spec.split,
+    orchDir: orchDir(),
+    model: spec.model ?? undefined,
+    tools: spec.tools,
+  });
+  recordSpawned(key, {
+    adapter: spec.adapterId,
+    model: spec.model ?? undefined,
+    backend: spec.backend.id,
+    workspace: spec.workspace,
+    handle: String(handle),
+    cwd: spec.cwd,
+    worktree: spec.worktree,
+    branch: spec.branch,
+    owner: selfActor() ?? undefined,
+  });
+  return { key, pane: String(handle), name: spec.name };
 }
 
 function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): void {
@@ -314,12 +368,20 @@ function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, create
         });
         split = largest.rect.width >= largest.rect.height ? "right" : "down";
       }
-      const adapter = resolveAdapterOrDie(settings.adapter);
-      const key = serializeIdentity({ backend: backend.id, workspace: root.workspace, handle: name });
-      const handle = backend.spawn(adapter, { key, cwd, name, workspace: root.workspace, group: root.tabId, split, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
-      const identityKey = serializeIdentity(backend.mintIdentity(handle));
-      recordSpawned(identityKey, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace: root.workspace, handle: String(handle), cwd, worktree: settings.worktree ? cwd : undefined, branch: settings.worktree ? `orch/${name}` : undefined, owner: selfActor() ?? undefined });
-      created.push({ key: identityKey, pane: String(handle), name });
+      created.push(spawnOneIntoTab({
+        backend,
+        adapter: resolveAdapterOrDie(settings.adapter),
+        adapterId: settings.adapter,
+        name,
+        cwd,
+        workspace: root.workspace,
+        group: root.tabId,
+        split,
+        model: settings.model,
+        tools: settings.tools,
+        worktree: settings.worktree ? cwd : undefined,
+        branch: settings.worktree ? `orch/${name}` : undefined,
+      }));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
@@ -361,33 +423,14 @@ export async function cmdSpawn(args: string[]) {
 }
 
 export async function cmdTile(args: string[]) {
-  const json = args.includes("--json");
-  let cwd = process.cwd();
-  let cmd = "";
-  let commandFlag = false;
-  let name: string | null = null;
-  let modelFlag: string | undefined;
-  let adapterFlag: string | undefined;
-  let backendFlag: string | undefined;
-  const positional: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--cwd") cwd = args[++i]!;
-    else if (a === "--cmd") { cmd = args[++i]!; commandFlag = true; }
-    else if (a === "--name") name = args[++i]!;
-    else if (a === "--model") modelFlag = args[++i]!;
-    else if (a === "--agent" || a === "--adapter") adapterFlag = args[++i]!;
-    else if (a === "--backend") backendFlag = args[++i]!;
-    else if (a === "--json") continue;
-    else positional.push(a!);
-  }
+  const flags = parseSpawnFlags(args);
   const config = loadConfig(orchDir());
-  const { adapter, model } = resolveAgentSettings({ adapterFlag, backendFlag, modelFlag }, config);
-  const selectedBackend = resolveBackend({ explicit: backendFlag ?? null, configured: config.defaults.backend ?? null });
+  const { adapter, model } = resolveAgentSettings(flags, config);
+  const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: config.defaults.backend ?? null });
   if (!selectedBackend.panes) die(`orch tile requires a pane-capable backend; ${selectedBackend.id} has no panes to tile.`);
-  resolveAdapterOrDie(adapter);
-  if (!commandFlag) cmd = adapterCommand(adapter, config);
-  const target = positional[0];
+  const selectedAdapter = resolveAdapterOrDie(adapter);
+  const cmd = flags.commandFlag ? flags.cmd : adapterCommand(adapter, config);
+  const target = flags.positional[0];
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
 
   const tab = resolveTab(target);
@@ -400,27 +443,33 @@ export async function cmdTile(args: string[]) {
   } catch (e: unknown) {
     die(`could not read layout for ${JSON.stringify(refPane)}: ${errorMessage(e)}`);
   }
-  const autoName = name ?? `tile-${layout.panes.length + 1}`;
+  const autoName = flags.namePrefix ?? `tile-${layout.panes.length + 1}`;
 
   const workspace = selectedBackend.inventory?.().find((item) => item.handle === refPane)?.workspace;
   if (!workspace) die(`Could not determine workspace for pane ${JSON.stringify(refPane)}.`);
   assertSpawnCapacity(config, workspace, 1);
-  const key = serializeIdentity({ backend: selectedBackend.id, workspace, handle: autoName });
-  const selectedAdapter = resolveAdapterOrDie(adapter);
-  let handle: BackendHandle;
+  let agent: CreatedAgent;
   try {
-    handle = selectedBackend.spawn(selectedAdapter, { key, cwd, name: autoName, workspace, group: tab.id, split: "down", orchDir: orchDir(), model: model ?? undefined });
+    agent = spawnOneIntoTab({
+      backend: selectedBackend,
+      adapter: selectedAdapter,
+      adapterId: adapter,
+      name: autoName,
+      cwd: flags.cwd,
+      workspace,
+      group: tab.id,
+      split: "down",
+      model,
+    });
   } catch (e: unknown) {
     die(`tile failed: ${errorMessage(e)}`);
   }
-  const identityKey = serializeIdentity(selectedBackend.mintIdentity(handle));
-  recordSpawned(identityKey, { adapter, model: model ?? undefined, backend: selectedBackend.id, workspace, handle: String(handle), cwd, owner: selfActor() ?? undefined });
-  if (json) process.stdout.write(JSON.stringify({ pane: String(handle), key: identityKey, name: autoName, tab: layout.group, added: true }) + "\n");
+  if (flags.json) process.stdout.write(JSON.stringify({ pane: agent.pane, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
   else {
-    process.stdout.write(`Added ${String(handle)} (${autoName}) to group ${layout.group} running "${cmd}".\n`);
+    process.stdout.write(`Added ${agent.pane} (${autoName}) to group ${layout.group} running "${cmd}".\n`);
     printLayout(refPane, selectedBackend, "\nFinal tiling:");
   }
-  if (model) await pinModels([{ key: identityKey, pane: String(handle), name: autoName }], model);
+  if (model) await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);
 }
 
 export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, lockedCommands: readonly string[] = []): string {

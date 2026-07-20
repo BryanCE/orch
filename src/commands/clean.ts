@@ -1,5 +1,6 @@
 import * as path from "node:path";
-import { loadPresence, removePresenceAgentDir, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "../store.ts";
+import { loadPresence, removePresenceAgentDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import type { SpawnedRecord } from "../store/sqlite.ts";
 import { errorMessage } from "../util.ts";
 import {
   listAgentWorktrees,

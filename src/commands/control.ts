@@ -2,7 +2,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, resolvePane, resolveTarget, selfActor, type Entity } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, type PresenceEntry } from "../store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, type PresenceEntry } from "../presence/store.ts";
 import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
@@ -104,25 +104,25 @@ export async function cmdPipe(args: string[]) {
   else process.stdout.write(`Piped ${source.presence!.key} → ${destination.presence!.key}.\n`);
 }
 
-export function cmdAnswer(args: string[]) {
+export async function cmdAnswer(args: string[]): Promise<void> {
   const force = args.includes("--force");
   const json = args.includes("--json");
-  const cleanArgs = args.filter((arg) => arg !== "--json");
-  const { target, prompt: text } = parseTargetPrompt(cleanArgs, "--force", 'usage: orch answer <target> "<text>" [--force] [--json]');
+  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
+  const { target, prompt: text } = parseTargetPrompt(rest, "--force", 'usage: orch answer <target> "<text>" [--force] [--steal] [--cross-workspace] [--json]');
   const remote = targetHost(target);
   if (remote) {
-    remoteWrite(remote.host, "answer", [remote.target, text, ...(force ? ["--force"] : []), ...(json ? ["--json"] : [])]);
+    remoteWrite(remote.host, "answer", [remote.target, text, ...(force ? ["--force"] : []), ...(gov.steal ? ["--steal"] : []), ...(gov.crossWorkspace ? ["--cross-workspace"] : []), ...(json ? ["--json"] : [])]);
     return;
   }
-  const ent = resolveTarget(target);
+  const ent = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
   const questionPath = ent.presence ? path.join(ent.presence.dir, "question.json") : null;
   if (!force && (!questionPath || !files.existsSync(questionPath)))
     die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
-  const answerAdapter = resolveAdapter(ent.agent ?? ent.presence.status?.agent ?? "pi");
-  if (!answerAdapter.caps.ask) die(`Adapter ${answerAdapter.id} cannot answer blocking questions (caps.ask false).`);
-  answerAdapter.answer({ key: ent.presence.key, text });
-  if (json) process.stdout.write(JSON.stringify({ target: ent.presence.key, answered: true }) + "\n");
+  // The daemon's control dispatcher applies the answer (wall + ownership + caps.ask gate);
+  // the CLI never invokes the adapter's answer strategy directly.
+  const result = await writeRpc("answer", { target: ent.presence.key, text }, gov);
+  if (json) process.stdout.write(JSON.stringify({ target: ent.presence.key, answered: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Answered ${ent.presence.key}.\n`);
 }
 

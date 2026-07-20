@@ -1,6 +1,5 @@
-# orch — Claude's one memory file (readable export)
 
-Consolidated 2026-07-20 on Bryan's order: 22 fragment files → ONE memory (`orch-rules.md` in Claude's memory dir). This export mirrors it. Safe to delete; don't commit.
+# orch — the one memory file (consolidated 2026-07-20 on Bryan's order; keep it ONE file)
 
 ## Hard rules (fireable)
 - **Any runtime, both ways.** orch runs for any user on node, deno, OR bun. Runtime code = node-compatible ESM (`node:*` only; `bun:sqlite` only as guarded fallback); bun is a BUILD tool. Installed commands probe the user's runtime, never hardcode one. The rule also bans REMOVING bun support: `engines.bun` stays alongside `engines.node`; bun users are first-class.
@@ -24,6 +23,22 @@ Consolidated 2026-07-20 on Bryan's order: 22 fragment files → ONE memory (`orc
 - **`orch setup` = interactive onboarding wizard** (pick harness + plexer from what adapters/backends actually support, recorded to settings.json); `-y --agent --backend` noninteractive path exists for automation. No default harness is baked in.
 - **Web app** (`packages/web`, root workspace member, TanStack Start v1, dev port 3717, structure copied from workspace-onboarding): REAL-wired — server fns do real `rpcCall`, `loadPresence()`, herdr tab names; TanStack Query polling; `DaemonGate` down-screen. Pending: SSE push, steer/control wiring, real `/queue` + `/events` pages (placeholders). **SHIPS IN 0.1.0 — "if web ui comes out ever then it comes out on first release"; never propose deferring.** One npm package: `build:web` → `dist/web/`, served by `orch web`; React/vite stay build-time-only. UI: sidebar nav, workspace NAME as title (herdr id muted secondary).
 - **Adapter-facade audit RESOLVED 2026-07-20**: `src/control/dispatch.ts` branches on `adapter.caps.*`; codex has a presence writer. Pattern stack in `docs/reference/design-patterns.md` (L0 Hexagonal → L6 static enforcement) stays authoritative; never land adapter/backend work without the L6 checks.
+
+## Invariants landed by fix-audit-findings (archived 2026-07-20; gates green 523/0)
+- **ONE identity key per agent, minted from the name-based handle BEFORE launch**, passed via `ORCH_AGENT_KEY`; registry/presence/ack all join on it; backend pane id / pid is a stored field, NEVER re-minted into a second key. `mintIdentity` is GONE from the backend port; headless `spawn` THROWS without a caller-minted key. Two keys was the root cause of the "can't control my fleet" dogfood disaster.
+- **orch model strings carry a `:thinking` suffix** (`provider/id:effort`). Any registry lookup must strip the suffix first and apply model + thinking separately (extensions/pi/model-control.ts `splitThinkingSuffix`) — "Model not in registry" for a listed model = suffix leaked into the lookup.
+- **Interactive/pane launches must carry `--model`** (pi/claude/codex `interactiveCmd` + pi restricted) — dropping it launches workers on the harness's saved default (the everyone-on-sol:high incident).
+- **Workers launch with `--no-extensions` + orch's bridge only** — never the user's full extension set (SQLITE_BUSY with 4 workers).
+- **check-bridge enforces**: no concrete backend/adapter imports in packages/*, `.steer/.answer/.setModel` only in dispatch.ts+adapters, no quoted-id equality/`?? "pi"` fallbacks in core, no parseSession under commands. Exemptions live in `CORE_SCOPE_ALLOWLIST` keyed by trimmed line content, each with a comment.
+
+## Monorepo (bun workspaces)
+- **Exactly ONE `bun.lock`, at the root.** NEVER `bun install` inside `packages/*` — that mints a second lockfile and forks resolution (caused version skews + `@types/node` vanishing). All installs from repo root.
+- **Root `package.json` never carries web UI deps** (react/vite/tanstack live ONLY in packages/web) — they were once in orch's runtime `dependencies`, making every global install pull React. `@types/node` is explicitly pinned in root devDeps so it can't vanish transitively.
+
+## Test conventions (bite hard)
+- **`die()` in any code path a test invokes calls `process.exit` and KILLS the whole bun runner** — output truncates mid-file with no summary, remaining suites silently never run. Repeated "tests end at the same file with no summary" = a die, not a hang. Command tests must seed settings.json (`writeSettingsFixture`) because target resolution loads config and dies without it.
+- **Cleanup is best-effort, never a verdict**: `test/helpers/removeTempDir` closes sqlite stores, hand-retries EBUSY ~10s (bun's rmSync IGNORES node's maxRetries/retryDelay — proven by identical timings), then leaks with a warning. Never raw `fs.rmSync` in afterEach. Tests that auto-start a daemon must wait for its pid to die before cleanup (review.test.ts `stopDaemon`).
+- Real-process spawn tests: generous waitFor (~15s) + explicit bun timeout arg — a loaded Windows box runs 10-25× slower (oxlint 3s→46s observed) and tight deadlines flake.
 
 ## Code & environment
 - **Frontend hard rules**: NO `useEffect` in hand-authored components, NO raw DOM/key listeners (use a hotkey lib), ONLY shadcn components from `packages/web/src/components/ui/`. Vendor-copied code using effects internally is fine.

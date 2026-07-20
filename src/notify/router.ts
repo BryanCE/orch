@@ -1,9 +1,8 @@
-import { loadConfigOrNull } from "../config.ts";
+import { loadConfigOrNull, SETTINGS_DEFAULTS, type NotifyEntry } from "../config.ts";
 import {
   allSinkProviders,
   commandAvailable,
   createBuiltinNotifiers,
-  getSinkProvider,
   hasSinkProvider,
   onSinkProviderRegistered,
   providerNotifier,
@@ -12,17 +11,18 @@ import {
 } from "./sinks.ts";
 import { oneLine, type NotifyEvent } from "./format.ts";
 
-/** A configured notifier entry from the settings.json `notify` array. */
+/** A configured notifier entry, normalized for delivery. */
 export interface NotifierEntry {
   id: string;
-  on: string[];
+  on: readonly string[];
   config: Record<string, unknown>;
+  timeoutMs?: number;
 };
 
-export interface DesktopSink { type: "desktop"; on: string[] }
-export interface WebhookSink { type: "webhook"; on: string[]; url: string }
-export interface CommandSink { type: "command"; on: string[]; command: string[] }
-export interface RegisteredSink { type: string; on: string[]; [key: string]: unknown }
+export interface DesktopSink { type: "desktop"; on: readonly string[]; timeoutMs?: number }
+export interface WebhookSink { type: "webhook"; on: readonly string[]; url: string; timeoutMs?: number }
+export interface CommandSink { type: "command"; on: readonly string[]; command: string | string[]; timeoutMs?: number }
+export interface RegisteredSink { type: string; on: readonly string[]; timeoutMs?: number; [key: string]: unknown }
 export type Sink = DesktopSink | WebhookSink | CommandSink | RegisteredSink;
 
 function warning(message: string): void {
@@ -31,67 +31,32 @@ function warning(message: string): void {
 
 /** Read configured notifier entries. Each names its sink with `id`. */
 function loadNotifierEntries(orchDir: string): NotifierEntry[] {
-  let entries: unknown[];
   try {
-    // An install with no settings.json has no notifiers — that is a state, not a fault, so it
-    // warns about nothing. Only a settings.json that exists and cannot be read is worth saying.
-    entries = loadConfigOrNull(orchDir)?.notify ?? [];
+    const config = loadConfigOrNull(orchDir);
+    return (config?.notify ?? []).flatMap((entry: NotifyEntry) => {
+      if (!isRegisteredSink(entry.id)) {
+        warning(`invalid notify entry: unknown sink type ${JSON.stringify(entry.id)}`);
+        return [];
+      }
+      const on = entry.on ?? ["blocked", "error"];
+      const value = { ...entry } as Record<string, unknown>;
+      delete value.id;
+      delete value.on;
+      return [{ id: entry.id, on, config: value, timeoutMs: config?.timeouts.notify_ms }];
+    });
   } catch (error) {
     warning(`could not load settings.json: ${oneLine(error)}`);
     return [];
   }
-
-  const configured: NotifierEntry[] = [];
-  for (const entry of entries) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      warning("invalid notify entry: expected an object");
-      continue;
-    }
-    const value = entry as Record<string, unknown>;
-    const id = value.id;
-    const provider = typeof id === "string" ? getSinkProvider(id) : undefined;
-    const on = value.on === undefined ? [...(provider?.onDefaults ?? ["blocked", "error"])] : stringArray(value.on);
-    if (!on) {
-      warning("invalid notify entry: on must be an array of strings");
-      continue;
-    }
-    if (typeof id !== "string") {
-      warning(`invalid notify entry: unknown sink type ${JSON.stringify(id)}`);
-      continue;
-    }
-    const config: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      if (key !== "id" && key !== "on") config[key] = item;
-    }
-    if (id === "webhook" && (typeof config.url !== "string" || !config.url)) {
-      warning("invalid notify entry: webhook sink requires url");
-      continue;
-    }
-    if (id === "command") {
-      const commandValue = typeof config.command === "string" ? ["sh", "-c", config.command] : config.command;
-      const command = stringArray(commandValue);
-      if (!command?.length || !command[0]) {
-        warning("invalid notify entry: command sink requires command");
-        continue;
-      }
-      config.command = command;
-    }
-    if (!isRegisteredSink(id)) {
-      warning(`invalid notify entry: unknown sink type ${JSON.stringify(id)}`);
-      continue;
-    }
-    configured.push({ id, on, config });
-  }
-  return configured;
 }
 
 /** Load valid sink declarations from the settings.json `notify` array. */
 export function loadSinks(orchDir: string): Sink[] {
   return loadNotifierEntries(orchDir).map((entry): Sink => {
     if (entry.id === "desktop") return { type: entry.id, on: entry.on };
-    if (entry.id === "webhook") return { type: "webhook", on: entry.on, url: entry.config.url as string };
-    if (entry.id === "command") return { type: "command", on: entry.on, command: entry.config.command as string[] };
-    return { type: entry.id, on: entry.on };
+    if (entry.id === "webhook") return { type: "webhook", on: entry.on, url: entry.config.url as string, timeoutMs: entry.timeoutMs };
+    if (entry.id === "command") return { type: "command", on: entry.on, command: entry.config.command as string | string[], timeoutMs: entry.timeoutMs };
+    return { type: entry.id, on: entry.on, timeoutMs: entry.timeoutMs };
   });
 }
 
@@ -103,9 +68,9 @@ const builtinNotifiers = createBuiltinNotifiers();
 
 function entryFromSink(sink: Sink): NotifierEntry {
   // RegisteredSink's string discriminant defeats union narrowing; gate on the property instead.
-  if (sink.type === "webhook" && "url" in sink) return { id: sink.type, on: sink.on, config: { url: sink.url } };
-  if (sink.type === "command" && "command" in sink) return { id: sink.type, on: sink.on, config: { command: sink.command } };
-  return { id: sink.type, on: sink.on, config: {} };
+  if (sink.type === "webhook" && "url" in sink) return { id: sink.type, on: sink.on, config: { url: sink.url }, timeoutMs: sink.timeoutMs };
+  if (sink.type === "command" && "command" in sink) return { id: sink.type, on: sink.on, config: { command: sink.command }, timeoutMs: sink.timeoutMs };
+  return { id: sink.type, on: sink.on, config: {}, timeoutMs: sink.timeoutMs };
 }
 
 function timeoutResult<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
@@ -124,7 +89,7 @@ class NotifierRegistry {
   readonly timeoutMs: number;
 
   constructor(notifiers: readonly Notifier[] = builtinNotifiers, options: { timeoutMs?: number; warn?: (message: string) => void } = {}) {
-    this.timeoutMs = options.timeoutMs ?? 3000;
+    this.timeoutMs = options.timeoutMs ?? SETTINGS_DEFAULTS.timeouts.notify_ms;
     this.emitWarning = options.warn ?? ((message) => warning(message));
     for (const notifier of notifiers) this.register(notifier);
   }
@@ -184,20 +149,23 @@ class NotifierRegistry {
     if (!entry.on.includes(event.newState)) return true;
     const notifier = this.notifiers.get(entry.id);
     if (!notifier) { this.emitWarning(`${entry.id} notifier is not registered`); return false; }
-    if (this.validate(entry.id, entry.config).length) { this.emitWarning(`${entry.id} notifier has invalid configuration`); return false; }
+    const deliveryConfig = entry.id === "command" && typeof entry.config.command === "string"
+      ? { ...entry.config, command: ["sh", "-c", entry.config.command] }
+      : entry.config;
+    if (this.validate(entry.id, deliveryConfig).length) { this.emitWarning(`${entry.id} notifier has invalid configuration`); return false; }
     if (checkAvailability) {
       try {
         // A command's availability depends on its configured executable, not just the
         // shell used by the adapter. Keep this check in the registry so custom
         // Notifier implementations retain the phase-1 boolean probe contract.
-        if (entry.id === "command" && !commandAvailable(entry.config)) {
+        if (entry.id === "command" && !commandAvailable(deliveryConfig)) {
           this.emitWarning(`${entry.id} notifier unavailable`);
           return false;
         }
-        if (!(await notifier.available(entry.config))) { this.emitWarning(`${entry.id} notifier unavailable`); return false; }
+        if (!(await notifier.available(deliveryConfig))) { this.emitWarning(`${entry.id} notifier unavailable`); return false; }
       } catch { this.emitWarning(`${entry.id} notifier unavailable`); return false; }
     }
-    const result = await timeoutResult(Promise.resolve().then(() => notifier.deliver(event, entry.config)), this.timeoutMs);
+    const result = await timeoutResult(Promise.resolve().then(() => notifier.deliver(event, deliveryConfig)), entry.timeoutMs ?? this.timeoutMs);
     if (result !== true) { this.emitWarning(`${entry.id} sink failed`); return false; }
     return true;
   }

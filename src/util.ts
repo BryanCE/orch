@@ -130,3 +130,17 @@ export function pidAlive(pid: unknown): boolean {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
+
+/**
+ * A positive-integer pid from a number or an all-digit string, else undefined.
+ * The one spelling shared by the harness shims (claude/codex), which read pids
+ * from env vars and hook payloads where the type is unknown.
+ */
+export function parsePid(text: unknown): number | undefined {
+  if (typeof text === "number" && Number.isInteger(text) && text > 0) return text;
+  if (typeof text === "string" && /^\d+$/.test(text)) {
+    const parsed = Number(text);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+}

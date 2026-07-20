@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { buildExtensionBundle, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { buildEntities, resolvePane } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, spawnedRecords } from "../store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, spawnedRecords } from "../presence/store.ts";
 import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 
@@ -29,12 +29,13 @@ export async function cmdRun(args: string[]): Promise<void> {
 
 export function cmdWait(args: string[]) {
   let status = "done";
-  let timeout = 300000;
+  const defaultTimeout = loadConfig(orchDir()).timeouts.wait_ms;
+  let timeout = defaultTimeout;
   const json = args.includes("--json");
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--status") status = args[++i]!;
-    else if (args[i] === "--timeout") timeout = parseInt(args[++i]!, 10) || 300000;
+    else if (args[i] === "--timeout") timeout = parseInt(args[++i]!, 10) || defaultTimeout;
     else if (args[i] === "--json") continue;
     else positional.push(args[i]!);
   }
@@ -61,7 +62,9 @@ export function cmdNew(args: string[]) {
   for (const target of targets) {
     const { ent } = resolvePane(target);
     const { backend, handle } = backendTarget(target, "reset");
-    const adapter = resolveAdapterOrDie(ent.agent ?? ent.presence?.status?.agent ?? "pi");
+    const agentId = ent.agent ?? ent.presence?.status?.agent;
+    if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its reset mechanism.`);
+    const adapter = resolveAdapterOrDie(agentId);
     const resetCmd = adapter.caps.lifecycle.includes("reset") ? adapter.lifecycleCmd?.("reset") : undefined;
     if (!resetCmd) die(`${handle}: adapter ${adapter.id} has no reset mechanism.`);
     const statusPath = path.join(presenceAgentDir(ent.key), STATUS_FILE);
@@ -179,7 +182,9 @@ export function cmdReload(args: string[]) {
     try {
       const { ent } = resolvePane(target);
       const { backend, handle } = backendTarget(target, "reload");
-      const adapter = resolveAdapterOrDie(ent.agent ?? ent.presence?.status?.agent ?? "pi");
+      const agentId = ent.agent ?? ent.presence?.status?.agent;
+      if (!agentId) throw new Error(`Target "${target}" has no recorded harness — cannot determine its reload mechanism`);
+      const adapter = resolveAdapterOrDie(agentId);
       const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
       results.push(reloadPaneAndAwaitBridge(backend, handle, ent.key, reloadCmd.text));

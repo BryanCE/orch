@@ -5,10 +5,10 @@ import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { checkBackendCapabilities } from "./backends.ts";
-import { checkMalformedPresenceRecords, checkStalePresence } from "./presence.ts";
+import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
 import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkSpawnedRegistry, checkWorktreeGitignore } from "./config.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
@@ -18,7 +18,7 @@ import { checkRuntime } from "./runtime.ts";
 import { readJson } from "./shared.ts";
 import { isRecord, pidAlive } from "../util.ts";
 
-export type { CheckResult } from "../doctor-types.ts";
+export type { CheckResult } from "../check-result.ts";
 
 export async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   try {
@@ -90,6 +90,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(installedBackends, configuredBackend)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
+    isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("spawned-registry", "Spawn registry", () => checkSpawnedRegistry(orchDir)),
     isolated("config", "Config validity", () => checkConfig(orchDir)),

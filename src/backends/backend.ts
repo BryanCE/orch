@@ -132,8 +132,11 @@ export interface BackendRegistryRecord<Handle = BackendHandle> {
  * Lifecycle, identity, and control contract shared by pane and
  * detached-process backends.
  *
- * The backend is the identity authority (design D2): it mints a stable
- * {@link Identity} for each handle and probes its own availability. It is also
+ * The backend owns its workspace/session identity (design D2): it reports the
+ * calling process's own {@link Identity} via {@link Backend.currentIdentity} and
+ * probes its own availability. An agent's stable identity is minted BEFORE
+ * launch by the spawner and passed opaquely via `ORCH_AGENT_KEY`; the backend
+ * never re-mints a second identity from a post-spawn handle. The backend is also
  * the control authority: delivery, focus, keystrokes, and layout route through
  * this port, never through a concrete plexer CLI at the call site. The port is
  * agent-agnostic — it never references pi/claude/codex.
@@ -152,8 +155,6 @@ export interface Backend<Handle = BackendHandle> {
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
   isInsideSession(): boolean;
-  /** Mint the stable structured identity for a spawned handle. */
-  mintIdentity(handle: Handle): Identity;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   close(handle: Handle): boolean;
   list(): Handle[];
@@ -163,8 +164,12 @@ export interface Backend<Handle = BackendHandle> {
   focus(handle: Handle): boolean;
   /** Send raw keystrokes (backend key names, e.g. "Escape", "Enter"). */
   sendKeys(handle: Handle, keys: readonly string[]): boolean;
-  /** Re-tile every pane in a group. */
-  applyLayout(group: string, layout: "tiled"): boolean;
+  /**
+   * Workspace id → human display name for the workspaces the backend can
+   * enumerate. A backend with no name concept returns an empty map; consumers
+   * fall back to the workspace id.
+   */
+  workspaceNames(): Map<string, string>;
 
   /** Identity of the calling process's own target, when inside a session. */
   currentIdentity?(): Identity | null;

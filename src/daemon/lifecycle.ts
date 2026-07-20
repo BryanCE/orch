@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import * as path from "node:path";
-import { orchDir as resolveOrchDir } from "../store.ts";
+import { orchDir as resolveOrchDir } from "../presence/store.ts";
 
 const LOCK_NAME = "orchd.lock";
 const SOCKET_NAME = "orchd.sock";

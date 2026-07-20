@@ -1,6 +1,6 @@
 import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, resolveTarget } from "../entities.ts";
 import { loadConfig } from "../config.ts";
-import { orchDir } from "../store.ts";
+import { orchDir } from "../presence/store.ts";
 import type { Backend, BackendGroup } from "../backends/backend.ts";
 import { parseIdentity } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
@@ -110,6 +110,8 @@ export function resolveTab(target: string): BackendGroup {
 }
 
 export function cmdTabs(args: string[]) {
+  const unknown = args.filter((arg) => !arg.startsWith("--"));
+  if (unknown.length) die(`orch tabs lists tabs and has no "${unknown[0]}" subcommand. Create tabs through the backend (e.g. herdr tab create) or orch spawn/tile.`);
   const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
   const json = enabled.has("--json");

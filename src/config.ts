@@ -27,6 +27,41 @@ const HostSchema = z.strictObject({
   timeout_ms: z.number().int().positive().optional(),
 });
 
+export const NOTIFY_STATES = ["idle", "working", "blocked", "done", "error", "aborted", "exited", "unknown"] as const;
+const NotifyOnSchema = z.array(z.enum(NOTIFY_STATES)).optional();
+const NotifyEntrySchema = z.discriminatedUnion("id", [
+  z.strictObject({ id: z.literal("desktop"), on: NotifyOnSchema }),
+  z.strictObject({
+    id: z.literal("webhook"),
+    on: NotifyOnSchema,
+    url: z.string().min(1).refine((value) => {
+      try {
+        const protocol = new URL(value).protocol;
+        return protocol === "http:" || protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "must be an http or https URL"),
+  }),
+  z.strictObject({
+    id: z.literal("command"),
+    on: NotifyOnSchema,
+    command: z.union([
+      z.string().min(1),
+      z.array(z.string().min(1)).min(1),
+    ]),
+  }),
+  z.strictObject({ id: z.literal("herdr"), on: NotifyOnSchema }),
+]);
+export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
+
+export const SETTINGS_DEFAULTS = {
+  fleet: { spawn_cap: 8, worker_peer_tools: false, cross_workspace: false },
+  queue: { max_retries: 1 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
+  defaults: { worktree: false },
+} as const;
+
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
  * JSON round-trip, schemaVersion-stamped, validated loudly on every load. */
 const SettingsFileSchema = z.strictObject({
@@ -44,38 +79,49 @@ const SettingsFileSchema = z.strictObject({
     adapter: z.string().optional(),
     backend: z.string().optional(),
     model: z.string().optional(),
-    allowed_models: z.array(z.string()).optional(),
-    spawn_cap: z.number().optional(),
     worktree: z.boolean().optional(),
+  }).optional(),
+  fleet: z.strictObject({
+    spawn_cap: PositiveInt.optional(),
+    max_agents: PositiveInt.optional(),
+    workspace_caps: z.record(z.string(), PositiveInt).optional(),
     worker_peer_tools: z.boolean().optional(),
+    cross_workspace: z.boolean().optional(),
+  }).optional(),
+  models: z.strictObject({
+    allowed: z.array(z.string()).optional(),
   }).optional(),
   queue: z.strictObject({
-    max_retries: z.number().optional(),
+    max_retries: z.number().int().nonnegative().optional(),
   }).optional(),
-  notify: z.array(z.unknown()).optional(),
+  timeouts: z.strictObject({
+    dispatch_ack_ms: PositiveInt.optional(),
+    wait_ms: PositiveInt.optional(),
+    adapter_command_ms: PositiveInt.optional(),
+    notify_ms: PositiveInt.optional(),
+  }).optional(),
+  notify: z.array(NotifyEntrySchema).optional(),
   locked_commands: z.array(z.string()).optional(),
   hosts: z.record(z.string(), HostSchema).optional(),
   workspaces: z.record(z.string(), z.string()).optional(),
-  limits: z.strictObject({
-    maxAgents: PositiveInt.optional(),
-    workspaces: z.record(z.string(), PositiveInt).optional(),
-  }).optional(),
 });
 
 export type SettingsFile = z.infer<typeof SettingsFileSchema>;
 export type HostConfig = z.infer<typeof HostSchema>;
 
-/** Settings normalized for consumers: every section present, queue defaults applied. */
+/** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchConfig {
   runtime: OrchRuntime;
   installed: { adapters: string[]; backends: string[] };
-  defaults: NonNullable<SettingsFile["defaults"]>;
+  defaults: { adapter?: string; backend?: string; model?: string; worktree: boolean };
+  fleet: { spawn_cap: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
+  models: { allowed: string[] };
   queue: { max_retries: number };
-  notify: unknown[];
+  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
+  notify: NotifyEntry[];
   locked_commands: string[];
   hosts: Record<string, HostConfig>;
   workspaces: Record<string, string>;
-  limits: { maxAgents?: number; workspaces?: Record<string, number> };
 }
 
 /** The settings filename, as a directory watcher sees it. */
@@ -201,13 +247,26 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
   return {
     runtime: root.runtime,
     installed: { adapters: root.installed?.adapters ?? [], backends: root.installed?.backends ?? [] },
-    defaults: root.defaults ?? {},
-    queue: { max_retries: root.queue?.max_retries ?? 1 },
+    defaults: { ...root.defaults, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
+    fleet: {
+      spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
+      max_agents: root.fleet?.max_agents,
+      workspace_caps: root.fleet?.workspace_caps ?? {},
+      worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
+      cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
+    },
+    models: { allowed: root.models?.allowed ?? [] },
+    queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
+    timeouts: {
+      dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
+      wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
+      adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
+      notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
+    },
     notify: root.notify ?? [],
     locked_commands: root.locked_commands ?? [],
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
-    limits: root.limits ?? {},
   };
 }
 
@@ -380,14 +439,14 @@ export function resolveSetting<T>(opts: { flag?: T; env?: string; config?: T; fa
   return resolveWithSource(opts).value;
 }
 
-/** Model allowlist applied when `defaults.allowed_models` is unset. `openai-codex/*` is always allowed. */
+/** Model allowlist applied when `models.allowed` is unset. */
 export const DEFAULT_ALLOWED_MODELS = ["openrouter/moonshotai/kimi-k2.7-code", "openrouter/x-ai/grok-4.5"];
 
 /** Return the configured model-allowlist patterns, or the built-in defaults when unset or unreadable. */
 export function allowedModelPatterns(orchDir: string): string[] {
   try {
-    const patterns = loadConfig(orchDir).defaults.allowed_models;
-    if (patterns?.length) return patterns;
+    const patterns = loadConfig(orchDir).models.allowed;
+    if (patterns.length) return patterns;
   } catch {
     // A malformed config falls back to the built-in allowlist rather than failing closed.
   }
@@ -425,12 +484,40 @@ export function writeSettingsInstalled(orchDir: string, installed: { adapters: r
   updateSettingsFile(orchDir, (root) => ({ ...root, installed: { adapters: [...installed.adapters], backends: [...installed.backends] } }));
 }
 
+/** Seed the complete settings tree while preserving every value already present. */
+export function writeSettingsFullTree(orchDir: string): void {
+  updateSettingsFile(orchDir, (root) => ({
+    ...root,
+    installed: root.installed ?? { adapters: [], backends: [] },
+    defaults: { ...root.defaults, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
+    fleet: {
+      spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
+      ...(root.fleet?.max_agents === undefined ? {} : { max_agents: root.fleet.max_agents }),
+      workspace_caps: root.fleet?.workspace_caps ?? {},
+      worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
+      cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
+    },
+    models: { allowed: root.models?.allowed ?? [] },
+    queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
+    timeouts: {
+      dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
+      wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
+      adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
+      notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
+    },
+    notify: root.notify ?? [],
+    locked_commands: root.locked_commands ?? [],
+    hosts: root.hosts ?? {},
+    workspaces: root.workspaces ?? {},
+  }));
+}
+
 /** Append setup-selected notifier entries to the settings.json `notify` array, skipping ids already configured. */
-export function writeSettingsNotify(orchDir: string, entries: readonly Record<string, unknown>[]): void {
+export function writeSettingsNotify(orchDir: string, entries: readonly NotifyEntry[]): void {
   updateSettingsFile(orchDir, (root) => {
     const existing = root.notify ?? [];
-    const configured = new Set(existing.map((entry) => (entry as { id?: unknown })?.id).filter((id) => typeof id === "string"));
-    const added = entries.filter((entry) => typeof entry.id === "string" && !configured.has(entry.id));
+    const configured = new Set(existing.map((entry) => entry.id));
+    const added = entries.filter((entry) => !configured.has(entry.id));
     return { ...root, notify: [...existing, ...added] };
   });
 }

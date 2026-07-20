@@ -92,3 +92,17 @@ When a backend is selected via `--backend` or `defaults.backend`, orch SHALL ver
 - **WHEN** the user sets `defaults.backend = "herdr"` (or passes `--backend herdr`) and runs `orch spawn 1` from outside any herdr session
 - **THEN** orch exits non-zero at validation with a message that a herdr session is required, and no pane is created — the uniform session check applies to every session-scoped backend, not only tmux
 
+### Requirement: The backend port reports workspace display names
+
+The backend port SHALL expose a workspace-name surface returning a mapping from workspace id to human display name for the workspaces the backend can enumerate. A backend with no name concept (headless) SHALL return an empty mapping. Consumers (CLI status, web server) SHALL resolve display names only through this port surface — never by importing a concrete backend module — and SHALL fall back to the workspace id when no name is returned.
+
+#### Scenario: Herdr names resolve through the port
+
+- **WHEN** the herdr backend is active with named workspaces and a consumer (web fleet view or `orch status`) renders workspace labels
+- **THEN** the labels come from the backend port's workspace-name surface, and the consumer contains no herdr-specific import
+
+#### Scenario: A nameless backend falls back to ids
+
+- **WHEN** the headless backend is active and a consumer renders workspace labels
+- **THEN** the port returns an empty mapping and the consumer displays workspace ids without error
+

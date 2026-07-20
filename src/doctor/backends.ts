@@ -1,5 +1,5 @@
 import { allBackends } from "../backends/registry.ts";
-import type { CheckResult, DoctorBackendReport } from "../doctor-types.ts";
+import type { CheckResult, DoctorBackendReport } from "../check-result.ts";
 
 /** The backend orch would actually pick, given the configured default. Mirrors
  *  resolveBackend's probe order without throwing: doctor reports on a broken
@@ -21,7 +21,12 @@ function activeBackend(reports: readonly DoctorBackendReport[], configured?: str
 /** Every installed backend must be available; only the active one must be inside
  *  a live session. Requiring insideSession of all of them is unsatisfiable the
  *  moment two pane backends are installed — you cannot be inside both a herdr
- *  and a tmux session at once, so the check could never pass (design D6). */
+ *  and a tmux session at once, so the check could never pass (design D6).
+ *
+ *  Severity separates a broken install from situational context (11.3): a missing
+ *  binary is a FAIL, but an available session-scoped active backend that merely
+ *  reports insideSession=false reflects WHERE the command ran, not a broken
+ *  install — that is a WARN naming the fix, and it never affects doctor's exit code. */
 export function backendCapabilitiesVerdict(
   backends: readonly DoctorBackendReport[],
   configured?: string | null,
@@ -29,20 +34,24 @@ export function backendCapabilitiesVerdict(
   const active = activeBackend(backends, configured);
   const unavailable = backends.filter((backend) => !backend.available).map((backend) => backend.id);
 
-  const reasons: string[] = [];
-  if (unavailable.length) reasons.push(`unavailable: ${unavailable.join(", ")}`);
+  const failReasons: string[] = [];
+  const warnReasons: string[] = [];
+  if (unavailable.length) failReasons.push(`unavailable: ${unavailable.join(", ")}`);
   // headless reports insideSession=true unconditionally (it has no session
-  // concept), so this rule needs no special case for it.
-  if (active && !active.insideSession) reasons.push(`active backend ${active.id} is not inside a live session`);
+  // concept), so this rule needs no special case for it. An available active
+  // backend outside its session is situational — warn, do not fail.
+  if (active?.available && !active.insideSession)
+    warnReasons.push(`active backend ${active.id} is not inside a live session — open a ${active.id} workspace and re-run`);
 
   const rows = backends.map((backend) =>
     `${backend.id}${backend === active ? " (active)" : ""}: available=${backend.available}, insideSession=${backend.insideSession}, panes=${backend.panes}, focusable=${backend.focusable}, canSendKeys=${backend.canSendKeys}`);
   const summary = rows.join("\n    ") || "no installed backends";
+  const reasons = [...failReasons, ...warnReasons];
 
   return {
     id: "backend-capabilities",
     label: "Backend capabilities",
-    status: reasons.length ? "fail" : "ok",
+    status: failReasons.length ? "fail" : warnReasons.length ? "warn" : "ok",
     detail: reasons.length ? `${reasons.join("; ")}\n    ${summary}` : summary,
     backends: [...backends],
   };

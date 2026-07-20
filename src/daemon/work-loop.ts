@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { getBackend } from "./backends/registry.ts";
-import { parseIdentity } from "./backends/identity.ts";
+import { getBackend } from "../backends/registry.ts";
+import { parseIdentity } from "../backends/identity.ts";
 import {
   claimTask,
   listTasks,
@@ -10,16 +10,16 @@ import {
   requeueTask,
   taskShouldRetry,
   type TaskRec,
-} from "./queue.ts";
-import { emitAndNotify, derivePresenceTransition, type PresenceMetadata } from "./daemon/events.ts";
-import { loadSinks } from "./notify/router.ts";
-import { type NotifyEvent } from "./notify/format.ts";
-import { loadPresence, statusForPresence, type PresenceEntry } from "./store.ts";
-import { workspaceOf } from "./policy/workspace.ts";
-import { loadConfig, type OrchConfig } from "./config.ts";
-import { workerHeaderFor } from "./worker-prompt.ts";
-import { getAdapter } from "./adapters/registry.ts";
-import { spawnedRecords } from "./store.ts";
+} from "../queue.ts";
+import { emitAndNotify, derivePresenceTransition, type PresenceMetadata } from "./events.ts";
+import { loadSinks } from "../notify/router.ts";
+import { type NotifyEvent } from "../notify/format.ts";
+import { loadPresence, statusForPresence, type PresenceEntry } from "../presence/store.ts";
+import { workspaceOf } from "../policy/workspace.ts";
+import { loadConfig, type OrchConfig } from "../config.ts";
+import { workerHeaderFor } from "../worker-prompt.ts";
+import { getAdapter } from "../adapters/registry.ts";
+import { spawnedRecords } from "../presence/store.ts";
 
 export interface WorkOptions {
   orchDir: string;
@@ -75,12 +75,13 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
     return;
   }
   backend.deliver(id.handle, { kind: "run", text: prompt });
-  let status = waitForWorking(entry, 10_000);
+  const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
+  let status = waitForWorking(entry, dispatchAckTimeoutMs);
   let retried = false;
   if (status !== "working") {
     retried = true;
     backend.deliver(id.handle, { kind: "run", text: prompt });
-    status = waitForWorking(entry, 10_000);
+    status = waitForWorking(entry, dispatchAckTimeoutMs);
   }
   if (!options.json) process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
 }
@@ -135,7 +136,8 @@ function settleError(orchDir: string, task: TaskRec, maxRetries: number, error: 
 async function assignTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec, maxRetries: number, emit: (event: NotifyEvent) => void): Promise<void> {
   try {
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
-    const state = await waitForTaskState(entry, 10_000);
+    const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
+    const state = await waitForTaskState(entry, dispatchAckTimeoutMs);
     const current = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
     if (state === "timeout") {
       const requeued = requeueTask(options.orchDir, task.id, "agent did not acknowledge working");
@@ -175,8 +177,9 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     settleClaimedTasks(options.orchDir, maxRetries, emit);
     let assigned = 0;
     for (const entry of [...presence.values()].filter(agentIdle)) {
-      // A worker may claim tasks from its own workspace and legacy unscoped
-      // tasks only; nextQueuedTask enforces this origin-workspace wall.
+      // A worker claims only queued tasks stamped with its own workspace;
+      // nextQueuedTask enforces that origin-workspace wall and skips
+      // null-workspace rows as malformed (never claimable).
       const workerWorkspace = workspaceOf(entry.key) ?? entry.key.split(":", 1)[0];
       const workerAgent = entry.status?.agent;
       if (!workerAgent) continue;

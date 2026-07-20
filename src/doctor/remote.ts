@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { loadConfigOrNull, type HostConfig } from "../config.ts";
 import { runSSH, type SshResult } from "../remote.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { readJson, repoDir } from "./shared.ts";
 
 export type SshRunner = (destination: string, command: string, options?: { timeoutMs?: number }) => SshResult;

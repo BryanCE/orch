@@ -6,11 +6,11 @@ import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { buildEntities } from "../src/entities.ts";
 import { parseIdentity } from "../src/backends/identity.ts";
-import { recordSpawned, spawnedRecords } from "../src/store.ts";
+import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));
-const storePath = path.join(import.meta.dir, "../src/store.ts");
+const storePath = path.join(import.meta.dir, "../src/presence/store.ts");
 
 interface PresenceStatus {
   schema?: number;

@@ -1,15 +1,15 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./presence/schema.ts";
+import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // The presence protocol is orch's, and src/presence/ owns it (Rule 10). The
 // directory layout is defined there and imported here — a second copy in the
 // store is how a writer and a reader end up disagreeing about where a record
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
-import { orchDir, presenceAgentDir, presenceRoot } from "./presence/writer.ts";
-import { insertSpawnedRecord, selectSpawnedRecords, setOwner } from "./store/sqlite.ts";
-import { isRecord, pidAlive, readJsonFile } from "./util.ts";
+import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
+import { insertSpawnedRecord, selectSpawnedRecords, setOwner, type SpawnedRecord } from "../store/sqlite.ts";
+import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 
 const HOME = homedir();
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
@@ -119,23 +119,6 @@ export function recordSpawned(
     insertSpawnedRecord(orchDir(), record);
     if (metadata.owner) setOwner(orchDir(), pane, metadata.owner);
   } catch {}
-}
-
-export interface SpawnedRecord {
-  /** Primary registry id: the agent's serialized identity key. */
-  pane: string;
-  ts?: string;
-  adapter?: string;
-  model?: string;
-  backend?: string;
-  /** Identity workspace assigned by the spawning backend. */
-  workspace?: string;
-  /** Backend-native control handle (herdr/tmux pane id) for close/focus/send-keys. */
-  handle?: string;
-  /** Working directory the agent launched in. */
-  cwd?: string;
-  worktree?: string;
-  branch?: string;
 }
 
 export function spawnedRecords(): Map<string, SpawnedRecord> {

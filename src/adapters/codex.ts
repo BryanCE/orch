@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { errorMessage, packageRoot } from "../util.ts";
 import { declaredRuntime } from "../config.ts";
-import { orchDir } from "../store.ts";
+import { orchDir } from "../presence/store.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import type {
   AdapterCommand,
@@ -17,9 +17,10 @@ import type {
   StateDetectionInput,
   SteerRequest,
 } from "./adapter.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { isRecord, type JsonRecord } from "../util.ts";
 import { textValue } from "../util.ts";
+import { contentText } from "./transcript.ts";
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
 export const CODEX_TURN_COMPLETE = "agent-turn-complete";
@@ -104,20 +105,6 @@ function notifyText(record: JsonRecord): string | undefined {
   for (const nested of nestedRecords(record)) {
     const value = notifyText(nested);
     if (value !== undefined) return value;
-  }
-  return undefined;
-}
-
-function contentText(value: unknown): string | undefined {
-  if (typeof value === "string") return textValue(value);
-  if (Array.isArray(value)) {
-    const parts = value.map(contentText).filter((part): part is string => part !== undefined);
-    return parts.length ? parts.join("\n") : undefined;
-  }
-  if (!isRecord(value)) return undefined;
-  for (const key of ["text", "output_text", "output-text", "content"]) {
-    const text = contentText(value[key]);
-    if (text !== undefined) return text;
   }
   return undefined;
 }

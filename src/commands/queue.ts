@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec } from "../queue.ts";
-import { orchDir } from "../store.ts";
+import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { createAgentWorktree } from "../worktree.ts";
-import { die, remoteWrite, splitOptionFlags } from "./target.ts";
+import { callerWorkspace, die, remoteWrite, splitOptionFlags } from "./target.ts";
 
 export function renderQueueTasks(tasks: TaskRec[]): void {
   if (tasks.length === 0) {
@@ -52,13 +52,15 @@ export function cmdQueue(args: string[]) {
         remoteWrite(hostName, "queue", ["add", ...queueArgs.slice(1)]);
         return;
       }
+      const workspace = callerWorkspace();
+      if (!workspace) die("Could not determine the origin workspace for this task. Run from a backend workspace or pass --host <host>.");
       let options = {};
       if (worktree) {
         const name = `queue-${randomUUID()}`;
         const worktreePath = createAgentWorktree(process.cwd(), name);
         options = { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
       }
-      const task = addTask(orchDir(), text, options);
+      const task = addTask(orchDir(), text, options, workspace);
       writeQueueTask(task, json, task.id);
       return;
     }

@@ -12,7 +12,7 @@ import { Type } from "typebox";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../../src/policy/workspace.ts";
 import { INBOX_FILE, RESULT_FILE } from "../../src/presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../../src/presence/writer.ts";
-import { isRecord, optionalString, readJsonFile, truncate, type JsonRecord } from "../../src/util.ts";
+import { isRecord, optionalString, pidAlive, readJsonFile, truncate, type JsonRecord } from "../../src/util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
 import type { PiPresence } from "./presence.ts";
@@ -44,16 +44,6 @@ interface PeerResolutionPeer {
 
 export type PeerResolution = PeerResolutionError | PeerResolutionPeer;
 
-function isPidAlive(pid: unknown): boolean {
-  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function peerModel(status: unknown): string | undefined {
   if (!isRecord(status) || !isRecord(status.model)) return undefined;
   const provider = optionalString(status.model.provider);
@@ -65,7 +55,7 @@ export function peerModel(status: unknown): string | undefined {
 
 // src/backends/identity.ts is the single escaping authority: every serialized
 // identity key segment is already percent-escaped on all platforms, so the
-// presence directory name IS the key — no remapping (see src/store.ts).
+// presence directory name IS the key — no remapping (see src/presence/store.ts).
 function livePeers(ownKey: string, allWorkspaces = false): Peer[] {
   try {
     const peers = fs.readdirSync(presenceRoot(), { withFileTypes: true })
@@ -74,7 +64,7 @@ function livePeers(ownKey: string, allWorkspaces = false): Peer[] {
         const dir = presenceAgentDir(entry.name);
         return { key: entry.name, dir, status: readStatus(dir) };
       })
-      .filter((peer) => isPidAlive(peer.status.pid));
+      .filter((peer) => pidAlive(peer.status.pid));
     return scopeToWorkspace(peers, (peer) => peer.key, workspaceOf(ownKey), { all: allWorkspaces });
   } catch {
     return [];

@@ -51,12 +51,12 @@ describe("broker ownership and workspace governance", () => {
     const orchDir = makeOrchDir();
     const origin = addTask(orchDir, "origin task", {}, "w1");
     const foreign = addTask(orchDir, "foreign task", {}, "w2");
-    const legacy = addTask(orchDir, "legacy task");
     const tasks = listTasks(orchDir);
 
     expect(nextQueuedTask(tasks, "worker", "w1")?.id).toBe(origin.id);
     expect(nextQueuedTask(tasks, "worker", "w2")?.id).toBe(foreign.id);
-    expect(nextQueuedTask(tasks, "worker", "w3")?.id).toBe(legacy.id);
+    // No unscoped tasks exist, and neither scoped task leaks into a third workspace.
+    expect(nextQueuedTask(tasks, "worker", "w3")).toBeUndefined();
     expect(nextQueuedTask(tasks.filter((task) => task.id === foreign.id), "worker", "w1")).toBeUndefined();
   });
 });

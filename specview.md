@@ -5,11 +5,12 @@ OpenSpec Dashboard
 Summary:
   ● Specifications: 22 specs, 108 requirements
   ● Active Changes: 0 in progress
-  ● Completed Changes: 3
+  ● Completed Changes: 4
 
 Completed Changes
 ────────────────────────────────────────────────────────────
   ✓ daemon-only-events
+  ✓ fix-audit-findings
   ✓ monolith-file-breakdown
   ✓ runtime-selection
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readAssignFlag, readValueFlag, resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/commands/setup.ts";
+import { readAssignFlag, readValueFlag, reconcileRuntimeToEntrypoint, resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/commands/setup.ts";
 
 describe("commands/setup", () => {
   test("reads value and assignment flags", () => {
@@ -19,5 +19,38 @@ describe("commands/setup", () => {
     // Interactive defers entirely to the selection; bun is never chosen on the operator's behalf.
     expect(await resolveRuntime(undefined, true, () => Promise.resolve(null))).toBeNull();
     expect(await resolveRuntime(undefined, true, () => Promise.resolve("bun"))).toBe("bun");
+  });
+
+  describe("reconcileRuntimeToEntrypoint (11.1)", () => {
+    const nodeEntrypoint = () => ({ path: "/usr/local/bin/orch", runtime: "node" as const });
+
+    test("a consistent selection records silently and never prompts", async () => {
+      let asked = false;
+      const result = await reconcileRuntimeToEntrypoint("node", true, nodeEntrypoint, () => { asked = true; return Promise.resolve(true); });
+      expect(result).toBe("node");
+      expect(asked).toBe(false);
+    });
+
+    test("no installed entrypoint leaves the selection untouched", async () => {
+      const result = await reconcileRuntimeToEntrypoint("bun", true, () => null, () => Promise.resolve(true));
+      expect(result).toBe("bun");
+    });
+
+    test("a mismatch records nothing without confirmation — the consistent value wins", async () => {
+      const result = await reconcileRuntimeToEntrypoint("bun", true, nodeEntrypoint, () => Promise.resolve(false));
+      expect(result).toBe("node");
+    });
+
+    test("a mismatch records the selection only on explicit confirmation", async () => {
+      const result = await reconcileRuntimeToEntrypoint("bun", true, nodeEntrypoint, () => Promise.resolve(true));
+      expect(result).toBe("bun");
+    });
+
+    test("non-interactive never prompts and records the consistent value", async () => {
+      let asked = false;
+      const result = await reconcileRuntimeToEntrypoint("bun", false, nodeEntrypoint, () => { asked = true; return Promise.resolve(true); });
+      expect(result).toBe("node");
+      expect(asked).toBe(false);
+    });
   });
 });

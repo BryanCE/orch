@@ -8,7 +8,7 @@ export interface CommandLock {
   ts: number;
 }
 
-export interface CommandLockOptions {
+interface CommandLockOptions {
   holder: string;
   note?: string;
   timeoutMs?: number;

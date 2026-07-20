@@ -1,12 +1,11 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadConfigOrNull } from "../config.ts";
+import { loadConfigOrNull, type NotifyEntry } from "../config.ts";
 import { createNotifierRegistry, loadSinks, type Sink } from "../notify/router.ts";
 import { allBackends } from "../backends/registry.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import type { BinaryStatus } from "./bins.ts";
 import { isWslRuntime, onPath, repoDir } from "./shared.ts";
-import { isRecord } from "../util.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
@@ -25,7 +24,7 @@ export function checkNotifications(_bins: BinaryStatus): CheckResult {
 export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
   const id = "notifiers";
   const label = "Notifiers";
-  let configured: unknown[];
+  let configured: NotifyEntry[];
   try {
     // An install with no settings.json has no notifiers, which is a healthy state to report.
     // Only a settings.json that exists and is malformed is a failure worth naming here.
@@ -37,17 +36,12 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
 
   const registry = createNotifierRegistry();
   const failures: string[] = [];
-  for (const [index, raw] of configured.entries()) {
+  for (const [index, entry] of configured.entries()) {
     const number = index + 1;
-    if (!isRecord(raw)) {
-      failures.push(`notifier #${number}: expected a table; fix: add [[notify]] with id = "desktop"`);
-      continue;
-    }
-    const adapter = typeof raw.id === "string" ? raw.id : typeof raw.type === "string" ? raw.type : "";
-    const config: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (key !== "id" && key !== "type" && key !== "on") config[key] = value;
-    }
+    const adapter = entry.id;
+    const config: Record<string, unknown> = { ...entry };
+    delete config.id;
+    delete config.on;
     if (adapter === "command" && typeof config.command === "string") {
       config.command = ["sh", "-c", config.command];
     }
@@ -98,7 +92,8 @@ export function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResu
       }
     } else if (sink.type === "command") {
       const command = (sink as { command?: unknown }).command;
-      const binary = Array.isArray(command) && typeof command[0] === "string" ? command[0] : undefined;
+      const normalized = typeof command === "string" ? ["sh", "-c", command] : command;
+      const binary = Array.isArray(normalized) && typeof normalized[0] === "string" ? normalized[0] : undefined;
       if (!binary || !onPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
     } else if (desktop.status !== "ok") {
       unavailable.push(`${name} has no available desktop notification tier`);

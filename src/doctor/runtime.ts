@@ -2,7 +2,7 @@ import * as filesystem from "node:fs";
 import { declaredRuntime } from "../config.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { binaryPath } from "../util.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 
 const id = "runtime";
 const label = "Declared runtime";

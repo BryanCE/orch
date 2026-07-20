@@ -1,7 +1,8 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readDaemonLock } from "./lifecycle.ts";
+import { readPortFile } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
 
 export type RpcParams = unknown;
@@ -98,6 +99,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 const SOCKET_NAME = "orchd.sock";
 const PORT_NAME = "orchd.port";
 const DEFAULT_TIMEOUT_MS = 5_000;
+// Bounds for the self-healing event subscription's reconnect loop. A daemon can
+// return at any time (restart, reload, machine wake), so retries never give up;
+// they only stop climbing once the delay reaches the cap.
+const RECONNECT_BASE_MS = 250;
+const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
 
 function endpointPaths(orchDir: string): { socket: string; port: string } {
@@ -165,24 +171,37 @@ function handleLine(
     });
 }
 
-function attachConnection(
-  socket: Socket,
-  handlers: RpcHandlers,
-  subscriptions: Set<Socket>,
-  replayBuffer: ReplayBuffer,
-): void {
+/**
+ * Drive `onLine` for each newline-framed line arriving on `socket`, buffering
+ * partial lines across chunks. This owns only the framing loop — encoding,
+ * split-on-newline, and cross-chunk buffering. Callers keep their own error,
+ * close, and per-line parse semantics by attaching those listeners themselves
+ * and doing any trim/parse inside `onLine`.
+ */
+function framedLineReader(socket: Socket, onLine: (line: string) => void): void {
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
     buffer += chunk;
     let newline = buffer.indexOf("\n");
     while (newline >= 0) {
-      const line = buffer.slice(0, newline).replace(/\r$/, "");
+      const line = buffer.slice(0, newline);
       buffer = buffer.slice(newline + 1);
-      handleLine(socket, line, handlers, subscriptions, replayBuffer);
+      onLine(line);
       newline = buffer.indexOf("\n");
     }
   });
+}
+
+function attachConnection(
+  socket: Socket,
+  handlers: RpcHandlers,
+  subscriptions: Set<Socket>,
+  replayBuffer: ReplayBuffer,
+): void {
+  framedLineReader(socket, (line) =>
+    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer),
+  );
   socket.on("close", () => subscriptions.delete(socket));
   socket.on("error", () => subscriptions.delete(socket));
 }
@@ -201,24 +220,6 @@ function listen(server: Server, endpoint: string | { port: number; host: string 
     server.once("listening", onListening);
     server.listen(endpoint);
   });
-}
-
-function readPort(portFile: string): number | null {
-  let text: string;
-  try {
-    text = readFileSync(portFile, "utf8").trim();
-  } catch {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(text);
-    const port = typeof parsed === "number" ? parsed : isObject(parsed) ? parsed.port : undefined;
-    if (typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536) return port;
-  } catch {
-    const port = Number(text);
-    if (Number.isInteger(port) && port > 0 && port < 65536) return port;
-  }
-  return null;
 }
 
 function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket> {
@@ -249,8 +250,8 @@ async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket
   try {
     return await connect(paths.socket, timeoutMs);
   } catch {}
-  const port = existsSync(paths.port) ? readPort(paths.port) : null;
-  if (port !== null) {
+  const port = readPortFile(orchDir);
+  if (port !== undefined) {
     try {
       return await connect(port, timeoutMs);
     } catch {
@@ -268,36 +269,25 @@ function responseError(response: RpcResponse): RpcError {
 
 function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise<RpcResponse> {
   return new Promise((resolve, reject) => {
-    let buffer = "";
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new Error("RPC request timed out"));
     }, timeoutMs);
-    const onData = (chunk: string) => {
-      buffer += chunk;
-      let newline = buffer.indexOf("\n");
-      while (newline >= 0) {
-        const line = buffer.slice(0, newline).trim();
-        buffer = buffer.slice(newline + 1);
-        if (line) {
-          try {
-            const parsed: unknown = JSON.parse(line);
-            if (!isObject(parsed)) continue;
-            const message = parsed as unknown as RpcResponse;
-            if (message.id === id) {
-              clearTimeout(timer);
-              socket.off("data", onData);
-              resolve(message);
-              return;
-            }
-          } catch {
-            // Ignore unsolicited malformed data from a server.
-          }
+    framedLineReader(socket, (raw) => {
+      const line = raw.trim();
+      if (!line) return;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (!isObject(parsed)) return;
+        const message = parsed as unknown as RpcResponse;
+        if (message.id === id) {
+          clearTimeout(timer);
+          resolve(message);
         }
-        newline = buffer.indexOf("\n");
+      } catch {
+        // Ignore unsolicited malformed data from a server.
       }
-    };
-    socket.on("data", onData);
+    });
     socket.once("error", (error) => {
       clearTimeout(timer);
       reject(error);
@@ -428,8 +418,14 @@ export interface EventSubscription {
 }
 
 /**
- * Subscribe to daemon-pushed events. A caller can reconnect by passing
- * `lastSeq()` as `since`; the daemon then replays events after that sequence.
+ * Subscribe to daemon-pushed events, self-healing across daemon restarts. The
+ * socket dying is the disconnect signal: on close or error the subscription
+ * redials with bounded exponential backoff — reading `orchd.port` fresh each
+ * attempt via {@link connectDaemon}, since the port changes when the daemon
+ * comes back on a new instance — and resubscribes on success. It retries
+ * forever at the capped interval; only {@link EventSubscription.close} stops the
+ * loop, and every timer is `unref`'d so a pending retry never keeps the process
+ * alive.
  */
 export function subscribeEvents(
   orchDir: string,
@@ -440,66 +436,90 @@ export function subscribeEvents(
   let last = opts.since ?? 0;
   let socket: Socket | undefined;
   let closed = false;
+  let connectedBefore = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let backoffMs = RECONNECT_BASE_MS;
 
-  const subscription: EventSubscription = {
+  const scheduleReconnect = (): void => {
+    if (closed || retryTimer) return;
+    const delay = backoffMs;
+    backoffMs = Math.min(backoffMs * 2, RECONNECT_CAP_MS);
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      connect();
+    }, delay);
+    retryTimer.unref?.();
+  };
+
+  // A dead socket means the daemon is gone; both error and close route here, but
+  // only the first schedules — scheduleReconnect no-ops while a retry is pending.
+  const onDisconnect = (): void => {
+    socket = undefined;
+    scheduleReconnect();
+  };
+
+  const connect = (): void => {
+    if (closed) return;
+    void connectDaemon(orchDir, DEFAULT_TIMEOUT_MS)
+      .then((connected) => {
+        if (closed) {
+          connected.destroy();
+          return;
+        }
+        socket = connected;
+        backoffMs = RECONNECT_BASE_MS; // a healthy dial resets the climb
+        framedLineReader(connected, (raw) => {
+          const line = raw.trim();
+          if (!line) return;
+          try {
+            const parsed: unknown = JSON.parse(line);
+            if (!isObject(parsed)) return;
+            const message = parsed as RpcResponse;
+            if (message.gap === true && typeof message.oldestSeq === "number") {
+              onGap?.(message.oldestSeq);
+            } else if (message.seq !== undefined && typeof message.seq === "number" && "event" in message) {
+              last = Math.max(last, message.seq);
+              onEvent(message.event, message.seq);
+            }
+          } catch {
+            // Ignore malformed unsolicited data from the daemon.
+          }
+        });
+        connected.once("error", onDisconnect);
+        connected.once("close", onDisconnect);
+        // First dial honours the caller's `since` (undefined = live only). A
+        // reconnect lands on a fresh daemon whose sequence numbers restarted
+        // from 1, so `last` from the previous instance no longer maps to its
+        // buffer — request `since: 0` to replay whatever the new daemon still
+        // holds rather than silently miss its early events.
+        const since = connectedBefore ? 0 : opts.since;
+        connectedBefore = true;
+        connected.write(`${JSON.stringify({
+          id: nextRequestId++,
+          method: "subscribe-events",
+          params: { since },
+        })}\n`);
+      })
+      .catch(() => {
+        // Daemon absent or the dial failed; keep retrying — it may return.
+        scheduleReconnect();
+      });
+  };
+
+  connect();
+
+  return {
     close: () => {
       closed = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
       socket?.destroy();
+      socket = undefined;
     },
     lastSeq: () => last,
   };
-
-  void connectDaemon(orchDir, DEFAULT_TIMEOUT_MS)
-    .then((connected) => {
-      if (closed) {
-        connected.destroy();
-        return;
-      }
-      socket = connected;
-      let buffer = "";
-      connected.setEncoding("utf8");
-      connected.on("data", (chunk: string) => {
-        buffer += chunk;
-        let newline = buffer.indexOf("\n");
-        while (newline >= 0) {
-          const line = buffer.slice(0, newline).trim();
-          buffer = buffer.slice(newline + 1);
-          if (line) {
-            try {
-              const parsed: unknown = JSON.parse(line);
-              if (!isObject(parsed)) {
-                newline = buffer.indexOf("\n");
-                continue;
-              }
-              const message = parsed as RpcResponse;
-              if (message.gap === true && typeof message.oldestSeq === "number") {
-                onGap?.(message.oldestSeq);
-              } else if (message.seq !== undefined && typeof message.seq === "number" && "event" in message) {
-                last = Math.max(last, message.seq);
-                onEvent(message.event, message.seq);
-              }
-            } catch {
-              // Ignore malformed unsolicited data from the daemon.
-            }
-          }
-          newline = buffer.indexOf("\n");
-        }
-      });
-      connected.on("error", () => {
-        // The caller can reconnect using the sequence exposed by lastSeq().
-      });
-      connected.write(`${JSON.stringify({
-        id: nextRequestId++,
-        method: "subscribe-events",
-        params: { since: opts.since },
-      })}\n`);
-    })
-    .catch(() => {
-      // A failed initial connection is surfaced by an empty subscription;
-      // callers may retry with lastSeq() and a new subscription.
-    });
-
-  return subscription;
 }
 
 /** Subscribe to pushed events; the returned function closes the subscription.
@@ -513,37 +533,28 @@ export async function rpcSubscribe(
 ): Promise<() => void> {
   const socket = await connectDaemon(orchDir, DEFAULT_TIMEOUT_MS);
   const id = nextRequestId++;
-  let buffer = "";
   let responseResolve!: (value: unknown) => void;
   let responseReject!: (reason?: unknown) => void;
   const response = new Promise<unknown>((resolve, reject) => {
     responseResolve = resolve;
     responseReject = reject;
   });
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk: string) => {
-    buffer += chunk;
-    let newline = buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) {
+  framedLineReader(socket, (raw) => {
+    const line = raw.trim();
+    if (!line) return;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (!isObject(parsed)) return;
+      const message = parsed as unknown as RpcResponse;
+      if (Object.prototype.hasOwnProperty.call(message, "event")) {
         try {
-          const parsed: unknown = JSON.parse(line);
-          if (!isObject(parsed)) continue;
-          const message = parsed as unknown as RpcResponse;
-          if (Object.prototype.hasOwnProperty.call(message, "event")) {
-            try {
-              onEvent(message.event);
-            } catch {}
-          } else if (message.id === id) {
-            if (message.error !== undefined) responseReject(responseError(message));
-            else responseResolve(message.result);
-          }
+          onEvent(message.event);
         } catch {}
+      } else if (message.id === id) {
+        if (message.error !== undefined) responseReject(responseError(message));
+        else responseResolve(message.result);
       }
-      newline = buffer.indexOf("\n");
-    }
+    } catch {}
   });
   socket.once("error", responseReject);
   socket.write(`${JSON.stringify({ id, method })}\n`);

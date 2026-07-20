@@ -15,14 +15,14 @@ Worker processes SHALL default to `worker_peer_tools = false`, receiving `orch_a
 - **THEN** its toolset includes the configured peer discovery and messaging tools
 
 ### Requirement: All workspace walls use one shared policy
-All workspace identity, scoping, and wall decisions SHALL use the shared workspace policy primitive and the `workspace` field reported by the selected backend's structured identity `{backend, workspace, handle}`. Policy code MUST NOT parse a herdr `ws:pane` string or any plexer-specific handle format. Writes targeting a different workspace SHALL be refused unless the explicit `--cross-workspace` override is enabled and permitted by configuration; same-workspace operations SHALL remain allowed. The wall SHALL apply uniformly to herdr, tmux, and headless backends.
+All workspace identity, scoping, and wall decisions SHALL use the shared workspace policy primitive and the `workspace` field reported by the selected backend's structured identity `{backend, workspace, handle}`. Policy code MUST NOT parse a herdr `ws:pane` string or any plexer-specific handle format. Writes targeting a different workspace SHALL be refused unless the explicit `--cross-workspace` override is enabled and permitted by the `fleet.cross_workspace` configuration key; same-workspace operations SHALL remain allowed. `fleet.cross_workspace` is the sole configuration key that permits cross-workspace writes. The wall SHALL apply uniformly to herdr, tmux, and headless backends.
 
 #### Scenario: Cross-workspace write is refused
 - **WHEN** a command attempts to write to a target in a different backend-reported workspace without `--cross-workspace`
 - **THEN** the write is refused with a workspace-boundary reason
 
 #### Scenario: Explicit cross-workspace write is allowed
-- **WHEN** a command attempts to write across backend-reported workspaces with `--cross-workspace` and the configured override permits it
+- **WHEN** a command attempts to write across backend-reported workspaces with `--cross-workspace` and `fleet.cross_workspace` is `true`
 - **THEN** the shared policy allows the write
 
 #### Scenario: Same-workspace write remains allowed
@@ -34,7 +34,7 @@ All workspace identity, scoping, and wall decisions SHALL use the shared workspa
 - **THEN** each backend applies the same refusal or explicitly permitted override based on its reported `workspace` field
 
 ### Requirement: Work loops remain within their origin workspace
-The work loop SHALL scope task selection and dispatch to the backend-reported workspace from which it originated, and SHALL not select or write to agents in another backend-reported workspace unless the explicit cross-workspace policy override applies. It MUST NOT derive that workspace by parsing a plexer-specific key or handle string.
+The work loop SHALL scope task selection and dispatch to the backend-reported workspace from which it originated, and SHALL not select or write to agents in another backend-reported workspace unless `fleet.cross_workspace` is true and the explicit cross-workspace policy override applies. It MUST NOT derive that workspace by parsing a plexer-specific key or handle string.
 
 #### Scenario: Work loop refuses a foreign workspace target
 - **WHEN** a work loop originating in one backend-reported workspace encounters a task or target belonging to another workspace without the cross-workspace override
@@ -46,4 +46,18 @@ The selected backend SHALL report a structured identity containing `backend`, `w
 #### Scenario: Structured identity drives status and policy
 - **WHEN** the user runs `orch status --json` for agents on herdr, tmux, or headless
 - **THEN** each agent includes a backend-reported workspace, and subsequent wall decisions use that field rather than parsing the displayed key
+
+### Requirement: Every agent-directed write verb passes the daemon-side wall
+
+Every verb that writes to an agent — steer, answer, model, broadcast, pipe delivery, and work-loop dispatch — SHALL pass the daemon's write governance (workspace wall plus ownership check) before any adapter or backend mechanism is invoked. No CLI code path SHALL reach an agent write while skipping governance. Client-side target scoping is a convenience, not the enforcement point.
+
+#### Scenario: Answer is wall-checked like steer
+
+- **WHEN** an orchestrator in workspace A runs `orch answer <workspace-B-target> "yes"` without the cross-workspace override
+- **THEN** the daemon refuses the write with a workspace-boundary reason, no answer file is written, and the refusal is identical in kind to a refused cross-workspace steer
+
+#### Scenario: Ownership applies to every write verb
+
+- **WHEN** an agent is owned by another orchestrator and a non-owner runs any write verb (`steer`, `answer`, `model`) against it without stealing ownership
+- **THEN** the daemon refuses the write naming the owning orchestrator
 

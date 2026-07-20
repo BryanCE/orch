@@ -97,6 +97,23 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.readSessionView?.({ sessionPath: transcript })).toEqual({ lastText: "Final answer" });
   });
 
+  test("shim and adapter extract identical text from one transcript (empty-string parts)", () => {
+    const key = "claude-shared-fixture";
+    const transcript = join(agentDir(key), "shared.jsonl");
+    // The final assistant carries an empty-string part beside a real one — the
+    // exact divergence D4 collapsed onto the adapter's `part !== undefined`
+    // filter. Both readers now route through src/adapters/transcript.ts, so the
+    // subprocess shim and the in-process adapter must agree byte-for-byte.
+    writeFileSync(transcript, JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "" }, { type: "text", text: "shared answer" }] },
+    }) + "\n");
+    const adapterText = claudeAdapter.readSessionView?.({ sessionPath: transcript })?.lastText;
+    expect(adapterText).toBe("shared answer");
+    const status = runHook("Stop", key, { pid: process.pid, transcript_path: transcript });
+    expect(status.lastText).toBe(adapterText);
+  }, 20_000);
+
   test("maps Claude hook events to presence states and schema", () => {
     const key = "claude-hooks";
     expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 2, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });

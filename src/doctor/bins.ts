@@ -1,4 +1,4 @@
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { onPath } from "./shared.ts";
 
 export type BinaryStatus = Record<string, boolean>;

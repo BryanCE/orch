@@ -69,8 +69,11 @@ describe("loadConfig", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
       installed: { adapters: ["pi", "claude"], backends: ["headless"] },
-      defaults: { adapter: "claude", backend: "headless", model: "sonnet", spawn_cap: 4, worktree: true },
+      defaults: { adapter: "claude", backend: "headless", model: "sonnet", worktree: true },
+      fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
+      models: { allowed: ["sonnet"] },
       queue: { max_retries: 3 },
+      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
@@ -83,15 +86,16 @@ describe("loadConfig", () => {
         adapter: "claude",
         backend: "headless",
         model: "sonnet",
-        spawn_cap: 4,
         worktree: true,
       },
+      fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
+      models: { allowed: ["sonnet"] },
       queue: { max_retries: 3 },
+      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       locked_commands: [],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
-      limits: {},
     });
   });
 
@@ -124,41 +128,40 @@ describe("loadConfig", () => {
     expect(() => loadConfig(directory)).toThrow(/Unrecognized key.*junk/);
   });
 
-  test("parses defaults.allowed_models as a string array", () => {
+  test("parses models.allowed as a string array", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { allowed_models: ["openrouter/a", "openrouter/b"] } });
+    writeSettingsFixture(directory, { models: { allowed: ["openrouter/a", "openrouter/b"] } });
 
-    expect(loadConfig(directory).defaults.allowed_models).toEqual(["openrouter/a", "openrouter/b"]);
+    expect(loadConfig(directory).models.allowed).toEqual(["openrouter/a", "openrouter/b"]);
   });
 
-  test("rejects a non-string entry in defaults.allowed_models", () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { allowed_models: [1] } });
-
-    expect(() => loadConfig(directory)).toThrow(/allowed_models/);
-  });
-
-  test("validates defaults.worker_peer_tools as a boolean", () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { worker_peer_tools: "yes" } });
-
-    expect(() => loadConfig(directory)).toThrow(/worker_peer_tools/);
-  });
-
-  test("accepts true and false for defaults.worker_peer_tools", () => {
-    for (const value of [true, false]) {
+  test("rejects old settings keys", () => {
+    for (const settings of [
+      { limits: {} },
+      { defaults: { spawn_cap: 4 } },
+      { defaults: { allowed_models: ["openrouter/a"] } },
+      { defaults: { worker_peer_tools: true } },
+    ]) {
       const directory = tempDir();
-      writeSettingsFixture(directory, { defaults: { worker_peer_tools: value } });
-
-      expect(loadConfig(directory).defaults.worker_peer_tools).toBe(value);
+      writeSettingsFixture(directory, settings);
+      expect(() => loadConfig(directory)).toThrow(/Unrecognized key/);
     }
   });
 
-  test("leaves defaults.worker_peer_tools absent when unset", () => {
+  test("rejects legacy notify type and unknown ids", () => {
+    for (const entry of [{ type: "webhook", url: "https://example.test" }, { id: "email" }]) {
+      const directory = tempDir();
+      writeSettingsFixture(directory, { notify: [entry] });
+      expect(() => loadConfig(directory)).toThrow(/notify/);
+    }
+  });
+
+  test("applies timeout defaults and disables cross-workspace writes by default", () => {
     const directory = tempDir();
     writeSettingsFixture(directory);
-
-    expect(loadConfig(directory).defaults.worker_peer_tools).toBeUndefined();
+    const config = loadConfig(directory);
+    expect(config.timeouts).toEqual({ dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 });
+    expect(config.fleet.cross_workspace).toBe(false);
   });
 
   test("rejects a host without dest", () => {
@@ -198,7 +201,7 @@ describe("allowedModelPatterns", () => {
 
   test("returns the configured patterns when set", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { allowed_models: ["openrouter/x"] } });
+    writeSettingsFixture(directory, { models: { allowed: ["openrouter/x"] } });
 
     expect(allowedModelPatterns(directory)).toEqual(["openrouter/x"]);
   });
@@ -329,25 +332,25 @@ describe("config precedence", () => {
     writeSettingsFixture(directory);
     const config = loadConfig(directory);
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.defaults.spawn_cap, fallback: 2 })).toBe(2);
+    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.spawn_cap, fallback: 2 })).toBe(2);
   });
 
   test("uses the settings.json value over the fallback", () => {
     delete process.env.ORCH_CONFIG_PRECEDENCE;
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { spawn_cap: 4 } });
+    writeSettingsFixture(directory, { fleet: { spawn_cap: 4 } });
     const config = loadConfig(directory);
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.defaults.spawn_cap, fallback: 2 })).toBe(4);
+    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.spawn_cap, fallback: 2 })).toBe(4);
   });
 
   test("uses the ORCH_* environment value over settings.json", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { spawn_cap: 4 } });
+    writeSettingsFixture(directory, { fleet: { spawn_cap: 4 } });
     process.env.ORCH_CONFIG_PRECEDENCE = "7";
     const config = loadConfig(directory);
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.defaults.spawn_cap, fallback: 2 })).toBe(7);
+    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.spawn_cap, fallback: 2 })).toBe(7);
   });
 
   test("uses an explicit flag override over the environment", () => {

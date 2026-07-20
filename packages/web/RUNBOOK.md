@@ -60,7 +60,7 @@ onboard, intake, print, sigs), domain hooks, `env.ts`, drizzle/db.
 ## 3. NEXT — wire to orch (do after the base boots)
 
 The daemon (`orchd`) surface the UI binds to (already exists, no new HTTP API needed):
-- **Reads** (topology): `import { loadPresence, spawnedRecords } from '<orch>/src/store.ts'`,
+- **Reads** (topology): `import { loadPresence, spawnedRecords } from '<orch>/src/presence/store.ts'`,
   group by `workspaceOf(key)` then `owner`. Agent key grammar: `<backend>~<workspace>~<handle>`.
 - **Live events**: `subscribeEvents(orchDir, {since}, onEvent)` from `src/daemon/rpc.ts`
   → re-emit as **SSE** from a server route (`src/routes/api/events.ts`, returns a
@@ -84,7 +84,7 @@ web app import orch code as a real workspace dep instead of deep relative paths:
    ```
 2. **Extract orch into packages** (sequenced so the CLI never breaks — do one at a time,
    run `bun test` after each):
-   - `packages/core/`  ← `src/store.ts`, `src/store/`, `src/entities.ts`, `src/policy/`, `src/backends/identity.ts`
+   - `packages/core/`  ← `src/presence/store.ts`, `src/store/`, `src/entities.ts`, `src/policy/`, `src/backends/identity.ts`
    - `packages/daemon/` ← `src/daemon/`, `src/notify.ts`, outbox
    - `packages/cli/`    ← `src/commands.ts`, `bin/orch.ts`, `bin/pif`
    - keep `extensions/` where the pi runtime expects it

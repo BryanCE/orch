@@ -1,4 +1,4 @@
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 
 /** Agent CLIs supported by orch. */
 export type AdapterId = "pi" | "claude" | "codex";
@@ -91,6 +91,35 @@ export interface ResultExtractionInput {
   readonly sessionPath?: string;
 }
 
+/** A tool invocation summarized for a session-view assistant turn. */
+export interface SessionViewToolCall {
+  /** Tool name, or "tool" when the adapter cannot name it. */
+  readonly name: string;
+  /** The most descriptive argument value the adapter recovered, unformatted (commands own truncation/collapsing). */
+  readonly arg: string;
+}
+
+/**
+ * One content-bearing turn in a session view, normalized across harnesses so
+ * `orch tail`/`orch session` can render per-turn rows without importing any
+ * per-harness session parser. Adapters emit only renderable turns; commands own
+ * all layout (columns, role labels, timestamps, truncation, collapsing).
+ */
+export interface SessionViewEntry {
+  /** Turn role, normalized to orch's three tail rows. */
+  readonly role: "user" | "assistant" | "tool";
+  /** Flattened turn text, when the turn carries any. */
+  readonly text?: string;
+  /** Tool calls for an assistant turn that only invoked tools; omitted otherwise. */
+  readonly toolCalls?: readonly SessionViewToolCall[];
+  /** Tool name for a tool-result turn. */
+  readonly tool?: string;
+  /** Whether a tool-result turn reported an error. */
+  readonly isError?: boolean;
+  /** ISO timestamp of the turn, when the session records one. */
+  readonly timestamp?: string;
+}
+
 /** Supplementary display data an adapter can recover from its native session output. */
 export interface SessionView {
   /** Presence-protocol state inferred from session content, when the adapter derives one. */
@@ -111,6 +140,12 @@ export interface SessionView {
   readonly tokens?: unknown;
   /** Completed turn count, when the session records one. */
   readonly turns?: number;
+  /**
+   * Per-turn items for rich tailing, populated by adapters whose parser can
+   * produce them. Commands render the header+last-text fallback when omitted;
+   * an empty array means the session was read but had no content-bearing turns.
+   */
+  readonly entries?: readonly SessionViewEntry[];
 }
 
 /** Input to an adapter's session-tail read. */

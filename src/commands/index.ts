@@ -13,7 +13,9 @@ import { cmdQueue } from "./queue.ts";
 import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
-import { cmdDoctor, cmdSettings, cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
+import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
+import { cmdSettings } from "./settings.ts";
+import { cmdDoctor } from "./doctor.ts";
 import { die } from "./target.ts";
 
 function usage() {
@@ -203,7 +205,7 @@ export function runCommand(argv: string[]): void {
       if (rest.length === 0) void cmdReviewInteractive().catch((error: unknown) => die(errorMessage(error)));
       else void cmdReview(rest).catch((error: unknown) => die(errorMessage(error)));
       break;
-    case "answer": cmdAnswer(rest); break;
+    case "answer": void cmdAnswer(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "result": cmdResult(rest); break;
     case "steer": void cmdSteer(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "pipe": void cmdPipe(rest).catch((error: unknown) => die(errorMessage(error))); break;

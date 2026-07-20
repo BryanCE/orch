@@ -6,12 +6,14 @@ const config = (workerPeerTools?: boolean): OrchConfig => ({
   runtime: "node",
   installed: { adapters: [], backends: [] },
   locked_commands: [],
-  defaults: workerPeerTools === undefined ? {} : { worker_peer_tools: workerPeerTools },
+  defaults: { worktree: false },
+  fleet: { worker_peer_tools: workerPeerTools ?? false, spawn_cap: 8, cross_workspace: false, workspace_caps: {} },
+  models: { allowed: [] },
   queue: { max_retries: 1 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   notify: [],
   hosts: {},
   workspaces: {},
-  limits: {},
 });
 
 describe("worker tool policy", () => {

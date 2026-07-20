@@ -9,7 +9,7 @@
 // consumed by a socket-less daemon.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createConnection } from "node:net";
+import { readPortFile, requestJsonLine } from "../../src/presence/socket-client.ts";
 import { isRecord } from "../../src/util.ts";
 
 /** Ack transport + dedupe set handed to the inbox drain. */
@@ -31,68 +31,23 @@ export function createDaemonAck(orchDir: string): DaemonAck {
     return parsed.id;
   }
 
-  function daemonAckEndpoint(): string | number | undefined {
-    const portFile = path.join(orchDir, "orchd.port");
+  async function postDaemonAckTo(endpoint: string | number, id: string): Promise<boolean> {
+    const requestId = `bridge-ack-${process.pid}-${nextAckRequestId++}`;
+    const line = await requestJsonLine(endpoint, { id: requestId, method: "ack", params: { id } }, 500);
+    if (line === undefined) return false;
     try {
-      const text = fs.readFileSync(portFile, "utf8").trim();
-      try {
-        const parsed: unknown = JSON.parse(text);
-        const port = typeof parsed === "number" ? parsed
-          : isRecord(parsed) ? parsed.port : undefined;
-        if (typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536) return port;
-      } catch {
-        const port = Number(text);
-        if (Number.isInteger(port) && port > 0 && port < 65536) return port;
-      }
+      const response: unknown = JSON.parse(line);
+      return isRecord(response) && response.id === requestId && !("error" in response);
     } catch {
-      // The unix socket is the normal endpoint.
+      return false;
     }
-    return undefined;
-  }
-
-  function postDaemonAckTo(endpoint: string | number, id: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      const requestId = `bridge-ack-${process.pid}-${nextAckRequestId++}`;
-      const socket = typeof endpoint === "string"
-        ? createConnection(endpoint)
-        : createConnection({ host: "127.0.0.1", port: endpoint });
-      let settled = false;
-      let buffer = "";
-      const finish = (success: boolean): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        socket.destroy();
-        resolve(success);
-      };
-      const timeout = setTimeout(() => finish(false), 500);
-      timeout.unref?.();
-      socket.setEncoding("utf8");
-      socket.on("error", () => finish(false));
-      socket.on("connect", () => {
-        socket.write(`${JSON.stringify({ id: requestId, method: "ack", params: { id } })}\n`);
-      });
-      socket.on("data", (chunk: string) => {
-        buffer += chunk;
-        const newline = buffer.indexOf("\n");
-        if (newline < 0) return;
-        try {
-          const response: unknown = JSON.parse(buffer.slice(0, newline));
-          if (isRecord(response) && response.id === requestId) {
-            finish(!("error" in response));
-          }
-        } catch {
-          finish(false);
-        }
-      });
-    });
   }
 
   async function postDaemonAck(id: string): Promise<boolean> {
     try {
       const socketPath = path.join(orchDir, "orchd.sock");
       if (fs.existsSync(socketPath) && await postDaemonAckTo(socketPath, id)) return true;
-      const port = daemonAckEndpoint();
+      const port = readPortFile(orchDir);
       return port === undefined ? false : await postDaemonAckTo(port, id);
     } catch {
       return false;

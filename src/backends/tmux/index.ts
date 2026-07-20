@@ -14,14 +14,13 @@ import type {
 import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
-import { presenceAgentDir, readPresenceStatus } from "../../store.ts";
+import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
 import { bestEffortTmux, execTmux, orchPanes, type TmuxPane } from "./cli.ts";
 
 /** Handle owned by one tmux pane. */
 export type TmuxHandle = string;
 
 const TMUX_BACKEND = "tmux";
-const FALLBACK_WORKSPACE = "tmux";
 
 /** Pause the calling process; tmux has no native blocking wait primitive to poll against. */
 function sleepMs(ms: number): void {
@@ -103,14 +102,6 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   /** Resolve the orch presence key stamped on a pane, when it has one. */
   protected agentKeyOf(pane: string): string {
     return bestEffortTmux(["display-message", "-p", "-t", pane, "#{@orch_agent_key}"])?.trim() ?? "";
-  }
-
-  mintIdentity(handle: TmuxHandle): Identity {
-    return {
-      backend: TMUX_BACKEND,
-      workspace: this.sessionOf(handle) || FALLBACK_WORKSPACE,
-      handle,
-    };
   }
 
   /** Identity of the calling pane, resolved from tmux's environment. */
@@ -213,10 +204,9 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return bestEffortTmux(["send-keys", "-t", handle, "--", ...keys]) !== null;
   }
 
-  /** Apply tmux's built-in tiled layout to the target group. */
-  // fallow-ignore-next-line unused-class-member
-  applyLayout(group: string, layout: "tiled"): boolean {
-    return bestEffortTmux(["select-layout", "-t", group, layout]) !== null;
+  /** tmux workspaces carry no display names distinct from their ids. */
+  workspaceNames(): Map<string, string> {
+    return new Map();
   }
 
   /** Every orch pane with its workspace, group, name, and presence status (D1, D2). */

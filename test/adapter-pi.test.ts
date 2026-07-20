@@ -8,7 +8,7 @@ const originalOrchDir = process.env.ORCH_DIR;
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
 
 const { PiAdapter } = await import("../src/adapters/pi.ts");
-const { presenceDir } = await import("../src/store.ts");
+const { presenceDir } = await import("../src/presence/store.ts");
 const adapter = new PiAdapter();
 
 function storePresenceDir(): string {

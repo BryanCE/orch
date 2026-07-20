@@ -166,6 +166,10 @@ describe("TmuxBackend", () => {
     expect(backend.isAvailable()).toBe(Bun.which("tmux") !== null);
   });
 
+  test("workspaceNames is empty — tmux sessions have no names distinct from ids", () => {
+    expect(new TmuxBackend().workspaceNames()).toEqual(new Map());
+  });
+
   test("reflects the TMUX environment", () => {
     const previous = process.env.TMUX;
     try {
@@ -177,20 +181,6 @@ describe("TmuxBackend", () => {
       if (previous === undefined) delete process.env.TMUX;
       else process.env.TMUX = previous;
     }
-  });
-
-  test("mints identity from the owning session", () => {
-    class FakeTmuxBackend extends TmuxBackend {
-      protected override sessionOf(_pane: string): string {
-        return "main";
-      }
-    }
-
-    expect(new FakeTmuxBackend().mintIdentity("%5")).toEqual({
-      backend: "tmux",
-      workspace: "main",
-      handle: "%5",
-    });
   });
 
   test("rejects an empty handle without invoking tmux", () => {

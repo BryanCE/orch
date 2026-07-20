@@ -1,6 +1,6 @@
 import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
-import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./store.ts";
+import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./presence/store.ts";
 import { serializeIdentity } from "./backends/identity.ts";
 import { checkWall, sameWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
@@ -24,7 +24,7 @@ export interface Entity {
   host?: string;
 }
 
-export interface TargetRef {
+interface TargetRef {
   host: string | null;
   target: string;
 }

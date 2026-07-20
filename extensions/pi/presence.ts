@@ -10,11 +10,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { allowedModelPatterns } from "../../src/config.ts";
 import { serializeIdentity, tryParseIdentity } from "../../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import {
-  atomicWrite,
   ensurePresenceAgentDir,
   writeResult as writePresenceResult,
   writeStatus as writePresenceStatus,
@@ -26,6 +24,7 @@ import {
   resetInbox,
 } from "../../src/presence/inbox.ts";
 import { isRecord, isUnknownArray, type JsonRecord } from "../../src/util.ts";
+import { createModelControl, isControlCommand } from "./model-control.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { DaemonAck } from "./daemon-ack.ts";
 
@@ -36,9 +35,6 @@ export const LAST_TEXT_MAX = 400;
 export const TASK_MAX = 200;
 export const HEARTBEAT_MS = 3000;
 export const INBOX_POLL_MS = 1000;
-
-export type ResolvedModel = NonNullable<ExtensionContext["model"]>;
-export type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
 
 interface TextBlockLike {
   type: unknown;
@@ -59,12 +55,6 @@ export interface AssistantMessageLike {
   usage?: UsageLike;
   stopReason?: string;
   errorMessage?: string;
-}
-
-interface ControlCommand {
-  cmd: string;
-  model?: unknown;
-  level?: unknown;
 }
 
 /**
@@ -108,15 +98,6 @@ export function isAssistantMessageLike(value: unknown): value is AssistantMessag
   if (value.usage !== undefined && !isUsageLike(value.usage)) return false;
   if (value.stopReason !== undefined && typeof value.stopReason !== "string") return false;
   return value.errorMessage === undefined || typeof value.errorMessage === "string";
-}
-
-function isControlCommand(value: unknown): value is ControlCommand {
-  return isRecord(value) && typeof value.cmd === "string";
-}
-
-function isThinkingLevel(value: unknown): value is ThinkingLevel {
-  return value === "off" || value === "minimal" || value === "low" || value === "medium"
-    || value === "high" || value === "xhigh" || value === "max";
 }
 
 // Orch-spawned agents use their opaque identity key. The owner's interactive
@@ -271,73 +252,82 @@ export function createPiPresence(options: PiPresenceOptions) {
         };
       }
     } catch {}
+
+    // Do not rely only on message_end/agent_settled. Pi persists the assistant
+    // message before (or independently of) delivering those extension events,
+    // and an event handler can be delayed behind another extension handler while
+    // the heartbeat continues to run. The session branch is the durable source
+    // of truth, so reconcile it here on every heartbeat/context refresh.
+    try {
+      const branch = ctx.sessionManager.getBranch();
+      let input = 0;
+      let output = 0;
+      let cacheRead = 0;
+      let cacheWrite = 0;
+      let cost = 0;
+      let hasUsage = false;
+      let latestText = "";
+      let hasAssistant = false;
+
+      for (const entry of branch) {
+        if (!isRecord(entry) || entry.type !== "message" || !isAssistantMessageLike(entry.message)) continue;
+        hasAssistant = true;
+        const message = entry.message;
+        const messageText = extractText(message.content);
+        if (messageText.trim()) latestText = messageText;
+        if (!message.usage) continue;
+        hasUsage = true;
+        input += message.usage.input ?? 0;
+        output += message.usage.output ?? 0;
+        cacheRead += message.usage.cacheRead ?? 0;
+        cacheWrite += message.usage.cacheWrite ?? 0;
+        cost += message.usage.cost?.total ?? 0;
+      }
+
+      if (hasUsage) {
+        // Compaction can hide older messages from the active branch. Presence
+        // counters are session totals, so never move them backwards while
+        // repairing a delayed event.
+        state.tokens = {
+          input: Math.max(state.tokens.input, input),
+          output: Math.max(state.tokens.output, output),
+          cacheRead: Math.max(state.tokens.cacheRead, cacheRead),
+          cacheWrite: Math.max(state.tokens.cacheWrite, cacheWrite),
+        };
+        state.cost = Math.max(state.cost, cost);
+      }
+      if (latestText.trim()) {
+        text.lastFull = latestText;
+        text.runFull = latestText;
+        state.lastText = latestText.slice(0, LAST_TEXT_MAX);
+      }
+      // agent_settled is the normal transition, but make the status resilient
+      // when that event is delayed: idle means the visible turn is finished.
+      if (state.state === "working" && ctx.isIdle() && hasAssistant) {
+        state.state = latestText.trim() ? "done" : "idle";
+        state.finishedAt = new Date().toISOString();
+      }
+    } catch {}
   }
 
   // ---- inbox: appended lines become steer messages ----
   let poll: ReturnType<typeof setInterval> | undefined;
   let watcher: fs.FSWatcher | undefined;
 
-  function globToRegex(pattern: string): RegExp {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, (char) => `\\${char}`);
-    return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
-  }
-
-  function isAllowedModel(requestedModel: string): boolean {
-    if (requestedModel.startsWith("openai-codex/")) return true;
-    for (const pattern of allowedModelPatterns(ORCH_DIR)) {
-      if (globToRegex(pattern).test(requestedModel)) return true;
-    }
-    return false;
-  }
-
-  async function resolveRequestedModel(requestedModel: unknown): Promise<ResolvedModel> {
-    if (typeof requestedModel !== "string") throw new Error("Model must be a provider/id string");
-    const slash = requestedModel.indexOf("/");
-    if (slash <= 0 || slash === requestedModel.length - 1) {
-      throw new Error("Model must be a provider/id string");
-    }
-    if (!isAllowedModel(requestedModel)) {
-      throw new Error(`Model not allowed: ${requestedModel}`);
-    }
-    const provider = requestedModel.slice(0, slash);
-    const id = requestedModel.slice(slash + 1);
-    // Registry-find ONLY: a plain candidate object from getAvailable()
-    // passes setModel but poisons the next turn ("Model not found <id>"
-    // run errors). Retry briefly instead — the registry is unavailable
-    // for a moment while a fresh session boots.
-    let model: ResolvedModel | undefined;
-    for (let attempt = 0; attempt < 8 && !model; attempt++) {
-      model = lastCtx?.modelRegistry.find(provider, id);
-      if (!model) await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    if (!model) throw new Error(`Model not in registry (session still booting?): ${requestedModel}`);
-    return model;
-  }
-
-  function applyRequestedThinkingLevel(level: unknown): void {
-    if (!isThinkingLevel(level)) throw new Error("Thinking level must be valid");
-    pi.setThinkingLevel(level);
-  }
-
-  async function applyControlCommand(parsed: ControlCommand): Promise<void> {
-    const requested: JsonRecord = parsed.cmd === "model"
-      ? { model: parsed.model }
-      : { thinking: parsed.level };
-    const outcome: JsonRecord = { requested, success: false, ts: new Date().toISOString() };
-    try {
-      if (parsed.cmd === "model") {
-        await pi.setModel(await resolveRequestedModel(parsed.model));
-      } else {
-        applyRequestedThinkingLevel(parsed.level);
-      }
-      outcome.success = true;
-    } catch (error: unknown) {
-      outcome.error = error instanceof Error ? error.message : String(error);
-    }
-    atomicWrite(controlFile, outcome);
-    if (lastCtx) updateModel(lastCtx);
-    writeStatus();
-  }
+  // Model/thinking control commands are applied by the dedicated model-control
+  // module (allowlist gate + registry resolution + ladder-suffix parsing); this
+  // layer only owns the inbox transport, the control.json path and the presence
+  // refresh the applier calls back into.
+  const modelControl = createModelControl({
+    pi,
+    orchDir: ORCH_DIR,
+    context: () => lastCtx,
+    controlFile: () => controlFile,
+    refreshPresence: () => {
+      if (lastCtx) updateModel(lastCtx);
+      writeStatus();
+    },
+  });
 
   function parseInboxLine(line: string): unknown {
     const trimmed = line.trim();
@@ -356,7 +346,7 @@ export function createPiPresence(options: PiPresenceOptions) {
     // composer (a non-matching /model string opens a selector overlay
     // and wedges the pane).
     if ((parsed.cmd === "model" || parsed.cmd === "thinking") && isControlCommand(parsed)) {
-      await applyControlCommand(parsed);
+      await modelControl.applyControlCommand(parsed);
     } else if (parsed.cmd === "on_done" && typeof parsed.target === "string" && parsed.target.trim()) {
       const target = parsed.target.trim();
       pendingHandoff = {

@@ -4,7 +4,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entityWorkspace, type Entity } from "../src/entities.ts";
-import { presenceAgentDir } from "../src/store.ts";
+import { presenceAgentDir } from "../src/presence/store.ts";
 
 const directories: string[] = [];
 const originalOrchDir = process.env.ORCH_DIR;

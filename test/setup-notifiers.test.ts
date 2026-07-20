@@ -29,14 +29,13 @@ describe("notifier setup logic", () => {
 
   test("renders a command entry that loadConfig can parse", () => {
     const entry = renderNotifyEntry("command", { command: ["sh", "-c", "echo ok"], ignored: "not collected" });
-    expect(entry).toEqual({ id: "command", command: ["sh", "-c", "echo ok"], ignored: "not collected" });
+    expect(entry).toEqual({ id: "command", command: ["sh", "-c", "echo ok"] });
     const directory = mkdtempSync(join(tmpdir(), "orch-setup-notifiers-"));
     try {
       writeSettingsFixture(directory, { notify: [entry] });
       expect(loadConfig(directory).notify).toEqual([{
         id: "command",
         command: ["sh", "-c", "echo ok"],
-        ignored: "not collected",
       }]);
     } finally {
       rmSync(directory, { recursive: true, force: true });

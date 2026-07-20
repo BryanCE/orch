@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entityWorkspace } from "../src/entities.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
-import { presenceAgentDir } from "../src/store.ts";
+import { presenceAgentDir } from "../src/presence/store.ts";
 import { checkWall, sameWorkspace, scopeToWorkspace, workspaceName, workspaceOf } from "../src/policy/workspace.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;

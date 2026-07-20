@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
-import { orchDir } from "../store.ts";
-import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock, type CommandLock } from "../cmd-lock.ts";
+import { orchDir } from "../presence/store.ts";
+import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
 
 function holderName(): string {
   return process.env.ORCH_AGENT_KEY ?? `user:${process.pid}`;

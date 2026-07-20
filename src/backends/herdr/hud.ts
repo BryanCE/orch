@@ -8,7 +8,6 @@
 // plexer-neutral port (`src/backends/hud.ts`) and never import this module;
 // the port wires these functions in as its herdr provider — no herdr socket,
 // event name, or shell-out ever appears inside a harness directory.
-import { createConnection } from "node:net";
 import { execFile } from "node:child_process";
 import { tryParseIdentity } from "../identity.ts";
 import type {
@@ -20,6 +19,9 @@ import type {
   PaneLabels,
   PaneStatusSnapshot,
 } from "../hud.ts";
+import { requestJsonLine } from "../../presence/socket-client.ts";
+import { createPaneStateSocket, retryableErrorMessage } from "./pane-socket.ts";
+import { createPaneStateMachine } from "./pane-state-machine.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
@@ -61,35 +63,17 @@ function nextMetadataSeq(): number {
 
 function sendHerdrMetadata(customStatus: string): void {
   if (HERDR_ENV !== "1" || !HERDR_SOCKET_PATH || AGENT_IDENTITY?.backend !== "herdr") return;
-
-  try {
-    const request = {
-      id: `${HERDR_METADATA_SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-      method: "pane.report_metadata",
-      params: {
-        pane_id: AGENT_IDENTITY.handle,
-        source: HERDR_METADATA_SOURCE,
-        custom_status: customStatus,
-        seq: nextMetadataSeq(),
-      },
-    };
-    let done = false;
-    const socket = createConnection(HERDR_SOCKET_PATH);
-    const finish = () => {
-      if (done) return;
-      done = true;
-      socket.destroy();
-    };
-
-    socket.on("error", finish);
-    socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-    socket.on("data", finish);
-    socket.on("end", finish);
-    const timeout = setTimeout(finish, 500);
-    timeout.unref?.();
-  } catch {
-    // best-effort
-  }
+  const request = {
+    id: `${HERDR_METADATA_SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    method: "pane.report_metadata",
+    params: {
+      pane_id: AGENT_IDENTITY.handle,
+      source: HERDR_METADATA_SOURCE,
+      custom_status: customStatus,
+      seq: nextMetadataSeq(),
+    },
+  };
+  void requestJsonLine(HERDR_SOCKET_PATH, request, 500);
 }
 
 /**
@@ -243,7 +227,17 @@ export function registerBlockedSignalRelay(
 
 // ---- herdr pane-state reporting (absorbed from the retired herdr-agent-state extension) ----
 // Reports working/blocked/idle to herdr's pane HUD over the herdr socket, with
-// idle debounce and a retry-grace hold for retryable provider errors.
+// idle debounce and a retry-grace hold for retryable provider errors. This is the
+// wiring only: the socket sender/queue lives in `pane-socket.ts` and the
+// working/blocked/idle decision logic in `pane-state-machine.ts`; here we parse
+// env, build both, and adapt the harness lifecycle events onto the machine.
+function parsePaneDurationEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export function registerPaneStateHud(
   registrar: PaneHudRegistrar,
   events: PaneHudEventBus,
@@ -252,285 +246,62 @@ export function registerPaneStateHud(
   if (HERDR_ENV !== "1" || !HERDR_SOCKET_PATH || AGENT_IDENTITY?.backend !== "herdr") return;
 
   const agentId = options.agentId;
-  const extensionHash = options.extensionHash;
   const source = `herdr:${agentId}`;
-  type AgentState = "working" | "blocked" | "idle";
 
-  function parseDurationEnv(name: string, fallback: number): number {
-    const raw = process.env[name];
-    if (!raw) return fallback;
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-  }
+  const socket = createPaneStateSocket({
+    socketPath: HERDR_SOCKET_PATH,
+    paneId: AGENT_IDENTITY.handle,
+    source,
+    agentId,
+    extensionHash: options.extensionHash,
+  });
+  const machine = createPaneStateMachine({
+    idleDebounceMs: parsePaneDurationEnv("HERDR_IDLE_DEBOUNCE_MS", 250),
+    retryGraceMs: parsePaneDurationEnv("HERDR_RETRY_GRACE_MS", 2500),
+    enqueueState: socket.enqueueState,
+  });
 
-  const idleDebounceMs = parseDurationEnv("HERDR_IDLE_DEBOUNCE_MS", 250);
-  const retryGraceMs = parseDurationEnv("HERDR_RETRY_GRACE_MS", 2500);
-  const retryableErrorPattern =
-    /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
-
-  let reportSeq = Date.now() * 1000;
-  let sessionId: string | undefined;
-  let sessionPath: string | undefined;
-  let sendInFlight = false;
-  let queuedState: { state: AgentState; message?: string; seq: number } | undefined;
-
-  function nextReportSeq(): number {
-    reportSeq += 1;
-    return reportSeq;
-  }
-
-  function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      let done = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const finish = (delivered: boolean) => {
-        if (done) return;
-        done = true;
-        if (timeout) clearTimeout(timeout);
-        socket.destroy();
-        resolve(delivered);
-      };
-      const socket = createConnection(HERDR_SOCKET_PATH!);
-      socket.on("error", () => finish(false));
-      socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-      socket.on("data", () => finish(true));
-      socket.on("end", () => finish(true));
-      timeout = setTimeout(() => finish(false), timeoutMs);
-      timeout.unref?.();
-    });
-  }
-
-  async function sendRequest(request: unknown): Promise<void> {
-    if (await sendRequestAttempt(request, 500)) return;
-    await sendRequestAttempt(request, 1500);
-  }
-
-  function updateSessionRef(ctx: PaneHudContext): void {
-    try {
-      const file = ctx?.sessionManager?.getSessionFile?.();
-      sessionPath = typeof file === "string" && file.startsWith("/") ? file : undefined;
-    } catch {
-      sessionPath = undefined;
-    }
-    try {
-      const id = ctx?.sessionManager?.getSessionId?.();
-      sessionId = typeof id === "string" && id.length > 0 ? id : undefined;
-    } catch {
-      sessionId = undefined;
-    }
-  }
-
-  function sessionRef(): Record<string, unknown> | undefined {
-    if (sessionPath) return { agent_session_path: sessionPath };
-    if (sessionId) return { agent_session_id: sessionId };
-    return undefined;
-  }
-
-  function reportSession(): Promise<void> {
-    const ref = sessionRef();
-    if (!ref) return Promise.resolve();
-    return sendRequest({
-      id: `${source}:session:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-      method: "pane.report_agent_session",
-      params: { pane_id: AGENT_IDENTITY?.handle, source, agent: agentId, seq: nextReportSeq(), ...ref },
-    });
-  }
-
-  function sendState(state: AgentState, message: string | undefined, seq: number): Promise<void> {
-    return sendRequest({
-      id: `${source}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-      method: "pane.report_agent",
-      params: {
-        pane_id: AGENT_IDENTITY?.handle,
-        source,
-        agent: agentId,
-        state,
-        message,
-        extensionHash,
-        seq,
-        ...(sessionRef() ?? {}),
-      },
-    });
-  }
-
-  function releaseAgent(): Promise<void> {
-    return sendRequest({
-      id: `${source}:release:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-      method: "pane.release_agent",
-      params: { pane_id: AGENT_IDENTITY?.handle, source, agent: agentId, seq: nextReportSeq() },
-    });
-  }
-
-  async function drainStateQueue(): Promise<void> {
-    if (sendInFlight) return;
-    sendInFlight = true;
-    try {
-      while (queuedState) {
-        const next = queuedState;
-        queuedState = undefined;
-        await sendState(next.state, next.message, next.seq);
-      }
-    } finally {
-      sendInFlight = false;
-      if (queuedState) void drainStateQueue();
-    }
-  }
-
-  function queueState(state: AgentState, message?: string): void {
-    queuedState = { state, message, seq: nextReportSeq() };
-    if (!sendInFlight) void drainStateQueue();
-  }
-
-  interface MessageRecord {
-    role?: unknown;
-    stopReason?: unknown;
-    errorMessage?: unknown;
-  }
-
-  function lastAssistantMessage(messages: unknown[]): MessageRecord | undefined {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messages[i];
-      if (typeof message === "object" && message !== null && "role" in message) {
-        const record = message as MessageRecord;
-        if (record.role === "assistant") return record;
-      }
-    }
-    return undefined;
-  }
-
-  function retryableErrorMessage(event: { messages?: unknown[] }): string | undefined {
-    const messages = Array.isArray(event?.messages) ? event.messages : [];
-    const assistant = lastAssistantMessage(messages);
-    if (assistant?.stopReason !== "error") return undefined;
-    const message = typeof assistant.errorMessage === "string"
-      ? assistant.errorMessage
-      : JSON.stringify(assistant.errorMessage ?? "") ?? "";
-    if (!retryableErrorPattern.test(message)) return undefined;
-    return message || "retryable provider error";
-  }
-
-  let agentActive = false;
-  let retryHoldActive = false;
-  let failureBlocked = false;
-  let failureMessage: string | undefined;
-  let blockedCount = 0;
-  let blockedMessage: string | undefined;
-  let lastState: AgentState | undefined;
-  let lastMessage: string | undefined;
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  // Only the root session (the one with UI) mirrors its lifecycle into the pane;
+  // nested/sub-agent sessions must not report against this pane's handle.
   let rootSession = false;
-
-  function clearPendingTimers() {
-    if (idleTimer) clearTimeout(idleTimer);
-    if (retryTimer) clearTimeout(retryTimer);
-    idleTimer = undefined;
-    retryTimer = undefined;
-  }
-
-  function clearFailureState() {
-    retryHoldActive = false;
-    failureBlocked = false;
-    failureMessage = undefined;
-  }
-
-  function desiredState(): { state: AgentState; message?: string } {
-    if (blockedCount > 0) return { state: "blocked", message: blockedMessage };
-    if (failureBlocked) return { state: "blocked", message: failureMessage };
-    if (agentActive || retryHoldActive) return { state: "working" };
-    return { state: "idle" };
-  }
-
-  function publishState(force = false) {
-    const next = desiredState();
-    if (!force && next.state === lastState && next.message === lastMessage) return;
-    lastState = next.state;
-    lastMessage = next.message;
-    queueState(next.state, next.message);
-  }
-
-  function scheduleIdle() {
-    clearPendingTimers();
-    clearFailureState();
-    idleTimer = setTimeout(() => {
-      idleTimer = undefined;
-      publishState();
-    }, idleDebounceMs);
-    idleTimer.unref?.();
-  }
-
-  function holdForRetry(message: string) {
-    clearPendingTimers();
-    retryHoldActive = true;
-    failureBlocked = false;
-    failureMessage = message;
-    publishState();
-    retryTimer = setTimeout(() => {
-      retryTimer = undefined;
-      retryHoldActive = false;
-      failureBlocked = true;
-      publishState();
-    }, retryGraceMs);
-    retryTimer.unref?.();
-  }
 
   registerBlockedSignalRelay(events, (active, label) => {
     if (!rootSession) return;
-    if (!active) {
-      blockedCount = Math.max(0, blockedCount - 1);
-      if (blockedCount === 0) blockedMessage = undefined;
-      publishState();
-      return;
-    }
-    clearPendingTimers();
-    blockedCount += 1;
-    blockedMessage = label;
-    publishState();
+    machine.setBlocked(active, label);
   });
 
   registrar.onSessionStart((ctx: PaneHudContext) => {
     if (ctx?.hasUI !== true) return;
     rootSession = true;
-    updateSessionRef(ctx);
-    void reportSession();
+    socket.updateSessionRef(ctx);
+    void socket.reportSession();
     // A reload can replace this extension mid-run without emitting another agent_start.
+    let active = false;
     try {
-      agentActive = ctx?.isIdle?.() === false;
+      active = ctx?.isIdle?.() === false;
     } catch {
-      agentActive = false;
+      active = false;
     }
-    publishState(true);
+    machine.openSession(active);
   });
 
   registrar.onAgentStart((ctx: PaneHudContext) => {
     if (!rootSession) return;
-    updateSessionRef(ctx);
-    void reportSession();
-    clearPendingTimers();
-    clearFailureState();
-    agentActive = true;
-    publishState();
+    socket.updateSessionRef(ctx);
+    void socket.reportSession();
+    machine.startRun();
   });
 
   registrar.onAgentEnd((event) => {
     if (!rootSession) return;
-    // Pi can emit duplicate/late end events while auto-retry is already holding
-    // the pane in Working; an unqualified duplicate end must not publish a false Idle.
-    if (!agentActive) return;
-    agentActive = false;
-    const retryableMessage = retryableErrorMessage(event);
-    if (retryableMessage) {
-      holdForRetry(retryableMessage);
-      return;
-    }
-    scheduleIdle();
+    machine.endRun(retryableErrorMessage(event));
   });
 
   registrar.onSessionShutdown(async (event: { reason?: string }) => {
     if (!rootSession) return;
-    clearPendingTimers();
+    machine.clearTimers();
     // Pi tears down extension runtimes for /reload, /new, /resume, /fork; only a
     // real quit should release herdr's full-lifecycle authority for this pane.
-    if (event?.reason === "quit") await releaseAgent();
+    if (event?.reason === "quit") await socket.releaseAgent();
   });
 }

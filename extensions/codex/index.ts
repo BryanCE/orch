@@ -17,7 +17,7 @@ import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { isRecord, type JsonRecord } from "../../src/util.ts";
+import { isRecord, parsePid, type JsonRecord } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 
 const AGENT_ID = "codex";
@@ -31,18 +31,9 @@ function parsePayload(raw: string | undefined): JsonRecord {
   }
 }
 
-function numericPid(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
-  if (typeof value === "string" && /^\d+$/.test(value)) {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed) && parsed > 0) return parsed;
-  }
-  return undefined;
-}
-
 // A hook/notify program is short-lived; its parent is the long-lived codex process.
 function agentPid(): number {
-  return numericPid(process.env.CODEX_PID) ?? numericPid(process.ppid) ?? process.pid;
+  return parsePid(process.env.CODEX_PID) ?? parsePid(process.ppid) ?? process.pid;
 }
 
 // No ORCH_AGENT_KEY means a regular (non-orch) codex session — nothing to

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../../presence/schema.ts";
-import { presenceAgentDir } from "../../store.ts";
+import { presenceAgentDir } from "../../presence/store.ts";
 import { pidAlive } from "../../util.ts";
 import type {
   Backend,
@@ -13,7 +13,6 @@ import type {
   BackendSpawnOpts,
   DeliverPayload,
 } from "../backend.ts";
-import { parseIdentity, serializeIdentity, type Identity } from "../identity.ts";
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {
@@ -26,9 +25,6 @@ export interface HeadlessHandle {
 type HeadlessRegistryRecord = BackendRegistryRecord<HeadlessHandle>;
 
 const HEADLESS_BACKEND = "headless";
-/** Headless agents run on the local machine and report the literal workspace `local`. */
-const HEADLESS_WORKSPACE = "local";
-let generatedKey = 0;
 
 function orchDirectory(override?: string): string {
   return override ?? process.env.ORCH_DIR ?? join(homedir(), ".orch");
@@ -148,12 +144,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return true;
   }
 
-  /** Recover the identity a headless handle was spawned with (its key is the
-   *  serialized identity minted at spawn). */
-  mintIdentity(handle: HeadlessHandle): Identity {
-    return parseIdentity(handle.key);
-  }
-
   constructor(deps: HeadlessBackendDeps = {}) {
     this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
     this.killer = deps.killer ?? ((pid, signal) => process.kill(pid, signal));
@@ -162,15 +152,12 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Start the adapter's restricted worker command detached, redirecting output to a log. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const directory = orchDirectory(opts.orchDir);
-    // Mint the serialized identity as the presence key BEFORE launch so it can be
-    // passed opaquely via ORCH_AGENT_KEY. The OS pid is recorded separately (below)
-    // for close-time ownership checks; it is not part of the identity handle.
-    const key = opts.key ?? serializeIdentity({
-      backend: HEADLESS_BACKEND,
-      workspace: HEADLESS_WORKSPACE,
-      handle: `${process.pid}-${++generatedKey}`,
-    });
-    if (!safeKey(key)) throw new Error(`invalid headless presence key: ${JSON.stringify(key)}`);
+    // The caller mints the serialized identity BEFORE launch (one key per agent)
+    // and passes it via ORCH_AGENT_KEY; the backend never mints a second one. The
+    // OS pid is recorded separately (below) for close-time ownership checks; it is
+    // not part of the identity handle.
+    const key = opts.key;
+    if (!safeKey(key)) throw new Error(`headless spawn requires a caller-minted presence key (ORCH_AGENT_KEY); got ${JSON.stringify(key)}`);
 
     const adapterOpts: SpawnOpts = {
       key,
@@ -260,10 +247,9 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return false;
   }
 
-  /** Headless has no console UI, so it cannot apply a pane layout. */
-  // fallow-ignore-next-line unused-class-member
-  applyLayout(_group: string, _layout: "tiled"): boolean {
-    return false;
+  /** Headless has no workspace naming; ids stand in for names. */
+  workspaceNames(): Map<string, string> {
+    return new Map();
   }
 }
 

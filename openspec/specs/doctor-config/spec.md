@@ -4,11 +4,15 @@
 TBD - created by archiving change make-orch-general-purpose. Update Purpose after archive.
 ## Requirements
 ### Requirement: Config file
-orch SHALL read `$ORCH_DIR/settings.json` (JSON) at startup when present, with precedence: CLI flags > `ORCH_*` environment variables > settings file > built-in defaults. The file SHALL carry a numeric `schemaVersion` matching orch's one current schema. Supported keys SHALL be `defaults` (`adapter`, `backend`, `model`, `allowed_models`, `spawn_cap`, `worktree`, `worker_peer_tools`), `installed` (`adapters`, `backends` — each an array of provider ids), `queue.max_retries`, `notify` (array), `hosts.<name>` (`dest`, `orch_dir`, `timeout_ms`), and `workspaces.<id>`. On every load orch SHALL validate loudly: an unknown key, a wrong value type, an unknown adapter/backend id, or a `schemaVersion` that is missing or not current SHALL produce a clear error naming the file path and the offending key/reason (not a stack trace) and exit non-zero. A `settings.json` that is absent while a legacy `$ORCH_DIR/config.toml` is present SHALL be an error directing the user to re-run `orch setup`; when both files are absent orch SHALL use built-in defaults silently. orch SHALL NOT read, migrate, or fall back to `config.toml`, and SHALL NOT accept a `hosts.<name>.ssh` alias.
+orch SHALL read `$ORCH_DIR/settings.json` (JSON) at startup, with precedence: CLI flags > `ORCH_*` environment variables > settings file > built-in defaults. The file SHALL carry numeric `schemaVersion` 1 and required `runtime` (`node`, `deno`, or `bun`). Supported keys SHALL be exactly: `installed` (`adapters`, `backends` arrays); `defaults` (`adapter`, `backend`, `model`, `worktree`); `fleet` (`spawn_cap`, `max_agents`, `workspace_caps`, `worker_peer_tools`, `cross_workspace`); `models.allowed`; `queue.max_retries`; `timeouts` (`dispatch_ack_ms`, `wait_ms`, `adapter_command_ms`, `notify_ms`); `notify` (typed entries discriminated only by `id`: `desktop`, `webhook` with an HTTP(S) `url`, `command` with a non-empty `command`, or `herdr`; each has optional `on`, whose values are only `idle`, `working`, `blocked`, `done`, `error`, `aborted`, `exited`, or `unknown`; absent `on` defaults to `blocked` and `error`); `locked_commands`; `hosts.<name>` (`dest`, `orch_dir`, `timeout_ms`); and `workspaces.<id>`. All objects SHALL reject unknown keys. On every load orch SHALL validate loudly: an unknown key, a wrong value type, an unknown adapter/backend id, or a missing or non-current `schemaVersion` SHALL produce a clear error naming the file path and offending key/reason (not a stack trace) and exit non-zero. A missing `settings.json` SHALL be a loud error directing the user to run `orch setup`, whether or not a legacy `$ORCH_DIR/config.toml` exists. orch SHALL NOT read, migrate, or fall back to `config.toml`, and SHALL NOT accept a `hosts.<name>.ssh` alias.
 
 #### Scenario: Config default is used
 - **WHEN** `settings.json` sets `defaults.adapter` to `"claude"` and the user runs `orch spawn 2` with no `--agent` flag
 - **THEN** the fleet spawns Claude Code agents
+
+#### Scenario: Runtime key is a recognized key
+- **WHEN** `settings.json` sets a top-level `runtime` to `"node"`, `"deno"`, or `"bun"` with the current `schemaVersion`
+- **THEN** orch loads the effective settings and runs the command without treating `runtime` as an unknown key
 
 #### Scenario: Flag beats config
 - **WHEN** the same `settings.json` is present and the user passes `--agent pi`
@@ -22,9 +26,17 @@ orch SHALL read `$ORCH_DIR/settings.json` (JSON) at startup when present, with p
 - **WHEN** `settings.json` contains a key not in the schema (for example `defaults.harness`)
 - **THEN** orch exits non-zero naming `settings.json` and the offending key `defaults.harness`, and suggests `orch doctor`
 
+#### Scenario: Dead limits key is rejected
+- **WHEN** `settings.json` contains the former top-level `limits` key
+- **THEN** orch exits non-zero naming `settings.json` and rejecting `limits` as an unknown key, and directs the user to run `orch setup`
+
+#### Scenario: Notify type discriminator is rejected
+- **WHEN** a `notify` entry uses the legacy `type` key instead of an `id` discriminator
+- **THEN** orch exits non-zero naming `settings.json` and rejecting `notify[].type` as an unknown key
+
 #### Scenario: Wrong value type is rejected
-- **WHEN** `settings.json` sets `defaults.spawn_cap` to a string instead of a number
-- **THEN** orch exits non-zero naming `settings.json`, the key `defaults.spawn_cap`, the expected type, and what was found
+- **WHEN** `settings.json` sets `fleet.spawn_cap` to a string instead of a number
+- **THEN** orch exits non-zero naming `settings.json`, the key `fleet.spawn_cap`, the expected type, and what was found
 
 #### Scenario: Unknown adapter id is rejected
 - **WHEN** `settings.json` sets `defaults.adapter` to an id orch does not recognize
@@ -42,9 +54,9 @@ orch SHALL read `$ORCH_DIR/settings.json` (JSON) at startup when present, with p
 - **WHEN** a `hosts.<name>` entry in `settings.json` uses the key `ssh` instead of `dest`
 - **THEN** orch exits non-zero treating `ssh` as an unknown key under that host
 
-#### Scenario: No config is fine
-- **WHEN** neither `settings.json` nor `config.toml` exists
-- **THEN** orch runs on built-in defaults with no config error
+#### Scenario: Missing settings requires setup
+- **WHEN** `settings.json` does not exist
+- **THEN** orch exits non-zero naming the settings file and directing the user to run `orch setup`
 
 #### Scenario: Broken config fails helpfully
 - **WHEN** settings.json contains a syntax or schema error
@@ -142,4 +154,26 @@ orch setup SHALL support installing a SET of adapters and a SET of backends per 
 #### Scenario: Inspection surfaces a load error
 - **WHEN** `settings.json` is invalid and the user runs `orch settings`
 - **THEN** orch exits non-zero with the same file-path-and-reason error a normal command would emit, and prints no settings table
+
+### Requirement: Doctor warns when the running daemon's code is stale against the installed CLI
+
+A running `orchd` whose code hash no longer matches the installed daemon entrypoint means the CLI and the resident daemon disagree about the schema they exchange (the observed CLI↔daemon skew where a newer CLI requires the `runtime` key an older running daemon rejects). `orch doctor` SHALL report this as a WARNING naming `orch daemon reload` as the remediation, not a FAIL, and the warning SHALL NOT by itself make doctor exit non-zero.
+
+#### Scenario: Stale daemon code is a reload warning
+- **WHEN** `orchd` is running under a code hash that differs from the installed daemon entrypoint and `orch doctor` runs
+- **THEN** the orchd-code check reports a warning naming the lock and disk hashes and directing the user to run `orch daemon reload`, and doctor's exit code is unaffected by it
+
+### Requirement: Doctor separates broken installs from situational context
+
+`orch doctor` SHALL reserve FAIL for conditions where the installation itself is broken (missing integration, stale daemon code, invalid config, runtime mismatch). A condition that merely reflects where the command was run — a session-scoped backend reporting `insideSession = false` while its binary is available and another installed backend is usable — SHALL be reported as a warning naming the situational cause, not a failure. Doctor's exit code SHALL be non-zero only when a genuine failure is present.
+
+#### Scenario: Outside a herdr session is a warning, not a failure
+
+- **WHEN** herdr is installed and available, the command runs from a shell that is not inside a herdr session, headless is also installed, and `orch doctor` runs
+- **THEN** the backend-capability row reports a warning naming the absent session (with the hint to open a herdr workspace), the check is not a FAIL, and doctor's exit code is unaffected by it
+
+#### Scenario: A genuinely unavailable backend still fails
+
+- **WHEN** an installed backend's binary is absent from PATH and `orch doctor` runs
+- **THEN** that backend's check is a FAIL with the install fix, and the exit code is non-zero
 

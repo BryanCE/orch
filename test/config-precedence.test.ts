@@ -24,11 +24,11 @@ afterEach(() => {
 describe("config precedence", () => {
   test("returns a defaults value when no override is set", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { spawn_cap: 4 } });
+    writeSettingsFixture(directory, { fleet: { spawn_cap: 4 } });
     delete process.env[envName];
 
     const config = loadConfig(directory);
-    expect(resolveSetting({ env: envName, config: config.defaults.spawn_cap, fallback: 8 })).toBe(4);
+    expect(resolveSetting({ env: envName, config: config.fleet.spawn_cap, fallback: 8 })).toBe(4);
   });
 
   test("applies defaults when config, env, and flag are absent", () => {
@@ -37,17 +37,17 @@ describe("config precedence", () => {
     writeSettingsFixture(directory);
     const config = loadConfig(directory);
 
-    expect(resolveSetting({ env: envName, config: config.defaults.spawn_cap, fallback: 8 })).toBe(8);
+    expect(resolveSetting({ env: envName, config: config.fleet.spawn_cap, fallback: 8 })).toBe(8);
   });
 
   test("uses env over config and flag over env", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { spawn_cap: 4 } });
+    writeSettingsFixture(directory, { fleet: { spawn_cap: 4 } });
     process.env[envName] = "7";
     const config = loadConfig(directory);
 
-    expect(resolveSetting({ env: envName, config: config.defaults.spawn_cap, fallback: 8 })).toBe(7);
-    expect(resolveSetting({ flag: 9, env: envName, config: config.defaults.spawn_cap, fallback: 8 })).toBe(9);
+    expect(resolveSetting({ env: envName, config: config.fleet.spawn_cap, fallback: 8 })).toBe(7);
+    expect(resolveSetting({ flag: 9, env: envName, config: config.fleet.spawn_cap, fallback: 8 })).toBe(9);
   });
 
   test("parses notify entries and hosts into expected shapes", () => {
@@ -65,8 +65,8 @@ describe("config precedence", () => {
 
   test("reports a helpful validation error for invalid config", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { spawn_cap: "many" } });
+    writeSettingsFixture(directory, { fleet: { spawn_cap: "many" } });
 
-    expect(() => loadConfig(directory)).toThrow(/defaults\.spawn_cap/);
+    expect(() => loadConfig(directory)).toThrow(/fleet\.spawn_cap/);
   });
 });

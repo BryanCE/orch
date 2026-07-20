@@ -7,14 +7,14 @@ import {
   readJSON,
   statusForPresence,
   type PresenceEntry,
-} from "../store.ts";
+} from "../presence/store.ts";
 import { isRecord } from "../util.ts";
-import { parseSession } from "../session.ts";
+import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
 import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { ANSWER_FILE, INBOX_FILE } from "../presence/schema.ts";
-import type { CheckResult, FixDescriptor } from "../doctor-types.ts";
+import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -24,6 +24,7 @@ import type {
   ModelRequest,
   ResultExtractionInput,
   SessionView,
+  SessionViewEntry,
   SessionViewInput,
   ShimInstallOpts,
   SpawnOpts,
@@ -71,6 +72,25 @@ export const PI_APPROVED_TOOLS = [
 ] as const;
 
 const PI_TOOL_ALLOWLIST = PI_APPROVED_TOOLS.join(",");
+
+/** pi's extension directory orch links its bundled bridge/HUD extensions into.
+ * Single source of truth for both the worker launch commands and the
+ * extension-staleness doctor check (diagnoseShim/installShim). */
+const PI_EXTENSION_DIR = path.join(os.homedir(), ".pi", "agent", "extensions");
+
+/**
+ * `--no-extensions -e <path>` tokens loading exactly the orch bridge/HUD
+ * extensions an orch-spawned worker needs — the same installed bundle paths the
+ * doctor's staleness check knows — and nothing else. A user's own global pi
+ * extensions must never load into a worker pane: with four concurrent workers,
+ * the user's session-viewer extension hit SQLITE_BUSY. User-driven interactive
+ * sessions run the plain interactiveCmd and keep the full extension set.
+ */
+function workerExtensionArgv(): string[] {
+  const argv = ["--no-extensions"];
+  for (const name of PI_EXTENSION_NAMES) argv.push("-e", path.join(PI_EXTENSION_DIR, `${name}.js`));
+  return argv;
+}
 
 function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
@@ -121,6 +141,44 @@ function stateFrom(value: unknown): AgentState {
     : "unknown";
 }
 
+/** Pick the most descriptive argument value from a pi tool-call block. */
+function toolCallArg(block: ToolCallContentBlock): string {
+  const args = block.arguments ?? {};
+  for (const key of ["command", "path", "file", "filePath", "subject", "query", "pattern", "action"]) {
+    const value = args[key];
+    if (value != null) return typeof value === "string" ? value : JSON.stringify(value) ?? "";
+  }
+  const firstKey = Object.keys(args)[0];
+  return firstKey === undefined ? "" : `${firstKey}=${String(args[firstKey])}`;
+}
+
+/**
+ * Map pi's parsed session entries to the shared per-turn view shape, keeping only
+ * content-bearing turns (text, tool calls, or tool results) so `orch tail`'s
+ * last-N semantics count rendered rows. This is pi's OWN parser output; it must
+ * never be applied to a non-pi session.
+ */
+function piViewEntries(entries: SessionEntry[]): SessionViewEntry[] {
+  const items: SessionViewEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type !== "message" || !entry.message) continue;
+    const message = entry.message;
+    const timestamp = entry.timestamp ?? message.timestamp;
+    if (message.role === "user") {
+      const text = blockText(message.content);
+      if (text.trim()) items.push({ role: "user", text, timestamp });
+    } else if (message.role === "assistant") {
+      const text = blockText(message.content);
+      if (text.trim()) { items.push({ role: "assistant", text, timestamp }); continue; }
+      const calls = (Array.isArray(message.content) ? message.content : []).filter(isToolCallContentBlock);
+      if (calls.length) items.push({ role: "assistant", timestamp, toolCalls: calls.map((call) => ({ name: call.name ?? "tool", arg: toolCallArg(call) })) });
+    } else if (message.role === "toolResult") {
+      items.push({ role: "tool", tool: message.toolName ?? "tool", text: blockText(message.content), isError: message.isError, timestamp });
+    }
+  }
+  return items;
+}
+
 /** Pi adapter preserving the existing pi + orchestrator-bridge behavior. */
 export class PiAdapter implements AgentAdapter {
   readonly id = "pi" as const;
@@ -136,13 +194,15 @@ export class PiAdapter implements AgentAdapter {
   };
 
   /** Start pi directly in an interactive backend session. */
-  interactiveCmd(_opts: SpawnOpts): string {
-    return "pi";
+  interactiveCmd(opts: SpawnOpts): string {
+    return opts.model ? `pi --model ${opts.model}` : "pi";
   }
 
-  /** Start pi with only the built-ins and orch bridge tools workers need. */
+  /** Start pi with only the built-ins, orch bridge tools, and orch bridge/HUD
+   * extensions a worker needs — never the user's full global extension set. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    return `pi --tools ${opts.tools ?? PI_TOOL_ALLOWLIST} --no-builtin-tools`;
+    const command = `pi --tools ${opts.tools ?? PI_TOOL_ALLOWLIST} --no-builtin-tools ${workerExtensionArgv().join(" ")}`;
+    return opts.model ? `${command} --model ${opts.model}` : command;
   }
 
   /** Start the existing pif wrapper with the initial prompt for headless runs. */
@@ -153,9 +213,10 @@ export class PiAdapter implements AgentAdapter {
     return command;
   }
 
-  /** Start pif with the same explicit worker tool allowlist as interactive pi. */
+  /** Start pif with the same worker tool allowlist and minimal bridge/HUD
+   * extension set as interactive pi workers. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["pif", "--tools", opts.tools ?? PI_TOOL_ALLOWLIST, "--no-builtin-tools"];
+    const command = ["pif", "--tools", opts.tools ?? PI_TOOL_ALLOWLIST, "--no-builtin-tools", ...workerExtensionArgv()];
     if (opts.model) command.push("--model", opts.model);
     command.push(prompt);
     return command;
@@ -222,13 +283,14 @@ export class PiAdapter implements AgentAdapter {
       cost: data.cost,
       tokens: data.tokens,
       turns: data.turns,
+      entries: piViewEntries(data.entries),
     };
   }
 
   /** Verify the extension links and bundles written by installShim. */
   // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
-    const extensionDir = path.join(os.homedir(), ".pi", "agent", "extensions");
+    const extensionDir = PI_EXTENSION_DIR;
     const bundleFor = new Map(PI_EXTENSION_NAMES.map((name) => [`${name}.js`, extensionBundlePath(packageRoot(), name)]));
     const stale: string[] = [];
     const fixable: string[] = [];
@@ -286,7 +348,7 @@ export class PiAdapter implements AgentAdapter {
   // fallow-ignore-next-line unused-class-member
   installShim(opts?: ShimInstallOpts): void {
     const root = packageRoot();
-    const extDir = path.join(os.homedir(), ".pi", "agent", "extensions");
+    const extDir = PI_EXTENSION_DIR;
     process.stdout.write("pi extensions:\n");
     for (const name of PI_EXTENSION_NAMES) {
       let bundle = extensionBundlePath(root, name);

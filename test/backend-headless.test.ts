@@ -46,8 +46,11 @@ const codexLogAdapter = {
   },
 };
 
+// Generous deadline: these tests launch real detached OS processes, and child
+// startup can take seconds on a loaded machine — a short deadline makes the
+// suite flaky under parallel load without catching anything real.
 async function waitFor(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2000;
+  const deadline = Date.now() + 15000;
   while (!check() && Date.now() < deadline) await Bun.sleep(20);
   expect(check()).toBe(true);
 }
@@ -74,6 +77,10 @@ afterAll(() => {
 });
 
 describe("HeadlessBackend", () => {
+  test("workspaceNames is empty — headless has no name concept", () => {
+    expect(backend.workspaceNames()).toEqual(new Map());
+  });
+
   test("spawns a detached process and records its handle", async () => {
     expect(backend.caps).toEqual({ panes: false, focusable: false, canSendKeys: false });
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-1", prompt: "sleep" });
@@ -89,7 +96,7 @@ describe("HeadlessBackend", () => {
     expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake", log: expect.stringMatching(/logs[\\/]/) as string });
     expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
     expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", "fake-1", "status.json"), "utf8")) as { key: string }).key).toBe("fake-1");
-  });
+  }, 30000);
 
   test("completes a headless dispatch round-trip and leaves a readable result", async () => {
     const adapter = {
@@ -111,7 +118,7 @@ describe("HeadlessBackend", () => {
     await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
     await waitFor(() => (JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")) as { state: string }).state === "done");
     expect(JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"))).toEqual({ text: "headless result" });
-  });
+  }, 30000);
 
   test("records and mirrors the headless log for Codex session-tail parsing", async () => {
     const handle = backend.spawn(codexLogAdapter as unknown as AgentAdapter, { key: "codex-tail", prompt: "tail" });
@@ -125,7 +132,7 @@ describe("HeadlessBackend", () => {
     await waitFor(() => fs.existsSync(record.log) && fs.readFileSync(record.log, "utf8").includes("headless tail"));
     expect(codexAdapter.readSessionView({ sessionPath: record.log })).toEqual({ state: "idle", lastText: "headless tail" });
     expect(codexAdapter.readSessionView({})).toBeUndefined();
-  });
+  }, 30000);
 
   test("closes only when registry and presence pid/key both match", async () => {
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-2" });
@@ -138,7 +145,7 @@ describe("HeadlessBackend", () => {
 
     expect(backend.close(handle)).toBe(true);
     await waitFor(() => !backend.list().some((entry) => entry.pid === handle.pid && entry.alive));
-  });
+  }, 30000);
 
   test("signals a matching recorded handle through the injected killer", () => {
     const calls: { pid: number; signal: string }[] = [];

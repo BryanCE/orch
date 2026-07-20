@@ -12,7 +12,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { workspaceOf } from "../../src/policy/workspace.ts";
 import { loadConfig } from "../../src/config.ts";
-import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../../src/cmd-lock.ts";
+import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../../src/control/cmd-lock.ts";
 import { ANSWER_FILE } from "../../src/presence/schema.ts";
 import { atomicWrite, presenceFile } from "../../src/presence/writer.ts";
 import { registerPeerTools, toolResult, type BridgeToolResult } from "./peers.ts";
@@ -333,7 +333,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     return currentTool !== previousTool || !!file;
   }
 
-  function handleToolExecutionStart(event: unknown): void {
+  function recordToolStart(event: unknown): void {
     if (!isToolExecutionStartEvent(event)) return;
     const name = typeof event.toolName === "string" ? event.toolName : "";
     const previousTool = state.lastTool;
@@ -347,7 +347,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     }
   }
 
-  pi.on("tool_execution_start", handleToolExecutionStart);
+  pi.on("tool_execution_start", recordToolStart);
 
   // Pi awaits tool_execution_start before invoking the tool. This is the
   // execution-side interception point: acquiring here avoids deadlocking the
@@ -460,14 +460,14 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
   // agent_end carries every message from the run. Failures/aborts land as the
   // last assistant message with stopReason "error" | "aborted" + errorMessage
   // (see AssistantMessage in @earendil-works/pi-ai). No turn_error event exists.
-  function handleAgentEnd(event: unknown, ctx: ExtensionContext): void {
+  function recordAgentEnd(event: unknown, ctx: ExtensionContext): void {
     presence.setLastCtx(ctx);
     if (!isAgentEndEvent(event) || !isUnknownArray(event.messages)) return;
     const message = finalFailedAssistantMessage(event.messages);
     if (message) recordFailedAgentRun(message, ctx);
   }
 
-  pi.on("agent_end", handleAgentEnd);
+  pi.on("agent_end", recordAgentEnd);
 
   function completeSettledAgentRun(ctx: ExtensionContext): void {
     state.state = runText.lastFull ? "done" : "idle";
@@ -484,7 +484,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
 
   // agent_settled fires only when pi will not auto-continue (no retry/compact
   // continuation pending) — the real "done" signal, unlike agent_end.
-  function handleAgentSettled(_event: unknown, ctx: ExtensionContext): void {
+  function settleAgentRun(_event: unknown, ctx: ExtensionContext): void {
     presence.setLastCtx(ctx);
     // agent_end already recorded an error/abort for this run — do not clobber it
     // with a synthetic done/idle from a previous successful lastFull text.
@@ -496,7 +496,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     completeSettledAgentRun(ctx);
   }
 
-  pi.on("agent_settled", handleAgentSettled);
+  pi.on("agent_settled", settleAgentRun);
 
   function onBlockedChange(active: boolean, label: string | undefined): void {
     if (active) {

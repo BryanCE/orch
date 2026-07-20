@@ -15,16 +15,17 @@ export default defineConfig({
   optimizeDeps: { exclude: ["bun:sqlite"] },
   ssr: { external: ["bun:sqlite", "node:sqlite"] },
   plugins: [
-    nitroV2Plugin({
-      compatibilityDate: '2026-02-03',
-      preset: 'bun',
-    }),
+    // TanStack Start must initialize before the other framework plugins.
+    tanstackStart(),
+    viteReact(),
     // enables the @/* and @shadcn/* path aliases from tsconfig
     viteTsConfigPaths({
       projects: ['./tsconfig.json'],
     }),
     tailwindcss(),
-    tanstackStart(),
-    viteReact(),
+    nitroV2Plugin({
+      compatibilityDate: '2026-02-03',
+      preset: 'bun',
+    }),
   ],
 })

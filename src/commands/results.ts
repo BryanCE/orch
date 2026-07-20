@@ -1,11 +1,11 @@
 import * as path from "node:path";
 import { loadConfig } from "../config.ts";
-import { collapse, buildEntities, resolveTarget, scopeEntitiesToWorkspace, workspaceOf } from "../entities.ts";
-import { loadPresence, orchDir, readJSON, type PresenceEntry } from "../store.ts";
+import { buildEntities, collapse, resolveTarget, scopeEntitiesToWorkspace, workspaceOf, type Entity } from "../entities.ts";
+import { loadPresence, orchDir, readJSON, type PresenceEntry } from "../presence/store.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
-import { parseSession, type SessionEntry, type ToolCallContentBlock, blockText, isToolCallContentBlock } from "../session.ts";
+import type { AgentAdapter, SessionView, SessionViewEntry } from "../adapters/adapter.ts";
 import { die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 
@@ -105,7 +105,15 @@ export async function cmdQuestions(args: string[]): Promise<void> {
   process.stdout.write(renderTable(["HOST", "PANE", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
 }
 
-function cmdQuestionsLocal(args: string[]) {
+interface PendingQuestion { pres: PresenceEntry; question: QuestionPayload }
+
+/**
+ * The pending local questions (a scoped presence dir holding a valid
+ * `question.json`) sorted by presence key, with the display-name map for the
+ * scoped entities. The one collector behind both the `orch questions` local
+ * table and the merged-with-remote row builder.
+ */
+function collectPendingQuestions(args: string[]): { pending: PendingQuestion[]; names: Map<string, string> } {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
   const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
@@ -114,7 +122,6 @@ function cmdQuestionsLocal(args: string[]) {
   for (const ent of scopedEntities) {
     scopedKeys.add(ent.key);
     if (ent.presence) scopedKeys.add(ent.presence.key);
-
     if (ent.name) {
       names.set(ent.key, ent.name);
       if (ent.paneId) names.set(ent.paneId, ent.name);
@@ -124,13 +131,20 @@ function cmdQuestionsLocal(args: string[]) {
   const pending = [...loadPresence().values()]
     .filter((pres) => scopedKeys.has(pres.key) || all)
     .map((pres) => ({ pres, question: readJSON<unknown>(path.join(pres.dir, "question.json")) }))
-    .filter((entry): entry is { pres: PresenceEntry; question: QuestionPayload } => isQuestionPayload(entry.question));
+    .filter((entry): entry is PendingQuestion => isQuestionPayload(entry.question))
+    .sort((a, b) => a.pres.key.localeCompare(b.pres.key));
+  return { pending, names };
+}
+
+function cmdQuestionsLocal(args: string[]) {
+  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
+  const all = enabled.has("--all");
+  const { pending, names } = collectPendingQuestions(args);
   if (!pending.length) {
     if (enabled.has("--json")) process.stdout.write("[]\n");
     else process.stdout.write("No pending questions.\n");
     return;
   }
-  pending.sort((a, b) => a.pres.key.localeCompare(b.pres.key));
   if (enabled.has("--json")) {
     process.stdout.write(JSON.stringify(pending.map(({ pres, question }) => ({
       key: pres.key,
@@ -175,33 +189,77 @@ export function questionText(value: unknown): string {
 }
 
 function localQuestionRows(args: string[]): QuestionRow[] {
-  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
-  const all = enabled.has("--all");
-  const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
-  const names = new Map<string, string>();
-  const scopedKeys = new Set<string>();
-  for (const ent of scopedEntities) {
-    scopedKeys.add(ent.key);
-    if (ent.presence) scopedKeys.add(ent.presence.key);
-    if (ent.name) {
-      names.set(ent.key, ent.name);
-      if (ent.paneId) names.set(ent.paneId, ent.name);
-      if (ent.presence) names.set(ent.presence.key, ent.name);
-    }
-  }
-  return [...loadPresence().values()]
-    .filter((pres) => scopedKeys.has(pres.key) || all)
-    .map((pres) => ({ pres, question: readJSON<unknown>(path.join(pres.dir, "question.json")) }))
-    .filter((entry): entry is { pres: PresenceEntry; question: QuestionPayload } => isQuestionPayload(entry.question))
-    .map(({ pres, question }) => ({
-      key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
-      question: questionText(question), workspace: workspaceOf(pres.key) ?? "-", host: "local",
-    }))
-    .sort((a, b) => a.key.localeCompare(b.key));
+  const { pending, names } = collectPendingQuestions(args);
+  return pending.map(({ pres, question }) => ({
+    key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
+    question: questionText(question), workspace: workspaceOf(pres.key) ?? "-", host: "local",
+  }));
 }
 
 function warningQuestionRow(host: string, warning: string): QuestionRow {
   return { key: `warning:${host}`, name: "WARNING", age: "-", question: warning, host, warning };
+}
+
+/** Resolve the target's adapter and require a declared session-tail capability, or die. */
+function resolveSessionTailAdapter(target: string, ent: Entity): AgentAdapter {
+  const adapter = entityAdapter(ent);
+  if (!adapter?.caps.sessionTail) {
+    die(`Target "${target}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.`);
+  }
+  return adapter;
+}
+
+/** The model line for a session view: `provider/model:thinking`, or `fallback` when unknown. */
+function formatViewModel(view: SessionView, fallback: string): string {
+  if (!view.model) return fallback;
+  return `${view.provider ? view.provider + "/" : ""}${view.model}${view.thinking ? ":" + view.thinking : ""}`;
+}
+
+/** Token totals line from a session view's opaque token record. */
+function formatViewTokens(tokens: unknown): string {
+  const count = (value: unknown): number => (typeof value === "number" ? value : 0);
+  if (!isRecord(tokens)) return "in 0 / out 0 / cacheR 0 / cacheW 0";
+  return `in ${count(tokens.input)} / out ${count(tokens.output)} / cacheR ${count(tokens.cacheRead)} / cacheW ${count(tokens.cacheWrite)}`;
+}
+
+/** The last assistant text of a session view, tailed to its final `lines` lines. */
+function tailLastText(view: SessionView, lines: number): string {
+  const text = view.lastText;
+  if (!text) return "(no session text)";
+  return text.split(/\r?\n/).slice(-lines).join("\n");
+}
+
+/** The HH:MM:SS prefix for a turn timestamp, or blank padding when absent or invalid. */
+function hms(timestamp: string | undefined): string {
+  const when = timestamp ? new Date(timestamp) : null;
+  if (!when || isNaN(when.getTime())) return "        ";
+  return when.toTimeString().slice(0, 8);
+}
+
+/** Lay out one normalized session-view turn as a tail row, or undefined to skip a pure-thinking turn. */
+function renderViewEntry(entry: SessionViewEntry): string | undefined {
+  const time = hms(entry.timestamp);
+  if (entry.role === "user") {
+    const text = collapse(entry.text ?? "");
+    return text ? `${time} user      │ ${truncate(text, 200)}` : undefined;
+  }
+  if (entry.role === "assistant") {
+    const text = collapse(entry.text ?? "");
+    if (text) return `${time} assistant │ ${truncate(text, 200)}`;
+    if (entry.toolCalls?.length) {
+      const calls = entry.toolCalls.map((call) => `${call.name}(${collapse(truncate(call.arg, 60))})`).join(", ");
+      return `${time} assistant │ ⚙ ${calls}`;
+    }
+    return undefined;
+  }
+  const mark = entry.isError ? " [err]" : "";
+  return `${time} tool      │ ${entry.tool ?? "tool"}${mark} → ${truncate(collapse(entry.text ?? ""), 120)}`;
+}
+
+/** The last-N rendered per-turn rows of a session view, or the "(no entries)" marker. */
+function tailEntries(entries: readonly SessionViewEntry[], count: number): string {
+  const rows = entries.map(renderViewEntry).filter((row): row is string => row !== undefined).slice(-count);
+  return rows.length ? rows.join("\n") : "(no entries)";
 }
 
 export function cmdTail(args: string[]) {
@@ -220,51 +278,22 @@ export function cmdTail(args: string[]) {
   const target = rest[0];
   if (!target) die("usage: orch tail <target> [-n N] [--json]");
   const ent = resolveTarget(target);
-  const session = parseSession(ent.sessionPath);
-  if (!session.exists) die(`No session file for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
-
-  const modelStr = session.model
-    ? `${session.provider ? session.provider + "/" : ""}${session.model}${session.thinking ? ":" + session.thinking : ""}`
-    : "-";
-  process.stdout.write(
-    `session: ${ent.sessionPath}\nmodel: ${modelStr}   cost: $${session.cost.toFixed(4)}   turns: ${session.turns}\n\n`
-  );
-
-  const rendered: string[] = [];
-  for (const e of session.entries) {
-    if (e.type !== "message" || !e.message) continue;
-    const msg = e.message;
-    const role = msg.role;
-    const time = hms(e);
-    if (role === "user") {
-      const txt = collapse(blockText(msg.content));
-      if (txt) rendered.push(`${time} user      │ ${truncate(txt, 200)}`);
-    } else if (role === "assistant") {
-      const content = Array.isArray(msg.content) ? msg.content : [];
-      const txt = collapse(blockText(msg.content));
-      if (txt) {
-        rendered.push(`${time} assistant │ ${truncate(txt, 200)}`);
-      } else {
-        const calls = content.filter(isToolCallContentBlock);
-        if (calls.length) {
-          rendered.push(`${time} assistant │ ⚙ ${calls.map(toolCallSummary).join(", ")}`);
-        }
-        // pure thinking → skip
-      }
-    } else if (role === "toolResult") {
-      const tool = msg.toolName ?? "tool";
-      const txt = collapse(blockText(msg.content));
-      const mark = msg.isError ? " [err]" : "";
-      rendered.push(`${time} tool      │ ${tool}${mark} → ${truncate(txt, 120)}`);
-    }
-  }
-  const tail = rendered.slice(-n);
+  const adapter = resolveSessionTailAdapter(target, ent);
+  const view = adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined });
+  if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
   if (json) {
-    process.stdout.write(JSON.stringify({ target, sessionPath: ent.sessionPath, model: session.model, provider: session.provider,
-      thinking: session.thinking, cost: session.cost, turns: session.turns, tokens: session.tokens, entries: session.entries.slice(-n) }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ target, sessionPath: ent.sessionPath, model: view.model ?? null,
+      provider: view.provider ?? null, thinking: view.thinking ?? null, cost: view.cost ?? null,
+      tokens: view.tokens ?? null, turns: view.turns ?? null, task: view.task ?? null, lastText: view.lastText ?? null,
+      entries: view.entries ? view.entries.slice(-n) : null }, null, 2) + "\n");
     return;
   }
-  process.stdout.write(tail.join("\n") + (tail.length ? "\n" : "(no entries)\n"));
+  process.stdout.write(
+    `session: ${ent.sessionPath}\nmodel: ${formatViewModel(view, "-")}   cost: $${(view.cost ?? 0).toFixed(4)}   turns: ${view.turns ?? 0}\n\n`
+  );
+  // Adapters whose parser yields per-turn entries get the rich last-N tail; the
+  // rest fall back to the last assistant text tailed to its final N lines.
+  process.stdout.write((view.entries ? tailEntries(view.entries, n) : tailLastText(view, n)) + "\n");
 }
 
 export function cmdSession(args: string[]) {
@@ -273,50 +302,25 @@ export function cmdSession(args: string[]) {
   if (!target) die("usage: orch session <target> [--json]");
   const ent = resolveTarget(target);
   if (!ent.sessionPath) die(`No session path known for "${target}".`);
-  const s = parseSession(ent.sessionPath);
-  const modelStr = s.model
-    ? `${s.provider ? s.provider + "/" : ""}${s.model}${s.thinking ? ":" + s.thinking : ""}`
-    : "(none)";
+  const adapter = resolveSessionTailAdapter(target, ent);
+  const view = adapter.readSessionView?.({ sessionPath: ent.sessionPath });
+  const entryCount = view?.entries?.length ?? 0;
   if (json) {
-    process.stdout.write(JSON.stringify({ path: ent.sessionPath, exists: s.exists, entries: s.entries.length,
-      turns: s.turns, cost: s.cost, tokens: s.tokens, model: s.model, provider: s.provider, thinking: s.thinking }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ path: ent.sessionPath, exists: view !== undefined,
+      entries: entryCount, turns: view?.turns ?? 0, cost: view?.cost ?? 0, tokens: view?.tokens ?? null,
+      model: view?.model ?? null, provider: view?.provider ?? null, thinking: view?.thinking ?? null }, null, 2) + "\n");
     return;
   }
   process.stdout.write(
     [
       `path:    ${ent.sessionPath}`,
-      `exists:  ${s.exists}`,
-      `entries: ${s.entries.length}`,
-      `turns:   ${s.turns}`,
-      `cost:    $${s.cost.toFixed(4)}`,
-      `tokens:  in ${s.tokens.input} / out ${s.tokens.output} / cacheR ${s.tokens.cacheRead} / cacheW ${s.tokens.cacheWrite}`,
-      `model:   ${modelStr}`,
+      `exists:  ${view !== undefined}`,
+      `entries: ${entryCount}`,
+      `turns:   ${view?.turns ?? 0}`,
+      `cost:    $${(view?.cost ?? 0).toFixed(4)}`,
+      `tokens:  ${formatViewTokens(view?.tokens)}`,
+      `model:   ${view ? formatViewModel(view, "(none)") : "(none)"}`,
     ].join("\n") + "\n"
   );
-}
-
-function toolCallSummary(block: ToolCallContentBlock): string {
-  const name = block.name ?? "tool";
-  const a = block.arguments ?? {};
-  let arg = "";
-  for (const k of ["command", "path", "file", "filePath", "subject", "query", "pattern", "action"]) {
-    if (a[k] != null) {
-      arg = typeof a[k] === "string" ? a[k] : JSON.stringify(a[k]) ?? "";
-      break;
-    }
-  }
-  if (!arg) {
-    const keys = Object.keys(a);
-    const firstKey = keys[0];
-    if (firstKey !== undefined) arg = `${firstKey}=${String(a[firstKey])}`;
-  }
-  return `${name}(${collapse(truncate(arg, 60))})`;
-}
-
-function hms(entry: SessionEntry): string {
-  const ts = entry.timestamp ?? entry.message?.timestamp;
-  const d = ts ? new Date(ts) : null;
-  if (!d || isNaN(d.getTime())) return "        ";
-  return d.toTimeString().slice(0, 8);
 }
 

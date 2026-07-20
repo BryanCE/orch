@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { backendCapabilitiesVerdict, checkBackendCapabilities } from "../src/doctor/backends.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
-import type { DoctorBackendReport } from "../src/doctor-types.ts";
+import type { DoctorBackendReport } from "../src/check-result.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 
 /** One backend's probe result. Injected so the verdict is provable without the
@@ -64,14 +64,17 @@ describe("doctor backend and presence checks", () => {
     expect(result.detail).not.toContain("\\n");
   });
 
-  test("fails when the active backend is outside a live session", () => {
+  // 11.3: an available session-scoped active backend outside its session reflects
+  // where the command ran, not a broken install — WARN naming the fix, never FAIL.
+  test("warns (not fails) when the available active backend is outside a live session", () => {
     const result = backendCapabilitiesVerdict([
       report("herdr", true, false),
-      report("tmux", true, false),
+      report("headless", true, true),
     ], "herdr");
 
-    expect(result.status).toBe("fail");
+    expect(result.status).toBe("warn");
     expect(result.detail).toContain("active backend herdr is not inside a live session");
+    expect(result.detail).toContain("open a herdr workspace and re-run");
   });
 
   test("fails when any installed backend is unavailable, active or not", () => {

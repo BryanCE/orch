@@ -1,6 +1,6 @@
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { buildEntities, currentWorkspace, resolveTarget, workspaceOf } from "../entities.ts";
-import { loadPresence, orchDir } from "../store.ts";
+import { loadPresence, orchDir } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { scopeToWorkspace, workspaceName } from "../policy/workspace.ts";

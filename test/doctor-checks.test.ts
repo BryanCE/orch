@@ -3,7 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor, type CheckResult } from "../src/doctor/runner.ts";
+import { loadConfig } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 
@@ -35,7 +37,7 @@ function writeConfig(directory: string, settings: Record<string, unknown>): void
 }
 
 afterEach(() => {
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("doctor notification-sink checks", () => {
@@ -51,12 +53,11 @@ describe("doctor notification-sink checks", () => {
     });
   });
 
-  test("warns for a webhook with a malformed URL", async () => {
+  test("rejects a webhook with a malformed URL", () => {
     const directory = tempDir();
     writeConfig(directory, { notify: [{ id: "webhook", url: "not a url" }] });
 
-    const result = await withPath<CheckResult>(path.join(directory, "empty-path"), async (): Promise<CheckResult> => notifyResult(await runDoctor(directory)));
-    expect(result).toMatchObject({ status: "warn", detail: expect.stringContaining("webhook sink #1 URL is not well-formed") as unknown as string });
+    expect(() => loadConfig(directory)).toThrow(/notify/);
   });
 
   test("warns for a command binary missing from PATH", async () => {

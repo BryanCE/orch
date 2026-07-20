@@ -20,65 +20,22 @@ import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { isRecord, type JsonRecord } from "../../src/util.ts";
+import { isRecord, parsePid, type JsonRecord } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
+import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
 
 const AGENT_ID = "claude";
 const MAX_TEXT = 400;
 const MAX_TASK = 200;
-function contentText(value: unknown): string | undefined {
-  if (typeof value === "string") return textValue(value);
-  if (Array.isArray(value)) {
-    const parts = value.map(contentText).filter((part): part is string => !!part);
-    return parts.length ? parts.join("\n") : undefined;
-  }
-  if (!isRecord(value)) return undefined;
-  for (const key of ["text", "output_text", "output-text", "content"]) {
-    const text = contentText(value[key]);
-    if (text !== undefined) return text;
-  }
-  return undefined;
-}
 
-function assistantText(record: JsonRecord): string | undefined {
-  const message = isRecord(record.message) ? record.message : undefined;
-  const role = record.role ?? message?.role;
-  if (role === "assistant" || record.type === "assistant" || record.type === "assistant_message") {
-    return contentText(record.content ?? message?.content ?? record.text ?? message?.text);
-  }
-  for (const key of ["data", "payload", "item"]) {
-    if (isRecord(record[key])) {
-      const text = assistantText(record[key]);
-      if (text !== undefined) return text;
-    }
-  }
-  return undefined;
-}
-
-function lastAssistant(transcriptPath: string | undefined): string | undefined {
+/** Read a claude transcript file to raw JSONL, or undefined when absent/unreadable. */
+function readTranscript(transcriptPath: string | undefined): string | undefined {
   if (!transcriptPath) return undefined;
-  let raw: string;
   try {
-    raw = readFileSync(transcriptPath, "utf8");
+    return readFileSync(transcriptPath, "utf8");
   } catch {
     return undefined;
   }
-  let last: string | undefined;
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      const records = Array.isArray(parsed) ? parsed : [parsed];
-      for (const item of records) {
-        if (!isRecord(item)) continue;
-        const text = assistantText(item);
-        if (text !== undefined) last = text;
-      }
-    } catch {
-      // Ignore non-JSON transcript/log lines.
-    }
-  }
-  return last;
 }
 
 function readStdin(): JsonRecord {
@@ -91,20 +48,11 @@ function readStdin(): JsonRecord {
   }
 }
 
-function numericPid(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
-  if (typeof value === "string" && /^\d+$/.test(value)) {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed) && parsed > 0) return parsed;
-  }
-  return undefined;
-}
-
 function agentPid(input: JsonRecord): number {
-  return numericPid(input.pid)
-    ?? numericPid(process.env.CLAUDE_PID)
+  return parsePid(input.pid)
+    ?? parsePid(process.env.CLAUDE_PID)
     // A hook is short-lived; its parent is the long-lived Claude process.
-    ?? numericPid(process.ppid)
+    ?? parsePid(process.ppid)
     ?? process.pid;
 }
 
@@ -149,7 +97,7 @@ const rawTask = input.task ?? input.prompt ?? input.initial_prompt;
 const task = truncateOptional(typeof rawTask === "string" ? rawTask : undefined, MAX_TASK) ?? previous.task;
 const sessionId = textValue(input.session_id ?? input.sessionId) ?? previous.sessionId;
 const existingText = textValue(previous.lastText);
-const transcriptText = lastAssistant(transcriptPath ?? textValue(previous.sessionPath));
+const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath ?? textValue(previous.sessionPath)));
 const lastText = truncateOptional(transcriptText ?? existingText, MAX_TEXT);
 
 const status: JsonRecord = {

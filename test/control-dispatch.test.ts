@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { recordSpawned } from "../src/store.ts";
+import { recordSpawned } from "../src/presence/store.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { getBackend } from "../src/backends/registry.ts";
 import { seedStatus } from "./helpers/presence.ts";

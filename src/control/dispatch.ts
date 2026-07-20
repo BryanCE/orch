@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget, parseIdentity } from "../backends/identity.ts";
-import { loadPresence, spawnedRecords } from "../store.ts";
+import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
+import { loadConfig, SETTINGS_DEFAULTS } from "../config.ts";
 import type { AdapterCommand, AgentAdapter } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 
@@ -10,15 +11,16 @@ import type { Backend, BackendHandle } from "../backends/backend.ts";
  * Control-plane dispatcher (L5 facade). Runs inside the daemon only; the CLI
  * reaches it over the socket via the steer/set-model RPC handlers. This module
  * is the sole invoker of adapter control strategies — nothing else may call
- * adapter.steer/setModel or execute a returned AdapterCommand.
+ * adapter.steer/answer/setModel or execute a returned AdapterCommand.
  */
 
 /** Control effect requested for one live agent. */
 export type ControlAction =
   | { readonly kind: "steer"; readonly text: string }
+  | { readonly kind: "answer"; readonly text: string }
   | { readonly kind: "model"; readonly model: string };
 
-const ADAPTER_COMMAND_TIMEOUT_MS = 60_000;
+const ADAPTER_COMMAND_TIMEOUT_MS = SETTINGS_DEFAULTS.timeouts.adapter_command_ms;
 
 /** Resolve the adapter recorded for a target via presence status, then the spawn registry. */
 export function resolveTargetAdapter(target: string): AgentAdapter | undefined {
@@ -48,11 +50,11 @@ export function resolveTargetRoute(target: string): { backend: Backend; handle: 
 }
 
 /** Execute an adapter-built argv machine-locally, throwing on spawn failure or nonzero exit. */
-function runAdapterCommand(command: AdapterCommand): Promise<void> {
+function runAdapterCommand(command: AdapterCommand, timeoutMs: number): Promise<void> {
   const [bin, ...args] = command.argv;
   if (!bin) return Promise.reject(new Error("adapter returned an empty command"));
   return new Promise((resolve, reject) => {
-    const child = execFile(bin, args, { timeout: ADAPTER_COMMAND_TIMEOUT_MS }, (error) => {
+    const child = execFile(bin, args, { timeout: timeoutMs }, (error) => {
       if (error) reject(new Error(`${bin} failed: ${error.message}`));
       else resolve();
     });
@@ -67,13 +69,13 @@ function requirePresence(target: string, adapter: AgentAdapter, action: string):
   }
 }
 
-async function deliverSteer(target: string, adapter: AgentAdapter, text: string): Promise<void> {
+async function deliverSteer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<void> {
   const mechanism = adapter.caps.steer;
   if (mechanism === "none") throw new Error(`cannot steer ${target}: adapter ${adapter.id} declares steer "none"`);
   if (mechanism === "inbox") requirePresence(target, adapter, "steer");
   const command = adapter.steer({ key: target, text });
   if (command) {
-    await runAdapterCommand(command);
+    await runAdapterCommand(command, timeoutMs);
     return;
   }
   if (mechanism === "inbox") return;
@@ -88,20 +90,31 @@ async function deliverSteer(target: string, adapter: AgentAdapter, text: string)
   throw new Error(`cannot steer ${target}: adapter ${adapter.id} returned no ${mechanism} command`);
 }
 
-async function deliverModel(target: string, adapter: AgentAdapter, model: string): Promise<void> {
+async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<void> {
+  if (!adapter.caps.ask) {
+    throw new Error(`cannot answer ${target}: adapter ${adapter.id} declares ask false`);
+  }
+  requirePresence(target, adapter, "answer");
+  const command = adapter.answer({ key: target, text });
+  if (command) await runAdapterCommand(command, timeoutMs);
+}
+
+async function deliverModel(target: string, adapter: AgentAdapter, model: string, timeoutMs: number): Promise<void> {
   if (!adapter.caps.setModel || !adapter.setModel) {
     throw new Error(`cannot set model on ${target}: adapter ${adapter.id} declares setModel false`);
   }
   requirePresence(target, adapter, "set model on");
   const command = adapter.setModel({ key: target, model });
-  if (command) await runAdapterCommand(command);
+  if (command) await runAdapterCommand(command, timeoutMs);
 }
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
 export async function deliverControl(target: string, action: ControlAction): Promise<void> {
+  const timeoutMs = loadConfig(orchDir()).timeouts.adapter_command_ms ?? ADAPTER_COMMAND_TIMEOUT_MS;
   const canonicalTarget = normalizeControlTarget(target);
   const adapter = resolveTargetAdapter(canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
-  if (action.kind === "steer") await deliverSteer(canonicalTarget, adapter, action.text);
-  else await deliverModel(canonicalTarget, adapter, action.model);
+  if (action.kind === "steer") await deliverSteer(canonicalTarget, adapter, action.text, timeoutMs);
+  else if (action.kind === "answer") await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
+  else await deliverModel(canonicalTarget, adapter, action.model, timeoutMs);
 }

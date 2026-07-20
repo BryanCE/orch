@@ -6,14 +6,15 @@ import { join } from "node:path";
 // The web server talks to the SAME orch daemon + store the CLI does — reuse the
 // real modules rather than reinventing the socket protocol or presence read.
 import { rpcCall } from "../../../../src/daemon/rpc.ts";
-import { loadPresence } from "../../../../src/store.ts";
+import { loadPresence } from "../../../../src/presence/store.ts";
 import { workspaceOf } from "../../../../src/policy/workspace.ts";
-import { herdrReachable, herdrTabs } from "../../../../src/backends/herdr/cli.ts";
+import { resolveBackend } from "../../../../src/backends/registry.ts";
+import { loadConfigOrNull } from "../../../../src/config.ts";
 import type { FleetAgent, Workspace } from "@/lib/fleet";
 
 /**
- * Mirrors src/store.ts `orchDir()`. Inlined (one line) on purpose so the daemon
- * probe doesn't have to; store.ts is imported anyway for loadPresence.
+ * Mirrors src/presence/store.ts `orchDir()`. Inlined (one line) on purpose so the daemon
+ * probe doesn't have to; presence/store.ts is imported anyway for loadPresence.
  */
 function orchDir(): string {
   return process.env.ORCH_DIR ?? join(homedir(), ".orch");
@@ -41,27 +42,22 @@ export const getDaemonStatus = createServerFn({ method: "GET" }).handler(
   },
 );
 
-/** Resolve herdr workspace id -> human label (from `herdr tab list`). Empty on
- * any failure; callers fall back to the id. */
-function herdrWorkspaceNames(): Map<string, string> {
-  const names = new Map<string, string>();
+/** Workspace id -> display name from the active backend's port. Empty on any
+ * failure; callers fall back to the id. Mirrors the CLI's backend resolution. */
+function workspaceNames(): Map<string, string> {
   try {
-    if (!herdrReachable()) return names;
-    for (const tab of herdrTabs().values()) {
-      if (tab.workspace_id && tab.label && !names.has(tab.workspace_id)) {
-        names.set(tab.workspace_id, tab.label);
-      }
-    }
+    const configured = loadConfigOrNull(orchDir())?.defaults.backend ?? null;
+    return resolveBackend({ configured }).workspaceNames();
   } catch {
-    // herdr not on PATH / socket down — ids stand in for names.
+    // No config / backend unreachable — ids stand in for names.
+    return new Map();
   }
-  return names;
 }
 
 /** Real fleet: every live agent from the presence store, grouped by workspace,
- * named via herdr when reachable. No mock, no fabricated orchestrator. */
+ * named via the active backend when reachable. No mock, no fabricated orchestrator. */
 export const getFleet = createServerFn({ method: "GET" }).handler((): Workspace[] => {
-  const names = herdrWorkspaceNames();
+  const names = workspaceNames();
   const byWs = new Map<string, FleetAgent[]>();
 
   for (const [key, entry] of loadPresence()) {

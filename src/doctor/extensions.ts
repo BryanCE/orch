@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { extensionBundlePath } from "../bridge-bundle.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { readAgentEntries, readJson, repoDir } from "./shared.ts";
 import { pidAlive } from "../util.ts";
 

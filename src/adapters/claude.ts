@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { declaredRuntime } from "../config.ts";
 import type { OrchRuntime } from "../runtime.ts";
-import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "../store.ts";
+import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "../presence/store.ts";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import type {
@@ -18,8 +18,9 @@ import type {
   StateDetectionInput,
   SteerRequest,
 } from "./adapter.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { textValue } from "../util.ts";
+import { lastAssistantFromJsonl } from "./transcript.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -41,66 +42,6 @@ const AGENT_STATES = new Set<AgentState>([
   "exited",
   "unknown",
 ]);
-
-type JsonRecord = Record<string, unknown>;
-
-function contentText(value: unknown): string | undefined {
-  if (typeof value === "string") return textValue(value);
-  if (Array.isArray(value)) {
-    const parts = value.map(contentText).filter((part): part is string => part !== undefined);
-    return parts.length ? parts.join("\n") : undefined;
-  }
-  if (!isRecord(value)) return undefined;
-  for (const key of ["text", "output_text", "output-text", "content"]) {
-    const text = contentText(value[key]);
-    if (text !== undefined) return text;
-  }
-  return undefined;
-}
-
-function assistantText(record: JsonRecord): string | undefined {
-  const message = isRecord(record.message) ? record.message : undefined;
-  const role = record.role ?? message?.role;
-  if (role === "assistant") {
-    return contentText(record.content ?? message?.content ?? record.text ?? message?.text);
-  }
-  // Claude transcripts commonly wrap messages in a {type:"assistant"} entry.
-  if (record.type === "assistant" || record.type === "assistant_message") {
-    return contentText(record.content ?? message?.content ?? record.text ?? message?.text);
-  }
-  for (const key of ["data", "payload", "item"]) {
-    if (isRecord(record[key])) {
-      const text = assistantText(record[key]);
-      if (text !== undefined) return text;
-    }
-  }
-  return undefined;
-}
-
-function assistantFromTranscript(raw: string | undefined): string | undefined {
-  if (!raw?.trim()) return undefined;
-  let last: string | undefined;
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (isRecord(parsed)) {
-        const text = assistantText(parsed);
-        if (text !== undefined) last = text;
-      } else if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (isRecord(item)) {
-            const text = assistantText(item);
-            if (text !== undefined) last = text;
-          }
-        }
-      }
-    } catch {
-      // Claude transcript files are JSONL; continue past malformed/log lines.
-    }
-  }
-  return last;
-}
 
 function readTextFile(file: string | undefined): string | undefined {
   if (!file) return undefined;
@@ -254,8 +195,8 @@ class ClaudeAdapter implements AgentAdapter {
   readonly hookDriven = true;
 
   /** Start Claude Code directly in an interactive backend session. */
-  interactiveCmd(_opts: SpawnOpts): string {
-    return "claude";
+  interactiveCmd(opts: SpawnOpts): string {
+    return opts.model ? `claude --model ${opts.model}` : "claude";
   }
 
   /** Run Claude Code's print mode for detached workers. */
@@ -296,10 +237,10 @@ class ClaudeAdapter implements AgentAdapter {
     if (resultText !== undefined) return resultText;
 
     const statusTranscript = presence?.status?.sessionPath;
-    const transcriptText = assistantFromTranscript(readTextFile(input.sessionPath ?? statusTranscript));
+    const transcriptText = lastAssistantFromJsonl(readTextFile(input.sessionPath ?? statusTranscript));
     if (transcriptText !== undefined) return transcriptText;
 
-    const outputText = assistantFromTranscript(input.output);
+    const outputText = lastAssistantFromJsonl(input.output);
     if (outputText !== undefined) return outputText;
     // Claude's print mode normally emits plain final text rather than JSONL.
     const plainOutput = textValue(input.output);
@@ -310,7 +251,7 @@ class ClaudeAdapter implements AgentAdapter {
 
   /** Read the transcript tail for the last assistant text; state stays presence-driven. */
   readSessionView(input: SessionViewInput): SessionView | undefined {
-    const text = assistantFromTranscript(readTextFile(input.sessionPath) ?? input.output);
+    const text = lastAssistantFromJsonl(readTextFile(input.sessionPath) ?? input.output);
     return text === undefined ? undefined : { lastText: text };
   }
 

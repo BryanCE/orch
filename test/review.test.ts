@@ -66,19 +66,37 @@ function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
   });
 }
 
-function stopDaemon(orchDir: string): void {
+async function stopDaemon(orchDir: string): Promise<void> {
+  let pid: number | undefined;
   try {
     const lock = JSON.parse(fs.readFileSync(path.join(orchDir, "orchd.lock"), "utf8")) as { pid?: number };
-    if (lock.pid) process.kill(lock.pid, "SIGTERM");
+    pid = lock.pid;
   } catch {
-    // No daemon was started for this directory.
+    return; // No daemon was started for this directory.
+  }
+  if (!pid) return;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return; // Already gone.
+  }
+  // Wait until the daemon actually exits and releases its open files (orch.db,
+  // socket, log) — removing the dir while it lives is a guaranteed EBUSY on Windows.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return; // Process is gone; its handles are released.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
 
-afterEach(() => {
+afterEach(async () => {
   while (directories.length) {
     const directory = directories.pop()!;
-    stopDaemon(directory);
+    await stopDaemon(directory);
     removeTempDir(directory);
   }
 });

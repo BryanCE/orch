@@ -2,11 +2,27 @@ import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskOptions, TaskRec, TaskState } from "../queue.ts";
-import type { SpawnedRecord } from "../store.ts";
 
 // One SQLite file per $ORCH_DIR holds the queue, ownership registry, delivery
 // outbox, and spawn registry. jsonl remains the human-visible truth channel for
 // presence/results/transitions; only this internal state lives here.
+
+export interface SpawnedRecord {
+  /** Primary registry id: the agent's serialized identity key. */
+  pane: string;
+  ts?: string;
+  adapter?: string;
+  model?: string;
+  backend?: string;
+  /** Identity workspace assigned by the spawning backend. */
+  workspace?: string;
+  /** Backend-native control handle (herdr/tmux pane id) for close/focus/send-keys. */
+  handle?: string;
+  /** Working directory the agent launched in. */
+  cwd?: string;
+  worktree?: string;
+  branch?: string;
+}
 
 interface StatementLike {
   run(...params: unknown[]): { changes: number };

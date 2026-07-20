@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { parseIdentity, tryParseIdentity } from "../src/backends/identity.ts";
+import { parseIdentity, serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
@@ -113,26 +113,25 @@ describe("backend registry selection is backend-independent", () => {
 });
 
 describe("headless common path: identity key -> presence", () => {
-  test("spawn mints a filesystem-safe headless identity and creates its presence dir", async () => {
+  test("spawn uses the caller-minted key verbatim and creates its presence dir", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-cli-headless-"));
     process.env.ORCH_DIR = dir;
     const backend = new HeadlessBackend();
 
-    const handle = backend.spawn(fakeAdapter, { orchDir: dir, cwd: dir });
+    // The spawner mints the name-based identity BEFORE launch (one key per
+    // agent) and passes it via opts.key; the backend never mints its own.
+    const key = serializeIdentity({ backend: "headless", workspace: "local", handle: "detached-1" });
+    const handle = backend.spawn(fakeAdapter, { key, orchDir: dir, cwd: dir });
 
-    // The presence key is a flat serialized identity, not a nested path.
+    // The handle carries the caller's key unchanged — a flat serialized identity.
+    expect(handle.key).toBe(key);
     const identity = parseIdentity(handle.key);
-    expect(identity.backend).toBe("headless");
-    expect(identity.workspace).toBe("local");
-    expect(identity.handle.length).toBeGreaterThan(0);
+    expect(identity).toEqual({ backend: "headless", workspace: "local", handle: "detached-1" });
     expect(handle.key.includes("/")).toBe(false);
 
     // The agent writes its presence under ~/.orch/agents/<key>/.
     const statusFile = path.join(dir, "agents", handle.key, "status.json");
     await waitFor(() => fs.existsSync(statusFile));
-
-    // mintIdentity round-trips the spawned key.
-    expect(backend.mintIdentity(handle)).toEqual(identity);
 
     // spawned.jsonl records the backend, handle, adapter, and cwd.
     const registry = fs.readFileSync(path.join(dir, "spawned.jsonl"), "utf8").trim();
@@ -142,6 +141,13 @@ describe("headless common path: identity key -> presence", () => {
     expect(record.cwd).toBe(dir);
 
     try { process.kill(handle.pid, "SIGTERM"); } catch {}
+  });
+
+  test("spawn refuses a launch with no caller-minted key", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-cli-headless-nokey-"));
+    process.env.ORCH_DIR = dir;
+    expect(() => new HeadlessBackend().spawn(fakeAdapter, { orchDir: dir, cwd: dir }))
+      .toThrow(/requires a caller-minted presence key/);
   });
 
   test("headless rejects pane-only peek and zoom commands clearly", async () => {

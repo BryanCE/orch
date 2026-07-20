@@ -24,7 +24,8 @@ export interface TaskOptions {
 export interface TaskRec {
   id: string;
   text: string;
-  /** Workspace this task was enqueued from; absent for legacy/unscoped tasks. */
+  /** Workspace this task was enqueued from. Absent only on a malformed row read
+   * back from storage — never claimable, surfaced by doctor as reappable. */
   workspace?: string;
   opts: TaskOptions;
   createdAt: string;
@@ -46,18 +47,23 @@ function requireTask(orchDir: string, id: string): TaskRec {
 }
 
 export function addTask(orchDir: string, text: string, opts: TaskOptions = {}, workspace?: string): TaskRec {
+  // Rule 8: a task without an origin workspace is malformed, never universal.
+  // Reject at enqueue so no unscoped row is ever written.
+  if (workspace === undefined || workspace.trim() === "") {
+    throw new Error("Cannot enqueue an unscoped task: an origin workspace is required. Pass the caller's workspace.");
+  }
   const id = randomUUID();
   const ts = new Date().toISOString();
   const task: TaskRec = {
     id,
     text,
     opts,
+    workspace,
     createdAt: ts,
     updatedAt: ts,
     state: "queued",
     retries: 0,
   };
-  if (workspace !== undefined) task.workspace = workspace;
   insertQueueTask(orchDir, task);
   return task;
 }
@@ -97,10 +103,12 @@ export function unclaimTask(orchDir: string, id: string): void {
 export function nextQueuedTask(tasks: TaskRec[], agentName?: string, workspace?: string): TaskRec | undefined {
   return tasks
     .filter((task) => task.state === "queued")
+    // A row without an origin workspace is malformed (Rule 8): never claimable by
+    // any work loop, and doctor surfaces it as reappable.
+    .filter((task) => task.workspace !== undefined)
     .filter((task) => !task.opts.agent || task.opts.agent === agentName)
-    // Legacy tasks without a workspace remain eligible everywhere. When a
-    // workspace is supplied, pinned tasks must stay within that workspace.
-    .filter((task) => workspace === undefined || task.workspace === undefined || task.workspace === workspace)
+    // A pinned task stays within its origin workspace when a workspace is supplied.
+    .filter((task) => workspace === undefined || task.workspace === workspace)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
 }
 

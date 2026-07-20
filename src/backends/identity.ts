@@ -1,4 +1,4 @@
-import { loadPresence, spawnedRecords } from "../store.ts";
+import { loadPresence, spawnedRecords } from "../presence/store.ts";
 
 /**
  * Backend-owned agent identity and its filesystem-safe serialized key.
@@ -16,7 +16,11 @@ export interface Identity {
   readonly backend: string;
   /** Workspace reported by the backend; always a string, never null. */
   readonly workspace: string;
-  /** Backend-native handle (e.g. herdr pane `p2`, tmux pane `%5`, headless pid). */
+  /** Stable agent handle minted BEFORE launch and passed via ORCH_AGENT_KEY —
+   * the orch agent name (`audit-1`) for every backend, pane and headless alike.
+   * NEVER the backend pane id or OS pid: those arrive only after spawn and are
+   * recorded as separate registry fields, so re-minting a key from one forks the
+   * agent into two identities and breaks every presence/ack join. */
   readonly handle: string;
 }
 

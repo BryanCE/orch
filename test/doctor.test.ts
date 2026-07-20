@@ -9,6 +9,7 @@ import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
@@ -27,7 +28,7 @@ function check(results: Awaited<ReturnType<typeof runDoctor>>, id: string) {
 
 afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("runDoctor", () => {

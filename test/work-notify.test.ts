@@ -41,7 +41,7 @@ describe("orch work notifications", () => {
     const command = nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`);
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
-    const { presenceAgentDir } = await import("../src/store.ts");
+    const { presenceAgentDir } = await import("../src/presence/store.ts");
     const agentsDir = presenceAgentDir(key, orchDir);
     seedStatusInDir(agentsDir, { state: "idle", label: "Test agent", pid: process.pid });
     writeSettingsFixture(orchDir, {
@@ -49,7 +49,7 @@ describe("orch work notifications", () => {
     });
 
     try {
-      const { runWorkLoop } = await import("../src/work.ts");
+      const { runWorkLoop } = await import("../src/daemon/work-loop.ts");
       const { loadSinks } = await import("../src/notify/router.ts");
       expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command }]);
       const controller = new AbortController();

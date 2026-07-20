@@ -9,7 +9,6 @@ import { loadConfig } from "../src/config.ts";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
-import { parseIdentity } from "../src/backends/identity.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
@@ -42,7 +41,7 @@ describe("adapter and runtime hardening", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
-  test("headless generates one safe presence key when no key is supplied", () => {
+  test("headless refuses to spawn without a caller-minted presence key", () => {
     const directory = temp();
     const adapter: AgentAdapter = {
       id: "pi",
@@ -57,16 +56,15 @@ describe("adapter and runtime hardening", () => {
     const backend = new HeadlessBackend({ pidAlive: () => false });
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
-    const handle = backend.spawn(adapter, {});
-    const identity = parseIdentity(handle.key);
-    expect(identity.backend).toBe("headless");
-    expect(identity.workspace).toBe("local");
-    expect(identity.handle.length).toBeGreaterThan(0);
-    expect(handle.key).not.toContain("/");
-    expect(backend.list()).toContainEqual({ ...handle, alive: false });
-    try { process.kill(handle.pid, "SIGKILL"); } catch { /* already exited */ }
-    if (previous === undefined) delete process.env.ORCH_DIR;
-    else process.env.ORCH_DIR = previous;
-    fs.rmSync(directory, { recursive: true, force: true });
+    try {
+      // The caller mints the identity BEFORE launch (one key per agent); the
+      // backend never generates a fallback key of its own.
+      expect(() => backend.spawn(adapter, {})).toThrow(/caller-minted presence key/);
+      expect(backend.list()).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.ORCH_DIR;
+      else process.env.ORCH_DIR = previous;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

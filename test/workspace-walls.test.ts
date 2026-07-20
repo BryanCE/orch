@@ -81,10 +81,11 @@ describe("workspace-aware queued task selection", () => {
     expect(nextQueuedTask([task], "pi", "w8")).toBe(task);
   });
 
-  test("keeps legacy tasks eligible in any workspace", () => {
-    const task = fakeTask("legacy", "2026-01-01T00:00:00.000Z");
-    expect(nextQueuedTask([task], "pi", "w1")).toBe(task);
-    expect(nextQueuedTask([task], "pi", "w8")).toBe(task);
+  test("skips a malformed unscoped task in every workspace", () => {
+    const task = fakeTask("orphan", "2026-01-01T00:00:00.000Z");
+    expect(nextQueuedTask([task], "pi", "w1")).toBeUndefined();
+    expect(nextQueuedTask([task], "pi", "w8")).toBeUndefined();
+    expect(nextQueuedTask([task], "pi")).toBeUndefined();
   });
 
   test("selects the earliest eligible task and respects agent constraints", () => {

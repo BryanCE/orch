@@ -1,11 +1,13 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { presenceDir, presenceKeyFromDirectoryName } from "../store.ts";
+import { presenceDir, presenceKeyFromDirectoryName } from "../presence/store.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
-import type { CheckResult, IgnoredPresenceRecord } from "../doctor-types.ts";
+import type { CheckResult, IgnoredPresenceRecord } from "../check-result.ts";
+import { selectQueueTasks } from "../store/sqlite.ts";
+import type { TaskRec } from "../queue.ts";
 import { hasErrorCode, readAgentEntries, readJson } from "./shared.ts";
-import { isRecord, pidAlive } from "../util.ts";
+import { isRecord, pidAlive, truncate } from "../util.ts";
 
 function humanAge(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "unknown";
@@ -77,6 +79,40 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
         ignoredRecords,
       }
     : { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no malformed presence records", ignoredRecords };
+}
+
+/** One human-legible line for an unscoped queue row — id, state, age, task snippet. */
+function describeUnscopedTask(task: TaskRec): string {
+  const age = Date.parse(task.createdAt);
+  const seen = Number.isFinite(age) ? humanAge(Date.now() - age) : "unknown";
+  return `${task.id} · ${task.state} · queued ${seen} · ${truncate(task.text, 60)}`;
+}
+
+/**
+ * Report queue rows with no origin workspace. Such a row is malformed by the
+ * current schema (Rule 8): `nextQueuedTask` never claims it, so it is stuck
+ * forever. Report-only — a reappable record surfaced for `orch clean`, never a
+ * pre-selected destructive fix.
+ */
+export function checkUnscopedTasks(orchDir: string): CheckResult {
+  let tasks: TaskRec[];
+  try {
+    tasks = selectQueueTasks(orchDir);
+  } catch {
+    return { id: "unscoped-tasks", label: "Unscoped queue tasks", status: "ok", detail: "no queue" };
+  }
+  const unscoped = tasks.filter(
+    (task) => task.workspace === undefined && (task.state === "queued" || task.state === "claimed"),
+  );
+  if (!unscoped.length) {
+    return { id: "unscoped-tasks", label: "Unscoped queue tasks", status: "ok", detail: "no unscoped tasks" };
+  }
+  return {
+    id: "unscoped-tasks",
+    label: "Unscoped queue tasks",
+    status: "warn",
+    detail: `${unscoped.length} unscoped queue task${unscoped.length === 1 ? "" : "s"} (no origin workspace — never claimable; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
+  };
 }
 
 export async function checkStalePresence(orchDir: string): Promise<CheckResult> {

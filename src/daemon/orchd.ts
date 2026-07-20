@@ -7,9 +7,9 @@ import {
 import { rpcCall, startRpcServer, type RpcServer } from "./rpc.ts";
 import { loadConfig, watchConfig, type ConfigWatch, type OrchConfig } from "../config.ts";
 import { loadSinks, type Sink } from "../notify/router.ts";
-import { runWorkLoop } from "../work.ts";
+import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
-import { orchDir } from "../store.ts";
+import { orchDir } from "../presence/store.ts";
 import { errorMessage } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -148,6 +148,15 @@ async function setModel(directory: string, params: unknown): Promise<{ ok: true 
   return { ok: true };
 }
 
+async function answer(directory: string, params: unknown): Promise<{ ok: true }> {
+  const value = writeParams(params);
+  const target = requiredString(value.target, "target");
+  const text = requiredString(value.text, "text");
+  governWrite(directory, target, params);
+  await deliverControl(target, { kind: "answer", text });
+  return { ok: true };
+}
+
 async function shutDown(directory: string): Promise<void> {
   presenceWatch?.stop();
   configWatch?.stop();
@@ -184,6 +193,7 @@ async function main(): Promise<void> {
       dispatch: (params) => acceptWrite(directory, "dispatch", params),
       steer: (params) => acceptWrite(directory, "steer", params),
       "set-model": (params) => setModel(directory, params),
+      answer: (params) => answer(directory, params),
       ack: (params) => {
         const value = writeParams(params);
         const id = requiredString(value.id, "id");

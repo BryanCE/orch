@@ -2,7 +2,7 @@ import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { computeCodeHash, readDaemonLock } from "../daemon/lifecycle.ts";
 import { rpcCall } from "../daemon/rpc.ts";
-import type { CheckResult } from "../doctor-types.ts";
+import type { CheckResult } from "../check-result.ts";
 import { repoDir } from "./shared.ts";
 import { pidAlive } from "../util.ts";
 

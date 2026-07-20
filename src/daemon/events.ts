@@ -5,7 +5,7 @@ import { notify, type Sink } from "../notify/router.ts";
 import { abstractAgentLabel, workspaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
-import { presenceAgentDir, presenceKeyFromDirectoryName, readPresenceStatus } from "../store.ts";
+import { presenceAgentDir, presenceKeyFromDirectoryName, readPresenceStatus } from "../presence/store.ts";
 import { pidAlive, truncate } from "../util.ts";
 import { workspaceOf } from "../policy/workspace.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { SETTINGS_SCHEMA } from "../src/config.ts";
-import { readCommandLock, releaseCommandLock } from "../src/cmd-lock.ts";
+import { readCommandLock, releaseCommandLock } from "../src/control/cmd-lock.ts";
 
 // The pi-bridge command-lock interception (extensions/pi/index.ts):
 //   pi.on("tool_execution_start", ...) acquires the machine-wide cmd-lock before

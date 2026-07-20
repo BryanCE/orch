@@ -4,7 +4,8 @@ import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
 import { collapse, buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, type Entity } from "../entities.ts";
 import { runRemoteAsync } from "../remote.ts";
-import { orchDir, spawnedRecords, type SpawnedRecord } from "../store.ts";
+import { orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import type { SpawnedRecord } from "../store/sqlite.ts";
 import { renderTable } from "../table.ts";
 import { workspaceName } from "../policy/workspace.ts";
 import { ensureDaemon } from "./daemon.ts";
@@ -51,56 +52,55 @@ export function entityAdapter(ent: Entity, spawned = spawnedRecords()): AgentAda
   return getAdapter(spawned.get(ent.key)?.adapter ?? ent.presence?.status?.agent ?? ent.agent ?? "");
 }
 
+/** Build the "provider/model:thinking" display string from presence, session, then adapter default. */
+function deriveModelString(pres: PresenceEntry | null, sview: SessionView | null, adapter: AgentAdapter | undefined): string {
+  if (pres?.status?.model && pres.status.model.id) {
+    const m = pres.status.model;
+    const think = pres.status.thinking ?? "";
+    return `${m.provider ?? ""}/${m.id}${think ? ":" + think : ""}`;
+  }
+  if (sview?.model) {
+    const prov = sview.provider ?? "";
+    const think = sview.thinking ?? "";
+    return `${prov}/${sview.model}${think ? ":" + think : ""}`;
+  }
+  const adapterDefault = adapter?.defaultModelString?.();
+  return adapterDefault ? `${adapterDefault} (default)` : "-";
+}
+
+/** Pick the state label plus its fallback/exited flags: live bridge wins, else backend/session fallback. */
+function deriveState(pres: PresenceEntry | null, ent: Entity, sview: SessionView | null): { state: string; stateFallback: boolean; exited: boolean } {
+  if (!pres?.status) {
+    // no live bridge → backend status or session fallback
+    return { state: ent.backendStatus ?? sview?.state ?? (sview ? "idle" : "unknown"), stateFallback: true, exited: false };
+  }
+  // presence = live bridge → no fallback marker
+  if (!pres.alive) return { state: "exited", stateFallback: false, exited: true };
+  return { state: pres.status.asking ? "asking" : pres.status.state ?? "unknown", stateFallback: false, exited: false };
+}
+
+/** Pick the reported cost: presence first, then session view, else zero. */
+function deriveCost(pres: PresenceEntry | null, sview: SessionView | null): number {
+  if (pres?.status && typeof pres.status.cost === "number") return pres.status.cost;
+  if (typeof sview?.cost === "number") return sview.cost;
+  return 0;
+}
+
+/** Read the context-window percent from presence, or null when unreported. */
+function deriveContextPercent(pres: PresenceEntry | null): number | null {
+  if (pres?.status?.context && typeof pres.status.context.percent === "number") return pres.status.context.percent;
+  return null;
+}
+
 export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
   const pres = ent.presence;
   const adapter = entityAdapter(ent, spawned);
   const sview = (adapter?.caps.sessionTail && ent.sessionPath ? adapter.readSessionView?.({ sessionPath: ent.sessionPath }) : undefined) ?? null;
 
-  // ---- model ----
-  let modelFull = "";
-  if (pres?.status?.model && pres.status.model.id) {
-    const m = pres.status.model;
-    const think = pres.status.thinking ?? "";
-    modelFull = `${m.provider ?? ""}/${m.id}${think ? ":" + think : ""}`;
-  } else if (sview?.model) {
-    const prov = sview.provider ?? "";
-    const think = sview.thinking ?? "";
-    modelFull = `${prov}/${sview.model}${think ? ":" + think : ""}`;
-  } else {
-    const adapterDefault = adapter?.defaultModelString?.();
-    modelFull = adapterDefault ? `${adapterDefault} (default)` : "-";
-  }
+  const modelFull = deriveModelString(pres, sview, adapter);
   const model = modelFull.replace(/^openai-codex\//, "");
+  const { state, stateFallback, exited } = deriveState(pres, ent, sview);
 
-  // ---- state ----
-  let state: string;
-  let stateFallback = false;
-  let exited = false;
-  if (pres?.status) {
-    if (!pres.alive) {
-      state = "exited";
-      exited = true;
-    } else {
-      state = pres.status.asking ? "asking" : pres.status.state ?? "unknown";
-    }
-    // presence = live bridge → no fallback marker
-  } else {
-    // no live bridge → backend status or session fallback
-    state = ent.backendStatus ?? sview?.state ?? (sview ? "idle" : "unknown");
-    stateFallback = true;
-  }
-
-  // ---- cost ----
-  let cost = 0;
-  if (pres?.status && typeof pres.status.cost === "number") cost = pres.status.cost;
-  else if (typeof sview?.cost === "number") cost = sview.cost;
-
-  // ---- ctx percent ----
-  let ctxPercent: number | null = null;
-  if (pres?.status?.context && typeof pres.status.context.percent === "number")
-    ctxPercent = pres.status.context.percent;
-
-  // ---- task / last ----
   const task = firstNonEmptyText(
     pres?.status?.asking?.question ? `Q: ${pres.status.asking.question}` : undefined,
     pres?.status?.task,
@@ -124,8 +124,8 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
     state,
     stateFallback,
     staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash),
-    cost,
-    ctxPercent,
+    cost: deriveCost(pres, sview),
+    ctxPercent: deriveContextPercent(pres),
     task: collapse(task),
     last: collapse(last),
     exited,
@@ -152,38 +152,7 @@ function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
 
   if (json) {
     // full merged objects, untruncated
-    const out = visible.map((v) => ({
-      key: v.entity.key,
-      paneId: v.entity.paneId,
-      name: v.entity.name,
-      tab: v.entity.tabLabel,
-      agent: v.entity.agent,
-      focused: v.entity.focused,
-      model: v.modelFull,
-      modelShort: v.model,
-      state: v.state,
-      stateFallback: v.stateFallback,
-      exited: v.exited,
-      cost: v.cost,
-      ctxPercent: v.ctxPercent,
-      task: v.entity.presence?.status?.asking?.question
-        ? `Q: ${v.entity.presence.status.asking.question}`
-        : v.entity.presence?.status?.task ?? v.sview?.task ?? null,
-      lastText:
-        v.entity.presence?.status?.lastText ??
-        resultText(v.entity.presence?.result) ??
-        v.sview?.lastText ??
-        null,
-      backendStatus: v.entity.backendStatus,
-      sessionPath: v.entity.sessionPath,
-      presenceDir: v.entity.presence?.dir ?? null,
-      presenceOnly: v.entity.presenceOnly,
-      tokens: v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null,
-      turns: v.entity.presence?.status?.turns ?? v.sview?.turns ?? null,
-      workspace: entityWorkspace(v.entity),
-      workspaceName: workspaceName(entityWorkspace(v.entity), workspaces),
-      staleExtension: v.staleExtension,
-    }));
+    const out = visible.map((v) => statusRowFromView(v, workspaces));
     process.stdout.write(JSON.stringify(out, null, 2) + "\n");
     return;
   }
@@ -252,6 +221,48 @@ interface StatusRow {
   warning?: string;
 }
 
+/** Format the task cell: a pending question wins, else the presence/session task text, else null. */
+function viewTask(v: View): string | null {
+  const question = v.entity.presence?.status?.asking?.question;
+  if (question) return `Q: ${question}`;
+  return v.entity.presence?.status?.task ?? v.sview?.task ?? null;
+}
+
+/** Pick the last-message text: presence lastText, then result payload, then session tail. */
+function viewLastText(v: View): string | null {
+  return v.entity.presence?.status?.lastText ?? resultText(v.entity.presence?.result) ?? v.sview?.lastText ?? null;
+}
+
+/** The one status-row shape shared by the local json branch and the merged table rows. */
+export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"]): StatusRow {
+  return {
+    key: v.entity.key,
+    paneId: v.entity.paneId,
+    name: v.entity.name,
+    tab: v.entity.tabLabel,
+    agent: v.entity.agent,
+    focused: v.entity.focused,
+    model: v.modelFull,
+    modelShort: v.model,
+    state: v.state,
+    stateFallback: v.stateFallback,
+    exited: v.exited,
+    cost: v.cost,
+    ctxPercent: v.ctxPercent,
+    task: viewTask(v),
+    lastText: viewLastText(v),
+    backendStatus: v.entity.backendStatus,
+    sessionPath: v.entity.sessionPath,
+    presenceDir: v.entity.presence?.dir ?? null,
+    presenceOnly: v.entity.presenceOnly,
+    tokens: v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null,
+    turns: v.entity.presence?.status?.turns ?? v.sview?.turns ?? null,
+    workspace: entityWorkspace(v.entity),
+    workspaceName: workspaceName(entityWorkspace(v.entity), workspaces),
+    staleExtension: v.staleExtension,
+  };
+}
+
 function localStatusRows(args: string[], workspaces: OrchConfig["workspaces"]): StatusRow[] {
   const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
   const all = enabled.has("--all");
@@ -259,35 +270,7 @@ function localStatusRows(args: string[], workspaces: OrchConfig["workspaces"]): 
   const spawned = spawnedRecords();
   const views = entities.map((entity) => deriveView(entity, spawned));
   return views.filter((v) => all || (!v.exited || !v.entity.presenceOnly) && !(v.entity.presenceOnly && v.entity.presence && !v.entity.presence.alive))
-    .map((v) => ({
-      key: v.entity.key,
-      paneId: v.entity.paneId,
-      name: v.entity.name,
-      tab: v.entity.tabLabel,
-      agent: v.entity.agent,
-      focused: v.entity.focused,
-      model: v.modelFull,
-      modelShort: v.model,
-      state: v.state,
-      stateFallback: v.stateFallback,
-      exited: v.exited,
-      cost: v.cost,
-      ctxPercent: v.ctxPercent,
-      task: v.entity.presence?.status?.asking?.question
-        ? `Q: ${v.entity.presence.status.asking.question}`
-        : v.entity.presence?.status?.task ?? v.sview?.task ?? null,
-      lastText: v.entity.presence?.status?.lastText ?? resultText(v.entity.presence?.result) ?? v.sview?.lastText ?? null,
-      backendStatus: v.entity.backendStatus,
-      sessionPath: v.entity.sessionPath,
-      presenceDir: v.entity.presence?.dir ?? null,
-      presenceOnly: v.entity.presenceOnly,
-      tokens: v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null,
-      turns: v.entity.presence?.status?.turns ?? v.sview?.turns ?? null,
-      workspace: entityWorkspace(v.entity),
-      workspaceName: workspaceName(entityWorkspace(v.entity), workspaces),
-      staleExtension: v.staleExtension,
-      host: "local",
-    }));
+    .map((v) => ({ ...statusRowFromView(v, workspaces), host: "local" }));
 }
 
 export function warningStatusRow(host: string, warning: string): StatusRow {

@@ -4,7 +4,7 @@ import type { Backend } from "../backends/backend.ts";
 import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { parseTarget, resolveTarget, type Entity } from "../entities.ts";
 import { runSSH } from "../remote.ts";
-import { loadPresence, orchDir, type PresenceEntry } from "../store.ts";
+import { loadPresence, orchDir, type PresenceEntry } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
 
 export function die(msg: string): never {

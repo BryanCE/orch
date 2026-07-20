@@ -1,13 +1,13 @@
 import * as files from "node:fs";
 import * as path from "node:path";
-import { collapse, resolvePane, resolveTarget, selfActor, type Entity } from "../entities.ts";
+import { collapse, resolvePane, resolveTarget, type Entity } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, type PresenceEntry } from "../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
-import { die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requirePresenceTarget, resultText, targetHost } from "./target.ts";
+import { assertAgentOwned, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { resolveAgentSettings, workerPrompt, type AgentFlags, type AgentSettings } from "./spawn.ts";
 
@@ -62,10 +62,11 @@ export async function cmdSteer(args: string[]): Promise<void> {
 export async function cmdBroadcast(args: string[]) {
   let all = false;
   const json = args.includes("--json");
+  const force = args.includes("--force");
   const positional: string[] = [];
   for (const arg of args) {
     if (arg === "--all") all = true;
-    else if (arg === "--json") continue;
+    else if (arg === "--json" || arg === "--force") continue;
     else positional.push(arg);
   }
   const text = positional[0];
@@ -74,10 +75,14 @@ export async function cmdBroadcast(args: string[]) {
   if (!targets.length) all = true;
   const destinations = new Map<string, PresenceEntry>();
   if (all) {
-    for (const pres of livePanePresenceEntries()) destinations.set(pres.key, pres);
+    for (const pres of livePanePresenceEntries()) {
+      const record = spawnedRecords().get(pres.key);
+      if (record && ownsAgent(record)) destinations.set(pres.key, pres);
+    }
   }
   for (const target of targets) {
     const ent = requirePresenceTarget(target);
+    assertAgentOwned(target, ent, force);
     destinations.set(ent.presence!.key, ent.presence!);
   }
   if (!destinations.size) die("No live pane agent dirs to broadcast to.");
@@ -169,7 +174,7 @@ export async function cmdDispatch(args: string[]) {
   const settings = resolveDispatchSettings(flags, config, gov);
   if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
   const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), config.locked_commands) }, gov);
-  recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined, owner: selfActor() ?? undefined });
+  recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined });
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${settings.pane}.\n`);
 }

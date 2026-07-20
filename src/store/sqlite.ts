@@ -22,6 +22,8 @@ export interface SpawnedRecord {
   cwd?: string;
   worktree?: string;
   branch?: string;
+  /** Orchestrator ownership token stamped at spawn time. */
+  owner?: string;
 }
 
 interface StatementLike {
@@ -351,7 +353,12 @@ export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): voi
 
 export function selectSpawnedRecords(orchDir: string): SpawnedRecord[] {
   const rows = openStore(orchDir).query("SELECT * FROM spawned").all() as SpawnedRow[];
-  return rows.map(rowToSpawned);
+  return rows.map((row) => {
+    const record = rowToSpawned(row);
+    const owner = getOwner(orchDir, record.pane);
+    if (owner !== undefined) record.owner = owner;
+    return record;
+  });
 }
 
 export interface OutboxMessageInput {

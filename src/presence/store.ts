@@ -116,6 +116,7 @@ export function recordSpawned(
     if (metadata.cwd !== undefined) record.cwd = metadata.cwd;
     if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
     if (metadata.branch !== undefined) record.branch = metadata.branch;
+    if (metadata.owner !== undefined) record.owner = metadata.owner;
     insertSpawnedRecord(orchDir(), record);
     if (metadata.owner) setOwner(orchDir(), pane, metadata.owner);
   } catch {}

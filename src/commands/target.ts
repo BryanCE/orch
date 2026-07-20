@@ -1,10 +1,10 @@
 import { loadConfig, type HostConfig } from "../config.ts";
-import { getBackend, resolveBackend } from "../backends/registry.ts";
+import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
 import type { Backend } from "../backends/backend.ts";
 import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { parseTarget, resolveTarget, type Entity } from "../entities.ts";
 import { runSSH } from "../remote.ts";
-import { loadPresence, orchDir, type PresenceEntry } from "../presence/store.ts";
+import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
 
 export function die(msg: string): never {
@@ -75,6 +75,35 @@ export function remoteWrite(hostName: string, command: string, args: readonly st
   const result = runSSH(destination, remoteCommandArgs(host, command, args), { timeoutMs: host.timeout_ms });
   if (!result.ok) die(`Host "${hostName}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
   if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
+}
+
+export function callerOwnerToken(): string | undefined {
+  if (process.env.ORCH_OWNER) return process.env.ORCH_OWNER;
+  for (const backend of allBackends()) {
+    const token = backend.callerIdentity?.();
+    if (token) return token;
+  }
+  return undefined;
+}
+
+/** Refuse bulk operations that cannot identify their calling orchestrator. */
+export function requireCallerOwnerToken(): string {
+  const token = callerOwnerToken();
+  if (!token) die("Bulk operation refused: set ORCH_OWNER to identify this orchestrator.");
+  return token;
+}
+
+export function ownsAgent(record: { owner?: string }): boolean {
+  const token = callerOwnerToken();
+  return Boolean(token && record.owner === token);
+}
+
+export function assertAgentOwned(target: string, entity: Pick<Entity, "key">, force = false): void {
+  if (force) return;
+  const record = spawnedRecords().get(entity.key);
+  if (record?.owner && !ownsAgent(record)) {
+    die(`Target "${target}" is owned by ${record.owner}. Use --force to override.`);
+  }
 }
 
 export function callerWorkspace(): string | null {

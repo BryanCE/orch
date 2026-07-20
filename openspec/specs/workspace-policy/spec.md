@@ -61,3 +61,22 @@ Every verb that writes to an agent — steer, answer, model, broadcast, pipe del
 - **WHEN** an agent is owned by another orchestrator and a non-owner runs any write verb (`steer`, `answer`, `model`) against it without stealing ownership
 - **THEN** the daemon refuses the write naming the owning orchestrator
 
+### Requirement: Fleet operations are ownership-scoped
+The orchestrator SHALL derive its owner token from `ORCH_OWNER`, falling back to `HERDR_PANE_ID`, or remain ownerless when neither is set. A spawn record SHALL stamp that token as its optional `owner` field. Bulk lifecycle operations (`close`, `reset`, `reload`, and `restart` with `--all`) and `broadcast` SHALL act only on records whose owner equals the caller token; an absent owner matches an absent caller token. An explicit single-agent target owned by another orchestrator SHALL fail closed and name the owner, unless `--force` is supplied.
+
+#### Scenario: Bulk operation skips foreign-owned agents
+- **WHEN** an orchestrator runs a bulk lifecycle operation or `broadcast --all`
+- **THEN** it acts only on agents whose `owner` matches the caller token and leaves foreign-owned agents untouched
+
+#### Scenario: Foreign explicit target fails naming owner
+- **WHEN** an orchestrator explicitly targets an agent owned by another orchestrator without `--force`
+- **THEN** the operation fails closed and its error names the owning token
+
+#### Scenario: Force overrides the ownership wall
+- **WHEN** an orchestrator explicitly targets an agent owned by another orchestrator with `--force`
+- **THEN** the operation is allowed to act on that agent
+
+#### Scenario: Absent-owner legacy record matches absent-token caller
+- **WHEN** an agent record has no `owner` field and the caller has no owner token
+- **THEN** ownership scoping treats the record as owned by that caller for bulk and explicit operations
+

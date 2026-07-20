@@ -7,11 +7,10 @@ import { workerHeaderFor } from "../worker-prompt.ts";
 import { serializeIdentity } from "../backends/identity.ts";
 import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle } from "../backends/backend.ts";
 import { resolveBackend } from "../backends/registry.ts";
-import { selfActor } from "../entities.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
-import { callerWorkspace, die } from "./target.ts";
+import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 
 function paneLayout(refPane: BackendHandle, backend: Backend): BackendGroupLayout {
@@ -263,7 +262,7 @@ function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
         workspace,
         worktree: settings.worktree ? cwd : undefined,
         branch: settings.worktree ? `orch/${name}` : undefined,
-        owner: selfActor() ?? undefined,
+        owner: callerOwnerToken(),
       });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
@@ -348,7 +347,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     cwd: spec.cwd,
     worktree: spec.worktree,
     branch: spec.branch,
-    owner: selfActor() ?? undefined,
+    owner: callerOwnerToken(),
   });
   return { key, pane: String(handle), name: spec.name };
 }
@@ -412,7 +411,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const adapter = resolveAdapterOrDie(settings.adapter);
   const root = createSpawnRoot(settings, workspace, backend, adapter);
   const created: CreatedAgent[] = [];
-  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: selfActor() ?? undefined });
+  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created, backend);
   await reportSpawnResults(settings, root, created, backend);

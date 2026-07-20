@@ -13,7 +13,7 @@ import { loadConfig } from "../config.ts";
 import { adapterCommand, resolveAdapterOrDie, workerPrompt } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
-import { splitOptionFlags, die, backendTarget, parseTargetPrompt } from "./target.ts";
+import { assertAgentOwned, ownsAgent, splitOptionFlags, die, backendTarget, parseTargetPrompt } from "./target.ts";
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
 export async function cmdRun(args: string[]): Promise<void> {
@@ -50,17 +50,19 @@ export function cmdWait(args: string[]) {
 
 export function cmdNew(args: string[]) {
   const json = args.includes("--json");
+  const force = args.includes("--force");
   const targets: string[] = [];
   for (const arg of args) {
-    if (arg === "--json") continue;
+    if (arg === "--json" || arg === "--force") continue;
     if (arg === "--all") {
-      for (const ent of buildEntities()) if (ent.paneId && ent.presence) targets.push(ent.paneId);
+      for (const ent of buildEntities()) if (ent.paneId && ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {})) targets.push(ent.paneId);
     } else targets.push(arg);
   }
   if (!targets.length) die("usage: orch reset <target>... | --all [--json]");
   const results: { target: string; cleared: true; ready: true }[] = [];
   for (const target of targets) {
     const { ent, pane } = resolvePane(target);
+    assertAgentOwned(target, ent, force);
     const { backend, handle } = backendTarget(pane, "reset");
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its reset mechanism.`);
@@ -161,11 +163,12 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
 export function cmdReload(args: string[]) {
   const json = args.includes("--json");
   const all = args.includes("--all");
+  const force = args.includes("--force");
   const targets: string[] = [];
   for (const arg of args) {
-    if (arg === "--json") continue;
+    if (arg === "--json" || arg === "--force") continue;
     if (arg === "--all") {
-      for (const ent of buildEntities()) if (ent.paneId && ent.presence) targets.push(ent.paneId);
+      for (const ent of buildEntities()) if (ent.paneId && ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {})) targets.push(ent.paneId);
     } else targets.push(arg);
   }
   // `--all` is a valid invocation even with zero live panes: it still touches
@@ -181,6 +184,7 @@ export function cmdReload(args: string[]) {
   for (const target of targets) {
     try {
       const { ent, pane } = resolvePane(target);
+      assertAgentOwned(target, ent, force);
       const { backend, handle } = backendTarget(pane, "reload");
       const agentId = ent.agent ?? ent.presence?.status?.agent;
       if (!agentId) throw new Error(`Target "${target}" has no recorded harness — cannot determine its reload mechanism`);
@@ -212,12 +216,13 @@ export function cmdReload(args: string[]) {
 export function cmdRestart(args: string[]) {
   let cmd: string | null = null;
   const json = args.includes("--json");
+  const force = args.includes("--force");
   const targets: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--cmd") cmd = args[++i]!;
-    else if (args[i] === "--hard" || args[i] === "--json") continue;
+    else if (args[i] === "--hard" || args[i] === "--json" || args[i] === "--force") continue;
     else if (args[i] === "--all") {
-      for (const ent of buildEntities()) if (ent.paneId && ent.presence) targets.push(ent.paneId);
+      for (const ent of buildEntities()) if (ent.paneId && ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {})) targets.push(ent.paneId);
     } else targets.push(args[i]!);
   }
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
@@ -225,6 +230,7 @@ export function cmdRestart(args: string[]) {
   let ok = 0;
   for (const target of targets) {
     const { ent, pane } = resolvePane(target);
+    assertAgentOwned(target, ent, force);
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its restart mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
@@ -255,10 +261,11 @@ export function cmdRename(args: string[]) {
 }
 
 export function cmdClose(args: string[]) {
-  const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
+  const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json", "--force"]);
   const all = enabled.has("--all");
   const stream = enabled.has("--stream");
   const json = enabled.has("--json");
+  const force = enabled.has("--force");
   if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream]");
 
   const targets: { backend: Backend; handle: BackendHandle }[] = [];
@@ -270,12 +277,14 @@ export function cmdClose(args: string[]) {
       for (const item of inventory) {
         if (item.handle === selfByBackend.get(backend.id)) continue;
         const record = [...mine.values()].find((candidate) => candidate.backend === backend.id && candidate.handle === String(item.handle));
-        if (record) targets.push({ backend, handle: item.handle });
+        if (record && (force || ownsAgent(record))) targets.push({ backend, handle: item.handle });
       }
     }
   }
   for (const target of positional) {
-    const { backend, handle } = backendTarget(target, "close");
+    const { ent, pane } = resolvePane(target);
+    assertAgentOwned(target, ent, force);
+    const { backend, handle } = backendTarget(pane, "close");
     targets.push({ backend, handle });
   }
 

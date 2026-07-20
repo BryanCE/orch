@@ -171,6 +171,8 @@ export interface Backend<Handle = BackendHandle> {
    */
   workspaceNames(): Map<string, string>;
 
+  /** Stable token identifying the calling orchestrator, when the backend can derive one. */
+  callerIdentity?(): string | undefined;
   /** Identity of the calling process's own target, when inside a session. */
   currentIdentity?(): Identity | null;
   /** Every live target with display metadata (fleet enumeration). */

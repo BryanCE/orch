@@ -502,11 +502,14 @@ export function subscribeEvents(
   return subscription;
 }
 
-/** Subscribe to pushed events; the returned function closes the subscription. */
+/** Subscribe to pushed events; the returned function closes the subscription.
+ *  `onClose` fires when the daemon drops the connection but NOT when the caller
+ *  stops it — the socket is the disconnect signal, so no caller has to poll. */
 export async function rpcSubscribe(
   orchDir: string,
   method: string,
   onEvent: (event: unknown) => void,
+  onClose?: () => void,
 ): Promise<() => void> {
   const socket = await connectDaemon(orchDir, DEFAULT_TIMEOUT_MS);
   const id = nextRequestId++;
@@ -545,5 +548,10 @@ export async function rpcSubscribe(
   socket.once("error", responseReject);
   socket.write(`${JSON.stringify({ id, method })}\n`);
   await response;
-  return () => socket.destroy();
+  let stopped = false;
+  socket.on("close", () => { if (!stopped) onClose?.(); });
+  return () => {
+    stopped = true;
+    socket.destroy();
+  };
 }

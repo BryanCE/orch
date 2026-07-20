@@ -1,9 +1,10 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, resolvePane, resolveTarget, selfActor, type Entity } from "../entities.ts";
-import { isRecord, orchDir, presenceAgentDir, readJSON, recordSpawned, type PresenceEntry } from "../store.ts";
+import { STATUS_FILE } from "../presence/schema.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, type PresenceEntry } from "../store.ts";
+import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
-import { truncate } from "../table.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
 import { die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requirePresenceTarget, resultText, targetHost } from "./target.ts";
@@ -139,8 +140,12 @@ export async function cmdModel(args: string[]): Promise<void> {
 }
 
 async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; confirmed: true; unchanged: boolean }> {
-  const old = readJSON<{ model?: unknown }>(path.join(presenceAgentDir(agentKey), "status.json"));
-  const previous = typeof old?.model === "string" ? old.model : null;
+  const old = readPresenceStatus(path.join(presenceAgentDir(agentKey), STATUS_FILE));
+  // A presence record stores the model structurally; render it in the same provider/id:thinking
+  // form the caller passes, so the reported previous value and the no-op comparison both work.
+  const previous = old?.model?.id
+    ? `${old.model.provider ?? ""}/${old.model.id}${old.thinking ? `:${old.thinking}` : ""}`
+    : null;
   await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, confirmed: true, unchanged: previous === modelArg };
 }

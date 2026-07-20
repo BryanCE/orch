@@ -3,12 +3,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { CLAUDE_HOOK_RUNTIMES, claudeHookShimPath, type ClaudeHookRuntime } from "../src/adapters/claude-hooks.ts";
+import { claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
+import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtime.ts";
 import { binaryOnPath } from "../src/util.ts";
 
 const shim = claudeHookShimPath(process.cwd());
 const shimBuilt = fs.existsSync(shim);
-const runtimes = CLAUDE_HOOK_RUNTIMES.filter(binaryOnPath);
+// The shim is bundled standalone and must execute under any DECLARED runtime, so it is exercised
+// against every runtime present here. This is a portability check on the shim, not runtime
+// selection — nothing in orch picks its runtime by scanning PATH.
+const runtimes = ORCH_RUNTIMES.filter(binaryOnPath);
 
 const directories: string[] = [];
 
@@ -28,7 +32,7 @@ interface ShimRun {
 }
 
 /** Run the built shim under one runtime, exactly as the installed settings.json hook does. */
-function runShim(runtime: ClaudeHookRuntime, event: string, env: Record<string, string | undefined>): ShimRun {
+function runShim(runtime: OrchRuntime, event: string, env: Record<string, string | undefined>): ShimRun {
   const [bin, ...args] = runtime === "deno" ? ["deno", "run", "--allow-all", shim, event] : [runtime, shim, event];
   try {
     execFileSync(bin, args, {

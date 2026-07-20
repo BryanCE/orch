@@ -1,7 +1,6 @@
 import * as files from "node:fs";
 import * as path from "node:path";
-import { isRecord } from "../store.ts";
-import { errorMessage, packageRoot } from "../util.ts";
+import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { cmdStatus } from "./status.ts";
 import { cmdSpawn, cmdTile } from "./spawn.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
@@ -14,7 +13,7 @@ import { cmdQueue } from "./queue.ts";
 import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
-import { cmdDoctor, cmdSettings, cmdSetup, compositionUnrecorded, runFirstTimeSetup } from "./setup.ts";
+import { cmdDoctor, cmdSettings, cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
 import { die } from "./target.ts";
 
 function usage() {
@@ -26,8 +25,9 @@ OBSERVE
   orch status [--json] [--all] [--offline]
                                  Glanceable table of every pane (default command); --offline reads agent files only.
   orch questions                 List pending agent questions.
-  orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json] [--offline]
-                                 Continuous stream of pane state transitions; --offline uses read-only agent files.
+  orch events [--all] [target ...] [--status s[,s…]] [--json]
+                                 Continuous stream of pane state transitions; requires a running daemon.
+                                 Notifications are delivered by orchd from settings.json, not by this command.
 
 QUEUE
   orch queue add "<task text>" [--worktree] [--json]
@@ -156,9 +156,16 @@ export function readOrchVersion(): string {
 
 const VERSION = readOrchVersion();
 
+/** Commands that must keep working before setup has recorded anything. `setup` records the
+ * composition and `doctor` diagnoses an install that does not work yet — they are how a user
+ * reaches a configured state, so neither may ever be refused for being unconfigured. */
+function exemptFromSetupGate(cmd: string | undefined): boolean {
+  return cmd === "setup" || cmd === "doctor" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
+}
+
 /** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them. */
 export function needsFirstRunSetup(cmd: string | undefined): boolean {
-  if (cmd === "setup" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version") return false;
+  if (exemptFromSetupGate(cmd)) return false;
   if (!process.stdin.isTTY) return false;
   return compositionUnrecorded();
 }
@@ -166,9 +173,21 @@ export function needsFirstRunSetup(cmd: string | undefined): boolean {
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
   const rest = argv.slice(1);
-  if (needsFirstRunSetup(cmd)) {
-    void runFirstTimeSetup(argv, runCommand).catch((error: unknown) => die(errorMessage(error)));
-    return;
+  // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it
+  // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
+  // below is only ever reached with a real recorded configuration.
+  try {
+    if (needsFirstRunSetup(cmd)) {
+      void runFirstTimeSetup(argv, runCommand).catch((error: unknown) => die(errorMessage(error)));
+      return;
+    }
+    // Nothing recorded and no TTY to walk the wizard on: say exactly what to run, rather than
+    // letting an unconfigured command surface a config error deeper in.
+    if (!exemptFromSetupGate(cmd) && compositionUnrecorded()) die(setupRequiredMessage());
+  } catch (error: unknown) {
+    // A present-but-invalid settings.json (stale schemaVersion, absent/unknown runtime): the
+    // config layer already phrased these as plain guidance naming `orch setup`.
+    die(errorMessage(error));
   }
   switch (cmd) {
     case undefined: case "status": void cmdStatus(cmd === undefined ? argv : rest).catch((error: unknown) => die(errorMessage(error))); break;

@@ -3,8 +3,9 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { buildExtensionBundle, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { buildEntities, resolvePane } from "../entities.ts";
-import { isRecord, orchDir, pidAlive, presenceAgentDir, readJSON, spawnedRecords } from "../store.ts";
-import { errorMessage, packageRoot } from "../util.ts";
+import { STATUS_FILE } from "../presence/schema.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, spawnedRecords } from "../store.ts";
+import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 
 import { allBackends } from "../backends/registry.ts";
@@ -14,11 +15,6 @@ import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { splitOptionFlags, die, backendTarget, parseTargetPrompt } from "./target.ts";
 
-interface StatusFile {
-  pid?: number;
-  updatedAt?: string;
-  state?: string;
-}
 /** Dispatch a prompt and retry once when the pane never enters working state. */
 export async function cmdRun(args: string[]): Promise<void> {
   const raw = args.includes("--raw");
@@ -68,8 +64,8 @@ export function cmdNew(args: string[]) {
     const adapter = resolveAdapterOrDie(ent.agent ?? ent.presence?.status?.agent ?? "pi");
     const resetCmd = adapter.caps.lifecycle.includes("reset") ? adapter.lifecycleCmd?.("reset") : undefined;
     if (!resetCmd) die(`${handle}: adapter ${adapter.id} has no reset mechanism.`);
-    const statusPath = path.join(presenceAgentDir(ent.key), "status.json");
-    const before = readJSON<StatusFile>(statusPath);
+    const statusPath = path.join(presenceAgentDir(ent.key), STATUS_FILE);
+    const before = readPresenceStatus(statusPath);
     const beforeUpdated = Date.parse(typeof before?.updatedAt === "string" ? before.updatedAt : "");
     const sentAt = Date.now();
     if (!backend.deliver(handle, { kind: "run", text: resetCmd.text })) die(`Could not reset ${handle}.`);
@@ -77,7 +73,7 @@ export function cmdNew(args: string[]) {
     const deadline = sentAt + 75_000;
     let ready = false;
     while (Date.now() < deadline) {
-      const status = readJSON<StatusFile>(statusPath);
+      const status = readPresenceStatus(statusPath);
       const updated = Date.parse(typeof status?.updatedAt === "string" ? status.updatedAt : "");
       const advanced = Number.isFinite(updated)
         && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
@@ -104,8 +100,8 @@ interface ReloadResult {
 
 export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenceKey: string, reloadText: string): ReloadResult {
   try {
-    const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
-    const old = readJSON<StatusFile>(statusPath);
+    const statusPath = path.join(presenceAgentDir(presenceKey), STATUS_FILE);
+    const old = readPresenceStatus(statusPath);
     const oldUpdatedAt = typeof old?.updatedAt === "string" ? old.updatedAt : "";
     if (typeof old?.pid !== "number") {
       return { pane, ok: false, reason: errorMessage("no bridge status.json pid to verify reload") };
@@ -117,7 +113,7 @@ export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenc
     }
     for (let i = 0; i < 60; i++) {
       sleepMs(500);
-      const st = readJSON<StatusFile>(statusPath);
+      const st = readPresenceStatus(statusPath);
       if (typeof st?.pid === "number" && typeof st.updatedAt === "string"
         && pidAlive(st.pid) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt)) return { pane, ok: true };
     }
@@ -134,8 +130,8 @@ function touchReloadSignal(): void {
 }
 
 function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
-  const statusPath = path.join(presenceAgentDir(presenceKey), "status.json");
-  const oldPid = readJSON<StatusFile>(statusPath)?.pid ?? null;
+  const statusPath = path.join(presenceAgentDir(presenceKey), STATUS_FILE);
+  const oldPid = readPresenceStatus(statusPath)?.pid ?? null;
   backend.sendKeys(pane, ["Escape"]);
   sleepMs(500);
   backend.deliver(pane, { kind: "run", text: quitText });
@@ -152,7 +148,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
   backend.deliver(pane, { kind: "run", text: cmd });
   for (let i = 0; i < 40; i++) {
     sleepMs(500);
-    const st = readJSON<StatusFile>(statusPath);
+    const st = readPresenceStatus(statusPath);
     if (typeof st?.pid === "number" && st.pid !== oldPid && pidAlive(st.pid)) return true;
   }
   process.stderr.write(`${pane}: relaunched but bridge status.json did not refresh within 20s.\n`);

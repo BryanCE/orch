@@ -4,15 +4,19 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends, getBackend } from "../backends/registry.ts";
-import { loadConfig, resolveWithSource, settingsPath, writeSettingsDefault, writeSettingsInstalled, writeSettingsNotify, type OrchConfig } from "../config.ts";
-import { applyFixes, binaryStatus, runDoctor, type CheckResult } from "../doctor.ts";
+import { loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveWithSource, settingsPath, writeSettingsDefault, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime, type OrchConfig } from "../config.ts";
+import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
+import { ADAPTER_IDS } from "../adapters/adapter.ts";
+import { BACKEND_IDS } from "../backends/backend.ts";
+import { binaryStatus } from "../doctor/bins.ts";
+import { applyFixes, runDoctor, type CheckResult } from "../doctor/runner.ts";
 import { renderDoctorResults, pickFixes } from "../setup/doctor-wizard.ts";
 import { withSpinner, promptText } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
-import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectNotifiers, chooseInstalls } from "../setup/wizard.ts";
-import { isRecord, orchDir, presenceDir } from "../store.ts";
+import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
+import { orchDir, presenceDir } from "../store.ts";
+import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { renderTable } from "../table.ts";
-import { errorMessage, packageRoot } from "../util.ts";
 import { die } from "./target.ts";
 
 const HOME = os.homedir();
@@ -90,6 +94,19 @@ export async function resolveActiveDefault(
   return pick(selected);
 }
 
+/** Resolve the declared JS runtime from `--runtime`, the wizard, or the no-preference value.
+ * Never inferred from PATH or from the runtime orch itself is executing under. Null on cancel. */
+export async function resolveRuntime(
+  flag: string | undefined,
+  interactive: boolean,
+  pick: () => Promise<OrchRuntime | null> = selectRuntime,
+): Promise<OrchRuntime | null> {
+  if (flag !== undefined) return validateSetupFlag("runtime", flag, ORCH_RUNTIMES) as OrchRuntime;
+  // Non-interactive expresses no preference, and the recorded value for no preference is node.
+  if (!interactive) return DEFAULT_RUNTIME;
+  return pick();
+}
+
 /** Print the manual install commands for each missing prerequisite. */
 function printInstallHints(missing: readonly { bin: string; cmd: string }[]): void {
   for (const { bin, cmd } of missing) process.stdout.write(`  install ${bin}: ${cmd}\n`);
@@ -153,6 +170,7 @@ export async function cmdSetup(args: string[]) {
     }
   };
 
+  const runtimeFlag = readAssignFlag(args, "--runtime");
   const adapterFlag = readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--adapter") ?? readAssignFlag(args, "--harness");
   const backendFlag = readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer");
   const adapterIds = allAdapters().map((adapter) => adapter.id);
@@ -160,7 +178,15 @@ export async function cmdSetup(args: string[]) {
   const interactive = process.stdin.isTTY && !yes;
   if (interactive) setupIntro();
 
-  const priorInstalled = loadConfig(orchDir()).installed;
+  // setup is the ONE recovery path: a settings.json from an older schema (or otherwise invalid)
+  // is malformed data, not something to migrate — reap it so re-recording can proceed.
+  const reaped = reapUnreadableSettings(orchDir());
+  if (reaped) process.stdout.write(`  previous settings.json was unreadable (older schema or invalid values) — moved aside to ${reaped}, re-recording from scratch\n`);
+
+  // First run has no settings.json at all; that is the signal to run this wizard, not an error.
+  const priorInstalled = loadConfigOrNull(orchDir())?.installed ?? { adapters: [], backends: [] };
+  const runtime = await resolveRuntime(runtimeFlag, interactive);
+  if (runtime === null) return;
   const adapters = await resolveProviderSet("adapter", "--agent", adapterFlag, adapterIds, interactive, selectAdapters);
   if (adapters === null) return;
   const defaultAdapter = await resolveActiveDefault(adapters, adapterFlag !== undefined, interactive, selectDefaultAdapter);
@@ -170,12 +196,16 @@ export async function cmdSetup(args: string[]) {
   const defaultBackend = await resolveActiveDefault(backends, backendFlag !== undefined, interactive, selectDefaultBackend);
   if (defaultBackend === null) return;
 
-  // Write the installed sets FIRST — writeSettingsDefault validates the default against them.
+  // Record the runtime FIRST: it is a required key with no default, so no other write can
+  // produce a valid file until it is present. Re-recording the same value is a no-op change.
+  writeSettingsRuntime(orchDir(), runtime);
+  // Then the installed sets — writeSettingsDefault validates the default against them.
   writeSettingsInstalled(orchDir(), { adapters, backends });
   writeSettingsDefault(orchDir(), "adapter", defaultAdapter);
   writeSettingsDefault(orchDir(), "backend", defaultBackend);
   process.stdout.write(
     `Selection recorded in ${settingsPath(orchDir())}:\n` +
+    `  runtime           = ${runtime}${runtime === "deno" ? "  (sandboxed shims)" : ""}\n` +
     `  adapters          = ${adapters.join(", ")}\n` +
     `  default adapter   = ${defaultAdapter}\n` +
     `  backends          = ${backends.join(", ")}\n` +
@@ -454,9 +484,25 @@ export async function cmdDoctor(args: string[]) {
   if (results.some((r) => r.status === "fail" || r.status === "warn")) process.exitCode = 1;
 }
 
-/** True while setup has never recorded a harness selection. */
+/** True while setup has never recorded a harness selection — including the first run, where
+ * settings.json does not exist yet. "No settings.json" is the signal to run the wizard, not an
+ * error, so this gate goes through the non-throwing `loadConfigOrNull` probe rather than
+ * `loadConfig` (which treats an absent file as the hard error it is for every other command).
+ * A present-but-malformed file still throws here, exactly as before. */
 export function compositionUnrecorded(): boolean {
-  return !loadConfig(orchDir()).defaults.adapter;
+  return !loadConfigOrNull(orchDir())?.defaults.adapter;
+}
+
+/** The plain-language line for a command that needs a recorded setup when there is no TTY to walk
+ * the wizard on. Names what is missing, the file, and the exact command that fixes it — a refusal
+ * to proceed is communicated, never thrown as a stack trace. */
+export function setupRequiredMessage(): string {
+  // The accepted ids are compile-time constants, so the message lists them rather than printing
+  // <id> and leaving the reader to go find them.
+  return `orch is not set up yet — no harness/backend recorded in ${settingsPath(orchDir())}.\n`
+    + `Run: orch setup\n`
+    + `Non-interactive: orch setup --yes --agent <${ADAPTER_IDS.join("|")}> `
+    + `--backend <${BACKEND_IDS.join("|")}> [--runtime ${ORCH_RUNTIMES.join("|")}]`;
 }
 
 /** Walk the first run through the setup wizard, then dispatch the original command via the injected dispatcher. */

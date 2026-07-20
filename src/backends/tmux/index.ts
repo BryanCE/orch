@@ -13,7 +13,8 @@ import type {
 } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
-import { presenceAgentDir, readJSON, type PresenceStatus } from "../../store.ts";
+import { STATUS_FILE } from "../../presence/schema.ts";
+import { presenceAgentDir, readPresenceStatus } from "../../store.ts";
 import { bestEffortTmux, execTmux, orchPanes, type TmuxPane } from "./cli.ts";
 
 /** Handle owned by one tmux pane. */
@@ -34,7 +35,7 @@ function sleepMs(ms: number): void {
 /** Agent status read from the presence protocol for one pane's stamped key. */
 function statusForAgentKey(key: string): string | null {
   if (!key) return null;
-  const status = readJSON<PresenceStatus>(join(presenceAgentDir(key), "status.json"));
+  const status = readPresenceStatus(join(presenceAgentDir(key), STATUS_FILE));
   return status?.state ?? null;
 }
 
@@ -252,10 +253,10 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   waitAgentStatus(handle: TmuxHandle, status: string, timeoutMs: number): boolean {
     const key = this.agentKeyOf(handle);
     if (!key) return false;
-    const statusPath = join(presenceAgentDir(key), "status.json");
+    const statusPath = join(presenceAgentDir(key), STATUS_FILE);
     const deadline = Date.now() + timeoutMs;
     while (true) {
-      if (readJSON<PresenceStatus>(statusPath)?.state === status) return true;
+      if (readPresenceStatus(statusPath)?.state === status) return true;
       if (Date.now() >= deadline) return false;
       sleepMs(250);
     }

@@ -1,7 +1,4 @@
-import * as files from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
-import { bridgeRegistered, loadPresence, orchDir, readJSON, recordSpawned, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "../store.ts";
+import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry, type SpawnedRecord } from "../store.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter } from "../adapters/adapter.ts";
@@ -15,28 +12,10 @@ import { errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
 import { callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
-const HOME = os.homedir();
 
 function paneLayout(refPane: BackendHandle, backend: Backend): BackendGroupLayout {
   if (!backend.layoutOf) throw new Error(`backend ${backend.id} does not provide layout`);
   return backend.layoutOf(refPane);
-}
-
-const TRUST_FILE = path.join(HOME, ".pi", "agent", "trust.json");
-
-export function launchesPi(cmd: string): boolean {
-  const bin = cmd.trim().split(/\s+/)[0];
-  return bin === "pi" || bin === "pif";
-}
-
-function writeTrustEntry(cwd: string) {
-  const resolved = path.resolve(cwd);
-  const map = readJSON<Record<string, unknown>>(TRUST_FILE) ?? {};
-  if (map[resolved] === true) return;
-  map[resolved] = true;
-  files.mkdirSync(path.dirname(TRUST_FILE), { recursive: true });
-  files.writeFileSync(TRUST_FILE, JSON.stringify(map, null, 2) + "\n");
-  process.stdout.write(`Pre-trusted ${resolved} in ~/.pi/agent/trust.json\n`);
 }
 
 async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false) {
@@ -261,7 +240,7 @@ function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
   for (let index = 1; index <= settings.n; index++) {
     const name = `${settings.prefix}-${index}`;
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-    if (launchesPi(settings.cmd)) writeTrustEntry(cwd);
+    adapter.preTrustWorkspace?.(cwd, settings.cmd);
     try {
       // Detached agents identify themselves by their minted identity key;
       // omitting key keeps the registry aligned with the presence protocol.
@@ -303,7 +282,7 @@ function resolveSpawnWorkspace(requested: string | null): string {
 function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter): SpawnRoot {
   const rootName = `${settings.prefix}-1`;
   const rootCwd = settings.worktree ? createAgentWorktree(settings.cwd, rootName) : settings.cwd;
-  if (launchesPi(settings.cmd)) writeTrustEntry(rootCwd);
+  adapter.preTrustWorkspace?.(rootCwd, settings.cmd);
   if (!backend.createGroup) die(`backend ${backend.id} lacks group creation.`);
   let group: BackendGroup;
   let shellRoot: BackendHandle;

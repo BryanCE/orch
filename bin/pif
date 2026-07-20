@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pif — pi headless dispatch under bun: fast startup (extension discovery off)
-# but ALWAYS loads the control-plane extensions so every run is visible and
-# steerable via `orch` (status/result/inbox) and herdr agent-status.
+# but ALWAYS loads the control-plane extension so every run is visible and
+# steerable via `orch` (status/result/inbox).
 #
 #   PIF_BARE=1 pif ...   # rare true one-off: no extensions at all
 #
@@ -33,6 +33,5 @@ SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 EXT_DIR="${PIF_EXT_DIR:-$(dirname "$(dirname "$SELF")")/extensions}"
 
 exec "$BUN" "$CLI" --no-extensions \
-  -e "$EXT_DIR/herdr-agent-state.ts" \
-  -e "$EXT_DIR/orchestrator-bridge.ts" \
+  -e "$EXT_DIR/pi/index.ts" \
   "$@"

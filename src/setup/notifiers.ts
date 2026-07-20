@@ -5,7 +5,7 @@ import {
   createBuiltinNotifiers,
   type Notifier,
   type NotifierConfigField,
-} from "../notify.ts";
+} from "../notify/sinks.ts";
 
 export interface NotifierChoice {
   id: string;

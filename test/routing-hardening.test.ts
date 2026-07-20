@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { checkOwnerWrite, getOwner, setOwner, writeTaskClaim } from "../src/store/sqlite.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
 
@@ -78,6 +79,8 @@ describe("store hardening", () => {
 describe("CLI offline routing", () => {
   test("status --offline does not start or contact orchd", async () => {
     const dir = tempDir("orch-routing-cli-");
+    // orch has no built-in configuration: a spawned CLI reads its composition from this ORCH_DIR.
+    writeSettingsFixture(dir, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
     const emptyPath = tempDir("orch-routing-path-");
     const child = Bun.spawn([process.execPath, "bin/orch.ts", "status", "--offline", "--local", "--json"], {
       cwd: join(import.meta.dir, ".."),

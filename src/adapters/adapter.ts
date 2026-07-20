@@ -181,6 +181,13 @@ export interface AgentAdapter {
    * callers must gate on that capability, never on method presence.
    */
   readSessionView?(input: SessionViewInput): SessionView | undefined;
+  /**
+   * Seed the adapter's own trust/approval store for `cwd` before a launch.
+   * `cmd` is the shell command the launcher will actually run, so an adapter
+   * can skip seeding when a custom --cmd does not start its CLI.
+   * Omit this method when the adapter has no trust store.
+   */
+  preTrustWorkspace?(cwd: string, cmd: string): void;
   /** Install adapter-specific hooks/shims without removing unrelated user setup. */
   installShim?(opts?: ShimInstallOpts): void | Promise<void>;
   /**

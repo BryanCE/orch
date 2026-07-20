@@ -1,9 +1,9 @@
 import * as path from "node:path";
 import { daemonize, runForeground } from "../daemon/lifecycle.ts";
 import { DaemonAbsentError, rpcCall } from "../daemon/rpc.ts";
-import { isRecord, orchDir, pidAlive, readJSON } from "../store.ts";
+import { orchDir, readJSON } from "../store.ts";
+import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import { selfActor } from "../entities.ts";
-import { errorMessage, packageRoot } from "../util.ts";
 import { die } from "./target.ts";
 
 interface LockFile {

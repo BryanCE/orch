@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
-import { CODEX_NOTIFY_RUNTIMES, codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
+import { errorMessage, packageRoot } from "../util.ts";
+import { declaredRuntime } from "../config.ts";
+import { orchDir } from "../store.ts";
+import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -16,6 +18,8 @@ import type {
   SteerRequest,
 } from "./adapter.ts";
 import type { CheckResult } from "../doctor-types.ts";
+import { isRecord, type JsonRecord } from "../util.ts";
+import { textValue } from "../util.ts";
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
 export const CODEX_TURN_COMPLETE = "agent-turn-complete";
@@ -43,12 +47,6 @@ const COMPLETION_EVENTS = new Set([
   "turn_complete",
 ]);
 const PERMISSION_EVENTS = new Set(["PermissionRequest", "permission-request", "permission_request"]);
-type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function parseRecords(output?: string): JsonRecord[] {
   if (!output?.trim()) return [];
   const records: JsonRecord[] = [];
@@ -95,11 +93,6 @@ function hasEvent(record: JsonRecord, events: ReadonlySet<string>): boolean {
   const name = eventName(record);
   if (name && events.has(name)) return true;
   return nestedRecords(record).some((nested) => hasEvent(nested, events));
-}
-
-function textValue(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  return value;
 }
 
 /** Find the notify payload's direct final assistant field, including nested payloads. */
@@ -200,8 +193,10 @@ export function codexStateFallback(input: StateDetectionInput): boolean {
  */
 function installCodexNotifyShim(root: string): void {
   const shim = codexNotifyShimPath(root);
-  const runtime = CODEX_NOTIFY_RUNTIMES.find(binaryOnPath) ?? "node";
-  const argv = codexNotifyArgv(shim, runtime);
+  // The DECLARED runtime, never the first one that happens to be on PATH — PATH order
+  // is exactly how an install silently ends up running under something it never chose.
+  const runtime = declaredRuntime(orchDir());
+  const argv = codexNotifyArgv(shim, runtime, { orchDir: orchDir() });
   const codexDir = join(homedir(), ".codex");
   const configPath = join(codexDir, "config.toml");
 

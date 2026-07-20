@@ -4,10 +4,18 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
 const settingsFile = path.join(os.homedir(), ".claude", "settings.json");
 const originalSettings = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile) : undefined;
+
+// diagnoseShim compares the installed hook against the DECLARED runtime, so these tests need
+// an orch dir they control rather than whatever this machine happens to have configured.
+const orchHome = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-claude-hooks-orchdir-"));
+directories.push(orchHome);
+process.env.ORCH_DIR = orchHome;
+writeSettingsFixture(orchHome, { runtime: "node" });
 
 function tempDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-claude-hooks-"));
@@ -27,7 +35,7 @@ function writeSettings(file: string, settings: unknown): void {
 
 function hooksFor(
   shim: string,
-  command: (shim: string, event: string) => string = (s, e) => claudeHookCommand(s, e, "node"),
+  command: (shim: string, event: string) => string = (s, e) => claudeHookCommand(s, e, "node", orchHome),
 ): Record<string, unknown> {
   return Object.fromEntries(["SessionStart", "Stop", "Notification"].map((event) => [
     event,
@@ -54,13 +62,27 @@ describe("doctor Claude hooks shim check", () => {
     expect(result.detail).toContain("all orch Claude hooks are current");
   });
 
-  test.each(["node", "deno", "bun"] as const)("accepts the %s runtime command form", (runtime) => {
+  test.each(["node", "deno", "bun"] as const)("accepts the %s hook form when %s is the declared runtime", (runtime) => {
+    writeSettingsFixture(orchHome, { runtime });
     const file = settingsPath();
-    writeSettings(file, { hooks: hooksFor(currentShim, (s, e) => claudeHookCommand(s, e, runtime)) });
+    writeSettings(file, { hooks: hooksFor(currentShim, (s, e) => claudeHookCommand(s, e, runtime, orchHome)) });
 
     const result = claudeAdapter.diagnoseShim();
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "ok" });
+    writeSettingsFixture(orchHome, { runtime: "node" });
+  });
+
+  // The declaration has to be ENFORCED, not merely recorded: accepting a hook installed under
+  // any recognized runtime is what let the declared value drift from reality unnoticed.
+  test.each(["deno", "bun"] as const)("reports a %s hook as stale when node is declared", (runtime) => {
+    const file = settingsPath();
+    writeSettings(file, { hooks: hooksFor(currentShim, (s, e) => claudeHookCommand(s, e, runtime, orchHome)) });
+
+    const result = claudeAdapter.diagnoseShim();
+
+    expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
+    expect(result.detail).toContain("missing or stale orch hooks");
   });
 
   test("warns when orch hooks are missing with setup fix hint", () => {

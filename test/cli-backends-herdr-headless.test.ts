@@ -11,6 +11,7 @@ import { claudeAdapter } from "../src/adapters/claude.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { resolveAdapter } from "../src/adapters/registry.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 
@@ -40,7 +41,7 @@ const fakeAdapter = {
     const script = [
       "const fs = require(\"node:fs\");",
       `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
-      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ pid: process.pid, state: \"working\", key: ${JSON.stringify(key)} }));`,
+      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ schema: ${PRESENCE_SCHEMA}, pid: process.pid, state: \"working\", key: ${JSON.stringify(key)} }));`,
       "setTimeout(() => {}, 5000);",
     ].join(" ");
     return [process.execPath, "-e", script];

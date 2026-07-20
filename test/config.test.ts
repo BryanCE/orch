@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { DEFAULT_ALLOWED_MODELS, SETTINGS_SCHEMA, allowedModelPatterns, loadConfig, resolveSetting, resolveWithSource, writeSettingsDefault, writeSettingsInstalled } from "../src/config.ts";
+import { DEFAULT_ALLOWED_MODELS, SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsDefault, writeSettingsInstalled, writeSettingsRuntime } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
@@ -24,17 +24,45 @@ afterEach(() => {
 });
 
 describe("loadConfig", () => {
-  test("uses defaults when settings.json is missing", () => {
-    expect(loadConfig(tempDir())).toEqual({
-      installed: { adapters: [], backends: [] },
-      defaults: {},
-      queue: { max_retries: 1 },
-      notify: [],
-      locked_commands: [],
-      hosts: {},
-      workspaces: {},
-      limits: {},
-    });
+  test("refuses to invent a configuration when settings.json is missing", () => {
+    const directory = tempDir();
+
+    expect(() => loadConfig(directory)).toThrow(/does not exist/);
+    expect(() => loadConfig(directory)).toThrow(/orch setup/);
+    // The non-throwing probe is how the first-run gate tells "not set up yet" from "broken".
+    expect(loadConfigOrNull(directory)).toBeNull();
+  });
+
+  test("requires a top-level runtime and never defaults it", () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA }));
+
+    expect(() => loadConfig(directory)).toThrow(/no top-level "runtime" key/);
+    expect(() => loadConfig(directory)).toThrow(/node, deno, bun/);
+    expect(() => loadConfig(directory)).toThrow(/orch setup/);
+  });
+
+  test("rejects an unrecognized runtime naming the accepted values", () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "quickjs" }));
+
+    expect(() => loadConfig(directory)).toThrow(/"quickjs"/);
+    expect(() => loadConfig(directory)).toThrow(/node, deno, bun/);
+  });
+
+  test("rejects a runtime misplaced under defaults", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { defaults: { runtime: "node" } });
+
+    expect(() => loadConfig(directory)).toThrow(/Unrecognized key.*runtime/);
+  });
+
+  test("reads the declared runtime", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { runtime: "deno" });
+
+    expect(loadConfig(directory).runtime).toBe("deno");
+    expect(declaredRuntime(directory)).toBe("deno");
   });
 
   test("parses every supported settings section", () => {
@@ -49,6 +77,7 @@ describe("loadConfig", () => {
     });
 
     expect(loadConfig(directory)).toEqual({
+      runtime: "node",
       installed: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: {
         adapter: "claude",
@@ -126,7 +155,10 @@ describe("loadConfig", () => {
   });
 
   test("leaves defaults.worker_peer_tools absent when unset", () => {
-    expect(loadConfig(tempDir()).defaults.worker_peer_tools).toBeUndefined();
+    const directory = tempDir();
+    writeSettingsFixture(directory);
+
+    expect(loadConfig(directory).defaults.worker_peer_tools).toBeUndefined();
   });
 
   test("rejects a host without dest", () => {
@@ -172,9 +204,64 @@ describe("allowedModelPatterns", () => {
   });
 });
 
+describe("writeSettingsRuntime", () => {
+  test("records the runtime as a top-level scalar with no defaults or installed entry", () => {
+    const directory = tempDir();
+    writeSettingsRuntime(directory, "node");
+
+    const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as Record<string, unknown>;
+    expect(raw.runtime).toBe("node");
+    expect((raw.defaults as Record<string, unknown> | undefined)?.runtime).toBeUndefined();
+    expect((raw.installed as Record<string, unknown> | undefined)?.runtimes).toBeUndefined();
+    expect(loadConfig(directory).runtime).toBe("node");
+  });
+
+  test("re-recording the same runtime leaves the file unchanged", () => {
+    const directory = tempDir();
+    writeSettingsRuntime(directory, "node");
+    const first = fs.readFileSync(path.join(directory, "settings.json"), "utf8");
+    writeSettingsRuntime(directory, "node");
+
+    expect(fs.readFileSync(path.join(directory, "settings.json"), "utf8")).toBe(first);
+  });
+
+  test("a different runtime replaces the single value in place", () => {
+    const directory = tempDir();
+    writeSettingsRuntime(directory, "node");
+    writeSettingsRuntime(directory, "bun");
+
+    const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as Record<string, unknown>;
+    expect(raw.runtime).toBe("bun");
+    expect(Object.keys(raw).filter((key) => key === "runtime")).toHaveLength(1);
+  });
+});
+
+describe("reapUnreadableSettings", () => {
+  test("moves an out-of-schema file aside so setup can re-record", () => {
+    const directory = tempDir();
+    const file = path.join(directory, "settings.json");
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 999 }));
+
+    const backup = reapUnreadableSettings(directory);
+
+    expect(backup).toBe(`${file}.invalid`);
+    expect(fs.existsSync(file)).toBe(false);
+    writeSettingsRuntime(directory, "node");
+    expect(loadConfig(directory).runtime).toBe("node");
+  });
+
+  test("leaves a readable file alone", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory);
+
+    expect(reapUnreadableSettings(directory)).toBeNull();
+  });
+});
+
 describe("writeSettingsInstalled", () => {
   test("round-trips both provider arrays", () => {
     const directory = tempDir();
+    writeSettingsRuntime(directory, "node");
     writeSettingsInstalled(directory, { adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
 
     expect(loadConfig(directory).installed).toEqual({ adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
@@ -184,6 +271,7 @@ describe("writeSettingsInstalled", () => {
 describe("writeSettingsDefault", () => {
   test("creates settings.json with the schemaVersion stamp and records entries", () => {
     const directory = tempDir();
+    writeSettingsRuntime(directory, "node");
     writeSettingsInstalled(directory, { adapters: ["pi"], backends: ["herdr"] });
     writeSettingsDefault(directory, "adapter", "pi");
     writeSettingsDefault(directory, "backend", "herdr");
@@ -208,6 +296,7 @@ describe("writeSettingsDefault", () => {
 
   test("is idempotent when rewriting the same value", () => {
     const directory = tempDir();
+    writeSettingsRuntime(directory, "node");
     writeSettingsInstalled(directory, { adapters: ["pi"], backends: [] });
     writeSettingsDefault(directory, "adapter", "pi");
     const first = fs.readFileSync(path.join(directory, "settings.json"), "utf8");
@@ -236,7 +325,9 @@ describe("writeSettingsDefault", () => {
 describe("config precedence", () => {
   test("uses the fallback when env and settings.json omit a setting", () => {
     delete process.env.ORCH_CONFIG_PRECEDENCE;
-    const config = loadConfig(tempDir());
+    const directory = tempDir();
+    writeSettingsFixture(directory);
+    const config = loadConfig(directory);
 
     expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.defaults.spawn_cap, fallback: 2 })).toBe(2);
   });

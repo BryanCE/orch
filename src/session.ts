@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isRecord } from "./util.ts";
 
 export interface TextContentBlock {
   type: "text";
@@ -59,10 +60,6 @@ export interface SessionData {
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
   turns: number;
   entries: SessionEntry[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function isContentBlock(value: unknown): value is ContentBlock {

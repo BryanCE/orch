@@ -11,8 +11,18 @@ import {
   worktreeBranch,
 } from "../src/worktree.ts";
 import { insertSpawnedRecord } from "../src/store/sqlite.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
+
+/** orch has no built-in configuration, so a spawned CLI needs a recorded composition in its
+ * ORCH_DIR exactly as a real install does. */
+function orchDirWithSettings(): string {
+  const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
+  directories.push(orchDir);
+  writeSettingsFixture(orchDir, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+  return orchDir;
+}
 
 function git(repoRoot: string, args: string[]): string {
   return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
@@ -76,8 +86,7 @@ afterEach(() => {
 describe("review plumbing", () => {
   test("lists only done worktree agents with commits ahead", () => {
     const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
-    directories.push(orchDir);
+    const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "feature-1");
     commit(worktreePath, "feature.txt", "feature\n", "add feature");
     registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
@@ -90,8 +99,7 @@ describe("review plumbing", () => {
 
   test("reject re-dispatches feedback through the adapter inbox", async () => {
     const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
-    directories.push(orchDir);
+    const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "iterate-1");
     commit(worktreePath, "feature.txt", "feature\n", "first pass");
     registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
@@ -107,8 +115,7 @@ describe("review plumbing", () => {
 
   test("approve merges and removes the worktree and branch", () => {
     const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
-    directories.push(orchDir);
+    const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "approve-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "approved.txt", "approved\n", "approved change");

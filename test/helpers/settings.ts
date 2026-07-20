@@ -16,12 +16,14 @@ function deriveInstalled(settings: Record<string, unknown>): { adapters: string[
   };
 }
 
-/** Write a schemaVersion-stamped settings.json fixture into an orch dir. Returns the file path. */
+/** Write a schemaVersion-stamped settings.json fixture into an orch dir. Returns the file path.
+ * `runtime` is a required top-level key with no default-on-read, so fixtures get `node` unless
+ * they declare their own — a fixture testing the absent/invalid runtime passes it explicitly. */
 export function writeSettingsFixture(orchDir: string, settings: Record<string, unknown> = {}): string {
   mkdirSync(orchDir, { recursive: true });
   const file = join(orchDir, "settings.json");
   const installed = deriveInstalled(settings);
   const body = installed ? { installed, ...settings } : settings;
-  writeFileSync(file, JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, ...body }, null, 2) + "\n");
+  writeFileSync(file, JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", ...body }, null, 2) + "\n");
   return file;
 }

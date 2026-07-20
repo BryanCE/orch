@@ -1,15 +1,9 @@
-import { describe, expect, mock, test } from "bun:test";
-
-void mock.module("../src/commands/daemon.ts", () => ({
-  parseGovernance: (args: string[]) => ({ gov: {}, rest: args }),
-  writeRpc: () => Promise.resolve(undefined),
-  ensureDaemon: () => Promise.resolve(),
-}));
-
-const { workerTools } = await import("../src/commands/spawn.ts");
+import { describe, expect, test } from "bun:test";
+import { workerTools } from "../src/commands/spawn.ts";
 import type { OrchConfig } from "../src/config.ts";
 
 const config = (workerPeerTools?: boolean): OrchConfig => ({
+  runtime: "node",
   installed: { adapters: [], backends: [] },
   locked_commands: [],
   defaults: workerPeerTools === undefined ? {} : { worker_peer_tools: workerPeerTools },

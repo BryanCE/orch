@@ -23,7 +23,7 @@ const LOCKED_COMMAND = "bun run check";
 mkdirSync(orchDir, { recursive: true });
 writeFileSync(
   join(orchDir, "settings.json"),
-  JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, locked_commands: [LOCKED_COMMAND] }),
+  JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", locked_commands: [LOCKED_COMMAND] }),
 );
 
 const orchestratorBridgeExtension = (await import("../extensions/pi/index.ts")).default;

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
-import type { NotifyEvent } from "../src/notify.ts";
+import type { NotifyEvent } from "../src/notify/format.ts";
 
 const herdrArgv: string[][] = [];
 void mock.module("../src/backends/herdr/cli.ts", () => ({
@@ -22,7 +22,7 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
 
 const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
 const { emitAndNotify } = await import("../src/daemon/events.ts");
-const { notificationText } = await import("../src/notify.ts");
+const { notificationText } = await import("../src/notify/format.ts");
 
 const adapter: AgentAdapter = {
   id: "pi",

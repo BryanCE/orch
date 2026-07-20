@@ -10,8 +10,8 @@ import { DaemonGate } from "@/components/DaemonGate";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AppBreadcrumbs } from "@/components/PageBreadcrumbs";
 import { NotFoundPage } from "@/components/common/NotFoundPage";
-import { getColorSchemeCookie } from "@/lib/color-scheme";
-import { getThemeModeCookie } from "@/lib/theme-mode";
+import { getColorSchemeCookie, type ColorSchemeId } from "@/lib/color-scheme";
+import { getThemeModeCookie, type ThemeMode } from "@/lib/theme-mode";
 
 import { THEME_CSS_URLS } from "@/themes";
 import appCss from "@/styles.css?url";
@@ -43,7 +43,12 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-  const { colorScheme, themeMode } = Route.useLoaderData();
+  // TanStack Start's createServerFn().handler() erases its handler's return type,
+  // so the loader's inferred shape degrades to any. Name it at the boundary.
+  const { colorScheme, themeMode } = Route.useLoaderData() as {
+    colorScheme: ColorSchemeId;
+    themeMode: ThemeMode;
+  };
 
   return (
     <html

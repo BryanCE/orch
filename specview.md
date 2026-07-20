@@ -3,25 +3,27 @@ OpenSpec Dashboard
 
 ════════════════════════════════════════════════════════════
 Summary:
-  ● Specifications: 22 specs, 99 requirements
-  ● Active Changes: 2 in progress
+  ● Specifications: 22 specs, 108 requirements
+  ● Active Changes: 3 in progress
   ● Completed Changes: 0
-  ● Task Progress: 28/51 (55% complete)
+  ● Task Progress: 58/85 (68% complete)
 
 Active Changes
 ────────────────────────────────────────────────────────────
-  ◉ monolith-file-breakdown        [█████░░░░░░░░░░░░░░░] 27%
-  ◉ tmux-backend-completion        [█████████████████░░░] 84%
+  ◉ runtime-selection              [█████████████░░░░░░░] 67%
+  ◉ monolith-file-breakdown        [██████████████░░░░░░] 68%
+  ◉ daemon-only-events             [███████████████░░░░░] 73%
 
 Specifications
 ────────────────────────────────────────────────────────────
+  ▪ tmux-backend                   11 requirements
   ▪ agent-adapters                 9 requirements
+  ▪ fleet-backends                 7 requirements
   ▪ fleet-steering                 6 requirements
   ▪ provider-setup                 6 requirements
   ▪ command-locks                  5 requirements
   ▪ control-dispatch               5 requirements
   ▪ doctor-config                  5 requirements
-  ▪ fleet-backends                 5 requirements
   ▪ remote-hosts                   5 requirements
   ▪ spawn-limits                   5 requirements
   ▪ task-queue                     5 requirements
@@ -31,7 +33,6 @@ Specifications
   ▪ orchd-daemon                   4 requirements
   ▪ plexer-identity                4 requirements
   ▪ port-boundary-guard            4 requirements
-  ▪ tmux-backend                   4 requirements
   ▪ workspace-policy               4 requirements
   ▪ dispatch-governance            3 requirements
   ▪ live-reload                    3 requirements

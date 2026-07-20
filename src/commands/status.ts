@@ -1,11 +1,11 @@
-import { loadConfig, type OrchConfig } from "../config.ts";
-import { isBridgeExtensionStale } from "../doctor.ts";
+import { loadConfigOrNull, type OrchConfig } from "../config.ts";
+import { isBridgeExtensionStale } from "../doctor/extensions.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
 import { collapse, buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, type Entity } from "../entities.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir, spawnedRecords, type SpawnedRecord } from "../store.ts";
-import { renderTable, truncate } from "../table.ts";
+import { renderTable } from "../table.ts";
 import { workspaceName } from "../policy/workspace.ts";
 import { ensureDaemon } from "./daemon.ts";
 import {
@@ -13,6 +13,7 @@ import {
   resultText,
   splitOptionFlags,
 } from "./target.ts";
+import { truncate } from "../util.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
@@ -306,13 +307,17 @@ export async function cmdStatus(args: string[]): Promise<void> {
   const json = enabled.has("--json");
   const all = enabled.has("--all");
   const localOnly = enabled.has("--local");
-  const config = loadConfig(orchDir());
-  const hosts = config.hosts;
+  // status reads presence dirs, which exist independently of settings.json. An unconfigured
+  // install simply has no remote hosts and no workspace labels, so it renders the local fleet
+  // rather than refusing — status is exempt from the setup gate and must actually stay usable.
+  const config = loadConfigOrNull(orchDir());
+  const hosts = config?.hosts ?? {};
+  const workspaces = config?.workspaces ?? {};
   if (localOnly || Object.keys(hosts).length === 0) {
-    cmdStatusLocal(args, config.workspaces);
+    cmdStatusLocal(args, workspaces);
     return;
   }
-  const local = localStatusRows(args, config.workspaces);
+  const local = localStatusRows(args, workspaces);
   const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
     name,
     result: await runRemoteAsync(name, host, ["status", ...(offline ? ["--offline"] : [])], { timeoutMs: host.timeout_ms }),

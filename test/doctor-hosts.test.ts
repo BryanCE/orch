@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { runDoctor } from "../src/doctor.ts";
+import { runDoctor } from "../src/doctor/runner.ts";
 import type { SshResult } from "../src/remote.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 

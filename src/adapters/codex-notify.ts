@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { runtimeArgv, type OrchRuntime, type ShimScope } from "../runtime.ts";
 
 // Codex's notify wire format lives here, in the codex adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
@@ -11,16 +12,13 @@ export function codexNotifyShimPath(root: string): string {
 }
 
 /**
- * Runtimes a user may run the notify shim with — whichever is on their PATH.
- * orch never requires one specific runtime; node, deno, and bun all work.
- * Order is the installer's preference when several are available.
+ * argv codex's `notify` config key should invoke the shim with, under the runtime
+ * DECLARED in settings.json. The runtime vocabulary and the deno permission form
+ * live in src/runtime.ts, which is their one definition site — claude, codex, and
+ * pi all build their shim argv from it so the three can never drift apart.
  */
-export const CODEX_NOTIFY_RUNTIMES = ["node", "deno", "bun"] as const;
-export type CodexNotifyRuntime = (typeof CODEX_NOTIFY_RUNTIMES)[number];
-
-/** argv codex's `notify` config key should invoke the shim with, under one runtime. */
-export function codexNotifyArgv(shim: string, runtime: CodexNotifyRuntime): string[] {
-  return runtime === "deno" ? ["deno", "run", "--allow-all", shim] : [runtime, shim];
+export function codexNotifyArgv(shim: string, runtime: OrchRuntime, scope: ShimScope): string[] {
+  return runtimeArgv(runtime, shim, [], scope);
 }
 
 /** Whether a raw TOML `notify` value already points at the orch shim (any runtime/path form). */

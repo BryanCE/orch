@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
@@ -9,17 +9,11 @@ import { serializeIdentity } from "../src/backends/identity.ts";
 import { addTask, listTasks } from "../src/queue.ts";
 import { recordSpawned, presenceAgentDir } from "../src/store.ts";
 import { runWorkLoop } from "../src/work.ts";
+import { workerPrompt } from "../src/commands/spawn.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
-
-void mock.module("../src/commands/daemon.ts", () => ({
-  parseGovernance: (args: string[]) => ({ gov: {}, rest: args }),
-  writeRpc: () => Promise.resolve(undefined),
-  ensureDaemon: () => Promise.resolve(),
-}));
-
-const { workerPrompt } = await import("../src/commands/spawn.ts");
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 type Deliver = typeof headlessBackend.deliver;
 
@@ -37,6 +31,11 @@ async function dispatchedPrompt(adapter: "codex" | "pi"): Promise<string> {
   const original: Deliver = headlessBackend.deliver.bind(headlessBackend);
   let received = "";
   process.env.ORCH_DIR = orchDir;
+  // The work loop reads its composition from settings.json; orch has no built-in configuration.
+  writeSettingsFixture(orchDir, {
+    installed: { adapters: [adapter], backends: ["headless"] },
+    defaults: { adapter, backend: "headless" },
+  });
   writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "idle" }));
   recordSpawned(key, { adapter, backend: "headless", handle: key });
   addTask(orchDir, "do the task", { agent: adapter }, "local");

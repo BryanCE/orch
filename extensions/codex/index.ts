@@ -9,61 +9,24 @@
  * assumes one. Usage: `<runtime> <shim> <json>` (argv[2] is the JSON string).
  * Identity parsing stays in its one boundary module (src/backends/identity.ts);
  * the notify wire vocabulary stays in its one adapter module
- * (src/adapters/codex.ts) — this shim only hosts the presence write.
+ * (src/adapters/codex.ts); the presence write itself goes through the one
+ * shared writer (src/presence/writer.ts) rather than being hand-rolled here.
  */
-import { homedir } from "node:os";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { codexAdapter } from "../../src/adapters/codex.ts";
 import { parseIdentity } from "../../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
+import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { isRecord, type JsonRecord } from "../../src/util.ts";
+import { textValue, truncateOptional } from "../../src/util.ts";
 
-const ORCH_DIR = process.env.ORCH_DIR ?? join(homedir(), ".orch");
-const PRESENCE_ROOT = join(ORCH_DIR, "agents");
 const AGENT_ID = "codex";
 const MAX_TEXT = 400;
-type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function textValue(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  return value.trim();
-}
-
-function truncate(value: string | undefined, max: number): string | undefined {
-  const text = textValue(value);
-  if (!text) return undefined;
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-function loadStatus(file: string): JsonRecord {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 function parsePayload(raw: string | undefined): JsonRecord {
   try {
     const parsed: unknown = JSON.parse(raw ?? "{}");
     return isRecord(parsed) ? parsed : {};
   } catch {
     return {};
-  }
-}
-
-function atomicWrite(file: string, value: unknown): void {
-  const temporary = `${file}.tmp-${process.pid}`;
-  try {
-    writeFileSync(temporary, JSON.stringify(value, null, 2));
-    renameSync(temporary, file);
-  } catch {
-    try { writeFileSync(file, JSON.stringify(value, null, 2)); } catch {}
   }
 }
 
@@ -96,15 +59,10 @@ try {
 const raw = process.argv[2];
 const payload = parsePayload(raw);
 
-const directory = join(PRESENCE_ROOT, key);
-try {
-  mkdirSync(directory, { recursive: true });
-} catch {
-  process.exit(0);
-}
+const directory = ensurePresenceAgentDir(key);
+if (!directory) process.exit(0);
 
-const statusFile = join(directory, "status.json");
-const previous = loadStatus(statusFile);
+const previous = readStatus(directory);
 const now = new Date().toISOString();
 const paneId = identity.backend === "herdr" ? identity.handle : null;
 // Every codex notify event today is `agent-turn-complete`, fired only after a
@@ -128,14 +86,14 @@ const status: JsonRecord = {
   cwd: textValue(payload.cwd) ?? previous.cwd ?? process.cwd(),
   state,
   sessionPath,
-  lastText: truncate(resultText, MAX_TEXT) ?? textValue(previous.lastText),
+  lastText: truncateOptional(resultText, MAX_TEXT) ?? textValue(previous.lastText),
   updatedAt: now,
   finishedAt: now,
 };
-atomicWrite(statusFile, status);
+writeStatus(directory, status);
 
 if (resultText !== undefined) {
-  atomicWrite(join(directory, "result.json"), {
+  writeResult(directory, {
     schema: PRESENCE_SCHEMA,
     agent: AGENT_ID,
     key,

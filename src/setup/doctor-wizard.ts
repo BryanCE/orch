@@ -1,4 +1,4 @@
-import type { CheckResult } from "../doctor.ts";
+import type { CheckResult } from "../doctor-types.ts";
 import { promptMultiselect } from "./io.ts";
 
 const green = (value: string): string => `\x1b[32m${value}\x1b[0m`;

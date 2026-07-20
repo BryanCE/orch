@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deliverToSink, loadSinks, workspaceColor, type NotifyEvent } from "../src/notify";
+import { deliverToSink, loadSinks } from "../src/notify/router.ts";
+import { workspaceColor, type NotifyEvent } from "../src/notify/format.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];

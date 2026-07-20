@@ -4,8 +4,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentWorktree, listAgentWorktrees, worktreeBranch } from "../src/worktree.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
+
+/** orch has no built-in configuration, so a spawned CLI needs a recorded composition in its
+ * ORCH_DIR exactly as a real install does. */
+function orchDirWithSettings(): string {
+  const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
+  directories.push(orchDir);
+  writeSettingsFixture(orchDir, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+  return orchDir;
+}
 
 function git(repoRoot: string, args: string[]): string {
   return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
@@ -44,8 +54,7 @@ afterEach(() => {
 describe("clean worktrees", () => {
   test("removes empty and merged orphan worktrees, but keeps unmerged work", () => {
     const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
-    directories.push(orchDir);
+    const orchDir = orchDirWithSettings();
     const empty = createAgentWorktree(repoRoot, "empty");
     const merged = createAgentWorktree(repoRoot, "merged");
     const mergedBranch = worktreeBranch(merged);
@@ -66,8 +75,7 @@ describe("clean worktrees", () => {
 
   test("--force discards an unmerged orphan and its branch", () => {
     const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
-    directories.push(orchDir);
+    const orchDir = orchDirWithSettings();
     const unmerged = createAgentWorktree(repoRoot, "discard");
     const branch = worktreeBranch(unmerged);
     commit(unmerged);

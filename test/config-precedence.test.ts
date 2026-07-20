@@ -33,7 +33,9 @@ describe("config precedence", () => {
 
   test("applies defaults when config, env, and flag are absent", () => {
     delete process.env[envName];
-    const config = loadConfig(tempDir());
+    const directory = tempDir();
+    writeSettingsFixture(directory);
+    const config = loadConfig(directory);
 
     expect(resolveSetting({ env: envName, config: config.defaults.spawn_cap, fallback: 8 })).toBe(8);
   });

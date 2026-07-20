@@ -12,7 +12,8 @@ import {
   type TaskRec,
 } from "./queue.ts";
 import { emitAndNotify, derivePresenceTransition, type PresenceMetadata } from "./daemon/events.ts";
-import { loadSinks, type NotifyEvent } from "./notify.ts";
+import { loadSinks } from "./notify/router.ts";
+import { type NotifyEvent } from "./notify/format.ts";
 import { loadPresence, statusForPresence, type PresenceEntry } from "./store.ts";
 import { workspaceOf } from "./policy/workspace.ts";
 import { loadConfig, type OrchConfig } from "./config.ts";

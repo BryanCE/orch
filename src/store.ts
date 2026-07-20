@@ -1,34 +1,30 @@
-import { readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./presence/schema.ts";
+// The presence protocol is orch's, and src/presence/ owns it (Rule 10). The
+// directory layout is defined there and imported here — a second copy in the
+// store is how a writer and a reader end up disagreeing about where a record
+// lives. The dependency runs only this way: presence/ stays standalone so the
+// harness shims can bundle it without dragging in the sqlite graph.
+import { orchDir, presenceAgentDir, presenceRoot } from "./presence/writer.ts";
 import { insertSpawnedRecord, selectSpawnedRecords, setOwner } from "./store/sqlite.ts";
+import { isRecord, pidAlive, readJsonFile } from "./util.ts";
 
 const HOME = homedir();
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
 
-// Resolve ORCH_DIR per call: tests (and callers) mutate process.env.ORCH_DIR
-// after this module loads, so freezing it into a const reads the wrong dir.
-export function orchDir(): string {
-  return process.env.ORCH_DIR ?? join(HOME, ".orch");
-}
+export { orchDir, presenceAgentDir };
 
 export function presenceDir(): string {
-  return join(orchDir(), "agents");
+  return presenceRoot();
 }
 
 /** Serialized identity keys are already a single filesystem-safe segment
  *  (`<backend>~<workspace>~<handle>`, with `~ % : /` percent-escaped inside
  *  each part), so the presence directory name IS the key — no remapping. */
-function presenceDirectoryName(key: string): string {
-  return key;
-}
-
 export function presenceKeyFromDirectoryName(name: string): string {
   return name;
-}
-
-export function presenceAgentDir(key: string, root = orchDir()): string {
-  return join(root, "agents", presenceDirectoryName(key));
 }
 
 export function removePresenceAgentDir(dir: string): void {
@@ -37,7 +33,7 @@ export function removePresenceAgentDir(dir: string): void {
 
 export interface PresenceStatus {
   /** Must equal PRESENCE_SCHEMA (src/presence/schema.ts); anything else is malformed. */
-  schema?: number;
+  schema: number;
   agent?: string;
   key?: string;
   /** Backend that minted this agent's identity (herdr/tmux/headless). */
@@ -85,26 +81,25 @@ function presencePath(key: string, file: string): string {
 }
 
 export function readJSON<T = unknown>(file: string): T | null {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-    return parsed as T;
-  } catch {
-    return null;
-  }
+  const parsed = readJsonFile(file);
+  return parsed === undefined ? null : parsed as T;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+/** The one gate every presence status read passes through. A status.json is a
+ *  live record only when it stamps the current PRESENCE_SCHEMA; anything else
+ *  is malformed and reads as absent, exactly as src/doctor/presence.ts reports
+ *  it. Malformed dirs stay on disk and keep enumerating so `orch doctor` can
+ *  name them and `orch clean` can reap them — they just never surface as a
+ *  live status, so one bad dir can never break the whole status view. */
+function isPresenceStatus(value: unknown): value is PresenceStatus {
+  return isRecord(value) && value.schema === PRESENCE_SCHEMA;
 }
 
-export function pidAlive(pid: number | undefined): boolean {
-  if (!pid || !Number.isFinite(pid)) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return typeof error === "object" && error !== null && "code" in error && error.code === "EPERM";
-  }
+export function readPresenceStatus(file: string): PresenceStatus | null {
+  // A predicate, not a cast: the schema check IS the narrowing, so the runtime
+  // guard and the asserted type cannot drift apart.
+  const status = readJSON<unknown>(file);
+  return isPresenceStatus(status) ? status : null;
 }
 
 export function recordSpawned(
@@ -167,19 +162,19 @@ export function loadPresence(): Map<string, PresenceEntry> {
     } catch {
       continue;
     }
-    const status = readJSON<PresenceStatus>(join(dir, "status.json"));
-    const result = readJSON(join(dir, "result.json"));
+    const status = readPresenceStatus(join(dir, STATUS_FILE));
+    const result = readJSON(join(dir, RESULT_FILE));
     presence.set(key, { key, dir, status, result, alive: pidAlive(status?.pid) });
   }
   return presence;
 }
 
 export function statusForPresence(presence: PresenceEntry): PresenceStatus | null {
-  return readJSON<PresenceStatus>(join(presence.dir, "status.json"));
+  return readPresenceStatus(join(presence.dir, STATUS_FILE));
 }
 
 export function bridgeRegistered(pane: string): boolean {
-  return readJSON(presencePath(pane, "status.json")) !== null;
+  return readPresenceStatus(presencePath(pane, STATUS_FILE)) !== null;
 }
 
 let cachedSettings: Record<string, unknown> | undefined;

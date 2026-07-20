@@ -7,6 +7,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { buildEntities } from "../src/entities.ts";
 import { parseIdentity } from "../src/backends/identity.ts";
 import { recordSpawned, spawnedRecords } from "../src/store.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));
 const storePath = path.join(import.meta.dir, "../src/store.ts");
@@ -22,11 +23,18 @@ interface PresenceStatus {
   state?: string;
 }
 
+/** The live status view: every presence dir the store enumerates, minus the ones
+ *  whose status.json is not stamped with the current schema. Malformed dirs stay
+ *  on disk for `orch doctor` to name and `orch clean` to reap; they simply never
+ *  read as a live status. */
 function readStatuses(): Record<string, PresenceStatus> {
   const script = `
     const store = await import(${JSON.stringify(storePath)});
     const statuses = {};
-    for (const [key, entry] of store.loadPresence()) statuses[key] = store.statusForPresence(entry);
+    for (const [key, entry] of store.loadPresence()) {
+      const status = store.statusForPresence(entry);
+      if (status) statuses[key] = status;
+    }
     console.log(JSON.stringify(statuses));
   `;
   return JSON.parse(execFileSync(process.execPath, ["-e", script], {
@@ -57,19 +65,19 @@ describe("presence status schema", () => {
   test("reads a spawned namespaced identity with backend, workspace, handle, and adapter", () => {
     const key = "tmux~workspace-a~%255";
     writeStatus(key, {
-      schema: 2, key, backend: "tmux", workspace: "workspace-a", handle: "%5",
+      schema: PRESENCE_SCHEMA, key, backend: "tmux", workspace: "workspace-a", handle: "%5",
       agent: "pi", pid: process.pid, state: "working",
     });
 
     expect(readStatuses()[key]!).toMatchObject({
-      schema: 2, key, backend: "tmux", workspace: "workspace-a", handle: "%5", agent: "pi", state: "working",
+      schema: PRESENCE_SCHEMA, key, backend: "tmux", workspace: "workspace-a", handle: "%5", agent: "pi", state: "working",
     });
   });
 
   test("orch status JSON exposes the complete spawned identity fields", () => {
     const key = "headless~workspace-a~1234";
     writeStatus(key, {
-      schema: 2, key, backend: "headless", workspace: "workspace-a", handle: "1234",
+      schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "workspace-a", handle: "1234",
       agent: "pi", pid: process.pid, state: "idle",
     });
     process.env.ORCH_DIR = orchDir;
@@ -83,7 +91,7 @@ describe("presence status schema", () => {
   test("status and list report the same agent identity", () => {
     const key = "headless~workspace-a~1234";
     writeStatus(key, {
-      schema: 2, key, backend: "headless", workspace: "workspace-a", handle: "1234",
+      schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "workspace-a", handle: "1234",
       agent: "pi", pid: process.pid, state: "idle",
     });
     process.env.ORCH_DIR = orchDir;
@@ -100,11 +108,11 @@ describe("presence status schema", () => {
     const piKey = "headless~workspace-a~1234";
     const claudeKey = "headless~workspace-b~5678";
     writeStatus(piKey, {
-      schema: 2, key: piKey, backend: "headless", workspace: "workspace-a", handle: "1234",
+      schema: PRESENCE_SCHEMA, key: piKey, backend: "headless", workspace: "workspace-a", handle: "1234",
       agent: "pi", pid: process.pid, state: "idle",
     });
     writeStatus(claudeKey, {
-      schema: 2, key: claudeKey, backend: "headless", workspace: "workspace-b", handle: "5678",
+      schema: PRESENCE_SCHEMA, key: claudeKey, backend: "headless", workspace: "workspace-b", handle: "5678",
       agent: "claude", pid: process.pid, state: "idle",
     });
     process.env.ORCH_DIR = orchDir;
@@ -119,21 +127,25 @@ describe("presence status schema", () => {
     for (const row of rows) expect(parseIdentity(row.key!)).toMatchObject({ backend: row.backend, workspace: row.workspace, handle: row.handle });
   });
 
-  test("keeps schema-1 status records valid without adding fields", () => {
-    writeStatus("legacy", { pid: process.pid, state: "idle" });
+  test("rejects a status record that carries no schema stamp", () => {
+    writeStatus("unstamped", { pid: process.pid, state: "idle" });
 
-    expect(readStatuses().legacy!).toEqual({ pid: process.pid, state: "idle" });
-    expect(readStatuses().legacy!.agent).toBeUndefined();
+    expect(readStatuses().unstamped).toBeUndefined();
   });
 
-  test("loads a mixed directory of schema-1 and schema-2 records", () => {
-    writeStatus("legacy", { pid: process.pid, state: "idle" });
-    writeStatus("current", { schema: 2, agent: "pi", pid: process.pid, state: "done" });
+  test("rejects a status record stamped with a non-current schema", () => {
+    writeStatus("wrong-stamp", { schema: PRESENCE_SCHEMA + 1, agent: "pi", pid: process.pid, state: "idle" });
+
+    expect(readStatuses()["wrong-stamp"]).toBeUndefined();
+  });
+
+  test("a malformed record is skipped without hiding the valid records beside it", () => {
+    writeStatus("unstamped", { pid: process.pid, state: "idle" });
+    writeStatus("current", { schema: PRESENCE_SCHEMA, agent: "pi", pid: process.pid, state: "done" });
 
     const statuses = readStatuses();
-    expect(Object.keys(statuses)).toHaveLength(2);
-    expect(statuses.legacy!.agent).toBeUndefined();
-    expect(statuses.current!).toMatchObject({ schema: 2, agent: "pi" });
+    expect(Object.keys(statuses)).toEqual(["current"]);
+    expect(statuses.current!).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "pi" });
   });
 
   test("persists the complete spawned identity record", () => {

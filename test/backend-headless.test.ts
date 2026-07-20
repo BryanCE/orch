@@ -4,6 +4,8 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { codexAdapter } from "../src/adapters/codex.ts";
+import { seedStatus } from "./helpers/presence.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
@@ -22,7 +24,7 @@ const fakeAdapter = {
     const script = [
       "const fs = require(\"node:fs\");",
       `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
-      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ pid: process.pid, state: \"working\", key: process.env.ORCH_AGENT_KEY }));`,
+      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ schema: ${PRESENCE_SCHEMA}, pid: process.pid, state: \"working\", key: process.env.ORCH_AGENT_KEY }));`,
       "setTimeout(() => {}, 5000);",
     ].join(" ");
     return [process.execPath, "-e", script];
@@ -36,7 +38,7 @@ const codexLogAdapter = {
     const script = [
       "const fs = require(\"node:fs\");",
       `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
-      `fs.writeFileSync(${JSON.stringify(path.join(statusDir, "status.json"))}, JSON.stringify({ pid: process.pid, sessionPath: process.env.ORCH_AGENT_LOG }));`,
+      `fs.writeFileSync(${JSON.stringify(path.join(statusDir, "status.json"))}, JSON.stringify({ schema: ${PRESENCE_SCHEMA}, pid: process.pid, sessionPath: process.env.ORCH_AGENT_LOG }));`,
       "console.log(JSON.stringify({ item: { type: 'agent_message', text: 'headless tail' } }));",
       "console.log(JSON.stringify({ type: 'agent-turn-complete' }));",
     ].join(" ");
@@ -146,7 +148,7 @@ describe("HeadlessBackend", () => {
     });
     const handle = { pid: 41001, key: "hermetic-match" };
     fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
-    fs.writeFileSync(path.join(testOrchDir, "agents", handle.key, "status.json"), JSON.stringify({ pid: handle.pid }));
+    seedStatus(testOrchDir, handle.key, { pid: handle.pid });
     fs.writeFileSync(path.join(testOrchDir, "spawned.jsonl"), JSON.stringify({ backend: "headless", handle, adapter: "fake" }) + "\n", { flag: "a" });
 
     expect(hermetic.close(handle)).toBe(true);
@@ -161,7 +163,7 @@ describe("HeadlessBackend", () => {
 
     fs.mkdirSync(path.join(testOrchDir, "agents", recorded.key), { recursive: true });
     expect(hermetic.close(recorded)).toBe(false);
-    fs.writeFileSync(path.join(testOrchDir, "agents", recorded.key, "status.json"), JSON.stringify({ pid: recorded.pid }));
+    seedStatus(testOrchDir, recorded.key, { pid: recorded.pid });
     expect(hermetic.close({ pid: recorded.pid, key: "hermetic-wrong" })).toBe(false);
     expect(calls).toEqual([]);
   });
@@ -171,7 +173,7 @@ describe("HeadlessBackend", () => {
     const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
     const handle = { pid: 41003, key: "hermetic-unrecorded" };
     fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
-    fs.writeFileSync(path.join(testOrchDir, "agents", handle.key, "status.json"), JSON.stringify({ pid: handle.pid }));
+    seedStatus(testOrchDir, handle.key, { pid: handle.pid });
 
     expect(hermetic.close(handle)).toBe(false);
     expect(calls).toEqual([]);

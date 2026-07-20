@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { seedStatus } from "./helpers/presence.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
@@ -23,7 +24,8 @@ function presencePath(key: string, file: string): string {
 }
 
 function writeStatus(key: string, state: string): void {
-  fs.writeFileSync(presencePath(key, "status.json"), JSON.stringify({ state, pid: process.pid }));
+  fixtureKeys.add(key);
+  seedStatus(orchDir, key, { state, pid: process.pid });
 }
 
 function restoreOrchDir(): void {

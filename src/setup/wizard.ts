@@ -1,5 +1,23 @@
 import { intro, outro } from "@clack/prompts";
+import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { promptSelect, promptMultiselect } from "./io.ts";
+
+/** Pick the JS runtime this install executes under. All three are supported: orch's code is
+ * runtime-agnostic, so run it with whichever you have. The one real differentiator is deno's
+ * sandbox — under deno the harness shims get scoped filesystem access, an enumerated env
+ * allowlist, and no network at all. orch does NOT probe PATH here; the recorded value is
+ * always a selection, never inferred from what happens to be installed. Null on cancel. */
+export async function selectRuntime(): Promise<OrchRuntime | null> {
+  const picked = await promptSelect(
+    "JS runtime for this orch install"
+    + " — node: the default, most widely present;"
+    + " deno: sandboxed shims (scoped fs + env, no network);"
+    + " bun: fastest startup",
+    ORCH_RUNTIMES,
+    DEFAULT_RUNTIME,
+  );
+  return picked as OrchRuntime | null;
+}
 
 export function setupIntro(): void {
   intro("orch setup");

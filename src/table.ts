@@ -1,7 +1,4 @@
-export function truncate(value: string, length: number): string {
-  const text = String(value ?? "");
-  return text.length <= length ? text : text.slice(0, Math.max(0, length - 1)) + "…";
-}
+import { truncate } from "./util.ts";
 
 export function renderTable(headers: string[], rows: string[][], caps: number[]): string {
   const widths = headers.map((header, index) => Math.min(

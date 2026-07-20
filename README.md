@@ -60,7 +60,7 @@ These are the top-level commands accepted by the CLI. `orch status` is also the 
 | --- | --- |
 | `status [--json] [--all] [--offline]` | Show merged agent and pane state; no command defaults to `status`. |
 | `questions [--all] [--json] [--local]` | List pending agent questions. |
-| `events [--all] [target ...] [--status s[,s…]] [--notify] [--json] [--offline]` | Stream pane state transitions. |
+| `events [--all] [target ...] [--status s[,s…]] [--json]` | Stream pane state transitions; requires a running daemon. Notifications are delivered by orchd from `settings.json`, not by this command. |
 | `queue add|list|history|cancel` | Add, list, inspect history, or cancel queued tasks; `add` accepts `--host`, `--worktree`, and `--json`. |
 | `work [--once] [--json]` | Assign queued tasks to idle agents. |
 | `review [list|approve|reject]` | Interactively review, or list, approve, or reject worktree results; subcommands accept `--json`. |

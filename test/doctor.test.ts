@@ -4,8 +4,11 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
-import { applyFixes, checkExtensionStaleness, isDrvFsPath, runDoctor } from "../src/doctor.ts";
+import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
+import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
+import { isDrvFsPath } from "../src/doctor/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedStatusInDir } from "./helpers/presence.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
@@ -33,6 +36,21 @@ describe("runDoctor", () => {
     expect(isDrvFsPath("/home/bryan/.orch")).toBe(false);
     expect(isDrvFsPath("/mnt")).toBe(false);
     expect(isDrvFsPath("/mnturd/x")).toBe(false);
+  });
+
+  test("runs on an unconfigured install without failing for want of settings.json", async () => {
+    // doctor is the command you run WHEN orch is broken, so an install that has never been set up
+    // must still get a full report: absence of configuration is the answer for a check whose
+    // subject is a configured section, never a defect.
+    const results = await runDoctor(tempDir(), () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
+
+    for (const entry of results.filter((row) => row.status === "fail")) {
+      expect(entry.detail).not.toContain("settings.json");
+    }
+    expect(check(results, "config")).toMatchObject({ status: "ok", detail: "no settings.json" });
+    for (const id of ["spawn-limits", "command-locks", "notifiers", "notify-sinks", "remote-ssh", "remote-orch-version", "remote-orch-dir"]) {
+      expect(check(results, id).status).not.toBe("fail");
+    }
   });
 
   test("reports a normal ORCH_DIR on the Linux filesystem", async () => {
@@ -110,10 +128,10 @@ describe("runDoctor", () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "pane-1");
     fs.mkdirSync(agent, { recursive: true });
-    fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({
+    seedStatusInDir(agent, {
       pid: process.pid,
       extensionHash: computeCodeHash(path.join(import.meta.dir, "../extensions/pi/index.ts")),
-    }));
+    });
 
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
     expect(result).toMatchObject({
@@ -126,7 +144,7 @@ describe("runDoctor", () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "pane-2");
     fs.mkdirSync(agent, { recursive: true });
-    fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({ pid: process.pid, extensionHash: "old" }));
+    seedStatusInDir(agent, { pid: process.pid, extensionHash: "old" });
 
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
     expect(result).toMatchObject({
@@ -141,7 +159,7 @@ describe("runDoctor", () => {
     const broken = path.join(directory, "agents", "broken");
     fs.mkdirSync(agent, { recursive: true });
     fs.mkdirSync(broken, { recursive: true });
-    fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({ pid: process.pid }));
+    seedStatusInDir(agent, { pid: process.pid });
     fs.writeFileSync(path.join(broken, "status.json"), "not json");
 
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
@@ -155,7 +173,7 @@ describe("runDoctor", () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "former-agent");
     fs.mkdirSync(agent, { recursive: true });
-    fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({ pid: 99999999 }));
+    seedStatusInDir(agent, { pid: 99999999 });
     fs.writeFileSync(path.join(directory, "spawned.jsonl"), "{\"pane\":\"w1:p1\"}\nnot json\n");
 
     const results = await runDoctor(directory);

@@ -7,15 +7,15 @@ import { z } from "zod";
 // graph mid-initialization. The closed id sets live in the pure port modules.
 import { ADAPTER_IDS } from "./adapters/adapter.ts";
 import { BACKEND_IDS } from "./backends/backend.ts";
+import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errorMessage } from "./util.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * a file with any other version is invalid and must be fixed by hand or recreated
- * by `orch setup`. Pre-publish (0.1.0) there is exactly ONE live schema and it
- * stays `1` — never bump it. On a shape change, edit the shape and fix every
- * writer/reader/test in the same commit; there is no old data to migrate, so the
- * stamp does not increment. */
-export const SETTINGS_SCHEMA = 1;
+ * by `orch setup`. There is exactly ONE live schema at a time — no reader ever
+ * accepts two. On a shape change, bump this stamp and fix every writer/reader/test
+ * in the same commit; there is no old data to migrate, only files to recreate. */
+export const SETTINGS_SCHEMA = 2;
 
 const PositiveInt = z.number().int().positive();
 
@@ -30,6 +30,10 @@ const HostSchema = z.strictObject({
  * JSON round-trip, schemaVersion-stamped, validated loudly on every load. */
 const SettingsFileSchema = z.strictObject({
   schemaVersion: z.literal(SETTINGS_SCHEMA),
+  /** The JS runtime this install executes under — a REQUIRED top-level scalar, chosen at
+   * `orch setup`. Not a member of `defaults` (no spawn may pick its own runtime) and not
+   * an `installed` set (exactly one runtime executes an install). Never defaulted on read. */
+  runtime: z.enum(ORCH_RUNTIMES),
   /** Providers whose integrations setup installed; any of them can be spawned. */
   installed: z.strictObject({
     adapters: z.array(z.string()),
@@ -62,6 +66,7 @@ export type HostConfig = z.infer<typeof HostSchema>;
 
 /** Settings normalized for consumers: every section present, queue defaults applied. */
 export interface OrchConfig {
+  runtime: OrchRuntime;
   installed: { adapters: string[]; backends: string[] };
   defaults: NonNullable<SettingsFile["defaults"]>;
   queue: { max_retries: number };
@@ -72,9 +77,31 @@ export interface OrchConfig {
   limits: { maxAgents?: number; workspaces?: Record<string, number> };
 }
 
+/** The settings filename, as a directory watcher sees it. */
+const SETTINGS_FILE = "settings.json";
+
 /** User-editable composition storage: `$orchDir/settings.json`. */
 export function settingsPath(orchDir: string): string {
-  return path.join(orchDir, "settings.json");
+  return path.join(orchDir, SETTINGS_FILE);
+}
+
+function settingsTemporaryPath(file: string): string {
+  return `${file}.${process.pid}.tmp`;
+}
+
+/**
+ * True when `filename` names settings.json or the temp file its write renames on.
+ *
+ * A directory watcher must accept both. The write lands as create+rename, and
+ * which of the two names the platform reports is not guaranteed — a watcher
+ * matching only `settings.json` can miss the write outright, and this watcher
+ * has no poll to fall back on. The convention lives beside the writer that mints
+ * it so the two cannot drift.
+ */
+function namesSettingsFile(filename: string | Buffer | null | undefined): boolean {
+  const name = filename?.toString();
+  if (name === undefined) return false;
+  return name === SETTINGS_FILE || (name.startsWith(`${SETTINGS_FILE}.`) && name.endsWith(".tmp"));
 }
 
 /** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
@@ -94,14 +121,42 @@ function readSettingsFile(file: string): SettingsFile | null {
   }
   const result = SettingsFileSchema.safeParse(parsed);
   if (!result.success) {
-    // A version mismatch means the whole file predates the current schema; every
-    // other defect gets the per-key prettified message.
+    // Every rejection below is rendered as plain guidance naming the file, what is wrong, and
+    // the exact command that fixes it. A raw zod issue dump never reaches the operator.
+    const root = parsed as Record<string, unknown> | null;
     if (result.error.issues.some((issue) => issue.path[0] === "schemaVersion")) {
-      throw new Error(`${file}: schemaVersion must be ${SETTINGS_SCHEMA} — this file predates the current schema; re-run orch setup`);
+      throw new Error(`${file}: this settings file was written by an older orch (schemaVersion ${JSON.stringify(root?.schemaVersion)}; this orch reads ${SETTINGS_SCHEMA}) and cannot be read.\nRun: orch setup`);
     }
-    throw new Error(`${file}: invalid settings:\n${z.prettifyError(result.error)}`);
+    // The runtime is declared, never inferred: an absent or unrecognized value is a hard error
+    // naming the three accepted values. There is deliberately no default-on-read.
+    if (result.error.issues.some((issue) => issue.path[0] === "runtime")) {
+      const found = root?.runtime;
+      const problem = found === undefined
+        ? `has no top-level "runtime" key, so orch does not know which JS runtime to run its harness shims under`
+        : `declares runtime ${JSON.stringify(found)}, which is not a runtime orch supports`;
+      throw new Error(`${file}: ${problem}. Accepted values: ${ORCH_RUNTIMES.join(", ")}.\nRun: orch setup`);
+    }
+    throw new Error(`${file}: this settings file has invalid values:\n${z.prettifyError(result.error)}\nFix those keys by hand, or re-record the file with: orch setup`);
   }
   return result.data;
+}
+
+/** Move an unreadable `settings.json` aside so `orch setup` can re-record from scratch, and
+ * return the backup path; null when the file is absent or already readable. Pre-publish, a file
+ * from an older schema is malformed data rather than something to migrate (Rule 8) — setup reaps
+ * it. This is the ONE place that does so, and it is never reached by an ordinary command. */
+export function reapUnreadableSettings(orchDir: string): string | null {
+  const file = settingsPath(orchDir);
+  if (!filesystem.existsSync(file)) return null;
+  try {
+    readSettingsFile(file);
+    return null;
+  } catch {
+    const backup = `${file}.invalid`;
+    filesystem.rmSync(backup, { force: true });
+    filesystem.renameSync(file, backup);
+    return backup;
+  }
 }
 
 /** Reject unknown provider ids and defaults outside the installed sets — composition validation the pure schema can't do. */
@@ -125,8 +180,12 @@ function requireInstalledComposition(file: string, root: SettingsFile): void {
   }
 }
 
-/** Load and validate `$orchDir/settings.json`; a missing file uses built-in defaults. */
-export function loadConfig(orchDir: string): OrchConfig {
+/** Load and validate `$orchDir/settings.json`, or null when the file does not exist yet.
+ *
+ * ONLY for the callers that must genuinely distinguish a first run from a configured
+ * install — setup's own gate. Every other caller uses `loadConfig`, which treats an
+ * absent file as the loud error it is. A malformed file still throws here. */
+export function loadConfigOrNull(orchDir: string): OrchConfig | null {
   const file = settingsPath(orchDir);
   const root = readSettingsFile(file);
   if (root === null) {
@@ -135,10 +194,11 @@ export function loadConfig(orchDir: string): OrchConfig {
     if (filesystem.existsSync(legacy)) {
       throw new Error(`${legacy}: legacy config.toml detected — settings now live in ${file}; re-run orch setup (the old values are not read)`);
     }
-    return { installed: { adapters: [], backends: [] }, defaults: {}, queue: { max_retries: 1 }, notify: [], locked_commands: [], hosts: {}, workspaces: {}, limits: {} };
+    return null;
   }
   requireInstalledComposition(file, root);
   return {
+    runtime: root.runtime,
     installed: { adapters: root.installed?.adapters ?? [], backends: root.installed?.backends ?? [] },
     defaults: root.defaults ?? {},
     queue: { max_retries: root.queue?.max_retries ?? 1 },
@@ -150,29 +210,78 @@ export function loadConfig(orchDir: string): OrchConfig {
   };
 }
 
-/** Watch settings.json and publish successfully loaded configurations. */
-export function watchConfig(
-  orchDir: string,
-  onChange: (config: OrchConfig) => void,
-  onWarn?: (msg: string) => void,
-): { stop(): void } {
+/** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
+ * settings.json is a loud error naming the file and `orch setup`, never a silent empty
+ * config. Use `loadConfigOrNull` only where first-run really must be distinguished. */
+export function loadConfig(orchDir: string): OrchConfig {
+  const config = loadConfigOrNull(orchDir);
+  if (config === null) {
+    throw new Error(`${settingsPath(orchDir)} does not exist — orch has no built-in configuration and does nothing by default.\nRun: orch setup`);
+  }
+  return config;
+}
+
+/** The declared JS runtime for this install. The ONE read of the runtime key — nothing
+ * anywhere DERIVES this value from PATH, from `process.execPath`, or from an adapter's own
+ * list. `src/doctor/runtime.ts` does detect the runtime actually executing orch, which is
+ * not the same thing: it establishes reality in order to compare it against this
+ * declaration. Detecting-to-verify is the point of the key; detecting-to-default would
+ * defeat it, because a value inferred from reality can never disagree with reality. */
+export function declaredRuntime(orchDir: string): OrchRuntime {
+  return loadConfig(orchDir).runtime;
+}
+
+/** Manual reload trigger: touching this file reloads config without editing it. */
+const RELOAD_SIGNAL_FILE = "reload.signal";
+
+export interface ConfigWatchOptions {
+  onChange: (config: OrchConfig) => void;
+  onWarn?: (message: string) => void;
+  debounceMs?: number;
+  pollMs?: number;
+};
+
+export interface ConfigWatch {
+  stop: () => void;
+};
+
+function triggersReload(filename: string | Buffer | null | undefined): boolean {
+  return namesSettingsFile(filename) || filename?.toString() === RELOAD_SIGNAL_FILE;
+}
+
+/**
+ * The ONE config watcher: watch settings.json and publish only configurations
+ * that loaded cleanly. Every caller — the daemon and the CLI alike — uses this;
+ * a second implementation drifts on exactly the properties that matter here
+ * (whether it polls, whether it keeps a last-good, whether it repeats warnings).
+ *
+ * Watches the DIRECTORY, not the file: settings.json is written tmp+rename, so a
+ * file watcher follows the old inode and goes deaf after the first write. The
+ * stat poll is the backstop for platforms that drop directory events entirely.
+ *
+ * An invalid edit keeps the last-good config and warns once per distinct failure
+ * — a config file saved broken mid-edit must not spam the log on every keystroke.
+ */
+export function watchConfig(orchDir: string, opts: ConfigWatchOptions): ConfigWatch {
+  const { onChange, onWarn } = opts;
   const file = settingsPath(orchDir);
-  const debounceMs = 250;
-  const pollMs = 5_000;
+  const debounceMs = opts.debounceMs ?? 250;
+  const pollMs = opts.pollMs ?? 5_000;
   let stopped = false;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let watcher: filesystem.FSWatcher | undefined;
-  let lastGood = loadConfig(orchDir);
   let lastStat = statSignature(file);
   let badState: string | undefined;
 
+  // Keeping the last-good config is the absence of a call, not a cached copy:
+  // a failed reload simply never reaches onChange, so the caller still holds
+  // the last configuration that loaded cleanly.
   const reload = (): void => {
     debounceTimer = undefined;
     if (stopped) return;
     try {
       const config = loadConfig(orchDir);
-      lastGood = config;
       badState = undefined;
       onChange(config);
     } catch (error: unknown) {
@@ -208,13 +317,19 @@ export function watchConfig(
   };
 
   try {
-    watcher = filesystem.watch(file, { persistent: false }, scheduleReload);
+    filesystem.mkdirSync(orchDir, { recursive: true });
+    // The first load is deliberately unguarded: a config that cannot be read at
+    // startup is fatal to the caller, not something to warn about and continue on.
+    const initial = loadConfig(orchDir);
+    watcher = filesystem.watch(orchDir, { persistent: false }, (_event, filename) => {
+      if (triggersReload(filename)) scheduleReload();
+    });
     watcher.on("error", (error: Error) => {
       if (!stopped) onWarn?.(errorMessage(error));
     });
     pollTimer = setInterval(poll, pollMs);
     pollTimer.unref();
-    onChange(lastGood);
+    onChange(initial);
   } catch (error: unknown) {
     stop();
     throw error;
@@ -279,15 +394,24 @@ export function allowedModelPatterns(orchDir: string): string[] {
 }
 
 /** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */
-function updateSettingsFile(orchDir: string, mutate: (root: SettingsFile) => SettingsFile): void {
+function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
   const file = settingsPath(orchDir);
-  const root = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
+  // The seed for a brand-new file is deliberately incomplete: `runtime` is required and has
+  // no default, so setup must record it (writeSettingsRuntime) before any other write lands.
+  const root: Partial<SettingsFile> = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
   const updated = SettingsFileSchema.parse(mutate(root));
   requireInstalledComposition(file, updated);
   filesystem.mkdirSync(orchDir, { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = settingsTemporaryPath(file);
   filesystem.writeFileSync(tmp, JSON.stringify(updated, null, 2) + "\n");
   filesystem.renameSync(tmp, file);
+}
+
+/** Record the declared JS runtime as the top-level `runtime` key. Idempotent: re-recording the
+ * same selection leaves the file byte-identical, and a different selection replaces the single
+ * scalar in place — the shape has no room to accumulate a second runtime entry. */
+export function writeSettingsRuntime(orchDir: string, runtime: OrchRuntime): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, runtime }));
 }
 
 /** Upsert one string entry in the `defaults` section of settings.json. */

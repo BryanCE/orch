@@ -1,12 +1,13 @@
-import { loadConfig, watchConfig, type OrchConfig } from "../config.ts";
+import { loadConfig, type OrchConfig } from "../config.ts";
 import { buildEntities, currentWorkspace, resolveTarget, workspaceOf } from "../entities.ts";
 import { loadPresence, orchDir } from "../store.ts";
-import { isRecord } from "../store.ts";
+import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { resolveBackend } from "../backends/registry.ts";
 import { scopeToWorkspace, workspaceName } from "../policy/workspace.ts";
-import { derivePresenceTransition, startPreferredEvents, startPresenceWatch, type PresenceMetadata, type PresenceWatch } from "../daemon/events.ts";
-import { deliverToSink, loadSinks, notify, notificationText, type NotifyEvent, type Sink } from "../notify.ts";
+import { type PresenceMetadata } from "../daemon/events.ts";
+import { rpcSubscribe } from "../daemon/rpc.ts";
+import { deliverToSink, loadSinks, type Sink } from "../notify/router.ts";
+import { notificationText, type NotifyEvent } from "../notify/format.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { die } from "./target.ts";
 
@@ -25,17 +26,13 @@ function looksLikePaneKey(key: string): boolean {
 interface EventsOptions {
   statusFilter: Set<string> | null;
   all: boolean;
-  notifications: boolean;
   json: boolean;
-  offline: boolean;
   targets: string[];
 }
 
 interface EventsContext {
   options: EventsOptions;
   items: Map<string, WatchItem>;
-  states: Map<string, string>;
-  sinks: Sink[];
   metadata: (key: string) => PresenceMetadata;
   accepts: (key: string) => boolean;
   emit: (event: NotifyEvent) => void;
@@ -44,7 +41,7 @@ interface EventsContext {
 
 export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
-  if (!options.offline) await ensureDaemon(orchDir());
+  await ensureDaemon(orchDir());
   const items = eventsItems(options);
   const accepts = (key: string): boolean => {
     if (options.targets.length) return items.has(key);
@@ -54,21 +51,16 @@ export async function cmdEvents(args: string[]) {
   const context: EventsContext = {
     options,
     items,
-    states: new Map<string, string>(),
-    sinks: eventsSinks(options.notifications),
     metadata: presenceMetadata,
     accepts,
     emit: eventWriter(options, loadConfig(orchDir()).workspaces),
   };
-  seedEventStates(context);
-  // Live-reload notify sinks on settings.json edits; invalid JSON keeps the
-  // last-good sinks and warns once per bad state (settings-json-config 6.4).
-  const configWatch = options.notifications
-    ? watchConfig(orchDir(), () => { context.sinks = eventsSinks(true); }, (message) => process.stderr.write(`settings.json: ${message}\n`))
-    : null;
+  // Notification delivery is orchd's, not the client's: the daemon fans every
+  // transition out to the sinks configured in settings.json whether or not
+  // anyone is streaming. `orch events` only renders.
   const cleanup = await startEventsTransport(context);
-  process.on("SIGINT", () => { configWatch?.stop(); cleanup(); process.exit(0); });
-  process.on("SIGTERM", () => { configWatch?.stop(); cleanup(); process.exit(0); });
+  process.on("SIGINT", () => { cleanup(); process.exit(0); });
+  process.on("SIGTERM", () => { cleanup(); process.exit(0); });
 }
 
 export async function cmdNotify(args: string[]) {
@@ -106,32 +98,16 @@ export async function cmdNotify(args: string[]) {
 export function parseEventsOptions(args: string[]): EventsOptions {
   let statusFilter: Set<string> | null = null;
   let all = false;
-  let notifications = false;
   let json = false;
-  let offline = false;
   const targets: string[] = [];
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--status") statusFilter = new Set((args[++index] ?? "").split(",").map((state) => state.trim()).filter(Boolean));
     else if (argument === "--all") all = true;
-    else if (argument === "--notify") notifications = true;
     else if (argument === "--json") json = true;
-    else if (argument === "--offline") offline = true;
     else targets.push(argument);
   }
-  return { statusFilter, all, notifications, json, offline, targets };
-}
-
-function eventsSinks(enabled: boolean): Sink[] {
-  if (!enabled) return [];
-  const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
-  const available = backend.isAvailable() && backend.isInsideSession();
-  const sinks = loadSinks(orchDir()).filter((sink) => sink.type !== backend.id || available);
-  if (available && !sinks.some((sink) => sink.type === backend.id)) {
-    sinks.push({ type: backend.id, on: ["blocked", "error"] });
-  }
-  if (!sinks.length) process.stderr.write("notify: no sinks configured\n");
-  return sinks;
+  return { statusFilter, all, json, targets };
 }
 
 function presenceMetadata(key: string): PresenceMetadata {
@@ -191,50 +167,19 @@ function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"])
   };
 }
 
-function seedEventStates(context: EventsContext): void {
-  for (const presence of loadPresence().values()) {
-    if (!context.accepts(presence.key)) continue;
-    derivePresenceTransition(presence.key, presence.status, context.metadata(presence.key), context.states);
-  }
-}
-
+/** The daemon is the only event source. Presence files are orchd's ingress, not a
+ *  client transport: with the daemon gone there is nothing to degrade to, so a
+ *  dropped subscription exits rather than silently watching files. */
 async function startEventsTransport(context: EventsContext): Promise<() => void> {
-  let fileWatch: PresenceWatch | undefined;
-  const startFiles = (): void => {
-    if (fileWatch) return;
-    const keys = context.options.all
-      ? undefined
-      : new Map([...context.items].map(([key, item]) => [key, { name: item.name, tab: item.tab, pid: item.pid }]));
-    fileWatch = startPresenceWatch({
-      orchDir: orchDir(),
-      initialStates: context.states,
-      keys,
-      acceptKey: context.accepts,
-      metadataFor: context.metadata,
-      onEvent: (event) => {
-        if (context.options.notifications) notify(context.sinks, event);
-        context.emit(event);
-      },
-    });
-  };
-  if (context.options.offline) {
-    startFiles();
-    return () => fileWatch?.stop();
-  }
-  const preferred = await startPreferredEvents({
-    orchDir: orchDir(),
-    onEvent: (value) => {
+  return await rpcSubscribe(
+    orchDir(),
+    "subscribe-events",
+    (value) => {
       if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
-      context.states.set(value.key, value.newState);
       context.emit(value);
     },
-    onDisconnect: () => process.stderr.write("orch events: daemon disconnected; use --offline for file diagnostics\n"),
-    onFallback: () => die("orch events: daemon unavailable; use --offline for read-only file diagnostics."),
-  });
-  return () => {
-    preferred.stop();
-    fileWatch?.stop();
-  };
+    () => die("orch events: daemon disconnected; restart it with: orch daemon start"),
+  );
 }
 
 export function isNotifyEvent(value: unknown): value is NotifyEvent {

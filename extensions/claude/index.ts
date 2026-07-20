@@ -6,41 +6,25 @@
  * user has — node, deno, or bun (`installClaudeHooks` probes their PATH);
  * never assume one. Usage: `<runtime> <shim> SessionStart|Stop|Notification`;
  * Claude sends the hook payload as JSON on stdin. Identity parsing stays in
- * its one boundary module (src/backends/identity.ts); the bundle inlines it.
+ * its one boundary module (src/backends/identity.ts) and the presence writes go
+ * through the one shared writer (src/presence/writer.ts) — this shim holds only
+ * claude-specific transcript/hook-event parsing. The bundle inlines both.
  *
  * Presence fidelity is coarse by design: SessionStart writes `working`,
  * Notification writes `blocked`, and Stop writes `done`/`idle` — those are
  * the only three hook events this shim wires, so there are no mid-run
  * tool/token/cost transitions between them (unlike pi's live extension).
  */
-import { homedir } from "node:os";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { parseIdentity } from "../../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
+import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { isRecord, type JsonRecord } from "../../src/util.ts";
+import { textValue, truncateOptional } from "../../src/util.ts";
 
-const ORCH_DIR = process.env.ORCH_DIR ?? join(homedir(), ".orch");
-const PRESENCE_ROOT = join(ORCH_DIR, "agents");
 const AGENT_ID = "claude";
 const MAX_TEXT = 400;
 const MAX_TASK = 200;
-type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function textValue(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  return value.trim();
-}
-
-function truncate(value: string | undefined, max: number): string | undefined {
-  const text = textValue(value);
-  if (!text) return undefined;
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
 function contentText(value: unknown): string | undefined {
   if (typeof value === "string") return textValue(value);
   if (Array.isArray(value)) {
@@ -137,25 +121,6 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
   return undefined;
 }
 
-function atomicWrite(file: string, value: unknown): void {
-  const temporary = `${file}.tmp-${process.pid}`;
-  try {
-    writeFileSync(temporary, JSON.stringify(value, null, 2));
-    renameSync(temporary, file);
-  } catch {
-    try { writeFileSync(file, JSON.stringify(value, null, 2)); } catch {}
-  }
-}
-
-function loadStatus(file: string): JsonRecord {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 // No ORCH_AGENT_KEY means a regular (non-orch) Claude session — nothing to
 // record, exit silently. Only a present-but-malformed key is a wiring error.
 const key = process.env.ORCH_AGENT_KEY;
@@ -173,24 +138,19 @@ const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("
 const event = eventName(cliEvent, input);
 const pid = agentPid(input);
 const paneId = identity.backend === "herdr" ? identity.handle : null;
-const directory = join(PRESENCE_ROOT, key);
-try {
-  mkdirSync(directory, { recursive: true });
-} catch {
-  process.exit(0);
-}
+const directory = ensurePresenceAgentDir(key);
+if (!directory) process.exit(0);
 
-const statusFile = join(directory, "status.json");
 const transcriptPath = textValue(input.transcript_path ?? input.transcriptPath);
 const now = new Date().toISOString();
-const previous = loadStatus(statusFile);
+const previous = readStatus(directory);
 const model = modelValue(input) ?? previous.model;
 const rawTask = input.task ?? input.prompt ?? input.initial_prompt;
-const task = truncate(typeof rawTask === "string" ? rawTask : undefined, MAX_TASK) ?? previous.task;
+const task = truncateOptional(typeof rawTask === "string" ? rawTask : undefined, MAX_TASK) ?? previous.task;
 const sessionId = textValue(input.session_id ?? input.sessionId) ?? previous.sessionId;
 const existingText = textValue(previous.lastText);
 const transcriptText = lastAssistant(transcriptPath ?? textValue(previous.sessionPath));
-const lastText = truncate(transcriptText ?? existingText, MAX_TEXT);
+const lastText = truncateOptional(transcriptText ?? existingText, MAX_TEXT);
 
 const status: JsonRecord = {
   ...previous,
@@ -222,14 +182,14 @@ if (event === "sessionstart" || event === "sessionstarted") {
   const askingId = textValue(input.id ?? input.request_id ?? input.requestId) ?? `claude-${pid}-${Date.now()}`;
   status.state = "blocked";
   status.blockedMessage = message;
-  status.asking = { question: truncate(message, MAX_TASK) ?? message, id: askingId, ts: now };
+  status.asking = { question: truncateOptional(message, MAX_TASK) ?? message, id: askingId, ts: now };
 } else if (event === "stop" || event === "stopped") {
   status.state = transcriptText || existingText ? "done" : "idle";
   status.finishedAt = now;
   delete status.asking;
   delete status.blockedMessage;
   if (transcriptText) {
-    atomicWrite(join(directory, "result.json"), {
+    writeResult(directory, {
       schema: PRESENCE_SCHEMA,
       agent: AGENT_ID,
       key,
@@ -245,4 +205,4 @@ if (event === "sessionstart" || event === "sessionstarted") {
   process.exit(0);
 }
 
-atomicWrite(statusFile, status);
+writeStatus(directory, status);

@@ -1,6 +1,6 @@
 import { binaryOnPath } from "../../util.ts";
 import { herdrBestEffort } from "./cli.ts";
-import type { SinkProvider } from "../../notify-sinks.ts";
+import type { SinkProvider } from "../../notify/sinks.ts";
 
 /** Herdr-owned native notification sink. */
 export const herdrNotificationProvider: SinkProvider = {

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedStatusInDir } from "./helpers/presence.ts";
 
 const tempDirs: string[] = [];
 
@@ -42,21 +43,20 @@ describe("orch work notifications", () => {
     process.env.ORCH_DIR = orchDir;
     const { presenceAgentDir } = await import("../src/store.ts");
     const agentsDir = presenceAgentDir(key, orchDir);
-    mkdirSync(agentsDir, { recursive: true });
-    writeFileSync(join(agentsDir, "status.json"), JSON.stringify({ state: "idle", label: "Test agent", pid: process.pid }));
+    seedStatusInDir(agentsDir, { state: "idle", label: "Test agent", pid: process.pid });
     writeSettingsFixture(orchDir, {
       notify: [{ id: "command", on: ["working"], command }],
     });
 
     try {
       const { runWorkLoop } = await import("../src/work.ts");
-      const { loadSinks } = await import("../src/notify.ts");
+      const { loadSinks } = await import("../src/notify/router.ts");
       expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command }]);
       const controller = new AbortController();
       const loop = runWorkLoop({ orchDir, pollIntervalMs: 20, continuous: true, signal: controller.signal });
       try {
         // runWorkLoop seeds the initial idle state before its first delay.
-        writeFileSync(join(agentsDir, "status.json"), JSON.stringify({ state: "working", label: "Test agent", pid: process.pid }));
+        seedStatusInDir(agentsDir, { state: "working", label: "Test agent", pid: process.pid });
         const payload: Record<string, unknown> = await waitForFile(output);
         expect(payload).toMatchObject({
           title: expect.stringContaining("WORKING [workspace] Test agent") as unknown as string,

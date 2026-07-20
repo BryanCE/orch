@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deliverToSink, loadSinks, notificationText, notify, type NotifyEvent } from "../src/notify";
+import { deliverToSink, loadSinks, notify } from "../src/notify/router.ts";
+import { notificationText, type NotifyEvent } from "../src/notify/format.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 // Registers the herdr sink provider, as the real CLI does, so herdr entries parse deterministically.
 import "../src/backends/herdr/index.ts";

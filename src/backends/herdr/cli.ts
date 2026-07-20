@@ -1,4 +1,5 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
+import { isRecord } from "../../util.ts";
 
 export interface HerdrPane {
   pane_id: string;
@@ -35,10 +36,6 @@ export interface HerdrWorkspace {
 interface HerdrAgent {
   pane_id?: string;
   name?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function parseHerdrOutput(output: string): unknown {

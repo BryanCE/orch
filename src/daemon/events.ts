@@ -1,12 +1,15 @@
 import { mkdirSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { collapse } from "../entities.ts";
-import { abstractAgentLabel, notify, workspaceLabelForKey, type NotifyEvent, type Sink } from "../notify.ts";
-import { pidAlive, presenceAgentDir, presenceKeyFromDirectoryName, readJSON } from "../store.ts";
-import { truncate } from "../table.ts";
-import { rpcCall, rpcSubscribe } from "./rpc.ts";
+import { notify, type Sink } from "../notify/router.ts";
+import { abstractAgentLabel, workspaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
+import { STATUS_FILE } from "../presence/schema.ts";
+import { namesPresenceFile } from "../presence/writer.ts";
+import { presenceAgentDir, presenceKeyFromDirectoryName, readPresenceStatus } from "../store.ts";
+import { pidAlive, truncate } from "../util.ts";
 import { workspaceOf } from "../policy/workspace.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
+import { optionalString } from "../util.ts";
 
 export interface PresenceMetadata {
   name: string | null;
@@ -27,19 +30,6 @@ export interface PresenceWatchOptions {
 export interface PresenceWatch {
   states: Map<string, string>;
   scan: () => void;
-  stop: () => void;
-};
-
-export interface PreferredEventsOptions {
-  orchDir: string;
-  onEvent: (event: unknown) => void;
-  onFallback: () => void;
-  onDisconnect: () => void;
-  probeIntervalMs?: number;
-};
-
-export interface PreferredEvents {
-  mode: "daemon" | "files";
   stop: () => void;
 };
 
@@ -69,10 +59,6 @@ function statusState(status: unknown, fallbackPid?: number): string | null {
   else if (property(status, "state")) state = String(property(status, "state"));
   if (!pidAlive(pid)) state = "exited";
   return state;
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function eventTask(status: object): string | undefined {
@@ -140,7 +126,13 @@ function directoryNames(directory: string): string[] {
   }
 }
 
-/** Continuously watch presence status files, sharing the CLI transition rules. */
+/** Continuously watch presence status files and derive transitions from them.
+ *
+ * DAEMON-ONLY. Presence files are the harness→orch ingress: shims write them and
+ * orchd is the single reader that turns them into events. Clients never watch
+ * them — `orch events` subscribes over RPC, with no file-watch fallback when the
+ * daemon is absent. Importing this outside `src/daemon/` reintroduces the second
+ * event source this layering exists to prevent. */
 export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch {
   const agentsDir = join(options.orchDir, "agents");
   mkdirSync(agentsDir, { recursive: true });
@@ -152,14 +144,14 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   const check = (key: string): void => {
     if (stopped) return;
     const metadata = options.keys?.get(key) ?? options.metadataFor?.(key) ?? { name: null, tab: null };
-    const event = derivePresenceTransition(key, readJSON(join(presenceAgentDir(key, options.orchDir), "status.json")), metadata, states);
+    const event = derivePresenceTransition(key, readPresenceStatus(join(presenceAgentDir(key, options.orchDir), STATUS_FILE)), metadata, states);
     if (event) options.onEvent(event);
   };
   const attach = (key: string): void => {
     if (watchers.has(key)) return;
     try {
       const watcher = watch(presenceAgentDir(key, options.orchDir), (_event, filename) => {
-        if (!filename || filename.toString() === "status.json") check(key);
+        if (!filename || namesPresenceFile(filename.toString(), STATUS_FILE)) check(key);
       });
       watcher.on("error", () => { /* noop */ });
       watchers.set(key, watcher);
@@ -196,39 +188,6 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
       clearInterval(safety);
       rootWatcher?.close();
       for (const watcher of watchers.values()) watcher.close();
-    },
-  };
-}
-
-/** Prefer an RPC event stream, then invoke direct-file fallback once on disconnect. */
-export async function startPreferredEvents(options: PreferredEventsOptions): Promise<PreferredEvents> {
-  let stopSubscription: (() => void) | undefined;
-  let probe: ReturnType<typeof setInterval> | undefined;
-  let stopped = false;
-  let fellBack = false;
-  const fallback = (disconnected: boolean): void => {
-    if (stopped || fellBack) return;
-    fellBack = true;
-    if (probe) clearInterval(probe);
-    stopSubscription?.();
-    if (disconnected) options.onDisconnect();
-    options.onFallback();
-  };
-  try {
-    stopSubscription = await rpcSubscribe(options.orchDir, "subscribe-events", options.onEvent);
-  } catch {
-    fallback(false);
-    return { mode: "files", stop: () => { stopped = true; } };
-  }
-  probe = setInterval(() => {
-    void rpcCall(options.orchDir, "daemon-status", undefined, 200).catch(() => fallback(true));
-  }, options.probeIntervalMs ?? 500);
-  return {
-    mode: "daemon",
-    stop: () => {
-      stopped = true;
-      if (probe) clearInterval(probe);
-      stopSubscription?.();
     },
   };
 }

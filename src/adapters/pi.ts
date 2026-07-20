@@ -3,15 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   defaultModelString,
-  isRecord,
   loadPresence,
+  readJSON,
   statusForPresence,
   type PresenceEntry,
 } from "../store.ts";
+import { isRecord } from "../util.ts";
 import { parseSession } from "../session.ts";
 import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
+import { ANSWER_FILE, INBOX_FILE } from "../presence/schema.ts";
 import type { CheckResult, FixDescriptor } from "../doctor-types.ts";
 import type {
   AdapterCommand,
@@ -80,12 +82,30 @@ function presenceFor(key: string): PresenceEntry | undefined {
 /** Append one steer/model line to pi's inbox.jsonl in the agent's presence dir. */
 function appendInboxLine(presence: PresenceEntry, line: Record<string, unknown>): void {
   fs.mkdirSync(presence.dir, { recursive: true });
-  fs.appendFileSync(path.join(presence.dir, "inbox.jsonl"), JSON.stringify({ ...line, ts: new Date().toISOString() }) + "\n");
+  fs.appendFileSync(path.join(presence.dir, INBOX_FILE), JSON.stringify({ ...line, ts: new Date().toISOString() }) + "\n");
 }
 
 /** Write pi's blocking answer.json in the agent's presence dir. */
 function writeAnswerFile(presence: PresenceEntry, text: string): void {
-  fs.writeFileSync(path.join(presence.dir, "answer.json"), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
+  fs.writeFileSync(path.join(presence.dir, ANSWER_FILE), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
+}
+
+const TRUST_FILE = path.join(os.homedir(), ".pi", "agent", "trust.json");
+
+/** True when a launch command actually starts pi's CLI (pi or the pif wrapper). */
+export function launchesPi(cmd: string): boolean {
+  const bin = cmd.trim().split(/\s+/)[0];
+  return bin === "pi" || bin === "pif";
+}
+
+function writeTrustEntry(cwd: string) {
+  const resolved = path.resolve(cwd);
+  const map = readJSON<Record<string, unknown>>(TRUST_FILE) ?? {};
+  if (map[resolved] === true) return;
+  map[resolved] = true;
+  fs.mkdirSync(path.dirname(TRUST_FILE), { recursive: true });
+  fs.writeFileSync(TRUST_FILE, JSON.stringify(map, null, 2) + "\n");
+  process.stdout.write(`Pre-trusted ${resolved} in ~/.pi/agent/trust.json\n`);
 }
 
 /** pi's native slash-commands for each lifecycle verb; these strings live only here. */
@@ -249,6 +269,12 @@ export class PiAdapter implements AgentAdapter {
     if (bundleMissing) return { id: "pi-extensions", label: "pi extensions", status: "warn", detail: "extension bundle not built; run: bun run build:ext", ...(fixable.length ? { fix: apply } : {}) };
     if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge extension is current" };
     return { id: "pi-extensions", label: "pi extensions", status: "fail", detail: `missing or stale: ${stale.join(", ")}`, ...(fixable.length ? { fix: apply } : {}) };
+  }
+
+  /** Pre-trust cwd in pi's trust store when the launch command actually starts pi. */
+  preTrustWorkspace(cwd: string, cmd: string): void {
+    if (!launchesPi(cmd)) return;
+    writeTrustEntry(cwd);
   }
 
   /** Read pi's persisted default model from ~/.pi/agent/settings.json. */

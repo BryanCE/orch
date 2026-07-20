@@ -1,7 +1,7 @@
 {
   "name": "orch",
   "version": "0.1.0",
-  "description": "Fleet orchestration control plane for pi agents in herdr panes — orch CLI, pif headless dispatch, and the pi extensions that make every agent visible and steerable.",
+  "description": "Fleet orchestration control plane for various coding afent harness's and multiplexers for optimal coding agent orchestration and control from any provider.",
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -9,8 +9,17 @@
     "orchestration",
     "agents"
   ],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "check": "oxlint . && bunx tsc --noEmit && bun run check:bridge",
+    "check": "bun run lint && bunx tsc --noEmit && bun run check:bridge",
+    "fallow:dupes": "bunx fallow dupes --baseline .fallow-dupes-baseline.json --fail-on-issues",
+    "fallow:health": "bunx fallow health --baseline .fallow-health-baseline.json --fail-on-issues",
+    "fallow:dead": "bunx fallow dead-code",
+    "fallow:accept": "bunx fallow dupes --save-baseline .fallow-dupes-baseline.json && bunx fallow health --save-baseline .fallow-health-baseline.json",
+    "check:web": "bun --filter orch-web lint && bun --filter orch-web tc",
+    "check:all": "bun run check && bun run check:web",
     "check:bridge": "bun scripts/check-bridge.ts",
     "build": "bun run build:cli && bun run build:web",
     "build:cli": "bun run build:ext && bun run build:bin && bun run build:daemon && bun run build:hooks && bun run build:notify",
@@ -19,11 +28,11 @@
     "build:ext": "bun build extensions/pi/index.ts --target=node --format=esm --outfile dist/extensions/orchestrator-bridge.js",
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
-    "build:web": "cd packages/web && bun run build",
+    "build:web": "bun --filter orch-web build",
     "build:dev": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
     "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
-    "lint": "oxlint .",
+    "lint": "oxlint bin src test extensions scripts",
     "test": "bun test",
     "reset": "bun scripts/reset.ts"
   },
@@ -46,7 +55,7 @@
   ],
   "pi": {
     "extensions": [
-      "./extensions"
+      "./extensions/pi/index.ts"
     ]
   },
   "engines": {
@@ -69,7 +78,7 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "@vitejs/plugin-react": "^6.0.3",
-    "fallow": "^3.4.2",
+    "fallow": "^3.6.0",
     "oxlint": "^1.73.0",
     "oxlint-tsgolint": "^0.24.0",
     "typescript": "^7",

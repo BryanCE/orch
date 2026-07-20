@@ -2,24 +2,14 @@ import * as fs from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { deliverControl } from "../src/control/dispatch.ts";
+import { claudeAdapter } from "../src/adapters/claude.ts";
+import { recordSpawned } from "../src/store.ts";
+import { serializeIdentity } from "../src/backends/identity.ts";
+import { getBackend } from "../src/backends/registry.ts";
+import { seedStatus } from "./helpers/presence.ts";
 
-// The current pi adapter imports computeCodeHash from util.ts, but util.ts does
-// not export it. Keep this test focused on dispatch until that source bug is fixed.
-void mock.module("../src/util.ts", () => ({
-  binaryOnPath: () => false,
-  computeCodeHash: () => "test-hash",
-  errorMessage: (error: unknown) => String(error),
-  packageRoot: () => process.cwd(),
-}));
-
-const [{ deliverControl }, { claudeAdapter }, { recordSpawned }, { serializeIdentity }, { getBackend }] = await Promise.all([
-  import("../src/control/dispatch.ts"),
-  import("../src/adapters/claude.ts"),
-  import("../src/store.ts"),
-  import("../src/backends/identity.ts"),
-  import("../src/backends/registry.ts"),
-]);
 const headlessBackend = getBackend("headless")!;
 
 const originalOrchDir = process.env.ORCH_DIR;
@@ -37,10 +27,8 @@ function target(backend: "headless" | "tmux", handle: string): string {
 }
 
 function presence(directory: string, key: string, agent: string): string {
-  const dir = path.join(directory, "agents", key);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({ agent, pid: process.pid }));
-  return dir;
+  seedStatus(directory, key, { agent, pid: process.pid });
+  return path.join(directory, "agents", key);
 }
 
 function executable(directory: string, name: string, body: string): void {

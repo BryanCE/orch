@@ -3,7 +3,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
-import { pidAlive, presenceAgentDir } from "../../store.ts";
+import { PRESENCE_SCHEMA, STATUS_FILE } from "../../presence/schema.ts";
+import { presenceAgentDir } from "../../store.ts";
+import { pidAlive } from "../../util.ts";
 import type {
   Backend,
   BackendCapabilities,
@@ -54,7 +56,7 @@ function logFileName(key: string, pid: number): string {
   return join(`${printable}-${pid}.log`);
 }
 
-function isRecord(value: unknown): value is HeadlessRegistryRecord {
+function isHeadlessRegistryRecord(value: unknown): value is HeadlessRegistryRecord {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<HeadlessRegistryRecord>;
   const handle = candidate.handle;
@@ -75,7 +77,7 @@ function readHeadlessRegistry(directory = orchDirectory()): HeadlessRegistryReco
       .flatMap((line) => {
         try {
           const value: unknown = JSON.parse(line);
-          return isRecord(value) ? [value] : [];
+          return isHeadlessRegistryRecord(value) ? [value] : [];
         } catch {
           return [];
         }
@@ -94,8 +96,9 @@ function appendRegistry(record: HeadlessRegistryRecord, directory: string): void
 function statusPid(directory: string, key: string): number | undefined {
   if (!safeKey(key)) return undefined;
   try {
-    const status: unknown = JSON.parse(readFileSync(join(presenceAgentDir(key, directory), "status.json"), "utf8"));
+    const status: unknown = JSON.parse(readFileSync(join(presenceAgentDir(key, directory), STATUS_FILE), "utf8"));
     if (!status || typeof status !== "object" || Array.isArray(status)) return undefined;
+    if (Reflect.get(status, "schema") !== PRESENCE_SCHEMA) return undefined;
     const pid: unknown = Reflect.get(status, "pid");
     return typeof pid === "number" ? pid : undefined;
   } catch {

@@ -1,8 +1,7 @@
 import type { AgentAdapter } from "../../adapters/adapter.ts";
-import { registerSinkProvider } from "../../notify-sinks.ts";
+import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
-import { binaryOnPath } from "../../util.ts";
-import { isRecord } from "../../store.ts";
+import { binaryOnPath, isRecord } from "../../util.ts";
 import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,

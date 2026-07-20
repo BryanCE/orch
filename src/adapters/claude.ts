@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { isRecord, loadPresence, statusForPresence, type PresenceEntry } from "../store.ts";
-import { CLAUDE_HOOK_RUNTIMES, claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
-import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
+import { declaredRuntime } from "../config.ts";
+import type { OrchRuntime } from "../runtime.ts";
+import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "../store.ts";
+import { errorMessage, isRecord, packageRoot } from "../util.ts";
+import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -17,6 +19,7 @@ import type {
   SteerRequest,
 } from "./adapter.ts";
 import type { CheckResult } from "../doctor-types.ts";
+import { textValue } from "../util.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -40,11 +43,6 @@ const AGENT_STATES = new Set<AgentState>([
 ]);
 
 type JsonRecord = Record<string, unknown>;
-
-function textValue(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  return value.trim();
-}
 
 function contentText(value: unknown): string | undefined {
   if (typeof value === "string") return textValue(value);
@@ -163,8 +161,9 @@ function installClaudeHooks(pkgRoot: string): void {
     }
   }
   const shim = claudeHookShimPath(pkgRoot);
-  // The shim is plain ESM JS; wire it to whichever runtime this user has.
-  const runtime = CLAUDE_HOOK_RUNTIMES.find(binaryOnPath) ?? "node";
+  // The shim is plain ESM JS; wire it to the runtime DECLARED in settings.json.
+  // orch never probes PATH to pick one — the declaration is the only source.
+  const runtime = declaredRuntime(orchDir());
   const added: string[] = [];
   let prunedStale = false;
   const hooks = isRecord(settings.hooks) ? settings.hooks : (settings.hooks === undefined ? {} : null);
@@ -174,7 +173,7 @@ function installClaudeHooks(pkgRoot: string): void {
   }
   settings.hooks = hooks;
   for (const event of ["SessionStart", "Stop", "Notification"] as const) {
-    const command = claudeHookCommand(shim, event, runtime);
+    const command = claudeHookCommand(shim, event, runtime, orchDir());
     const entries = hooks[event];
     if (entries !== undefined && !Array.isArray(entries)) {
       process.stderr.write(`  warning: ${claudeSettingsPath} has a non-array ${event} hook value; skipped\n`);
@@ -346,13 +345,32 @@ class ClaudeAdapter implements AgentAdapter {
     if (!isRecord(settings)) return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
 
     const shim = claudeHookShimPath(packageRoot());
+    // Registration in ~/.claude/settings.json is necessary but NOT sufficient:
+    // the hook command names a file, and claude will fail at agent runtime if
+    // that file is absent. Never report a path as evidence of health without
+    // confirming it exists (design D7).
+    if (!fs.existsSync(shim)) {
+      return { id, label, status: "warn", detail: `${shim} is missing; fix: run orch setup` };
+    }
+    // Expect the hook installed under the DECLARED runtime, not "any runtime orch
+    // recognizes". Accepting all of ORCH_RUNTIMES here made the declaration
+    // unenforced: a hook left behind under a different runtime read as current,
+    // which is the exact drift the runtime key exists to surface.
+    let runtime: OrchRuntime;
+    try {
+      runtime = declaredRuntime(orchDir());
+    } catch {
+      // checkConfig owns the malformed-settings detail; a broken config must not
+      // crash an unrelated diagnostic.
+      return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
+    }
     const missing: string[] = [];
     for (const event of ["SessionStart", "Stop", "Notification"] as const) {
-      const expected = new Set(CLAUDE_HOOK_RUNTIMES.map((runtime) => claudeHookCommand(shim, event, runtime)));
+      const expected = claudeHookCommand(shim, event, runtime, orchDir());
       const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
       const present = Array.isArray(entries) && entries.some((entry) =>
         isRecord(entry) && Array.isArray(entry.hooks) && entry.hooks.some((hook) =>
-          isRecord(hook) && hook.type === "command" && typeof hook.command === "string" && expected.has(hook.command)));
+          isRecord(hook) && hook.type === "command" && typeof hook.command === "string" && hook.command === expected));
       if (!present) missing.push(event);
     }
     return missing.length

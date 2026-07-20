@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireCommandLock, matchesLockedCommand, readCommandLock, releaseCommandLock } from "../src/cmd-lock.ts";
 import { cmdLock } from "../src/commands/lock.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
 function tempDirectory(): string {
@@ -61,7 +62,7 @@ describe("command lock", () => {
     expect(matchesLockedCommand(["bun", "test", "x"], ["bun   test"])).toBe(true);
     expect(matchesLockedCommand(["bun", "test"], [""])).toBe(false);
     const directory = tempDirectory();
-    writeFileSync(join(directory, "settings.json"), JSON.stringify({ schemaVersion: 1, locked_commands: ["bun test", "npm run build"] }));
+    writeSettingsFixture(directory, { locked_commands: ["bun test", "npm run build"] });
     const previousDir = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
     try {

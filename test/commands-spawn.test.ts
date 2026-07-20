@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { launchesPi, parseSpawnFlags, workerPrompt } from "../src/commands/spawn.ts";
+import { parseSpawnFlags, workerPrompt } from "../src/commands/spawn.ts";
+import { launchesPi } from "../src/adapters/pi.ts";
 
 describe("commands/spawn", () => {
   test("parses spawn flags and rejects no implicit adapter assumptions", () => expect(parseSpawnFlags(["2", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["2"], adapterFlag: "claude", backendFlag: "headless", json: true }));

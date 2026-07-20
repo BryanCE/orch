@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { seedStatus } from "./helpers/presence.ts";
 
 /** One synthetic tmux pane row served by the fake `list-panes -a` query. */
 interface FakePane {
@@ -123,9 +124,7 @@ const fakeAdapter: AgentAdapter = {
 };
 
 function writeStatus(key: string, status: Record<string, unknown>): void {
-  const dir = path.join(testOrchDir, "agents", key);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify(status));
+  seedStatus(testOrchDir, key, status);
 }
 
 function callArgs(file: string, cmd: string): string[] | undefined {

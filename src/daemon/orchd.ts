@@ -5,10 +5,9 @@ import {
   releaseDaemonLock,
 } from "./lifecycle.ts";
 import { rpcCall, startRpcServer, type RpcServer } from "./rpc.ts";
-import { loadConfig, type OrchConfig } from "../config.ts";
-import { loadSinks, type Sink } from "../notify.ts";
+import { loadConfig, watchConfig, type ConfigWatch, type OrchConfig } from "../config.ts";
+import { loadSinks, type Sink } from "../notify/router.ts";
 import { runWorkLoop } from "../work.ts";
-import { startConfigWatch, type ConfigWatch } from "./configwatch.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
 import { orchDir } from "../store.ts";
 import { errorMessage } from "../util.ts";
@@ -204,7 +203,7 @@ async function main(): Promise<void> {
   }
 
   let configLoaded = false;
-  configWatch = startConfigWatch(directory, {
+  configWatch = watchConfig(directory, {
     onChange: (config) => {
       currentConfig = config;
       sinks = undefined;

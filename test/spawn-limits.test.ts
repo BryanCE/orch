@@ -3,10 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/config.ts";
-import { runDoctor, applyFixes } from "../src/doctor.ts";
+import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
 import { liveSpawnCounts } from "../src/commands/spawn.ts";
 import { presenceAgentDir, type PresenceEntry, type SpawnedRecord } from "../src/store.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedStatusInDir } from "./helpers/presence.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
@@ -20,9 +22,8 @@ function tempDir(): string {
 
 function presence(key: string, workspace: string, pid = process.pid): PresenceEntry {
   const dir = presenceAgentDir(key);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({ key, workspace, pid }));
-  return { key, dir, status: { key, workspace, pid }, result: null, alive: pid === process.pid };
+  seedStatusInDir(dir, { key, workspace, pid });
+  return { key, dir, status: { schema: PRESENCE_SCHEMA, key, workspace, pid }, result: null, alive: pid === process.pid };
 }
 
 function records(entries: [string, string, number?][]): { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> } {
@@ -56,7 +57,9 @@ describe("spawn limits", () => {
   });
 
   test("omitted limits normalize to no caps", () => {
-    expect(loadConfig(tempDir()).limits).toEqual({});
+    const dir = tempDir();
+    writeSettingsFixture(dir);
+    expect(loadConfig(dir).limits).toEqual({});
   });
 
   test("global boundary refusal data counts the whole request", () => {

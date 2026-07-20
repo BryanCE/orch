@@ -24,22 +24,60 @@ import {
   readPaneLabels,
   registerBlockedSignalRelay,
   registerPaneStateHud,
-  type BridgeNotifyEvent,
-  type PaneHudEventBus,
-  type PaneHudOptions,
-  type PaneHudRegistrar,
-  type PaneLabels,
-  type PaneStatusSnapshot,
 } from "./herdr/hud.ts";
 
-export type {
-  BridgeNotifyEvent,
-  PaneHudEventBus,
-  PaneHudOptions,
-  PaneHudRegistrar,
-  PaneLabels,
-  PaneStatusSnapshot,
-};
+/** Canonical state-change payload a bridge hands to the notifier. */
+import type { NotifyEvent } from "../notify/format.ts";
+export type BridgeNotifyEvent = NotifyEvent;
+
+/**
+ * Session/UI surface a HUD handler reads off the harness context. Structural on
+ * purpose: the HUD never imports a harness SDK type.
+ */
+export interface PaneHudContext {
+  hasUI?: boolean;
+  isIdle?: () => boolean;
+  sessionManager?: {
+    getSessionFile?: () => unknown;
+    getSessionId?: () => unknown;
+  };
+}
+
+/**
+ * Harness-neutral lifecycle registrar. The harness composition root adapts its
+ * own typed event names onto these four calls.
+ */
+export interface PaneHudRegistrar {
+  onSessionStart(handler: (ctx: PaneHudContext) => void): void;
+  onAgentStart(handler: (ctx: PaneHudContext) => void): void;
+  onAgentEnd(handler: (event: { messages?: unknown[] }) => void): void;
+  onSessionShutdown(handler: (event: { reason?: string }) => Promise<void> | void): void;
+}
+
+/** The harness's shared event bus, used for the plexer's own out-of-band signals. */
+export interface PaneHudEventBus {
+  on(channel: string, handler: (data: unknown) => void): unknown;
+}
+
+export interface PaneHudOptions {
+  /** Agent/harness id reported to the plexer (e.g. the harness's own adapter id). */
+  agentId: string;
+  /** Bridge code hash, forwarded so the plexer can detect a stale in-pane bridge. */
+  extensionHash: string;
+}
+
+/** Agent snapshot the custom-status line is derived from. */
+export interface PaneStatusSnapshot {
+  state: string;
+  task?: string;
+  cost: number;
+}
+
+/** Pane and tab display labels as the plexer reports them. */
+export interface PaneLabels {
+  label: string | null;
+  tabLabel: string | null;
+}
 
 /** Everything a harness shim may ask of the pane it is running in. */
 export interface PaneHud {

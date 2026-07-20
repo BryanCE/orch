@@ -14,6 +14,7 @@
  */
 import { codexAdapter } from "../../src/adapters/codex.ts";
 import { parseIdentity } from "../../src/backends/identity.ts";
+import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
 import { isRecord, type JsonRecord } from "../../src/util.ts";
@@ -48,9 +49,8 @@ function agentPid(): number {
 // record, exit silently. Only a present-but-malformed key is a wiring error.
 const key = process.env.ORCH_AGENT_KEY;
 if (!key) process.exit(0);
-let identity: ReturnType<typeof parseIdentity>;
 try {
-  identity = parseIdentity(key);
+  parseIdentity(key);
 } catch (error: unknown) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
@@ -64,7 +64,7 @@ if (!directory) process.exit(0);
 
 const previous = readStatus(directory);
 const now = new Date().toISOString();
-const paneId = identity.backend === "herdr" ? identity.handle : null;
+const paneId = activePaneHud().paneHandle;
 // Every codex notify event today is `agent-turn-complete`, fired only after a
 // settled successful turn (design D1) — synthesizing exitCode: 0 here (never
 // inside detectState itself) is what makes that resolve to "done" rather than

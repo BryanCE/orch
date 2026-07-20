@@ -100,6 +100,7 @@ const extensionFiles = scanDirectory("extensions", new Set(), (line, relPath) =>
   if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in extensions";
   if (line.includes("process.env.HERDR")) return "process.env.HERDR is forbidden in extensions";
   if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden in extensions";
+  if (/["'](herdr|tmux)["']/.test(line)) return "quoted herdr/tmux literals are forbidden in extensions";
   return undefined;
   // Recursive: each harness owns extensions/<harness>/, so every file is one level down.
 }, true);

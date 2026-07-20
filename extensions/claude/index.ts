@@ -17,6 +17,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parseIdentity } from "../../src/backends/identity.ts";
+import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
 import { isRecord, type JsonRecord } from "../../src/util.ts";
@@ -125,9 +126,8 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
 // record, exit silently. Only a present-but-malformed key is a wiring error.
 const key = process.env.ORCH_AGENT_KEY;
 if (!key) process.exit(0);
-let identity: ReturnType<typeof parseIdentity>;
 try {
-  identity = parseIdentity(key);
+  parseIdentity(key);
 } catch (error: unknown) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
@@ -137,7 +137,7 @@ const input = readStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const pid = agentPid(input);
-const paneId = identity.backend === "herdr" ? identity.handle : null;
+const paneId = activePaneHud().paneHandle;
 const directory = ensurePresenceAgentDir(key);
 if (!directory) process.exit(0);
 

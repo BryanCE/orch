@@ -4,14 +4,23 @@
 // agent harness: pane custom-status metadata, pane/tab label lookup, the pane
 // agent-state machine (working / blocked / idle), the `herdr:blocked` signal,
 // and desktop notifications. CLAUDE.md Rule 10 forbids backend-gated code from
-// living under `extensions/<harness>/`, so a harness bridge imports this module
-// from its composition root and drives it through the narrow, harness-neutral
-// registrar callbacks below — no herdr socket, event name, or shell-out ever
-// appears inside a harness directory.
+// living under `extensions/<harness>/`, so harness shims depend on the
+// plexer-neutral port (`src/backends/hud.ts`) and never import this module;
+// the port wires these functions in as its herdr provider — no herdr socket,
+// event name, or shell-out ever appears inside a harness directory.
 import { createConnection } from "node:net";
 import { execFile } from "node:child_process";
 import { tryParseIdentity } from "../identity.ts";
-import { workspaceOf } from "../../policy/workspace.ts";
+import type {
+  BridgeNotifyEvent,
+  PaneHudContext,
+  PaneHudEventBus,
+  PaneHudOptions,
+  PaneHudRegistrar,
+  PaneLabels,
+  PaneStatusSnapshot,
+} from "../hud.ts";
+import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
 
@@ -22,42 +31,6 @@ const HERDR_INTEGRATION_ACTIVE =
   HERDR_ENV === "1" && !!HERDR_SOCKET_PATH && AGENT_IDENTITY?.backend === "herdr";
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
-
-/**
- * Session/UI surface a HUD handler reads off the harness context. Structural on
- * purpose: the HUD never imports a harness SDK type.
- */
-export interface PaneHudContext {
-  hasUI?: boolean;
-  isIdle?: () => boolean;
-  sessionManager?: {
-    getSessionFile?: () => unknown;
-    getSessionId?: () => unknown;
-  };
-}
-
-/**
- * Harness-neutral lifecycle registrar. The harness composition root adapts its
- * own typed event names onto these four calls.
- */
-export interface PaneHudRegistrar {
-  onSessionStart(handler: (ctx: PaneHudContext) => void): void;
-  onAgentStart(handler: (ctx: PaneHudContext) => void): void;
-  onAgentEnd(handler: (event: { messages?: unknown[] }) => void): void;
-  onSessionShutdown(handler: (event: { reason?: string }) => Promise<void> | void): void;
-}
-
-/** The harness's shared event bus, used for the plexer's own out-of-band signals. */
-export interface PaneHudEventBus {
-  on(channel: string, handler: (data: unknown) => void): unknown;
-}
-
-export interface PaneHudOptions {
-  /** Agent/harness id reported to herdr (e.g. the harness's own adapter id). */
-  agentId: string;
-  /** Bridge code hash, forwarded so herdr can detect a stale in-pane bridge. */
-  extensionHash: string;
-}
 
 /** Herdr pane handle for this process, or null when this is not a herdr pane. */
 export function herdrPaneHandle(): string | null {
@@ -119,13 +92,6 @@ function sendHerdrMetadata(customStatus: string): void {
   }
 }
 
-/** Agent snapshot the custom-status line is derived from. */
-export interface PaneStatusSnapshot {
-  state: string;
-  task?: string;
-  cost: number;
-}
-
 /**
  * Builds the pane custom-status reporter. Returns a no-op-ish sink that only
  * emits when this process owns the herdr pane it would report against and the
@@ -166,12 +132,6 @@ interface HerdrEntityLike {
   pane_id?: unknown;
   tab_id?: unknown;
   label?: unknown;
-}
-
-/** Pane and tab display labels as herdr reports them. */
-export interface PaneLabels {
-  label: string | null;
-  tabLabel: string | null;
 }
 
 function runHerdrJson(args: string[]): Promise<unknown> {
@@ -242,72 +202,8 @@ export async function readPaneLabels(apply: (labels: PaneLabels) => void): Promi
 
 // ---- desktop notifications ----
 
-/** Canonical state-change payload a bridge hands to the notifier. */
-export interface BridgeNotifyEvent {
-  key: string;
-  workspace?: string;
-  agent: string | null;
-  tab: string | null;
-  model: string | null;
-  oldState: string;
-  newState: string;
-  task?: string;
-  cost?: number;
-  ts: string;
-  lastError?: string;
-}
-
-const BRIDGE_WORKSPACE_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"] as const;
-const BRIDGE_WORKSPACE_ANSI = [34, 32, 33, 31, 35, 36, 35, 34] as const;
-
-function bridgeWorkspace(event: BridgeNotifyEvent): string {
-  return event.workspace ?? workspaceOf(event.key) ?? event.key.split(":", 1)[0]!;
-}
-
-function bridgeWorkspaceColor(workspace: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < workspace.length; index++) {
-    hash ^= workspace.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return BRIDGE_WORKSPACE_COLORS[(hash >>> 0) % BRIDGE_WORKSPACE_COLORS.length]!;
-}
-
-function bridgeOneLine(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-/** Standalone copy of src/notify.ts's canonical outcome-first formatter. */
-function bridgeNotificationText(event: BridgeNotifyEvent): { title: string; body: string } {
-  const workspace = bridgeWorkspace(event);
-  const agent = event.agent ?? event.key;
-  const state = bridgeOneLine(event.newState || "unknown").toUpperCase();
-  let summary = event.task ?? "state changed";
-  if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
-  else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
-  summary = bridgeOneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
-  const workspaceLabel = `[${workspace}]`;
-  const colorIndex = (() => {
-    let hash = 2166136261;
-    for (let index = 0; index < workspace.length; index++) {
-      hash ^= workspace.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-    return (hash >>> 0) % BRIDGE_WORKSPACE_ANSI.length;
-  })();
-  const coloredWorkspace = `\u001b[${BRIDGE_WORKSPACE_ANSI[colorIndex]!}m${workspaceLabel}\u001b[0m`;
-  const title = `${state} ${coloredWorkspace} ${agent}: ${summary}`;
-  const details: string[] = [title, `Workspace: ${workspace} (${bridgeWorkspaceColor(workspace)})`];
-  if (event.tab) details.push(`Tab: ${event.tab}`);
-  if (event.model) details.push(`Model: ${event.model}`);
-  if (event.task && event.newState !== "blocked") details.push(`Task: ${bridgeOneLine(event.task)}`);
-  if (event.lastError && event.newState !== "error") details.push(`Error: ${bridgeOneLine(event.lastError)}`);
-  if (typeof event.cost === "number") details.push(`Cost: $${event.cost.toFixed(2)}`);
-  return { title, body: details.join("\n") };
-}
-
 export function notifyHerdr(event: BridgeNotifyEvent): void {
-  const { title, body } = bridgeNotificationText(event);
+  const { title, body } = notificationText(event, { colorize: true });
   try {
     execFile("herdr", ["notification", "show", title, "--body", body, "--sound", "request", "--position", "bottom-left"], () => {
       /* noop */
@@ -367,8 +263,8 @@ export function registerPaneStateHud(
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
   }
 
-  const idleDebounceMs = parseDurationEnv("HERDR_PI_IDLE_DEBOUNCE_MS", 250);
-  const retryGraceMs = parseDurationEnv("HERDR_PI_RETRY_GRACE_MS", 2500);
+  const idleDebounceMs = parseDurationEnv("HERDR_IDLE_DEBOUNCE_MS", 250);
+  const retryGraceMs = parseDurationEnv("HERDR_RETRY_GRACE_MS", 2500);
   const retryableErrorPattern =
     /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
 

@@ -3,9 +3,9 @@ import * as path from "node:path";
 // Codex's notify wire format lives here, in the codex adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
 // purpose — imported by both the adapter's installShim() and the bundled
-// scripts/codex-notify.ts shim without pulling either's graph into the other.
+// extensions/codex/index.ts shim without pulling either's graph into the other.
 
-/** Built notify shim inside a package root (source: scripts/codex-notify.ts); plain ESM JS any runtime can run. */
+/** Built notify shim inside a package root (source: extensions/codex/index.ts); plain ESM JS any runtime can run. */
 export function codexNotifyShimPath(root: string): string {
   return path.join(root, "dist", "scripts", "codex-notify.js");
 }

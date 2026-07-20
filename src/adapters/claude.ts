@@ -236,7 +236,7 @@ function installClaudeAgents(pkgRoot: string): void {
  * SessionStart, `blocked` on Notification, `done`/`idle` on Stop, and nothing
  * in between — Claude's hooks fire only at those three points, so there are
  * no mid-run tool/token/cost transitions the way pi's live extension reports
- * them. State and session-tail data are supplied by scripts/claude-hooks.ts.
+ * them. State and session-tail data are supplied by extensions/claude/index.ts.
  */
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;

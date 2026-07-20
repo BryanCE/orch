@@ -6,7 +6,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { SETTINGS_SCHEMA } from "../src/config.ts";
 import { readCommandLock, releaseCommandLock } from "../src/cmd-lock.ts";
 
-// The pi-bridge command-lock interception (extensions/orchestrator-bridge.ts):
+// The pi-bridge command-lock interception (extensions/pi/index.ts):
 //   pi.on("tool_execution_start", ...) acquires the machine-wide cmd-lock before
 //   a bash tool call whose command matches a configured `locked_commands` entry,
 //   keyed by the tool-call id; pi.on("tool_execution_end", ...) releases it.
@@ -26,7 +26,7 @@ writeFileSync(
   JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, locked_commands: [LOCKED_COMMAND] }),
 );
 
-const orchestratorBridgeExtension = (await import("../extensions/orchestrator-bridge.ts")).default;
+const orchestratorBridgeExtension = (await import("../extensions/pi/index.ts")).default;
 
 afterAll(() => {
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;

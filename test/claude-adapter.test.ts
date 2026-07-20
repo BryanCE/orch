@@ -8,7 +8,7 @@ import { serializeIdentity } from "../src/backends/identity.ts";
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
 const { claudeAdapter } = await import("../src/adapters/claude.ts");
-const hookScript = join(import.meta.dir, "../scripts/claude-hooks.ts");
+const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
 // The hook receives its identity only through the opaque serialized key.
 const fakeKey = serializeIdentity({ backend: "herdr", workspace: "w9", handle: "p1" });
 

@@ -19,11 +19,11 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { checkWall, scopeToWorkspace, workspaceOf } from "../src/policy/workspace.ts";
-import { allowedModelPatterns, loadConfig } from "../src/config.ts";
-import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../src/cmd-lock.ts";
-import { serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
-import { PRESENCE_SCHEMA } from "../src/presence-schema.ts";
+import { checkWall, scopeToWorkspace, workspaceOf } from "../../src/policy/workspace.ts";
+import { allowedModelPatterns, loadConfig } from "../../src/config.ts";
+import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../../src/cmd-lock.ts";
+import { serializeIdentity, tryParseIdentity } from "../../src/backends/identity.ts";
+import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 
 // The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
 function hashExtensionFile(file: string): string {

@@ -65,7 +65,8 @@ const extensionFiles = scanDirectory("extensions", new Set(), (line) => {
   if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in extensions";
   if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden in extensions";
   return undefined;
-});
+  // Recursive: each harness owns extensions/<harness>/, so every file is one level down.
+}, true);
 
 const scriptFiles = scanDirectory("scripts", new Set(["check-bridge.ts"]), (line) => {
   if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in scripts";

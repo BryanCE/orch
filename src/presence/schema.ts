@@ -1,5 +1,5 @@
-// Leaf module on purpose: the bundled writers (extensions/orchestrator-bridge.ts,
-// scripts/claude-hooks.ts) inline their imports and must not drag store.ts's
+// Leaf module on purpose: the bundled writers (extensions/pi/index.ts,
+// extensions/claude/index.ts) inline their imports and must not drag store.ts's
 // sqlite graph into their bundles.
 
 /** The one presence status.json schema. Pre-publish there is no legacy support:

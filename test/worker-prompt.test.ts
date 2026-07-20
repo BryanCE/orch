@@ -10,7 +10,7 @@ import { addTask, listTasks } from "../src/queue.ts";
 import { recordSpawned, presenceAgentDir } from "../src/store.ts";
 import { runWorkLoop } from "../src/work.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
-import { PRESENCE_SCHEMA } from "../src/presence-schema.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 
 void mock.module("../src/commands/daemon.ts", () => ({

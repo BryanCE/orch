@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import { editCodexNotifyConfig } from "../src/adapters/codex-notify.ts";
-import { PRESENCE_SCHEMA } from "../src/presence-schema.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import {
   CODEX_STATE_FALLBACK_MARKER,
   CODEX_TURN_COMPLETE,
@@ -99,7 +99,7 @@ describe("CodexAdapter", () => {
     try {
       const key = "headless~local~notify-test";
       const payload = JSON.stringify({ type: CODEX_TURN_COMPLETE, "last-assistant-message": "finished" });
-      const result = Bun.spawnSync([process.execPath, "scripts/codex-notify.ts", payload], {
+      const result = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
         cwd: path.join(import.meta.dir, ".."),
         env: { ...process.env, ORCH_DIR: orchDir, ORCH_AGENT_KEY: key },
       });
@@ -112,7 +112,7 @@ describe("CodexAdapter", () => {
       expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-")).length).toBe(0);
 
       fs.rmSync(orchDir, { recursive: true, force: true });
-      const silent = Bun.spawnSync([process.execPath, "scripts/codex-notify.ts", payload], {
+      const silent = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
         cwd: path.join(import.meta.dir, ".."),
         env: { ...process.env, ORCH_DIR: orchDir, ORCH_AGENT_KEY: "" },
       });

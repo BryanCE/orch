@@ -36,7 +36,7 @@ export function removePresenceAgentDir(dir: string): void {
 }
 
 export interface PresenceStatus {
-  /** Must equal PRESENCE_SCHEMA (src/presence-schema.ts); anything else is malformed. */
+  /** Must equal PRESENCE_SCHEMA (src/presence/schema.ts); anything else is malformed. */
   schema?: number;
   agent?: string;
   key?: string;

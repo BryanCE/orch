@@ -12,7 +12,7 @@ import { allBackends, getBackend } from "./backends/registry.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { presenceDir, presenceKeyFromDirectoryName } from "./store.ts";
 import { resolveAdapter } from "./adapters/registry.ts";
-import { PRESENCE_SCHEMA } from "./presence-schema.ts";
+import { PRESENCE_SCHEMA } from "./presence/schema.ts";
 import { packageRoot } from "./util.ts";
 import type { CheckResult, DoctorBackendReport, IgnoredPresenceRecord } from "./doctor-types.ts";
 export type { CheckResult } from "./doctor-types.ts";

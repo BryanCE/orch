@@ -14,9 +14,9 @@
 import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { codexAdapter } from "../src/adapters/codex.ts";
-import { parseIdentity } from "../src/backends/identity.ts";
-import { PRESENCE_SCHEMA } from "../src/presence-schema.ts";
+import { codexAdapter } from "../../src/adapters/codex.ts";
+import { parseIdentity } from "../../src/backends/identity.ts";
+import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 
 const ORCH_DIR = process.env.ORCH_DIR ?? join(homedir(), ".orch");
 const PRESENCE_ROOT = join(ORCH_DIR, "agents");

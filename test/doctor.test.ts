@@ -112,7 +112,7 @@ describe("runDoctor", () => {
     fs.mkdirSync(agent, { recursive: true });
     fs.writeFileSync(path.join(agent, "status.json"), JSON.stringify({
       pid: process.pid,
-      extensionHash: computeCodeHash(path.join(import.meta.dir, "../extensions/orchestrator-bridge.ts")),
+      extensionHash: computeCodeHash(path.join(import.meta.dir, "../extensions/pi/index.ts")),
     }));
 
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));

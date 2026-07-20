@@ -5,7 +5,7 @@ import * as path from "node:path";
 // purpose — imported by both the adapter's installShim and doctor's hook check
 // without pulling either's graph into the other.
 
-/** Built hook shim inside a package root (source: scripts/claude-hooks.ts); plain ESM JS any runtime can run. */
+/** Built hook shim inside a package root (source: extensions/claude/index.ts); plain ESM JS any runtime can run. */
 export function claudeHookShimPath(root: string): string {
   return path.join(root, "dist", "scripts", "claude-hooks.js");
 }

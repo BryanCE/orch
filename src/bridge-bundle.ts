@@ -14,8 +14,15 @@ export const PI_EXTENSION_NAMES = ["orchestrator-bridge"] as const;
 
 export type PiExtensionName = (typeof PI_EXTENSION_NAMES)[number];
 
+/** Source directory per shipped extension: each harness owns extensions/<harness>/.
+ * The bundle OUTPUT name is unrelated to the directory — it stays the name pi's
+ * loader and doctor's staleness check already know. */
+const PI_EXTENSION_SOURCE_DIR: Record<PiExtensionName, string> = {
+  "orchestrator-bridge": "pi",
+};
+
 function extensionSourcePath(root: string, name: PiExtensionName): string {
-  return path.join(root, "extensions", `${name}.ts`);
+  return path.join(root, "extensions", PI_EXTENSION_SOURCE_DIR[name], "index.ts");
 }
 
 export function extensionBundlePath(root: string, name: PiExtensionName): string {

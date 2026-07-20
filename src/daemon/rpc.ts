@@ -34,6 +34,10 @@ export class RpcError extends Error {
 export interface RpcServerOptions {
   /** Allow one stale unix endpoint to be removed during daemon boot. */
   holdsDaemonLock?: boolean;
+  /** TCP port to bind on loopback alongside the unix socket. */
+  tcpPort?: number;
+  /** Report a TCP bind failure without taking down the unix listener. */
+  onTcpError?: (error: unknown, port: number) => void;
 };
 
 export interface BufferedEvent {
@@ -80,6 +84,7 @@ export interface RpcServer {
   readonly transport: "unix" | "tcp";
   readonly socketPath: string;
   readonly portFile: string;
+  readonly tcpEndpoint?: string;
 }
 
 interface RpcResponse {
@@ -310,13 +315,15 @@ export async function startRpcServer(
   const subscriptions = new Set<Socket>();
   const sockets = new Set<Socket>();
   const replayBuffer = new ReplayBuffer();
-  const server = createServer((socket) => {
+  const attach = (socket: Socket): void => {
     sockets.add(socket);
     attachConnection(socket, handlers, subscriptions, replayBuffer);
     socket.once("close", () => sockets.delete(socket));
-  });
+  };
+  const server = createServer(attach);
   let transport: "unix" | "tcp";
-  let port = 0;
+  let tcpServer: Server | undefined;
+  let tcpEndpoint: string | undefined;
   try {
     await listen(server, paths.socket);
     transport = "unix";
@@ -333,51 +340,71 @@ export async function startRpcServer(
         try {
           unlinkSync(paths.port);
         } catch {}
-        return makeRpcServer(server, sockets, subscriptions, replayBuffer, paths, transport);
+        tcpServer = await startTcpServer(handlers, subscriptions, replayBuffer, sockets, options, paths);
+        tcpEndpoint = tcpServer ? `tcp://127.0.0.1:${options.tcpPort}` : undefined;
+        return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
       } catch {
         // A live endpoint or an unremovable path still requires TCP fallback.
       }
     }
-    try {
-      server.close();
-    } catch {}
-    const tcpServer = createServer((socket) => {
-      sockets.add(socket);
-      attachConnection(socket, handlers, subscriptions, replayBuffer);
-      socket.once("close", () => sockets.delete(socket));
-    });
-    await listen(tcpServer, { host: "127.0.0.1", port: 0 });
-    port = (tcpServer.address() as { port: number }).port;
-    writeFileSync(paths.port, `${port}\n`, { mode: 0o600 });
+    try { server.close(); } catch {}
+    tcpServer = createServer(attach);
+    await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
+    const boundPort = (tcpServer.address() as { port: number }).port;
+    writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
     transport = "tcp";
-    return makeRpcServer(tcpServer, sockets, subscriptions, replayBuffer, paths, transport);
+    tcpEndpoint = `tcp://127.0.0.1:${boundPort}`;
+    return makeRpcServer(tcpServer, undefined, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
   }
-  return makeRpcServer(server, sockets, subscriptions, replayBuffer, paths, transport);
+  tcpServer = await startTcpServer(handlers, subscriptions, replayBuffer, sockets, options, paths);
+  tcpEndpoint = tcpServer ? `tcp://127.0.0.1:${options.tcpPort}` : undefined;
+  return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
+}
+
+async function startTcpServer(
+  handlers: RpcHandlers,
+  subscriptions: Set<Socket>,
+  replayBuffer: ReplayBuffer,
+  sockets: Set<Socket>,
+  options: RpcServerOptions,
+  paths: { socket: string; port: string },
+): Promise<Server | undefined> {
+  const port = options.tcpPort;
+  if (port === undefined) return undefined;
+  const tcpServer = createServer((socket) => {
+    sockets.add(socket);
+    attachConnection(socket, handlers, subscriptions, replayBuffer);
+    socket.once("close", () => sockets.delete(socket));
+  });
+  try {
+    await listen(tcpServer, { host: "127.0.0.1", port });
+    writeFileSync(paths.port, `${port}\n`, { mode: 0o600 });
+    return tcpServer;
+  } catch (error: unknown) {
+    try { tcpServer.close(); } catch {}
+    options.onTcpError?.(error, port);
+    return undefined;
+  }
 }
 
 function makeRpcServer(
   server: Server,
+  tcpServer: Server | undefined,
   sockets: Set<Socket>,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
   paths: { socket: string; port: string },
   transport: "unix" | "tcp",
+  tcpEndpoint?: string,
 ): RpcServer {
   const close = async (): Promise<void> => {
     for (const socket of sockets) socket.destroy();
-    await new Promise<void>((resolve) => {
-      if (!server.listening) return resolve();
-      server.close(() => resolve());
-    });
-    if (transport === "unix") {
-      try {
-        unlinkSync(paths.socket);
-      } catch {}
-    } else {
-      try {
-        unlinkSync(paths.port);
-      } catch {}
-    }
+    await Promise.all([server, tcpServer].filter((value): value is Server => value !== undefined).map((listener) => new Promise<void>((resolve) => {
+      if (!listener.listening) return resolve();
+      listener.close(() => resolve());
+    })));
+    try { unlinkSync(paths.socket); } catch {}
+    try { unlinkSync(paths.port); } catch {}
     subscriptions.clear();
   };
   return {
@@ -390,6 +417,7 @@ function makeRpcServer(
     transport,
     socketPath: paths.socket,
     portFile: paths.port,
+    tcpEndpoint,
   };
 }
 

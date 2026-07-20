@@ -1,8 +1,7 @@
 # orch-web — runbook
 
-Self-contained TanStack Start app (its own `package.json` + install), structure
-mirrored from `WebApps/workspace-onboarding`. **Not yet wired to orch** — this is
-the base scaffold. Boot it first, then we tie in the daemon.
+Self-contained TanStack Start app (its own `package.json` + install), with a TCP
+JSON-RPC boundary to orchd and an SSE event bridge.
 
 ## 1. Install + run (you run these — I can't run bun/dev servers)
 
@@ -51,27 +50,29 @@ packages/web/
 
 Workspace display: **name is the title, herdr id (`wD`) is a muted secondary** — real
 data resolves the name from herdr's workspace list (the CLI does the same). Everything
-renders off `src/lib/mock-fleet.ts` today; wiring = replace that module with server fns
-reading `loadPresence()` + `subscribeEvents()` (see §3).
+renders from server data when the daemon exposes the required topology RPC. The web
+server never reads `$ORCH_DIR`.
 
 Deliberately NOT copied: domain routes/components/servers (vici, lms, wiw, google,
 onboard, intake, print, sigs), domain hooks, `env.ts`, drizzle/db.
 
-## 3. NEXT — wire to orch (do after the base boots)
+## 3. Daemon connection
 
-The daemon (`orchd`) surface the UI binds to (already exists, no new HTTP API needed):
-- **Reads** (topology): `import { loadPresence, spawnedRecords } from '<orch>/src/presence/store.ts'`,
-  group by `workspaceOf(key)` then `owner`. Agent key grammar: `<backend>~<workspace>~<handle>`.
-- **Live events**: `subscribeEvents(orchDir, {since}, onEvent)` from `src/daemon/rpc.ts`
-  → re-emit as **SSE** from a server route (`src/routes/api/events.ts`, returns a
-  `ReadableStream` of `text/event-stream`) → browser `EventSource` → TanStack DB collections.
-- **Writes** (control, first-class): server fns calling `rpcCall(orchDir, 'dispatch'|'steer'|'set-model', params)`.
-  Governance (workspace wall + ownership) is enforced daemon-side for free.
+The web server connects to orchd over TCP:
 
-Route plan: `/` god-view → `/ws/$slug` workspace detail → `/ws/$slug/agent/$handle` focus panel.
+- `ORCH_DAEMON_HOST` — daemon host, default `127.0.0.1`.
+- `ORCH_DAEMON_PORT` — daemon TCP port, default `3716`.
 
-**Runtime note (orch Rule 6):** orch's `src/` is node-safe. The SSE bridge/server fns
-run under nitro(node) — keep any orch imports node-safe, no `Bun.*`.
+All RPC connection/refused/reset failures become `{ daemon: "down" }`; they never
+escape a server function or kill Vite. `GET /api/events` bridges `subscribe-events`
+to SSE, sends a comment heartbeat every 15 seconds, and reconnects with bounded
+backoff. Browser reconnect is handled by native `EventSource`.
+
+### Missing daemon RPC
+
+The daemon currently exposes no presence/topology read RPC. `getFleet` returns
+`{ daemon: "missing-rpc", rpc: "presence" }` rather than reading `$ORCH_DIR`.
+Add that daemon RPC before wiring live fleet cards.
 
 ## 4. LATER — monorepo extraction (the "move daemon and all that" step)
 

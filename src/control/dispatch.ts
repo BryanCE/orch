@@ -16,7 +16,7 @@ import type { Backend, BackendHandle } from "../backends/backend.ts";
 
 /** Control effect requested for one live agent. */
 export type ControlAction =
-  | { readonly kind: "steer"; readonly text: string }
+  | { readonly kind: "steer"; readonly text: string; readonly id?: string }
   | { readonly kind: "answer"; readonly text: string }
   | { readonly kind: "model"; readonly model: string };
 
@@ -69,11 +69,11 @@ function requirePresence(target: string, adapter: AgentAdapter, action: string):
   }
 }
 
-async function deliverSteer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<void> {
+async function deliverSteer(target: string, adapter: AgentAdapter, text: string, id: string | undefined, timeoutMs: number): Promise<void> {
   const mechanism = adapter.caps.steer;
   if (mechanism === "none") throw new Error(`cannot steer ${target}: adapter ${adapter.id} declares steer "none"`);
   if (mechanism === "inbox") requirePresence(target, adapter, "steer");
-  const command = adapter.steer({ key: target, text });
+  const command = adapter.steer({ key: target, text, id });
   if (command) {
     await runAdapterCommand(command, timeoutMs);
     return;
@@ -114,7 +114,7 @@ export async function deliverControl(target: string, action: ControlAction): Pro
   const canonicalTarget = normalizeControlTarget(target);
   const adapter = resolveTargetAdapter(canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
-  if (action.kind === "steer") await deliverSteer(canonicalTarget, adapter, action.text, timeoutMs);
+  if (action.kind === "steer") await deliverSteer(canonicalTarget, adapter, action.text, action.id, timeoutMs);
   else if (action.kind === "answer") await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
   else await deliverModel(canonicalTarget, adapter, action.model, timeoutMs);
 }

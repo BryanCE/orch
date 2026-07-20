@@ -87,5 +87,7 @@ export function backendTarget(target: string, command: string): { backend: Backe
   const id = parseIdentity(ent.key);
   const backend = getBackend(id.backend);
   if (!backend) die(`orch ${command}: backend ${JSON.stringify(id.backend)} is not registered.`);
-  return { backend, handle: id.handle };
+  // Resolve the user-facing target once, then pass the backend's real pane
+  // handle. Names are display metadata; herdr pane commands require paneId.
+  return { backend, handle: ent.paneId ?? id.handle };
 }

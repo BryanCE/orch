@@ -232,7 +232,7 @@ export class PiAdapter implements AgentAdapter {
   steer(request: SteerRequest): AdapterCommand | undefined {
     const presence = presenceFor(request.key);
     if (!presence) return undefined;
-    appendInboxLine(presence, { text: request.text });
+    appendInboxLine(presence, { id: request.id, text: request.text });
     return undefined;
   }
 

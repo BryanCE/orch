@@ -20,6 +20,7 @@ export interface DaemonStatus {
   uptimeSec: number;
   codeHash: string;
   socket: string;
+  tcpEndpoint?: string;
 }
 
 function daemonEntrypoint(): string {
@@ -37,7 +38,8 @@ export function validDaemonStatus(value: unknown): value is DaemonStatus {
     && typeof value.startedAt === "string"
     && typeof value.uptimeSec === "number"
     && typeof value.codeHash === "string"
-    && typeof value.socket === "string";
+    && typeof value.socket === "string"
+    && (value.tcpEndpoint === undefined || typeof value.tcpEndpoint === "string");
 }
 
 async function fetchDaemonStatus(timeoutMs = 5000): Promise<DaemonStatus> {
@@ -149,7 +151,7 @@ async function statusDaemon(json: boolean): Promise<void> {
   try {
     const status = await fetchDaemonStatus();
     if (json) process.stdout.write(`${JSON.stringify(status)}\n`);
-    else process.stdout.write(`running (pid ${status.pid}, uptime ${status.uptimeSec}s, hash ${status.codeHash}, ${status.socket})\n`);
+    else process.stdout.write(`running (pid ${status.pid}, uptime ${status.uptimeSec}s, hash ${status.codeHash}, ${status.socket}${status.tcpEndpoint ? `, ${status.tcpEndpoint}` : ""})\n`);
   } catch (error) {
     if (!(error instanceof DaemonAbsentError)) throw error;
     process.stdout.write("not running\n");

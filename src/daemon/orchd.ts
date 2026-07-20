@@ -19,6 +19,9 @@ import { checkWall } from "../policy/workspace.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
 import { normalizeControlTarget } from "../backends/identity.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
+import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities } from "../entities.ts";
+import { deriveView } from "../commands/status.ts";
+import { spawnedRecords } from "../presence/store.ts";
 
 const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
 const bootCodeHash = computeCodeHash(entrypoint);
@@ -38,6 +41,30 @@ function getConfig(directory: string): OrchConfig {
 
 function getSinks(directory: string): Sink[] {
   return sinks ??= loadSinks(directory);
+}
+
+function presenceView(): { rows: Array<Record<string, unknown>> } {
+  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all: true });
+  const spawned = spawnedRecords();
+  return {
+    rows: entities.map((entity) => {
+      const view = deriveView(entity, spawned);
+      return {
+        key: entity.key,
+        paneId: entity.paneId,
+        name: entity.name,
+        agent: view.agent,
+        state: view.state,
+        exited: view.exited,
+        model: view.modelFull,
+        lastText: entity.presence?.status?.lastText ?? null,
+        cost: view.cost,
+        ctxPercent: view.ctxPercent,
+        tokens: view.sview?.tokens ?? entity.presence?.status?.tokens ?? null,
+        workspace: entityWorkspace(entity),
+      };
+    }),
+  };
 }
 
 async function socketAnswers(directory: string): Promise<boolean> {
@@ -75,7 +102,7 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function deliverBackend(target: string, payload: unknown): Promise<boolean> {
+async function deliverBackend(target: string, payload: unknown, id: string): Promise<boolean> {
   const canonicalTarget = normalizeControlTarget(target);
   const value = isWritePayload(payload) ? payload : {};
   const text = requiredString(value.text, "text");
@@ -87,7 +114,7 @@ async function deliverBackend(target: string, payload: unknown): Promise<boolean
   // target with no recorded adapter is a bare pane and gets a plain message.
   if (resolveTargetAdapter(canonicalTarget)) {
     try {
-      await deliverControl(canonicalTarget, { kind: "steer", text });
+      await deliverControl(canonicalTarget, { kind: "steer", text, id });
       return true;
     } catch (error) {
       process.stderr.write(`steer ${canonicalTarget} failed: ${errorMessage(error)}\n`);
@@ -100,7 +127,7 @@ async function deliverBackend(target: string, payload: unknown): Promise<boolean
 
 function outboxDeps(): OutboxDeps {
   return {
-    deliver: (target, payload) => deliverBackend(target, payload),
+    deliver: (target, payload, id) => deliverBackend(target, payload, id),
     now: () => Date.now(),
   };
 }
@@ -176,6 +203,7 @@ async function main(): Promise<void> {
   }
 
   try {
+    const tcpPort = loadConfig(directory).daemon.tcp_port;
     server = await startRpcServer(directory, {
       "daemon-status": () => ({
         pid: process.pid,
@@ -183,6 +211,7 @@ async function main(): Promise<void> {
         uptimeSec: Math.floor((Date.now() - startedAt.getTime()) / 1000),
         codeHash: bootCodeHash,
         socket: server?.transport ?? "unknown",
+        tcpEndpoint: server?.tcpEndpoint,
         subsystems: {
           workLoop: workLoopRunning ? "running" : "stopped",
           presenceWatch: presenceWatch ? "running" : "stopped",
@@ -190,6 +219,7 @@ async function main(): Promise<void> {
         },
       }),
       "subscribe-events": () => ({ subscribed: true }),
+      presence: () => presenceView(),
       dispatch: (params) => acceptWrite(directory, "dispatch", params),
       steer: (params) => acceptWrite(directory, "steer", params),
       "set-model": (params) => setModel(directory, params),
@@ -206,7 +236,11 @@ async function main(): Promise<void> {
         }, 10);
         return { ok: true };
       },
-    }, { holdsDaemonLock: true });
+    }, {
+      holdsDaemonLock: true,
+      tcpPort,
+      onTcpError: (error, port) => process.stderr.write(`orchd TCP listener failed on 127.0.0.1:${port}: ${errorMessage(error)}\n`),
+    });
   } catch (error) {
     releaseDaemonLock(directory);
     throw error;

@@ -60,6 +60,7 @@ export const SETTINGS_DEFAULTS = {
   queue: { max_retries: 1 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false },
+  daemon: { tcp_port: 3716 },
 } as const;
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
@@ -104,6 +105,9 @@ const SettingsFileSchema = z.strictObject({
   locked_commands: z.array(z.string()).optional(),
   hosts: z.record(z.string(), HostSchema).optional(),
   workspaces: z.record(z.string(), z.string()).optional(),
+  daemon: z.strictObject({
+    tcp_port: PositiveInt.optional(),
+  }).optional(),
 });
 
 export type SettingsFile = z.infer<typeof SettingsFileSchema>;
@@ -122,6 +126,7 @@ export interface OrchConfig {
   locked_commands: string[];
   hosts: Record<string, HostConfig>;
   workspaces: Record<string, string>;
+  daemon: { tcp_port: number };
 }
 
 /** The settings filename, as a directory watcher sees it. */
@@ -267,6 +272,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
     locked_commands: root.locked_commands ?? [],
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
+    daemon: { tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port },
   };
 }
 
@@ -509,6 +515,7 @@ export function writeSettingsFullTree(orchDir: string): void {
     locked_commands: root.locked_commands ?? [],
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
+    daemon: { tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port },
   }));
 }
 

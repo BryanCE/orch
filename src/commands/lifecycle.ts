@@ -60,8 +60,8 @@ export function cmdNew(args: string[]) {
   if (!targets.length) die("usage: orch reset <target>... | --all [--json]");
   const results: { target: string; cleared: true; ready: true }[] = [];
   for (const target of targets) {
-    const { ent } = resolvePane(target);
-    const { backend, handle } = backendTarget(target, "reset");
+    const { ent, pane } = resolvePane(target);
+    const { backend, handle } = backendTarget(pane, "reset");
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its reset mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
@@ -180,8 +180,8 @@ export function cmdReload(args: string[]) {
   const results: ReloadResult[] = [];
   for (const target of targets) {
     try {
-      const { ent } = resolvePane(target);
-      const { backend, handle } = backendTarget(target, "reload");
+      const { ent, pane } = resolvePane(target);
+      const { backend, handle } = backendTarget(pane, "reload");
       const agentId = ent.agent ?? ent.presence?.status?.agent;
       if (!agentId) throw new Error(`Target "${target}" has no recorded harness — cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(agentId);
@@ -224,14 +224,14 @@ export function cmdRestart(args: string[]) {
   const config = loadConfig(orchDir());
   let ok = 0;
   for (const target of targets) {
-    const { ent } = resolvePane(target);
+    const { ent, pane } = resolvePane(target);
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its restart mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
     const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
     const launch = cmd ?? adapterCommand(agentId, config);
-    const { backend, handle } = backendTarget(target, "restart");
+    const { backend, handle } = backendTarget(pane, "restart");
     if (!json) process.stdout.write(`Restarting ${handle} (${launch})...\n`);
     if (restartPaneAndAwaitBridge(backend, handle, launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
   }

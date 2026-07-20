@@ -47,6 +47,8 @@ export interface SteerRequest {
   readonly key: string;
   /** Text to deliver to the running agent. */
   readonly text: string;
+  /** Outbox id used to acknowledge lossless inbox delivery. */
+  readonly id?: string;
   /** Session options needed by resume- or keys-based delivery. */
   readonly opts?: SpawnOpts;
 }

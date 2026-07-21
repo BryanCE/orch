@@ -6,7 +6,7 @@ import { z } from "zod";
 // registries — they evaluate every concrete adapter/backend, re-entering this
 // graph mid-initialization. The closed id sets live in the pure port modules.
 import { ADAPTER_IDS } from "./adapters/adapter.ts";
-import { BACKEND_IDS } from "./backends/backend.ts";
+import { BACKEND_IDS, HERDR_SINK_ID } from "./backends/backend.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errorMessage } from "./util.ts";
 
@@ -51,7 +51,7 @@ const NotifyEntrySchema = z.discriminatedUnion("id", [
       z.tuple([z.string().min(1)], z.string()),
     ]),
   }),
-  z.strictObject({ id: z.literal("herdr"), on: NotifyOnSchema }),
+  z.strictObject({ id: z.literal(HERDR_SINK_ID), on: NotifyOnSchema }),
 ]);
 export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 

@@ -7,6 +7,7 @@ import {
   type NotifierConfigField,
 } from "../notify/sinks.ts";
 import type { NotifyEntry } from "../config.ts";
+import { HERDR_SINK_ID } from "../backends/backend.ts";
 
 export interface NotifierChoice {
   id: string;
@@ -76,21 +77,27 @@ export function collectRequiredConfig(
   return missing.length ? { ok: false, missing } : { ok: true, config };
 }
 
+function isCommandArgv(value: unknown): value is [string, ...string[]] {
+  return Array.isArray(value) && value.length > 0 && value.every((part) => typeof part === "string");
+}
+
 /** Render one selected notifier as a strict settings.json `notify` entry. */
 export function renderNotifyEntry(id: string, config: Record<string, unknown>): NotifyEntry {
   switch (id) {
     case "desktop":
       return { id: "desktop", ...(config.on === undefined ? {} : { on: config.on as NotifyEntry["on"] }) };
-    case "herdr":
-      return { id: "herdr", ...(config.on === undefined ? {} : { on: config.on as NotifyEntry["on"] }) };
+    case HERDR_SINK_ID:
+      return { id: HERDR_SINK_ID, ...(config.on === undefined ? {} : { on: config.on as NotifyEntry["on"] }) };
     case "webhook":
-      if (!validFieldValue("url", config.url)) throw new Error("webhook notifier requires an http/https URL");
+      if (typeof config.url !== "string" || !validFieldValue("url", config.url)) throw new Error("webhook notifier requires an http/https URL");
       return { id: "webhook", url: config.url, ...(config.on === undefined ? {} : { on: config.on as NotifyEntry["on"] }) };
-    case "command":
-      if (typeof config.command !== "string" && !(Array.isArray(config.command) && config.command.length > 0 && config.command.every((part) => typeof part === "string"))) {
+    case "command": {
+      const command = config.command;
+      if (typeof command !== "string" && !isCommandArgv(command)) {
         throw new Error("command notifier requires a command");
       }
-      return { id: "command", command: config.command, ...(config.on === undefined ? {} : { on: config.on as NotifyEntry["on"] }) };
+      return { id: "command", command, ...(config.on === undefined ? {} : { on: config.on as NotifyEntry["on"] }) };
+    }
     default:
       throw new Error(`unknown notifier: ${id}`);
   }

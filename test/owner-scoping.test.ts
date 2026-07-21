@@ -7,7 +7,7 @@ import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { cmdClose } from "../src/commands/lifecycle.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { spawnedRecords, recordSpawned } from "../src/presence/store.ts";
-import type { Backend } from "../src/backends/backend.ts";
+import type { Backend, BackendTarget } from "../src/backends/backend.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -32,7 +32,7 @@ function makeDir(): string {
 }
 
 function runCli(dir: string, args: string[], owner?: string): { status: number | null; output: string } {
-  const env = { ...process.env, ORCH_DIR: dir };
+  const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: dir };
   if (owner === undefined) delete env.ORCH_OWNER;
   else env.ORCH_OWNER = owner;
   const result = spawnSync(process.execPath, [binPath, ...args], {
@@ -86,6 +86,7 @@ describe("fleet ownership scoping", () => {
       name: "worker-1",
       cwd: dir,
       workspace: "local",
+      group: "tab-1",
       model: null,
     });
 
@@ -109,11 +110,11 @@ describe("fleet ownership scoping", () => {
     recordSpawned("headless~local~foreign", { backend: "headless", handle: "foreign", owner: "other" });
 
     const closed: string[] = [];
-    const backend = headlessBackend as Backend & { inventory?: () => { handle: string }[] };
+    const backend = headlessBackend as Backend;
     // inventory is an OPTIONAL port capability headless does not implement — bind only if present.
     const originalInventory = backend.inventory?.bind(backend);
     const originalClose = backend.close.bind(backend);
-    backend.inventory = () => [{ handle: "mine" }, { handle: "foreign" }];
+    backend.inventory = () => [{ handle: "mine" }, { handle: "foreign" }] as BackendTarget[];
     backend.close = (handle) => { closed.push(String(handle)); return true; };
     try {
       cmdClose(["--all", "--json"]);

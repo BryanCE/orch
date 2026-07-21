@@ -7,6 +7,9 @@ export type BackendId = "herdr" | "tmux" | "headless";
 /** The closed backend-id set, importable without pulling any provider code. */
 export const BACKEND_IDS: readonly BackendId[] = ["herdr", "tmux", "headless"];
 
+/** Herdr's backend-owned notification sink id — the one spelling core may import. */
+export const HERDR_SINK_ID = "herdr";
+
 /** Capabilities exposed by a backend. */
 export interface BackendCapabilities {
   /** Whether the backend creates or manages visible panes. */

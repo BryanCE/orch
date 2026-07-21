@@ -233,23 +233,34 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
       ? createConnection(pathOrPort)
       : createConnection({ host: "127.0.0.1", port: pathOrPort });
     let settled = false;
-    const finishError = (error: Error) => {
+    // The timeout rejects WITHOUT destroying: tearing down a socket whose
+    // native connect is still in flight makes the late completion surface as
+    // an uncatchable error on Windows. The connect/error handlers stay armed
+    // and destroy the socket once the native attempt actually settles.
+    const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      socket.destroy();
-      reject(error);
-    };
-    const timer = setTimeout(() => finishError(new Error("RPC connection timed out")), timeoutMs);
+      socket.unref();
+      reject(new Error("RPC connection timed out"));
+    }, timeoutMs);
     socket.once("connect", () => {
-      if (settled) return;
-      settled = true;
       clearTimeout(timer);
+      if (settled) {
+        socket.destroy();
+        return;
+      }
+      settled = true;
       resolve(socket);
     });
     // "on", not "once": a Windows pipe connect can emit a second error after the
     // first settles the promise — an unlistened emission throws in the caller.
-    socket.on("error", finishError);
+    socket.on("error", (error: Error) => {
+      clearTimeout(timer);
+      socket.destroy();
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
   });
 }
 

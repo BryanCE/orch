@@ -1,10 +1,11 @@
 import { binaryOnPath } from "../../util.ts";
 import { herdrBestEffort } from "./cli.ts";
+import { HERDR_SINK_ID } from "../backend.ts";
 import type { SinkProvider } from "../../notify/sinks.ts";
 
 /** Herdr-owned native notification sink. */
 export const herdrNotificationProvider: SinkProvider = {
-  id: "herdr",
+  id: HERDR_SINK_ID,
   onDefaults: ["blocked", "error"],
   label: "Herdr",
   description: "Herdr native notifications",

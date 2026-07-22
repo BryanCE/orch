@@ -53,10 +53,9 @@ export async function cmdSteer(args: string[]): Promise<void> {
     else process.stdout.write(`Steered ${key} → ${truncate(collapse(text), 60)}\n`);
     return;
   }
-  const pane = entity.paneId;
-  const result = await writeRpc("steer", { target: pane, text }, gov);
-  if (json) process.stdout.write(JSON.stringify({ target: pane, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Steered ${pane} → ${truncate(collapse(text), 60)}\n`);
+  const result = await writeRpc("steer", { target: entity.key, text }, gov);
+  if (json) process.stdout.write(JSON.stringify({ target: entity.paneId, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  else process.stdout.write(`Steered ${entity.paneId} → ${truncate(collapse(text), 60)}\n`);
 }
 
 export async function cmdBroadcast(args: string[]) {
@@ -138,8 +137,8 @@ export async function cmdModel(args: string[]): Promise<void> {
   const target = rest[0];
   const modelArg = rest[1];
   if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
-  const { pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
-  const result = await setAgentModel(pane, modelArg, gov);
+  const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
+  const result = await setAgentModel(ent.key, modelArg, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
   else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} → ${result.now} (accepted)\n`);
@@ -173,9 +172,15 @@ export async function cmdDispatch(args: string[]) {
   }
   const config = loadConfig(orchDir());
   const settings = resolveDispatchSettings(flags, config, gov);
-  if (settings.model) await setAgentModel(settings.pane, settings.model, gov);
-  const result = await writeRpc("dispatch", { target: settings.pane, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), config.locked_commands) }, gov);
-  recordSpawned(settings.pane, { adapter: settings.adapter, model: settings.model ?? undefined });
+  // Address the daemon by the one canonical identity, never the pane id: a
+  // second registry row keyed by pane id forks the agent and makes every later
+  // control target ambiguous (dispatch/steer/reset all fail post-first-run).
+  const key = settings.ent.key;
+  if (settings.model) await setAgentModel(key, settings.model, gov);
+  const result = await writeRpc("dispatch", { target: key, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), config.locked_commands) }, gov);
+  // A spawned agent is already registered under its key; only an unrecorded
+  // bare pane needs a row, and it must carry the same key we just dispatched to.
+  if (!spawnedRecords().has(key)) recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined });
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${settings.pane}.\n`);
 }

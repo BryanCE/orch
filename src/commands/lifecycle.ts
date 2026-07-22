@@ -21,7 +21,7 @@ export async function cmdRun(args: string[]): Promise<void> {
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
-  const result = await writeRpc("dispatch", { target: pane, text: workerPrompt(prompt, raw, entityAdapter(ent), loadConfig(orchDir()).locked_commands) }, gov);
+  const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), loadConfig(orchDir()).locked_commands) }, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${pane}.\n`);
 }

@@ -174,8 +174,6 @@ export interface Backend<Handle = BackendHandle> {
    */
   workspaceNames(): Map<string, string>;
 
-  /** Stable token identifying the calling orchestrator, when the backend can derive one. */
-  callerIdentity?(): string | undefined;
   /** Identity of the calling process's own target, when inside a session. */
   currentIdentity?(): Identity | null;
   /** Every live target with display metadata (fleet enumeration). */
@@ -188,7 +186,7 @@ export interface Backend<Handle = BackendHandle> {
   /** Rename the pane border label of a target. */
   renamePane?(handle: Handle, name: string): boolean;
   /** Move a target into an existing group. */
-  moveToGroup?(handle: Handle, group: string, split: BackendSplit): boolean;
+  moveToGroup?(handle: Handle, group: string, split: BackendSplit, against?: Handle): boolean;
   /** Move a target into a freshly created group. */
   moveToNewGroup?(handle: Handle, label: string | null): boolean;
   /** Geometry of the group containing a handle. Throws when unresolvable. */

@@ -141,6 +141,7 @@ export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orch
 type SpawnFlags = AgentFlags & {
   json: boolean;
   label: string;
+  tabLabel: string | null;
   cwd: string;
   cmd: string;
   commandFlag: boolean;
@@ -154,7 +155,7 @@ type SpawnFlags = AgentFlags & {
 function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number {
   const argument = args[index];
   switch (argument) {
-    case "--tab": flags.label = args[index + 1]!; return 1;
+    case "--tab": flags.tabLabel = args[index + 1]!; return 1;
     case "--cwd": flags.cwd = args[index + 1]!; return 1;
     case "--cmd": flags.cmd = args[index + 1]!; flags.commandFlag = true; return 1;
     case "--name": flags.namePrefix = args[index + 1]!; return 1;
@@ -172,7 +173,7 @@ function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number
 export function parseSpawnFlags(args: string[]): SpawnFlags {
   const flags: SpawnFlags = {
     json: args.includes("--json"),
-    label: "work", cwd: process.cwd(), cmd: "pi", commandFlag: false,
+    label: "work", tabLabel: null, cwd: process.cwd(), cmd: "pi", commandFlag: false,
     workspace: null, namePrefix: null, positional: [],
   };
   for (let index = 0; index < args.length; index++) {
@@ -188,6 +189,8 @@ type SpawnSettings = AgentSettings & {
   tools: string;
   json: boolean;
   label: string;
+  /** True when --tab named a tab: an existing match is joined, not recreated. */
+  tabExplicit: boolean;
   cwd: string;
   cmd: string;
   commandFlag: boolean;
@@ -211,7 +214,11 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
   const cmd = flags.commandFlag ? flags.cmd : adapterCommand(settings.adapter, config);
-  return { ...settings, tools, json: flags.json, label: flags.namePrefix ?? flags.label, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix: flags.namePrefix ?? flags.label, n, worktree, fleet: config.fleet };
+  // --tab names the tab; --name names the agents. Each defaults to the other so
+  // one flag still produces a sensibly-labeled tab, but they are never conflated.
+  const tabLabel = flags.tabLabel ?? flags.namePrefix ?? flags.label;
+  const prefix = flags.namePrefix ?? flags.tabLabel ?? flags.label;
+  return { ...settings, tools, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, fleet: config.fleet };
 }
 
 interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
@@ -366,50 +373,81 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   return { key, pane: String(handle), name: spec.name };
 }
 
+/** The largest pane in a tab and the split that halves it — the target a new
+ *  pane should split so the tab stays balanced instead of stacking. Backend-
+ *  agnostic: reads only the layout port, never a backend-specific detail. */
+export function balanceTarget(backend: Backend, refPane: BackendHandle): { pane: BackendHandle; split: "down" | "right" } {
+  const layout = paneLayout(refPane, backend);
+  const largest = layout.panes.reduce((current, pane) =>
+    pane.rect.width * pane.rect.height > current.rect.width * current.rect.height ? pane : current);
+  return { pane: largest.handle, split: largest.rect.width >= largest.rect.height ? "right" : "down" };
+}
+
+/** Split direction that balances the tab containing `refPane`. */
+export function nextSplit(backend: Backend, refPane: BackendHandle): "down" | "right" {
+  return balanceTarget(backend, refPane).split;
+}
+
+/** Spawn one named agent into a tab, choosing the balancing split from its layout. */
+function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, split: "down" | "right", backend: Backend): CreatedAgent {
+  const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
+  return spawnOneIntoTab({
+    backend,
+    adapter: resolveAdapterOrDie(settings.adapter),
+    adapterId: settings.adapter,
+    name,
+    cwd,
+    workspace,
+    group,
+    split,
+    model: settings.model,
+    tools: settings.tools,
+    worktree: settings.worktree ? cwd : undefined,
+    branch: settings.worktree ? `orch/${name}` : undefined,
+  });
+}
+
 function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): void {
   for (let i = 2; i <= settings.n; i++) {
     try {
-      const name = `${settings.prefix}-${i}`;
-      const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-      let split: "down" | "right" = "down";
-      if (i > 2) {
-        const layout = paneLayout(root.root, backend);
-        const largest = layout.panes.reduce((current, pane) => {
-          const currentArea = current.rect.width * current.rect.height;
-          const paneArea = pane.rect.width * pane.rect.height;
-          return paneArea > currentArea ? pane : current;
-        });
-        split = largest.rect.width >= largest.rect.height ? "right" : "down";
-      }
-      created.push(spawnOneIntoTab({
-        backend,
-        adapter: resolveAdapterOrDie(settings.adapter),
-        adapterId: settings.adapter,
-        name,
-        cwd,
-        workspace: root.workspace,
-        group: root.tabId,
-        split,
-        model: settings.model,
-        tools: settings.tools,
-        worktree: settings.worktree ? cwd : undefined,
-        branch: settings.worktree ? `orch/${name}` : undefined,
-      }));
+      const split = i > 2 ? nextSplit(backend, root.root) : "down";
+      created.push(placeAgent(settings, `${settings.prefix}-${i}`, root.workspace, root.tabId, split, backend));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
   }
 }
 
-async function reportSpawnResults(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): Promise<void> {
+/** Find a tab by id or label in the target workspace, for `spawn --tab <existing>`. */
+function findGroupInWorkspace(backend: Backend, workspace: string, target: string): BackendGroup | undefined {
+  return (backend.groups?.() ?? []).find((group) =>
+    (group.id === target || group.label === target) && (group.workspace === null || group.workspace === workspace));
+}
+
+/** Spawn every requested agent into an already-open tab, balancing as it fills. */
+async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend): Promise<void> {
+  const refPane = backend.inventory?.().find((target) => target.group === group.id)?.handle;
+  const created: CreatedAgent[] = [];
+  for (let i = 1; i <= settings.n; i++) {
+    try {
+      const split = refPane === undefined ? "down" : nextSplit(backend, refPane);
+      created.push(placeAgent(settings, `${settings.prefix}-${i}`, workspace, group.id, split, backend));
+    } catch (error: unknown) {
+      process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
+    }
+  }
+  await reportSpawnResults(settings, refPane ?? created[0]?.pane ?? group.id, group.label ?? group.id, created, backend);
+}
+
+async function reportSpawnResults(settings: SpawnSettings, anchorPane: BackendHandle, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
   if (!settings.json) {
-    for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${root.tabLabel}]  ${settings.cmd}\n`);
-    process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${root.tabLabel}" (no focus stolen).\n`);
-    printLayout(root.root, backend, "\nFinal tiling:");
+    for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
+    process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${tabLabel}" (no focus stolen).\n`);
+    printLayout(anchorPane, backend, "\nFinal tiling:");
   }
   if (resolveAdapterOrDie(settings.adapter).caps.steer === "inbox") await awaitBridgeRegistration(created, settings.json);
   if (settings.model) await pinModels(created, settings.model);
-  if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, tab: root.tabLabel, agents: created }) + "\n");
+  if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, tab: tabLabel, agents: created }) + "\n");
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }
 
@@ -423,12 +461,16 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const workspace = resolveSpawnWorkspace(settings.workspace);
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
+  // `--tab <existing>` fills that tab instead of opening a new one; the tab
+  // auto-balances as it fills, so no follow-up move/tile is needed.
+  const existing = settings.tabExplicit ? findGroupInWorkspace(backend, workspace, settings.label) : undefined;
+  if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend);
   const root = createSpawnRoot(settings, workspace, backend, adapter);
   const created: CreatedAgent[] = [];
   recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created, backend);
-  await reportSpawnResults(settings, root, created, backend);
+  await reportSpawnResults(settings, root.root, root.tabLabel, created, backend);
 }
 
 export async function cmdSpawn(args: string[]) {

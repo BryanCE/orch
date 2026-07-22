@@ -111,12 +111,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return process.env.HERDR_ENV === "1" || herdrReachable();
   }
 
-  /** Identity of the calling orchestrator, resolved from herdr's own environment. */
-  callerIdentity(): string | undefined {
-    const value = process.env.HERDR_PANE_ID;
-    return value === "" ? undefined : value;
-  }
-
   /** Identity of the calling pane, resolved from herdr's own environment. */
   currentIdentity(): Identity | null {
     const handle = process.env.HERDR_PANE_ID;
@@ -253,10 +247,13 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return herdrBestEffort(["pane", "rename", handle, name]);
   }
 
-  /** Move a pane into an existing tab. Throws on herdr failure. */
+  /** Move a pane into an existing tab, splitting `against` (the largest pane)
+   *  when given so the tab stays balanced instead of stacking. Throws on failure. */
   // fallow-ignore-next-line unused-class-member
-  moveToGroup(handle: HerdrHandle, group: string, split: BackendSplit): boolean {
-    herdrJSON<unknown>(["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"]);
+  moveToGroup(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): boolean {
+    const args = ["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"];
+    if (against) args.push("--target-pane", against);
+    herdrJSON<unknown>(args);
     return true;
   }
 

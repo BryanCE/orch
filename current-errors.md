@@ -1,6 +1,11 @@
-$ bun run lint && bunx tsc --noEmit && bun run check:bridge
-$ oxlint bin src test extensions scripts
-Found 0 warnings and 0 errors.
-Finished in 10.6s on 191 files with 65 rules using 8 threads.
-$ bun scripts/check-bridge.ts
-check:bridge OK (356 files scanned)
+
+  x typescript(no-redundant-type-constituents): 'unknown' overrides all other types in this union type.
+     ,-[src/commands/panes.ts:258:18]
+ 257 |     const groupId = newTab ? null : resolveTab(tab!).id;
+ 258 |     let against: BackendHandle | undefined;
+     :                  ^^^^^^^^^^^^^
+ 259 |     if (!newTab && !splitExplicit && groupId !== null) {
+     `----
+
+Found 0 warnings and 1 error.
+Finished in 2.1s on 193 files with 65 rules using 8 threads.

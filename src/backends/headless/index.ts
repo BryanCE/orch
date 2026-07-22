@@ -139,11 +139,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return true;
   }
 
-  /** Headless has no session concept and cannot identify its caller. */
-  callerIdentity(): string | undefined {
-    return undefined;
-  }
-
   /** Headless has no session concept; it is always usable. */
   isInsideSession(): boolean {
     return true;

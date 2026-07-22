@@ -150,7 +150,7 @@ async function startDaemon(foreground: boolean, json = false): Promise<void> {
   }
   // Nobody answered: a still-alive lock pid is wedged — terminate it so a fresh
   // instance can take the lock instead of being refused it forever.
-  if (lockAlive) await terminateWedgedDaemon(lockPid!);
+  if (lockAlive) await terminateWedgedDaemon(lockPid);
   const entrypoint = daemonEntrypoint();
   if (foreground) {
     runForeground(entrypoint);

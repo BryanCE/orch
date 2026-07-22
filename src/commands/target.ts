@@ -1,8 +1,8 @@
 import { loadConfig, type HostConfig } from "../config.ts";
-import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
+import { getBackend, resolveBackend } from "../backends/registry.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
-import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
+import { buildEntities, parseTarget, resolveTarget, selfActor, type Entity } from "../entities.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/sqlite.ts";
@@ -79,12 +79,12 @@ export function remoteWrite(hostName: string, command: string, args: readonly st
 }
 
 export function callerOwnerToken(): string | undefined {
-  if (process.env.ORCH_OWNER) return process.env.ORCH_OWNER;
-  for (const backend of allBackends()) {
-    const token = backend.callerIdentity?.();
-    if (token) return token;
-  }
-  return undefined;
+  // The stamped owner MUST equal the write actor (selfActor), or an orchestrator
+  // cannot steer/answer/reset the agents it spawned. Never the raw backend pane
+  // id: that is unscoped and never string-matches the serialized actor.
+  const explicit = process.env.ORCH_OWNER;
+  if (explicit) return explicit;
+  return selfActor() ?? undefined;
 }
 
 /** Refuse bulk operations that cannot identify their calling orchestrator. */

@@ -103,7 +103,10 @@ export function buildEntities(): Entity[] {
         focused: target.focused,
         backendStatus: target.status,
         presence: pres,
-        sessionPath: target.sessionPath ?? pres?.status?.sessionPath ?? null,
+        // Bridge-first: the adapter's own presence status tracks the LIVE session
+        // and follows a `/new` reset; the backend's agent_session is launch-time
+        // and goes stale, which is what makes mid-run `tail` read an empty session.
+        sessionPath: pres?.status?.sessionPath ?? target.sessionPath ?? null,
         presenceOnly: false,
         workspace: target.workspace ?? workspaceOf(key),
       });

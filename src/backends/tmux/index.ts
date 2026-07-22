@@ -104,12 +104,6 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return bestEffortTmux(["display-message", "-p", "-t", pane, "#{@orch_agent_key}"])?.trim() ?? "";
   }
 
-  /** Identity of the calling orchestrator, resolved from tmux's environment. */
-  callerIdentity(): string | undefined {
-    const value = process.env.TMUX_PANE;
-    return value === "" ? undefined : value;
-  }
-
   /** Identity of the calling pane, resolved from tmux's environment. */
   currentIdentity(): Identity | null {
     const handle = process.env.TMUX_PANE;

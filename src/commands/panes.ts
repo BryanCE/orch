@@ -1,12 +1,13 @@
 import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, resolveTarget } from "../entities.ts";
 import { loadConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
-import type { Backend, BackendGroup } from "../backends/backend.ts";
+import type { Backend, BackendGroup, BackendHandle } from "../backends/backend.ts";
 import { parseIdentity } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { splitOptionFlags, die, backendTarget } from "./target.ts";
+import { balanceTarget } from "./spawn.ts";
 import { displayWorkspace } from "./status.ts";
 import { workspaceName } from "../policy/workspace.ts";
 export function cmdPanes(args: string[]) {
@@ -233,13 +234,14 @@ export function cmdZoom(args: string[]) {
 export function cmdMove(args: string[]) {
   let tab: string | null = null;
   let split = "right";
+  let splitExplicit = false;
   const json = args.includes("--json");
   let newTab = false;
   let label: string | null = null;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--tab") tab = args[++i]!;
-    else if (args[i] === "--split") split = args[++i]!;
+    else if (args[i] === "--split") { split = args[++i]!; splitExplicit = true; }
     else if (args[i] === "--new-tab") newTab = true;
     else if (args[i] === "--label") label = args[++i]!;
     else if (args[i] === "--json") continue;
@@ -250,11 +252,18 @@ export function cmdMove(args: string[]) {
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X]");
   const { backend, handle } = requirePaneTarget(target, "move");
   try {
-    const moved = newTab ? backend.moveToNewGroup?.(handle, label) : backend.moveToGroup?.(handle, resolveTab(tab!).id, split as "down" | "right");
+    // Default: split the destination tab's largest pane so it stays balanced
+    // instead of stacking off one edge. An explicit --split still wins.
+    const groupId = newTab ? null : resolveTab(tab!).id;
+    let against: BackendHandle = undefined;
+    if (!newTab && !splitExplicit && groupId !== null) {
+      const refPane = backend.inventory?.().find((item) => item.group === groupId && String(item.handle) !== handle)?.handle;
+      if (refPane !== undefined) { try { const balance = balanceTarget(backend, refPane); split = balance.split; against = balance.pane; } catch {} }
+    }
+    const moved = newTab ? backend.moveToNewGroup?.(handle, label) : backend.moveToGroup?.(handle, groupId!, split as "down" | "right", against);
     if (!moved) die(`move failed: backend ${backend.id} rejected the move.`);
-    const group = newTab ? null : resolveTab(tab!).id;
-    if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: group }) + "\n");
-    else process.stdout.write(`Moved ${handle} ${newTab ? "to a new group" : `to group ${group}`}.\n`);
+    if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
+    else process.stdout.write(`Moved ${handle} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {
     die(`move failed: ${errorMessage(e)}`);
   }

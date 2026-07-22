@@ -9,6 +9,7 @@ import { headlessBackend } from "../src/backends/headless/index.ts";
 import { spawnedRecords, recordSpawned } from "../src/presence/store.ts";
 import type { Backend, BackendTarget } from "../src/backends/backend.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
+import { selfActor } from "../src/entities.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -62,12 +63,13 @@ afterEach(async () => {
 });
 
 describe("fleet ownership scoping", () => {
-  test("owner token uses ORCH_OWNER, then registered backend caller identity", () => {
+  test("owner token uses ORCH_OWNER, else the write actor (selfActor)", () => {
     process.env.ORCH_OWNER = "override";
-    process.env.HERDR_PANE_ID = "herdr-caller";
     expect(callerOwnerToken()).toBe("override");
+    // The stamped owner must equal the daemon write actor, or an orchestrator
+    // cannot control the agents it spawned. It is never the raw backend pane id.
     delete process.env.ORCH_OWNER;
-    expect(callerOwnerToken()).toBe("herdr-caller");
+    expect(callerOwnerToken()).toBe(selfActor() ?? undefined);
   });
 
   test("spawn stamps the owner token from ORCH_OWNER on its record", () => {

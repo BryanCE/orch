@@ -1,5 +1,5 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readDaemonLock } from "./lifecycle.ts";
 import { readPortFile } from "../presence/socket-client.ts";
@@ -264,20 +264,25 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
   });
 }
 
+/** Dial one daemon endpoint, or null when it is absent or unreachable. An absent
+ *  unix-socket path is skipped without dialing — a dead pipe path can fault
+ *  uncatchably on Windows, and a missing endpoint is "daemon absent" regardless. */
+async function dialEndpoint(endpoint: string | number | undefined, timeoutMs: number): Promise<Socket | null> {
+  if (endpoint === undefined) return null;
+  if (typeof endpoint === "string" && !existsSync(endpoint)) return null;
+  try {
+    return await connect(endpoint, timeoutMs);
+  } catch {
+    return null;
+  }
+}
+
 async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket> {
   const paths = endpointPaths(orchDir);
-  try {
-    return await connect(paths.socket, timeoutMs);
-  } catch {}
-  const port = readPortFile(orchDir);
-  if (port !== undefined) {
-    try {
-      return await connect(port, timeoutMs);
-    } catch {
-      // A stale port file is the same as an absent daemon to callers.
-    }
-  }
-  throw new DaemonAbsentError(orchDir);
+  const connection = (await dialEndpoint(paths.socket, timeoutMs))
+    ?? (await dialEndpoint(readPortFile(orchDir), timeoutMs));
+  if (!connection) throw new DaemonAbsentError(orchDir);
+  return connection;
 }
 
 function responseError(response: RpcResponse): RpcError {

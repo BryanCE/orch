@@ -61,23 +61,16 @@ async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> 
 }
 
 export async function ensureDaemon(directory: string): Promise<void> {
-  try {
-    await rpcCall(directory, "daemon-status", undefined, 200);
-    return;
-  } catch {
-    // A live daemon can be between lock acquisition and socket listen.
+  if (await daemonAnswers(directory, 200)) return;
+  const lockPid = daemonLockPid(directory);
+  if (lockPid !== undefined && pidAlive(lockPid)) {
+    // Might be booting (lock taken, socket not yet bound); grace-poll before
+    // deciding it's wedged, then clear a wedged one so a fresh daemon can start.
+    if (await awaitDaemonAnswer(directory, Date.now() + 1000)) return;
+    await terminateWedgedDaemon(lockPid);
   }
-  const existingPid = daemonLockPid(directory);
-  if (!existingPid || !pidAlive(existingPid)) daemonize(daemonEntrypoint(), [], directory);
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    try {
-      await rpcCall(directory, "daemon-status", undefined, 300);
-      return;
-    } catch {
-      await delay(50);
-    }
-  }
+  daemonize(daemonEntrypoint(), [], directory);
+  if (await awaitDaemonAnswer(directory, Date.now() + 5_000)) return;
   throw new DaemonAbsentError(directory);
 }
 
@@ -114,19 +107,56 @@ export async function writeRpc(method: string, params: Record<string, unknown>, 
   }
 }
 
+/** True when orchd answers an RPC. The only real liveness signal — a lock pid
+ *  that is alive but never answers is a wedged daemon, not a running one. */
+async function daemonAnswers(directory: string, timeoutMs = 300): Promise<boolean> {
+  try {
+    await rpcCall(directory, "daemon-status", undefined, timeoutMs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Poll for an RPC answer until the deadline — covers the window where orchd holds
+ *  the lock but has not finished binding its socket. */
+async function awaitDaemonAnswer(directory: string, deadline: number): Promise<boolean> {
+  while (Date.now() < deadline) {
+    if (await daemonAnswers(directory)) return true;
+    await delay(50);
+  }
+  return false;
+}
+
+/** SIGTERM a wedged daemon and wait for the OS to reap it so its lock frees. */
+async function terminateWedgedDaemon(pid: number): Promise<void> {
+  try { process.kill(pid, "SIGTERM"); } catch { return; }
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline && pidAlive(pid)) await delay(50);
+}
+
 async function startDaemon(foreground: boolean, json = false): Promise<void> {
-  const existingPid = daemonLockPid();
-  if (existingPid && pidAlive(existingPid)) {
-    if (json) process.stdout.write(JSON.stringify({ running: true, pid: existingPid, started: false }) + "\n");
-    else process.stdout.write(`already running (pid ${existingPid})\n`);
+  const directory = orchDir();
+  const lockPid = daemonLockPid(directory);
+  const lockAlive = lockPid !== undefined && pidAlive(lockPid);
+  // A live lock pid might be a daemon still binding its socket; grace-poll it
+  // before judging. No live lock = nothing to wait on.
+  const answered = lockAlive ? await awaitDaemonAnswer(directory, Date.now() + 1000) : await daemonAnswers(directory);
+  if (answered) {
+    const status = await fetchDaemonStatus();
+    if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: false }) + "\n");
+    else process.stdout.write(`already running (pid ${status.pid})\n`);
     return;
   }
+  // Nobody answered: a still-alive lock pid is wedged — terminate it so a fresh
+  // instance can take the lock instead of being refused it forever.
+  if (lockAlive) await terminateWedgedDaemon(lockPid!);
   const entrypoint = daemonEntrypoint();
   if (foreground) {
     runForeground(entrypoint);
     return;
   }
-  daemonize(entrypoint, [], orchDir());
+  daemonize(entrypoint, [], directory);
   const status = await waitForDaemon();
   if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: true }) + "\n");
   else process.stdout.write(`started (pid ${status.pid})\n`);

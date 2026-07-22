@@ -29,7 +29,7 @@
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
     "build:web": "bun --filter orch-web build",
-    "build:dev": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
+    "build:dev": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\" && bun scripts/record-runtime.ts && bun scripts/sync-claude-integration.ts && (orch daemon reload || orch daemon start)",
     "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
     "lint": "oxlint bin src test extensions scripts",

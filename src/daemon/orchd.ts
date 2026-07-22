@@ -1,3 +1,4 @@
+import "../store/suppress-sqlite-warning.ts";
 import {
   acquireDaemonLock,
   computeCodeHash,

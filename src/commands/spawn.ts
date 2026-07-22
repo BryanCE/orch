@@ -79,15 +79,29 @@ export function adapterCommand(adapter: string, config = loadConfig(orchDir())):
   return resolved.restrictedInteractiveCmd?.({ tools: workerTools(config) }) ?? resolved.interactiveCmd({});
 }
 
-async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
-  const results = await Promise.all(created.map(async ({ key, pane, name }) => {
+/** Deliver a model pin to one freshly-spawned agent, retrying while its bridge
+ *  subscription warms up. Registration completing does not guarantee the agent is
+ *  live on the event channel yet, so the set-model ack routinely races a fresh
+ *  spawn; re-delivering the same model is idempotent, so a bounded retry turns
+ *  that transient into a success instead of a spurious exit-1 warning. */
+async function deliverModelPin(key: string, model: string): Promise<boolean> {
+  const backoffMs = [0, 200, 400, 800, 1200];
+  for (const wait of backoffMs) {
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     try {
       await writeRpc("set-model", { target: key, model });
-      return { pane, name, ok: true };
-    } catch {
-      return { pane, name, ok: false };
-    }
-  }));
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
+async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
+  const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
+    pane,
+    name,
+    ok: await deliverModelPin(key, model),
+  })));
   for (const result of results) {
     if (!result.ok) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}.\n`);
   }

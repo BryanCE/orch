@@ -1,16 +1,9 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { readDaemonCodeSkew, readDaemonLock } from "../daemon/lifecycle.ts";
+import { daemonEntrypoint, readDaemonCodeSkew, readDaemonLock } from "../daemon/lifecycle.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import type { CheckResult } from "../check-result.ts";
-import { repoDir } from "./shared.ts";
 import { pidAlive } from "../util.ts";
-
-const defaultDaemonEntrypoint = path.join(repoDir, "dist", "daemon", "orchd.js");
-
-function daemonEntrypoint(): string {
-  return process.env.ORCHD_ENTRYPOINT ?? defaultDaemonEntrypoint;
-}
 
 export async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();

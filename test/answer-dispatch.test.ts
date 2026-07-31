@@ -20,7 +20,7 @@ function tempDir(prefix = "orch-answer-"): string {
   return dir;
 }
 
-function key(workspace: string, handle: string): string {
+function key(workspace: string, id: string): string {
   return serializeIdentity({ backend: "headless", workspace, id });
 }
 

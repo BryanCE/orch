@@ -2,7 +2,9 @@ import * as files from "node:fs";
 import { loadConfig, resolveWithSource, settingsPath, writeSettingsDefault, type OrchConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
-import { readAssignFlag } from "./setup.ts";
+import { readAssignFlag, validateSetupFlag } from "./setup.ts";
+import { ADAPTER_IDS } from "../adapters/adapter.ts";
+import { BACKEND_IDS } from "../backends/backend.ts";
 import { die } from "./target.ts";
 
 /** Read a raw nested setting so normalized defaults do not claim settings.json provenance. */
@@ -31,7 +33,8 @@ function formatValue(value: unknown): string {
 
 function switchDefault(key: "adapter" | "backend", value: string): void {
   try {
-    writeSettingsDefault(orchDir(), key, value);
+    if (key === "adapter") writeSettingsDefault(orchDir(), key, validateSetupFlag(key, value, ADAPTER_IDS));
+    else writeSettingsDefault(orchDir(), key, validateSetupFlag(key, value, BACKEND_IDS));
   } catch (error: unknown) {
     die(errorMessage(error));
   }

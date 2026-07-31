@@ -1,19 +1,25 @@
 import { createRequire } from "node:module";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskOptions, TaskRec, TaskState } from "../queue.ts";
+import { isAdapterId, type AdapterId } from "../adapters/adapter.ts";
+import { isBackendId, type BackendId } from "../backends/backend.ts";
 
 // One SQLite file per $ORCH_DIR holds the queue, ownership registry, delivery
 // outbox, and spawn registry. jsonl remains the human-visible truth channel for
 // presence/results/transitions; only this internal state lives here.
 
+/** Stamped into `PRAGMA user_version`. BUMP THIS whenever a table's columns
+ *  change: a store carrying any other stamp is reaped and recreated empty. */
+const STORE_SCHEMA = 2;
+
 export interface SpawnedRecord {
   /** Primary registry id: the agent's serialized identity key. */
   pane: string;
   ts?: string;
-  adapter?: string;
+  adapter?: AdapterId;
   model?: string;
-  backend?: string;
+  backend?: BackendId;
   /** Identity workspace assigned by the spawning backend. */
   workspace?: string;
   /** Backend-native control handle (herdr/tmux pane id) for close/focus/send-keys. */
@@ -141,16 +147,45 @@ function createTables(db: DatabaseLike): void {
   `);
 }
 
+/** True once any table exists — a file this open just created has none, and an
+ *  unstamped empty file is new, not stale. */
+function storeIsPopulated(db: DatabaseLike): boolean {
+  return db.query("SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1").get() != null;
+}
+
+function storeSchemaOf(db: DatabaseLike): number {
+  const row = db.query("PRAGMA user_version").get() as { user_version?: number } | null;
+  return row?.user_version ?? 0;
+}
+
+/**
+ * Reap a store written against a different shape and hand back an empty one.
+ *
+ * `CREATE TABLE IF NOT EXISTS` cannot add a column, so a store from an older
+ * shape survives every open and then rejects each insert against the new
+ * columns — which spawned panes that no row ever described. Pre-publish there is
+ * exactly one shape (Rule 8): the old file is malformed data, not a version to
+ * migrate.
+ */
+function recreateStore(db: DatabaseLike, path: string): DatabaseLike {
+  db.close();
+  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
+  process.stderr.write(`orch: ${path} was written against an older store shape — recreated empty\n`);
+  return createDatabase(path);
+}
+
 /** Open (create-if-absent) the WAL store for one orch dir; connection is cached. */
 function openStore(orchDir: string): DatabaseLike {
   const path = databasePath(orchDir);
   const cached = connections.get(path);
   if (cached) return cached;
   mkdirSync(orchDir, { recursive: true });
-  const db = createDatabase(path);
+  let db = createDatabase(path);
+  if (storeIsPopulated(db) && storeSchemaOf(db) !== STORE_SCHEMA) db = recreateStore(db, path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
   createTables(db);
+  db.exec(`PRAGMA user_version = ${STORE_SCHEMA}`);
   connections.set(path, db);
   return db;
 }
@@ -319,9 +354,11 @@ interface SpawnedRow {
 function rowToSpawned(row: SpawnedRow): SpawnedRecord {
   const record: SpawnedRecord = { pane: row.pane };
   if (row.ts !== null) record.ts = row.ts;
-  if (row.adapter !== null) record.adapter = row.adapter;
+  // A row naming a provider this orch does not ship is malformed, not a version
+  // to support (Rule 8): drop the field so callers take their unknown-provider path.
+  if (isAdapterId(row.adapter)) record.adapter = row.adapter;
   if (row.model !== null) record.model = row.model;
-  if (row.backend !== null) record.backend = row.backend;
+  if (isBackendId(row.backend)) record.backend = row.backend;
   if (row.workspace !== null) record.workspace = row.workspace;
   if (row.handle !== null) record.handle = row.handle;
   if (row.name !== null) record.name = row.name;

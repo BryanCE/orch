@@ -7,8 +7,8 @@ import { promptSelect, promptMultiselect } from "./io.ts";
  * sandbox — under deno the harness shims get scoped filesystem access, an enumerated env
  * allowlist, and no network at all. orch does NOT probe PATH here; the recorded value is
  * always a selection, never inferred from what happens to be installed. Null on cancel. */
-export async function selectRuntime(): Promise<OrchRuntime | null> {
-  const picked = await promptSelect(
+export function selectRuntime(): Promise<OrchRuntime | null> {
+  return promptSelect(
     "JS runtime for this orch install"
     + " — node: the default, most widely present;"
     + " deno: sandboxed shims (scoped fs + env, no network);"
@@ -16,7 +16,6 @@ export async function selectRuntime(): Promise<OrchRuntime | null> {
     ORCH_RUNTIMES,
     DEFAULT_RUNTIME,
   );
-  return picked as OrchRuntime | null;
 }
 
 export function setupIntro(): void {
@@ -28,22 +27,22 @@ export function setupOutro(message: string): void {
 }
 
 /** Multi-select every harness to set up; null when the user cancels. */
-export function selectAdapters(adapters: readonly string[]): Promise<string[] | null> {
+export function selectAdapters<Id extends string>(adapters: readonly Id[]): Promise<Id[] | null> {
   return promptMultiselect("Select the harnesses you use (space to toggle)", adapters.map((id) => ({ value: id, label: id, hint: "", checked: false })));
 }
 
 /** Pick the default harness among the selected set; null when the user cancels. */
-export function selectDefaultAdapter(selected: readonly string[]): Promise<string | null> {
+export function selectDefaultAdapter<Id extends string>(selected: readonly Id[]): Promise<Id | null> {
   return promptSelect("Default harness for new spawns", selected);
 }
 
 /** Multi-select every backend to set up; null when the user cancels. */
-export function selectBackends(backends: readonly string[]): Promise<string[] | null> {
+export function selectBackends<Id extends string>(backends: readonly Id[]): Promise<Id[] | null> {
   return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({ value: id, label: id, hint: "", checked: false })));
 }
 
 /** Pick the default backend among the selected set; null when the user cancels. */
-export function selectDefaultBackend(selected: readonly string[]): Promise<string | null> {
+export function selectDefaultBackend<Id extends string>(selected: readonly Id[]): Promise<Id | null> {
   return promptSelect("Default backend for new spawns", selected);
 }
 

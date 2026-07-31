@@ -5,16 +5,17 @@ import { createNotifierRegistry, loadSinks, type Sink } from "../notify/router.t
 import { allBackends } from "../backends/registry.ts";
 import type { CheckResult } from "../check-result.ts";
 import type { BinaryStatus } from "./bins.ts";
-import { isWslRuntime, onPath, repoDir } from "./shared.ts";
+import { isWslRuntime } from "./shared.ts";
+import { binaryOnPath, packageRoot } from "../util.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
     return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "native backend notification tier is available" };
   }
-  if (onPath("notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "notify-send tier is available" };
-  if (onPath("wsl-notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "wsl-notify-send tier is available" };
-  const toast = path.join(repoDir, "scripts", "wsl-toast.ps1");
-  if (onPath("powershell.exe") && filesystem.existsSync(toast)) {
+  if (binaryOnPath("notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "notify-send tier is available" };
+  if (binaryOnPath("wsl-notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "wsl-notify-send tier is available" };
+  const toast = path.join(packageRoot(), "scripts", "wsl-toast.ps1");
+  if (binaryOnPath("powershell.exe") && filesystem.existsSync(toast)) {
     return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "powershell.exe toast tier is available" };
   }
   return { id: "notifications", label: "Desktop notifications", status: "warn", detail: "no desktop notification tier is available" };
@@ -94,7 +95,7 @@ export function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResu
       const command = (sink as { command?: unknown }).command;
       const normalized = typeof command === "string" ? ["sh", "-c", command] : command;
       const binary = Array.isArray(normalized) && typeof normalized[0] === "string" ? normalized[0] : undefined;
-      if (!binary || !onPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
+      if (!binary || !binaryOnPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
     } else if (desktop.status !== "ok") {
       unavailable.push(`${name} has no available desktop notification tier`);
     }

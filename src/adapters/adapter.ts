@@ -1,11 +1,15 @@
 import type { CheckResult } from "../check-result.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 
-/** Agent CLIs supported by orch. */
-export type AdapterId = "pi" | "claude" | "codex";
-
 /** The closed adapter-id set, importable without pulling any provider code. */
-export const ADAPTER_IDS: readonly AdapterId[] = ["pi", "claude", "codex"];
+export const ADAPTER_IDS = ["pi", "claude", "codex"] as const;
+
+/** Agent CLIs supported by orch. */
+export type AdapterId = (typeof ADAPTER_IDS)[number];
+
+export function isAdapterId(value: unknown): value is AdapterId {
+  return typeof value === "string" && (ADAPTER_IDS as readonly string[]).includes(value);
+}
 
 /** Ways an adapter can deliver a mid-run steering message. */
 export type SteerMechanism = "inbox" | "keys" | "resume" | "none";

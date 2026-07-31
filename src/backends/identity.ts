@@ -13,7 +13,12 @@ import { loadPresence, spawnedRecords } from "../presence/store.ts";
 
 /** Structured identity minted by the selected plexer backend for one agent. */
 export interface Identity {
-  /** Backend id that owns the agent (e.g. `herdr`, `tmux`, `headless`). */
+  /**
+   * Backend id that owns the agent. Deliberately `string`, not `BackendId`:
+   * keys are parsed from disk, and a key naming a backend this build no longer
+   * registers must reach `getBackend` and fail there by name — parsing cannot
+   * be the thing that refuses to read a row that still needs closing.
+   */
   readonly backend: string;
   /** Workspace reported by the backend; always a string, never null. */
   readonly workspace: string;

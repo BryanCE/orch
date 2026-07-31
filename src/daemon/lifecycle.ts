@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
+import { packageRoot } from "../util.ts";
 
 const LOCK_NAME = "orchd.lock";
 const SOCKET_NAME = "orchd.sock";
@@ -32,6 +33,11 @@ export interface DaemonCodeSkew {
 }
 
 /** Read the exact live-daemon code-hash skew used by doctor. */
+/** The orchd entrypoint every caller starts, re-execs, or verifies. */
+export function daemonEntrypoint(): string {
+  return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
+}
+
 export function readDaemonCodeSkew(orchDir: string, entrypoint: string): DaemonCodeSkew | null {
   const lock = readDaemonLock(orchDir);
   if (!lock || !processIsAlive(lock.pid)) return null;

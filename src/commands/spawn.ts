@@ -4,10 +4,10 @@ import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree } from "../policy/name.ts";
 import { workerPolicyFrom, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
-import type { AgentAdapter } from "../adapters/adapter.ts";
+import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
-import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle } from "../backends/backend.ts";
+import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle, BackendId } from "../backends/backend.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { errorMessage } from "../util.ts";
@@ -117,14 +117,16 @@ export interface AgentFlags {
 }
 
 export interface AgentSettings {
-  adapter: string;
-  backend: string;
+  adapter: AdapterId;
+  backend: BackendId;
   model: string | null;
 }
 
 export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
-  const adapter = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "" });
-  if (!adapter) die("no harness selected — pass --agent <id> or run `orch setup` to pick one");
+  const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "" });
+  if (!selected) die("no harness selected — pass --agent <id> or run `orch setup` to pick one");
+  // Validate the id here, at the boundary, so everything downstream carries AdapterId.
+  const adapter = resolveAdapterOrDie(selected).id;
   // Selection flows through the backend factory: explicit flag/env, then config
   // default, then a capability-probed fallback. No per-backend branch is hard-coded here.
   let backend: Backend;
@@ -338,7 +340,7 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
 export interface TabSpawnSpec {
   backend: Backend;
   adapter: AgentAdapter;
-  adapterId: string;
+  adapterId: AdapterId;
   name: string;
   cwd: string;
   workspace: string;
@@ -346,6 +348,8 @@ export interface TabSpawnSpec {
   model: string | null;
   split?: "down" | "right";
   tools?: string;
+  /** What this worker may load; absent lets the adapter apply no policy. */
+  workers?: WorkerPolicy;
   /** Verbatim launch command from `--cmd`; absent lets the adapter build it. */
   cmd?: string;
   worktree?: string;
@@ -501,7 +505,6 @@ export async function cmdTile(args: string[]) {
   const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: config.defaults.backend ?? null });
   if (!selectedBackend.panes) die(`orch tile requires a pane-capable backend; ${selectedBackend.id} has no panes to tile.`);
   const selectedAdapter = resolveAdapterOrDie(adapter);
-  const cmd = flags.commandFlag ? flags.cmd : adapterCommand(adapter, config);
   const target = flags.positional[0];
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
 
@@ -534,6 +537,10 @@ export async function cmdTile(args: string[]) {
       // stacks every added pane off one edge and unbalances the tab.
       split: nextSplit(selectedBackend, refPane),
       cmd: flags.commandFlag ? flags.cmd : undefined,
+      // A tiled worker loads exactly what a spawned one does; dropping these is
+      // how tiled agents lost the user's own harness extensions.
+      tools: workerTools(config),
+      workers: workerPolicyFrom(config),
       model,
     });
   } catch (e: unknown) {
@@ -541,7 +548,7 @@ export async function cmdTile(args: string[]) {
   }
   if (flags.json) process.stdout.write(JSON.stringify({ pane: agent.pane, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
   else {
-    process.stdout.write(`Added ${agent.pane} (${autoName}) to group ${layout.group} running "${cmd}".\n`);
+    process.stdout.write(`Added ${agent.pane} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
     printLayout(refPane, selectedBackend, "\nFinal tiling:");
   }
   if (model) await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);

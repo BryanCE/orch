@@ -19,6 +19,15 @@ export function runningRuntime(): OrchRuntime {
   return "node";
 }
 
+const SHEBANG = /^#![^\r\n]*/;
+
+/** Point an entrypoint at `runtime`, so switching runtimes needs no rebuild. */
+export function writeShebangRuntime(file: string, runtime: OrchRuntime): void {
+  const source = filesystem.readFileSync(file, "utf8");
+  filesystem.writeFileSync(file, source.replace(SHEBANG, `#!/usr/bin/env ${runtime}`));
+  filesystem.chmodSync(file, 0o755);
+}
+
 /**
  * The runtime named by an executable's shebang, or null when the file is not a
  * shebang script (a real binary, or unreadable). Recognizes both `#!/usr/bin/env
@@ -113,17 +122,25 @@ export function checkRuntime(orchDir: string, observations: RuntimeObservations 
   }
 
   const entrypoint = entrypointOf();
-  if (entrypoint?.runtime && entrypoint.runtime !== declared) {
-    problems.push(`the orch entrypoint (${entrypoint.path}) has a ${entrypoint.runtime} shebang but settings.json declares ${declared}`);
+  const staleEntrypoint = entrypoint?.runtime && entrypoint.runtime !== declared ? entrypoint : null;
+  if (staleEntrypoint) {
+    problems.push(`the orch entrypoint (${staleEntrypoint.path}) has a ${staleEntrypoint.runtime} shebang but settings.json declares ${declared}`);
   }
 
   if (!problems.length) {
     return { id, label, status: "ok", detail: `running under ${declared} as declared (${resolved ?? declared})` };
   }
-  return {
+  const result: CheckResult = {
     id,
     label,
     status: "fail",
-    detail: `${problems.join("; ")}; fix: rebuild and reinstall with bun run build:dev, or re-record with orch setup --runtime ${running}`,
+    detail: `${problems.join("; ")}; fix: orch doctor --fix, or re-record with orch setup --runtime ${running}`,
   };
+  if (staleEntrypoint) {
+    result.fix = {
+      description: `point ${staleEntrypoint.path} at ${declared}`,
+      apply: () => writeShebangRuntime(staleEntrypoint.path, declared),
+    };
+  }
+  return result;
 }

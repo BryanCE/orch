@@ -8,6 +8,7 @@ import { claudeAdapter } from "../src/adapters/claude.ts";
 import { recordSpawned } from "../src/presence/store.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { getBackend } from "../src/backends/registry.ts";
+import type { BackendId } from "../src/backends/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
 
 const headlessBackend = getBackend("headless")!;
@@ -22,7 +23,7 @@ function tempDir(prefix = "orch-control-dispatch-"): string {
   return dir;
 }
 
-function target(backend: "headless" | "tmux", id: string): string {
+function target(backend: BackendId, id: string): string {
   return serializeIdentity({ backend, workspace: backend === "headless" ? "local" : "test", id });
 }
 

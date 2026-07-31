@@ -126,7 +126,7 @@ describe("headless common path: identity key -> presence", () => {
     // The handle carries the caller's key unchanged — a flat serialized identity.
     expect(handle.key).toBe(key);
     const identity = parseIdentity(handle.key);
-    expect(identity).toEqual({ backend: "headless", workspace: "local", handle: "detached-1" });
+    expect(identity).toEqual({ backend: "headless", workspace: "local", id: "detached-1" });
     expect(handle.key.includes("/")).toBe(false);
 
     // The agent writes its presence under ~/.orch/agents/<key>/.
@@ -162,7 +162,7 @@ describe("headless common path: identity key -> presence", () => {
 
   test("one adapter uses opaque keys across headless and tmux backend routes", () => {
     const key = "opaque~adapter~key";
-    expect(parseIdentity(key)).toEqual({ backend: "opaque", workspace: "adapter", handle: "key" });
+    expect(parseIdentity(key)).toEqual({ backend: "opaque", workspace: "adapter", id: "key" });
     expect(claudeAdapter.headlessCmd("task", { key }).at(-1)).toBe("task");
     expect(piAdapter.interactiveCmd({ key })).toBe("pi");
   });

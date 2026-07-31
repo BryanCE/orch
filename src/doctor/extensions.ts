@@ -4,8 +4,8 @@ import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { extensionBundlePath } from "../bridge-bundle.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
 import type { CheckResult } from "../check-result.ts";
-import { readAgentEntries, readJson, repoDir } from "./shared.ts";
-import { pidAlive } from "../util.ts";
+import { readAgentEntries, readJson } from "./shared.ts";
+import { packageRoot, pidAlive } from "../util.ts";
 
 interface AgentStatus {
   pid?: unknown;
@@ -19,7 +19,7 @@ function isAgentStatus(value: unknown): value is AgentStatus {
 }
 
 /** Compare a bridge presence hash with the bundled bridge currently installed on disk. */
-export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath = extensionBundlePath(repoDir, "orchestrator-bridge")): boolean {
+export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath = extensionBundlePath(packageRoot(), "orchestrator-bridge")): boolean {
   if (extensionHash === undefined) return false;
   try {
     return extensionHash !== computeCodeHash(bundlePath);
@@ -29,7 +29,7 @@ export function isBridgeExtensionStale(extensionHash: string | undefined, bundle
 }
 
 /** Verify Claude's orch hooks are installed and target this checkout's shim. */
-export async function checkExtensionStaleness(orchDir: string, bundlePath: string = extensionBundlePath(repoDir, "orchestrator-bridge")): Promise<CheckResult> {
+export async function checkExtensionStaleness(orchDir: string, bundlePath: string = extensionBundlePath(packageRoot(), "orchestrator-bridge")): Promise<CheckResult> {
   await Promise.resolve();
   const id = "extension-staleness";
   const label = "Extension staleness";

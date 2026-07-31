@@ -5,8 +5,8 @@ import { z } from "zod";
 // (notify.ts → config.ts among others). It must never import the provider
 // registries — they evaluate every concrete adapter/backend, re-entering this
 // graph mid-initialization. The closed id sets live in the pure port modules.
-import { ADAPTER_IDS } from "./adapters/adapter.ts";
-import { BACKEND_IDS, HERDR_SINK_ID } from "./backends/backend.ts";
+import { ADAPTER_IDS, type AdapterId } from "./adapters/adapter.ts";
+import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errorMessage } from "./util.ts";
 
@@ -74,12 +74,12 @@ const SettingsFileSchema = z.strictObject({
   runtime: z.enum(ORCH_RUNTIMES),
   /** Providers whose integrations setup installed; any of them can be spawned. */
   installed: z.strictObject({
-    adapters: z.array(z.string()),
-    backends: z.array(z.string()),
+    adapters: z.array(z.enum(ADAPTER_IDS)),
+    backends: z.array(z.enum(BACKEND_IDS)),
   }).optional(),
   defaults: z.strictObject({
-    adapter: z.string().optional(),
-    backend: z.string().optional(),
+    adapter: z.enum(ADAPTER_IDS).optional(),
+    backend: z.enum(BACKEND_IDS).optional(),
     model: z.string().optional(),
     worktree: z.boolean().optional(),
   }).optional(),
@@ -125,8 +125,8 @@ export type HostConfig = z.infer<typeof HostSchema>;
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchConfig {
   runtime: OrchRuntime;
-  installed: { adapters: string[]; backends: string[] };
-  defaults: { adapter?: string; backend?: string; model?: string; worktree: boolean };
+  installed: { adapters: AdapterId[]; backends: BackendId[] };
+  defaults: { adapter?: AdapterId; backend?: BackendId; model?: string; worktree: boolean };
   fleet: { spawn_cap: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
   models: { allowed: string[] };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
@@ -166,6 +166,30 @@ function namesSettingsFile(filename: string | Buffer | null | undefined): boolea
   return name === SETTINGS_FILE || (name.startsWith(`${SETTINGS_FILE}.`) && name.endsWith(".tmp"));
 }
 
+function valueAtPath(root: unknown, path: readonly PropertyKey[]): unknown {
+  let cursor: unknown = root;
+  for (const step of path) {
+    if (cursor === null || typeof cursor !== "object") return undefined;
+    cursor = (cursor as Record<PropertyKey, unknown>)[step];
+  }
+  return cursor;
+}
+
+/** Describe a rejected provider id so the operator sees the value and the closed set,
+ *  never a raw enum dump. `installed.adapters[0]` and `defaults.adapter` both name one adapter. */
+function unknownProviderId(root: unknown, path: readonly PropertyKey[]):
+  { noun: string; at: string; found: unknown; supported: readonly string[] } | null {
+  const supported = { adapter: ADAPTER_IDS, adapters: ADAPTER_IDS, backend: BACKEND_IDS, backends: BACKEND_IDS };
+  const key = String(path[1] ?? "");
+  if (!Object.hasOwn(supported, key)) return null;
+  return {
+    noun: key.replace(/s$/, ""),
+    at: path.join("."),
+    found: valueAtPath(root, path),
+    supported: supported[key as keyof typeof supported],
+  };
+}
+
 /** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
 function readSettingsFile(file: string): SettingsFile | null {
   let text: string;
@@ -198,6 +222,10 @@ function readSettingsFile(file: string): SettingsFile | null {
         : `declares runtime ${JSON.stringify(found)}, which is not a runtime orch supports`;
       throw new Error(`${file}: ${problem}. Accepted values: ${ORCH_RUNTIMES.join(", ")}.\nRun: orch setup`);
     }
+    const provider = result.error.issues.map((issue) => unknownProviderId(root, issue.path)).find(Boolean);
+    if (provider) {
+      throw new Error(`${file}: ${provider.at}: unknown ${provider.noun} ${JSON.stringify(provider.found)} — supported ${provider.noun}s: ${provider.supported.join(", ")}\nRun: orch setup`);
+    }
     throw new Error(`${file}: this settings file has invalid values:\n${z.prettifyError(result.error)}\nFix those keys by hand, or re-record the file with: orch setup`);
   }
   return result.data;
@@ -221,17 +249,10 @@ export function reapUnreadableSettings(orchDir: string): string | null {
   }
 }
 
-/** Reject unknown provider ids and defaults outside the installed sets — composition validation the pure schema can't do. */
+/** Reject defaults outside the installed sets — composition validation the pure schema can't do.
+ *  Unknown ids never reach here: the schema's enums are the closed provider sets. */
 function requireInstalledComposition(file: string, root: SettingsFile): void {
-  const adapterIds: readonly string[] = ADAPTER_IDS;
-  const backendIds: readonly string[] = BACKEND_IDS;
   const installed = root.installed ?? { adapters: [], backends: [] };
-  for (const id of installed.adapters) {
-    if (!adapterIds.includes(id)) throw new Error(`${file}: installed.adapters: unknown adapter "${id}" — supported adapters: ${adapterIds.join(", ")}`);
-  }
-  for (const id of installed.backends) {
-    if (!backendIds.includes(id)) throw new Error(`${file}: installed.backends: unknown backend "${id}" — supported backends: ${backendIds.join(", ")}`);
-  }
   const adapter = root.defaults?.adapter;
   if (adapter !== undefined && !installed.adapters.includes(adapter)) {
     throw new Error(`${file}: defaults.adapter: "${adapter}" is not an installed adapter — installed: ${installed.adapters.join(", ") || "(none)"}; re-run orch setup`);
@@ -500,12 +521,15 @@ export function writeSettingsRuntime(orchDir: string, runtime: OrchRuntime): voi
 }
 
 /** Upsert one string entry in the `defaults` section of settings.json. */
+export function writeSettingsDefault(orchDir: string, key: "adapter", value: AdapterId): void;
+export function writeSettingsDefault(orchDir: string, key: "backend", value: BackendId): void;
+export function writeSettingsDefault(orchDir: string, key: "model", value: string): void;
 export function writeSettingsDefault(orchDir: string, key: "adapter" | "backend" | "model", value: string): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, [key]: value } }));
 }
 
 /** Record the setup-installed provider sets in settings.json. */
-export function writeSettingsInstalled(orchDir: string, installed: { adapters: readonly string[]; backends: readonly string[] }): void {
+export function writeSettingsInstalled(orchDir: string, installed: { adapters: readonly AdapterId[]; backends: readonly BackendId[] }): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, installed: { adapters: [...installed.adapters], backends: [...installed.backends] } }));
 }
 

@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import type { HostConfig } from "./config.ts";
+import { shellQuote } from "./util.ts";
 
 const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
 
@@ -66,10 +67,6 @@ function outputText(value: unknown): string {
 
 function errorField(error: unknown, field: string): unknown {
   return error && typeof error === "object" ? Reflect.get(error, field) : undefined;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function commandArgs(command: string | readonly string[]): string[] {

@@ -1,10 +1,10 @@
 import type { CheckResult } from "../check-result.ts";
-import { onPath } from "./shared.ts";
+import { binaryOnPath } from "../util.ts";
 
 export type BinaryStatus = Record<string, boolean>;
 
 export function binaryStatus(ids: readonly string[]): BinaryStatus {
-  return Object.fromEntries(ids.map((id) => [id, onPath(id)]));
+  return Object.fromEntries(ids.map((id) => [id, binaryOnPath(id)]));
 }
 
 export function checkBins(bins: BinaryStatus, ids: readonly string[]): CheckResult {

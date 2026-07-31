@@ -47,7 +47,7 @@ describe("tmux backend registry and capabilities", () => {
   });
 
   test("serializes tmux identities as one flat key", () => {
-    const identity = { backend: "tmux", workspace: "main", handle: "%5" } as const;
+    const identity = { backend: "tmux", workspace: "main", id: "%5" } as const;
     const key = serializeIdentity(identity);
     expect(key).toBe("tmux~main~%255");
     expect(key.includes("/")).toBe(false);

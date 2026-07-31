@@ -1,6 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
+import { shellQuote } from "../util.ts";
 
 // Claude's hook wire format lives here, in the claude adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
@@ -10,11 +11,6 @@ import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
 /** Built hook shim inside a package root (source: extensions/claude/index.ts); plain ESM JS any runtime can run. */
 export function claudeHookShimPath(root: string): string {
   return path.join(root, "dist", "scripts", "claude-hooks.js");
-}
-
-/** Single-quote one argv element for the POSIX sh string claude stores as a hook command. */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /**

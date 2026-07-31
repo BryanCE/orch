@@ -3,8 +3,6 @@
   "version": "0.1.0",
   "description": "Fleet orchestration control plane for various coding afent harness's and multiplexers for optimal coding agent orchestration and control from any provider.",
   "keywords": [
-    "pi-package",
-    "pi-extension",
     "herdr",
     "orchestration",
     "agents"
@@ -29,12 +27,14 @@
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
     "build:web": "bun --filter orch-web build",
-    "build:dev": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\" && bun scripts/record-runtime.ts && bun scripts/sync-claude-integration.ts && (orch daemon reload || orch daemon start)",
+    "install:global": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
+    "build:dev": "bun run install:global && orch doctor -y && (orch daemon reload || orch daemon start)",
     "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
     "lint": "oxlint bin src test extensions scripts",
     "test": "bun test",
-    "reset": "bun scripts/reset.ts"
+    "reset": "bun scripts/reset.ts",
+    "reinstall": "bun scripts/reset.ts && bun run install:global && orch setup && orch doctor -y && orch daemon start"
   },
   "license": "MIT",
   "author": "Bryan Edman",
@@ -53,11 +53,6 @@
     "agents/",
     "README.md"
   ],
-  "pi": {
-    "extensions": [
-      "./extensions/pi/index.ts"
-    ]
-  },
   "engines": {
     "node": ">=18.0.0",
     "bun": ">=1.0.0"

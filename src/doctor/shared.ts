@@ -2,23 +2,7 @@ import * as filesystem from "node:fs";
 import { execFile } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
-import { packageRoot } from "../util.ts";
 
-/** Checkout/package root used to locate bundled scripts and the daemon entrypoint. */
-export const repoDir = packageRoot();
-
-export function onPath(command: string): boolean {
-  const extensions = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
-  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
-    for (const extension of extensions) {
-      try {
-        filesystem.accessSync(path.join(directory, command + extension), filesystem.constants.X_OK);
-        return true;
-      } catch {}
-    }
-  }
-  return false;
-}
 
 export function hasErrorCode(error: unknown, code: string): boolean {
   if (typeof error !== "object" || error === null || !("code" in error)) return false;

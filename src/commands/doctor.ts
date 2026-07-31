@@ -14,12 +14,12 @@ function failExit(results: readonly CheckResult[]): void {
 async function runInteractiveDoctor(initial: CheckResult[]): Promise<void> {
   let results = initial;
   renderDoctorResults(results);
-  const fixable = results.filter((r) => r.fix && (r.id.startsWith("shim-") || r.id.startsWith("fleet-pair-"))).map((r) => ({ id: r.id, label: r.label, description: r.fix!.description, destructive: r.fix!.destructive }));
+  const fixable = results.filter((r) => r.fix).map((r) => ({ id: r.id, label: r.label, description: r.fix!.description, destructive: r.fix!.destructive }));
   const selected = await pickFixes(fixable);
   if (selected === null) return;
   if (selected.length) {
     const chosen = new Set(selected);
-    const toApply = results.filter((r) => r.fix && !r.fix.destructive && (r.id.startsWith("shim-") || r.id.startsWith("fleet-pair-")) && chosen.has(r.id));
+    const toApply = results.filter((r) => r.fix && !r.fix.destructive && chosen.has(r.id));
     withSpinner(
       `Applying ${toApply.length} fix${toApply.length === 1 ? "" : "es"}…`,
       "fixes applied",
@@ -41,7 +41,7 @@ export async function cmdDoctor(args: string[]) {
   if (!json && !yes && process.stdin.isTTY) return runInteractiveDoctor(results);
   // Unattended: -y (or --fix with no TTY to prompt on) applies every fix.
   const changes = fix
-    ? applyFixes(results.filter((r) => !r.fix?.destructive && (r.id.startsWith("shim-") || r.id.startsWith("fleet-pair-")))).applied
+    ? applyFixes(results.filter((r) => !r.fix?.destructive)).applied
     : [];
   if (fix && changes.length) results = await runDoctor(orchDir());
   if (json) {

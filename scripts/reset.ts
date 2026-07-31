@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PI_EXTENSION_NAMES } from "../src/bridge-bundle.ts";
 
@@ -87,10 +87,38 @@ function binShimRemovals(): WipeStep[] {
   return ["orch", "pif"].map((name) => deletion(join(HOME, ".local", "bin", name))).filter(nonNull);
 }
 
-/** Orch's bundled pi extensions only — never the user's own footer/subagent ones. */
+/** True for a link into an orch package — the mark of an orch-installed extension. */
+function linksIntoOrch(entry: string): boolean {
+  try {
+    return readlinkSync(entry).includes(`${sep}orch${sep}`);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Orch's pi extensions only — never the user's own footer/subagent ones.
+ *
+ * Current bundle names cover what THIS build installs; the link target covers
+ * what older layouts did, which is how `herdr-agent-state.ts` outlived its
+ * source file and sat dangling through every reinstall.
+ */
 function piExtensionRemovals(): WipeStep[] {
   const extensions = join(HOME, ".pi", "agent", "extensions");
-  return PI_EXTENSION_NAMES.map((name) => deletion(join(extensions, `${name}.js`))).filter(nonNull);
+  const orchInstalled = new Set(PI_EXTENSION_NAMES.map((name) => join(extensions, `${name}.js`)));
+  for (const entry of readdirSafe(extensions)) {
+    const file = join(extensions, entry);
+    if (linksIntoOrch(file)) orchInstalled.add(file);
+  }
+  return [...orchInstalled].map(deletion).filter(nonNull);
+}
+
+function readdirSafe(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
 }
 
 /** Whatever the repo packages is exactly what an install copied in, so it is

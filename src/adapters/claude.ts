@@ -178,6 +178,23 @@ function installClaudeAgents(pkgRoot: string): void {
  * no mid-run tool/token/cost transitions the way pi's live extension reports
  * them. State and session-tail data are supplied by extensions/claude/index.ts.
  */
+const CLAUDE_HOOK_EVENTS = ["SessionStart", "Stop", "Notification"] as const;
+
+/** Every command string registered under one Claude hook event, ignoring malformed entries. */
+function registeredHookCommands(settings: Record<string, unknown>, event: string): string[] {
+  const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
+  if (!Array.isArray(entries)) return [];
+  const hooks = entries.flatMap((entry) => (isRecord(entry) && Array.isArray(entry.hooks) ? entry.hooks : []));
+  return hooks.flatMap((hook) =>
+    isRecord(hook) && hook.type === "command" && typeof hook.command === "string" ? [hook.command] : []);
+}
+
+/** Events whose orch hook is unregistered or left over from a build under another runtime. */
+function staleHookEvents(settings: Record<string, unknown>, shim: string, runtime: OrchRuntime): string[] {
+  return CLAUDE_HOOK_EVENTS.filter((event) =>
+    !registeredHookCommands(settings, event).includes(claudeHookCommand(shim, event, runtime, orchDir())));
+}
+
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 
@@ -305,17 +322,16 @@ class ClaudeAdapter implements AgentAdapter {
       // crash an unrelated diagnostic.
       return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
     }
-    const missing: string[] = [];
-    for (const event of ["SessionStart", "Stop", "Notification"] as const) {
-      const expected = claudeHookCommand(shim, event, runtime, orchDir());
-      const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
-      const present = Array.isArray(entries) && entries.some((entry) =>
-        isRecord(entry) && Array.isArray(entry.hooks) && entry.hooks.some((hook) =>
-          isRecord(hook) && hook.type === "command" && typeof hook.command === "string" && hook.command === expected));
-      if (!present) missing.push(event);
-    }
+    const missing = staleHookEvents(settings, shim, runtime);
+    // Repairing drift IS reinstalling: installShim is idempotent and additive.
     return missing.length
-      ? { id, label, status: "warn", detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}; fix: run orch setup` }
+      ? {
+          id,
+          label,
+          status: "warn",
+          detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
+          fix: { description: `reinstall orch's Claude hooks (${missing.join(", ")})`, apply: () => { this.installShim(); } },
+        }
       : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
   }
 }

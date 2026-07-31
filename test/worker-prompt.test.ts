@@ -4,6 +4,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
+import type { AdapterId } from "../src/adapters/adapter.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { addTask, listTasks } from "../src/queue.ts";
@@ -23,7 +24,7 @@ function statusFile(orchDir: string, key: string): string {
   return join(dir, "status.json");
 }
 
-async function dispatchedPrompt(adapter: "codex" | "pi"): Promise<string> {
+async function dispatchedPrompt(adapter: AdapterId): Promise<string> {
   const previousOrchDir = process.env.ORCH_DIR;
   const orchDir = mkdtempSync(join(tmpdir(), `orch-worker-prompt-${adapter}-`));
   const key = serializeIdentity({ backend: "headless", workspace: "local", id: `${adapter}-worker` });

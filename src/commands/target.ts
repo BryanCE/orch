@@ -166,7 +166,9 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
     const backend = getBackend(id.backend);
     if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(id.backend)}.`);
     const paneHandle = ent.paneId ?? id.id;
-    return { entity: ent, record: { pane: ent.key, backend: id.backend, handle: paneHandle }, backend, handle: paneHandle };
+    // The resolved backend, not the key's raw segment: this is the id the
+    // registry stores, and it is only a BackendId once getBackend has accepted it.
+    return { entity: ent, record: { pane: ent.key, backend: backend.id, handle: paneHandle }, backend, handle: paneHandle };
   }
 
   const id = parseIdentity(record.pane);

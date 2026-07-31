@@ -4,12 +4,14 @@ import { subscribeEvents } from "../src/daemon/rpc.ts";
 
 describe("commands/events", () => {
   test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, targets: ["agent"] }));
-  test("a subscription with no daemon keeps redialing instead of exiting", async () => {
+  test("a subscription with no daemon keeps redialing instead of exiting", () => {
     // One subscription must cover a whole session: a daemon restart drops the
     // socket, and the stream has to come back on its own. Dialing an orch dir with
     // no daemon is the same path a restart takes — it must resolve, not throw.
-    const subscription = subscribeEvents("/nonexistent-orch-dir", { since: 0 }, () => {});
+    const delivered: unknown[] = [];
+    const subscription = subscribeEvents("/nonexistent-orch-dir", { since: 0 }, (event) => delivered.push(event));
     expect(subscription.lastSeq()).toBe(0);
+    expect(delivered).toEqual([]);
     subscription.close();
   });
   test("rejects malformed event and labels sinks", () => {

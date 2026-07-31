@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { errorMessage, packageRoot } from "../util.ts";
+import { errorMessage, isRecord, packageRoot, shellQuote, textValue, type JsonRecord } from "../util.ts";
 import { declaredRuntime } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
@@ -17,9 +17,7 @@ import type {
   StateDetectionInput,
   SteerRequest,
 } from "./adapter.ts";
-import type { CheckResult } from "../check-result.ts";
-import { isRecord, type JsonRecord } from "../util.ts";
-import { textValue } from "../util.ts";
+import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import { contentText } from "./transcript.ts";
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
@@ -127,10 +125,6 @@ function assistantText(record: JsonRecord): string | undefined {
     if (text !== undefined) return text;
   }
   return undefined;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function readTextFile(file: string | undefined): string | undefined {
@@ -317,20 +311,25 @@ export class CodexAdapter implements AgentAdapter {
     };
   }
 
+  /** Repairing codex's notify wiring IS reinstalling it — installShim is idempotent. */
+  private reinstallFix(): FixDescriptor {
+    return { description: "register orch's codex notify shim", apply: () => { this.installShim(); } };
+  }
+
   /** Verify the top-level notify artifact written by installShim. */
   // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
     const configPath = join(homedir(), ".codex", "config.toml");
     const shim = codexNotifyShimPath(packageRoot());
-    if (!existsSync(shim)) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `${shim} is missing; fix: run orch setup` };
+    if (!existsSync(shim)) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `${shim} is missing; run: bun run build:notify` };
     let raw: string;
     try { raw = readFileSync(configPath, "utf8"); }
     catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing ${configPath}; fix: run orch setup` };
-      return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `could not read ${configPath}; fix: run orch setup` };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing ${configPath}`, fix: this.reinstallFix() };
+      return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `could not read ${configPath}` };
     }
     const line = raw.split(/\r?\n/).find((entry) => /^\s*notify\s*=/.test(entry));
-    if (!line) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing notify in ${configPath}; fix: run orch setup` };
+    if (!line) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing notify in ${configPath}`, fix: this.reinstallFix() };
     if (!line.includes("codex-notify")) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `foreign notify in ${configPath}; orch notify is disabled` };
     return { id: "codex-notify", label: "Codex notify shim", status: "ok", detail: `Codex notify shim is current (${shim})` };
   }

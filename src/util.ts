@@ -29,6 +29,11 @@ export function packageRoot(): string {
  * fnm, volta, asdf) and Windows-vs-WSL shells routinely differ — so a bare name
  * can resolve to a different binary, or to none at all.
  */
+/** Single-quote one value for a POSIX sh command string. */
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 export function binaryPath(bin: string): string | null {
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];

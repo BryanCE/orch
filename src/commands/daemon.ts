@@ -1,8 +1,8 @@
 import * as path from "node:path";
-import { daemonize, runForeground } from "../daemon/lifecycle.ts";
+import { daemonEntrypoint, daemonize, runForeground } from "../daemon/lifecycle.ts";
 import { DaemonAbsentError, rpcCall } from "../daemon/rpc.ts";
 import { orchDir, readJSON } from "../presence/store.ts";
-import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
+import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { selfActor } from "../entities.ts";
 import { die } from "./target.ts";
 
@@ -21,10 +21,6 @@ export interface DaemonStatus {
   codeHash: string;
   socket: string;
   tcpEndpoint?: string;
-}
-
-function daemonEntrypoint(): string {
-  return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
 }
 
 export function daemonLockPid(directory = orchDir()): number | undefined {

@@ -2,11 +2,15 @@ import type { AgentAdapter } from "../adapters/adapter.ts";
 import type { Identity } from "./identity.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 
-/** Plexer backends supported by orch. */
-export type BackendId = "herdr" | "tmux" | "headless";
-
 /** The closed backend-id set, importable without pulling any provider code. */
-export const BACKEND_IDS: readonly BackendId[] = ["herdr", "tmux", "headless"];
+export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;
+
+/** Plexer backends supported by orch. */
+export type BackendId = (typeof BACKEND_IDS)[number];
+
+export function isBackendId(value: unknown): value is BackendId {
+  return typeof value === "string" && (BACKEND_IDS as readonly string[]).includes(value);
+}
 
 /** Herdr's backend-owned notification sink id — the one spelling core may import. */
 export const HERDR_SINK_ID = "herdr";
@@ -127,6 +131,9 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
 
 /** Entry written to the spawn registry. */
 export interface BackendRegistryRecord<Handle = BackendHandle> {
+  // Written by orch, but read back from disk: an id this build no longer ships
+  // must still yield a closable record, so the read guard is the boundary here
+  // and these stay plain strings.
   readonly backend: string;
   readonly handle: Handle;
   readonly adapter: string;

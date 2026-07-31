@@ -9,6 +9,7 @@ import { pidAlive } from "../../util.ts";
 import type {
   Backend,
   BackendCapabilities,
+  BackendId,
   BackendRegistryRecord,
   BackendSpawnOpts,
   DeliverPayload,
@@ -24,7 +25,7 @@ export interface HeadlessHandle {
 
 type HeadlessRegistryRecord = BackendRegistryRecord<HeadlessHandle>;
 
-const HEADLESS_BACKEND = "headless";
+const HEADLESS_BACKEND: BackendId = "headless";
 
 function orchDirectory(override?: string): string {
   return override ?? process.env.ORCH_DIR ?? join(homedir(), ".orch");
@@ -201,7 +202,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
     const handle: HeadlessHandle = { pid, key };
-    appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: String(adapter.id), cwd: opts.cwd, log: logPath }, directory);
+    appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: adapter.id, cwd: opts.cwd, log: logPath }, directory);
     return handle;
   }
 

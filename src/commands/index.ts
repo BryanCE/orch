@@ -2,7 +2,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { orchDir } from "../presence/store.ts";
-import { readDaemonCodeSkew } from "../daemon/lifecycle.ts";
+import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/lifecycle.ts";
 import { cmdStatus } from "./status.ts";
 import { cmdSpawn, cmdTile } from "./spawn.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
@@ -165,10 +165,6 @@ const STALE_GUARD_COMMANDS = new Set([
   "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
   "queue", "work", "model", "broadcast",
 ]);
-
-function daemonEntrypoint(): string {
-  return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
-}
 
 /** Refuse writes sent to a live daemon from a stale installed CLI. */
 function preflightSkew(argv: string[]): string[] {

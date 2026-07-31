@@ -6,6 +6,7 @@ import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrRea
 import type {
   Backend,
   BackendCapabilities,
+  BackendId,
   BackendGroup,
   BackendGroupLayout,
   BackendRect,
@@ -21,7 +22,7 @@ import type { Identity } from "../identity.ts";
 /** Handle owned by one herdr pane. */
 export type HerdrHandle = string;
 
-const HERDR_BACKEND = "herdr";
+const HERDR_BACKEND: BackendId = "herdr";
 
 interface AgentStartResult {
   readonly agent?: {

@@ -7,16 +7,16 @@ import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
 import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
-import { ADAPTER_IDS } from "../adapters/adapter.ts";
-import { BACKEND_IDS } from "../backends/backend.ts";
+import { ADAPTER_IDS, type AdapterId } from "../adapters/adapter.ts";
+import { BACKEND_IDS, type BackendId } from "../backends/backend.ts";
 import { binaryStatus } from "../doctor/bins.ts";
-import { shebangRuntime } from "../doctor/runtime.ts";
+import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { runDoctor, type CheckResult } from "../doctor/runner.ts";
 import { withSpinner, promptText } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
 import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
 import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
-import { binaryPath, errorMessage, packageRoot } from "../util.ts";
+import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
 import { cmdSpawn, resolveAdapterOrDie, workerPrompt } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
@@ -56,25 +56,26 @@ export function readAssignFlag(args: string[], name: string): string | undefined
 }
 
 /** Validate a provided setup flag value against the supported ids, or exit. */
-function validateSetupFlag(kind: string, value: string, supported: readonly string[]): string {
-  if (supported.includes(value)) return value;
+/** Narrow one flag value to the closed provider set, or exit naming every supported id. */
+export function validateSetupFlag<Id extends string>(kind: string, value: string, supported: readonly Id[]): Id {
+  const known = supported.find((id) => id === value);
+  if (known !== undefined) return known;
   die(`Unknown ${kind} "${value}". Supported ${kind}s: ${supported.join(", ")}.`);
 }
 
 /** Resolve the setup harness set from a comma-separated flag, the multi-select wizard, or exit. Null on cancel. */
-export async function resolveProviderSet(
+export async function resolveProviderSet<Id extends string>(
   kind: string,
   flagName: string,
   flag: string | undefined,
-  ids: readonly string[],
+  ids: readonly Id[],
   interactive: boolean,
-  pick: (options: readonly string[]) => Promise<string[] | null>,
-): Promise<string[] | null> {
+  pick: (options: readonly Id[]) => Promise<Id[] | null>,
+): Promise<Id[] | null> {
   if (flag !== undefined) {
     const list = [...new Set(flag.split(",").map((id) => id.trim()).filter(Boolean))];
     if (!list.length) die(`${flagName} needs at least one ${kind} id.`);
-    for (const id of list) validateSetupFlag(kind, id, ids);
-    return list;
+    return list.map((id) => validateSetupFlag(kind, id, ids));
   }
   if (interactive) {
     const picked = await pick(ids);
@@ -86,12 +87,12 @@ export async function resolveProviderSet(
 }
 
 /** Pick the active default from a selected set: the sole member, the flag/non-interactive first entry, or a prompt. Null on cancel. */
-export async function resolveActiveDefault(
-  selected: readonly string[],
+export async function resolveActiveDefault<Id extends string>(
+  selected: readonly Id[],
   flagProvided: boolean,
   interactive: boolean,
-  pick: (options: readonly string[]) => Promise<string | null>,
-): Promise<string | null> {
+  pick: (options: readonly Id[]) => Promise<Id | null>,
+): Promise<Id | null> {
   if (selected.length === 1 || flagProvided || !interactive) return selected[0]!;
   return pick(selected);
 }
@@ -103,60 +104,16 @@ export async function resolveRuntime(
   interactive: boolean,
   pick: () => Promise<OrchRuntime | null> = selectRuntime,
 ): Promise<OrchRuntime | null> {
-  if (flag !== undefined) return validateSetupFlag("runtime", flag, ORCH_RUNTIMES) as OrchRuntime;
+  if (flag !== undefined) return validateSetupFlag("runtime", flag, ORCH_RUNTIMES);
   // Non-interactive expresses no preference, and the recorded value for no preference is node.
   if (!interactive) return DEFAULT_RUNTIME;
   return pick();
-}
-
-/** The runtime named by the installed `orch` entrypoint's shebang, resolved through PATH and
- * followed to its real target. Null when orch is not yet on PATH (nothing to contradict). */
-interface EntrypointRuntime {
-  path: string;
-  runtime: OrchRuntime | null;
-}
-
-function installedEntrypointRuntime(): EntrypointRuntime | null {
-  const entrypoint = binaryPath("orch");
-  if (!entrypoint) return null;
-  let target = entrypoint;
-  try {
-    target = files.realpathSync(entrypoint);
-  } catch {
-    // A dangling link is reported by doctor; treat the link path as the target here.
-  }
-  return { path: target, runtime: shebangRuntime(target) };
 }
 
 /** Confirm-to-record prompt, defaulting to NO — a cancelled or declined prompt records nothing. */
 async function promptConfirm(message: string): Promise<boolean> {
   const answer = await confirm({ message, initialValue: false });
   return !isCancel(answer) && answer === true;
-}
-
-/** Reconcile the operator's runtime selection against the installed entrypoint's shebang (11.1).
- * A selection the installed build contradicts would make setup's own closing doctor pass fail, so
- * it is confronted at selection time — naming the installed runtime, the selection, and the rebuild
- * command — and recorded only on explicit confirmation. Without confirmation (declined, or no TTY /
- * -y to prompt on) the consistent value the entrypoint already is gets recorded instead. */
-export async function reconcileRuntimeToEntrypoint(
-  selected: OrchRuntime,
-  interactive: boolean,
-  observe: () => EntrypointRuntime | null = installedEntrypointRuntime,
-  askConfirm: () => Promise<boolean> = () => promptConfirm(`Record ${selected} anyway? It will not take effect until you run bun run build:dev.`),
-): Promise<OrchRuntime> {
-  const installed = observe();
-  if (!installed?.runtime || installed.runtime === selected) return selected;
-  process.stdout.write(
-    `Runtime mismatch: the installed orch entrypoint (${installed.path}) is a ${installed.runtime} build, but you selected ${selected}.\n` +
-    `  A ${selected} install requires a rebuild: bun run build:dev\n`,
-  );
-  if (interactive && (await askConfirm())) {
-    process.stdout.write(`  recording ${selected} — pending rebuild; run bun run build:dev to make it real\n`);
-    return selected;
-  }
-  process.stdout.write(`  recording ${installed.runtime} to match the installed entrypoint — re-run orch setup --runtime ${selected} after bun run build:dev to switch\n`);
-  return installed.runtime;
 }
 
 /** Print the manual install commands for each missing prerequisite. */
@@ -201,15 +158,6 @@ function runInstall(bin: string, cmd: string, interactive: boolean): void {
   }
 }
 
-/** Absolute path of a binary on PATH, or "" when absent. */
-function whichBin(bin: string): string {
-  try {
-    return execFileSync("sh", ["-c", `command -v ${bin}`]).toString().trim();
-  } catch {
-    return "";
-  }
-}
-
 /** Point `dest` at `src`, replacing any existing entry (symlink, or a full copy under --copy). */
 function linkBin(src: string, dest: string, copy: boolean): void {
   files.mkdirSync(path.dirname(dest), { recursive: true });
@@ -222,10 +170,10 @@ function linkBin(src: string, dest: string, copy: boolean): void {
 /** Persist the composition selections (runtime, installed sets, active defaults) to settings.json. */
 function recordComposition(
   runtime: OrchRuntime,
-  adapters: string[],
-  defaultAdapter: string,
-  backends: string[],
-  defaultBackend: string,
+  adapters: AdapterId[],
+  defaultAdapter: AdapterId,
+  backends: BackendId[],
+  defaultBackend: BackendId,
 ): void {
   // Record the runtime FIRST: it is a required key with no default, so no other write can
   // produce a valid file until it is present. Re-recording the same value is a no-op change.
@@ -249,8 +197,8 @@ function recordComposition(
 /** Probe each selected provider's prerequisite binaries, then install the chosen missing ones.
  * Returns false only when an interactive install multiselect is cancelled, so the caller can abort. */
 async function installPrerequisites(
-  adapters: string[],
-  backends: string[],
+  adapters: readonly AdapterId[],
+  backends: readonly BackendId[],
   interactive: boolean,
   yes: boolean,
   noInstall: boolean,
@@ -266,7 +214,7 @@ async function installPrerequisites(
     const entry = INSTALLERS[id];
     if (entry?.install) {
       for (const need of entry.needs ?? []) {
-        if (whichBin(need)) continue;
+        if (binaryOnPath(need)) continue;
         const needCmd = INSTALLERS[need]?.install;
         if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
       }
@@ -278,13 +226,13 @@ async function installPrerequisites(
     }
   };
   for (const id of adapters) {
-    const resolved = bins[id] ? whichBin(id) : "";
+    const resolved = (bins[id] && binaryPath(id)) || "";
     process.stdout.write(`  ${resolved ? "ok      " : "MISSING "}${id}${resolved ? `  (${resolved})` : ""}\n`);
     if (!bins[id]) queueInstall(id);
   }
   for (const id of backends) {
     const available = getBackend(id)!.isAvailable();
-    const resolved = available && bins[id] ? whichBin(id) : "";
+    const resolved = (available && bins[id] && binaryPath(id)) || "";
     process.stdout.write(`  ${available ? "ok      " : "MISSING "}${id}${resolved ? `  (${resolved})` : ""}\n`);
     if (!available) queueInstall(id);
   }
@@ -297,23 +245,21 @@ async function installPrerequisites(
     runInstall(bin, cmd, interactive);
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
     process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
-    const now = whichBin(bin);
+    const now = binaryPath(bin);
     process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH — open a new shell and re-run orch setup\n`);
   }
   return true;
 }
 
-/** Install each newly-selected adapter's integration through its own provider port (L4 Builder —
+/** Install every selected adapter's integration through its own provider port (L4 Builder —
  * no identity branch). Returns the gaps: an adapter expected to install a shim but unable to. */
-async function installAdapterShims(
-  adapters: string[],
-  priorAdapters: readonly string[],
-  copy: boolean,
-): Promise<string[]> {
-  // An adapter with no installShim is a loud, recorded gap (D10): its integration is
-  // expected but unbuildable, never silently skipped.
+async function installAdapterShims(adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
+  // Every selected adapter, every run — installShim is idempotent and additive, and
+  // an adapter skipped for being already-selected keeps whatever stale artifact the
+  // last build left. An adapter with no installShim is a loud, recorded gap (D10):
+  // its integration is expected but unbuildable, never silently skipped.
   const gaps: string[] = [];
-  for (const id of adapters.filter((adapterId) => !priorAdapters.includes(adapterId))) {
+  for (const id of adapters) {
     const adapter = resolveAdapter(id);
     if (adapter.installShim) {
       try {
@@ -332,6 +278,24 @@ async function installAdapterShims(
   return gaps;
 }
 
+/** Point the installed entrypoint at the runtime just recorded. Without this a
+ *  deno or bun install ends setup with a failing runtime check and a fix to run
+ *  by hand, because the build that produced the entrypoint predates the choice. */
+function alignEntrypointToRuntime(runtime: OrchRuntime): void {
+  const entrypoint = binaryPath("orch");
+  if (!entrypoint) return;
+  let target = entrypoint;
+  try {
+    target = files.realpathSync(entrypoint);
+  } catch {
+    // A dangling link is doctor's to report; leave it alone rather than write through it.
+    return;
+  }
+  if (shebangRuntime(target) === runtime) return;
+  writeShebangRuntime(target, runtime);
+  process.stdout.write(`  entrypoint ${target} now runs under ${runtime}\n`);
+}
+
 /** Wire the `orch`/`pif` bins onto PATH (repo-clone case; `bun add -g` already links bins).
  * A bin already resolving into this package is left alone; a stale one is repointed. */
 function wireBinaries(copy: boolean): void {
@@ -342,7 +306,7 @@ function wireBinaries(copy: boolean): void {
     ["orch", path.join("dist", "bin", "orch.js")],
     ["pif", path.join("bin", "pif")],
   ] as const) {
-    const resolved = whichBin(name);
+    const resolved = binaryPath(name);
     const packageBin = path.join(pkgRoot, rel);
     if (resolved) {
       let realResolved = "";
@@ -511,7 +475,7 @@ function smokeBlocker(): string | null {
   }
   const adapter = loadConfig(orchDir()).defaults.adapter;
   if (!adapter) return "no default harness is recorded";
-  if (!whichBin(adapter)) return `${adapter} is not on PATH`;
+  if (!binaryOnPath(adapter)) return `${adapter} is not on PATH`;
   return null;
 }
 
@@ -535,11 +499,8 @@ export async function cmdSetup(args: string[]) {
   const reaped = reapUnreadableSettings(orchDir());
   if (reaped) process.stdout.write(`  previous settings.json was unreadable (older schema or invalid values) — moved aside to ${reaped}, re-recording from scratch\n`);
 
-  // First run has no settings.json at all; that is the signal to run this wizard, not an error.
-  const priorInstalled = loadConfigOrNull(orchDir())?.installed ?? { adapters: [], backends: [] };
   const selectedRuntime = await resolveRuntime(runtimeFlag, interactive);
   if (selectedRuntime === null) return;
-  const runtime = await reconcileRuntimeToEntrypoint(selectedRuntime, interactive);
   const adapters = await resolveProviderSet("adapter", "--agent", adapterFlag, adapterIds, interactive, selectAdapters);
   if (adapters === null) return;
   const defaultAdapter = await resolveActiveDefault(adapters, adapterFlag !== undefined, interactive, selectDefaultAdapter);
@@ -549,7 +510,7 @@ export async function cmdSetup(args: string[]) {
   const defaultBackend = await resolveActiveDefault(backends, backendFlag !== undefined, interactive, selectDefaultBackend);
   if (defaultBackend === null) return;
 
-  recordComposition(runtime, adapters, defaultAdapter, backends, defaultBackend);
+  recordComposition(selectedRuntime, adapters, defaultAdapter, backends, defaultBackend);
 
   if (!(await installPrerequisites(adapters, backends, interactive, yes, noInstall))) return;
 
@@ -557,12 +518,13 @@ export async function cmdSetup(args: string[]) {
   files.mkdirSync(presenceDir(), { recursive: true });
   process.stdout.write(`  ${presenceDir()}\n`);
 
-  const gaps = await installAdapterShims(adapters, priorInstalled.adapters, copy);
+  const gaps = await installAdapterShims(adapters, copy);
 
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (interactive) await configureNotifiers();
 
   wireBinaries(copy);
+  alignEntrypointToRuntime(selectedRuntime);
 
   // Validate each selected (installed) adapter through its own provider port.
   for (const id of adapters) {

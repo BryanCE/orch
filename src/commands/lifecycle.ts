@@ -306,7 +306,7 @@ export function cmdClose(args: string[]) {
     requireCallerOwnerToken();
     for (const record of spawnedRecords().values()) {
       if (!ownsAgent(record)) continue;
-      const backend = getBackend(record.backend ?? "");
+      const backend = getBackend(record.backend ?? "") ?? null;
       if (!backend) process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
       const presence = loadPresence().get(record.pane);
       targets.push({ backend, handle: record.handle ?? record.pane, key: record.pane, pid: presence?.status?.pid });

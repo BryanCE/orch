@@ -4,6 +4,7 @@ import type { AgentAdapter } from "../../adapters/adapter.ts";
 import type {
   Backend,
   BackendCapabilities,
+  BackendId,
   BackendGroup,
   BackendSpawnOpts,
   BackendSplit,
@@ -20,7 +21,7 @@ import { bestEffortTmux, execTmux, orchPanes, type TmuxPane } from "./cli.ts";
 /** Handle owned by one tmux pane. */
 export type TmuxHandle = string;
 
-const TMUX_BACKEND = "tmux";
+const TMUX_BACKEND: BackendId = "tmux";
 
 /** Pause the calling process; tmux has no native blocking wait primitive to poll against. */
 function sleepMs(ms: number): void {

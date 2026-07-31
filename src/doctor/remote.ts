@@ -2,13 +2,10 @@ import * as path from "node:path";
 import { loadConfigOrNull, type HostConfig } from "../config.ts";
 import { runSSH, type SshResult } from "../remote.ts";
 import type { CheckResult } from "../check-result.ts";
-import { readJson, repoDir } from "./shared.ts";
+import { readJson } from "./shared.ts";
+import { packageRoot, shellQuote } from "../util.ts";
 
 export type SshRunner = (destination: string, command: string, options?: { timeoutMs?: number }) => SshResult;
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 
 /** The configured remote hosts. An install with no settings.json has none — the subject of these
  * checks is the host list, so its absence is an honest empty answer, not a defect. */
@@ -45,7 +42,7 @@ export async function checkRemoteVersion(orchDir: string, runner: SshRunner = ru
   await Promise.resolve();
   const hosts = configuredHosts(orchDir);
   const failures: string[] = [];
-  const local = (readJson(path.join(repoDir, "package.json")) as { version?: string }).version ?? "unknown";
+  const local = (readJson(path.join(packageRoot(), "package.json")) as { version?: string }).version ?? "unknown";
   for (const [name, host] of hosts) {
     const destination = hostDestination(name, host);
     const result = runner(destination, "orch --version", { timeoutMs: host.timeout_ms });

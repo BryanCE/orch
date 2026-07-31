@@ -495,13 +495,24 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   return true;
 }
 
-/** Whether a headless smoke round-trip can even be attempted here. */
-function headlessSmokeUsable(): boolean {
+/**
+ * Why a headless smoke round-trip cannot run here, or null when it can.
+ *
+ * The smoke launches the DEFAULT ADAPTER's binary, so a missing harness is as
+ * disqualifying as a missing backend — setup used to report `MISSING pi` and
+ * then try to spawn pi anyway, turning a known-absent prerequisite into a
+ * spawn failure that read like a broken install.
+ */
+function smokeBlocker(): string | null {
   try {
-    return resolveBackend({ configured: "headless" }).isAvailable();
+    if (!resolveBackend({ configured: "headless" }).isAvailable()) return "headless backend is unavailable here";
   } catch {
-    return false;
+    return "headless backend is unavailable here";
   }
+  const adapter = loadConfig(orchDir()).defaults.adapter;
+  if (!adapter) return "no default harness is recorded";
+  if (!whichBin(adapter)) return `${adapter} is not on PATH`;
+  return null;
 }
 
 /** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
@@ -577,8 +588,9 @@ export async function cmdSetup(args: string[]) {
   // spend a model turn) and can be turned off with --no-smoke; either way a broken write path here
   // fails loudly rather than shipping a green "setup completed" that cannot dispatch.
   if (interactive && !args.includes("--no-smoke")) {
-    if (!headlessSmokeUsable()) {
-      process.stdout.write("Smoke test skipped — headless backend is unavailable here.\n");
+    const blocker = smokeBlocker();
+    if (blocker) {
+      process.stdout.write(`Smoke test skipped — ${blocker}.\n`);
     } else {
       process.stdout.write("Smoke test — verifying orch can deliver work (headless spawn + dispatch + result)…\n");
       if (!(await runSetupSmoke(process.cwd()))) return;

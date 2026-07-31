@@ -167,13 +167,16 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
   return { accepted: true, id };
 }
 
-async function setModel(directory: string, params: unknown): Promise<{ ok: true }> {
+// Throws when the agent refuses or never confirms; the RPC error carries that
+// reason to the caller, so `orch model` can never print "accepted" for a model
+// the agent did not take.
+async function setModel(directory: string, params: unknown): Promise<{ ok: true; applied: string }> {
   const value = writeParams(params);
   const target = requiredString(value.target, "target");
   const model = requiredString(value.model, "model");
   governWrite(directory, target, params);
-  await deliverControl(target, { kind: "model", model });
-  return { ok: true };
+  await deliverControl(target, { kind: "model", model, id: randomUUID() });
+  return { ok: true, applied: model };
 }
 
 async function answer(directory: string, params: unknown): Promise<{ ok: true }> {

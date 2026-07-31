@@ -21,7 +21,7 @@ function tempDir(prefix = "orch-answer-"): string {
 }
 
 function key(workspace: string, handle: string): string {
-  return serializeIdentity({ backend: "headless", workspace, handle });
+  return serializeIdentity({ backend: "headless", workspace, id });
 }
 
 function answerFile(directory: string, agentKey: string): string {

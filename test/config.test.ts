@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { DEFAULT_ALLOWED_MODELS, SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsDefault, writeSettingsInstalled, writeSettingsRuntime } from "../src/config.ts";
+import { SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsDefault, writeSettingsInstalled, writeSettingsRuntime } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
@@ -72,6 +72,7 @@ describe("loadConfig", () => {
       defaults: { adapter: "claude", backend: "headless", model: "sonnet", worktree: true },
       fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
       models: { allowed: ["sonnet"] },
+      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
@@ -91,6 +92,7 @@ describe("loadConfig", () => {
       },
       fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
       models: { allowed: ["sonnet"] },
+      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
@@ -197,8 +199,10 @@ describe("loadConfig", () => {
 });
 
 describe("allowedModelPatterns", () => {
-  test("returns the built-in defaults when config is absent", () => {
-    expect(allowedModelPatterns(tempDir())).toEqual(DEFAULT_ALLOWED_MODELS);
+  test("restricts nothing when no config names patterns", () => {
+    // Orch ships no built-in allowlist: a hardcoded default silently pinned every
+    // spawn to the one family it happened to list.
+    expect(allowedModelPatterns(tempDir())).toEqual([]);
   });
 
   test("returns the configured patterns when set", () => {

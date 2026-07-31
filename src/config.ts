@@ -61,6 +61,7 @@ export const SETTINGS_DEFAULTS = {
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false },
   daemon: { tcp_port: 3716 },
+  workers: { inherit_extensions: true, builtin_tools: true },
 } as const;
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
@@ -92,6 +93,14 @@ const SettingsFileSchema = z.strictObject({
   models: z.strictObject({
     allowed: z.array(z.string()).optional(),
   }).optional(),
+  /** What a spawned worker loads. Inherits the user's own harness setup by default;
+   * name the extensions that misbehave under concurrency rather than dropping all. */
+  workers: z.strictObject({
+    inherit_extensions: z.boolean().optional(),
+    exclude_extensions: z.array(z.string()).optional(),
+    builtin_tools: z.boolean().optional(),
+    allow_tools: z.array(z.string()).optional(),
+  }).optional(),
   queue: z.strictObject({
     max_retries: z.number().int().nonnegative().optional(),
   }).optional(),
@@ -120,6 +129,7 @@ export interface OrchConfig {
   defaults: { adapter?: string; backend?: string; model?: string; worktree: boolean };
   fleet: { spawn_cap: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
   models: { allowed: string[] };
+  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];
@@ -261,6 +271,12 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
       cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
     },
     models: { allowed: root.models?.allowed ?? [] },
+    workers: {
+      inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
+      exclude_extensions: root.workers?.exclude_extensions ?? [],
+      builtin_tools: root.workers?.builtin_tools ?? SETTINGS_DEFAULTS.workers.builtin_tools,
+      allow_tools: root.workers?.allow_tools ?? [],
+    },
     queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
     timeouts: {
       dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
@@ -445,18 +461,21 @@ export function resolveSetting<T>(opts: { flag?: T; env?: string; config?: T; fa
   return resolveWithSource(opts).value;
 }
 
-/** Model allowlist applied when `models.allowed` is unset. */
-export const DEFAULT_ALLOWED_MODELS = ["openrouter/moonshotai/kimi-k2.7-code", "openrouter/x-ai/grok-4.5"];
-
-/** Return the configured model-allowlist patterns, or the built-in defaults when unset or unreadable. */
+/**
+ * Configured model-allowlist patterns, empty when the user set none.
+ *
+ * Empty means EVERY model is allowed. Orch ships no built-in allowlist: a
+ * hardcoded default silently pinned every spawn to the one family that happened
+ * to be listed, and an orchestrator could not tell a rejected model from an
+ * applied one. Restricting models is an explicit `models.allowed` opt-in.
+ */
 export function allowedModelPatterns(orchDir: string): string[] {
   try {
-    const patterns = loadConfig(orchDir).models.allowed;
-    if (patterns.length) return patterns;
+    return loadConfig(orchDir).models.allowed;
   } catch {
-    // A malformed config falls back to the built-in allowlist rather than failing closed.
+    // A malformed config restricts nothing; the write path still reports failures.
+    return [];
   }
-  return DEFAULT_ALLOWED_MODELS;
 }
 
 /** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */
@@ -504,6 +523,12 @@ export function writeSettingsFullTree(orchDir: string): void {
       cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
     },
     models: { allowed: root.models?.allowed ?? [] },
+    workers: {
+      inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
+      exclude_extensions: root.workers?.exclude_extensions ?? [],
+      builtin_tools: root.workers?.builtin_tools ?? SETTINGS_DEFAULTS.workers.builtin_tools,
+      allow_tools: root.workers?.allow_tools ?? [],
+    },
     queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
     timeouts: {
       dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,

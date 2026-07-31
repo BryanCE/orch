@@ -105,7 +105,10 @@ export function resolveTab(target: string): BackendGroup {
   const ent = resolveTarget(target);
   const id = parseIdentity(ent.key);
   if (id.backend !== backend.id) die(`Target "${target}" belongs to backend ${id.backend}.`);
-  const found = groups.find((group) => group.id === (backend.inventory?.().find((item) => String(item.handle) === id.handle)?.group ?? null));
+  // The identity id names the agent and carries no pane; the resolved entity's
+  // paneId is the only backend handle for it.
+  const pane = backend.inventory?.().find((item) => String(item.handle) === ent.paneId);
+  const found = groups.find((group) => group.id === (pane?.group ?? null));
   if (!found) die(`No group found for target "${target}".`);
   return found;
 }

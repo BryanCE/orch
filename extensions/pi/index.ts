@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { createDaemonAck } from "./daemon-ack.ts";
+import { registerFleetMonitor } from "./monitor.ts";
 import { AGENT_ID, ORCH_DIR, createPiPresence } from "./presence.ts";
 import { registerPiTools } from "./tools.ts";
 
@@ -69,6 +70,9 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   });
 
   hud.registerBlockedRelay(pi.events, onBlockedChange);
+  // A pi session that orchestrates also watches: one daemon subscription for the
+  // whole session, so a worker going blocked surfaces instead of being polled for.
+  registerFleetMonitor(pi, ORCH_DIR);
 }
 
 export default orchestratorBridgeExtension;

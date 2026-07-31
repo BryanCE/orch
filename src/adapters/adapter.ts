@@ -1,4 +1,5 @@
 import type { CheckResult } from "../check-result.ts";
+import type { WorkerPolicy } from "../policy/workers.ts";
 
 /** Agent CLIs supported by orch. */
 export type AdapterId = "pi" | "claude" | "codex";
@@ -29,6 +30,8 @@ export interface SpawnOpts {
   readonly env?: Readonly<Record<string, string>>;
   /** Explicit worker tool allowlist, when the launcher applies one. */
   readonly tools?: string;
+  /** What this worker may load; the adapter maps it onto its harness's flags. */
+  readonly workers?: WorkerPolicy;
 }
 
 /** Native process/session information an adapter may use to classify state. */
@@ -59,6 +62,8 @@ export interface ModelRequest {
   readonly key: string;
   /** Model specification to switch the running session to. */
   readonly model: string;
+  /** Dispatcher request id the agent must echo into its control outcome. */
+  readonly id: string;
 }
 
 /** Request passed to an adapter when answering a blocking question. */

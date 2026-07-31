@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { getBackend } from "../backends/registry.ts";
-import { parseIdentity } from "../backends/identity.ts";
+import { resolveTargetRoute } from "../control/dispatch.ts";
 import {
   claimTask,
   listTasks,
@@ -62,25 +61,23 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const adapterId = spawnedRecords().get(entry.key)?.adapter ?? entry.status?.agent;
   const lockedCommands = (options.getConfig?.() ?? loadConfig(options.orchDir)).locked_commands;
   const prompt = `${workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, lockedCommands)}\n\n${task.text}`;
-  let id: ReturnType<typeof parseIdentity>;
-  try {
-    id = parseIdentity(entry.key);
-  } catch (error: unknown) {
-    process.stderr.write(`Warning: cannot dispatch ${entry.key}: ${String(error)}\n`);
+  // The identity id addresses the AGENT; the backend needs its own pane handle to
+  // deliver. They were the same string only while identity was minted from the
+  // name, and herdr happened to accept names as targets — an opaque id would
+  // silently address nothing.
+  const route = resolveTargetRoute(entry.key);
+  if (!route) {
+    process.stderr.write(`Warning: cannot dispatch ${entry.key}: no backend route recorded\n`);
     return;
   }
-  const backend = getBackend(id.backend);
-  if (!backend) {
-    process.stderr.write(`Warning: cannot dispatch ${entry.key}: unknown backend ${id.backend}\n`);
-    return;
-  }
-  backend.deliver(id.handle, { kind: "run", text: prompt });
+  const { backend, handle } = route;
+  backend.deliver(handle, { kind: "run", text: prompt });
   const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
   let status = waitForWorking(entry, dispatchAckTimeoutMs);
   let retried = false;
   if (status !== "working") {
     retried = true;
-    backend.deliver(id.handle, { kind: "run", text: prompt });
+    backend.deliver(handle, { kind: "run", text: prompt });
     status = waitForWorking(entry, dispatchAckTimeoutMs);
   }
   if (!options.json) process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);

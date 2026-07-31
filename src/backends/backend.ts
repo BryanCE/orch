@@ -1,5 +1,6 @@
 import type { AgentAdapter } from "../adapters/adapter.ts";
 import type { Identity } from "./identity.ts";
+import type { WorkerPolicy } from "../policy/workers.ts";
 
 /** Plexer backends supported by orch. */
 export type BackendId = "herdr" | "tmux" | "headless";
@@ -36,6 +37,10 @@ export interface BackendSpawnOpts {
   readonly env?: Readonly<Record<string, string>>;
   /** Explicit worker tool allowlist, when the launcher applies one. */
   readonly tools?: string;
+  /** What this worker may load; the adapter maps it onto its harness's flags. */
+  readonly workers?: WorkerPolicy;
+  /** Verbatim launch command overriding the adapter's own; `orch spawn --cmd`. */
+  readonly cmd?: string;
   /** Display name given to the spawned agent, when the backend supports naming. */
   readonly name?: string;
   /** Backend workspace to spawn into; defaults to the caller's workspace. */
@@ -149,7 +154,7 @@ export interface BackendRegistryRecord<Handle = BackendHandle> {
  * (callers gate on presence, never on the backend id).
  */
 export interface Backend<Handle = BackendHandle> {
-  readonly id: string;
+  readonly id: BackendId;
   readonly panes: boolean;
   readonly focusable: boolean;
   /** Whether raw keystroke delivery is supported (capability-gated by callers). */

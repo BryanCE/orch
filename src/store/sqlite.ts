@@ -18,6 +18,8 @@ export interface SpawnedRecord {
   workspace?: string;
   /** Backend-native control handle (herdr/tmux pane id) for close/focus/send-keys. */
   handle?: string;
+  /** Mutable display name. NOT identity — renaming it must never change `pane`. */
+  name?: string;
   /** Working directory the agent launched in. */
   cwd?: string;
   worktree?: string;
@@ -131,6 +133,7 @@ function createTables(db: DatabaseLike): void {
       backend TEXT,
       workspace TEXT,
       handle TEXT,
+      name TEXT,
       cwd TEXT,
       worktree TEXT,
       branch TEXT
@@ -307,6 +310,7 @@ interface SpawnedRow {
   backend: string | null;
   workspace: string | null;
   handle: string | null;
+  name: string | null;
   cwd: string | null;
   worktree: string | null;
   branch: string | null;
@@ -320,6 +324,7 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
   if (row.backend !== null) record.backend = row.backend;
   if (row.workspace !== null) record.workspace = row.workspace;
   if (row.handle !== null) record.handle = row.handle;
+  if (row.name !== null) record.name = row.name;
   if (row.cwd !== null) record.cwd = row.cwd;
   if (row.worktree !== null) record.worktree = row.worktree;
   if (row.branch !== null) record.branch = row.branch;
@@ -330,11 +335,12 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
 export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): void {
   openStore(orchDir)
     .query(
-      `INSERT INTO spawned (pane, ts, adapter, model, backend, workspace, handle, cwd, worktree, branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO spawned (pane, ts, adapter, model, backend, workspace, handle, name, cwd, worktree, branch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(pane) DO UPDATE SET
          ts = excluded.ts, adapter = excluded.adapter, model = excluded.model,
-         backend = excluded.backend, workspace = excluded.workspace, handle = excluded.handle, cwd = excluded.cwd,
+         backend = excluded.backend, workspace = excluded.workspace, handle = excluded.handle,
+         name = excluded.name, cwd = excluded.cwd,
          worktree = excluded.worktree, branch = excluded.branch`,
     )
     .run(
@@ -345,6 +351,7 @@ export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): voi
       record.backend ?? null,
       record.workspace ?? null,
       record.handle ?? null,
+      record.name ?? null,
       record.cwd ?? null,
       record.worktree ?? null,
       record.branch ?? null,
@@ -359,6 +366,11 @@ export function selectSpawnedRecords(orchDir: string): SpawnedRecord[] {
     if (owner !== undefined) record.owner = owner;
     return record;
   });
+}
+
+/** Relabel an agent. The name is a mutable column; the key it sits beside is not. */
+export function writeSpawnedName(orchDir: string, pane: string, name: string): boolean {
+  return openStore(orchDir).query("UPDATE spawned SET name = ? WHERE pane = ?").run(name, pane).changes === 1;
 }
 
 export function deleteSpawnedRecord(orchDir: string, pane: string): void {

@@ -75,7 +75,7 @@ describe("presence status schema", () => {
   });
 
   test("orch status JSON exposes the complete spawned identity fields", () => {
-    const key = "headless~workspace-a~1234";
+    const key = "headless~workspace-a~ag7k2m9x1p";
     writeStatus(key, {
       schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "workspace-a", handle: "1234",
       agent: "pi", pid: process.pid, state: "idle",
@@ -85,11 +85,11 @@ describe("presence status schema", () => {
     expect(readStatuses()).toEqual(expect.objectContaining({
       [key]: expect.objectContaining({ key, backend: "headless", workspace: "workspace-a", handle: "1234", agent: "pi" }) as PresenceStatus,
     }) as Record<string, PresenceStatus>);
-    expect(parseIdentity(key)).toEqual({ backend: "headless", workspace: "workspace-a", handle: "1234" });
+    expect(parseIdentity(key)).toEqual({ backend: "headless", workspace: "workspace-a", id: "ag7k2m9x1p" });
   });
 
   test("status and list report the same agent identity", () => {
-    const key = "headless~workspace-a~1234";
+    const key = "headless~workspace-a~ag7k2m9x1p";
     writeStatus(key, {
       schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "workspace-a", handle: "1234",
       agent: "pi", pid: process.pid, state: "idle",
@@ -101,12 +101,12 @@ describe("presence status schema", () => {
     expect({ key: status.key, workspace: status.workspace, agent: status.agent }).toEqual({
       key: listed.key, workspace: listed.workspace ?? undefined, agent: listed.agent ?? undefined,
     });
-    expect(parseIdentity(status.key!)).toMatchObject({ backend: "headless", workspace: status.workspace, handle: "1234" });
+    expect(parseIdentity(status.key!)).toMatchObject({ backend: "headless", workspace: status.workspace, id: "ag7k2m9x1p" });
   });
 
   test("mixed pi and Claude status rows carry the same identity field set", () => {
-    const piKey = "headless~workspace-a~1234";
-    const claudeKey = "headless~workspace-b~5678";
+    const piKey = "headless~workspace-a~ag7k2m9x1p";
+    const claudeKey = "headless~workspace-b~zq4n8b3t7v";
     writeStatus(piKey, {
       schema: PRESENCE_SCHEMA, key: piKey, backend: "headless", workspace: "workspace-a", handle: "1234",
       agent: "pi", pid: process.pid, state: "idle",
@@ -124,7 +124,12 @@ describe("presence status schema", () => {
       ["agent", "backend", "handle", "key", "pid", "schema", "state", "workspace"],
     ]);
     expect(rows.map((row) => row.agent).sort()).toEqual(["claude", "pi"]);
-    for (const row of rows) expect(parseIdentity(row.key!)).toMatchObject({ backend: row.backend, workspace: row.workspace, handle: row.handle });
+    // The id is minted, so it matches neither the pane handle nor the name.
+    for (const row of rows) {
+      const identity = parseIdentity(row.key!);
+      expect(identity).toMatchObject({ backend: row.backend, workspace: row.workspace });
+      expect(identity.id).not.toBe(row.handle);
+    }
   });
 
   test("rejects a status record that carries no schema stamp", () => {

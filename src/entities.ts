@@ -10,6 +10,9 @@ export { workspaceOf } from "./policy/workspace.ts";
 export interface Entity {
   key: string;
   paneId: string | null;
+  /** True when orch spawned this agent. A backend reports every pane it owns,
+   *  including the orchestrator's own — false means "someone else's pane". */
+  managed: boolean;
   name: string | null;
   tabLabel: string | null;
   agent: string | null;
@@ -68,7 +71,7 @@ export function currentWorkspace(): string | null {
 /** The orchestrator's own target key, used for ownership and wall checks. */
 export function selfActor(): string | null {
   const id = resolveBackend({}).currentIdentity?.();
-  return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, handle: "operator" }) : null;
+  return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;
 }
 
 export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
@@ -97,7 +100,10 @@ export function buildEntities(): Entity[] {
       entities.push({
         key,
         paneId,
-        name: target.name,
+        managed: records.has(key),
+        // Orch's registry owns the name; the backend's own pane label is only a
+        // fallback for panes orch never spawned.
+        name: records.get(key)?.name ?? target.name,
         tabLabel: target.groupLabel,
         agent: target.agent,
         focused: target.focused,
@@ -118,7 +124,8 @@ export function buildEntities(): Entity[] {
     entities.push({
       key: entry.key,
       paneId: entry.status?.paneId ?? null,
-      name: null,
+      managed: records.has(entry.key),
+      name: records.get(entry.key)?.name ?? null,
       tabLabel: null,
       agent: entry.status?.agent ?? null,
       focused: false,

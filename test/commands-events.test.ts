@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { DAEMON_DISCONNECTED, isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/events.ts";
+import { isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/events.ts";
+import { subscribeEvents } from "../src/daemon/rpc.ts";
 
 describe("commands/events", () => {
   test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, targets: ["agent"] }));
-  test("a dropped subscription names the command that recovers it", () => {
-    // The daemon is the only event source, so a disconnect must terminate rather than
-    // silently degrade to watching presence files. `die` exits non-zero; what needs
-    // pinning is that the operator is told which command brings the source back.
-    expect(DAEMON_DISCONNECTED).toContain("orch daemon start");
-    expect(DAEMON_DISCONNECTED).toContain("daemon disconnected");
+  test("a subscription with no daemon keeps redialing instead of exiting", async () => {
+    // One subscription must cover a whole session: a daemon restart drops the
+    // socket, and the stream has to come back on its own. Dialing an orch dir with
+    // no daemon is the same path a restart takes — it must resolve, not throw.
+    const subscription = subscribeEvents("/nonexistent-orch-dir", { since: 0 }, () => {});
+    expect(subscription.lastSeq()).toBe(0);
+    subscription.close();
   });
   test("rejects malformed event and labels sinks", () => {
     expect(isNotifyEvent({ key: "k", oldState: "idle", newState: "done", ts: "now" })).toBe(true);

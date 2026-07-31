@@ -1,10 +1,12 @@
 import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/sqlite.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
+import { assertNameFree } from "../policy/name.ts";
+import { workerPolicyFrom, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter } from "../adapters/adapter.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
-import { serializeIdentity } from "../backends/identity.ts";
+import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
 import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle } from "../backends/backend.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { createAgentWorktree } from "../worktree.ts";
@@ -55,15 +57,11 @@ function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
     process.stdout.write(`  ${r[0]!.padEnd(w0)}  ${r[1]!.padEnd(w1)}  ${r[2]!}\n`);
 }
 
-const WORKER_BASE_TOOLS = ["read", "write", "edit", "bash", "orch_ask"] as const;
-
-const WORKER_PEER_TOOLS = ["orch_agents", "orch_send", "orch_read"] as const;
-
-export function workerTools(config: OrchConfig): string {
-  const tools: string[] = [...WORKER_BASE_TOOLS];
-  const peerTools = config.fleet.worker_peer_tools;
-  if (peerTools) tools.push(...WORKER_PEER_TOOLS);
-  return tools.join(",");
+/** The tool allowlist a worker launches under, or undefined for no restriction.
+ *  Orch's own tools are always required; everything else is `workers.allow_tools`. */
+export function workerTools(config: OrchConfig): string | undefined {
+  const policy = workerPolicyFrom(config);
+  return policy.allowTools.length ? policy.allowTools.join(",") : undefined;
 }
 
 export function resolveAdapterOrDie(id: string): AgentAdapter {
@@ -76,36 +74,40 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
 
 export function adapterCommand(adapter: string, config = loadConfig(orchDir())): string {
   const resolved = resolveAdapterOrDie(adapter);
-  return resolved.restrictedInteractiveCmd?.({ tools: workerTools(config) }) ?? resolved.interactiveCmd({});
+  const opts = { tools: workerTools(config), workers: workerPolicyFrom(config) };
+  return resolved.restrictedInteractiveCmd?.(opts) ?? resolved.interactiveCmd(opts);
 }
 
-/** Deliver a model pin to one freshly-spawned agent, retrying while its bridge
- *  subscription warms up. Registration completing does not guarantee the agent is
- *  live on the event channel yet, so the set-model ack routinely races a fresh
- *  spawn; re-delivering the same model is idempotent, so a bounded retry turns
- *  that transient into a success instead of a spurious exit-1 warning. */
-async function deliverModelPin(key: string, model: string): Promise<boolean> {
+/** Pin one agent's model, retrying while its bridge finishes registering.
+ *  Re-delivering the same model is idempotent, so a bounded retry absorbs the
+ *  routine race between a fresh spawn and its bridge coming up.
+ *  Resolves to the agent's own refusal reason, never to a bare boolean: a pin
+ *  that reports success without one is how a fleet silently ran the wrong model. */
+async function deliverModelPin(key: string, model: string): Promise<string | null> {
   const backoffMs = [0, 200, 400, 800, 1200];
+  let reason = "no attempt made";
   for (const wait of backoffMs) {
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     try {
       await writeRpc("set-model", { target: key, model });
-      return true;
-    } catch {}
+      return null;
+    } catch (error: unknown) {
+      reason = errorMessage(error);
+    }
   }
-  return false;
+  return reason;
 }
 
 async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
   const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
     pane,
     name,
-    ok: await deliverModelPin(key, model),
+    failure: await deliverModelPin(key, model),
   })));
   for (const result of results) {
-    if (!result.ok) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}.\n`);
+    if (result.failure) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}: ${result.failure}\n`);
   }
-  if (results.some((result) => !result.ok)) process.exitCode = 1;
+  if (results.some((result) => result.failure)) process.exitCode = 1;
 }
 
 export interface AgentFlags {
@@ -186,7 +188,8 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
 }
 
 type SpawnSettings = AgentSettings & {
-  tools: string;
+  tools: string | undefined;
+  workers: WorkerPolicy;
   json: boolean;
   label: string;
   /** True when --tab named a tab: an existing match is joined, not recreated. */
@@ -213,12 +216,13 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   if (n > spawnCap) die(`Refusing to spawn ${n} panes — cap is ${spawnCap}.`);
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
+  const workers = workerPolicyFrom(config);
   const cmd = flags.commandFlag ? flags.cmd : adapterCommand(settings.adapter, config);
   // --tab names the tab; --name names the agents. Each defaults to the other so
   // one flag still produces a sensibly-labeled tab, but they are never conflated.
   const tabLabel = flags.tabLabel ?? flags.namePrefix ?? flags.label;
   const prefix = flags.namePrefix ?? flags.tabLabel ?? flags.label;
-  return { ...settings, tools, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, fleet: config.fleet };
+  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, fleet: config.fleet };
 }
 
 interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
@@ -267,13 +271,16 @@ function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
       // it via ORCH_AGENT_KEY, exactly like the pane paths (spawnOneIntoTab).
       // The backend records the OS pid separately for close ownership; the key
       // never encodes it, and the backend never re-mints a second identity.
-      const key = serializeIdentity({ backend: backend.id, workspace, handle: name });
+      assertNameFree(name, workspace);
+      const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
       backend.spawn(adapter, {
         key,
         cwd,
         model: settings.model ?? undefined,
         orchDir: orchDir(),
         tools: settings.tools,
+        workers: settings.workers,
+        cmd: settings.commandFlag ? settings.cmd : undefined,
       });
       created.push({ key });
       recordSpawned(key, {
@@ -281,6 +288,7 @@ function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
         model: settings.model ?? undefined,
         backend: settings.backend,
         workspace,
+        name,
         worktree: settings.worktree ? cwd : undefined,
         branch: settings.worktree ? `orch/${name}` : undefined,
         owner: callerOwnerToken(),
@@ -320,8 +328,9 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   // ONE key per agent: the identity passed via ORCH_AGENT_KEY is THE key — the
   // presence writer, registry, and daemon ack all join on it. The backend pane
   // handle is recorded as a field, never re-minted into a second key.
-  const key = serializeIdentity({ backend: backend.id, workspace, handle: rootName });
-  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools });
+  assertNameFree(rootName, workspace);
+  const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
+  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
   backend.close(shellRoot);
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
@@ -337,17 +346,20 @@ export interface TabSpawnSpec {
   model: string | null;
   split?: "down" | "right";
   tools?: string;
+  /** Verbatim launch command from `--cmd`; absent lets the adapter build it. */
+  cmd?: string;
   worktree?: string;
   branch?: string;
 }
 
 // The single spawn-into-a-tab pipeline shared by `orch spawn` (additional panes)
-// and `orch tile`. ONE key per agent: the identity is minted from the agent's
-// name-based handle and passed via ORCH_AGENT_KEY — the backend pane handle is
-// recorded as a field, never re-minted into a second key. The caller owns error
-// policy (warn-and-continue vs die); this throws on backend failure.
+// and `orch tile`. ONE key per agent: the identity is minted before launch and
+// passed via ORCH_AGENT_KEY — the name and the backend pane handle are recorded
+// beside it as plain fields, never folded into it. The caller owns error policy
+// (warn-and-continue vs die); this throws on backend failure.
 export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
-  const key = serializeIdentity({ backend: spec.backend.id, workspace: spec.workspace, handle: spec.name });
+  assertNameFree(spec.name, spec.workspace);
+  const key = serializeIdentity({ backend: spec.backend.id, workspace: spec.workspace, id: mintAgentId() });
   const handle = spec.backend.spawn(spec.adapter, {
     key,
     cwd: spec.cwd,
@@ -358,6 +370,8 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     orchDir: orchDir(),
     model: spec.model ?? undefined,
     tools: spec.tools,
+    workers: spec.workers,
+    cmd: spec.cmd,
   });
   recordSpawned(key, {
     adapter: spec.adapterId,
@@ -365,6 +379,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     backend: spec.backend.id,
     workspace: spec.workspace,
     handle: String(handle),
+    name: spec.name,
     cwd: spec.cwd,
     worktree: spec.worktree,
     branch: spec.branch,
@@ -402,6 +417,8 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     split,
     model: settings.model,
     tools: settings.tools,
+    workers: settings.workers,
+    cmd: settings.commandFlag ? settings.cmd : undefined,
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
   });
@@ -467,7 +484,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend);
   const root = createSpawnRoot(settings, workspace, backend, adapter);
   const created: CreatedAgent[] = [];
-  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
+  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created, backend);
   await reportSpawnResults(settings, root.root, root.tabLabel, created, backend);
@@ -513,7 +530,10 @@ export async function cmdTile(args: string[]) {
       cwd: flags.cwd,
       workspace,
       group: tab.id,
-      split: "down",
+      // Split the tab's largest cell, exactly as `spawn` does. A fixed direction
+      // stacks every added pane off one edge and unbalances the tab.
+      split: nextSplit(selectedBackend, refPane),
+      cmd: flags.commandFlag ? flags.cmd : undefined,
       model,
     });
   } catch (e: unknown) {

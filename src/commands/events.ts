@@ -5,7 +5,7 @@ import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { scopeToWorkspace, workspaceName } from "../policy/workspace.ts";
 import { type PresenceMetadata } from "../daemon/events.ts";
-import { rpcSubscribe } from "../daemon/rpc.ts";
+import { subscribeEvents } from "../daemon/rpc.ts";
 import { deliverToSink, loadSinks, type Sink } from "../notify/router.ts";
 import { notificationText, type NotifyEvent } from "../notify/format.ts";
 import { ensureDaemon } from "./daemon.ts";
@@ -58,7 +58,7 @@ export async function cmdEvents(args: string[]) {
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
-  const cleanup = await startEventsTransport(context);
+  const cleanup = startEventsTransport(context);
   process.on("SIGINT", () => { cleanup(); process.exit(0); });
   process.on("SIGTERM", () => { cleanup(); process.exit(0); });
 }
@@ -167,23 +167,23 @@ function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"])
   };
 }
 
-/** The message a dropped subscription exits on. Exported so the contract — non-zero exit
- *  naming the command that recovers it — is pinned by test rather than by a manual kill. */
-export const DAEMON_DISCONNECTED = "orch events: daemon disconnected; restart it with: orch daemon start";
-
-/** The daemon is the only event source. Presence files are orchd's ingress, not a
- *  client transport: with the daemon gone there is nothing to degrade to, so a
- *  dropped subscription exits rather than silently watching files. */
-async function startEventsTransport(context: EventsContext): Promise<() => void> {
-  return await rpcSubscribe(
+/**
+ * The daemon is the only event source, and this subscription outlives it: a
+ * daemon restart drops the socket, the subscriber redials with backoff and
+ * replays what the new instance still holds. One subscription covers the whole
+ * session, so an orchestrator never has to poll `orch status` to notice a
+ * worker went blocked.
+ */
+function startEventsTransport(context: EventsContext): () => void {
+  const subscription = subscribeEvents(
     orchDir(),
-    "subscribe-events",
+    { since: 0 },
     (value) => {
       if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
       context.emit(value);
     },
-    () => die(DAEMON_DISCONNECTED),
   );
+  return () => subscription.close();
 }
 
 export function isNotifyEvent(value: unknown): value is NotifyEvent {

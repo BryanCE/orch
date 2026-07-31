@@ -117,7 +117,9 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     if (!handle) return null;
     const pane = herdrPanes().find((candidate) => candidate.pane_id === handle);
     if (!pane?.workspace_id) return null;
-    return { backend: HERDR_BACKEND, workspace: pane.workspace_id, handle };
+    // The caller's own pane was never orch-spawned, so no id was minted for it;
+    // its pane id is stable for this process and stands in as the identity.
+    return { backend: HERDR_BACKEND, workspace: pane.workspace_id, id: handle };
   }
 
   /**
@@ -127,7 +129,10 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    * The agent's name is set at start (no separate rename step).
    */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
-    const command = adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
+    // An explicit --cmd is the caller's launch line verbatim; without one the
+    // adapter builds it. Ignoring opts.cmd made --cmd a no-op that still printed
+    // the command it never ran.
+    const command = opts.cmd ?? adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const workspace = opts.workspace ?? callerPaneWorkspace();

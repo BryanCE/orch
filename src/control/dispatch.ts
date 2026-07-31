@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
-import { normalizeControlTarget, parseIdentity } from "../backends/identity.ts";
+import { normalizeControlTarget } from "../backends/identity.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
+import { assertModelAllowed } from "../policy/model.ts";
+import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 import type { AdapterCommand, AgentAdapter } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
@@ -18,7 +20,7 @@ import type { Backend, BackendHandle } from "../backends/backend.ts";
 export type ControlAction =
   | { readonly kind: "steer"; readonly text: string; readonly id?: string }
   | { readonly kind: "answer"; readonly text: string }
-  | { readonly kind: "model"; readonly model: string };
+  | { readonly kind: "model"; readonly model: string; readonly id: string };
 
 const ADAPTER_COMMAND_TIMEOUT_MS = SETTINGS_DEFAULTS.timeouts.adapter_command_ms;
 
@@ -31,21 +33,15 @@ export function resolveTargetAdapter(target: string): AgentAdapter | undefined {
 
 /** Resolve the backend and native handle addressing a canonical target. */
 export function resolveTargetRoute(target: string): { backend: Backend; handle: BackendHandle } | undefined {
-  // The registry owns the live native handle. Prefer it over the serialized
-  // identity's handle: a backend may mint the key from a display/name handle
-  // while the registry stores the actual pane id used for delivery.
+  // The registry owns the live native handle; the identity carries no pane
+  // information at all, so this is the only source for it.
   const record = spawnedRecords().get(target);
   if (record?.backend && record.handle !== undefined) {
     const backend = getBackend(record.backend);
     if (backend) return { backend, handle: record.handle };
   }
-  try {
-    const id = parseIdentity(target);
-    const backend = getBackend(id.backend);
-    if (backend) return { backend, handle: id.handle };
-  } catch {
-    // The canonical target has no parseable backend identity.
-  }
+  // Without a registry row there is no pane handle to deliver to: the identity
+  // id names the agent, never its backend pane.
   return undefined;
 }
 
@@ -99,13 +95,24 @@ async function deliverAnswer(target: string, adapter: AgentAdapter, text: string
   if (command) await runAdapterCommand(command, timeoutMs);
 }
 
-async function deliverModel(target: string, adapter: AgentAdapter, model: string, timeoutMs: number): Promise<void> {
+/**
+ * Retarget an agent's model, then confirm the agent actually took it. Orch rules
+ * on the allowlist here — once, for every harness — and the agent reports back
+ * through the presence control outcome, so a model the harness could not resolve
+ * surfaces as an error instead of a false "accepted".
+ */
+async function deliverModel(target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<void> {
   if (!adapter.caps.setModel || !adapter.setModel) {
     throw new Error(`cannot set model on ${target}: adapter ${adapter.id} declares setModel false`);
   }
+  const directory = orchDir();
+  assertModelAllowed(directory, model);
   requirePresence(target, adapter, "set model on");
-  const command = adapter.setModel({ key: target, model });
+  const command = adapter.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
+  const dir = loadPresence().get(target)?.dir;
+  if (!dir) throw new Error(`cannot confirm model on ${target}: presence dir vanished`);
+  await awaitControlOutcome(dir, id, timeoutMs);
 }
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
@@ -116,5 +123,5 @@ export async function deliverControl(target: string, action: ControlAction): Pro
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
   if (action.kind === "steer") await deliverSteer(canonicalTarget, adapter, action.text, action.id, timeoutMs);
   else if (action.kind === "answer") await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
-  else await deliverModel(canonicalTarget, adapter, action.model, timeoutMs);
+  else await deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

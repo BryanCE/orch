@@ -1,7 +1,7 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, resolvePane, resolveTarget, type Entity } from "../entities.ts";
-import { STATUS_FILE } from "../presence/schema.ts";
+import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
@@ -120,7 +120,7 @@ export async function cmdAnswer(args: string[]): Promise<void> {
     return;
   }
   const ent = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
-  const questionPath = ent.presence ? path.join(ent.presence.dir, "question.json") : null;
+  const questionPath = ent.presence ? path.join(ent.presence.dir, QUESTION_FILE) : null;
   if (!force && (!questionPath || !files.existsSync(questionPath)))
     die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
@@ -144,7 +144,9 @@ export async function cmdModel(args: string[]): Promise<void> {
   else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} → ${result.now} (accepted)\n`);
 }
 
-async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; confirmed: true; unchanged: boolean }> {
+/** Retarget an agent's model. Throws with the agent's own reason when it refuses —
+ *  the daemon does not return until the agent has confirmed the change. */
+async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; unchanged: boolean }> {
   const old = readPresenceStatus(path.join(presenceAgentDir(agentKey), STATUS_FILE));
   // A presence record stores the model structurally; render it in the same provider/id:thinking
   // form the caller passes, so the reported previous value and the no-op comparison both work.
@@ -152,7 +154,7 @@ async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGover
     ? `${old.model.provider ?? ""}/${old.model.id}${old.thinking ? `:${old.thinking}` : ""}`
     : null;
   await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
-  return { old: previous, now: modelArg, confirmed: true, unchanged: previous === modelArg };
+  return { old: previous, now: modelArg, unchanged: previous === modelArg };
 }
 
 export async function cmdDispatch(args: string[]) {

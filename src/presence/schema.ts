@@ -25,3 +25,9 @@ export const INBOX_FILE = "inbox.jsonl";
 export const ANSWER_FILE = "answer.json";
 /** Agent-appended delivery markers; the daemon consumes and truncates. */
 export const ACK_FILE = "ack.jsonl";
+/** Agent-written blocking question; the orchestrator answers, the agent unlinks. */
+export const QUESTION_FILE = "question.json";
+/** Agent-written outcome of the last control command (model/thinking). The
+ * dispatcher reads it back so a refused command is reported as refused instead
+ * of being announced as applied. */
+export const CONTROL_FILE = "control.json";

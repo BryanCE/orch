@@ -166,6 +166,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       orchDir: directory,
       env: opts.env,
       tools: opts.tools,
+      workers: opts.workers,
     };
     const argv = adapter.restrictedHeadlessCmd?.(opts.prompt ?? "", adapterOpts)
       ?? adapter.headlessCmd(opts.prompt ?? "", adapterOpts);

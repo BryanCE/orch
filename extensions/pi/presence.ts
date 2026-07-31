@@ -11,7 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { serializeIdentity, tryParseIdentity } from "../../src/backends/identity.ts";
-import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
+import { CONTROL_FILE, PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import {
   ensurePresenceAgentDir,
   writeResult as writePresenceResult,
@@ -137,8 +137,6 @@ export function createPiPresence(options: PiPresenceOptions) {
   const { pi, ack, extensionHash, reportStatus } = options;
 
   let dir: string | undefined;
-  // control.json is pi's own outcome record for a control command, not part of
-  // the shared presence protocol, so its name lives here rather than in schema.ts.
   let controlFile = "";
 
   let lastCtx: ExtensionContext | undefined;
@@ -193,7 +191,7 @@ export function createPiPresence(options: PiPresenceOptions) {
       ...(identity ? {
         backend: identity.backend,
         workspace: identity.workspace,
-        handle: identity.handle,
+        id: identity.id,
       } : {}),
     };
     if (blocked.count > 0) {
@@ -320,7 +318,6 @@ export function createPiPresence(options: PiPresenceOptions) {
   // refresh the applier calls back into.
   const modelControl = createModelControl({
     pi,
-    orchDir: ORCH_DIR,
     context: () => lastCtx,
     controlFile: () => controlFile,
     refreshPresence: () => {
@@ -421,7 +418,7 @@ export function createPiPresence(options: PiPresenceOptions) {
     if (!candidate) return;
     dir = candidate;
     state.key = key;
-    controlFile = path.join(dir, "control.json");
+    controlFile = path.join(dir, CONTROL_FILE);
 
     resetInbox(dir); // ignore steers from a previous life
     poll = setInterval(() => {

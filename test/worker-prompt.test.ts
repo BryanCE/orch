@@ -26,7 +26,7 @@ function statusFile(orchDir: string, key: string): string {
 async function dispatchedPrompt(adapter: "codex" | "pi"): Promise<string> {
   const previousOrchDir = process.env.ORCH_DIR;
   const orchDir = mkdtempSync(join(tmpdir(), `orch-worker-prompt-${adapter}-`));
-  const key = serializeIdentity({ backend: "headless", workspace: "local", handle: `${adapter}-worker` });
+  const key = serializeIdentity({ backend: "headless", workspace: "local", id: `${adapter}-worker` });
   const status = statusFile(orchDir, key);
   const original: Deliver = headlessBackend.deliver.bind(headlessBackend);
   let received = "";

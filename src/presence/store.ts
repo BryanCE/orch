@@ -104,11 +104,12 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
 
 export function recordSpawned(
   pane: string,
-  metadata: { adapter?: string; model?: string; backend?: string; workspace?: string; handle?: string; cwd?: string; worktree?: string; branch?: string; owner?: string } = {},
+  metadata: { adapter?: string; model?: string; backend?: string; workspace?: string; handle?: string; name?: string; cwd?: string; worktree?: string; branch?: string; owner?: string } = {},
 ): void {
   try {
     const record: SpawnedRecord = { pane, ts: new Date().toISOString() };
     if (metadata.adapter !== undefined) record.adapter = metadata.adapter;
+    if (metadata.name !== undefined) record.name = metadata.name;
     if (metadata.model !== undefined) record.model = metadata.model;
     if (metadata.backend !== undefined) record.backend = metadata.backend;
     if (metadata.workspace !== undefined) record.workspace = metadata.workspace;

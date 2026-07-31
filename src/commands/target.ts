@@ -121,14 +121,16 @@ export function callerWorkspace(): string | null {
   return backend.currentIdentity?.()?.workspace ?? null;
 }
 
-export function backendTarget(target: string, command: string): { backend: Backend; handle: string } {
+export function backendTarget(target: string, command: string): { backend: Backend; handle: string; key: string } {
   const ent = resolveTarget(target);
   const id = parseIdentity(ent.key);
   const backend = getBackend(id.backend);
   if (!backend) die(`orch ${command}: backend ${JSON.stringify(id.backend)} is not registered.`);
   // Resolve the user-facing target once, then pass the backend's real pane
   // handle. Names are display metadata; herdr pane commands require paneId.
-  return { backend, handle: ent.paneId ?? id.handle };
+  const handle = ent.paneId ?? spawnedRecords().get(ent.key)?.handle;
+  if (handle === undefined) die(`orch ${command}: no backend pane recorded for ${JSON.stringify(target)}.`);
+  return { backend, handle, key: ent.key };
 }
 
 export interface LifecycleTarget {
@@ -139,14 +141,11 @@ export interface LifecycleTarget {
   readonly handle: BackendHandle;
 }
 
+/** Every spelling that addresses one agent: its key, its minted id, its mutable
+ *  name, or its backend pane handle. Only the key is identity; the rest are lookups. */
 function registryTargetMatches(record: SpawnedRecord, target: string): boolean {
-  if (record.pane === target || record.handle === target) return true;
-  try {
-    const id = parseIdentity(record.pane);
-    return id.handle === target;
-  } catch {
-    return false;
-  }
+  if (record.pane === target || record.handle === target || record.name === target) return true;
+  return tryParseIdentity(record.pane)?.id === target;
 }
 
 /**
@@ -166,7 +165,8 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
     const id = parseIdentity(ent.key);
     const backend = getBackend(id.backend);
     if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(id.backend)}.`);
-    return { entity: ent, record: { pane: ent.key, backend: id.backend, handle: ent.paneId ?? id.handle }, backend, handle: ent.paneId ?? id.handle };
+    const paneHandle = ent.paneId ?? id.id;
+    return { entity: ent, record: { pane: ent.key, backend: id.backend, handle: paneHandle }, backend, handle: paneHandle };
   }
 
   const id = parseIdentity(record.pane);
@@ -176,7 +176,9 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
     ?? {
       key: record.pane,
       paneId: record.handle ?? null,
-      name: id.handle,
+      // Reached only from the spawn registry, so this agent is orch's by construction.
+      managed: true,
+      name: record.name ?? null,
       tabLabel: null,
       agent: record.adapter ?? null,
       focused: false,
@@ -187,6 +189,6 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
       workspace: record.workspace ?? id.workspace,
     };
   const pid = ent.presence?.status?.pid;
-  const handle = record.handle ?? ent.paneId ?? (typeof pid === "number" ? { pid, key: record.pane } : id.handle);
+  const handle = record.handle ?? ent.paneId ?? (typeof pid === "number" ? { pid, key: record.pane } : id.id);
   return { entity: ent, record, backend, handle };
 }

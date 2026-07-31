@@ -3,14 +3,14 @@ import { parseIdentity, serializeIdentity, tryParseIdentity, type Identity } fro
 
 describe("serializeIdentity / parseIdentity round-trip", () => {
   const cases: readonly (readonly [string, Identity])[] = [
-    ["herdr", { backend: "herdr", workspace: "wD", handle: "p2" }],
-    ["tmux with % handle", { backend: "tmux", workspace: "main", handle: "%5" }],
-    ["tmux with : and % handle", { backend: "tmux", workspace: "main:pane", handle: "%5" }],
-    ["headless pid handle", { backend: "headless", workspace: "local", handle: "1234" }],
-    ["empty workspace", { backend: "headless", workspace: "", handle: "1234" }],
-    ["separator inside parts", { backend: "he~rdr", workspace: "w~s", handle: "p~2" }],
-    ["slash inside parts", { backend: "tmux", workspace: "a/b", handle: "c/d" }],
-    ["percent-code-lookalike", { backend: "tmux", workspace: "%7E", handle: "%3A" }],
+    ["herdr", { backend: "herdr", workspace: "wD", id: "p2" }],
+    ["tmux with % handle", { backend: "tmux", workspace: "main", id: "%5" }],
+    ["tmux with : and % handle", { backend: "tmux", workspace: "main:pane", id: "%5" }],
+    ["headless pid handle", { backend: "headless", workspace: "local", id: "1234" }],
+    ["empty workspace", { backend: "headless", workspace: "", id: "1234" }],
+    ["separator inside parts", { backend: "he~rdr", workspace: "w~s", id: "p~2" }],
+    ["slash inside parts", { backend: "tmux", workspace: "a/b", id: "c/d" }],
+    ["percent-code-lookalike", { backend: "tmux", workspace: "%7E", id: "%3A" }],
   ];
 
   for (const [name, id] of cases) {
@@ -21,13 +21,13 @@ describe("serializeIdentity / parseIdentity round-trip", () => {
   }
 
   test("serialized key is a single flat segment (no nested path)", () => {
-    const key = serializeIdentity({ backend: "tmux", workspace: "main", handle: "%5" });
+    const key = serializeIdentity({ backend: "tmux", workspace: "main", id: "%5" });
     expect(key.includes("/")).toBe(false);
     expect(key).toBe("tmux~main~%255");
   });
 
   test("backend namespaces prevent collisions across equal workspace/handle", () => {
-    const shared = { workspace: "main", handle: "5" };
+    const shared = { workspace: "main", id: "5" };
     const herdrKey = serializeIdentity({ backend: "herdr", ...shared });
     const tmuxKey = serializeIdentity({ backend: "tmux", ...shared });
     expect(herdrKey).not.toBe(tmuxKey);
@@ -44,9 +44,9 @@ describe("malformed input", () => {
     expect(() => parseIdentity("")).toThrow(/non-empty string/);
   });
 
-  test("rejects empty backend or handle on serialize", () => {
-    expect(() => serializeIdentity({ backend: "", workspace: "w", handle: "h" })).toThrow(/backend/);
-    expect(() => serializeIdentity({ backend: "b", workspace: "w", handle: "" })).toThrow(/handle/);
+  test("rejects empty backend or id on serialize", () => {
+    expect(() => serializeIdentity({ backend: "", workspace: "w", id: "h" })).toThrow(/backend/);
+    expect(() => serializeIdentity({ backend: "b", workspace: "w", id: "" })).toThrow(/id/);
   });
 
   test("tryParseIdentity returns null for malformed and non-string input", () => {
@@ -56,6 +56,6 @@ describe("malformed input", () => {
   });
 
   test("tryParseIdentity parses a valid key", () => {
-    expect(tryParseIdentity("herdr~wD~p2")).toEqual({ backend: "herdr", workspace: "wD", handle: "p2" });
+    expect(tryParseIdentity("herdr~wD~p2")).toEqual({ backend: "herdr", workspace: "wD", id: "p2" });
   });
 });

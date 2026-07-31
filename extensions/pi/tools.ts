@@ -13,7 +13,7 @@ import { Type } from "typebox";
 import { workspaceOf } from "../../src/policy/workspace.ts";
 import { loadConfig } from "../../src/config.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../../src/control/cmd-lock.ts";
-import { ANSWER_FILE } from "../../src/presence/schema.ts";
+import { ANSWER_FILE, QUESTION_FILE } from "../../src/presence/schema.ts";
 import { atomicWrite, presenceFile } from "../../src/presence/writer.ts";
 import { registerPeerTools, toolResult, type BridgeToolResult } from "./peers.ts";
 import {
@@ -180,7 +180,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
         if (!dir) return noOrchestratorAnswer();
         const id = Math.random().toString(36).slice(2, 10);
         const ts = new Date().toISOString();
-        const questionFile = path.join(dir, "question.json");
+        const questionFile = path.join(dir, QUESTION_FILE);
         const answerFile = presenceFile(dir, ANSWER_FILE);
         try {
           fs.unlinkSync(answerFile);

@@ -120,7 +120,7 @@ describe("headless common path: identity key -> presence", () => {
 
     // The spawner mints the name-based identity BEFORE launch (one key per
     // agent) and passes it via opts.key; the backend never mints its own.
-    const key = serializeIdentity({ backend: "headless", workspace: "local", handle: "detached-1" });
+    const key = serializeIdentity({ backend: "headless", workspace: "local", id: "detached-1" });
     const handle = backend.spawn(fakeAdapter, { key, orchDir: dir, cwd: dir });
 
     // The handle carries the caller's key unchanged — a flat serialized identity.

@@ -15,6 +15,7 @@ import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { ANSWER_FILE, INBOX_FILE } from "../presence/schema.ts";
 import type { CheckResult, FixDescriptor } from "../check-result.ts";
+import type { WorkerPolicy } from "../policy/workers.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -55,40 +56,53 @@ const AGENT_STATES = new Set<AgentState>([
   "unknown",
 ]);
 
-/**
- * Tools a spawned pi worker may load. Keep this explicit: --no-builtin-tools
- * prevents globally installed tools/extensions from silently expanding it.
- * The bridge registers the four orch_* tools; the state integration registers none.
- */
-export const PI_APPROVED_TOOLS = [
-  "read",
-  "write",
-  "edit",
-  "bash",
-  "orch_ask",
-  "orch_agents",
-  "orch_send",
-  "orch_read",
-] as const;
-
-const PI_TOOL_ALLOWLIST = PI_APPROVED_TOOLS.join(",");
-
 /** pi's extension directory orch links its bundled bridge/HUD extensions into.
  * Single source of truth for both the worker launch commands and the
  * extension-staleness doctor check (diagnoseShim/installShim). */
 const PI_EXTENSION_DIR = path.join(os.homedir(), ".pi", "agent", "extensions");
 
+/** Basenames of the user's own discovered pi extensions, minus orch's bundles. */
+function installedUserExtensions(): { name: string; file: string }[] {
+  const orchBundles = new Set<string>(PI_EXTENSION_NAMES);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(PI_EXTENSION_DIR, { withFileTypes: true });
+  } catch {
+    return []; // no extension dir: the user has none to inherit
+  }
+  return entries.flatMap((entry) => {
+    const name = entry.isDirectory() ? entry.name : entry.name.replace(/\.(ts|js|mjs)$/, "");
+    if (name === entry.name && !entry.isDirectory()) return []; // not an extension file
+    if (orchBundles.has(name)) return [];
+    return [{ name, file: path.join(PI_EXTENSION_DIR, entry.name) }];
+  });
+}
+
 /**
- * `--no-extensions -e <path>` tokens loading exactly the orch bridge/HUD
- * extensions an orch-spawned worker needs — the same installed bundle paths the
- * doctor's staleness check knows — and nothing else. A user's own global pi
- * extensions must never load into a worker pane: with four concurrent workers,
- * the user's session-viewer extension hit SQLITE_BUSY. User-driven interactive
- * sessions run the plain interactiveCmd and keep the full extension set.
+ * pi's `-e`/`--no-extensions` tokens for one worker. Orch's own bundles always
+ * load; whether the user's extensions join them is {@link WorkerPolicy}, not a
+ * decision this adapter makes.
+ *
+ * pi has no per-extension exclude flag, so excluding one means disabling
+ * discovery and naming every survivor explicitly. That mapping is pi's business
+ * and lives only here.
  */
-function workerExtensionArgv(): string[] {
+function workerExtensionArgv(policy: WorkerPolicy | undefined): string[] {
   const argv = ["--no-extensions"];
   for (const name of PI_EXTENSION_NAMES) argv.push("-e", path.join(PI_EXTENSION_DIR, `${name}.js`));
+  if (!policy?.inheritExtensions) return argv;
+  const excluded = new Set(policy.excludeExtensions);
+  for (const extension of installedUserExtensions()) {
+    if (!excluded.has(extension.name)) argv.push("-e", extension.file);
+  }
+  return argv;
+}
+
+/** pi's tool-gating flags for one worker: unrestricted unless the policy names an allowlist. */
+function workerToolArgv(policy: WorkerPolicy | undefined, tools: string | undefined): string[] {
+  const allow = tools ?? (policy?.allowTools.length ? policy.allowTools.join(",") : undefined);
+  const argv = policy?.builtinTools === false ? ["--no-builtin-tools"] : [];
+  if (allow) argv.push("--tools", allow);
   return argv;
 }
 
@@ -198,11 +212,12 @@ export class PiAdapter implements AgentAdapter {
     return opts.model ? `pi --model ${opts.model}` : "pi";
   }
 
-  /** Start pi with only the built-ins, orch bridge tools, and orch bridge/HUD
-   * extensions a worker needs — never the user's full global extension set. */
+  /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
+   * and tools the worker policy admits. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    const command = `pi --tools ${opts.tools ?? PI_TOOL_ALLOWLIST} --no-builtin-tools ${workerExtensionArgv().join(" ")}`;
-    return opts.model ? `${command} --model ${opts.model}` : command;
+    const argv = ["pi", ...workerToolArgv(opts.workers, opts.tools), ...workerExtensionArgv(opts.workers)];
+    if (opts.model) argv.push("--model", opts.model);
+    return argv.join(" ");
   }
 
   /** Start the existing pif wrapper with the initial prompt for headless runs. */
@@ -213,10 +228,9 @@ export class PiAdapter implements AgentAdapter {
     return command;
   }
 
-  /** Start pif with the same worker tool allowlist and minimal bridge/HUD
-   * extension set as interactive pi workers. */
+  /** Start pif under the same worker policy as an interactive pi worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["pif", "--tools", opts.tools ?? PI_TOOL_ALLOWLIST, "--no-builtin-tools", ...workerExtensionArgv()];
+    const command = ["pif", ...workerToolArgv(opts.workers, opts.tools), ...workerExtensionArgv(opts.workers)];
     if (opts.model) command.push("--model", opts.model);
     command.push(prompt);
     return command;
@@ -248,7 +262,7 @@ export class PiAdapter implements AgentAdapter {
   setModel(request: ModelRequest): AdapterCommand | undefined {
     const presence = presenceFor(request.key);
     if (!presence) return undefined;
-    appendInboxLine(presence, { cmd: "model", model: request.model });
+    appendInboxLine(presence, { cmd: "model", model: request.model, id: request.id });
     return undefined;
   }
 

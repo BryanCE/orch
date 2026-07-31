@@ -134,15 +134,19 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
 }
 
 function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
+  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes"]);
   const json = enabled.has("--json");
   const all = enabled.has("--all");
+  const allPanes = enabled.has("--all-panes");
   const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
   const spawned = spawnedRecords();
   const views = entities.map((entity) => deriveView(entity, spawned));
 
-  // Hide exited presence entries with no matching live pane, unless --all
+  // The fleet is what orch spawned. A backend reports every pane it owns — the
+  // orchestrator's own included — and listing those made "is anyone idle?"
+  // count the asker; --all-panes opts back into the raw backend view.
   const visible = views.filter((v) => {
+    if (!allPanes && !v.entity.managed) return false;
     if (all) return true;
     if (v.exited && v.entity.presenceOnly) return false;
     // presence-only with dead pid
@@ -195,6 +199,8 @@ function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
 interface StatusRow {
   key: string;
   paneId: string | null;
+  /** False for panes orch did not spawn (the orchestrator's own, the user's). */
+  managed: boolean;
   name: string | null;
   tab: string | null;
   agent: string | null;
@@ -238,6 +244,7 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
   return {
     key: v.entity.key,
     paneId: v.entity.paneId,
+    managed: v.entity.managed,
     name: v.entity.name,
     tab: v.entity.tabLabel,
     agent: v.entity.agent,
@@ -275,7 +282,7 @@ function localStatusRows(args: string[], workspaces: OrchConfig["workspaces"]): 
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
-    key: `warning:${host}`, paneId: null, name: "WARNING", tab: null, agent: null,
+    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
     exited: false, cost: 0, ctxPercent: null, task: warning, lastText: null,
     backendStatus: null, sessionPath: null, presenceDir: null, presenceOnly: false,

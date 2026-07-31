@@ -4,9 +4,12 @@ import * as path from "node:path";
 import { buildExtensionBundle, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { buildEntities, resolvePane } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
+import { loadPresence, orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
+import { assertNameFree } from "../policy/name.ts";
+import { writeSpawnedName } from "../store/sqlite.ts";
 import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
+import { getBackend } from "../backends/registry.ts";
 
 import { loadConfig } from "../config.ts";
 import { adapterCommand, resolveAdapterOrDie, workerPrompt } from "./spawn.ts";
@@ -248,6 +251,19 @@ export function cmdRestart(args: string[]) {
   if (ok !== targets.length) process.exit(1);
 }
 
+/** Write the new label into orch's registry, then let the backend show it. */
+function renameAgent(backend: Backend, handle: BackendHandle, key: string, name: string): boolean {
+  const record = spawnedRecords().get(key);
+  if (!record) {
+    process.stderr.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
+    return false;
+  }
+  assertNameFree(name, record.workspace ?? "");
+  if (!writeSpawnedName(orchDir(), key, name)) return false;
+  backend.renameAgent?.(handle, name);
+  return true;
+}
+
 export function cmdRename(args: string[]) {
   const paneLabel = args.includes("--pane");
   const json = args.includes("--json");
@@ -255,10 +271,18 @@ export function cmdRename(args: string[]) {
   const target = positional[0];
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane]");
-  const { backend, handle } = backendTarget(target, "rename");
-  const renamed = paneLabel ? backend.renamePane?.(handle, name) : backend.renameAgent?.(handle, name);
+  const { backend, handle, key } = backendTarget(target, "rename");
+  // Renaming an agent moves a label only: orch's registry owns the name, the
+  // identity key never changes, and every session/daemon route survives it.
+  // --pane relabels the backend's pane chrome instead and leaves the name alone.
+  let renamed: boolean | undefined;
+  try {
+    renamed = paneLabel ? backend.renamePane?.(handle, name) : renameAgent(backend, handle, key, name);
+  } catch (error: unknown) {
+    die(`orch rename: ${errorMessage(error)}`);
+  }
   if (!renamed) die(`Could not rename ${handle}.`);
-  if (json) process.stdout.write(JSON.stringify({ target: handle, name, paneLabel, renamed: true }) + "\n");
+  if (json) process.stdout.write(JSON.stringify({ target: handle, key, name, paneLabel, renamed: true }) + "\n");
   else process.stdout.write(`${handle} → ${paneLabel ? "pane label" : "named"} "${name}".\n`);
 }
 
@@ -270,16 +294,22 @@ export function cmdClose(args: string[]) {
   const force = enabled.has("--force");
   if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream]");
 
-  const targets: { backend: Backend; handle: BackendHandle; key: string; pid?: number }[] = [];
+  const targets: { backend: Backend | null; handle: BackendHandle; key: string; pid?: number }[] = [];
   if (all) {
     // --all is deliberately owner-scoped, but not workspace-scoped. Dead and
     // headless records are cleanup targets too.
+    //
+    // Each row is read directly, never resolved through a target string:
+    // resolution is what makes a stale row ambiguous, and one unresolvable row
+    // must not abort the sweep. A bulk close that closes nothing leaves every
+    // name reserved, which is exactly when respawning is the only way out.
     requireCallerOwnerToken();
     for (const record of spawnedRecords().values()) {
       if (!ownsAgent(record)) continue;
-      const resolved = resolveLifecycleTarget(record.pane);
-      const pid = resolved.entity.presence?.status?.pid;
-      targets.push({ backend: resolved.backend, handle: resolved.handle, key: record.pane, pid });
+      const backend = getBackend(record.backend ?? "");
+      if (!backend) process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
+      const presence = loadPresence().get(record.pane);
+      targets.push({ backend, handle: record.handle ?? record.pane, key: record.pane, pid: presence?.status?.pid });
     }
   }
   for (const target of positional) {
@@ -299,7 +329,7 @@ export function cmdClose(args: string[]) {
     if (seen.has(target.key)) continue;
     seen.add(target.key);
     let closedByBackend = false;
-    try { closedByBackend = target.backend.close(target.handle); } catch {}
+    try { closedByBackend = target.backend?.close(target.handle) ?? false; } catch {}
     let signalled = false;
     if (!closedByBackend && target.pid !== undefined && pidAlive(target.pid)) {
       try { process.kill(target.pid, "SIGTERM"); signalled = true; } catch {}

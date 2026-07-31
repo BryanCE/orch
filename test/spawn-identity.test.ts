@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn.ts";
-import { serializeIdentity, normalizeControlTarget } from "../src/backends/identity.ts";
+import { parseIdentity, normalizeControlTarget } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import type { Backend } from "../src/backends/backend.ts";
@@ -42,7 +42,7 @@ function fakePaneBackend(paneHandle: string): { backend: Backend; envKey: () => 
 }
 
 describe("one key per pane spawn (12.1)", () => {
-  test("the registry row key equals the ORCH_AGENT_KEY env key, and the pane handle is a separate field", () => {
+  test("identity is an opaque minted id — never the name, never the pane handle", () => {
     tempOrchDir();
     const { backend, envKey } = fakePaneBackend("%5");
 
@@ -57,20 +57,47 @@ describe("one key per pane spawn (12.1)", () => {
       model: null,
     });
 
-    const expectedKey = serializeIdentity({ backend: "herdr", workspace: "wsA", handle: "audit-1" });
     // The key passed via ORCH_AGENT_KEY IS the identity key returned to the caller.
-    expect(agent.key).toBe(expectedKey);
-    expect(envKey()).toBe(expectedKey);
+    expect(envKey()).toBe(agent.key);
+
+    const identity = parseIdentity(agent.key);
+    expect(identity.backend).toBe("herdr");
+    expect(identity.workspace).toBe("wsA");
+    // Identity is minted, so it carries neither the human name nor the pane handle.
+    expect(identity.id).not.toBe("audit-1");
+    expect(identity.id).not.toBe("%5");
 
     const record = spawnedRecords().get(agent.key);
     expect(record).toBeDefined();
     // Registry row keyed on the env key — never a second identity re-minted from the pane.
-    expect(record!.pane).toBe(expectedKey);
+    expect(record!.pane).toBe(agent.key);
     expect(record!.workspace).toBe("wsA");
     expect(record!.backend).toBe("herdr");
-    // The backend pane handle is recorded as a plain field, distinct from the key.
+    // Name and pane handle are plain columns beside the key, not part of it.
+    expect(record!.name).toBe("audit-1");
     expect(record!.handle).toBe("%5");
-    expect(record!.handle).not.toBe(agent.key);
+  });
+
+  test("a name freed by a dead agent is reusable, and the two agents differ in identity", () => {
+    tempOrchDir();
+    const spawnAudit = () => spawnOneIntoTab({
+      backend: fakePaneBackend("%9").backend,
+      adapter: piAdapter,
+      adapterId: "pi",
+      name: "audit-1",
+      cwd: "/tmp",
+      workspace: "wsC",
+      group: "tab1",
+      model: null,
+    });
+
+    // No presence is ever stamped, so the first agent is not alive: its name is
+    // free immediately. Under name-as-identity this collided forever.
+    const first = spawnAudit();
+    const second = spawnAudit();
+
+    expect(second.key).not.toBe(first.key);
+    expect(spawnedRecords().get(second.key)!.name).toBe("audit-1");
   });
 
   test("a spawned agent resolves to exactly one control-target candidate", () => {

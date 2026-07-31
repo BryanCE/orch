@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { loadConfig } from "../config.ts";
 import { buildEntities, collapse, resolveTarget, scopeEntitiesToWorkspace, workspaceOf, type Entity } from "../entities.ts";
 import { loadPresence, orchDir, readJSON, type PresenceEntry } from "../presence/store.ts";
+import { QUESTION_FILE } from "../presence/schema.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
@@ -128,9 +129,12 @@ function collectPendingQuestions(args: string[]): { pending: PendingQuestion[]; 
       if (ent.presence) names.set(ent.presence.key, ent.name);
     }
   }
+  // A dead agent's question can never be answered — its presence dir outlives the
+  // process, so an unfiltered listing accumulates questions from panes closed
+  // hours ago and a scripted answer loop steers targets that no longer exist.
   const pending = [...loadPresence().values()]
-    .filter((pres) => scopedKeys.has(pres.key) || all)
-    .map((pres) => ({ pres, question: readJSON<unknown>(path.join(pres.dir, "question.json")) }))
+    .filter((pres) => pres.alive && (scopedKeys.has(pres.key) || all))
+    .map((pres) => ({ pres, question: readJSON<unknown>(path.join(pres.dir, QUESTION_FILE)) }))
     .filter((entry): entry is PendingQuestion => isQuestionPayload(entry.question))
     .sort((a, b) => a.pres.key.localeCompare(b.pres.key));
   return { pending, names };

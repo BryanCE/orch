@@ -22,8 +22,8 @@ function tempDir(prefix = "orch-control-dispatch-"): string {
   return dir;
 }
 
-function target(backend: "headless" | "tmux", handle: string): string {
-  return serializeIdentity({ backend, workspace: backend === "headless" ? "local" : "test", handle });
+function target(backend: "headless" | "tmux", id: string): string {
+  return serializeIdentity({ backend, workspace: backend === "headless" ? "local" : "test", id });
 }
 
 function presence(directory: string, key: string, agent: string): string {
@@ -65,6 +65,9 @@ describe("deliverControl", () => {
     process.env.ORCH_DIR = directory;
     const key = target("headless", "claude-ok");
     presence(directory, key, "claude");
+    // The keys fallback needs a pane to press keys into, and only the registry
+    // records one — the identity id names the agent, never its backend handle.
+    recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
     const deliver = headlessBackend.deliver.bind(headlessBackend);
     headlessBackend.deliver = () => true;
     const writes: string[] = [];
@@ -84,6 +87,7 @@ describe("deliverControl", () => {
     process.env.ORCH_DIR = directory;
     const key = target("headless", "claude-fail");
     presence(directory, key, "claude");
+    recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
 
     expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/cannot steer .*backend cannot deliver/);
   }, 15_000);
@@ -129,7 +133,7 @@ describe("deliverControl", () => {
     } finally {
       caps.steer = previousSteer;
     }
-    expect(deliverControl(key, { kind: "model", model: "new-model" })).rejects.toThrow(/setModel false/);
+    expect(deliverControl(key, { kind: "model", model: "provider/new-model", id: "req-1" })).rejects.toThrow(/setModel false/);
   });
 
   test("requires presence for inbox delivery", () => {

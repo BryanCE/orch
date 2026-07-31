@@ -4,11 +4,10 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   createModelControl,
-  isAllowedModel,
   resolveRegistryModel,
-  splitThinkingSuffix,
   type ResolvedModel,
 } from "../extensions/pi/model-control.ts";
+import { splitThinkingSuffix } from "../src/policy/model.ts";
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -31,6 +30,7 @@ const noRetry = { attempts: 1, delayMs: 0 };
 
 /** The outcome record applyControlCommand writes to control.json. */
 interface ControlOutcome {
+  id?: string;
   success: boolean;
   requested?: unknown;
   error?: string;
@@ -57,7 +57,6 @@ describe("splitThinkingSuffix", () => {
 
 describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
   test("looks up the BARE id and returns the effort suffix separately", async () => {
-    const dir = tempDir();
     const seen: { provider: string; id: string }[] = [];
     const find = (provider: string, id: string): ResolvedModel | undefined => {
       seen.push({ provider, id });
@@ -66,7 +65,6 @@ describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
     };
     const { model, thinking } = await resolveRegistryModel(
       "openai-codex/gpt-5.6-luna:medium",
-      dir,
       find,
       noRetry,
     );
@@ -76,7 +74,6 @@ describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
   });
 
   test("retries until a still-booting registry answers", async () => {
-    const dir = tempDir();
     let calls = 0;
     const find = (provider: string, id: string): ResolvedModel | undefined => {
       calls += 1;
@@ -84,7 +81,6 @@ describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
     };
     const { model } = await resolveRegistryModel(
       "openai-codex/gpt-5.6-luna",
-      dir,
       find,
       { attempts: 8, delayMs: 0 },
     );
@@ -93,39 +89,15 @@ describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
   });
 
   test("throws when the registry never yields the model", () => {
-    const dir = tempDir();
     expect(
-      resolveRegistryModel("openai-codex/gpt-5.6-luna:high", dir, () => undefined, noRetry),
+      resolveRegistryModel("openai-codex/gpt-5.6-luna:high", () => undefined, noRetry),
     ).rejects.toThrow(/Model not in registry.*openai-codex\/gpt-5.6-luna$/);
   });
 
-  test("rejects a model outside the allowlist before any registry lookup", () => {
-    const dir = tempDir();
-    let looked = false;
-    expect(
-      resolveRegistryModel("openrouter/not/allowed:low", dir, () => {
-        looked = true;
-        return undefined;
-      }, noRetry),
-    ).rejects.toThrow(/Model not allowed: openrouter\/not\/allowed/);
-    expect(looked).toBe(false);
-  });
-
   test("rejects a token without a provider/id shape", () => {
-    const dir = tempDir();
     expect(
-      resolveRegistryModel("gpt-5.6-luna", dir, () => undefined, noRetry),
+      resolveRegistryModel("gpt-5.6-luna", () => undefined, noRetry),
     ).rejects.toThrow(/provider\/id string/);
-  });
-});
-
-describe("isAllowedModel", () => {
-  test("always allows openai-codex, applies globs to the rest", () => {
-    const dir = tempDir();
-    expect(isAllowedModel(dir, "openai-codex/anything")).toBe(true);
-    // DEFAULT_ALLOWED_MODELS covers the two openrouter defaults exactly.
-    expect(isAllowedModel(dir, "openrouter/x-ai/grok-4.5")).toBe(true);
-    expect(isAllowedModel(dir, "openrouter/unknown/model")).toBe(false);
   });
 });
 
@@ -154,7 +126,6 @@ describe("createModelControl.applyControlCommand", () => {
     let refreshed = 0;
     const control = createModelControl({
       pi: pi as never,
-      orchDir: dir,
       context: () => ({ modelRegistry: { find: (p: string, id: string) => fakeModel(p, id) } }) as never,
       controlFile: () => controlFile,
       refreshPresence: () => {
@@ -162,7 +133,7 @@ describe("createModelControl.applyControlCommand", () => {
       },
     });
 
-    await control.applyControlCommand({ cmd: "model", model: "openai-codex/gpt-5.6-luna:medium" });
+    await control.applyControlCommand({ cmd: "model", model: "openai-codex/gpt-5.6-luna:medium", id: "req-1" });
 
     expect(calls.model).toEqual(fakeModel("openai-codex", "gpt-5.6-luna"));
     expect(calls.thinking).toBe("medium");
@@ -170,6 +141,8 @@ describe("createModelControl.applyControlCommand", () => {
     const outcome = JSON.parse(fs.readFileSync(controlFile, "utf8")) as ControlOutcome;
     expect(outcome.success).toBe(true);
     expect(outcome.requested).toEqual({ model: "openai-codex/gpt-5.6-luna:medium" });
+    // The dispatcher matches the outcome to its own request by this id.
+    expect(outcome.id).toBe("req-1");
   });
 
   test("records a failure outcome when the model is rejected", async () => {
@@ -178,7 +151,6 @@ describe("createModelControl.applyControlCommand", () => {
     const { pi, calls } = makePi();
     const control = createModelControl({
       pi: pi as never,
-      orchDir: dir,
       context: () => ({ modelRegistry: { find: () => undefined } }) as never,
       controlFile: () => controlFile,
       refreshPresence: () => undefined,
@@ -189,7 +161,7 @@ describe("createModelControl.applyControlCommand", () => {
     expect(calls.model).toBeUndefined();
     const outcome = JSON.parse(fs.readFileSync(controlFile, "utf8")) as ControlOutcome;
     expect(outcome.success).toBe(false);
-    expect(outcome.error).toMatch(/Model not allowed/);
+    expect(outcome.error).toMatch(/Model not in registry/);
   });
 
   test("applies a thinking command directly", async () => {
@@ -198,7 +170,6 @@ describe("createModelControl.applyControlCommand", () => {
     const { pi, calls } = makePi();
     const control = createModelControl({
       pi: pi as never,
-      orchDir: dir,
       context: () => undefined,
       controlFile: () => controlFile,
       refreshPresence: () => undefined,

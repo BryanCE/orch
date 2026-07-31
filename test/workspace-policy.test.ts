@@ -98,8 +98,8 @@ describe("workspace policy", () => {
     expect(targetKey).not.toContain(targetWorkspace!);
     expect(sameWorkspace(actorWorkspace, targetWorkspace)).toBe(true);
     expect(checkWall(
-      serializeIdentity({ backend: "headless", workspace: actorWorkspace!, handle: "actor" }),
-      serializeIdentity({ backend: "headless", workspace: targetWorkspace!, handle: "target" }),
+      serializeIdentity({ backend: "headless", workspace: actorWorkspace!, id: "actor" }),
+      serializeIdentity({ backend: "headless", workspace: targetWorkspace!, id: "target" }),
       { crossWorkspace: false },
     ).allowed).toBe(true);
   });

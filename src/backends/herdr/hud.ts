@@ -36,7 +36,7 @@ const CUSTOM_STATUS_MAX = 32;
 
 /** Herdr pane handle for this process, or null when this is not a herdr pane. */
 export function herdrPaneHandle(): string | null {
-  return AGENT_IDENTITY?.backend === "herdr" ? AGENT_IDENTITY.handle : null;
+  return AGENT_IDENTITY?.backend === "herdr" ? AGENT_IDENTITY.id : null;
 }
 
 /**
@@ -67,7 +67,7 @@ function sendHerdrMetadata(customStatus: string): void {
     id: `${HERDR_METADATA_SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.report_metadata",
     params: {
-      pane_id: AGENT_IDENTITY.handle,
+      pane_id: AGENT_IDENTITY.id,
       source: HERDR_METADATA_SOURCE,
       custom_status: customStatus,
       seq: nextMetadataSeq(),
@@ -87,7 +87,7 @@ export function createPaneStatusReporter(paneId: string | null): (snapshot: Pane
   function metadataEnabledForState(): boolean {
     return (
       HERDR_INTEGRATION_ACTIVE &&
-      paneId === AGENT_IDENTITY?.handle
+      paneId === AGENT_IDENTITY?.id
     );
   }
 
@@ -150,7 +150,7 @@ function isHerdrEntity(value: unknown): value is HerdrEntityLike {
 function findHerdrPane(panes: unknown): HerdrEntityLike | undefined {
   if (!isUnknownArray(panes)) return undefined;
   return panes.find((candidate: unknown): candidate is HerdrEntityLike =>
-    isHerdrEntity(candidate) && candidate.pane_id === AGENT_IDENTITY?.handle);
+    isHerdrEntity(candidate) && candidate.pane_id === AGENT_IDENTITY?.id);
 }
 
 function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEntityLike | undefined {
@@ -250,7 +250,7 @@ export function registerPaneStateHud(
 
   const socket = createPaneStateSocket({
     socketPath: HERDR_SOCKET_PATH,
-    paneId: AGENT_IDENTITY.handle,
+    paneId: AGENT_IDENTITY.id,
     source,
     agentId,
     extensionHash: options.extensionHash,

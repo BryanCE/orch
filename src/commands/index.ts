@@ -26,9 +26,10 @@ function usage() {
 The orchestrator routes control through the backend port.
 
 OBSERVE
-  orch status [--json] [--all] [--offline]
-                                 Glanceable table of every pane (default command); --offline reads agent files only.
-  orch questions                 List pending agent questions.
+  orch status [--json] [--all] [--all-panes] [--offline]
+                                 Glanceable table of the fleet (default command); --all-panes also lists
+                                 panes orch did not spawn; --offline reads agent files only.
+  orch questions                 List pending agent questions from live agents.
   orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
                                  Notifications are delivered by orchd from settings.json, not by this command.

@@ -110,7 +110,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     if (!handle) return null;
     const workspace = this.sessionOf(handle);
     if (!workspace) return null;
-    return { backend: TMUX_BACKEND, workspace, handle };
+    // Not orch-spawned, so nothing was minted; the pane id is this process's stable id.
+    return { backend: TMUX_BACKEND, workspace, id: handle };
   }
 
   /** Split an existing window to place a new pane inside a created group (D8). */
@@ -159,7 +160,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {
     if (!this.isInsideSession()) throw new Error("tmux spawn requires running inside a tmux session");
-    const command = adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
+    // An explicit --cmd is the caller's launch line verbatim; without one the adapter builds it.
+    const command = opts.cmd ?? adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const cwd = opts.cwd ?? process.cwd();

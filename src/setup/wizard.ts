@@ -10,7 +10,7 @@ import { promptSelect, promptMultiselect } from "./io.ts";
 export function selectRuntime(): Promise<OrchRuntime | null> {
   return promptSelect(
     "JS runtime for this orch install"
-    + " — node: the default, most widely present;"
+    + " - node: the default, most widely present;"
     + " deno: sandboxed shims (scoped fs + env, no network);"
     + " bun: fastest startup",
     ORCH_RUNTIMES,

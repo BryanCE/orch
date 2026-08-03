@@ -84,7 +84,7 @@ export function removeDeadAgentDirs(json = false): string[] {
   }
   if (!json) {
     if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
-    else process.stdout.write("Nothing to clean — all agent dirs have live pids (or none exist).\n");
+    else process.stdout.write("Nothing to clean - all agent dirs have live pids (or none exist).\n");
   }
   return removed;
 }

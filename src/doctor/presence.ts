@@ -41,7 +41,7 @@ function describePresenceDir(agentsDir: string, name: string): string {
   const head = label ? `${label} (${key})` : key;
   return [head, project ? `project ${project}` : null, workspace ? `ws ${workspace}` : null, agent, seen]
     .filter(Boolean)
-    .join(" · ");
+    .join(" | ");
 }
 
 export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
@@ -85,7 +85,7 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
 function describeUnscopedTask(task: TaskRec): string {
   const age = Date.parse(task.createdAt);
   const seen = Number.isFinite(age) ? humanAge(Date.now() - age) : "unknown";
-  return `${task.id} · ${task.state} · queued ${seen} · ${truncate(task.text, 60)}`;
+  return `${task.id} | ${task.state} | queued ${seen} | ${truncate(task.text, 60)}`;
 }
 
 /**
@@ -111,7 +111,7 @@ export function checkUnscopedTasks(orchDir: string): CheckResult {
     id: "unscoped-tasks",
     label: "Unscoped queue tasks",
     status: "warn",
-    detail: `${unscoped.length} unscoped queue task${unscoped.length === 1 ? "" : "s"} (no origin workspace — never claimable; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
+    detail: `${unscoped.length} unscoped queue task${unscoped.length === 1 ? "" : "s"} (no origin workspace - never claimable; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
   };
 }
 

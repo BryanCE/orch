@@ -34,7 +34,7 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
     await delay(500);
   }
   for (const agent of pending.values())
-    process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} — no bridge dir; try: orch restart ${agent.name}\n`);
+    process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
 }
 
 function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
@@ -125,7 +125,7 @@ export interface AgentSettings {
 /** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
 export function pickAdapter(flags: AgentFlags, config: OrchConfig): AdapterId {
   const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "" });
-  if (!selected) die("no harness selected — pass --agent <id> or run `orch setup` to pick one");
+  if (!selected) die("no harness selected - pass --agent <id> or run `orch setup` to pick one");
   // Validate the id here, at the boundary, so everything downstream carries AdapterId.
   return resolveAdapterOrDie(selected).id;
 }
@@ -142,7 +142,7 @@ export function requestedModel(flags: AgentFlags): string | null {
  *  harness happens to default to, which is never what the orchestrator asked for. */
 function launchModel(flags: AgentFlags, config: OrchConfig): string {
   const model = requestedModel(flags) ?? config.defaults.model ?? "";
-  if (!model) die("no model selected — pass --model <provider/model[:thinking]> or set defaults.model in $ORCH_DIR/settings.json");
+  if (!model) die("no model selected - pass --model <provider/model[:thinking]> or set defaults.model in $ORCH_DIR/settings.json");
   return model;
 }
 
@@ -235,7 +235,7 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   const n = parseInt(flags.positional[0]!, 10);
   if (!Number.isFinite(n) || n < 1)
     die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <provider/model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--spawn-cap <N>] [--worktree]");
-  if (n > spawnCap) die(`Refusing to spawn ${n} panes — cap is ${spawnCap}.`);
+  if (n > spawnCap) die(`Refusing to spawn ${n} panes - cap is ${spawnCap}.`);
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
   const workers = workerPolicyFrom(config);

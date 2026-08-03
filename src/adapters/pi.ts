@@ -383,7 +383,7 @@ export class PiAdapter implements AgentAdapter {
     for (const name of PI_EXTENSION_NAMES) {
       let bundle = extensionBundlePath(root, name);
       if (!fs.existsSync(bundle)) {
-        process.stdout.write(`  building ${name} bundle…\n`);
+        process.stdout.write(`  building ${name} bundle...\n`);
         bundle = buildExtensionBundle(root, name);
       }
       // Raw .ts links from older installs resolve ../src against the symlink
@@ -394,7 +394,7 @@ export class PiAdapter implements AgentAdapter {
       fs.rmSync(dest, { recursive: true, force: true });
       if (opts?.copy) fs.cpSync(bundle, dest, { recursive: true });
       else fs.symlinkSync(bundle, dest);
-      process.stdout.write(`  ${dest} ${opts?.copy ? "(copy)" : "→ " + bundle}\n`);
+      process.stdout.write(`  ${dest} ${opts?.copy ? "(copy)" : "-> " + bundle}\n`);
     }
   }
 }

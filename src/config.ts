@@ -224,7 +224,7 @@ function readSettingsFile(file: string): SettingsFile | null {
     }
     const provider = result.error.issues.map((issue) => unknownProviderId(root, issue.path)).find(Boolean);
     if (provider) {
-      throw new Error(`${file}: ${provider.at}: unknown ${provider.noun} ${JSON.stringify(provider.found)} — supported ${provider.noun}s: ${provider.supported.join(", ")}\nRun: orch setup`);
+      throw new Error(`${file}: ${provider.at}: unknown ${provider.noun} ${JSON.stringify(provider.found)} - supported ${provider.noun}s: ${provider.supported.join(", ")}\nRun: orch setup`);
     }
     throw new Error(`${file}: this settings file has invalid values:\n${z.prettifyError(result.error)}\nFix those keys by hand, or re-record the file with: orch setup`);
   }
@@ -255,11 +255,11 @@ function requireInstalledComposition(file: string, root: SettingsFile): void {
   const installed = root.installed ?? { adapters: [], backends: [] };
   const adapter = root.defaults?.adapter;
   if (adapter !== undefined && !installed.adapters.includes(adapter)) {
-    throw new Error(`${file}: defaults.adapter: "${adapter}" is not an installed adapter — installed: ${installed.adapters.join(", ") || "(none)"}; re-run orch setup`);
+    throw new Error(`${file}: defaults.adapter: "${adapter}" is not an installed adapter - installed: ${installed.adapters.join(", ") || "(none)"}; re-run orch setup`);
   }
   const backend = root.defaults?.backend;
   if (backend !== undefined && !installed.backends.includes(backend)) {
-    throw new Error(`${file}: defaults.backend: "${backend}" is not an installed backend — installed: ${installed.backends.join(", ") || "(none)"}; re-run orch setup`);
+    throw new Error(`${file}: defaults.backend: "${backend}" is not an installed backend - installed: ${installed.backends.join(", ") || "(none)"}; re-run orch setup`);
   }
 }
 
@@ -275,7 +275,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
     // Rule 8: a legacy config.toml is never read or migrated — its presence is an error.
     const legacy = path.join(orchDir, "config.toml");
     if (filesystem.existsSync(legacy)) {
-      throw new Error(`${legacy}: legacy config.toml detected — settings now live in ${file}; re-run orch setup (the old values are not read)`);
+      throw new Error(`${legacy}: legacy config.toml detected - settings now live in ${file}; re-run orch setup (the old values are not read)`);
     }
     return null;
   }
@@ -319,7 +319,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
 export function loadConfig(orchDir: string): OrchConfig {
   const config = loadConfigOrNull(orchDir);
   if (config === null) {
-    throw new Error(`${settingsPath(orchDir)} does not exist — orch has no built-in configuration and does nothing by default.\nRun: orch setup`);
+    throw new Error(`${settingsPath(orchDir)} does not exist - orch has no built-in configuration and does nothing by default.\nRun: orch setup`);
   }
   return config;
 }

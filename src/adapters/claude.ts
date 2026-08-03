@@ -140,7 +140,7 @@ function installClaudeHooks(pkgRoot: string): void {
   ].filter(Boolean).join("; ") || "already configured";
   process.stdout.write(`Claude Code hooks: ${summary}\n`);
   if (!fs.existsSync(shim)) {
-    process.stderr.write(`  warning: ${shim} is not built yet — run: bun run build\n`);
+    process.stderr.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
   }
 }
 

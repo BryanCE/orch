@@ -198,7 +198,7 @@ function installCodexNotifyShim(root: string): void {
   }
   if (edit.status === "foreign") {
     process.stderr.write(
-      `  warning: ${configPath} already has a non-orch notify program (${edit.foreignValue}); leaving it — `
+      `  warning: ${configPath} already has a non-orch notify program (${edit.foreignValue}); leaving it - `
       + "codex notify presence is disabled (headless session-tail parsing still works)\n",
     );
     return;
@@ -211,7 +211,7 @@ function installCodexNotifyShim(root: string): void {
   writeFileSync(configPath, edit.text);
   process.stdout.write(`Codex notify: ${edit.status === "inserted" ? "added" : "updated"} (${runtime}) in ${configPath}\n`);
   if (!existsSync(shim)) {
-    process.stderr.write(`  warning: ${shim} is not built yet — run: bun run build\n`);
+    process.stderr.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
   }
 }
 

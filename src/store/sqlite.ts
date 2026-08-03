@@ -173,7 +173,7 @@ function storeSchemaOf(db: DatabaseLike): number {
 function recreateStore(db: DatabaseLike, path: string): DatabaseLike {
   db.close();
   for (const suffix of ["", "-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
-  process.stderr.write(`orch: ${path} was written against an older store shape — recreated empty\n`);
+  process.stderr.write(`orch: ${path} was written against an older store shape - recreated empty\n`);
   return createDatabase(path);
 }
 

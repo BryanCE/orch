@@ -94,7 +94,7 @@ function isToolExecutionEndEvent(value: unknown): value is ToolExecutionEndEvent
 }
 
 function noOrchestratorAnswer(): BridgeToolResult {
-  return toolResult("no answer from orchestrator (timeout) — proceed with your best judgment and note the open question in your final reply.");
+  return toolResult("no answer from orchestrator (timeout) - proceed with your best judgment and note the open question in your final reply.");
 }
 
 function waitForOrchestratorAnswer(
@@ -169,7 +169,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     label: "Ask Orchestrator",
     description: "Ask the orchestrator a blocking question and wait for its answer.",
     promptSnippet: "Ask the orchestrator a blocking decision question and wait for its answer",
-    promptGuidelines: ["Use orch_ask when blocked on a decision the orchestrator must make (ambiguous spec, missing file, risky choice) — it blocks until the orchestrator answers; do not use it for things you can verify yourself."],
+    promptGuidelines: ["Use orch_ask when blocked on a decision the orchestrator must make (ambiguous spec, missing file, risky choice) - it blocks until the orchestrator answers; do not use it for things you can verify yourself."],
     parameters: Type.Object({
       question: Type.String({ description: "Decision question for the orchestrator" }),
     }),

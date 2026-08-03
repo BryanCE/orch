@@ -45,7 +45,7 @@ export function cmdWait(args: string[]) {
   if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");
   const { backend, handle } = backendTarget(target, "wait");
   if (!backend.waitAgentStatus) die(`backend ${backend.id} lacks agent status waiting.`);
-  if (!backend.waitAgentStatus(handle, status, timeout)) die(`wait for ${handle} → "${status}" failed/timed out.`);
+  if (!backend.waitAgentStatus(handle, status, timeout)) die(`wait for ${handle} -> "${status}" failed/timed out.`);
   if (json) process.stdout.write(JSON.stringify({ target: handle, status, reached: true }) + "\n");
   else process.stdout.write(`${handle} reached "${status}".\n`);
 }
@@ -68,7 +68,7 @@ export function cmdNew(args: string[]) {
     assertAgentOwned(target, ent, force);
     const { backend, handle } = backendTarget(pane, "reset");
     const agentId = ent.agent ?? ent.presence?.status?.agent;
-    if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its reset mechanism.`);
+    if (!agentId) die(`Target "${target}" has no recorded harness - cannot determine its reset mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
     const resetCmd = adapter.caps.lifecycle.includes("reset") ? adapter.lifecycleCmd?.("reset") : undefined;
     if (!resetCmd) die(`${handle}: adapter ${adapter.id} has no reset mechanism.`);
@@ -150,7 +150,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
     if (fg.length && fg.every((n) => /sh$|^bash$|^zsh$|^fish$/.test(n))) { shellSeen = true; break; }
   }
   if (!shellSeen) {
-    process.stderr.write(`${pane}: agent did not exit after ${quitText} — skipping relaunch.\n`);
+    process.stderr.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
   backend.deliver(pane, { kind: "run", text: cmd });
@@ -191,7 +191,7 @@ export function cmdReload(args: string[]) {
       assertAgentOwned(target, ent, force);
       const { backend, handle } = backendTarget(pane, "reload");
       const agentId = ent.agent ?? ent.presence?.status?.agent;
-      if (!agentId) throw new Error(`Target "${target}" has no recorded harness — cannot determine its reload mechanism`);
+      if (!agentId) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(agentId);
       const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
@@ -237,7 +237,7 @@ export function cmdRestart(args: string[]) {
     const { ent, pane } = resolvePane(target);
     assertAgentOwned(target, ent, force);
     const agentId = ent.agent ?? ent.presence?.status?.agent;
-    if (!agentId) die(`Target "${target}" has no recorded harness — cannot determine its restart mechanism.`);
+    if (!agentId) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
     const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
@@ -283,7 +283,7 @@ export function cmdRename(args: string[]) {
   }
   if (!renamed) die(`Could not rename ${handle}.`);
   if (json) process.stdout.write(JSON.stringify({ target: handle, key, name, paneLabel, renamed: true }) + "\n");
-  else process.stdout.write(`${handle} → ${paneLabel ? "pane label" : "named"} "${name}".\n`);
+  else process.stdout.write(`${handle} -> ${paneLabel ? "pane label" : "named"} "${name}".\n`);
 }
 
 export function cmdClose(args: string[]) {

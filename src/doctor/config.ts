@@ -56,7 +56,7 @@ export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
     id: "command-locks",
     label: "Command locks",
     status: "warn",
-    detail: `locked_commands set but ${unenforced.join(", ")} cannot enforce them (no pre-tool seam) — those agents get the worker-prompt clause only; the pi fleet is hard-enforced`,
+    detail: `locked_commands set but ${unenforced.join(", ")} cannot enforce them (no pre-tool seam) - those agents get the worker-prompt clause only; the pi fleet is hard-enforced`,
   };
 }
 

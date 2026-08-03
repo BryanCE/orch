@@ -173,7 +173,7 @@ function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
       v.tab,
       v.agent,
       v.model,
-      v.state + (v.stateFallback ? "†" : "") + (v.staleExtension ? " (stale)" : ""),
+      v.state + (v.stateFallback ? "?" : "") + (v.staleExtension ? " (stale)" : ""),
       v.cost > 0 ? "$" + v.cost.toFixed(2) : "",
       v.ctxPercent != null ? `${Math.round(v.ctxPercent)}%` : "",
       truncate(v.task, 40),

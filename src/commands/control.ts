@@ -53,12 +53,12 @@ export async function cmdSteer(args: string[]): Promise<void> {
     const key = entity.presence.key;
     const result = await writeRpc("steer", { target: key, text }, gov);
     if (json) process.stdout.write(JSON.stringify({ target: key, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-    else process.stdout.write(`Steered ${key} → ${truncate(collapse(text), 60)}\n`);
+    else process.stdout.write(`Steered ${key} -> ${truncate(collapse(text), 60)}\n`);
     return;
   }
   const result = await writeRpc("steer", { target: entity.key, text }, gov);
   if (json) process.stdout.write(JSON.stringify({ target: entity.paneId, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Steered ${entity.paneId} → ${truncate(collapse(text), 60)}\n`);
+  else process.stdout.write(`Steered ${entity.paneId} -> ${truncate(collapse(text), 60)}\n`);
 }
 
 export async function cmdBroadcast(args: string[]) {
@@ -109,7 +109,7 @@ export async function cmdPipe(args: string[]) {
   const text = `[piped from ${source.presence!.key}] ${instruction ? instruction + "\n" : ""}${resultTextValue}`;
   await writeRpc("steer", { target: destination.presence!.key, text });
   if (json) process.stdout.write(JSON.stringify({ source: source.presence!.key, destination: destination.presence!.key, piped: true }) + "\n");
-  else process.stdout.write(`Piped ${source.presence!.key} → ${destination.presence!.key}.\n`);
+  else process.stdout.write(`Piped ${source.presence!.key} -> ${destination.presence!.key}.\n`);
 }
 
 export async function cmdAnswer(args: string[]): Promise<void> {
@@ -144,7 +144,7 @@ export async function cmdModel(args: string[]): Promise<void> {
   const result = await setAgentModel(ent.key, modelArg, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
-  else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} → ${result.now} (accepted)\n`);
+  else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} -> ${result.now} (accepted)\n`);
 }
 
 /** Retarget an agent's model. Throws with the agent's own reason when it refuses —

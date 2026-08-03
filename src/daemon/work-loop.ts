@@ -73,7 +73,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
       await sendPrompt();
       status = waitForWorking(entry, dispatchAckTimeoutMs);
     }
-    if (!options.json) process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
+    if (!options.json) process.stdout.write(`Dispatched to ${entry.key} -> status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
   } catch (error) {
     process.stderr.write(`Warning: cannot dispatch ${entry.key}: ${errorMessage(error)}\n`);
   }

@@ -42,7 +42,7 @@ export function cmdResult(args: string[]) {
   const extractInput = { key: ent.key, sessionPath: ent.sessionPath ?? undefined };
   const text = adapter?.extractResult(extractInput);
   if (text) {
-    process.stderr.write("(no result.json — falling back to adapter-extracted session text)\n");
+    process.stderr.write("(no result.json - falling back to adapter-extracted session text)\n");
     if (json) {
       const sview = adapter?.caps.sessionTail
         ? adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined })
@@ -245,19 +245,19 @@ function renderViewEntry(entry: SessionViewEntry): string | undefined {
   const time = hms(entry.timestamp);
   if (entry.role === "user") {
     const text = collapse(entry.text ?? "");
-    return text ? `${time} user      │ ${truncate(text, 200)}` : undefined;
+    return text ? `${time} user      | ${truncate(text, 200)}` : undefined;
   }
   if (entry.role === "assistant") {
     const text = collapse(entry.text ?? "");
-    if (text) return `${time} assistant │ ${truncate(text, 200)}`;
+    if (text) return `${time} assistant | ${truncate(text, 200)}`;
     if (entry.toolCalls?.length) {
       const calls = entry.toolCalls.map((call) => `${call.name}(${collapse(truncate(call.arg, 60))})`).join(", ");
-      return `${time} assistant │ ⚙ ${calls}`;
+      return `${time} assistant | [tools] ${calls}`;
     }
     return undefined;
   }
   const mark = entry.isError ? " [err]" : "";
-  return `${time} tool      │ ${entry.tool ?? "tool"}${mark} → ${truncate(collapse(entry.text ?? ""), 120)}`;
+  return `${time} tool      | ${entry.tool ?? "tool"}${mark} -> ${truncate(collapse(entry.text ?? ""), 120)}`;
 }
 
 /** The last-N rendered per-turn rows of a session view, or the "(no entries)" marker. */

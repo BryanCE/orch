@@ -161,7 +161,7 @@ function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"])
     }
     const rawTitle = notificationText(event, { colorize: true }).title;
     const title = label && id && label !== id ? rawTitle.replace(`[${id}]`, `[${label} (${id})]`) : rawTitle;
-    const transition = `  ${event.oldState}→${event.newState}`;
+    const transition = `  ${event.oldState}->${event.newState}`;
     const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
     process.stdout.write(`${title}${transition}${cost}\n`);
   };

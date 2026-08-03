@@ -22,7 +22,7 @@ import { die } from "./target.ts";
 
 function usage() {
   process.stdout.write(
-    `orch — the single controller for agents in backend targets.
+    `orch - the single controller for agents in backend targets.
 The orchestrator routes control through the backend port.
 
 OBSERVE
@@ -83,7 +83,7 @@ COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
   orch lock status [--json]      Show the current holder (pid, note, age) or 'unlocked'.
   orch lock release --force      Evict the current holder, naming it.
 
-PANES (create / arrange / lifecycle — never steals focus except 'focus')
+PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
                    [--agent A] [--backend B] [--spawn-cap N] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,

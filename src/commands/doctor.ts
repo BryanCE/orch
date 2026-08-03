@@ -21,7 +21,7 @@ async function runInteractiveDoctor(initial: CheckResult[]): Promise<void> {
     const chosen = new Set(selected);
     const toApply = results.filter((r) => r.fix && !r.fix.destructive && chosen.has(r.id));
     withSpinner(
-      `Applying ${toApply.length} fix${toApply.length === 1 ? "" : "es"}…`,
+      `Applying ${toApply.length} fix${toApply.length === 1 ? "" : "es"}...`,
       "fixes applied",
       () => { for (const r of toApply) r.fix!.apply(); },
     );

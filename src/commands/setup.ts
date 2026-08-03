@@ -136,7 +136,7 @@ async function resolveInstallTargets(
     const picked = await chooseInstalls(missing);
     if (picked === null) return null;
     for (const { bin, cmd } of missing)
-      if (!picked.includes(bin)) process.stdout.write(`  skipped ${bin} — install later with: ${cmd}\n`);
+      if (!picked.includes(bin)) process.stdout.write(`  skipped ${bin} - install later with: ${cmd}\n`);
     return picked;
   }
   if (yes) return missing.map(({ bin }) => bin);
@@ -148,13 +148,13 @@ async function resolveInstallTargets(
 function runInstall(bin: string, cmd: string, interactive: boolean): void {
   try {
     if (interactive) {
-      withSpinner(`Installing ${bin}…`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
+      withSpinner(`Installing ${bin}...`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
     } else {
-      process.stdout.write(`  Installing ${bin}…\n`);
+      process.stdout.write(`  Installing ${bin}...\n`);
       execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
     }
   } catch {
-    process.stderr.write(`  ${bin} install failed — run manually: ${cmd}\n`);
+    process.stderr.write(`  ${bin} install failed - run manually: ${cmd}\n`);
   }
 }
 
@@ -164,7 +164,7 @@ function linkBin(src: string, dest: string, copy: boolean): void {
   files.rmSync(dest, { recursive: true, force: true });
   if (copy) files.cpSync(src, dest, { recursive: true });
   else files.symlinkSync(src, dest);
-  process.stdout.write(`  ${dest} ${copy ? "(copy)" : "→ " + src}\n`);
+  process.stdout.write(`  ${dest} ${copy ? "(copy)" : "-> " + src}\n`);
 }
 
 /** Persist the composition selections (runtime, installed sets, active defaults) to settings.json. */
@@ -222,7 +222,7 @@ async function installPrerequisites(
     } else if (entry?.docsUrl) {
       manual.push({ id, url: entry.docsUrl });
     } else {
-      manual.push({ id, url: "(no installer known — install manually)" });
+      manual.push({ id, url: "(no installer known - install manually)" });
     }
   };
   for (const id of adapters) {
@@ -246,7 +246,7 @@ async function installPrerequisites(
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
     process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
     const now = binaryPath(bin);
-    process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH — open a new shell and re-run orch setup\n`);
+    process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH - open a new shell and re-run orch setup\n`);
   }
   return true;
 }
@@ -265,12 +265,12 @@ async function installAdapterShims(adapters: readonly AdapterId[], copy: boolean
       try {
         await adapter.installShim({ copy });
       } catch (error: unknown) {
-        const gap = `${id}: integration install failed — ${errorMessage(error)}`;
+        const gap = `${id}: integration install failed - ${errorMessage(error)}`;
         process.stderr.write(`  WARNING ${gap}\n`);
         gaps.push(gap);
       }
     } else if (adapter.diagnoseShim) {
-      const gap = `${id}: no integration installer available yet — ${id} agents will lack presence reporting`;
+      const gap = `${id}: no integration installer available yet - ${id} agents will lack presence reporting`;
       process.stderr.write(`  WARNING ${gap}\n`);
       gaps.push(gap);
     }
@@ -346,7 +346,7 @@ export async function offerReapMalformedRecords(
     records.map((record) => `  - ${record.path}: ${record.reason}`).join("\n") + "\n",
   );
   if (!interactive || !(await askConfirm(records.length))) {
-    process.stdout.write("  kept — orch clean can reap them later\n");
+    process.stdout.write("  kept - orch clean can reap them later\n");
     return false;
   }
   for (const record of records) files.rmSync(record.path, { recursive: true, force: true });
@@ -424,14 +424,14 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   try {
     key = await step.spawnHeadless(cwd);
   } catch (error: unknown) {
-    process.stderr.write(`Smoke failed: could not spawn a headless agent — ${errorMessage(error)}\n`);
+    process.stderr.write(`Smoke failed: could not spawn a headless agent - ${errorMessage(error)}\n`);
     return false;
   }
   try {
     await step.dispatch(key, step.buildPrompt(key));
   } catch (error: unknown) {
     process.stderr.write(
-      `Smoke failed: orch could not deliver work — the dispatch was rejected (${errorMessage(error)}).\n` +
+      `Smoke failed: orch could not deliver work - the dispatch was rejected (${errorMessage(error)}).\n` +
       `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status' and 'orch tail ${key}'.\n`,
     );
     step.cleanup(key);
@@ -447,12 +447,12 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   step.cleanup(key);
   if (!result) {
     process.stderr.write(
-      `Smoke failed: the dispatch was accepted but no result came back within ${Math.round(step.timeoutMs / 1000)}s — orch did not complete a work round-trip.\n` +
+      `Smoke failed: the dispatch was accepted but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,
     );
     return false;
   }
-  process.stdout.write("Smoke ok — orch spawned a headless agent, dispatched a prompt, and read a result back. orch can deliver work.\n");
+  process.stdout.write("Smoke ok - orch spawned a headless agent, dispatched a prompt, and read a result back. orch can deliver work.\n");
   return true;
 }
 
@@ -494,7 +494,7 @@ export async function cmdSetup(args: string[]) {
   // setup is the ONE recovery path: a settings.json from an older schema (or otherwise invalid)
   // is malformed data, not something to migrate — reap it so re-recording can proceed.
   const reaped = reapUnreadableSettings(orchDir());
-  if (reaped) process.stdout.write(`  previous settings.json was unreadable (older schema or invalid values) — moved aside to ${reaped}, re-recording from scratch\n`);
+  if (reaped) process.stdout.write(`  previous settings.json was unreadable (older schema or invalid values) - moved aside to ${reaped}, re-recording from scratch\n`);
 
   const selectedRuntime = await resolveRuntime(runtimeFlag, interactive);
   if (selectedRuntime === null) return;
@@ -552,13 +552,13 @@ export async function cmdSetup(args: string[]) {
   if (interactive && !args.includes("--no-smoke")) {
     const blocker = smokeBlocker();
     if (blocker) {
-      process.stdout.write(`Smoke test skipped — ${blocker}.\n`);
+      process.stdout.write(`Smoke test skipped - ${blocker}.\n`);
     } else {
-      process.stdout.write("Smoke test — verifying orch can deliver work (headless spawn + dispatch + result)…\n");
+      process.stdout.write("Smoke test - verifying orch can deliver work (headless spawn + dispatch + result)...\n");
       await runSetupSmoke(process.cwd());
     }
   } else if (!interactive) {
-    process.stdout.write("Smoke test skipped (non-interactive) — run `orch setup` on a TTY to verify orch can deliver work.\n");
+    process.stdout.write("Smoke test skipped (non-interactive) - run `orch setup` on a TTY to verify orch can deliver work.\n");
   } else {
     process.stdout.write("Smoke test skipped (--no-smoke).\n");
   }
@@ -589,7 +589,7 @@ async function configureNotifiers(): Promise<void> {
   }
   const result = await buildSelectedNotifyEntries(selections);
   for (const error of result.errors) {
-    process.stderr.write(`  notifier ${error.id}: missing required fields — ${error.missing.join(", ")}\n`);
+    process.stderr.write(`  notifier ${error.id}: missing required fields - ${error.missing.join(", ")}\n`);
   }
   if (result.entries.length) {
     writeSettingsNotify(orchDir(), result.entries);
@@ -612,7 +612,7 @@ export function compositionUnrecorded(): boolean {
 export function setupRequiredMessage(): string {
   // The accepted ids are compile-time constants, so the message lists them rather than printing
   // <id> and leaving the reader to go find them.
-  return `orch is not set up yet — no harness/backend recorded in ${settingsPath(orchDir())}.\n`
+  return `orch is not set up yet - no harness/backend recorded in ${settingsPath(orchDir())}.\n`
     + `Run: orch setup\n`
     + `Non-interactive: orch setup --yes --agent <${ADAPTER_IDS.join("|")}> `
     + `--backend <${BACKEND_IDS.join("|")}> [--runtime ${ORCH_RUNTIMES.join("|")}]`;
@@ -620,7 +620,7 @@ export function setupRequiredMessage(): string {
 
 /** Walk the first run through the setup wizard, then dispatch the original command via the injected dispatcher. */
 export async function runFirstTimeSetup(argv: string[], dispatch: (argv: string[]) => void): Promise<void> {
-  process.stdout.write("First run — no harness/backend recorded yet, walking through setup.\n\n");
+  process.stdout.write("First run - no harness/backend recorded yet, walking through setup.\n\n");
   await cmdSetup([]);
   // A cancelled wizard records nothing; exit instead of looping back into the gate.
   if (compositionUnrecorded()) process.exit(1);

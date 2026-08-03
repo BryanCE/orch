@@ -81,7 +81,7 @@ export function cmdPeek(args: string[]) {
     process.stdout.write(JSON.stringify({ target, pane: handle, screen, lines: n }) + "\n");
     return;
   }
-  process.stdout.write("screen (eyeball only — status/result/tail are the truth channel)\n");
+  process.stdout.write("screen (eyeball only - status/result/tail are the truth channel)\n");
   process.stdout.write(screen.endsWith("\n") ? screen : screen + "\n");
 }
 
@@ -165,7 +165,7 @@ export function cmdTab(args: string[]) {
     try {
       const r = backend.createGroup({ workspace, cwd, label });
       if (json) process.stdout.write(JSON.stringify(r) + "\n");
-      else process.stdout.write(`Created group ${r.group.id} "${r.group.label}" — root handle ${String(r.rootHandle)}\n`);
+      else process.stdout.write(`Created group ${r.group.id} "${r.group.label}" - root handle ${String(r.rootHandle)}\n`);
       backend.close(r.rootHandle);
     } catch (e: unknown) {
       die(`group new failed: ${errorMessage(e)}`);
@@ -177,7 +177,7 @@ export function cmdTab(args: string[]) {
     const { backend } = selectedGroups();
     if (backend.renameGroup?.(tab.id, label)) {
       if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
-      else process.stdout.write(`${tab.id}: "${tab.label}" → "${label}"\n`);
+      else process.stdout.write(`${tab.id}: "${tab.label}" -> "${label}"\n`);
     } else die(`Could not rename group ${tab.id}.`);
   } else if (sub === "close") {
     const t = rest[0];
@@ -198,7 +198,7 @@ export function cmdTab(args: string[]) {
       else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
     } else die(`Could not focus group ${tab.id}.`);
   } else {
-    die("usage: orch tab new|rename|close|focus …  (orch tabs to list)");
+    die("usage: orch tab new|rename|close|focus ...  (orch tabs to list)");
   }
 }
 

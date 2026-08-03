@@ -30,7 +30,7 @@ OBSERVE
                                  Glanceable table of the fleet (default command); --all-panes also lists
                                  panes orch did not spawn; --offline reads agent files only.
   orch questions                 List pending agent questions from live agents.
-  orch events [--all] [target ...] [--status s[,s…]] [--notify] [--json]
+  orch events [--all] [target ...] [--status s[,s...]] [--notify] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
                                  Notifications are delivered by orchd from settings.json, not by this command.
 
@@ -65,21 +65,22 @@ DISPATCH WORK
                                  Durably accept a model change through orchd.
   orch notify test [--state <state>]
                                  Send a synthetic transition to each configured notification sink.
-  orch steer <target> <text…>    Durably accept a mid-run steer through orchd.
+  orch steer <target> <text...>    Durably accept a mid-run steer through orchd.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
   orch result <target> [--json]  Print a target's result (result.json or session fallback).
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.
-  orch reload <target>… | --all   Reload panes, signal watchers via reload.signal, and report each outcome.
-  orch reset  <target>… | --all   Start a fresh session/context, keep model. (alias: new)
-  orch restart <target>… | --all [--cmd pi]
+  orch reload <target>... | --all   Reload panes, signal watchers via reload.signal, and report each outcome.
+  orch reset  <target>... | --all [--model M]
+                                 Start a fresh session/context, then pin M (else defaults.model). (alias: new)
+  orch restart <target>... | --all [--cmd pi]
                                  Fully close the harness process and relaunch it.
 
 COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
-  orch lock run [--note <why>] [--timeout <ms>] -- <argv…>
+  orch lock run [--note <why>] [--timeout <ms>] -- <argv...>
                                  Acquire the machine-wide lock, run argv, release on exit (propagates the exit code).
-  orch lock check -- <argv…>     Exit 3 if argv is a locked command held elsewhere, else exit 0.
+  orch lock check -- <argv...>     Exit 3 if argv is a locked command held elsewhere, else exit 0.
   orch lock status [--json]      Show the current holder (pid, note, age) or 'unlocked'.
   orch lock release --force      Evict the current holder, naming it.
 
@@ -87,7 +88,7 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
                    [--agent A] [--backend B] [--spawn-cap N] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
-                                 3=2+1, 4=2x2, …; cap 8). Names <prefix>-1..N.
+                                 3=2+1, 4=2x2, ...; cap 8). Names <prefix>-1..N.
   orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
@@ -126,7 +127,7 @@ MAINTENANCE
                                  Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
   orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--yes] [--no-install] [--copy]
                                  Onboarding wizard: multi-select the adapters and backends
-                                 you use (--agent pi,claude / --backend herdr,headless — the
+                                 you use (--agent pi,claude / --backend herdr,headless - the
                                  first of each is the active default), record the installed
                                  sets to ~/.orch/settings.json, install missing deps, and wire
                                  every selected adapter's shim. Prompts interactively when a
@@ -183,7 +184,7 @@ function preflightSkew(argv: string[]): string[] {
 }
 
 /** Commands that must keep working before setup has recorded anything. `setup` records the
- * composition and `doctor` diagnoses an install that does not work yet — they are how a user
+ * composition and `doctor` diagnoses an install that does not work yet - they are how a user
  * reaches a configured state, so neither may ever be refused for being unconfigured. */
 function exemptFromSetupGate(cmd: string | undefined): boolean {
   return cmd === "setup" || cmd === "doctor" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
@@ -246,7 +247,7 @@ export function runCommand(argv: string[]): void {
     case "wait": cmdWait(rest); break;
     case "dispatch": void cmdDispatch(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "reload": cmdReload(rest); break;
-    case "reset": case "new": cmdNew(rest); break;
+    case "reset": case "new": void cmdNew(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "restart": cmdRestart(rest); break;
     case "rename": cmdRename(rest); break;
     case "close": case "kill": cmdClose(rest); break;

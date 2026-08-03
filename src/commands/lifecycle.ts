@@ -12,7 +12,7 @@ import type { Backend, BackendHandle } from "../backends/backend.ts";
 import { getBackend } from "../backends/registry.ts";
 
 import { loadConfig } from "../config.ts";
-import { adapterCommand, resolveAdapterOrDie, workerPrompt } from "./spawn.ts";
+import { adapterCommand, launchModel, pinModels, resolveAdapterOrDie, workerPrompt, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
@@ -50,18 +50,31 @@ export function cmdWait(args: string[]) {
   else process.stdout.write(`${handle} reached "${status}".\n`);
 }
 
-export function cmdNew(args: string[]) {
-  const json = args.includes("--json");
-  const force = args.includes("--force");
+/** Split `orch reset` args into its --model flag and the targets to clear. */
+function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags } {
   const targets: string[] = [];
+  const flags: AgentFlags = {};
   if (args.includes("--all")) requireCallerOwnerToken();
-  for (const arg of args) {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
     if (arg === "--json" || arg === "--force") continue;
+    if (arg === "--model") { flags.modelFlag = args[++index]; continue; }
     if (arg === "--all") {
       for (const ent of buildEntities()) if (ent.paneId && ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {})) targets.push(ent.paneId);
     } else targets.push(arg);
   }
-  if (!targets.length) die("usage: orch reset <target>... | --all [--json]");
+  return { targets, flags };
+}
+
+export async function cmdNew(args: string[]): Promise<void> {
+  const json = args.includes("--json");
+  const force = args.includes("--force");
+  const { targets, flags } = parseResetArgs(args);
+  if (!targets.length) die("usage: orch reset <target>... | --all [--model <provider/model[:thinking]>] [--json]");
+  // A cleared session drops back to the harness's own default, so reset re-pins on
+  // exactly the terms a spawn does: the model named here, else the configured default.
+  const model = launchModel(flags, loadConfig(orchDir()));
+  const cleared: { key: string; pane: string; name: string }[] = [];
   const results: { target: string; cleared: true; ready: true }[] = [];
   for (const target of targets) {
     const { ent, pane } = resolvePane(target);
@@ -90,10 +103,13 @@ export function cmdNew(args: string[]) {
       sleepMs(250);
     }
     if (!ready) die(`${handle}: ${adapter.id} reset (${resetCmd.text}) did not become ready within 75s.`);
+    cleared.push({ key: ent.key, pane: String(handle), name: ent.name ?? String(handle) });
     results.push({ target: handle, cleared: true, ready: true });
     if (!json) process.stdout.write(`Cleared session on ${handle} (${resetCmd.text}); ready.\n`);
   }
+  await pinModels(cleared, model);
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
+  else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${model}.\n`);
 }
 
 export function paneForeground(backend: Backend, handle: string): string[] {

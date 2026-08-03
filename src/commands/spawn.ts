@@ -98,7 +98,7 @@ async function deliverModelPin(key: string, model: string): Promise<string | nul
   return reason;
 }
 
-async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
+export async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
   const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
     pane,
     name,
@@ -137,10 +137,11 @@ export function requestedModel(flags: AgentFlags): string | null {
   return resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", fallback: "" }) || null;
 }
 
-/** The model a new agent launches on: what the caller named, else the configured
- *  default. With neither, refuse — an unpinned launch silently runs whatever the
- *  harness happens to default to, which is never what the orchestrator asked for. */
-function launchModel(flags: AgentFlags, config: OrchConfig): string {
+/** The model a fresh session runs on: what the caller named, else the configured
+ *  default. With neither, refuse — an unpinned session silently runs whatever the
+ *  harness happens to default to, which is never what the orchestrator asked for.
+ *  Every path that starts a clean session (spawn, tile, reset) resolves it here. */
+export function launchModel(flags: AgentFlags, config: OrchConfig): string {
   const model = requestedModel(flags) ?? config.defaults.model ?? "";
   if (!model) die("no model selected - pass --model <provider/model[:thinking]> or set defaults.model in $ORCH_DIR/settings.json");
   return model;

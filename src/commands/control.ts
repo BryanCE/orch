@@ -20,7 +20,7 @@ type DispatchFlags = AgentFlags & {
   positional: string[];
 };
 
-type DispatchSettings = {
+interface DispatchSettings {
   adapter: AdapterId;
   /** Set only when this dispatch named a model; null leaves the agent on the one it spawned with. */
   model: string | null;
@@ -32,7 +32,7 @@ type DispatchSettings = {
   pane: string;
   prompt: string;
   destination: Entity | null;
-};
+}
 
 
 export async function cmdSteer(args: string[]): Promise<void> {

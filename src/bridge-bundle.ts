@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { binaryOnPath } from "./util.ts";
 
 // herdr's extension loader wants plain bundled ESM, not TypeScript source with
 // relative ../src imports (those resolve against the ~/.pi symlink location and
@@ -29,8 +30,15 @@ export function extensionBundlePath(root: string, name: PiExtensionName): string
   return path.join(root, "dist", "extensions", `${name}.js`);
 }
 
-/** Bundle one pi extension into dist/. Returns the bundle path. */
+/** Bundle one pi extension into dist/. Returns the bundle path.
+ *
+ * Bundling is build tooling, so it needs a bundler on PATH — the one path in orch
+ * that does. The shipped tarball carries prebuilt bundles and never reaches here;
+ * only a git clone does. Say so plainly instead of surfacing a raw ENOENT. */
 export function buildExtensionBundle(root: string, name: PiExtensionName): string {
+  if (!binaryOnPath("bun")) {
+    throw new Error(`cannot build the ${name} bundle: bun is not on PATH. Install from the npm package, which ships dist/extensions/${name}.js prebuilt, or install bun to build from this checkout.`);
+  }
   const source = extensionSourcePath(root, name);
   const bundle = extensionBundlePath(root, name);
   fs.mkdirSync(path.dirname(bundle), { recursive: true });

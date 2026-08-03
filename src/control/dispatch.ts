@@ -7,7 +7,7 @@ import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 import type { AdapterCommand, AgentAdapter } from "../adapters/adapter.ts";
-import type { Backend, BackendHandle } from "../backends/backend.ts";
+import type { Backend, BackendHandle, DeliverPayload } from "../backends/backend.ts";
 
 /**
  * Control-plane dispatcher (L5 facade). Runs inside the daemon only; the CLI
@@ -18,9 +18,23 @@ import type { Backend, BackendHandle } from "../backends/backend.ts";
 
 /** Control effect requested for one live agent. */
 export type ControlAction =
+  | { readonly kind: "run"; readonly text: string; readonly id?: string }
   | { readonly kind: "steer"; readonly text: string; readonly id?: string }
   | { readonly kind: "answer"; readonly text: string }
   | { readonly kind: "model"; readonly model: string; readonly id: string };
+
+/** Prompt text bound for a live agent: new work to submit, or a mid-run interjection. */
+type PromptAction = Extract<ControlAction, { kind: "run" | "steer" }>;
+
+/** How each prompt action reaches a console when keystrokes are the only channel. */
+export const KEYSTROKE_KIND: Record<PromptAction["kind"], DeliverPayload["kind"]> = {
+  run: "run",
+  steer: "message",
+};
+
+function isPromptAction(action: ControlAction): action is PromptAction {
+  return action.kind === "run" || action.kind === "steer";
+}
 
 const ADAPTER_COMMAND_TIMEOUT_MS = SETTINGS_DEFAULTS.timeouts.adapter_command_ms;
 
@@ -65,25 +79,32 @@ function requirePresence(target: string, adapter: AgentAdapter, action: string):
   }
 }
 
-async function deliverSteer(target: string, adapter: AgentAdapter, text: string, id: string | undefined, timeoutMs: number): Promise<void> {
+/**
+ * Route prompt text into a live agent through the mechanism its ADAPTER declares.
+ * New work and a mid-run steer travel the same way — an agent has exactly one text
+ * channel, and which one it is belongs to the adapter, never to the backend it
+ * happens to be running in. The keystroke path is the sole point where a backend
+ * is touched, and only an adapter declaring `steer: "keys"` ever reaches it.
+ */
+async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<void> {
   const mechanism = adapter.caps.steer;
-  if (mechanism === "none") throw new Error(`cannot steer ${target}: adapter ${adapter.id} declares steer "none"`);
-  if (mechanism === "inbox") requirePresence(target, adapter, "steer");
-  const command = adapter.steer({ key: target, text, id });
+  if (mechanism === "none") throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} declares steer "none"`);
+  if (mechanism === "inbox") requirePresence(target, adapter, action.kind);
+  const command = adapter.steer({ key: target, text: action.text, id: action.id });
   if (command) {
     await runAdapterCommand(command, timeoutMs);
     return;
   }
   if (mechanism === "inbox") return;
   if (mechanism === "keys") {
-    process.stderr.write(`steering ${target} via ${adapter.id} keys fallback (degraded delivery)\n`);
+    process.stderr.write(`${action.kind} ${target} via ${adapter.id} keys fallback (degraded delivery)\n`);
     const route = resolveTargetRoute(target);
-    if (!route || !route.backend.deliver(route.handle, { kind: "message", text })) {
-      throw new Error(`cannot steer ${target}: backend cannot deliver keys for adapter ${adapter.id}`);
+    if (!route?.backend.deliver(route.handle, { kind: KEYSTROKE_KIND[action.kind], text: action.text })) {
+      throw new Error(`cannot ${action.kind} ${target}: backend cannot deliver keys for adapter ${adapter.id}`);
     }
     return;
   }
-  throw new Error(`cannot steer ${target}: adapter ${adapter.id} returned no ${mechanism} command`);
+  throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} returned no ${mechanism} command`);
 }
 
 async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<void> {
@@ -121,7 +142,7 @@ export async function deliverControl(target: string, action: ControlAction): Pro
   const canonicalTarget = normalizeControlTarget(target);
   const adapter = resolveTargetAdapter(canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
-  if (action.kind === "steer") await deliverSteer(canonicalTarget, adapter, action.text, action.id, timeoutMs);
+  if (isPromptAction(action)) await deliverPrompt(canonicalTarget, adapter, action, timeoutMs);
   else if (action.kind === "answer") await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
   else await deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

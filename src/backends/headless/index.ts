@@ -112,6 +112,24 @@ function registeredHandle(handle: HeadlessHandle, directory: string): boolean {
 }
 
 /**
+ * Agents whose stdin pipe this process owns, held so the pipe outlives the call
+ * that opened it.
+ *
+ * An interactive harness quits the moment stdin reaches EOF. `stdio: "ignore"`
+ * hands it /dev/null, which is EOF immediately — the agent was dying seconds
+ * after launch, long before any work could be delivered to it. A pipe has no EOF
+ * while its writer is open, so the agent idles until orch gives it something. The
+ * writer is this process, which is why the spawner must be the long-lived orchd
+ * and not the CLI: an `orch spawn` that exits takes its agents with it.
+ */
+const stdinHolders = new Set<ChildProcess>();
+
+function holdStdinOpen(child: ChildProcess): void {
+  stdinHolders.add(child);
+  child.once("exit", () => stdinHolders.delete(child));
+}
+
+/**
  * Detached process backend. The registry is append-only; dead entries remain
  * observable, while close can only signal a registered process with matching
  * presence ownership.
@@ -190,14 +208,14 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         // writer running inside the child, so its own status.json can stamp
         // the same sessionPath the backend registry records below.
         env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ...(opts.env ?? {}) },
-        stdio: ["ignore", logFd, logFd],
+        stdio: ["pipe", logFd, logFd],
       });
     } catch (error) {
       closeSync(logFd);
       throw error;
     }
     closeSync(logFd);
-    child.unref();
+    holdStdinOpen(child);
 
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);

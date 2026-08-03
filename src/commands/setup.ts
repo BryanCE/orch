@@ -226,14 +226,14 @@ async function installPrerequisites(
     }
   };
   for (const id of adapters) {
-    const resolved = (bins[id] && binaryPath(id)) || "";
-    process.stdout.write(`  ${resolved ? "ok      " : "MISSING "}${id}${resolved ? `  (${resolved})` : ""}\n`);
+    const binPath = bins[id] ? binaryPath(id) ?? "" : "";
+    process.stdout.write(`  ${binPath ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}\n`);
     if (!bins[id]) queueInstall(id);
   }
   for (const id of backends) {
     const available = getBackend(id)!.isAvailable();
-    const resolved = (available && bins[id] && binaryPath(id)) || "";
-    process.stdout.write(`  ${available ? "ok      " : "MISSING "}${id}${resolved ? `  (${resolved})` : ""}\n`);
+    const binPath = available && bins[id] ? binaryPath(id) ?? "" : "";
+    process.stdout.write(`  ${available ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}\n`);
     if (!available) queueInstall(id);
   }
   for (const { id, url } of manual) process.stdout.write(`  install ${id} manually: ${url}\n`);
@@ -425,7 +425,6 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
     key = await step.spawnHeadless(cwd);
   } catch (error: unknown) {
     process.stderr.write(`Smoke failed: could not spawn a headless agent — ${errorMessage(error)}\n`);
-    process.exitCode = 1;
     return false;
   }
   try {
@@ -436,7 +435,6 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
       `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status' and 'orch tail ${key}'.\n`,
     );
     step.cleanup(key);
-    process.exitCode = 1;
     return false;
   }
   const deadline = step.now() + step.timeoutMs;
@@ -452,7 +450,6 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
       `Smoke failed: the dispatch was accepted but no result came back within ${Math.round(step.timeoutMs / 1000)}s — orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,
     );
-    process.exitCode = 1;
     return false;
   }
   process.stdout.write("Smoke ok — orch spawned a headless agent, dispatched a prompt, and read a result back. orch can deliver work.\n");
@@ -547,15 +544,18 @@ export async function cmdSetup(args: string[]) {
 
   // Closing smoke round-trip (12.5): the default interactive path proves orch can actually deliver
   // work before claiming "Done". A real spawn is skipped without a TTY (unattended runs must not
-  // spend a model turn) and can be turned off with --no-smoke; either way a broken write path here
-  // fails loudly rather than shipping a green "setup completed" that cannot dispatch.
+  // spend a model turn) and can be turned off with --no-smoke.
+  //
+  // It REPORTS; it does not gate. The install is already complete and correct by this point, so a
+  // failed round-trip must not fail setup's exit code — doing so aborted the `&&` chain that runs
+  // `orch doctor` and `orch daemon start` after it, turning one broken agent into a broken install.
   if (interactive && !args.includes("--no-smoke")) {
     const blocker = smokeBlocker();
     if (blocker) {
       process.stdout.write(`Smoke test skipped — ${blocker}.\n`);
     } else {
       process.stdout.write("Smoke test — verifying orch can deliver work (headless spawn + dispatch + result)…\n");
-      if (!(await runSetupSmoke(process.cwd()))) return;
+      await runSetupSmoke(process.cwd());
     }
   } else if (!interactive) {
     process.stdout.write("Smoke test skipped (non-interactive) — run `orch setup` on a TTY to verify orch can deliver work.\n");

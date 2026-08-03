@@ -256,14 +256,17 @@ function assertSpawnCapacity(settings: Pick<OrchConfig, "fleet">, workspace: str
   }
 }
 
-function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
+// Detached agents are launched BY THE DAEMON, not here: the process holding an
+// agent's stdin pipe is the process the agent's life is tied to, and this CLI
+// exits in milliseconds. orchd outlives them and already owns delivery.
+async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): Promise<void> {
   if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
   // Detached agents mint their identity under the backend's own workspace (headless → "local"),
   // never the caller's herdr identity; the cap check must match that same bucket, not callerWorkspace().
   const workspace = settings.workspace ?? "local";
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
-  const created: { key: string }[] = [];
+  const created: CreatedAgent[] = [];
   for (let index = 1; index <= settings.n; index++) {
     const name = `${settings.prefix}-${index}`;
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
@@ -275,16 +278,16 @@ function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
       // never encodes it, and the backend never re-mints a second identity.
       assertNameFree(name, workspace);
       const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
-      backend.spawn(adapter, {
+      await writeRpc("spawn-detached", {
         key,
+        adapter: settings.adapter,
         cwd,
         model: settings.model ?? undefined,
-        orchDir: orchDir(),
         tools: settings.tools,
         workers: settings.workers,
-        cmd: settings.commandFlag ? settings.cmd : undefined,
       });
-      created.push({ key });
+      // A detached agent has no pane, so its key is the handle every display uses.
+      created.push({ key, pane: key, name });
       recordSpawned(key, {
         adapter: settings.adapter,
         model: settings.model ?? undefined,
@@ -300,6 +303,10 @@ function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): void {
       die(`headless spawn failed for ${name}: ${errorMessage(error)}`);
     }
   }
+  // Same gate the pane path uses: an inbox adapter is only reachable once it has
+  // written its presence dir, so returning before that hands the caller a key it
+  // cannot dispatch to yet.
+  if (adapter.caps.steer === "inbox") await awaitBridgeRegistration(created, settings.json);
   if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, agents: created }) + "\n");
   else {
     process.stdout.write(`\nSpawned ${created.length} detached agent(s) (no panes).\n`);
@@ -476,7 +483,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const backend = resolveBackend({ configured: settings.backend });
   // A backend without group creation has no panes to tile into: spawn detached.
   if (!backend.createGroup) {
-    executeDetachedSpawn(settings, backend);
+    await executeDetachedSpawn(settings, backend);
     return;
   }
   const workspace = resolveSpawnWorkspace(settings.workspace);

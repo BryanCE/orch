@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { resolveTargetRoute } from "../control/dispatch.ts";
+import { randomUUID } from "node:crypto";
+import { deliverControl } from "../control/dispatch.ts";
+import { errorMessage } from "../util.ts";
 import {
   claimTask,
   listTasks,
@@ -57,30 +59,24 @@ function waitForWorking(entry: PresenceEntry, timeoutMs: number): string | null 
 }
 
 async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
-  await Promise.resolve();
   const adapterId = spawnedRecords().get(entry.key)?.adapter ?? entry.status?.agent;
   const lockedCommands = (options.getConfig?.() ?? loadConfig(options.orchDir)).locked_commands;
   const prompt = `${workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, lockedCommands)}\n\n${task.text}`;
-  // The identity id addresses the AGENT; the backend needs its own pane handle to
-  // deliver. They were the same string only while identity was minted from the
-  // name, and herdr happened to accept names as targets — an opaque id would
-  // silently address nothing.
-  const route = resolveTargetRoute(entry.key);
-  if (!route) {
-    process.stderr.write(`Warning: cannot dispatch ${entry.key}: no backend route recorded\n`);
-    return;
-  }
-  const { backend, handle } = route;
-  backend.deliver(handle, { kind: "run", text: prompt });
+  const sendPrompt = () => deliverControl(entry.key, { kind: "run", text: prompt, id: randomUUID() });
   const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
-  let status = waitForWorking(entry, dispatchAckTimeoutMs);
-  let retried = false;
-  if (status !== "working") {
-    retried = true;
-    backend.deliver(handle, { kind: "run", text: prompt });
-    status = waitForWorking(entry, dispatchAckTimeoutMs);
+  try {
+    await sendPrompt();
+    let status = waitForWorking(entry, dispatchAckTimeoutMs);
+    let retried = false;
+    if (status !== "working") {
+      retried = true;
+      await sendPrompt();
+      status = waitForWorking(entry, dispatchAckTimeoutMs);
+    }
+    if (!options.json) process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
+  } catch (error) {
+    process.stderr.write(`Warning: cannot dispatch ${entry.key}: ${errorMessage(error)}\n`);
   }
-  if (!options.json) process.stdout.write(`Dispatched to ${entry.key} → status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
 }
 
 async function waitForTaskState(entry: PresenceEntry, timeoutMs: number): Promise<string> {

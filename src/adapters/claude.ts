@@ -184,7 +184,7 @@ const CLAUDE_HOOK_EVENTS = ["SessionStart", "Stop", "Notification"] as const;
 function registeredHookCommands(settings: Record<string, unknown>, event: string): string[] {
   const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
   if (!Array.isArray(entries)) return [];
-  const hooks = entries.flatMap((entry) => (isRecord(entry) && Array.isArray(entry.hooks) ? entry.hooks : []));
+  const hooks = entries.flatMap((entry): unknown[] => (isRecord(entry) && Array.isArray(entry.hooks) ? entry.hooks : []));
   return hooks.flatMap((hook) =>
     isRecord(hook) && hook.type === "command" && typeof hook.command === "string" ? [hook.command] : []);
 }

@@ -61,6 +61,17 @@ const AGENT_STATES = new Set<AgentState>([
  * extension-staleness doctor check (diagnoseShim/installShim). */
 const PI_EXTENSION_DIR = path.join(os.homedir(), ".pi", "agent", "extensions");
 
+const PI_EXTENSION_SUFFIXES = [".ts", ".js", ".mjs"];
+
+/** A directory is a pi extension only when it has an index entrypoint; helper
+ *  directories beside real extensions have none, and naming one on pi's command
+ *  line makes pi refuse to start at all. */
+function directoryExtensionIndex(directory: string): string | undefined {
+  return PI_EXTENSION_SUFFIXES
+    .map((suffix) => path.join(directory, `index${suffix}`))
+    .find((candidate) => fs.existsSync(candidate));
+}
+
 /** Basenames of the user's own discovered pi extensions, minus orch's bundles. */
 function installedUserExtensions(): { name: string; file: string }[] {
   const orchBundles = new Set<string>(PI_EXTENSION_NAMES);
@@ -71,10 +82,15 @@ function installedUserExtensions(): { name: string; file: string }[] {
     return []; // no extension dir: the user has none to inherit
   }
   return entries.flatMap((entry) => {
-    const name = entry.isDirectory() ? entry.name : entry.name.replace(/\.(ts|js|mjs)$/, "");
-    if (name === entry.name && !entry.isDirectory()) return []; // not an extension file
-    if (orchBundles.has(name)) return [];
-    return [{ name, file: path.join(PI_EXTENSION_DIR, entry.name) }];
+    const file = path.join(PI_EXTENSION_DIR, entry.name);
+    if (entry.isDirectory()) {
+      const name = entry.name;
+      return orchBundles.has(name) || !directoryExtensionIndex(file) ? [] : [{ name, file }];
+    }
+    const suffix = PI_EXTENSION_SUFFIXES.find((candidate) => entry.name.endsWith(candidate));
+    if (!suffix) return [];
+    const name = entry.name.slice(0, -suffix.length);
+    return orchBundles.has(name) ? [] : [{ name, file }];
   });
 }
 

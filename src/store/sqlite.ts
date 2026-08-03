@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import type { DatabaseSync } from "node:sqlite";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskOptions, TaskRec, TaskState } from "../queue.ts";
@@ -46,20 +47,8 @@ interface DatabaseLike {
   close(): void;
 }
 
-interface NodeStatement {
-  run(...params: unknown[]): { changes: number | bigint };
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown;
-}
-
-interface NodeDatabase {
-  exec(sql: string): void;
-  prepare(sql: string): NodeStatement;
-  close(): void;
-}
-
-class NodeDatabaseAdapter implements DatabaseLike {
-  public constructor(private readonly database: NodeDatabase) {}
+class SqliteDatabaseAdapter implements DatabaseLike {
+  public constructor(private readonly database: DatabaseSync) {}
 
   exec(sql: string): void {
     this.database.exec(sql);
@@ -81,19 +70,26 @@ class NodeDatabaseAdapter implements DatabaseLike {
 
 const connections = new Map<string, DatabaseLike>();
 
-const bunSqlite = process.versions.bun
-  ? await import("bun:sqlite") as unknown as {
-      Database: new (path: string, options: { create: boolean }) => DatabaseLike;
-    }
-  : null;
 const require = createRequire(import.meta.url);
 
-function createDatabase(path: string): DatabaseLike {
-  if (bunSqlite) return new bunSqlite.Database(path, { create: true });
-  const nodeSqlite = require("node:sqlite") as {
-    DatabaseSync: new (path: string) => NodeDatabase;
-  };
-  return new NodeDatabaseAdapter(new nodeSqlite.DatabaseSync(path));
+/** A built-in module this runtime provides, or null when it does not ship one. */
+function builtinModuleOrNull<Module>(specifier: string): Module | null {
+  try {
+    return require(specifier) as Module;
+  } catch {
+    return null;
+  }
+}
+
+/** node:sqlite is the driver everywhere it exists; bun predates it, so bun:sqlite
+ *  is the guarded fallback there (CLAUDE.md Rule 6). Resolved lazily so a runtime
+ *  carrying neither fails at first use, with a name, rather than at module load. */
+function createDatabase(file: string): DatabaseLike {
+  const nodeSqlite = builtinModuleOrNull<{ DatabaseSync: new (file: string) => DatabaseSync }>("node:sqlite");
+  if (nodeSqlite) return new SqliteDatabaseAdapter(new nodeSqlite.DatabaseSync(file));
+  const bunSqlite = builtinModuleOrNull<{ Database: new (file: string, options: { create: boolean }) => DatabaseLike }>("bun:sqlite");
+  if (bunSqlite) return new bunSqlite.Database(file, { create: true });
+  throw new Error(`cannot open ${file}: this runtime provides neither node:sqlite nor bun:sqlite`);
 }
 
 function databasePath(orchDir: string): string {

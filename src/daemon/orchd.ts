@@ -19,7 +19,10 @@ import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox, checkOwn
 import { checkWall } from "../policy/workspace.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
 import { normalizeControlTarget } from "../backends/identity.ts";
-import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
+import { deliverControl, KEYSTROKE_KIND, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
+import { resolveAdapter } from "../adapters/registry.ts";
+import { headlessBackend } from "../backends/headless/index.ts";
+import type { WorkerPolicy } from "../policy/workers.ts";
 import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities } from "../entities.ts";
 import { deriveView } from "../commands/status.ts";
 import { spawnedRecords } from "../presence/store.ts";
@@ -103,32 +106,30 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function deliverBackend(target: string, payload: unknown, id: string): Promise<boolean> {
+/** Send one outbox write into its target's text channel. New work and a mid-run steer
+ *  differ only in the action kind; both go through the one control dispatcher. A target
+ *  with no recorded adapter is a bare pane orch never spawned, so keystrokes are all it has. */
+async function deliverWrite(target: string, payload: unknown, id: string): Promise<boolean> {
   const canonicalTarget = normalizeControlTarget(target);
   const value = isWritePayload(payload) ? payload : {};
   const text = requiredString(value.text, "text");
-  if (value.action === "dispatch") {
+  const kind = value.action === "dispatch" ? "run" : "steer";
+  if (!resolveTargetAdapter(canonicalTarget)) {
     const route = resolveTargetRoute(canonicalTarget);
-    return route?.backend.deliver(route.handle, { kind: "run", text }) ?? false;
+    return route?.backend.deliver(route.handle, { kind: KEYSTROKE_KIND[kind], text }) ?? false;
   }
-  // Steer: agents route through the control dispatcher (adapter-gated); a
-  // target with no recorded adapter is a bare pane and gets a plain message.
-  if (resolveTargetAdapter(canonicalTarget)) {
-    try {
-      await deliverControl(canonicalTarget, { kind: "steer", text, id });
-      return true;
-    } catch (error) {
-      process.stderr.write(`steer ${canonicalTarget} failed: ${errorMessage(error)}\n`);
-      return false;
-    }
+  try {
+    await deliverControl(canonicalTarget, { kind, text, id });
+    return true;
+  } catch (error) {
+    process.stderr.write(`${kind} ${canonicalTarget} failed: ${errorMessage(error)}\n`);
+    return false;
   }
-  const route = resolveTargetRoute(canonicalTarget);
-  return route?.backend.deliver(route.handle, { kind: "message", text }) ?? false;
 }
 
 function outboxDeps(): OutboxDeps {
   return {
-    deliver: (target, payload, id) => deliverBackend(target, payload, id),
+    deliver: (target, payload, id) => deliverWrite(target, payload, id),
     now: () => Date.now(),
   };
 }
@@ -165,6 +166,36 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
   const stillPending = selectPendingOutbox(directory, Number.MAX_SAFE_INTEGER).some((message) => message.id === id);
   if (stillPending) throw new Error(`write ${id} was not applied or acknowledged for target ${target}`);
   return { accepted: true, id };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Launch one detached agent from INSIDE the daemon.
+ *
+ * A detached agent lives exactly as long as the process holding its stdin pipe,
+ * so the spawner has to be something that outlives it. `orch spawn` is a CLI that
+ * exits in milliseconds; orchd is already running and already owns delivery, so
+ * it owns the launch too. The CLI asks for the spawn over this RPC rather than
+ * doing it itself.
+ */
+function spawnDetached(directory: string, params: unknown): { key: string; pid: number } {
+  const value = writeParams(params);
+  const key = requiredString(value.key, "key");
+  const adapterId = requiredString(value.adapter, "adapter");
+  const adapter = resolveAdapter(adapterId);
+  if (!adapter) throw new Error(`cannot spawn ${key}: unknown adapter ${adapterId}`);
+  const handle = headlessBackend.spawn(adapter, {
+    key,
+    orchDir: directory,
+    cwd: optionalString(value.cwd),
+    model: optionalString(value.model),
+    tools: optionalString(value.tools),
+    workers: value.workers as WorkerPolicy | undefined,
+  });
+  return { key, pid: handle.pid };
 }
 
 // Throws when the agent refuses or never confirms; the RPC error carries that
@@ -226,6 +257,7 @@ async function main(): Promise<void> {
       presence: () => presenceView(),
       dispatch: (params) => acceptWrite(directory, "dispatch", params),
       steer: (params) => acceptWrite(directory, "steer", params),
+      "spawn-detached": (params) => spawnDetached(directory, params),
       "set-model": (params) => setModel(directory, params),
       answer: (params) => answer(directory, params),
       ack: (params) => {

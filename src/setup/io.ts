@@ -18,9 +18,10 @@ export async function promptText(message: string, placeholder?: string): Promise
   return answer === null ? null : answer.trim();
 }
 
-// clack's `Option<Value>` is a conditional type that stays unresolved against an
-// unbound `Id`, so both prompts below narrow the answer on the way out — it can
-// only ever be one of the ids that went in.
+// clack's `Option<Value>` is a conditional type, so an unbound `Id` leaves it
+// deferred and nothing is assignable to it. Both prompts below bind Value to
+// `string` — which resolves the conditional — and narrow the answer back on the
+// way out: it can only ever be one of the ids that went in.
 
 /** Run a clack single-select over id options; return the chosen id, or null when the user cancels. */
 export async function promptSelect<Id extends string>(
@@ -28,7 +29,7 @@ export async function promptSelect<Id extends string>(
   options: readonly Id[],
   initial?: Id,
 ): Promise<Id | null> {
-  return guardCancel(await select({
+  return guardCancel(await select<string>({
     message,
     options: options.map((id) => ({ value: id, label: id })),
     ...(initial !== undefined ? { initialValue: initial } : {}),
@@ -42,11 +43,11 @@ export async function promptMultiselect<Id extends string>(
   options: readonly { value: Id; label: string; hint: string; checked?: boolean }[],
 ): Promise<Id[] | null> {
   if (options.length === 0) return [];
-  return guardCancel(await multiselect({
+  return guardCancel(await multiselect<string>({
     message,
     options: options.map(({ value, label, hint }) => ({ value, label, hint })),
     required: false,
-    initialValues: options.filter(({ checked }) => checked !== false).map(({ value }) => value as string),
+    initialValues: options.filter(({ checked }) => checked !== false).map(({ value }) => value),
   })) as Id[] | null;
 }
 

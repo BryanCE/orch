@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskOptions, TaskRec, TaskState } from "../queue.ts";
@@ -47,6 +47,13 @@ interface DatabaseLike {
   close(): void;
 }
 
+/** Bind values crossing from orch's untyped statement port into the driver. Callers
+ *  build these from row shapes the schema already fixes, so the driver rejects a
+ *  genuinely unbindable value at run time rather than this cast hiding it. */
+function asSqlInputs(params: readonly unknown[]): SQLInputValue[] {
+  return params as SQLInputValue[];
+}
+
 class SqliteDatabaseAdapter implements DatabaseLike {
   public constructor(private readonly database: DatabaseSync) {}
 
@@ -61,9 +68,9 @@ class SqliteDatabaseAdapter implements DatabaseLike {
   query(sql: string): StatementLike {
     const statement = this.database.prepare(sql);
     return {
-      run: (...params) => ({ changes: Number(statement.run(...params).changes) }),
-      all: (...params) => statement.all(...params),
-      get: (...params) => statement.get(...params),
+      run: (...params) => ({ changes: Number(statement.run(...asSqlInputs(params)).changes) }),
+      all: (...params) => statement.all(...asSqlInputs(params)),
+      get: (...params) => statement.get(...asSqlInputs(params)),
     };
   }
 }

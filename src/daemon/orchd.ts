@@ -80,21 +80,13 @@ async function socketAnswers(directory: string): Promise<boolean> {
   }
 }
 
-interface WriteParams {
-  id?: unknown;
-  target?: unknown;
-  text?: unknown;
-  model?: unknown;
-  actor?: unknown;
-  steal?: unknown;
-  crossWorkspace?: unknown;
-}
-
-function writeParams(params: unknown): WriteParams {
+/** One RPC's params, checked only for being a JSON object — every field reads back
+ *  as `unknown` and each handler narrows the ones it needs. */
+function rpcParams(params: unknown): Record<string, unknown> {
   if (typeof params !== "object" || params === null || Array.isArray(params)) {
     throw new Error("RPC params must be an object");
   }
-  return params;
+  return params as Record<string, unknown>;
 }
 
 function requiredString(value: unknown, name: string): string {
@@ -135,7 +127,7 @@ function outboxDeps(): OutboxDeps {
 }
 
 export function validateWriteParams(params: unknown): { target: string; text: string } {
-  const value = writeParams(params);
+  const value = rpcParams(params);
   return {
     target: requiredString(value.target, "target"),
     text: requiredString(value.text, "text"),
@@ -146,7 +138,7 @@ export function validateWriteParams(params: unknown): { target: string; text: st
  *  An unscoped actor is wall-eligible and unattributable, so ownership is skipped
  *  for it. Throws to reject the write. */
 export function governWrite(directory: string, target: string, params: unknown): void {
-  const value = writeParams(params);
+  const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
   const steal = value.steal === true;
   const crossWorkspace = value.crossWorkspace === true;
@@ -182,7 +174,7 @@ function optionalString(value: unknown): string | undefined {
  * doing it itself.
  */
 function spawnDetached(directory: string, params: unknown): { key: string; pid: number } {
-  const value = writeParams(params);
+  const value = rpcParams(params);
   const key = requiredString(value.key, "key");
   const adapterId = requiredString(value.adapter, "adapter");
   const adapter = resolveAdapter(adapterId);
@@ -202,7 +194,7 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
 // reason to the caller, so `orch model` can never print "accepted" for a model
 // the agent did not take.
 async function setModel(directory: string, params: unknown): Promise<{ ok: true; applied: string }> {
-  const value = writeParams(params);
+  const value = rpcParams(params);
   const target = requiredString(value.target, "target");
   const model = requiredString(value.model, "model");
   governWrite(directory, target, params);
@@ -211,7 +203,7 @@ async function setModel(directory: string, params: unknown): Promise<{ ok: true;
 }
 
 async function answer(directory: string, params: unknown): Promise<{ ok: true }> {
-  const value = writeParams(params);
+  const value = rpcParams(params);
   const target = requiredString(value.target, "target");
   const text = requiredString(value.text, "text");
   governWrite(directory, target, params);
@@ -261,7 +253,7 @@ async function main(): Promise<void> {
       "set-model": (params) => setModel(directory, params),
       answer: (params) => answer(directory, params),
       ack: (params) => {
-        const value = writeParams(params);
+        const value = rpcParams(params);
         const id = requiredString(value.id, "id");
         markOutboxDelivered(directory, id);
         return { ok: true };

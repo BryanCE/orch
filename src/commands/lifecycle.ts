@@ -9,6 +9,7 @@ import { assertNameFree } from "../policy/name.ts";
 import { writeSpawnedName } from "../store/sqlite.ts";
 import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
+import type { LifecycleVerb } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
 
 import { loadConfig } from "../config.ts";
@@ -50,6 +51,30 @@ export function cmdWait(args: string[]) {
   else process.stdout.write(`${handle} reached "${status}".\n`);
 }
 
+/** Block until the agent's own presence status reports idle from a write newer than
+ *  the one we replaced. A stale idle is the pre-reset session answering for the new one. */
+function awaitIdleAfter(statusPath: string, beforeUpdated: number, sentAt: number): boolean {
+  const deadline = sentAt + 75_000;
+  while (Date.now() < deadline) {
+    const status = readPresenceStatus(statusPath);
+    const updated = Date.parse(typeof status?.updatedAt === "string" ? status.updatedAt : "");
+    const advanced = Number.isFinite(updated)
+      && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
+      && updated >= sentAt - 1000;
+    if (advanced && status?.state === "idle") return true;
+    sleepMs(250);
+  }
+  return false;
+}
+
+/** Every orch-owned live agent, addressed by identity key. Keying on paneId instead
+ *  silently skipped the entire detached fleet — a headless agent never has a pane. */
+export function ownedAgentKeys(): string[] {
+  return buildEntities()
+    .filter((ent) => ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {}))
+    .map((ent) => ent.key);
+}
+
 /** Split `orch reset` args into its --model flag and the targets to clear. */
 function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags } {
   const targets: string[] = [];
@@ -59,9 +84,8 @@ function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags 
     const arg = args[index]!;
     if (arg === "--json" || arg === "--force") continue;
     if (arg === "--model") { flags.modelFlag = args[++index]; continue; }
-    if (arg === "--all") {
-      for (const ent of buildEntities()) if (ent.paneId && ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {})) targets.push(ent.paneId);
-    } else targets.push(arg);
+    if (arg === "--all") targets.push(...ownedAgentKeys());
+    else targets.push(arg);
   }
   return { targets, flags };
 }
@@ -77,35 +101,22 @@ export async function cmdNew(args: string[]): Promise<void> {
   const cleared: { key: string; pane: string; name: string }[] = [];
   const results: { target: string; cleared: true; ready: true }[] = [];
   for (const target of targets) {
-    const { ent, pane } = resolvePane(target);
+    // A detached agent has no pane, so it resolves through the lifecycle target
+    // resolver; resolvePane would reject the whole headless fleet outright.
+    const { entity: ent, handle } = resolveLifecycleTarget(target);
+    const pane = String(handle);
     assertAgentOwned(target, ent, force);
-    const { backend, handle } = backendTarget(pane, "reset");
-    const agentId = ent.agent ?? ent.presence?.status?.agent;
-    if (!agentId) die(`Target "${target}" has no recorded harness - cannot determine its reset mechanism.`);
-    const adapter = resolveAdapterOrDie(agentId);
-    const resetCmd = adapter.caps.lifecycle.includes("reset") ? adapter.lifecycleCmd?.("reset") : undefined;
-    if (!resetCmd) die(`${handle}: adapter ${adapter.id} has no reset mechanism.`);
     const statusPath = path.join(presenceAgentDir(ent.key), STATUS_FILE);
     const before = readPresenceStatus(statusPath);
     const beforeUpdated = Date.parse(typeof before?.updatedAt === "string" ? before.updatedAt : "");
     const sentAt = Date.now();
-    if (!backend.deliver(handle, { kind: "run", text: resetCmd.text })) die(`Could not reset ${handle}.`);
-
-    const deadline = sentAt + 75_000;
-    let ready = false;
-    while (Date.now() < deadline) {
-      const status = readPresenceStatus(statusPath);
-      const updated = Date.parse(typeof status?.updatedAt === "string" ? status.updatedAt : "");
-      const advanced = Number.isFinite(updated)
-        && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
-        && updated >= sentAt - 1000;
-      if (advanced && status?.state === "idle") { ready = true; break; }
-      sleepMs(250);
-    }
-    if (!ready) die(`${handle}: ${adapter.id} reset (${resetCmd.text}) did not become ready within 75s.`);
-    cleared.push({ key: ent.key, pane: String(handle), name: ent.name ?? String(handle) });
-    results.push({ target: handle, cleared: true, ready: true });
-    if (!json) process.stdout.write(`Cleared session on ${handle} (${resetCmd.text}); ready.\n`);
+    // The daemon owns every lifecycle mechanism: a console gets the adapter's text,
+    // a detached process gets relaunched. Neither is the CLI's to choose.
+    await writeRpc("lifecycle", { target: ent.key, verb: "reset" });
+    if (!awaitIdleAfter(statusPath, beforeUpdated, sentAt)) die(`${pane}: reset did not become ready within 75s.`);
+    cleared.push({ key: ent.key, pane, name: ent.name ?? pane });
+    results.push({ target: pane, cleared: true, ready: true });
+    if (!json) process.stdout.write(`Cleared session on ${pane}; ready.\n`);
   }
   await pinModels(cleared, model);
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
@@ -120,6 +131,34 @@ interface ReloadResult {
   pane: string;
   ok: boolean;
   reason?: string;
+}
+
+/** Block until the agent's bridge republishes status.json under a live pid, proving
+ *  the harness came back. Backend-agnostic: it reads only the presence protocol. */
+function awaitBridgeRefresh(statusPath: string, wasUpdatedAt: string, tries: number): boolean {
+  for (let attempt = 0; attempt < tries; attempt++) {
+    sleepMs(500);
+    const status = readPresenceStatus(statusPath);
+    if (typeof status?.pid === "number" && typeof status.updatedAt === "string"
+      && pidAlive(status.pid) && Date.parse(status.updatedAt) > Date.parse(wasUpdatedAt)) return true;
+  }
+  return false;
+}
+
+/** Apply a lifecycle verb to an agent with no console, through the daemon: it holds
+ *  the relaunched process's stdin, so only it can carry out the verb. */
+async function relaunchThroughDaemon(verb: LifecycleVerb, key: string, pane: string): Promise<ReloadResult> {
+  const statusPath = path.join(presenceAgentDir(key), STATUS_FILE);
+  const wasUpdatedAt = readPresenceStatus(statusPath)?.updatedAt;
+  if (typeof wasUpdatedAt !== "string") return { pane, ok: false, reason: "no bridge status.json to verify against" };
+  try {
+    await writeRpc("lifecycle", { target: key, verb });
+  } catch (error: unknown) {
+    return { pane, ok: false, reason: errorMessage(error) };
+  }
+  return awaitBridgeRefresh(statusPath, wasUpdatedAt, 60)
+    ? { pane, ok: true }
+    : { pane, ok: false, reason: `bridge status.json did not refresh within 30s after ${verb}` };
 }
 
 export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenceKey: string, reloadText: string): ReloadResult {
@@ -179,7 +218,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
   return false;
 }
 
-export function cmdReload(args: string[]) {
+export async function cmdReload(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const all = args.includes("--all");
   const force = args.includes("--force");
@@ -187,9 +226,8 @@ export function cmdReload(args: string[]) {
   if (all) requireCallerOwnerToken();
   for (const arg of args) {
     if (arg === "--json" || arg === "--force") continue;
-    if (arg === "--all") {
-      for (const ent of buildEntities()) if (ent.paneId && ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {})) targets.push(ent.paneId);
-    } else targets.push(arg);
+    if (arg === "--all") targets.push(...ownedAgentKeys());
+    else targets.push(arg);
   }
   // `--all` is a valid invocation even with zero live panes: it still touches
   // reload.signal (SIGNALED) for config/extension watchers. Only a bare call
@@ -203,15 +241,18 @@ export function cmdReload(args: string[]) {
   const results: ReloadResult[] = [];
   for (const target of targets) {
     try {
-      const { ent, pane } = resolvePane(target);
+      const { entity: ent, backend, handle } = resolveLifecycleTarget(target);
       assertAgentOwned(target, ent, force);
-      const { backend, handle } = backendTarget(pane, "reload");
       const agentId = ent.agent ?? ent.presence?.status?.agent;
       if (!agentId) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(agentId);
       const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
-      results.push(reloadPaneAndAwaitBridge(backend, handle, ent.key, reloadCmd.text));
+      // No console to type `/reload` into means the process itself is relaunched,
+      // and only the daemon can do that — it owns the new process's stdin.
+      results.push(backend.canSendKeys
+        ? reloadPaneAndAwaitBridge(backend, String(handle), ent.key, reloadCmd.text)
+        : await relaunchThroughDaemon("reload", ent.key, String(handle)));
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
@@ -233,7 +274,7 @@ export function cmdReload(args: string[]) {
   if (ok !== results.length) process.exit(1);
 }
 
-export function cmdRestart(args: string[]) {
+export async function cmdRestart(args: string[]): Promise<void> {
   let cmd: string | null = null;
   const json = args.includes("--json");
   const force = args.includes("--force");
@@ -242,25 +283,31 @@ export function cmdRestart(args: string[]) {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--cmd") cmd = args[++i]!;
     else if (args[i] === "--hard" || args[i] === "--json" || args[i] === "--force") continue;
-    else if (args[i] === "--all") {
-      for (const ent of buildEntities()) if (ent.paneId && ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {})) targets.push(ent.paneId);
-    } else targets.push(args[i]!);
+    else if (args[i] === "--all") targets.push(...ownedAgentKeys());
+    else targets.push(args[i]!);
   }
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
   const config = loadConfig(orchDir());
   let ok = 0;
   for (const target of targets) {
-    const { ent, pane } = resolvePane(target);
+    const { entity: ent, backend, handle } = resolveLifecycleTarget(target);
     assertAgentOwned(target, ent, force);
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
     const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
+    // A pane is quit and relaunched by typing into its shell; a detached agent has
+    // no shell, so the daemon that owns its stdin replaces the process instead.
+    if (!backend.canSendKeys) {
+      const relaunched = await relaunchThroughDaemon("restart", ent.key, String(handle));
+      if (relaunched.ok) { ok++; if (!json) process.stdout.write(`${relaunched.pane}: bridge live.\n`); }
+      else process.stderr.write(`${relaunched.pane}: ${relaunched.reason ?? "restart failed"}\n`);
+      continue;
+    }
     const launch = cmd ?? adapterCommand(agentId, config);
-    const { backend, handle } = backendTarget(pane, "restart");
-    if (!json) process.stdout.write(`Restarting ${handle} (${launch})...\n`);
-    if (restartPaneAndAwaitBridge(backend, handle, launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${handle}: bridge live.\n`); }
+    if (!json) process.stdout.write(`Restarting ${String(handle)} (${launch})...\n`);
+    if (restartPaneAndAwaitBridge(backend, String(handle), launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${String(handle)}: bridge live.\n`); }
   }
   if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);

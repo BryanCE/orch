@@ -15,7 +15,13 @@ export function isAdapterId(value: unknown): value is AdapterId {
 export type SteerMechanism = "inbox" | "keys" | "resume" | "none";
 
 /** Session-lifecycle verbs an adapter may declare a native mechanism for. */
-export type LifecycleVerb = "reset" | "reload" | "restart";
+export const LIFECYCLE_VERBS = ["reset", "reload", "restart"] as const;
+
+export type LifecycleVerb = (typeof LIFECYCLE_VERBS)[number];
+
+export function isLifecycleVerb(value: unknown): value is LifecycleVerb {
+  return typeof value === "string" && (LIFECYCLE_VERBS as readonly string[]).includes(value);
+}
 
 /** States an adapter may expose through orch's presence protocol. */
 export type AgentState = "idle" | "working" | "blocked" | "done" | "error" | "aborted" | "exited" | "unknown";

@@ -246,9 +246,9 @@ export function runCommand(argv: string[]): void {
     case "model": void cmdModel(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "wait": cmdWait(rest); break;
     case "dispatch": void cmdDispatch(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "reload": cmdReload(rest); break;
+    case "reload": void cmdReload(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "reset": case "new": void cmdNew(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "restart": cmdRestart(rest); break;
+    case "restart": void cmdRestart(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "rename": cmdRename(rest); break;
     case "close": case "kill": cmdClose(rest); break;
     case "abort": cmdAbort(rest); break;

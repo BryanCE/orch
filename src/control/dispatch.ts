@@ -6,7 +6,8 @@ import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
-import type { AdapterCommand, AgentAdapter } from "../adapters/adapter.ts";
+import { workerPolicyFrom, workerTools } from "../policy/workers.ts";
+import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle, DeliverPayload } from "../backends/backend.ts";
 
 /**
@@ -21,7 +22,8 @@ export type ControlAction =
   | { readonly kind: "run"; readonly text: string; readonly id?: string }
   | { readonly kind: "steer"; readonly text: string; readonly id?: string }
   | { readonly kind: "answer"; readonly text: string }
-  | { readonly kind: "model"; readonly model: string; readonly id: string };
+  | { readonly kind: "model"; readonly model: string; readonly id: string }
+  | { readonly kind: "lifecycle"; readonly verb: LifecycleVerb };
 
 /** Prompt text bound for a live agent: new work to submit, or a mid-run interjection. */
 type PromptAction = Extract<ControlAction, { kind: "run" | "steer" }>;
@@ -136,6 +138,61 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
   await awaitControlOutcome(dir, id, timeoutMs);
 }
 
+/** The backend holding a target, and its current handle. Reads the registry pane
+ *  handle first, then asks a handle-owning backend — a detached process handle is
+ *  replaced on every relaunch, so only the backend knows the live one. */
+function resolveBackendHandle(target: string): { backend: Backend; handle: BackendHandle } | undefined {
+  const route = resolveTargetRoute(target);
+  if (route) return route;
+  const backendId = spawnedRecords().get(target)?.backend;
+  const backend = backendId ? getBackend(backendId) : undefined;
+  const handle = backend?.handleFor?.(target);
+  return backend && handle !== undefined ? { backend, handle } : undefined;
+}
+
+/** Relaunch a detached agent under its existing identity. Its process IS its
+ *  session — there is no console to type a lifecycle command into — so a fresh
+ *  process is what reset, reload, and restart all mean for it. Reusing the key
+ *  keeps presence, the registry, and every control target naming the same agent. */
+function relaunchAgent(target: string, adapter: AgentAdapter, backend: Backend, handle: BackendHandle): void {
+  const record = spawnedRecords().get(target);
+  if (!record?.model) throw new Error(`cannot relaunch ${target}: registry row records no model to launch on`);
+  const config = loadConfigOrNull(orchDir());
+  if (!config) throw new Error(`cannot relaunch ${target}: settings are unreadable`);
+  backend.close(handle);
+  backend.spawn(adapter, {
+    key: target,
+    orchDir: orchDir(),
+    cwd: record.cwd,
+    model: record.model,
+    tools: workerTools(config),
+    workers: workerPolicyFrom(config),
+  });
+}
+
+/**
+ * Apply a session-lifecycle verb through the mechanism the target actually has.
+ * A console-backed agent is sent the text its adapter declares for the verb; an
+ * agent with no console has nothing to type into, so it is relaunched instead.
+ * The branch is on the backend's declared keystroke capability, never its id.
+ */
+function deliverLifecycle(target: string, adapter: AgentAdapter, verb: LifecycleVerb): void {
+  if (!adapter.caps.lifecycle.includes(verb)) {
+    throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} declares no ${verb} mechanism`);
+  }
+  const route = resolveBackendHandle(target);
+  if (!route) throw new Error(`cannot ${verb} ${target}: no live backend handle`);
+  if (!route.backend.canSendKeys) {
+    relaunchAgent(target, adapter, route.backend, route.handle);
+    return;
+  }
+  const command = adapter.lifecycleCmd?.(verb);
+  if (!command) throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} returned no ${verb} command`);
+  if (!route.backend.deliver(route.handle, { kind: "run", text: command.text })) {
+    throw new Error(`cannot ${verb} ${target}: backend ${route.backend.id} refused the delivery`);
+  }
+}
+
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
 export async function deliverControl(target: string, action: ControlAction): Promise<void> {
   const timeoutMs = loadConfigOrNull(orchDir())?.timeouts.adapter_command_ms ?? ADAPTER_COMMAND_TIMEOUT_MS;
@@ -144,5 +201,6 @@ export async function deliverControl(target: string, action: ControlAction): Pro
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
   if (isPromptAction(action)) await deliverPrompt(canonicalTarget, adapter, action, timeoutMs);
   else if (action.kind === "answer") await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
+  else if (action.kind === "lifecycle") deliverLifecycle(canonicalTarget, adapter, action.verb);
   else await deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

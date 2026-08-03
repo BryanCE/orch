@@ -2,7 +2,7 @@ import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords,
 import type { SpawnedRecord } from "../store/sqlite.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree } from "../policy/name.ts";
-import { workerPolicyFrom, type WorkerPolicy } from "../policy/workers.ts";
+import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
@@ -55,13 +55,6 @@ function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
   const w1 = Math.max(...rows.map((r) => r[1]!.length), 4);
   for (const r of rows)
     process.stdout.write(`  ${r[0]!.padEnd(w0)}  ${r[1]!.padEnd(w1)}  ${r[2]!}\n`);
-}
-
-/** The tool allowlist a worker launches under, or undefined for no restriction.
- *  Orch's own tools are always required; everything else is `workers.allow_tools`. */
-export function workerTools(config: OrchConfig): string | undefined {
-  const policy = workerPolicyFrom(config);
-  return policy.allowTools.length ? policy.allowTools.join(",") : undefined;
 }
 
 export function resolveAdapterOrDie(id: string): AgentAdapter {

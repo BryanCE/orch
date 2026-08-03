@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { workerTools } from "../src/commands/spawn.ts";
+import { workerTools } from "../src/policy/workers.ts";
 import type { OrchConfig } from "../src/config.ts";
 
 const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfig => ({

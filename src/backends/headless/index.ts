@@ -242,6 +242,12 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     }
   }
 
+  /** The live handle for one agent key. A detached handle carries the OS pid, which
+   *  a relaunch replaces, so the registry is the only current source for it. */
+  handleFor(key: string): HeadlessHandle | undefined {
+    return this.list().find((handle) => handle.key === key && handle.alive);
+  }
+
   /** Return every registered headless handle with a fresh liveness result. */
   list(): HeadlessHandle[] {
     const directory = orchDirectory();

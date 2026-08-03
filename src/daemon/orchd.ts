@@ -21,6 +21,7 @@ import { drainOutbox, type OutboxDeps } from "./outbox.ts";
 import { normalizeControlTarget } from "../backends/identity.ts";
 import { deliverControl, KEYSTROKE_KIND, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
+import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
 import { headlessBackend } from "../backends/headless/index.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities } from "../entities.ts";
@@ -204,6 +205,19 @@ async function setModel(directory: string, params: unknown): Promise<{ ok: true;
   return { ok: true, applied: model };
 }
 
+/** Apply a lifecycle verb from inside the daemon. A console-less agent is relaunched
+ *  to satisfy the verb, and a relaunch must happen here: the spawner holds the new
+ *  process's stdin, and only orchd outlives the agent it starts. */
+async function applyLifecycle(directory: string, params: unknown): Promise<{ ok: true; verb: LifecycleVerb }> {
+  const value = rpcParams(params);
+  const target = requiredString(value.target, "target");
+  const verb = requiredString(value.verb, "verb");
+  if (!isLifecycleVerb(verb)) throw new Error(`unknown lifecycle verb ${JSON.stringify(verb)}`);
+  governWrite(directory, target, params);
+  await deliverControl(target, { kind: "lifecycle", verb });
+  return { ok: true, verb };
+}
+
 async function answer(directory: string, params: unknown): Promise<{ ok: true }> {
   const value = rpcParams(params);
   const target = requiredString(value.target, "target");
@@ -253,6 +267,7 @@ async function main(): Promise<void> {
       steer: (params) => acceptWrite(directory, "steer", params),
       "spawn-detached": (params) => spawnDetached(directory, params),
       "set-model": (params) => setModel(directory, params),
+      lifecycle: (params) => applyLifecycle(directory, params),
       answer: (params) => answer(directory, params),
       ack: (params) => {
         const value = rpcParams(params);

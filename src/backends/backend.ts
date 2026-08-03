@@ -186,6 +186,12 @@ export interface Backend<Handle = BackendHandle> {
    */
   workspaceNames(): Map<string, string>;
 
+  /**
+   * Live handle for one agent identity key. Declared by backends whose handle is
+   * not a pane the spawn registry can record — a detached process handle changes
+   * every relaunch, so only the backend knows the current one.
+   */
+  handleFor?(key: string): Handle | undefined;
   /** Identity of the calling process's own target, when inside a session. */
   currentIdentity?(): Identity | null;
   /** Every live target with display metadata (fleet enumeration). */

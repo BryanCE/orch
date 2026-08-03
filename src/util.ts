@@ -97,9 +97,14 @@ export function textValue(value: unknown): string | undefined {
  * The ellipsis counts toward the budget — the result is never longer than
  * `max`, which is what makes this safe for fixed-width table columns.
  */
+/** The elided-tail marker. ASCII, for the same reason the table rule is: U+2026
+ *  reaches a cp1252 console as "â¦". */
+const ELLIPSIS = "...";
+
 export function truncate(value: string, max: number): string {
   const text = String(value ?? "");
-  return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)) + "…";
+  if (text.length <= max) return text;
+  return max <= ELLIPSIS.length ? text.slice(0, max) : text.slice(0, max - ELLIPSIS.length) + ELLIPSIS;
 }
 
 /** {@link truncate} over an optional field: undefined in, undefined out. */

@@ -9,5 +9,7 @@ export function renderTable(headers: string[], rows: string[][], caps: number[])
     .map((cell, index) => truncate(cell, widths[index]!).padEnd(widths[index]!))
     .join("  ")
     .replace(/\s+$/, "");
-  return [format(headers), widths.map((width) => "─".repeat(width)).join("  ").replace(/\s+$/, ""), ...rows.map(format)].join("\n");
+  // ASCII rule, not U+2500: a Windows console decoding orch's UTF-8 as cp1252
+  // turns every box-drawing byte into "âââ", and `orch check > file` bakes it in.
+  return [format(headers), widths.map((width) => "-".repeat(width)).join("  ").replace(/\s+$/, ""), ...rows.map(format)].join("\n");
 }

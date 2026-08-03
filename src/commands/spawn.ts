@@ -119,14 +119,35 @@ export interface AgentFlags {
 export interface AgentSettings {
   adapter: AdapterId;
   backend: BackendId;
-  model: string | null;
+  model: string;
 }
 
-export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
+/** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
+export function pickAdapter(flags: AgentFlags, config: OrchConfig): AdapterId {
   const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "" });
   if (!selected) die("no harness selected — pass --agent <id> or run `orch setup` to pick one");
   // Validate the id here, at the boundary, so everything downstream carries AdapterId.
-  const adapter = resolveAdapterOrDie(selected).id;
+  return resolveAdapterOrDie(selected).id;
+}
+
+/** The model THIS command named, or null when the caller named none. NEVER the
+ *  configured default: only a launch may apply that. A dispatch that fell back to
+ *  it re-pinned every agent to the default and erased the model it spawned on. */
+export function requestedModel(flags: AgentFlags): string | null {
+  return resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", fallback: "" }) || null;
+}
+
+/** The model a new agent launches on: what the caller named, else the configured
+ *  default. With neither, refuse — an unpinned launch silently runs whatever the
+ *  harness happens to default to, which is never what the orchestrator asked for. */
+function launchModel(flags: AgentFlags, config: OrchConfig): string {
+  const model = requestedModel(flags) ?? config.defaults.model ?? "";
+  if (!model) die("no model selected — pass --model <provider/model[:thinking]> or set defaults.model in $ORCH_DIR/settings.json");
+  return model;
+}
+
+export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
+  const adapter = pickAdapter(flags, config);
   // Selection flows through the backend factory: explicit flag/env, then config
   // default, then a capability-probed fallback. No per-backend branch is hard-coded here.
   let backend: Backend;
@@ -138,8 +159,7 @@ export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orch
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  const selectedModel = resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", config: config.defaults.model, fallback: "" });
-  return { adapter, backend: backend.id, model: selectedModel || null };
+  return { adapter, backend: backend.id, model: launchModel(flags, config) };
 }
 
 type SpawnFlags = AgentFlags & {
@@ -282,7 +302,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
         key,
         adapter: settings.adapter,
         cwd,
-        model: settings.model ?? undefined,
+        model: settings.model,
         tools: settings.tools,
         workers: settings.workers,
       });
@@ -290,7 +310,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
       created.push({ key, pane: key, name });
       recordSpawned(key, {
         adapter: settings.adapter,
-        model: settings.model ?? undefined,
+        model: settings.model,
         backend: settings.backend,
         workspace,
         name,
@@ -339,7 +359,7 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   // handle is recorded as a field, never re-minted into a second key.
   assertNameFree(rootName, workspace);
   const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
-  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model ?? undefined, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
+  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
   backend.close(shellRoot);
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
@@ -352,7 +372,7 @@ export interface TabSpawnSpec {
   cwd: string;
   workspace: string;
   group: string;
-  model: string | null;
+  model: string;
   split?: "down" | "right";
   tools?: string;
   /** What this worker may load; absent lets the adapter apply no policy. */
@@ -379,14 +399,14 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     group: spec.group,
     split: spec.split,
     orchDir: orchDir(),
-    model: spec.model ?? undefined,
+    model: spec.model,
     tools: spec.tools,
     workers: spec.workers,
     cmd: spec.cmd,
   });
   recordSpawned(key, {
     adapter: spec.adapterId,
-    model: spec.model ?? undefined,
+    model: spec.model,
     backend: spec.backend.id,
     workspace: spec.workspace,
     handle: String(handle),
@@ -474,7 +494,7 @@ async function reportSpawnResults(settings: SpawnSettings, anchorPane: BackendHa
     printLayout(anchorPane, backend, "\nFinal tiling:");
   }
   if (resolveAdapterOrDie(settings.adapter).caps.steer === "inbox") await awaitBridgeRegistration(created, settings.json);
-  if (settings.model) await pinModels(created, settings.model);
+  await pinModels(created, settings.model);
   if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, tab: tabLabel, agents: created }) + "\n");
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }
@@ -495,7 +515,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend);
   const root = createSpawnRoot(settings, workspace, backend, adapter);
   const created: CreatedAgent[] = [];
-  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model ?? undefined, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
+  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created, backend);
   await reportSpawnResults(settings, root.root, root.tabLabel, created, backend);
@@ -558,7 +578,7 @@ export async function cmdTile(args: string[]) {
     process.stdout.write(`Added ${agent.pane} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
     printLayout(refPane, selectedBackend, "\nFinal tiling:");
   }
-  if (model) await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);
+  await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);
 }
 
 export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, lockedCommands: readonly string[] = []): string {

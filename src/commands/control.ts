@@ -5,11 +5,11 @@ import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
-import { resolveAdapter } from "../adapters/registry.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
 import { assertAgentOwned, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
-import { resolveAgentSettings, workerPrompt, type AgentFlags, type AgentSettings } from "./spawn.ts";
+import { pickAdapter, requestedModel, workerPrompt, type AgentFlags } from "./spawn.ts";
+import type { AdapterId } from "../adapters/adapter.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -20,7 +20,10 @@ type DispatchFlags = AgentFlags & {
   positional: string[];
 };
 
-type DispatchSettings = AgentSettings & {
+type DispatchSettings = {
+  adapter: AdapterId;
+  /** Set only when this dispatch named a model; null leaves the agent on the one it spawned with. */
+  model: string | null;
   raw: boolean;
   json: boolean;
   doWait: boolean;
@@ -209,10 +212,8 @@ function resolveDispatchSettings(flags: DispatchFlags, config: OrchConfig, gov: 
   const prompt = flags.positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
-  const settings = resolveAgentSettings(flags, config);
-  resolveAdapter(settings.adapter);
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
-  return { ...settings, raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
+  return { adapter: pickAdapter(flags, config), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
 }
 

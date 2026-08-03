@@ -183,7 +183,9 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
     key,
     orchDir: directory,
     cwd: optionalString(value.cwd),
-    model: optionalString(value.model),
+    // Required, not optional: a launch with no model runs on whatever the harness
+    // defaults to, which is never the model the orchestrator asked for.
+    model: requiredString(value.model, "model"),
     tools: optionalString(value.tools),
     workers: value.workers as WorkerPolicy | undefined,
   });

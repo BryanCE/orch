@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -22,10 +22,10 @@ interface LockRecord {
   pid: number;
   codeHash: string;
   startedAt: string;
-  startTicks?: string;
+  startToken?: string;
 }
 
-export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startTicks">;
+export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
 
 export interface DaemonCodeSkew {
   daemonHash: string;
@@ -72,23 +72,59 @@ function processIsAlive(pid: number): boolean {
   catch (error: unknown) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
 }
 
-function processStartTicks(pid: number): string | undefined {
+/** Read one field from a process-reporting tool; undefined when it cannot answer. */
+function readProcessField(command: string, args: string[]): string | undefined {
   try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const closingParen = stat.lastIndexOf(")");
-    if (closingParen < 0) return undefined;
-    const fields = stat.slice(closingParen + 2).trim().split(/\s+/);
-    return fields[19] ?? undefined;
+    const output = execFileSync(command, args, { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] });
+    return output.trim() || undefined;
   } catch {
     return undefined;
   }
 }
 
+/** Field 22 of /proc/<pid>/stat: the process's start time in clock ticks. */
+function linuxStartTicks(pid: number): string | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const closingParen = stat.lastIndexOf(")");
+    if (closingParen < 0) return undefined;
+    return stat.slice(closingParen + 2).trim().split(/\s+/)[19];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A token identifying one process INSTANCE, so a pid the OS has recycled can
+ * never pass for the daemon that took the lock. Every platform orch runs on
+ * reports one; undefined only when the OS refuses, and callers treat that as
+ * "unproven", never as "matches".
+ */
+function processStartToken(pid: number): string | undefined {
+  if (process.platform === "linux") return linuxStartTicks(pid);
+  if (process.platform === "win32") {
+    return readProcessField("powershell", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.Ticks`]);
+  }
+  return readProcessField("ps", ["-o", "lstart=", "-p", String(pid)]);
+}
+
 function processIdentityMatches(record: LockRecord): boolean {
   if (!processIsAlive(record.pid)) return false;
-  if (!record.startTicks) return true;
-  const currentTicks = processStartTicks(record.pid);
-  return currentTicks === undefined || currentTicks === record.startTicks;
+  if (!record.startToken) return true;
+  const currentToken = processStartToken(record.pid);
+  return currentToken === undefined || currentToken === record.startToken;
+}
+
+/**
+ * The daemon's pid, but ONLY when the live process is provably the instance that
+ * took the lock. Orch must never signal an unproven pid: a lock left behind by a
+ * crashed daemon names a number the OS is free to hand to anything, and killing
+ * it kills a stranger.
+ */
+export function provenDaemonPid(orchDir: string): number | undefined {
+  const record = readLock(lockPath(orchDir));
+  if (!record?.startToken || !processIsAlive(record.pid)) return undefined;
+  return processStartToken(record.pid) === record.startToken ? record.pid : undefined;
 }
 
 function readLock(file: string): LockRecord | undefined {
@@ -97,10 +133,10 @@ function readLock(file: string): LockRecord | undefined {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const record = parsed as Partial<LockRecord>;
     if (
-      !Number.isInteger(record.pid) ||
+      !Number.isInteger(record.pid) || record.pid <= 0 ||
       typeof record.codeHash !== "string" ||
       typeof record.startedAt !== "string" ||
-      (record.startTicks !== undefined && typeof record.startTicks !== "string")
+      (record.startToken !== undefined && typeof record.startToken !== "string")
     ) {
       return undefined;
     }
@@ -115,7 +151,7 @@ export function readDaemonLock(orchDir: string): DaemonLock | null {
   const record = readLock(lockPath(orchDir));
   if (!record || processIsAlive(record.pid) && !processIdentityMatches(record)) return null;
   const lock: DaemonLock = { pid: record.pid, codeHash: record.codeHash };
-  if (record.startTicks !== undefined) lock.startTicks = record.startTicks;
+  if (record.startToken !== undefined) lock.startToken = record.startToken;
   return lock;
 }
 
@@ -137,7 +173,7 @@ export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = ()
     pid: process.pid,
     codeHash: currentCodeHash(),
     startedAt: new Date().toISOString(),
-    startTicks: processStartTicks(process.pid),
+    startToken: processStartToken(process.pid),
   };
 
   for (let attempt = 0; attempt < 2; attempt++) {

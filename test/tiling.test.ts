@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { BackendGroupLayout, BackendRect } from "../src/backends/backend.ts";
 import { planTilePlacement } from "../src/backends/tiling.ts";
 
-type LayoutPane = { handle: string; rect: BackendRect };
+interface LayoutPane { handle: string; rect: BackendRect }
 
 function layout(panes: LayoutPane[]): BackendGroupLayout {
   return { group: "@1", panes };

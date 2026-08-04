@@ -211,6 +211,18 @@ function attachConnection(
   socket.on("error", () => subscriptions.delete(socket));
 }
 
+/** Mark the socket path on disk after binding. A POSIX bind creates that entry
+ *  itself; a Windows named pipe never does, so a client probing the path would
+ *  call a live daemon absent. `close()` unlinks the path either way. */
+function markSocketBound(socketPath: string): void {
+  if (process.platform !== "win32") return;
+  try {
+    writeFileSync(socketPath, "", { mode: 0o600 });
+  } catch {
+    // No marker just means clients fall back to the port file.
+  }
+}
+
 function listen(server: Server, endpoint: string | { port: number; host: string }): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: Error) => {
@@ -265,7 +277,7 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
 }
 
 /** Dial one daemon endpoint, or null when it is absent or unreachable. An absent
- *  unix-socket path is skipped without dialing — a dead pipe path can fault
+ *  unix-socket path is skipped without dialing — a dead pipe path faults
  *  uncatchably on Windows, and a missing endpoint is "daemon absent" regardless. */
 async function dialEndpoint(endpoint: string | number | undefined, timeoutMs: number): Promise<Socket | null> {
   if (endpoint === undefined) return null;
@@ -346,6 +358,7 @@ export async function startRpcServer(
   try {
     await listen(server, paths.socket);
     transport = "unix";
+    markSocketBound(paths.socket);
     try {
       unlinkSync(paths.port);
     } catch {}
@@ -356,6 +369,7 @@ export async function startRpcServer(
         unlinkSync(paths.socket);
         await listen(server, paths.socket);
         transport = "unix";
+        markSocketBound(paths.socket);
         try {
           unlinkSync(paths.port);
         } catch {}

@@ -68,26 +68,26 @@ describe("answer via the control dispatcher", () => {
     expect(line.text).toBe("yes, ship it");
   });
 
-  test("refuses answer when the adapter declares ask false, naming target and adapter", () => {
+  test("refuses answer when the adapter declares ask false, naming target and adapter", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const agentKey = key("local", "claude-noask");
     seedStatus(directory, agentKey, { agent: "claude", pid: process.pid });
 
-    expect(deliverControl(agentKey, { kind: "answer", text: "no" })).rejects.toThrow(
+    await expect(deliverControl(agentKey, { kind: "answer", text: "no" })).rejects.toThrow(
       new RegExp(`cannot answer .*${agentKey}.*adapter claude declares ask false`),
     );
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);
   });
 
-  test("refuses answer for a target with no recorded adapter identity", () => {
+  test("refuses answer for a target with no recorded adapter identity", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const agentKey = key("local", "identity-less");
     // A presence record with no `agent` field and no spawn-registry adapter is malformed, never pi.
     seedStatus(directory, agentKey, { pid: process.pid });
 
-    expect(deliverControl(agentKey, { kind: "answer", text: "yes" })).rejects.toThrow(
+    await expect(deliverControl(agentKey, { kind: "answer", text: "yes" })).rejects.toThrow(
       new RegExp(`${agentKey} has no recorded adapter`),
     );
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);
@@ -102,7 +102,7 @@ describe("answer over the daemon control socket", () => {
     seedStatus(directory, agentKey, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
-    expect(rpcCall(directory, "answer", { target: agentKey, text: "delivered" })).resolves.toEqual({ ok: true });
+    await expect(rpcCall(directory, "answer", { target: agentKey, text: "delivered" })).resolves.toEqual({ ok: true });
 
     const line = JSON.parse(fs.readFileSync(answerFile(directory, agentKey), "utf8")) as { text: string };
     expect(line.text).toBe("delivered");
@@ -115,7 +115,7 @@ describe("answer over the daemon control socket", () => {
     seedStatus(directory, foreign, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
-    expect(
+    await expect(
       rpcCall(directory, "answer", { target: foreign, text: "yes", actor: key("wA", "boss") }),
     ).rejects.toThrow(/workspace wall/);
     expect(fs.existsSync(answerFile(directory, foreign))).toBe(false);
@@ -129,7 +129,7 @@ describe("answer over the daemon control socket", () => {
     setOwner(directory, agentKey, key("wA", "owner"));
     await startAnswerServer(directory);
 
-    expect(
+    await expect(
       rpcCall(directory, "answer", { target: agentKey, text: "yes", actor: key("wA", "intruder") }),
     ).rejects.toThrow(/owned by/);
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);

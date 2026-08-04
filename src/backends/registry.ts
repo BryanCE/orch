@@ -1,7 +1,11 @@
 import type { Backend } from "./backend.ts";
-import { headlessBackend } from "./headless/index.ts";
+import { headlessBackend, type HeadlessHandle } from "./headless/index.ts";
 import { herdrBackend } from "./herdr/index.ts";
 import { tmuxBackend } from "./tmux/index.ts";
+
+/** The pane-less backend a daemon-owned detached launch runs on. Named here so
+ *  core reaches it through this boundary instead of reaching into a backend. */
+export const detachedBackend: Backend<HeadlessHandle> = headlessBackend;
 
 const backends = new Map<string, Backend>();
 

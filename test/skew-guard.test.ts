@@ -103,7 +103,9 @@ describe("CLI daemon skew guard", () => {
 
     expect(result.status).not.toBe(0);
     expect(text).not.toContain("orch daemon reload");
-    expect(text).toContain("orch daemon unavailable");
+    // Past the skew guard it reaches the lock, which names this live process —
+    // unprovable as a daemon, so orch refuses to signal it instead of killing us.
+    expect(text).toContain("cannot verify is its daemon");
   }, 15_000);
 
   test("doctor reports skew as a warning without making skew itself a failure", async () => {

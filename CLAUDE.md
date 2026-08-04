@@ -2,7 +2,7 @@
 
 # GROUND-TRUTH FILES — READ THESE, NEVER RUN THE GATES YOURSELF
 These files ARE the state of the tree. The USER runs the commands (on Windows); I only READ the result files. Running `bun test`/`bun run check` myself = FIRED.
-- **`test-fails.md`** — full `bun test` output. User regenerates with: `bun test *> .\test-fails.md`
+- **`test-results.md`** — full `bun test` output. User regenerates with: `bun test *> .\test-results.md`
 - **`current-errors.md`** — `bun run check` + `check:bridge` output. User regenerates with: `orch > bun check > .\current-errors.md`
 - **`specview.md`** — openspec status snapshot.
 WORKFLOW: after ANY change that needs verifying, ASK the user to rerun the relevant command above, then RE-READ the file before claiming anything. Always re-open the file after a rerun — never rely on a prior read.

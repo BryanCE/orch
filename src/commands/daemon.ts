@@ -1,14 +1,10 @@
 import * as path from "node:path";
-import { daemonEntrypoint, daemonize, runForeground } from "../daemon/lifecycle.ts";
+import { daemonEntrypoint, daemonize, provenDaemonPid, readDaemonLock, runForeground } from "../daemon/lifecycle.ts";
 import { DaemonAbsentError, rpcCall } from "../daemon/rpc.ts";
-import { orchDir, readJSON } from "../presence/store.ts";
+import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { selfActor } from "../entities.ts";
 import { die } from "./target.ts";
-
-interface LockFile {
-  pid?: number;
-}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,9 +19,10 @@ export interface DaemonStatus {
   tcpEndpoint?: string;
 }
 
+/** The pid in the daemon lock, once the lifecycle layer has vetted the record.
+ *  A pid alone is never authority to signal — see {@link provenDaemonPid}. */
 export function daemonLockPid(directory = orchDir()): number | undefined {
-  const lock = readJSON<LockFile>(path.join(directory, "orchd.lock"));
-  return lock && typeof lock.pid === "number" && Number.isInteger(lock.pid) && lock.pid > 0 ? lock.pid : undefined;
+  return readDaemonLock(directory)?.pid;
 }
 
 export function validDaemonStatus(value: unknown): value is DaemonStatus {
@@ -63,7 +60,9 @@ export async function ensureDaemon(directory: string): Promise<void> {
     // Might be booting (lock taken, socket not yet bound); grace-poll before
     // deciding it's wedged, then clear a wedged one so a fresh daemon can start.
     if (await awaitDaemonAnswer(directory, Date.now() + 1000)) return;
-    await terminateWedgedDaemon(lockPid);
+    const wedged = provenDaemonPid(directory);
+    if (wedged === undefined) die(unprovenLockRefusal(directory, lockPid));
+    await terminateDaemon(wedged, 3000);
   }
   daemonize(daemonEntrypoint(), [], directory);
   if (await awaitDaemonAnswer(directory, Date.now() + 5_000)) return;
@@ -124,11 +123,17 @@ async function awaitDaemonAnswer(directory: string, deadline: number): Promise<b
   return false;
 }
 
-/** SIGTERM a wedged daemon and wait for the OS to reap it so its lock frees. */
-async function terminateWedgedDaemon(pid: number): Promise<void> {
+/** SIGTERM a daemon and wait for the OS to reap it so its lock frees. */
+async function terminateDaemon(pid: number, graceMs: number): Promise<void> {
   try { process.kill(pid, "SIGTERM"); } catch { return; }
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + graceMs;
   while (Date.now() < deadline && pidAlive(pid)) await delay(50);
+}
+
+/** Why orch will not signal a live lock pid it cannot tie to its own daemon. */
+function unprovenLockRefusal(directory: string, pid: number): string {
+  return `orchd.lock names live pid ${pid}, which orch cannot verify is its daemon - refusing to signal it. `
+    + `Stop that process yourself, or delete ${path.join(directory, "orchd.lock")} if it is stale.`;
 }
 
 async function startDaemon(foreground: boolean, json = false): Promise<void> {
@@ -146,7 +151,11 @@ async function startDaemon(foreground: boolean, json = false): Promise<void> {
   }
   // Nobody answered: a still-alive lock pid is wedged — terminate it so a fresh
   // instance can take the lock instead of being refused it forever.
-  if (lockAlive) await terminateWedgedDaemon(lockPid);
+  if (lockPid !== undefined && lockAlive) {
+    const wedged = provenDaemonPid(directory);
+    if (wedged === undefined) die(unprovenLockRefusal(directory, lockPid));
+    await terminateDaemon(wedged, 3000);
+  }
   const entrypoint = daemonEntrypoint();
   if (foreground) {
     runForeground(entrypoint);
@@ -159,15 +168,16 @@ async function startDaemon(foreground: boolean, json = false): Promise<void> {
 }
 
 async function stopDaemon(json = false): Promise<void> {
-  const pid = daemonLockPid();
-  if (!pid || !pidAlive(pid)) {
+  const directory = orchDir();
+  const lockPid = daemonLockPid(directory);
+  if (!lockPid || !pidAlive(lockPid)) {
     if (json) process.stdout.write(JSON.stringify({ running: false, stopped: false }) + "\n");
     else process.stdout.write("not running\n");
     return;
   }
-  process.kill(pid, "SIGTERM");
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline && pidAlive(pid)) await new Promise((resolve) => setTimeout(resolve, 50));
+  const pid = provenDaemonPid(directory);
+  if (pid === undefined) die(unprovenLockRefusal(directory, lockPid));
+  await terminateDaemon(pid, 5000);
   if (pidAlive(pid)) throw new Error(`timed out stopping orchd (pid ${pid})`);
   if (json) process.stdout.write(JSON.stringify({ running: false, stopped: true, pid }) + "\n");
   else process.stdout.write(`stopped (pid ${pid})\n`);

@@ -6,6 +6,7 @@ import {
   acquireDaemonLock,
   computeCodeHash,
   daemonize,
+  provenDaemonPid,
   releaseDaemonLock,
   reexecSelf,
   runForeground,
@@ -16,7 +17,7 @@ interface LockData {
   pid?: number;
   codeHash?: string;
   startedAt?: string;
-  startTicks?: string;
+  startToken?: string;
 }
 
 const tempDirs: string[] = [];
@@ -42,7 +43,7 @@ describe("daemon lifecycle", () => {
     expect(lock.pid).toBe(process.pid);
     expect(typeof lock.codeHash).toBe("string");
     expect(typeof lock.startedAt).toBe("string");
-    if (process.platform !== "win32") expect(typeof lock.startTicks).toBe("string");
+    expect(typeof lock.startToken).toBe("string");
     releaseDaemonLock(orchDir);
   });
 
@@ -132,17 +133,36 @@ describe("daemon lifecycle", () => {
   test("rejects a recycled pid identity", () => {
     const orchDir = makeOrchDir();
     expect(acquireDaemonLock(orchDir)).toBe(true);
-    if (process.platform === "win32") {
-      // Windows has no /proc start-tick identity source, so this Linux-only assertion is not applicable.
-      releaseDaemonLock(orchDir);
-      return;
-    }
     const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8")) as LockData;
-    lock.startTicks = "not-the-current-process";
+    lock.startToken = "not-the-current-process";
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify(lock));
 
     expect(readDaemonLock(orchDir)).toBeNull();
     expect(acquireDaemonLock(orchDir, () => false)).toBe(true);
+    releaseDaemonLock(orchDir);
+  });
+
+  test("only a provable lock owner may be signalled", () => {
+    const orchDir = makeOrchDir();
+    expect(acquireDaemonLock(orchDir)).toBe(true);
+
+    // This process really did take the lock, so it is signallable.
+    expect(provenDaemonPid(orchDir)).toBe(process.pid);
+
+    // A live pid with no identity token is a stranger the OS may have handed
+    // the number to — exactly the lock that made orch SIGTERM its own caller.
+    writeFileSync(
+      join(orchDir, "orchd.lock"),
+      JSON.stringify({ pid: process.pid, codeHash: "x", startedAt: "2026-01-01T00:00:00.000Z" }),
+    );
+    expect(provenDaemonPid(orchDir)).toBeUndefined();
+
+    // So is a live pid whose token belongs to a different instance.
+    writeFileSync(
+      join(orchDir, "orchd.lock"),
+      JSON.stringify({ pid: process.pid, codeHash: "x", startedAt: "2026-01-01T00:00:00.000Z", startToken: "someone-else" }),
+    );
+    expect(provenDaemonPid(orchDir)).toBeUndefined();
     releaseDaemonLock(orchDir);
   });
 

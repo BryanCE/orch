@@ -22,7 +22,7 @@ import { normalizeControlTarget } from "../backends/identity.ts";
 import { deliverControl, KEYSTROKE_KIND, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
-import { headlessBackend } from "../backends/headless/index.ts";
+import { detachedBackend } from "../backends/registry.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities } from "../entities.ts";
 import { deriveView } from "../commands/status.ts";
@@ -180,7 +180,7 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
   const adapterId = requiredString(value.adapter, "adapter");
   const adapter = resolveAdapter(adapterId);
   if (!adapter) throw new Error(`cannot spawn ${key}: unknown adapter ${adapterId}`);
-  const handle = headlessBackend.spawn(adapter, {
+  const handle = detachedBackend.spawn(adapter, {
     key,
     orchDir: directory,
     cwd: optionalString(value.cwd),

@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 interface CliResult {
@@ -47,7 +47,14 @@ afterEach(() => {
   while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
 
+afterAll(() => {
+  rmSync(controlledPath, { recursive: true, force: true });
+});
+
 describe("broker CLI routing", () => {
+  // The lock names THIS process: a live pid orch never started, in a record orch
+  // never wrote. Reaching the assertions at all is the regression guard — orch
+  // used to SIGTERM this pid as a "wedged daemon", killing the test runner.
   test("write refuses when the daemon socket is unavailable", () => {
     const orchDir = makeOrchDir();
     seedAgent(orchDir);
@@ -84,5 +91,3 @@ describe("broker CLI routing", () => {
     expect(existsSync(join(orchDir, "orchd.sock"))).toBe(false);
   }, 15_000);
 });
-
-rmSync(controlledPath, { recursive: true, force: true });

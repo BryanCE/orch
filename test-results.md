@@ -132,3 +132,4 @@ test\broker-ownership.test.ts:
 (pass) broker ownership and workspace governance > work-loop selection stays within the origin workspace [66.03ms]
 
 test\broker-routing.test.ts:
+git cmt "ok"

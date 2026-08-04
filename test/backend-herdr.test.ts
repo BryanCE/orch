@@ -11,8 +11,8 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
   herdrPanes: () => {
     herdrArgv.push(["pane", "list"]);
     return [
-      { pane_id: "w0:p1", workspace_id: "ws-test" },
-      { pane_id: "w0:p2", workspace_id: "ws-test" },
+      { pane_id: "w0:p1", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 0, y: 0 } },
+      { pane_id: "w0:p2", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 100, y: 0 } },
     ];
   },
   herdrNames: () => new Map(),
@@ -76,6 +76,25 @@ describe("HerdrBackend", () => {
     expect(backend.close("")).toBe(false);
     expect(backend.close("w0:p2")).toBe(true);
     expect(herdrArgv.at(-1)).toEqual(["pane", "close", "w0:p2"]);
+  });
+
+  test("a planned target pane is honoured by re-seating the fresh pane against it", () => {
+    // `herdr agent start` has no --target-pane, so placement would otherwise
+    // follow whatever herdr had focused.
+    backend.spawn(fakeAdapter, { cwd: testDir, group: "t1", split: "down", targetPane: "w0:p1" });
+
+    expect(herdrArgv.at(-1)).toEqual(["pane", "move", "w0:p3", "--tab", "t1", "--split", "down", "--no-focus", "--target-pane", "w0:p1"]);
+  });
+
+  test("groupLayout reads tab geometry straight off the pane listing", () => {
+    expect(backend.groupLayout("t1")).toEqual({
+      group: "t1",
+      panes: [
+        { handle: "w0:p1", rect: { width: 100, height: 50, x: 0, y: 0 } },
+        { handle: "w0:p2", rect: { width: 100, height: 50, x: 100, y: 0 } },
+      ],
+    });
+    expect(() => backend.groupLayout("t2")).toThrow("no panes on tab t2");
   });
 
   test("workspaceNames maps tab labels by workspace, first label wins, unlabeled skipped", () => {

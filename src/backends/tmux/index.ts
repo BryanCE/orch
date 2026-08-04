@@ -6,6 +6,7 @@ import type {
   BackendCapabilities,
   BackendId,
   BackendGroup,
+  BackendGroupLayout,
   BackendSpawnOpts,
   BackendSplit,
   BackendTarget,
@@ -16,7 +17,7 @@ import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
-import { bestEffortTmux, execTmux, orchPanes, type TmuxPane } from "./cli.ts";
+import { bestEffortTmux, execTmux, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
 
 /** Handle owned by one tmux pane. */
 export type TmuxHandle = string;
@@ -115,13 +116,13 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return { backend: TMUX_BACKEND, workspace, id: handle };
   }
 
-  /** Split an existing window to place a new pane inside a created group (D8). */
-  private placeInGroup(group: string, split: BackendSplit | undefined, cwd: string, envArgs: readonly string[], command: string): TmuxHandle {
+  /** Split one pane (or the group's active pane) to place a new pane inside a group (D8). */
+  private placeInGroup(target: string, split: BackendSplit | undefined, cwd: string, envArgs: readonly string[], command: string): TmuxHandle {
     const orientation = split === "right" ? "-h" : "-v";
     const output = bestEffortTmux([
       "split-window",
       "-t",
-      group,
+      target,
       orientation,
       "-P",
       "-F",
@@ -169,13 +170,15 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     const orchDir = opts.orchDir ?? process.env.ORCH_DIR ?? "";
     const envArgs = ["-e", `ORCH_AGENT_KEY=${opts.key ?? ""}`, "-e", `ORCH_DIR=${orchDir}`];
 
-    const handle = opts.group
-      ? this.placeInGroup(opts.group, opts.split, cwd, envArgs, command)
+    // A planned target pane wins over the group: `-t <window>` splits whatever
+    // pane happens to be active there, which makes placement depend on focus.
+    const splitTarget = typeof opts.targetPane === "string" ? opts.targetPane : opts.group;
+    const handle = splitTarget
+      ? this.placeInGroup(splitTarget, opts.split, cwd, envArgs, command)
       : this.placeInNewWindow(cwd, envArgs, command);
 
     bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent_key", opts.key ?? ""]);
     bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent", String(adapter.id)]);
-    bestEffortTmux(["select-layout", "-t", handle, "tiled"]);
     return handle;
   }
 
@@ -274,6 +277,13 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       },
       rootHandle: paneId,
     };
+  }
+
+  /** Geometry of every pane in a window, orch-spawned or not. Throws on failure. */
+  groupLayout(group: string): BackendGroupLayout<TmuxHandle> {
+    const panes = windowPaneRects(group);
+    if (!panes.length) throw new Error(`no panes on window ${group}`);
+    return { group, panes: panes.map((pane) => ({ handle: pane.paneId, rect: pane.rect })) };
   }
 
   /** tmux windows containing at least one orch pane (D4). */

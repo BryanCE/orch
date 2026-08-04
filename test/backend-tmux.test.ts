@@ -19,6 +19,10 @@ interface FakePane {
   agentKey: string;
   agent: string;
   agentName: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
 }
 
 function orchPane(overrides: Partial<FakePane> & { paneId: string; agentKey: string }): FakePane {
@@ -33,8 +37,16 @@ function orchPane(overrides: Partial<FakePane> & { paneId: string; agentKey: str
     sessionAttached: true,
     agent: "pi",
     agentName: "",
+    width: 200,
+    height: 50,
+    x: 0,
+    y: 0,
     ...overrides,
   };
+}
+
+function rectRow(pane: FakePane): string {
+  return [pane.paneId, pane.width, pane.height, pane.x, pane.y].join("\t");
 }
 
 function paneRow(pane: FakePane): string {
@@ -67,7 +79,12 @@ function findPane(target: string | undefined): FakePane | undefined {
 /** Interpret one tmux argv against the fake pane world above. */
 function fakeTmux(args: string[]): string {
   const [cmd] = args;
-  if (cmd === "list-panes") return panes.map(paneRow).join("\n");
+  if (cmd === "list-panes") {
+    const format = args[args.indexOf("-F") + 1] ?? "";
+    const window = args.includes("-t") ? args[args.indexOf("-t") + 1] : undefined;
+    const rows = window ? panes.filter((pane) => pane.windowId === window) : panes;
+    return rows.map((pane) => (format.includes("#{pane_width}") ? rectRow(pane) : paneRow(pane))).join("\n");
+  }
   if (cmd === "display-message") {
     const target = args[args.indexOf("-t") + 1];
     const field = args.at(-1) ?? "";
@@ -277,7 +294,33 @@ describe("TmuxBackend", () => {
     expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", "ORCH_AGENT_KEY=tmux~main~agent-1", "-e", `ORCH_DIR=${testOrchDir}`, "--", "bash", "-lc", "fake-agent"]);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent_key tmux~main~agent-1")).toBe(true);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent pi")).toBe(true);
-    expect(execCalls.some((call) => call.args.join(" ") === "select-layout -t %1 tiled")).toBe(true);
+    // The tiling planner owns geometry; a blanket select-layout would overwrite it.
+    expect(execCalls.some((call) => call.args[0] === "select-layout")).toBe(false);
+  });
+
+  test("spawn splits the planned target pane, not whatever pane the window has active", () => {
+    const backend = new TmuxBackend();
+    backend.spawn(fakeAdapter, { key: "tmux~main~agent-1", cwd: "/work", group: "@1", split: "down", targetPane: "%7" });
+
+    expect(callArgs("tmux", "split-window")?.slice(0, 4)).toEqual(["split-window", "-t", "%7", "-v"]);
+  });
+
+  test("groupLayout reports every pane in a window with its cell geometry", () => {
+    panes = [
+      orchPane({ paneId: "%1", agentKey: "k1", width: 100, height: 50, x: 0, y: 0 }),
+      orchPane({ paneId: "%2", agentKey: "", width: 99, height: 50, x: 101, y: 0 }),
+      orchPane({ paneId: "%3", agentKey: "k3", windowId: "@2" }),
+    ];
+    const backend = new TmuxBackend();
+
+    // Non-orch panes count: geometry the planner ignores is geometry it plans over.
+    expect(backend.groupLayout("@1")).toEqual({
+      group: "@1",
+      panes: [
+        { handle: "%1", rect: { width: 100, height: 50, x: 0, y: 0 } },
+        { handle: "%2", rect: { width: 99, height: 50, x: 101, y: 0 } },
+      ],
+    });
   });
 
   test("spawn opens a new window via new-window when no group is given", () => {

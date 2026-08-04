@@ -7,7 +7,7 @@ import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { splitOptionFlags, die, backendTarget } from "./target.ts";
-import { balanceTarget } from "./spawn.ts";
+import { planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { displayWorkspace } from "./status.ts";
 import { workspaceName } from "../policy/workspace.ts";
 export function cmdPanes(args: string[]) {
@@ -234,6 +234,14 @@ export function cmdZoom(args: string[]) {
   } else die(`Could not zoom ${handle}.`);
 }
 
+/** Where a pane should land in a group, ignoring the pane itself — a pane
+ *  already in that group must never be planned as its own split target. */
+function tilePlacementBesides(backend: Backend, group: string, mover: string): TilePlacement {
+  const layout = readGroupLayout(backend, group);
+  if (!layout) return { split: "right" };
+  return planTilePlacement({ ...layout, panes: layout.panes.filter((pane) => String(pane.handle) !== mover) });
+}
+
 export function cmdMove(args: string[]) {
   let tab: string | null = null;
   let split = "right";
@@ -255,13 +263,14 @@ export function cmdMove(args: string[]) {
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X]");
   const { backend, handle } = requirePaneTarget(target, "move");
   try {
-    // Default: split the destination tab's largest pane so it stays balanced
+    // Default: land on the destination tab's biggest pane so it stays balanced
     // instead of stacking off one edge. An explicit --split still wins.
     const groupId = newTab ? null : resolveTab(tab!).id;
     let against: BackendHandle = undefined;
     if (!newTab && !splitExplicit && groupId !== null) {
-      const refPane = backend.inventory?.().find((item) => item.group === groupId && String(item.handle) !== handle)?.handle;
-      if (refPane !== undefined) { try { const balance = balanceTarget(backend, refPane); split = balance.split; against = balance.pane; } catch {} }
+      const placement = tilePlacementBesides(backend, groupId, handle);
+      split = placement.split;
+      against = placement.targetPane;
     }
     const moved = newTab ? backend.moveToNewGroup?.(handle, label) : backend.moveToGroup?.(handle, groupId!, split as "down" | "right", against);
     if (!moved) die(`move failed: backend ${backend.id} rejected the move.`);

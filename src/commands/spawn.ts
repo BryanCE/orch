@@ -7,18 +7,14 @@ import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry
 import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
-import type { Backend, BackendGroup, BackendGroupLayout, BackendHandle, BackendId } from "../backends/backend.ts";
+import type { Backend, BackendGroup, BackendHandle, BackendId } from "../backends/backend.ts";
 import { resolveBackend } from "../backends/registry.ts";
+import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
-
-function paneLayout(refPane: BackendHandle, backend: Backend): BackendGroupLayout {
-  if (!backend.layoutOf) throw new Error(`backend ${backend.id} does not provide layout`);
-  return backend.layoutOf(refPane);
-}
 
 async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false) {
   const pending = new Map(created.map((c) => [c.key, c]));
@@ -37,13 +33,9 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
     process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
 }
 
-function printLayout(refPane: BackendHandle, backend: Backend, header: string) {
-  let layout: BackendGroupLayout;
-  try {
-    layout = paneLayout(refPane, backend);
-  } catch {
-    return;
-  }
+function printLayout(backend: Backend, group: string, header: string) {
+  const layout = readGroupLayout(backend, group);
+  if (!layout) return;
   const names = new Map((backend.inventory?.() ?? []).map((target) => [String(target.handle), target.name ?? "-"]));
   process.stdout.write(header + "\n");
   const rows = layout.panes.map((p) => [
@@ -367,7 +359,8 @@ export interface TabSpawnSpec {
   workspace: string;
   group: string;
   model: string;
-  split?: "down" | "right";
+  /** Where the pane lands in the group, from the tiling planner. */
+  placement?: TilePlacement;
   tools?: string;
   /** What this worker may load; absent lets the adapter apply no policy. */
   workers?: WorkerPolicy;
@@ -391,7 +384,8 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     name: spec.name,
     workspace: spec.workspace,
     group: spec.group,
-    split: spec.split,
+    split: spec.placement?.split,
+    targetPane: spec.placement?.targetPane,
     orchDir: orchDir(),
     model: spec.model,
     tools: spec.tools,
@@ -413,23 +407,8 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   return { key, pane: String(handle), name: spec.name };
 }
 
-/** The largest pane in a tab and the split that halves it — the target a new
- *  pane should split so the tab stays balanced instead of stacking. Backend-
- *  agnostic: reads only the layout port, never a backend-specific detail. */
-export function balanceTarget(backend: Backend, refPane: BackendHandle): { pane: BackendHandle; split: "down" | "right" } {
-  const layout = paneLayout(refPane, backend);
-  const largest = layout.panes.reduce((current, pane) =>
-    pane.rect.width * pane.rect.height > current.rect.width * current.rect.height ? pane : current);
-  return { pane: largest.handle, split: largest.rect.width >= largest.rect.height ? "right" : "down" };
-}
-
-/** Split direction that balances the tab containing `refPane`. */
-export function nextSplit(backend: Backend, refPane: BackendHandle): "down" | "right" {
-  return balanceTarget(backend, refPane).split;
-}
-
-/** Spawn one named agent into a tab, choosing the balancing split from its layout. */
-function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, split: "down" | "right", backend: Backend): CreatedAgent {
+/** Spawn one named agent into a tab, at the spot the planner picked for it. */
+function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, placement: TilePlacement, backend: Backend): CreatedAgent {
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return spawnOneIntoTab({
     backend,
@@ -439,7 +418,7 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     cwd,
     workspace,
     group,
-    split,
+    placement,
     model: settings.model,
     tools: settings.tools,
     workers: settings.workers,
@@ -452,8 +431,7 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
 function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): void {
   for (let i = 2; i <= settings.n; i++) {
     try {
-      const split = i > 2 ? nextSplit(backend, root.root) : "down";
-      created.push(placeAgent(settings, `${settings.prefix}-${i}`, root.workspace, root.tabId, split, backend));
+      created.push(placeAgent(settings, `${settings.prefix}-${i}`, root.workspace, root.tabId, nextTilePlacement(backend, root.tabId), backend));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
@@ -468,24 +446,22 @@ function findGroupInWorkspace(backend: Backend, workspace: string, target: strin
 
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
 async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend): Promise<void> {
-  const refPane = backend.inventory?.().find((target) => target.group === group.id)?.handle;
   const created: CreatedAgent[] = [];
   for (let i = 1; i <= settings.n; i++) {
     try {
-      const split = refPane === undefined ? "down" : nextSplit(backend, refPane);
-      created.push(placeAgent(settings, `${settings.prefix}-${i}`, workspace, group.id, split, backend));
+      created.push(placeAgent(settings, `${settings.prefix}-${i}`, workspace, group.id, nextTilePlacement(backend, group.id), backend));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
   }
-  await reportSpawnResults(settings, refPane ?? created[0]?.pane ?? group.id, group.label ?? group.id, created, backend);
+  await reportSpawnResults(settings, group.id, group.label ?? group.id, created, backend);
 }
 
-async function reportSpawnResults(settings: SpawnSettings, anchorPane: BackendHandle, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
+async function reportSpawnResults(settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${tabLabel}" (no focus stolen).\n`);
-    printLayout(anchorPane, backend, "\nFinal tiling:");
+    printLayout(backend, group, "\nFinal tiling:");
   }
   if (resolveAdapterOrDie(settings.adapter).caps.steer === "inbox") await awaitBridgeRegistration(created, settings.json);
   await pinModels(created, settings.model);
@@ -512,7 +488,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created, backend);
-  await reportSpawnResults(settings, root.root, root.tabLabel, created, backend);
+  await reportSpawnResults(settings, root.tabId, root.tabLabel, created, backend);
 }
 
 export async function cmdSpawn(args: string[]) {
@@ -530,19 +506,12 @@ export async function cmdTile(args: string[]) {
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
 
   const tab = resolveTab(target);
-  const refPane = selectedBackend.inventory?.().find((item) => item.group === tab.id)?.handle;
-  if (refPane === undefined) die(`No panes found on group "${tab.id}".`);
-
-  let layout;
-  try {
-    layout = paneLayout(refPane, selectedBackend);
-  } catch (e: unknown) {
-    die(`could not read layout for ${JSON.stringify(refPane)}: ${errorMessage(e)}`);
-  }
+  const layout = readGroupLayout(selectedBackend, tab.id);
+  if (!layout) die(`Could not read layout for group "${tab.id}".`);
   const autoName = flags.namePrefix ?? `tile-${layout.panes.length + 1}`;
 
-  const workspace = selectedBackend.inventory?.().find((item) => item.handle === refPane)?.workspace;
-  if (!workspace) die(`Could not determine workspace for pane ${JSON.stringify(refPane)}.`);
+  const workspace = tab.workspace ?? callerWorkspace();
+  if (!workspace) die(`Could not determine workspace for group "${tab.id}".`);
   assertSpawnCapacity(config, workspace, 1);
   let agent: CreatedAgent;
   try {
@@ -554,9 +523,8 @@ export async function cmdTile(args: string[]) {
       cwd: flags.cwd,
       workspace,
       group: tab.id,
-      // Split the tab's largest cell, exactly as `spawn` does. A fixed direction
-      // stacks every added pane off one edge and unbalances the tab.
-      split: nextSplit(selectedBackend, refPane),
+      // Same planner `spawn` uses, off the same tab-wide geometry.
+      placement: planTilePlacement(layout),
       cmd: flags.commandFlag ? flags.cmd : undefined,
       // A tiled worker loads exactly what a spawned one does; dropping these is
       // how tiled agents lost the user's own harness extensions.
@@ -570,7 +538,7 @@ export async function cmdTile(args: string[]) {
   if (flags.json) process.stdout.write(JSON.stringify({ pane: agent.pane, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
   else {
     process.stdout.write(`Added ${agent.pane} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
-    printLayout(refPane, selectedBackend, "\nFinal tiling:");
+    printLayout(selectedBackend, tab.id, "\nFinal tiling:");
   }
   await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);
 }

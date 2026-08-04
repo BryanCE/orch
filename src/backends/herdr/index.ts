@@ -1,7 +1,7 @@
 import type { AgentAdapter } from "../../adapters/adapter.ts";
 import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
-import { binaryOnPath, isRecord } from "../../util.ts";
+import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
 import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
@@ -157,7 +157,22 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     const result = herdrJSON<AgentStartResult>([...flags, "--", ...launcher, "bash", "-lc", command]);
     const handle = result.agent?.pane_id;
     if (!handle) throw new Error("agent start returned no pane");
+    // `agent start --split` splits whatever herdr has focused, so a planned
+    // target is honoured by moving the fresh pane against it.
+    if (opts.group && typeof opts.targetPane === "string" && opts.targetPane !== handle) {
+      this.splitAgainst(handle, opts.group, opts.split ?? "right", opts.targetPane);
+    }
     return handle;
+  }
+
+  /** Re-seat a just-started pane against its planned neighbour; a refused move
+   *  leaves the agent where herdr put it rather than failing the spawn. */
+  private splitAgainst(handle: HerdrHandle, group: string, split: BackendSplit, target: HerdrHandle): void {
+    try {
+      this.moveToGroup(handle, group, split, target);
+    } catch (error: unknown) {
+      process.stderr.write(`warning: could not place ${handle} against ${target}: ${errorMessage(error)}\n`);
+    }
   }
 
   /** Close one pane through herdr; invalid handles are refused locally. */
@@ -253,9 +268,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return herdrBestEffort(["pane", "rename", handle, name]);
   }
 
-  /** Move a pane into an existing tab, splitting `against` (the largest pane)
+  /** Move a pane into an existing tab, splitting `against` (the planned pane)
    *  when given so the tab stays balanced instead of stacking. Throws on failure. */
-  // fallow-ignore-next-line unused-class-member
   moveToGroup(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): boolean {
     const args = ["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"];
     if (against) args.push("--target-pane", against);
@@ -272,8 +286,17 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return true;
   }
 
+  /** Geometry of every pane in a tab, from the pane listing when it carries
+   *  rects and a dedicated layout call when it does not. Throws on an empty tab. */
+  groupLayout(group: string): BackendGroupLayout<HerdrHandle> {
+    const panes = herdrPanes().filter((pane) => pane.tab_id === group);
+    if (!panes.length) throw new Error(`no panes on tab ${group}`);
+    const rects = panes.flatMap((pane) => pane.rect ? [{ handle: pane.pane_id, rect: pane.rect }] : []);
+    return rects.length === panes.length ? { group, panes: rects } : this.tabLayoutOf(panes[0]!.pane_id);
+  }
+
   /** Geometry of the tab containing a pane. Throws when unresolvable. */
-  layoutOf(handle: HerdrHandle): BackendGroupLayout<HerdrHandle> {
+  private tabLayoutOf(handle: HerdrHandle): BackendGroupLayout<HerdrHandle> {
     const result = herdrJSON<{ layout: { tab_id: string; panes: { pane_id: string; rect: BackendRect }[] } }>(
       ["pane", "layout", "--pane", handle],
     );

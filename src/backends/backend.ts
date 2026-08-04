@@ -53,6 +53,8 @@ export interface BackendSpawnOpts {
   readonly group?: string;
   /** Split direction within the target group. */
   readonly split?: BackendSplit;
+  /** Pane the new pane must split, so placement never depends on what has focus. */
+  readonly targetPane?: BackendHandle;
 }
 
 /** Opaque backend-specific process or pane handle. */
@@ -123,7 +125,7 @@ export interface BackendWorkspace {
   readonly status: string | null;
 }
 
-/** Geometry of every pane in the group containing a handle. */
+/** Geometry of every pane in one group. */
 export interface BackendGroupLayout<Handle = BackendHandle> {
   readonly group: string;
   readonly panes: readonly { readonly handle: Handle; readonly rect: BackendRect }[];
@@ -207,8 +209,8 @@ export interface Backend<Handle = BackendHandle> {
   moveToGroup?(handle: Handle, group: string, split: BackendSplit, against?: Handle): boolean;
   /** Move a target into a freshly created group. */
   moveToNewGroup?(handle: Handle, label: string | null): boolean;
-  /** Geometry of the group containing a handle. Throws when unresolvable. */
-  layoutOf?(handle: Handle): BackendGroupLayout<Handle>;
+  /** Geometry of every pane in a group, orch-spawned or not. Throws when unresolvable. */
+  groupLayout?(group: string): BackendGroupLayout<Handle>;
   /** Names of foreground processes running in a target. */
   foregroundProcesses?(handle: Handle): string[];
   /** Block until the backend reports the agent status, or time out. */

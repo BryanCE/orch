@@ -1,8 +1,12 @@
-$ bun run lint && bunx tsc --noEmit && bun run check:bridge
-$ oxlint bin src test extensions scripts
-Found 0 warnings and 0 errors.
-Finished in 3.5s on 196 files with 65 rules using 8 threads.
-$ bun scripts/check-bridge.ts
-check:bridge FAIL src\daemon\orchd.ts:24 backend subpath imports are forbidden outside backends (boundary modules live directly under backends/)
-error: script "check:bridge" exited with code 1
-error: script "check" exited with code 1
+
+  x typescript(consistent-type-definitions): Use `interface` instead of `type`.
+   ,-[test/tiling.test.ts:5:1]
+ 4 | 
+ 5 | type LayoutPane = { handle: string; rect: BackendRect };
+   : ^^^^
+ 6 | 
+   `----
+  help: Replace `type LayoutPane = { handle: string; rect: BackendRect };` with `interface LayoutPane { handle: string; rect: BackendRect }`.
+
+Found 0 warnings and 1 error.
+Finished in 5.3s on 198 files with 65 rules using 8 threads.

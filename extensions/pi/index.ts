@@ -6,14 +6,12 @@
 // harness package, so a machine with a different pi build — or none — still
 // typechecks and bundles it.
 //
-// What lives HERE is pi's vocabulary and nothing else: pi's ExtensionAPI type,
-// pi's event names, and pi's adapter id. A sibling build's event name appearing
-// in this file, or pi's appearing in src/agent/**, is the pair code CLAUDE.md
-// Rule 9 forbids.
+// What lives HERE is pi's vocabulary and nothing else: pi's event names and pi's
+// adapter id. A sibling build's event name appearing in this file, or pi's
+// appearing in src/agent/**, is the pair code CLAUDE.md Rule 9 forbids.
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { createDaemonAck } from "../../src/agent/daemon-ack.ts";
 import { registerFleetMonitor } from "../../src/agent/monitor.ts";
@@ -31,19 +29,18 @@ function hashExtensionFile(file: string): string {
 
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
-function orchestratorBridgeExtension(pi: ExtensionAPI): void {
-  const harness = pi as unknown as HarnessApi;
+function orchestratorBridgeExtension(harness: HarnessApi): void {
   const hud = activePaneHud();
   const paneId = hud.paneHandle;
 
   hud.registerPaneState(
     {
-      onSessionStart: (handler) => pi.on("session_start", (_event, ctx) => handler(ctx)),
-      onAgentStart: (handler) => pi.on("agent_start", (_event, ctx) => handler(ctx)),
-      onAgentEnd: (handler) => pi.on("agent_end", (event) => handler(event)),
-      onSessionShutdown: (handler) => pi.on("session_shutdown", (event) => handler(event)),
+      onSessionStart: (handler) => harness.on("session_start", (_event, ctx) => handler(ctx)),
+      onAgentStart: (handler) => harness.on("agent_start", (_event, ctx) => handler(ctx)),
+      onAgentEnd: (handler) => harness.on("agent_end", (event) => handler(event)),
+      onSessionShutdown: (handler) => harness.on("session_shutdown", (event) => handler(event)),
     },
-    pi.events,
+    harness.events,
     { agentId: PI_IDENTITY.agentId, extensionHash: EXTENSION_HASH },
   );
 
@@ -71,7 +68,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
     refreshLabels,
   });
 
-  hud.registerBlockedRelay(pi.events, onBlockedChange);
+  hud.registerBlockedRelay(harness.events, onBlockedChange);
   // A pi session that orchestrates also watches: one daemon subscription for the
   // whole session, so a worker going blocked surfaces instead of being polled for.
   registerFleetMonitor(harness, ORCH_DIR);

@@ -15,7 +15,6 @@
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { createDaemonAck } from "../../src/agent/daemon-ack.ts";
 import { registerFleetMonitor } from "../../src/agent/monitor.ts";
@@ -33,19 +32,18 @@ function hashExtensionFile(file: string): string {
 
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
-function orchestratorBridgeExtension(omp: ExtensionAPI): void {
-  const harness = omp as unknown as HarnessApi;
+function orchestratorBridgeExtension(harness: HarnessApi): void {
   const hud = activePaneHud();
   const paneId = hud.paneHandle;
 
   hud.registerPaneState(
     {
-      onSessionStart: (handler) => omp.on("session_start", (_event, ctx) => handler(ctx)),
-      onAgentStart: (handler) => omp.on("agent_start", (_event, ctx) => handler(ctx)),
-      onAgentEnd: (handler) => omp.on("agent_end", (event) => handler(event)),
-      onSessionShutdown: (handler) => omp.on("session_shutdown", (event) => handler(event)),
+      onSessionStart: (handler) => harness.on("session_start", (_event, ctx) => handler(ctx)),
+      onAgentStart: (handler) => harness.on("agent_start", (_event, ctx) => handler(ctx)),
+      onAgentEnd: (handler) => harness.on("agent_end", (event) => handler(event)),
+      onSessionShutdown: (handler) => harness.on("session_shutdown", (event) => handler(event)),
     },
-    omp.events,
+    harness.events,
     { agentId: OMP_IDENTITY.agentId, extensionHash: EXTENSION_HASH },
   );
 
@@ -73,7 +71,7 @@ function orchestratorBridgeExtension(omp: ExtensionAPI): void {
     refreshLabels,
   });
 
-  hud.registerBlockedRelay(omp.events, onBlockedChange);
+  hud.registerBlockedRelay(harness.events, onBlockedChange);
   // An omp session that orchestrates also watches: one daemon subscription for the
   // whole session, so a worker going blocked surfaces instead of being polled for.
   registerFleetMonitor(harness, ORCH_DIR);

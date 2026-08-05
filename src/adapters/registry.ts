@@ -1,9 +1,10 @@
 import type { AgentAdapter } from "./adapter.ts";
 import { piAdapter } from "./pi.ts";
+import { ompAdapter } from "./omp.ts";
 import { codexAdapter } from "./codex.ts";
 import { claudeAdapter } from "./claude.ts";
 
-const adapters: readonly AgentAdapter[] = [piAdapter, codexAdapter, claudeAdapter];
+const adapters: readonly AgentAdapter[] = [piAdapter, ompAdapter, codexAdapter, claudeAdapter];
 
 /** Return every registered agent adapter in registration order. */
 export function allAdapters(): readonly AgentAdapter[] {

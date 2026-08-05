@@ -9,8 +9,8 @@
 // consumed by a socket-less daemon.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readPortFile, requestJsonLine } from "../../src/presence/socket-client.ts";
-import { isRecord } from "../../src/util.ts";
+import { readPortFile, requestJsonLine } from "../presence/socket-client.ts";
+import { isRecord } from "../util.ts";
 
 /** Ack transport + dedupe set handed to the inbox drain. */
 export interface DaemonAck {

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { CONTROL_FILE } from "../presence/schema.ts";
+import { inboxPath } from "../presence/inbox.ts";
 import { isRecord } from "../util.ts";
 
 /**
@@ -37,6 +38,31 @@ function readOutcome(dir: string, id: string): ControlOutcome | undefined {
 
 const POLL_MS = 100;
 
+/** True while the request is still sitting in the agent's inbox, undrained. */
+function stillQueued(dir: string, id: string): boolean {
+  let lines: string[];
+  try {
+    lines = readFileSync(inboxPath(dir), "utf8").split("\n");
+  } catch {
+    return false;
+  }
+  return lines.some((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      return isRecord(parsed) && parsed.id === id;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Why a silent agent went silent, so the caller knows whether to wait or resend. */
+function silenceReason(dir: string, id: string, timeoutMs: number): string {
+  return stillQueued(dir, id)
+    ? `agent did not record an outcome within ${timeoutMs}ms: still queued in its inbox, and applies when the current turn ends`
+    : `agent did not record an outcome within ${timeoutMs}ms: consumed from its inbox without recording one, so the request was dropped`;
+}
+
 /**
  * Block until the agent records the outcome of control command `id`, then throw
  * on failure. A harness that never answers within `timeoutMs` is itself a
@@ -48,7 +74,7 @@ export async function awaitControlOutcome(dir: string, id: string, timeoutMs: nu
     const outcome = readOutcome(dir, id);
     if (outcome?.success) return;
     if (outcome) throw new Error(outcome.error ?? "agent refused the control command");
-    if (Date.now() >= deadline) throw new Error(`agent did not record an outcome within ${timeoutMs}ms`);
+    if (Date.now() >= deadline) throw new Error(silenceReason(dir, id, timeoutMs));
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 }

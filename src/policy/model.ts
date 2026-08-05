@@ -1,4 +1,5 @@
 import { allowedModelPatterns } from "../config.ts";
+import type { AdapterId, AgentAdapter, HarnessModel } from "../adapters/adapter.ts";
 
 /**
  * Orch's model vocabulary and the allowlist gate, owned by orch and applied to
@@ -35,18 +36,43 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
 }
 
-/** True when the bare `provider/id` passes the configured allowlist; no patterns means no restriction. */
-export function isAllowedModel(orchDir: string, bareModel: string): boolean {
-  const patterns = allowedModelPatterns(orchDir);
+/** True when the bare model passes that harness's configured allowlist; no patterns means no restriction. */
+export function isAllowedModel(orchDir: string, harness: AdapterId, bareModel: string): boolean {
+  const patterns = allowedModelPatterns(orchDir, harness);
   if (patterns.length === 0) return true;
   return patterns.some((pattern) => globToRegex(pattern).test(bareModel));
 }
 
-/** Reject a malformed or disallowed model token, naming the patterns that refused it. */
-export function assertModelAllowed(orchDir: string, model: string): void {
+/** The handful of listed specs closest to a rejected one, for the refusal message. */
+function nearestOffered(offered: readonly HarnessModel[], bare: string): string[] {
+  const needle = bare.toLowerCase();
+  const near = offered.filter((model) => model.spec.toLowerCase().includes(needle));
+  return (near.length ? near : offered).slice(0, 5).map((model) => model.spec);
+}
+
+/**
+ * Reject a model the harness does not list.
+ *
+ * Membership in the adapter's OWN registry is the only honest check orch can make:
+ * what a valid token looks like is the harness's vocabulary (pi wants `provider/id`,
+ * codex wants `gpt-5.6-luna`, claude wants `sonnet`), so a format rule here would be
+ * one harness's grammar imposed on the rest. It is also the strongest check — it is
+ * what stops a shorthand reaching a harness resolver that would fuzzy-match it onto
+ * whatever registry entry shares a prefix. A harness that enumerates nothing cannot
+ * be checked, and orch does not pretend otherwise.
+ */
+export function assertModelOffered(adapter: AgentAdapter, model: string): void {
+  const offered = adapter.listModels?.() ?? [];
+  if (!offered.length) return;
   const { bare } = splitThinkingSuffix(model);
-  const slash = bare.indexOf("/");
-  if (slash <= 0 || slash === bare.length - 1) throw new Error(`model must be a provider/id string: ${model}`);
-  if (isAllowedModel(orchDir, bare)) return;
-  throw new Error(`model ${bare} is not in models.allowed (${allowedModelPatterns(orchDir).join(", ")})`);
+  if (offered.some((candidate) => candidate.spec === bare)) return;
+  throw new Error(`${adapter.id} does not list model ${bare}; it offers ${nearestOffered(offered, bare).join(", ")}`);
+}
+
+/** Reject a model the harness does not offer or the settings allowlist refuses. */
+export function assertModelAllowed(orchDir: string, adapter: AgentAdapter, model: string): void {
+  assertModelOffered(adapter, model);
+  const { bare } = splitThinkingSuffix(model);
+  if (isAllowedModel(orchDir, adapter.id, bare)) return;
+  throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(orchDir, adapter.id).join(", ")})`);
 }

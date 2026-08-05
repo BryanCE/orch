@@ -37,6 +37,14 @@ describe("commands/status", () => {
     });
     expect(row.host).toBeUndefined();
   });
+  // Two orchestrators share one flat name namespace, so the owner has to be
+  // readable from status or a collision is invisible until work lands wrong.
+  test("row carries the spawning orchestrator, null for panes orch never recorded", () => {
+    const owned = new Map([["herdr~local~app:p1", { owner: "orch-a" } as never]]);
+    expect(deriveView(seededEntity, owned).owner).toBe("orch-a");
+    expect(statusRowFromView(deriveView(seededEntity, owned), {}).owner).toBe("orch-a");
+    expect(statusRowFromView(deriveView(seededEntity, new Map()), {}).owner).toBeNull();
+  });
   test("json branch and local table branch derive identical rows apart from host", () => {
     const view = deriveView(seededEntity, new Map());
     const jsonRow = statusRowFromView(view, {}); // cmdStatusLocal json branch shape

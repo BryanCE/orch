@@ -3,18 +3,18 @@
 // presence in sync, and the pi-event payload guards those handlers consume. The
 // peer-facing commands and tools are registered by peers.ts.
 //
-// All presence I/O goes through the injected PiPresence binding and all
+// All presence I/O goes through the injected AgentPresence binding and all
 // notification delivery through the injected notifier, so this module is
 // backend-agnostic.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { HarnessApi, HarnessContext, HarnessIdentity } from "./harness.ts";
 import { Type } from "typebox";
-import { workspaceOf } from "../../src/policy/workspace.ts";
-import { loadConfig } from "../../src/config.ts";
-import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../../src/control/cmd-lock.ts";
-import { ANSWER_FILE, QUESTION_FILE } from "../../src/presence/schema.ts";
-import { atomicWrite, presenceFile } from "../../src/presence/writer.ts";
+import { workspaceOf } from "../policy/workspace.ts";
+import { loadConfig } from "../config.ts";
+import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
+import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
+import { atomicWrite, presenceFile } from "../presence/writer.ts";
 import { registerPeerTools, toolResult, type BridgeToolResult } from "./peers.ts";
 import {
   extractText,
@@ -26,9 +26,9 @@ import {
   type AssistantMessageLike,
   type BridgeNotification,
   type BridgeNotifier,
-  type PiPresence,
+  type AgentPresence,
 } from "./presence.ts";
-import { isRecord, isUnknownArray, optionalString, readJsonFile, truncate } from "../../src/util.ts";
+import { isRecord, isUnknownArray, optionalString, readJsonFile, truncate } from "../util.ts";
 
 interface ModelSelectEventLike {
   model: unknown;
@@ -136,8 +136,10 @@ function waitForOrchestratorAnswer(
   });
 }
 
-export interface PiToolsOptions {
-  presence: PiPresence;
+export interface AgentToolsOptions {
+  presence: AgentPresence;
+  /** Which harness build this session is, and what it calls its settle signal. */
+  identity: HarnessIdentity;
   /** Delivers a state-change notification (wired to the plexer HUD, if any). */
   notify: BridgeNotifier;
   /** Refreshes this agent's pane/tab labels and writes status when they apply. */
@@ -152,7 +154,7 @@ export interface PiToolsOptions {
  * out-of-band blocked events into — the event channel itself is backend
  * vocabulary and never named here.
  */
-export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
+export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptions): {
   onBlockedChange: (active: boolean, label: string | undefined) => void;
 } {
   const { presence, notify, refreshLabels } = options;
@@ -162,9 +164,9 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
   let blockedNotified = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
-  registerPeerTools(pi, presence);
+  registerPeerTools(harness, presence);
 
-  pi.registerTool({
+  harness.registerTool({
     name: "orch_ask",
     label: "Ask Orchestrator",
     description: "Ask the orchestrator a blocking question and wait for its answer.",
@@ -173,7 +175,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     parameters: Type.Object({
       question: Type.String({ description: "Decision question for the orchestrator" }),
     }),
-    async execute(_toolCallId, params: OrchAskParams, signal, _onUpdate, ctx: ExtensionContext) {
+    async execute(_toolCallId, params: OrchAskParams, signal, _onUpdate, ctx: HarnessContext) {
       try {
         presence.ownPresenceKey(ctx);
         const dir = presence.dir();
@@ -228,7 +230,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
   });
 
   // ---- lifecycle ----
-  pi.on("session_start", (_event, ctx: ExtensionContext) => {
+  harness.on("session_start", (_event, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
     presence.initPresence(ctx.hasUI);
     presence.updateSessionRef(ctx);
@@ -256,7 +258,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     heartbeat.unref?.();
   });
 
-  pi.on("model_select", (event: unknown) => {
+  harness.on("model_select", (event: unknown) => {
     if (isModelSelectEvent(event) && isRecord(event.model)) {
       const provider = optionalString(event.model.provider);
       const id = optionalString(event.model.id);
@@ -265,19 +267,19 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     presence.writeStatus();
   });
 
-  pi.on("thinking_level_select", (event: unknown) => {
+  harness.on("thinking_level_select", (event: unknown) => {
     if (isThinkingLevelSelectEvent(event) && typeof event.level === "string") state.thinking = event.level;
     presence.writeStatus();
   });
 
-  pi.on("before_agent_start", (event: unknown, ctx: ExtensionContext) => {
+  harness.on("before_agent_start", (event: unknown, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
     if (isBeforeAgentStartEvent(event) && typeof event.prompt === "string" && event.prompt.trim()) {
       state.task = truncate(event.prompt, TASK_MAX);
     }
   });
 
-  pi.on("agent_start", (_event, ctx: ExtensionContext) => {
+  harness.on("agent_start", (_event, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
     presence.initPresence(ctx.hasUI);
     state.state = "working";
@@ -291,14 +293,14 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     presence.writeStatus();
   });
 
-  pi.on("turn_end", (_event, ctx: ExtensionContext) => {
+  harness.on("turn_end", (_event, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
     state.turns += 1;
     presence.updateContextUsage(ctx);
     presence.writeStatus();
   });
 
-  pi.on("message_end", (event: unknown, ctx: ExtensionContext) => {
+  harness.on("message_end", (event: unknown, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
     if (!isMessageEndEvent(event) || !isAssistantMessageLike(event.message)) return;
     const message = event.message;
@@ -347,7 +349,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     }
   }
 
-  pi.on("tool_execution_start", recordToolStart);
+  harness.on("tool_execution_start", recordToolStart);
 
   // Pi awaits tool_execution_start before invoking the tool. This is the
   // execution-side interception point: acquiring here avoids deadlocking the
@@ -371,7 +373,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     return args.command;
   }
 
-  pi.on("tool_execution_start", async (event: unknown, ctx: ExtensionContext) => {
+  harness.on("tool_execution_start", async (event: unknown, ctx: HarnessContext) => {
     if (!isToolExecutionStartEvent(event) || event.toolName !== "bash") return;
     const command = bashCommand(event.args);
     const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
@@ -406,7 +408,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     }
   });
 
-  pi.on("tool_execution_end", (event: unknown) => {
+  harness.on("tool_execution_end", (event: unknown) => {
     if (!isToolExecutionEndEvent(event)) return;
     const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
     if (!toolCallId) return;
@@ -437,7 +439,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     return message.stopReason === "aborted" ? "aborted" : "error";
   }
 
-  function recordFailedAgentRun(message: AssistantMessageLike, ctx: ExtensionContext): void {
+  function recordFailedAgentRun(message: AssistantMessageLike, ctx: HarnessContext): void {
     const stopReason = message.stopReason === "aborted" ? "aborted" : "error";
     const errorText = failedAssistantError(message);
     const partial = extractText(message.content);
@@ -459,17 +461,17 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
 
   // agent_end carries every message from the run. Failures/aborts land as the
   // last assistant message with stopReason "error" | "aborted" + errorMessage
-  // (see AssistantMessage in @earendil-works/pi-ai). No turn_error event exists.
-  function recordAgentEnd(event: unknown, ctx: ExtensionContext): void {
+  // (see the harness's AssistantMessage type). No turn_error event exists.
+  function recordAgentEnd(event: unknown, ctx: HarnessContext): void {
     presence.setLastCtx(ctx);
     if (!isAgentEndEvent(event) || !isUnknownArray(event.messages)) return;
     const message = finalFailedAssistantMessage(event.messages);
     if (message) recordFailedAgentRun(message, ctx);
   }
 
-  pi.on("agent_end", recordAgentEnd);
+  harness.on("agent_end", recordAgentEnd);
 
-  function completeSettledAgentRun(ctx: ExtensionContext): void {
+  function completeSettledAgentRun(ctx: HarnessContext): void {
     state.state = runText.lastFull ? "done" : "idle";
     state.finishedAt = new Date().toISOString();
     presence.updateContextUsage(ctx);
@@ -482,9 +484,9 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     presence.writeStatus();
   }
 
-  // agent_settled fires only when pi will not auto-continue (no retry/compact
-  // continuation pending) — the real "done" signal, unlike agent_end.
-  function settleAgentRun(_event: unknown, ctx: ExtensionContext): void {
+  // The settle signal fires only when the run will not auto-continue (no retry
+  // or compaction continuation pending) — the real "done", unlike agent_end.
+  function settleAgentRun(_event: unknown, ctx: HarnessContext): void {
     presence.setLastCtx(ctx);
     // agent_end already recorded an error/abort for this run — do not clobber it
     // with a synthetic done/idle from a previous successful lastFull text.
@@ -496,7 +498,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     completeSettledAgentRun(ctx);
   }
 
-  pi.on("agent_settled", settleAgentRun);
+  harness.on(options.identity.settleEvent, settleAgentRun);
 
   function onBlockedChange(active: boolean, label: string | undefined): void {
     if (active) {
@@ -527,7 +529,7 @@ export function registerPiTools(pi: ExtensionAPI, options: PiToolsOptions): {
     presence.writeStatus();
   }
 
-  pi.on("session_shutdown", () => {
+  harness.on("session_shutdown", () => {
     for (const held of commandLocks.values()) {
       try {
         releaseCommandLock(ORCH_DIR, held.lock.pid);

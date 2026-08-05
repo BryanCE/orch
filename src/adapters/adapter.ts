@@ -2,7 +2,7 @@ import type { CheckResult } from "../check-result.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
-export const ADAPTER_IDS = ["pi", "claude", "codex"] as const;
+export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;
 
 /** Agent CLIs supported by orch. */
 export type AdapterId = (typeof ADAPTER_IDS)[number];
@@ -179,6 +179,14 @@ export interface SessionViewInput {
  * Adapters translate agent-native behavior into orch's presence protocol;
  * core commands must continue to consume presence data rather than native formats.
  */
+/** One model a harness can run, reported in orch's vocabulary rather than the harness's. */
+export interface HarnessModel {
+  /** orch's `provider/id` spec — exactly the token `--model` accepts. */
+  readonly spec: string;
+  /** The harness's own display name for it, when it has one. */
+  readonly label?: string;
+}
+
 export interface AgentAdapter {
   /** Stable adapter id recorded in the spawn registry and presence status. */
   readonly id: AdapterId;
@@ -194,6 +202,13 @@ export interface AgentAdapter {
     readonly setModel: boolean;
     /** Whether native session output can be tailed for supplementary state/result data. */
     readonly sessionTail: boolean;
+    /**
+     * Whether the harness writes a presence status record as its session starts.
+     * True is what lets a launch VERIFY the agent came up instead of trusting that
+     * the backend returned a handle; false makes an unverifiable spawn, and a
+     * launch must say so rather than report a success it never confirmed.
+     */
+    readonly registersPresenceOnStart: boolean;
     /** Session-lifecycle verbs (reset/reload/restart) this adapter declares a native mechanism for; empty when none. */
     readonly lifecycle: readonly LifecycleVerb[];
     /** Whether the adapter has a pre-tool seam that can transparently wrap locked commands in the machine-wide lock (pi bridge); false adapters get the worker-prompt clause only, and doctor/setup report the gap. */
@@ -249,4 +264,11 @@ export interface AgentAdapter {
   diagnoseShim?(): CheckResult | Promise<CheckResult>;
   /** The adapter's persisted default model, for display; undefined if it has none. */
   defaultModelString?(): string | undefined;
+  /**
+   * Every model this harness can run, read from ITS OWN registry and reported in
+   * orch's `provider/id` vocabulary. orch never parses a harness registry itself —
+   * that format is the adapter's only knowledge — and orch still owns which model
+   * is chosen. Omit when the harness exposes no enumerable model list.
+   */
+  listModels?(): readonly HarnessModel[];
 }

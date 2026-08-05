@@ -145,6 +145,26 @@ describe("fleet ownership scoping", () => {
     expect(result.output).toContain("other-orchestrator");
   }, 15_000);
 
+  // Reading is control too: agent names are one flat namespace across sessions,
+  // so an unscoped `orch result` hands a foreign orchestrator's work product back
+  // as if this session had produced it.
+  test("result refuses a foreign-owned agent and names its owner", () => {
+    const dir = makeDir();
+    const key = "headless~local~foreign-result";
+    mkdirSync(join(dir, "agents", key), { recursive: true });
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 2, key, backend: "headless", workspace: "local", handle: key, pid: process.pid, agent: "pi", state: "done" }));
+    writeFileSync(join(dir, "agents", key, "result.json"), JSON.stringify({ text: "other session's answer" }));
+    recordSpawned(key, { backend: "headless", adapter: "pi", handle: key, owner: "other-orchestrator" });
+
+    const refused = runCli(dir, ["result", key], "caller-orchestrator");
+    expect(refused.status).not.toBe(0);
+    expect(refused.output).toContain("other-orchestrator");
+    expect(refused.output).not.toContain("other session's answer");
+
+    const forced = runCli(dir, ["result", key, "--force"], "caller-orchestrator");
+    expect(forced.output).toContain("other session's answer");
+  }, 15_000);
+
   test("--force allows an explicit foreign target", () => {
     const dir = makeDir();
     const key = "headless~local~forced";

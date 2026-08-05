@@ -1,6 +1,7 @@
 import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
-import { promptSelect, promptMultiselect } from "./io.ts";
+import type { HarnessModel } from "../adapters/adapter.ts";
+import { promptSelect, promptMultiselect, promptText } from "./io.ts";
 
 /** Pick the JS runtime this install executes under. All three are supported: orch's code is
  * runtime-agnostic, so run it with whichever you have. The one real differentiator is deno's
@@ -44,6 +45,36 @@ export function selectBackends<Id extends string>(backends: readonly Id[]): Prom
 /** Pick the default backend among the selected set; null when the user cancels. */
 export function selectDefaultBackend<Id extends string>(selected: readonly Id[]): Promise<Id | null> {
   return promptSelect("Default backend for new spawns", selected);
+}
+
+/** Pick the model one harness's spawns launch on. orch owns the choice and records it in orch's
+ *  own settings; the harness only REPORTS what it can run, in its own vocabulary — which is why
+ *  the prompt names the harness. One that enumerates nothing leaves free text as the only honest
+ *  prompt. Null on cancel. */
+export function selectDefaultModel(
+  harnessId: string,
+  offered: readonly HarnessModel[],
+  suggested: string | undefined,
+): Promise<string | null> {
+  if (!offered.length) return promptText(`Default model for ${harnessId} spawns`, suggested);
+  const specs = offered.map((model) => model.spec);
+  const initial = suggested !== undefined && specs.includes(suggested) ? suggested : specs[0];
+  return promptSelect(`Default model for ${harnessId} spawns`, specs, initial);
+}
+
+/** Multi-select which of a harness's models its spawns may launch. Empty means every model
+ *  that harness offers stays allowed — orch ships no built-in restriction. A harness that
+ *  enumerates nothing has nothing to choose from, so it is skipped. Null on cancel. */
+export function selectAllowedModels(
+  harnessId: string,
+  offered: readonly HarnessModel[],
+  already: readonly string[],
+): Promise<string[] | null> {
+  const checked = new Set(already);
+  return promptMultiselect(
+    `Models ${harnessId} spawns may use (space to toggle, none = allow all)`,
+    offered.map((model) => ({ value: model.spec, label: model.spec, hint: model.label ?? "", checked: checked.has(model.spec) })),
+  );
 }
 
 /** Multi-select which missing prerequisites to install; null when the user cancels, [] when none are missing. */

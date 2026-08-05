@@ -16,7 +16,7 @@ import { errorMessage } from "./util.ts";
  * with any other version is invalid and recreated by `orch setup`. On a shape
  * change, alter the one live schema below and fix every writer/reader/test in
  * the same commit; the stamp itself does not move. */
-export const SETTINGS_SCHEMA = 1;
+export const SETTINGS_SCHEMA = 2;
 
 const PositiveInt = z.number().int().positive();
 
@@ -80,7 +80,9 @@ const SettingsFileSchema = z.strictObject({
   defaults: z.strictObject({
     adapter: z.enum(ADAPTER_IDS).optional(),
     backend: z.enum(BACKEND_IDS).optional(),
-    model: z.string().optional(),
+    /** One model per harness: each names models in its own vocabulary, so a single
+     *  string can only ever be launchable by one of them. */
+    models: z.record(z.enum(ADAPTER_IDS), z.string()).optional(),
     worktree: z.boolean().optional(),
   }).optional(),
   fleet: z.strictObject({
@@ -91,7 +93,9 @@ const SettingsFileSchema = z.strictObject({
     cross_workspace: z.boolean().optional(),
   }).optional(),
   models: z.strictObject({
-    allowed: z.array(z.string()).optional(),
+    /** Allowed model patterns PER HARNESS. A pattern is written in that harness's own
+     *  vocabulary, so one shared list could only ever restrict one of them. */
+    allowed: z.record(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
   }).optional(),
   /** What a spawned worker loads. Inherits the user's own harness setup by default;
    * name the extensions that misbehave under concurrency rather than dropping all. */
@@ -126,9 +130,9 @@ export type HostConfig = z.infer<typeof HostSchema>;
 export interface OrchConfig {
   runtime: OrchRuntime;
   installed: { adapters: AdapterId[]; backends: BackendId[] };
-  defaults: { adapter?: AdapterId; backend?: BackendId; model?: string; worktree: boolean };
+  defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; worktree: boolean };
   fleet: { spawn_cap: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
-  models: { allowed: string[] };
+  models: { allowed: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
@@ -283,7 +287,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
   return {
     runtime: root.runtime,
     installed: { adapters: root.installed?.adapters ?? [], backends: root.installed?.backends ?? [] },
-    defaults: { ...root.defaults, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
+    defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
     fleet: {
       spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
       max_agents: root.fleet?.max_agents,
@@ -291,7 +295,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
       worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
       cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
     },
-    models: { allowed: root.models?.allowed ?? [] },
+    models: { allowed: root.models?.allowed ?? {} },
     workers: {
       inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
       exclude_extensions: root.workers?.exclude_extensions ?? [],
@@ -485,18 +489,23 @@ export function resolveSetting<T>(opts: { flag?: T; env?: string; config?: T; fa
 /**
  * Configured model-allowlist patterns, empty when the user set none.
  *
- * Empty means EVERY model is allowed. Orch ships no built-in allowlist: a
- * hardcoded default silently pinned every spawn to the one family that happened
- * to be listed, and an orchestrator could not tell a rejected model from an
- * applied one. Restricting models is an explicit `models.allowed` opt-in.
+ * Empty means EVERY model that harness offers is allowed. Orch ships no built-in
+ * allowlist: a hardcoded default silently pinned every spawn to the one family that
+ * happened to be listed, and an orchestrator could not tell a rejected model from an
+ * applied one. Restricting models is an explicit `models.allowed` opt-in, per harness.
  */
-export function allowedModelPatterns(orchDir: string): string[] {
+export function allowedModelPatterns(orchDir: string, harness: AdapterId): string[] {
   try {
-    return loadConfig(orchDir).models.allowed;
+    return loadConfig(orchDir).models.allowed[harness] ?? [];
   } catch {
     // A malformed config restricts nothing; the write path still reports failures.
     return [];
   }
+}
+
+/** Record which models each harness may launch, replacing any previous set. */
+export function writeSettingsAllowedModels(orchDir: string, allowed: Partial<Record<AdapterId, string[]>>): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, allowed: { ...allowed } } }));
 }
 
 /** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */
@@ -523,9 +532,13 @@ export function writeSettingsRuntime(orchDir: string, runtime: OrchRuntime): voi
 /** Upsert one string entry in the `defaults` section of settings.json. */
 export function writeSettingsDefault(orchDir: string, key: "adapter", value: AdapterId): void;
 export function writeSettingsDefault(orchDir: string, key: "backend", value: BackendId): void;
-export function writeSettingsDefault(orchDir: string, key: "model", value: string): void;
-export function writeSettingsDefault(orchDir: string, key: "adapter" | "backend" | "model", value: string): void {
+export function writeSettingsDefault(orchDir: string, key: "adapter" | "backend", value: string): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, [key]: value } }));
+}
+
+/** Record the model each installed harness launches on, replacing any previous set. */
+export function writeSettingsModels(orchDir: string, models: Partial<Record<AdapterId, string>>): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, models: { ...models } } }));
 }
 
 /** Record the setup-installed provider sets in settings.json. */
@@ -538,7 +551,7 @@ export function writeSettingsFullTree(orchDir: string): void {
   updateSettingsFile(orchDir, (root) => ({
     ...root,
     installed: root.installed ?? { adapters: [], backends: [] },
-    defaults: { ...root.defaults, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
+    defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
     fleet: {
       spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
       ...(root.fleet?.max_agents === undefined ? {} : { max_agents: root.fleet.max_agents }),
@@ -546,7 +559,7 @@ export function writeSettingsFullTree(orchDir: string): void {
       worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
       cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
     },
-    models: { allowed: root.models?.allowed ?? [] },
+    models: { allowed: root.models?.allowed ?? {} },
     workers: {
       inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
       exclude_extensions: root.workers?.exclude_extensions ?? [],

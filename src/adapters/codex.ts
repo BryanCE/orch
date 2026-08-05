@@ -6,6 +6,7 @@ import { declaredRuntime } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import type {
+  HarnessModel,
   AdapterCommand,
   AgentAdapter,
   AgentState,
@@ -22,6 +23,20 @@ import { contentText } from "./transcript.ts";
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
 export const CODEX_TURN_COMPLETE = "agent-turn-complete";
+
+const CODEX_MODELS_CACHE = join(homedir(), ".codex", "models_cache.json");
+
+/** codex caches its model catalogue as `{ models: [{ slug, display_name }] }`; that
+ *  shape is codex's and lives only here. */
+function codexCachedModels(): { slug?: unknown; display_name?: unknown }[] {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(CODEX_MODELS_CACHE, "utf8"));
+    return isRecord(parsed) && Array.isArray(parsed.models) ? parsed.models.filter(isRecord) : [];
+  } catch {
+    return [];
+  }
+}
+
 
 /**
  * Codex does not expose an orch presence writer of its own.  States inferred
@@ -225,6 +240,7 @@ export class CodexAdapter implements AgentAdapter {
     ask: false,
     setModel: false,
     sessionTail: true,
+    registersPresenceOnStart: false,
     lifecycle: [] as const,
     enforcesCommandLocks: false,
   };
@@ -278,6 +294,13 @@ export class CodexAdapter implements AgentAdapter {
   // fallow-ignore-next-line unused-class-member
   answer(_request: AnswerRequest): AdapterCommand | undefined {
     return undefined;
+  }
+
+  /** Read codex's own cached catalogue; codex names models by bare slug, never provider/id. */
+  listModels(): readonly HarnessModel[] {
+    return codexCachedModels().flatMap((model) => typeof model.slug === "string" && model.slug
+      ? [{ spec: model.slug, ...(typeof model.display_name === "string" ? { label: model.display_name } : {}) }]
+      : []);
   }
 
   /** Notify text → output-last-message file → native JSONL transcript. */

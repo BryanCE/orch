@@ -2,19 +2,20 @@ import { loadConfigOrNull, type OrchConfig } from "../config.ts";
 import { isBridgeExtensionStale } from "../doctor/extensions.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
-import { collapse, buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, type Entity } from "../entities.ts";
+import { collapse, buildEntities, currentWorkspace, entityWorkspace, sortEntities, type Entity } from "../entities.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/sqlite.ts";
 import { renderTable } from "../table.ts";
-import { workspaceName } from "../policy/workspace.ts";
+import { sameWorkspace, workspaceName } from "../policy/workspace.ts";
 import { ensureDaemon } from "./daemon.ts";
+import { rpcCall } from "../daemon/rpc.ts";
 import {
   firstNonEmptyText,
   resultText,
   splitOptionFlags,
 } from "./target.ts";
-import { truncate } from "../util.ts";
+import { isRecord, truncate } from "../util.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
@@ -34,6 +35,8 @@ interface View {
   name: string;
   tab: string;
   agent: string;
+  /** Orchestrator that spawned this agent; null for panes orch never recorded. */
+  owner: string | null;
   model: string; // display, provider stripped
   modelFull: string;
   state: string;
@@ -119,6 +122,7 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
     name: ent.name ?? "",
     tab: ent.tabLabel ?? "-",
     agent: pres?.status?.agent ?? (spawned.get(ent.key)?.adapter) ?? ent.agent ?? "-",
+    owner: spawned.get(ent.key)?.owner ?? null,
     model,
     modelFull,
     state,
@@ -133,53 +137,74 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
   };
 }
 
-function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes"]);
+/**
+ * The fleet, from the daemon when it answers and from presence files when it does not.
+ * orchd already holds this state, so asking it is the cheap path AND the one that keeps a
+ * single source of truth; the file scan stays because `orch status` is specified to work
+ * with orchd absent.
+ */
+async function readFleetRows(workspaces: OrchConfig["workspaces"], offline: boolean): Promise<StatusRow[]> {
+  if (offline) return fleetStatusRows(workspaces);
+  try {
+    const answer = await rpcCall(orchDir(), "status");
+    if (isRecord(answer) && Array.isArray(answer.rows)) return answer.rows as StatusRow[];
+  } catch {
+    // Daemon absent or refusing: fall through to the file protocol.
+  }
+  return fleetStatusRows(workspaces);
+}
+
+/**
+ * The rows this caller should see: their own workspace unless `--all`, and the agents orch
+ * spawned unless `--all-panes`. A backend reports every pane it owns — the orchestrator's
+ * own included — and listing those made "is anyone idle?" count the asker.
+ */
+function scopeFleetRows(rows: readonly StatusRow[], opts: { all: boolean; allPanes: boolean }): StatusRow[] {
+  const currentWs = currentWorkspace();
+  return rows.filter((row) => {
+    if (!opts.allPanes && !row.managed) return false;
+    if (opts.all) return true;
+    if (currentWs !== null && !sameWorkspace(row.workspace, currentWs)) return false;
+    return !(row.presenceOnly && (row.exited || !row.alive));
+  });
+}
+
+async function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
+  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes", "--offline"]);
   const json = enabled.has("--json");
   const all = enabled.has("--all");
   const allPanes = enabled.has("--all-panes");
-  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
-  const spawned = spawnedRecords();
-  const views = entities.map((entity) => deriveView(entity, spawned));
-
-  // The fleet is what orch spawned. A backend reports every pane it owns — the
-  // orchestrator's own included — and listing those made "is anyone idle?"
-  // count the asker; --all-panes opts back into the raw backend view.
-  const visible = views.filter((v) => {
-    if (!allPanes && !v.entity.managed) return false;
-    if (all) return true;
-    if (v.exited && v.entity.presenceOnly) return false;
-    // presence-only with dead pid
-    if (v.entity.presenceOnly && v.entity.presence && !v.entity.presence.alive) return false;
-    return true;
-  });
+  const visible = scopeFleetRows(await readFleetRows(workspaces, enabled.has("--offline")), { all, allPanes });
 
   if (json) {
-    // full merged objects, untruncated
-    const out = visible.map((v) => statusRowFromView(v, workspaces));
-    process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+    process.stdout.write(JSON.stringify(visible, null, 2) + "\n");
     return;
   }
 
-  const headers = ["PANE", "NAME", "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
-  const caps = [12, 14, 10, 6, 30, 12, 8, 5, 40, 50];
   const rows: string[][] = [];
   const rawExited: boolean[] = [];
-  const showWorkspace = all && new Set(visible.map((v) => entityWorkspace(v.entity) ?? "-")).size > 1;
-  for (const v of visible) {
+  const showWorkspace = all && new Set(visible.map((row) => row.workspace ?? "-")).size > 1;
+  // Two orchestrators sharing a fleet is the only time the owner matters, and it
+  // is exactly when a name collision silently hands one session another's pane.
+  const showOwner = new Set(visible.map((row) => row.owner ?? "-")).size > 1;
+  const headers = ["PANE", "NAME", ...(showOwner ? ["OWNER"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
+  const caps = [12, 14, ...(showOwner ? [20] : []), 10, 6, 30, 12, 8, 5, 40, 50];
+  for (const row of visible) {
+    const name = row.name ?? "";
     rows.push([
-      v.paneLabel,
-      showWorkspace ? `${displayWorkspace(entityWorkspace(v.entity), workspaces)} / ${v.name}` : v.name,
-      v.tab,
-      v.agent,
-      v.model,
-      v.state + (v.stateFallback ? "?" : "") + (v.staleExtension ? " (stale)" : ""),
-      v.cost > 0 ? "$" + v.cost.toFixed(2) : "",
-      v.ctxPercent != null ? `${Math.round(v.ctxPercent)}%` : "",
-      truncate(v.task, 40),
-      truncate(v.last, 50),
+      (row.paneId ?? row.key) + (row.focused ? "*" : ""),
+      showWorkspace ? `${formatWorkspace(row.workspace, row.workspaceName)} / ${name}` : name,
+      ...(showOwner ? [row.owner ?? "-"] : []),
+      row.tab ?? "-",
+      row.agent ?? "-",
+      row.modelShort || row.model || "-",
+      row.state + (row.stateFallback ? "?" : "") + (row.staleExtension ? " (stale)" : ""),
+      row.cost > 0 ? "$" + row.cost.toFixed(2) : "",
+      row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "",
+      truncate(collapse(row.task ?? ""), 40),
+      truncate(collapse(row.lastText ?? ""), 50),
     ]);
-    rawExited.push(v.exited);
+    rawExited.push(row.exited);
   }
   if (rows.length === 0) {
     process.stdout.write("No panes found (backend down and no agent dirs).\n");
@@ -204,6 +229,8 @@ interface StatusRow {
   name: string | null;
   tab: string | null;
   agent: string | null;
+  /** Orchestrator that spawned the agent; null for panes orch never recorded. */
+  owner: string | null;
   focused: boolean;
   model: string;
   modelShort: string;
@@ -211,6 +238,8 @@ interface StatusRow {
   stateFallback: boolean;
   staleExtension?: boolean;
   exited: boolean;
+  /** False once the agent's pid is gone; the visibility filter's only liveness input. */
+  alive: boolean;
   cost: number;
   ctxPercent: number | null;
   task: string | null;
@@ -248,12 +277,14 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
     name: v.entity.name,
     tab: v.entity.tabLabel,
     agent: v.entity.agent,
+    owner: v.owner,
     focused: v.entity.focused,
     model: v.modelFull,
     modelShort: v.model,
     state: v.state,
     stateFallback: v.stateFallback,
     exited: v.exited,
+    alive: v.entity.presence?.alive ?? false,
     cost: v.cost,
     ctxPercent: v.ctxPercent,
     task: viewTask(v),
@@ -270,21 +301,31 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
   };
 }
 
-function localStatusRows(args: string[], workspaces: OrchConfig["workspaces"]): StatusRow[] {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local"]);
-  const all = enabled.has("--all");
-  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
+/**
+ * Every agent orch knows about, in the ONE row shape the daemon serves and every
+ * renderer consumes. Unscoped and unfiltered on purpose: the daemon cannot know the
+ * caller's workspace, so scoping and visibility belong to the command that renders.
+ */
+export function fleetStatusRows(workspaces: OrchConfig["workspaces"]): StatusRow[] {
   const spawned = spawnedRecords();
-  const views = entities.map((entity) => deriveView(entity, spawned));
-  return views.filter((v) => all || (!v.exited || !v.entity.presenceOnly) && !(v.entity.presenceOnly && v.entity.presence && !v.entity.presence.alive))
-    .map((v) => ({ ...statusRowFromView(v, workspaces), host: "local" }));
+  return sortEntities(buildEntities()).map((entity) => statusRowFromView(deriveView(entity, spawned), workspaces));
+}
+
+/** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
+async function localStatusRows(args: string[], workspaces: OrchConfig["workspaces"]): Promise<StatusRow[]> {
+  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes", "--offline"]);
+  const scoped = scopeFleetRows(await readFleetRows(workspaces, enabled.has("--offline")), {
+    all: enabled.has("--all"),
+    allPanes: enabled.has("--all-panes"),
+  });
+  return scoped.map((row) => ({ ...row, host: "local" }));
 }
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
-    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", tab: null, agent: null,
+    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", owner: null, tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
-    exited: false, cost: 0, ctxPercent: null, task: warning, lastText: null,
+    exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, lastText: null,
     backendStatus: null, sessionPath: null, presenceDir: null, presenceOnly: false,
     tokens: null, turns: null, host, warning,
   };
@@ -304,10 +345,10 @@ export async function cmdStatus(args: string[]): Promise<void> {
   const hosts = config?.hosts ?? {};
   const workspaces = config?.workspaces ?? {};
   if (localOnly || Object.keys(hosts).length === 0) {
-    cmdStatusLocal(args, workspaces);
+    await cmdStatusLocal(args, workspaces);
     return;
   }
-  const local = localStatusRows(args, workspaces);
+  const local = await localStatusRows(args, workspaces);
   const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
     name,
     result: await runRemoteAsync(name, host, ["status", ...(offline ? ["--offline"] : [])], { timeoutMs: host.timeout_ms }),
@@ -329,11 +370,15 @@ export async function cmdStatus(args: string[]): Promise<void> {
     return;
   }
   const showWorkspace = all && new Set(rows.map((row) => row.workspace ?? "-")).size > 1;
-  const headers = ["HOST", "PANE", ...(showWorkspace ? ["WORKSPACE"] : []), "NAME", "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
+  const showOwner = new Set(rows.map((row) => row.owner ?? "-")).size > 1;
+  const headers = ["HOST", "PANE", ...(showWorkspace ? ["WORKSPACE"] : []), "NAME", ...(showOwner ? ["OWNER"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
+  const caps = [10, 14, ...(showWorkspace ? [20] : []), 14, ...(showOwner ? [20] : []), 10, 8, 30, 12, 8, 5, 40, 50];
   const tableRows = rows.map((row) => [
     row.host ?? "local", row.warning ? "-" : row.paneId ?? row.key,
     ...(showWorkspace ? [formatWorkspace(row.workspace, row.workspaceName)] : []),
-    row.name ?? (row.warning ? "WARNING" : ""), row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", row.state + (row.staleExtension ? " (stale)" : ""),
+    row.name ?? (row.warning ? "WARNING" : ""),
+    ...(showOwner ? [row.owner ?? "-"] : []),
+    row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", row.state + (row.staleExtension ? " (stale)" : ""),
     row.cost > 0 ? "$" + row.cost.toFixed(2) : "", row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "",
     truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),
   ]);
@@ -341,6 +386,5 @@ export async function cmdStatus(args: string[]): Promise<void> {
     process.stdout.write("No panes found (backend down and no agent dirs).\n");
     return;
   }
-  process.stdout.write(renderTable(headers, tableRows,
-    showWorkspace ? [10, 14, 20, 14, 10, 8, 30, 12, 8, 5, 40, 50] : [10, 14, 14, 10, 8, 30, 12, 8, 5, 40, 50]) + "\n");
+  process.stdout.write(renderTable(headers, tableRows, caps) + "\n");
 }

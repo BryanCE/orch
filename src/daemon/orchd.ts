@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox, checkOwnerWrite } from "../store/sqlite.ts";
 import { checkWall } from "../policy/workspace.ts";
+import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
 import { normalizeControlTarget } from "../backends/identity.ts";
 import { deliverControl, KEYSTROKE_KIND, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
@@ -24,9 +25,7 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
-import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities } from "../entities.ts";
-import { deriveView } from "../commands/status.ts";
-import { spawnedRecords } from "../presence/store.ts";
+import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
 
 const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
 const bootCodeHash = computeCodeHash(entrypoint);
@@ -48,28 +47,10 @@ function getSinks(directory: string): Sink[] {
   return sinks ??= loadSinks(directory);
 }
 
-function presenceView(): { rows: Record<string, unknown>[] } {
-  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all: true });
-  const spawned = spawnedRecords();
-  return {
-    rows: entities.map((entity) => {
-      const view = deriveView(entity, spawned);
-      return {
-        key: entity.key,
-        paneId: entity.paneId,
-        name: entity.name,
-        agent: view.agent,
-        state: view.state,
-        exited: view.exited,
-        model: view.modelFull,
-        lastText: entity.presence?.status?.lastText ?? null,
-        cost: view.cost,
-        ctxPercent: view.ctxPercent,
-        tokens: view.sview?.tokens ?? entity.presence?.status?.tokens ?? null,
-        workspace: entityWorkspace(entity),
-      };
-    }),
-  };
+/** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
+ *  second shape here is what left the method unusable and every client reading files. */
+function fleetStatus(directory: string): { rows: StatusRow[] } {
+  return { rows: fleetStatusRows(getConfig(directory).workspaces) };
 }
 
 async function socketAnswers(directory: string): Promise<boolean> {
@@ -180,13 +161,16 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
   const adapterId = requiredString(value.adapter, "adapter");
   const adapter = resolveAdapter(adapterId);
   if (!adapter) throw new Error(`cannot spawn ${key}: unknown adapter ${adapterId}`);
+  // Required AND ruled on: a launch with no model runs on whatever the harness
+  // defaults to, and a shorthand one gets fuzzy-matched onto whatever registry
+  // entry shares a prefix. Both end with the fleet on a model nobody asked for.
+  const model = requiredString(value.model, "model");
+  assertModelAllowed(directory, adapter, model);
   const handle = detachedBackend.spawn(adapter, {
     key,
     orchDir: directory,
     cwd: optionalString(value.cwd),
-    // Required, not optional: a launch with no model runs on whatever the harness
-    // defaults to, which is never the model the orchestrator asked for.
-    model: requiredString(value.model, "model"),
+    model,
     tools: optionalString(value.tools),
     workers: value.workers as WorkerPolicy | undefined,
   });
@@ -262,7 +246,7 @@ async function main(): Promise<void> {
         },
       }),
       "subscribe-events": () => ({ subscribed: true }),
-      presence: () => presenceView(),
+      status: () => fleetStatus(directory),
       dispatch: (params) => acceptWrite(directory, "dispatch", params),
       steer: (params) => acceptWrite(directory, "steer", params),
       "spawn-detached": (params) => spawnDetached(directory, params),

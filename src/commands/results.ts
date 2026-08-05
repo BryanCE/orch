@@ -7,7 +7,7 @@ import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../adapters/adapter.ts";
-import { die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
+import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 
 interface QuestionRow { key: string; name: string | null; age: string; question: string; workspace?: string; host?: string; warning?: string }
@@ -16,21 +16,25 @@ interface QuestionPayload { ts?: unknown; question: string }
 
 
 export function cmdResult(args: string[]) {
-  const json = args.includes("--json");
-  const rest = args.filter((a) => !a.startsWith("--"));
-  const target = rest[0];
-  if (!target) die("usage: orch result <target> [--json]");
+  const { enabled, positional } = splitOptionFlags(args, ["--json", "--force"]);
+  const json = enabled.has("--json");
+  const force = enabled.has("--force");
+  const target = positional[0];
+  if (!target) die("usage: orch result <target> [--force] [--json]");
   const remote = targetHost(target);
   if (remote) {
     const host = loadConfig(orchDir()).hosts[remote.host];
     const destination = host?.dest;
     if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
-    const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
+    const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(force ? ["--force"] : []), ...(json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
     if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
     process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
     return;
   }
   const ent = resolveTarget(target);
+  // Names are a flat namespace across every orchestrator, so an unscoped read
+  // hands one session's work product to another as if it were its own.
+  assertAgentOwned(target, ent, force);
   const pres = ent.presence;
   if (pres?.result) {
     if (json) process.stdout.write(JSON.stringify(pres.result, null, 2) + "\n");

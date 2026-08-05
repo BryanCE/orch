@@ -9,10 +9,10 @@
 // The subscription is orch's transport (src/daemon/rpc.ts) and survives daemon
 // restarts on its own. Nothing here is plexer-aware: the fleet view is built
 // purely from the events, so no pane, tab or socket concept enters this file.
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { subscribeEvents, type EventSubscription } from "../../src/daemon/rpc.ts";
-import type { NotifyEvent } from "../../src/notify/format.ts";
-import { isRecord, truncate } from "../../src/util.ts";
+import type { HarnessApi, HarnessContext } from "./harness.ts";
+import { subscribeEvents, type EventSubscription } from "../daemon/rpc.ts";
+import type { NotifyEvent } from "../notify/format.ts";
+import { isRecord, truncate } from "../util.ts";
 
 /** Widget id; also the status-line key, so both clear together. */
 const WIDGET_ID = "orch-fleet";
@@ -66,7 +66,7 @@ function summaryLine(agents: Map<string, FleetAgent>): string {
 
 export interface FleetMonitor {
   /** Bind the monitor to a live session's UI and start streaming. */
-  attach(context: ExtensionContext): void;
+  attach(context: HarnessContext): void;
   stop(): void;
 }
 
@@ -76,7 +76,7 @@ export interface FleetMonitor {
  */
 export function createFleetMonitor(orchDir: string): FleetMonitor {
   const agents = new Map<string, FleetAgent>();
-  let context: ExtensionContext | undefined;
+  let context: HarnessContext | undefined;
   let subscription: EventSubscription | undefined;
 
   function render(): void {
@@ -114,7 +114,7 @@ export function createFleetMonitor(orchDir: string): FleetMonitor {
   });
 
   return {
-    attach(next: ExtensionContext): void {
+    attach(next: HarnessContext): void {
       context = next;
       render();
     },
@@ -136,14 +136,14 @@ export function isOrchestratorSession(): boolean {
 }
 
 /** Wire the fleet monitor into a pi orchestrator session; a worker session gets nothing. */
-export function registerFleetMonitor(pi: ExtensionAPI, orchDir: string): void {
+export function registerFleetMonitor(harness: HarnessApi, orchDir: string): void {
   if (!isOrchestratorSession()) return;
   const monitor = createFleetMonitor(orchDir);
-  pi.on("session_start", (_event, context) => {
+  harness.on("session_start", (_event, context) => {
     monitor.attach(context);
     return Promise.resolve();
   });
-  pi.on("session_shutdown", () => {
+  harness.on("session_shutdown", () => {
     monitor.stop();
     return Promise.resolve();
   });

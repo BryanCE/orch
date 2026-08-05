@@ -75,10 +75,18 @@ function runAdapterCommand(command: AdapterCommand, timeoutMs: number): Promise<
   });
 }
 
-function requirePresence(target: string, adapter: AgentAdapter, action: string): void {
-  if (!loadPresence().has(target)) {
-    throw new Error(`cannot ${action} ${target}: no presence dir for ${adapter.id} inbox delivery`);
-  }
+/**
+ * Refuse inbox delivery unless the agent is still running. A presence dir and its
+ * status file both outlive the process that wrote them, so an existence-only check
+ * appends work to a file nobody reads: the write is "accepted", the pane sits idle
+ * with no task, and the only symptom is a generic RPC timeout further up. Orch owns
+ * this ruling for every harness; the adapter is named in the message, never branched on.
+ */
+function requireLiveAgent(target: string, adapter: AgentAdapter, action: string): void {
+  const presence = loadPresence().get(target);
+  if (!presence) throw new Error(`cannot ${action} ${target}: no presence dir for ${adapter.id} inbox delivery`);
+  if (!presence.status) throw new Error(`cannot ${action} ${target}: ${adapter.id} bridge never registered - respawn required`);
+  if (!presence.alive) throw new Error(`cannot ${action} ${target}: ${adapter.id} bridge is disconnected (pid ${presence.status.pid ?? "unknown"} is gone) - respawn required`);
 }
 
 /**
@@ -91,7 +99,7 @@ function requirePresence(target: string, adapter: AgentAdapter, action: string):
 async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<void> {
   const mechanism = adapter.caps.steer;
   if (mechanism === "none") throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} declares steer "none"`);
-  if (mechanism === "inbox") requirePresence(target, adapter, action.kind);
+  if (mechanism === "inbox") requireLiveAgent(target, adapter, action.kind);
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
   if (command) {
     await runAdapterCommand(command, timeoutMs);
@@ -113,7 +121,7 @@ async function deliverAnswer(target: string, adapter: AgentAdapter, text: string
   if (!adapter.caps.ask) {
     throw new Error(`cannot answer ${target}: adapter ${adapter.id} declares ask false`);
   }
-  requirePresence(target, adapter, "answer");
+  requireLiveAgent(target, adapter, "answer");
   const command = adapter.answer({ key: target, text });
   if (command) await runAdapterCommand(command, timeoutMs);
 }
@@ -129,8 +137,8 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
     throw new Error(`cannot set model on ${target}: adapter ${adapter.id} declares setModel false`);
   }
   const directory = orchDir();
-  assertModelAllowed(directory, model);
-  requirePresence(target, adapter, "set model on");
+  assertModelAllowed(directory, adapter, model);
+  requireLiveAgent(target, adapter, "set model on");
   const command = adapter.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
   const dir = loadPresence().get(target)?.dir;

@@ -9,12 +9,12 @@
 // harness never re-litigates it. Orch's ladder token names a model AND a
 // thinking effort ("provider/id:medium"); the registry keys on the bare id, so
 // the suffix is split off before lookup and applied through pi's own mechanism.
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isThinkingLevel, splitThinkingSuffix, type ThinkingLevel } from "../../src/policy/model.ts";
-import { atomicWrite } from "../../src/presence/writer.ts";
-import { isRecord, type JsonRecord } from "../../src/util.ts";
+import type { HarnessApi, HarnessContext } from "./harness.ts";
+import { isThinkingLevel, splitThinkingSuffix, type ThinkingLevel } from "../policy/model.ts";
+import { atomicWrite } from "../presence/writer.ts";
+import { isRecord, type JsonRecord } from "../util.ts";
 
-export type ResolvedModel = NonNullable<ExtensionContext["model"]>;
+export type ResolvedModel = NonNullable<HarnessContext["model"]>;
 export type { ThinkingLevel };
 
 /** A raw inbox control command; `cmd` selects which of `model`/`level` is meaningful. */
@@ -74,9 +74,9 @@ export async function resolveRegistryModel(
 }
 
 export interface ModelControlDeps {
-  pi: ExtensionAPI;
+  harness: HarnessApi;
   /** The running agent's context, read fresh so a retry sees a registry that just loaded. */
-  context: () => ExtensionContext | undefined;
+  context: () => HarnessContext | undefined;
   /** Absolute path of the presence control-outcome record; resolved lazily (set at presence init). */
   controlFile: () => string;
   /** Re-read the applied model into presence state and flush status.json. */
@@ -85,18 +85,18 @@ export interface ModelControlDeps {
 
 /** pi's control-command applier: resolves+applies a model or thinking change and records the outcome. */
 export function createModelControl(deps: ModelControlDeps) {
-  const { pi, context, controlFile, refreshPresence } = deps;
+  const { harness, context, controlFile, refreshPresence } = deps;
   const findModel: FindRegistryModel = (provider, id) => context()?.modelRegistry.find(provider, id);
 
   function applyThinkingLevel(level: unknown): void {
     if (!isThinkingLevel(level)) throw new Error("Thinking level must be valid");
-    pi.setThinkingLevel(level);
+    harness.setThinkingLevel(level);
   }
 
   async function applyModelCommand(requestedModel: unknown): Promise<void> {
     const { model, thinking } = await resolveRegistryModel(requestedModel, findModel);
-    await pi.setModel(model);
-    if (thinking !== undefined) pi.setThinkingLevel(thinking);
+    await harness.setModel(model);
+    if (thinking !== undefined) harness.setThinkingLevel(thinking);
   }
 
   // The dispatcher blocks on this record to learn whether its command landed, so

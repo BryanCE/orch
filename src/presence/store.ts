@@ -1,5 +1,4 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // The presence protocol is orch's, and src/presence/ owns it (Rule 10). The
@@ -12,9 +11,6 @@ import { deleteSpawnedRecord, insertSpawnedRecord, selectSpawnedRecords, setOwne
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
 import type { BackendId } from "../backends/backend.ts";
-
-const HOME = homedir();
-const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
 
 export { orchDir, presenceAgentDir };
 
@@ -169,21 +165,4 @@ export function statusForPresence(presence: PresenceEntry): PresenceStatus | nul
 
 export function bridgeRegistered(pane: string): boolean {
   return readPresenceStatus(presencePath(pane, STATUS_FILE)) !== null;
-}
-
-let cachedSettings: Record<string, unknown> | undefined;
-function settings(): Record<string, unknown> {
-  if (cachedSettings === undefined) {
-    const value = readJSON(SETTINGS_PATH);
-    cachedSettings = isRecord(value) ? value : {};
-  }
-  return cachedSettings;
-}
-
-export function defaultModelString(): string {
-  const source = settings();
-  const provider = typeof source.defaultProvider === "string" ? source.defaultProvider : "openai-codex";
-  const model = typeof source.defaultModel === "string" ? source.defaultModel : "unknown";
-  const thinking = typeof source.defaultThinkingLevel === "string" ? source.defaultThinkingLevel : "medium";
-  return `${provider}/${model}:${thinking}`;
 }

@@ -5,16 +5,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
-import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
+import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
-import { ADAPTER_IDS, type AdapterId } from "../adapters/adapter.ts";
+import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
 import { BACKEND_IDS, type BackendId } from "../backends/backend.ts";
+import { assertModelOffered } from "../policy/model.ts";
 import { binaryStatus } from "../doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { runDoctor, type CheckResult } from "../doctor/runner.ts";
 import { withSpinner, promptText } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
-import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
+import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
 import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
@@ -35,6 +36,7 @@ interface InstallerEntry {
 const INSTALLERS: Record<string, InstallerEntry> = {
   // bun is never probed on its own — it surfaces only as pi's declared dependency.
   pi: { install: "bun add -g @earendil-works/pi-coding-agent", needs: ["bun"] },
+  omp: { install: "bun add -g @oh-my-pi/pi-coding-agent", needs: ["bun"] },
   claude: { install: "curl -fsSL https://claude.ai/install.sh | bash" },
   codex: { docsUrl: "https://github.com/openai/codex" },
   bun: { install: "curl -fsSL https://bun.sh/install | bash" },
@@ -95,6 +97,59 @@ export async function resolveActiveDefault<Id extends string>(
 ): Promise<Id | null> {
   if (selected.length === 1 || flagProvided || !interactive) return selected[0]!;
   return pick(selected);
+}
+
+/** A model for EVERY installed harness. Each names models in its own vocabulary, so one
+ *  string cannot serve them all — recording only the default harness's is what left
+ *  `orch spawn --agent claude` handing a pi model to claude's gate. Null when the user cancels. */
+export async function resolveHarnessModels(
+  flag: string | undefined,
+  harnesses: readonly AdapterId[],
+  interactive: boolean,
+): Promise<HarnessModelChoices | null> {
+  const config = loadConfigOrNull(orchDir());
+  const choices: HarnessModelChoices = { defaults: {}, allowed: {} };
+  for (const id of harnesses) {
+    const harness = resolveAdapter(id);
+    const chosen = await resolveDefaultModel(flag, harness, interactive);
+    if (chosen === null) return null;
+    choices.defaults[id] = chosen;
+
+    const offered = harness.listModels?.() ?? [];
+    if (!interactive || !offered.length) continue;
+    const allowed = await selectAllowedModels(id, offered, config?.models.allowed[id] ?? []);
+    if (allowed === null) return null;
+    if (allowed.length) choices.allowed[id] = allowed;
+  }
+  return choices;
+}
+
+/** What each installed harness may launch, and what it launches by default. */
+export interface HarnessModelChoices {
+  defaults: Partial<Record<AdapterId, string>>;
+  allowed: Partial<Record<AdapterId, string[]>>;
+}
+
+/** The model spawns of ONE harness launch on: `--model=`, else a pick from what that harness
+ * reports it can run, else its own default when non-interactive. orch decides and records; the
+ * harness only enumerates. Null when the user cancels. */
+export async function resolveDefaultModel(
+  flag: string | undefined,
+  harness: AgentAdapter,
+  interactive: boolean,
+  pick: (harnessId: string, offered: readonly HarnessModel[], suggested: string | undefined) => Promise<string | null> = selectDefaultModel,
+): Promise<string | null> {
+  const offered = harness.listModels?.() ?? [];
+  const suggested = harness.defaultModelString?.();
+  const chosen = flag ?? (interactive ? await pick(harness.id, offered, suggested) : suggested ?? offered[0]?.spec);
+  if (chosen === null) return null;
+  if (!chosen) die(`no default model: pass --model=<model[:thinking]> or run setup interactively (${harness.id} lists none)`);
+  try {
+    assertModelOffered(harness, chosen);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  return chosen;
 }
 
 /** Resolve the declared JS runtime from `--runtime`, the wizard, or the no-preference value.
@@ -167,6 +222,11 @@ function linkBin(src: string, dest: string, copy: boolean): void {
   process.stdout.write(`  ${dest} ${copy ? "(copy)" : "-> " + src}\n`);
 }
 
+/** How many models a harness is restricted to, or nothing when it is unrestricted. */
+function allowedNote(allowed: readonly string[] | undefined): string {
+  return allowed?.length ? `  (restricted to ${allowed.length})` : "";
+}
+
 /** Persist the composition selections (runtime, installed sets, active defaults) to settings.json. */
 function recordComposition(
   runtime: OrchRuntime,
@@ -174,6 +234,7 @@ function recordComposition(
   defaultAdapter: AdapterId,
   backends: BackendId[],
   defaultBackend: BackendId,
+  models: HarnessModelChoices,
 ): void {
   // Record the runtime FIRST: it is a required key with no default, so no other write can
   // produce a valid file until it is present. Re-recording the same value is a no-op change.
@@ -182,6 +243,10 @@ function recordComposition(
   writeSettingsInstalled(orchDir(), { adapters, backends });
   writeSettingsDefault(orchDir(), "adapter", defaultAdapter);
   writeSettingsDefault(orchDir(), "backend", defaultBackend);
+  // Every launch path resolves its harness's model from here. Recording them is not
+  // optional: an install without one fails at the first spawn, including setup's own smoke.
+  writeSettingsModels(orchDir(), models.defaults);
+  writeSettingsAllowedModels(orchDir(), models.allowed);
   // Seed the complete live settings tree only after composition writes have landed.
   writeSettingsFullTree(orchDir());
   process.stdout.write(
@@ -190,7 +255,8 @@ function recordComposition(
     `  adapters          = ${adapters.join(", ")}\n` +
     `  default adapter   = ${defaultAdapter}\n` +
     `  backends          = ${backends.join(", ")}\n` +
-    `  default backend   = ${defaultBackend}\n`,
+    `  default backend   = ${defaultBackend}\n` +
+    adapters.map((id) => `  model (${id})${" ".repeat(Math.max(0, 11 - id.length))} = ${models.defaults[id] ?? "(none)"}${allowedNote(models.allowed[id])}\n`).join(""),
   );
 }
 
@@ -486,6 +552,7 @@ export async function cmdSetup(args: string[]) {
   const runtimeFlag = readAssignFlag(args, "--runtime");
   const adapterFlag = readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--adapter") ?? readAssignFlag(args, "--harness");
   const backendFlag = readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer");
+  const modelFlag = readAssignFlag(args, "--model");
   const adapterIds = allAdapters().map((adapter) => adapter.id);
   const backendIds = allBackends().map((entry) => entry.id);
   const interactive = process.stdin.isTTY && !yes;
@@ -506,8 +573,10 @@ export async function cmdSetup(args: string[]) {
   if (backends === null) return;
   const defaultBackend = await resolveActiveDefault(backends, backendFlag !== undefined, interactive, selectDefaultBackend);
   if (defaultBackend === null) return;
+  const harnessModels = await resolveHarnessModels(modelFlag, adapters, interactive);
+  if (harnessModels === null) return;
 
-  recordComposition(selectedRuntime, adapters, defaultAdapter, backends, defaultBackend);
+  recordComposition(selectedRuntime, adapters, defaultAdapter, backends, defaultBackend, harnessModels);
 
   if (!(await installPrerequisites(adapters, backends, interactive, yes, noInstall))) return;
 

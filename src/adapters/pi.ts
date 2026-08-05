@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
-  defaultModelString,
   loadPresence,
   readJSON,
   statusForPresence,
@@ -10,7 +9,7 @@ import {
 } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
-import { buildExtensionBundle, extensionBundlePath, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
+import { buildExtensionBundle, extensionBundlePath, EXTENSION_NAMES, type ExtensionName } from "../bridge-bundle.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { ANSWER_FILE, INBOX_FILE } from "../presence/schema.ts";
@@ -21,6 +20,7 @@ import type {
   AgentAdapter,
   AgentState,
   AnswerRequest,
+  HarnessModel,
   LifecycleVerb,
   ModelRequest,
   ResultExtractionInput,
@@ -56,38 +56,43 @@ const AGENT_STATES = new Set<AgentState>([
   "unknown",
 ]);
 
-/** pi's extension directory orch links its bundled bridge/HUD extensions into.
- * Single source of truth for both the worker launch commands and the
- * extension-staleness doctor check (diagnoseShim/installShim). */
-const PI_EXTENSION_DIR = path.join(os.homedir(), ".pi", "agent", "extensions");
+/** pi's own config root, and the files under it orch reads or writes. */
+const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
+const PI_EXTENSION_DIR = path.join(PI_AGENT_DIR, "extensions");
+const PI_TRUST_FILE = path.join(PI_AGENT_DIR, "trust.json");
+const PI_MODELS_STORE = path.join(PI_AGENT_DIR, "models-store.json");
+/** pi's shipped bundle, built from extensions/pi/. */
+const PI_EXTENSION: ExtensionName = "orchestrator-bridge";
+/** Binaries that start pi: the CLI and orch's `pif` wrapper. */
+const PI_BINARIES = ["pi", "pif"];
 
-const PI_EXTENSION_SUFFIXES = [".ts", ".js", ".mjs"];
+const EXTENSION_SUFFIXES = [".ts", ".js", ".mjs"];
 
-/** A directory is a pi extension only when it has an index entrypoint; helper
- *  directories beside real extensions have none, and naming one on pi's command
- *  line makes pi refuse to start at all. */
+/** A directory is an extension only when it has an index entrypoint; helper
+ *  directories beside real extensions have none, and naming one on the harness's
+ *  command line makes it refuse to start at all. */
 function directoryExtensionIndex(directory: string): string | undefined {
-  return PI_EXTENSION_SUFFIXES
+  return EXTENSION_SUFFIXES
     .map((suffix) => path.join(directory, `index${suffix}`))
     .find((candidate) => fs.existsSync(candidate));
 }
 
-/** Basenames of the user's own discovered pi extensions, minus orch's bundles. */
-function installedUserExtensions(): { name: string; file: string }[] {
-  const orchBundles = new Set<string>(PI_EXTENSION_NAMES);
+/** Basenames of the user's own discovered extensions, minus orch's bundles. */
+function installedUserExtensions(directory: string): { name: string; file: string }[] {
+  const orchBundles = new Set<string>(EXTENSION_NAMES);
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(PI_EXTENSION_DIR, { withFileTypes: true });
+    entries = fs.readdirSync(directory, { withFileTypes: true });
   } catch {
     return []; // no extension dir: the user has none to inherit
   }
   return entries.flatMap((entry) => {
-    const file = path.join(PI_EXTENSION_DIR, entry.name);
+    const file = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       const name = entry.name;
       return orchBundles.has(name) || !directoryExtensionIndex(file) ? [] : [{ name, file }];
     }
-    const suffix = PI_EXTENSION_SUFFIXES.find((candidate) => entry.name.endsWith(candidate));
+    const suffix = EXTENSION_SUFFIXES.find((candidate) => entry.name.endsWith(candidate));
     if (!suffix) return [];
     const name = entry.name.slice(0, -suffix.length);
     return orchBundles.has(name) ? [] : [{ name, file }];
@@ -95,29 +100,36 @@ function installedUserExtensions(): { name: string; file: string }[] {
 }
 
 /**
- * pi's `-e`/`--no-extensions` tokens for one worker. Orch's own bundles always
- * load; whether the user's extensions join them is {@link WorkerPolicy}, not a
- * decision this adapter makes.
+ * The `-e`/`--no-extensions` tokens for one worker of a pi-shaped CLI. Orch's own
+ * bundle always loads; whether the user's extensions join it is
+ * {@link WorkerPolicy}, not a decision an adapter makes.
  *
- * pi has no per-extension exclude flag, so excluding one means disabling
- * discovery and naming every survivor explicitly. That mapping is pi's business
- * and lives only here.
+ * These CLIs have no per-extension exclude flag, so excluding one means disabling
+ * discovery and naming every survivor explicitly.
  */
-function workerExtensionArgv(policy: WorkerPolicy | undefined): string[] {
-  const argv = ["--no-extensions"];
-  for (const name of PI_EXTENSION_NAMES) argv.push("-e", path.join(PI_EXTENSION_DIR, `${name}.js`));
+export function bridgeExtensionArgv(
+  extensionDir: string,
+  extension: ExtensionName,
+  policy: WorkerPolicy | undefined,
+): string[] {
+  const argv = ["--no-extensions", "-e", path.join(extensionDir, `${extension}.js`)];
   if (!policy?.inheritExtensions) return argv;
   const excluded = new Set(policy.excludeExtensions);
-  for (const extension of installedUserExtensions()) {
-    if (!excluded.has(extension.name)) argv.push("-e", extension.file);
+  for (const installed of installedUserExtensions(extensionDir)) {
+    if (!excluded.has(installed.name)) argv.push("-e", installed.file);
   }
   return argv;
 }
 
-/** pi's tool-gating flags for one worker: unrestricted unless the policy names an allowlist. */
-function workerToolArgv(policy: WorkerPolicy | undefined, tools: string | undefined): string[] {
+/** Tool-gating flags for one worker: unrestricted unless the policy names an allowlist.
+ *  `dropBuiltinTools` is the harness's own spelling of "built-ins off, extension tools on". */
+export function toolPolicyArgv(
+  dropBuiltinTools: string,
+  policy: WorkerPolicy | undefined,
+  tools: string | undefined,
+): string[] {
   const allow = tools ?? (policy?.allowTools.length ? policy.allowTools.join(",") : undefined);
-  const argv = policy?.builtinTools === false ? ["--no-builtin-tools"] : [];
+  const argv = policy?.builtinTools === false ? [dropBuiltinTools] : [];
   if (allow) argv.push("--tools", allow);
   return argv;
 }
@@ -129,7 +141,34 @@ function presenceFor(key: string): PresenceEntry | undefined {
 // pi's wire format lives here and nowhere else: the bridge extension reads
 // inbox.jsonl lines and answer.json from the agent's presence dir.
 
-/** Append one steer/model line to pi's inbox.jsonl in the agent's presence dir. */
+/** The presence state a pi-shaped harness's bridge last wrote for this agent. */
+export function presenceAgentState(key: string): AgentState {
+  const presence = presenceFor(key);
+  return presence ? stateFrom(statusForPresence(presence)?.state) : "unknown";
+}
+
+/** Steer a running agent by appending to the inbox its bridge drains. */
+export function steerViaInbox(request: SteerRequest): AdapterCommand | undefined {
+  const presence = presenceFor(request.key);
+  if (presence) appendInboxLine(presence, { id: request.id, text: request.text });
+  return undefined;
+}
+
+/** Unblock an asking agent by writing the answer file its bridge waits on. */
+export function answerViaFile(request: AnswerRequest): AdapterCommand | undefined {
+  const presence = presenceFor(request.key);
+  if (presence) writeAnswerFile(presence, request.text);
+  return undefined;
+}
+
+/** Retarget a running agent's model through the same inbox transport as a steer. */
+export function setModelViaInbox(request: ModelRequest): AdapterCommand | undefined {
+  const presence = presenceFor(request.key);
+  if (presence) appendInboxLine(presence, { cmd: "model", model: request.model, id: request.id });
+  return undefined;
+}
+
+/** Append one steer/model line to the inbox.jsonl in the agent's presence dir. */
 function appendInboxLine(presence: PresenceEntry, line: Record<string, unknown>): void {
   fs.mkdirSync(presence.dir, { recursive: true });
   fs.appendFileSync(path.join(presence.dir, INBOX_FILE), JSON.stringify({ ...line, ts: new Date().toISOString() }) + "\n");
@@ -140,26 +179,48 @@ function writeAnswerFile(presence: PresenceEntry, text: string): void {
   fs.writeFileSync(path.join(presence.dir, ANSWER_FILE), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
 }
 
-const TRUST_FILE = path.join(os.homedir(), ".pi", "agent", "trust.json");
-
-/** True when a launch command actually starts pi's CLI (pi or the pif wrapper). */
-export function launchesPi(cmd: string): boolean {
-  const bin = cmd.trim().split(/\s+/)[0];
-  return bin === "pi" || bin === "pif";
+/** pi's registry keys each provider to `{ models: [...] }`; that shape lives only here. */
+function piRegistryModels(entry: unknown): { id?: unknown; name?: unknown }[] {
+  if (!isRecord(entry) || !Array.isArray(entry.models)) return [];
+  return entry.models.filter(isRecord);
 }
 
-function writeTrustEntry(cwd: string) {
+/** Read a pi-flavour `models-store.json` and report it in orch's `provider/id` vocabulary. */
+export function readModelsStore(file: string): readonly HarnessModel[] {
+  const store = readJSON<Record<string, unknown>>(file) ?? {};
+  return Object.entries(store).flatMap(([provider, entry]) => piRegistryModels(entry).flatMap((model) =>
+    typeof model.id === "string" && model.id
+      ? [{ spec: `${provider}/${model.id}`, ...(typeof model.name === "string" ? { label: model.name } : {}) }]
+      : []));
+}
+
+/** True when a launch command starts one of the named binaries. */
+export function launchesBinary(binaries: readonly string[], cmd: string): boolean {
+  return binaries.includes(cmd.trim().split(/\s+/)[0]);
+}
+
+/** Pre-approve a workspace in a harness's trust store so its first launch does not block. */
+export function writeTrustEntry(trustFile: string, cwd: string) {
   const resolved = path.resolve(cwd);
-  const map = readJSON<Record<string, unknown>>(TRUST_FILE) ?? {};
+  const map = readJSON<Record<string, unknown>>(trustFile) ?? {};
   if (map[resolved] === true) return;
   map[resolved] = true;
-  fs.mkdirSync(path.dirname(TRUST_FILE), { recursive: true });
-  fs.writeFileSync(TRUST_FILE, JSON.stringify(map, null, 2) + "\n");
-  process.stdout.write(`Pre-trusted ${resolved} in ~/.pi/agent/trust.json\n`);
+  fs.mkdirSync(path.dirname(trustFile), { recursive: true });
+  fs.writeFileSync(trustFile, JSON.stringify(map, null, 2) + "\n");
+  process.stdout.write(`Pre-trusted ${resolved} in ${trustFile}\n`);
 }
 
-/** pi's native slash-commands for each lifecycle verb; these strings live only here. */
-const PI_LIFECYCLE_TEXT: Record<LifecycleVerb, string> = {
+/** The `provider/model:thinking` a pi-flavour build launches on when orch names none. */
+export function settingsDefaultModel(agentDir: string): string {
+  const source = readJSON<Record<string, unknown>>(path.join(agentDir, "settings.json")) ?? {};
+  const provider = typeof source.defaultProvider === "string" ? source.defaultProvider : "openai-codex";
+  const model = typeof source.defaultModel === "string" ? source.defaultModel : "unknown";
+  const thinking = typeof source.defaultThinkingLevel === "string" ? source.defaultThinkingLevel : "medium";
+  return `${provider}/${model}:${thinking}`;
+}
+
+/** The slash-commands a pi-shaped CLI answers for each lifecycle verb. */
+export const PI_LIFECYCLE_TEXT: Record<LifecycleVerb, string> = {
   reset: "/new",
   reload: "/reload",
   restart: "/quit",
@@ -209,7 +270,111 @@ function piViewEntries(entries: SessionEntry[]): SessionViewEntry[] {
   return items;
 }
 
-/** Pi adapter preserving the existing pi + orchestrator-bridge behavior. */
+
+/** Verify one shipped bundle is linked into a harness's extension directory and current. */
+export function diagnoseExtensionLink(harness: string, extensionDir: string, extension: ExtensionName): CheckResult {
+  const id = `${harness}-extensions`;
+  const label = `${harness} extensions`;
+  const file = `${extension}.js`;
+  const source = extensionBundlePath(packageRoot(), extension);
+  const destination = path.join(extensionDir, file);
+
+  let bundleMissing = false;
+  try { bundleMissing = !fs.statSync(source).isFile(); } catch { bundleMissing = true; }
+  let extensionDirMissing = false;
+  try { fs.lstatSync(extensionDir); }
+  catch (error: unknown) { extensionDirMissing = (error as NodeJS.ErrnoException).code === "ENOENT"; }
+
+  const { stale, fixable } = linkState(source, destination);
+  const apply: FixDescriptor = {
+    description: extensionDirMissing
+      ? `Build bundled bridge, create missing extension dir, and redeploy: ${file}`
+      : `Build bundled bridge and redeploy: ${file}`,
+    apply: () => {
+      if (fixable) buildExtensionBundle(packageRoot(), extension);
+      fs.mkdirSync(extensionDir, { recursive: true });
+      fs.rmSync(path.join(extensionDir, `${extension}.ts`), { force: true });
+      fs.rmSync(destination, { recursive: true, force: true });
+      fs.symlinkSync(extensionBundlePath(packageRoot(), extension), destination);
+    },
+  };
+  if (bundleMissing) return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext", ...(fixable ? { fix: apply } : {}) };
+  if (!stale) return { id, label, status: "ok", detail: `bundled ${extension} extension is current` };
+  return { id, label, status: "fail", detail: `missing or stale: ${file}`, ...(fixable ? { fix: apply } : {}) };
+}
+
+/** Whether a linked bundle is out of date, and whether redeploying would repair it. */
+function linkState(source: string, destination: string): { stale: boolean; fixable: boolean } {
+  let sourcePath: string;
+  try { sourcePath = fs.realpathSync(source); }
+  catch { return { stale: true, fixable: true }; }
+  try {
+    if (fs.lstatSync(destination).isSymbolicLink()) {
+      const linked = fs.realpathSync(destination) === sourcePath;
+      return { stale: !linked, fixable: !linked };
+    }
+    return { stale: computeCodeHash(destination) !== computeCodeHash(source), fixable: false };
+  } catch (error: unknown) {
+    return { stale: true, fixable: (error as NodeJS.ErrnoException).code === "ENOENT" };
+  }
+}
+
+/** Link one shipped bundle into a harness's extension directory, building it from a checkout when absent. */
+export function installExtensionLink(
+  harness: string,
+  extensionDir: string,
+  extension: ExtensionName,
+  opts?: ShimInstallOpts,
+): void {
+  const root = packageRoot();
+  process.stdout.write(`${harness} extensions:\n`);
+  let bundle = extensionBundlePath(root, extension);
+  if (!fs.existsSync(bundle)) {
+    process.stdout.write(`  building ${extension} bundle...\n`);
+    bundle = buildExtensionBundle(root, extension);
+  }
+  // Raw .ts links from older installs resolve ../src against the symlink location
+  // and break the harness at launch; only the bundle may be linked.
+  fs.rmSync(path.join(extensionDir, `${extension}.ts`), { force: true });
+  const destination = path.join(extensionDir, `${extension}.js`);
+  fs.mkdirSync(extensionDir, { recursive: true });
+  fs.rmSync(destination, { recursive: true, force: true });
+  if (opts?.copy) fs.cpSync(bundle, destination, { recursive: true });
+  else fs.symlinkSync(bundle, destination);
+  process.stdout.write(`  ${destination} ${opts?.copy ? "(copy)" : "-> " + bundle}\n`);
+}
+
+/** result.json first, then the last assistant entry of the session file. */
+export function resultFromPresenceOrSession(input: PiResultExtractionInput): string | undefined {
+  const result = presenceFor(input.key)?.result;
+  if (isRecord(result) && typeof result.text === "string" && result.text.trim()) return result.text.trim();
+  if (!input.sessionPath) return undefined;
+  try {
+    return parseSession(input.sessionPath).lastAssistant?.trim() ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Read a pi-format session tail and map it to orch's shared session-view shape. */
+export function piSessionView(input: SessionViewInput): SessionView | undefined {
+  if (!input.sessionPath) return undefined;
+  const data = parseSession(input.sessionPath);
+  if (!data.exists) return undefined;
+  return {
+    model: data.model ?? undefined,
+    provider: data.provider ?? undefined,
+    thinking: data.thinking ?? undefined,
+    task: data.task ?? undefined,
+    lastText: data.lastAssistant ?? undefined,
+    cost: data.cost,
+    tokens: data.tokens,
+    turns: data.turns,
+    entries: piViewEntries(data.entries),
+  };
+}
+
+/** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's orchestrator-bridge extension. */
 export class PiAdapter implements AgentAdapter {
   readonly id = "pi" as const;
 
@@ -219,6 +384,7 @@ export class PiAdapter implements AgentAdapter {
     ask: true,
     setModel: true,
     sessionTail: true,
+    registersPresenceOnStart: true,
     lifecycle: ["reset", "reload", "restart"] as const,
     enforcesCommandLocks: true,
   };
@@ -231,12 +397,12 @@ export class PiAdapter implements AgentAdapter {
   /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    const argv = ["pi", ...workerToolArgv(opts.workers, opts.tools), ...workerExtensionArgv(opts.workers)];
+    const argv = ["pi", ...piToolArgv(opts), ...piExtensionArgv(opts)];
     if (opts.model) argv.push("--model", opts.model);
     return argv.join(" ");
   }
 
-  /** Start the existing pif wrapper with the initial prompt for headless runs. */
+  /** Start the pif wrapper with the initial prompt for headless runs. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
     const command = ["pif"];
     if (opts.model) command.push("--model", opts.model);
@@ -246,7 +412,7 @@ export class PiAdapter implements AgentAdapter {
 
   /** Start pif under the same worker policy as an interactive pi worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["pif", ...workerToolArgv(opts.workers, opts.tools), ...workerExtensionArgv(opts.workers)];
+    const command = ["pif", ...piToolArgv(opts), ...piExtensionArgv(opts)];
     if (opts.model) command.push("--model", opts.model);
     command.push(prompt);
     return command;
@@ -254,32 +420,22 @@ export class PiAdapter implements AgentAdapter {
 
   /** Read pi's authoritative status.json through the shared presence helpers. */
   detectState(input: PiStateDetectionInput): AgentState {
-    const presence = presenceFor(input.key);
-    return presence ? stateFrom(statusForPresence(presence)?.state) : "unknown";
+    return presenceAgentState(input.key);
   }
 
   /** Append pi's steer message to its inbox.jsonl. */
   steer(request: SteerRequest): AdapterCommand | undefined {
-    const presence = presenceFor(request.key);
-    if (!presence) return undefined;
-    appendInboxLine(presence, { id: request.id, text: request.text });
-    return undefined;
+    return steerViaInbox(request);
   }
 
   /** Write pi's blocking answer.json. */
   answer(request: AnswerRequest): AdapterCommand | undefined {
-    const presence = presenceFor(request.key);
-    if (!presence) return undefined;
-    writeAnswerFile(presence, request.text);
-    return undefined;
+    return answerViaFile(request);
   }
 
   /** Append pi's model-switch command to its inbox.jsonl. */
   setModel(request: ModelRequest): AdapterCommand | undefined {
-    const presence = presenceFor(request.key);
-    if (!presence) return undefined;
-    appendInboxLine(presence, { cmd: "model", model: request.model, id: request.id });
-    return undefined;
+    return setModelViaInbox(request);
   }
 
   /** Return pi's slash-command text for a lifecycle verb. */
@@ -289,114 +445,51 @@ export class PiAdapter implements AgentAdapter {
 
   /** Read result.json first, then fall back to the last assistant session entry. */
   extractResult(input: PiResultExtractionInput): string | undefined {
-    const result = presenceFor(input.key)?.result;
-    if (isRecord(result) && typeof result.text === "string" && result.text.trim()) return result.text.trim();
-    if (!input.sessionPath) return undefined;
-    try {
-      return parseSession(input.sessionPath).lastAssistant?.trim() ?? undefined;
-    } catch {
-      return undefined;
-    }
+    return resultFromPresenceOrSession(input);
   }
 
   /** Read pi's session tail via parseSession and map it to the shared session-view shape. */
   readSessionView(input: SessionViewInput): SessionView | undefined {
-    if (!input.sessionPath) return undefined;
-    const data = parseSession(input.sessionPath);
-    if (!data.exists) return undefined;
-    return {
-      model: data.model ?? undefined,
-      provider: data.provider ?? undefined,
-      thinking: data.thinking ?? undefined,
-      task: data.task ?? undefined,
-      lastText: data.lastAssistant ?? undefined,
-      cost: data.cost,
-      tokens: data.tokens,
-      turns: data.turns,
-      entries: piViewEntries(data.entries),
-    };
+    return piSessionView(input);
   }
 
-  /** Verify the extension links and bundles written by installShim. */
+  /** Verify the extension link and bundle written by installShim. */
   // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
-    const extensionDir = PI_EXTENSION_DIR;
-    const bundleFor = new Map(PI_EXTENSION_NAMES.map((name) => [`${name}.js`, extensionBundlePath(packageRoot(), name)]));
-    const stale: string[] = [];
-    const fixable: string[] = [];
-    let extensionDirMissing = false;
-    let bundleMissing = false;
-    for (const bundle of bundleFor.values()) {
-      try { if (!fs.statSync(bundle).isFile()) bundleMissing = true; } catch { bundleMissing = true; }
-    }
-    try { if (!fs.lstatSync(extensionDir).isDirectory()) extensionDirMissing = false; }
-    catch (error: unknown) { if ((error as NodeJS.ErrnoException).code === "ENOENT") extensionDirMissing = true; }
-    for (const [name, source] of bundleFor) {
-      let sourcePath: string;
-      try { sourcePath = fs.realpathSync(source); }
-      catch { stale.push(name); fixable.push(name); continue; }
-      try {
-        const destinationStat = fs.lstatSync(path.join(extensionDir, name));
-        if (destinationStat.isSymbolicLink()) {
-          if (fs.realpathSync(path.join(extensionDir, name)) !== sourcePath) { stale.push(name); fixable.push(name); }
-        } else if (computeCodeHash(path.join(extensionDir, name)) !== computeCodeHash(source)) { stale.push(name); }
-      } catch (error: unknown) {
-        stale.push(name);
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") fixable.push(name);
-      }
-    }
-    const apply: FixDescriptor = {
-      description: extensionDirMissing ? `Build bundled bridge, create missing extension dir, and redeploy: ${fixable.join(", ")}` : `Build bundled bridge and redeploy: ${fixable.join(", ")}`,
-      apply: () => {
-        for (const name of PI_EXTENSION_NAMES) if (fixable.includes(`${name}.js`)) buildExtensionBundle(packageRoot(), name);
-        fs.mkdirSync(extensionDir, { recursive: true });
-        for (const name of fixable) {
-          const destination = path.join(extensionDir, name);
-          fs.rmSync(destination.replace(/\\.js$/, ".ts"), { force: true });
-          fs.rmSync(destination, { recursive: true, force: true });
-          fs.symlinkSync(bundleFor.get(name)!, destination);
-        }
-      },
-    };
-    if (bundleMissing) return { id: "pi-extensions", label: "pi extensions", status: "warn", detail: "extension bundle not built; run: bun run build:ext", ...(fixable.length ? { fix: apply } : {}) };
-    if (!stale.length) return { id: "pi-extensions", label: "pi extensions", status: "ok", detail: "bundled orchestrator-bridge extension is current" };
-    return { id: "pi-extensions", label: "pi extensions", status: "fail", detail: `missing or stale: ${stale.join(", ")}`, ...(fixable.length ? { fix: apply } : {}) };
+    return diagnoseExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION);
   }
 
   /** Pre-trust cwd in pi's trust store when the launch command actually starts pi. */
   preTrustWorkspace(cwd: string, cmd: string): void {
-    if (!launchesPi(cmd)) return;
-    writeTrustEntry(cwd);
+    if (!launchesBinary(PI_BINARIES, cmd)) return;
+    writeTrustEntry(PI_TRUST_FILE, cwd);
   }
 
   /** Read pi's persisted default model from ~/.pi/agent/settings.json. */
   defaultModelString(): string | undefined {
-    return defaultModelString();
+    return settingsDefaultModel(PI_AGENT_DIR);
   }
 
-  /** Link the prebuilt bridge bundle into pi's extension directory, building it from a checkout when absent. */
+  /** Read pi's own model registry and report it in orch's provider/id vocabulary. */
+  listModels(): readonly HarnessModel[] {
+    return readModelsStore(PI_MODELS_STORE);
+  }
+
+  /** Link the prebuilt bridge bundle into pi's extension directory. */
   // fallow-ignore-next-line unused-class-member
   installShim(opts?: ShimInstallOpts): void {
-    const root = packageRoot();
-    const extDir = PI_EXTENSION_DIR;
-    process.stdout.write("pi extensions:\n");
-    for (const name of PI_EXTENSION_NAMES) {
-      let bundle = extensionBundlePath(root, name);
-      if (!fs.existsSync(bundle)) {
-        process.stdout.write(`  building ${name} bundle...\n`);
-        bundle = buildExtensionBundle(root, name);
-      }
-      // Raw .ts links from older installs resolve ../src against the symlink
-      // location and break pi at launch; only the bundle may be linked.
-      fs.rmSync(path.join(extDir, `${name}.ts`), { force: true });
-      const dest = path.join(extDir, `${name}.js`);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.rmSync(dest, { recursive: true, force: true });
-      if (opts?.copy) fs.cpSync(bundle, dest, { recursive: true });
-      else fs.symlinkSync(bundle, dest);
-      process.stdout.write(`  ${dest} ${opts?.copy ? "(copy)" : "-> " + bundle}\n`);
-    }
+    installExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION, opts);
   }
+}
+
+/** pi's `-e` tokens for one worker. */
+function piExtensionArgv(opts: SpawnOpts): string[] {
+  return bridgeExtensionArgv(PI_EXTENSION_DIR, PI_EXTENSION, opts.workers);
+}
+
+/** pi's tool-gating tokens for one worker; pi spells the built-ins switch --no-builtin-tools. */
+function piToolArgv(opts: SpawnOpts): string[] {
+  return toolPolicyArgv("--no-builtin-tools", opts.workers, opts.tools);
 }
 
 /** Shared pi adapter instance for command wiring. */

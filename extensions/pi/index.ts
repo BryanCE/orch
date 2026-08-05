@@ -1,29 +1,28 @@
-// orchestrator-bridge — per-agent control plane for the Claude orchestrator.
+// orch's pi integration — the composition root, and the ONLY file that names pi.
 //
-// Writes $ORCH_DIR/agents/<KEY>/ (default ~/.orch) where <KEY> = ORCH_AGENT_KEY
-// (e.g. "herdr~wD~p2") for orch agents, or "session-<pid>" for the
-// owner's interactive TUI pane:
-//   status.json  — state / model / thinking / tokens / cost / currentFile / lastText
-//   result.json  — final assistant text of the last settled run
-//   inbox.jsonl  — APPEND a JSON line {"text":"..."} to steer this agent mid-run
-//   ack.jsonl    — APPEND {"id":...,"ts":...} per consumed inbox line that carries
-//                  a message id, so the daemon marks that outbox row delivered once
+// Everything this wires together is orch's own in-agent control plane
+// (src/agent/**): the presence binding that writes $ORCH_DIR/agents/<KEY>/, the
+// tool layer, the peer surface, and the fleet monitor. None of it imports a
+// harness package, so a machine with a different pi build — or none — still
+// typechecks and bundles it.
 //
-// Read by the `orch` CLI. Inert failures: every write is best-effort.
-//
-// This file is the composition root ONLY: it builds the presence binding, the
-// daemon ack transport and the tool layer, then wires the selected plexer's HUD
-// to them. All plexer-gated behaviour lives under src/backends/<plexer>/ per
-// CLAUDE.md Rule 10 — this module names no backend beyond the wiring below.
+// What lives HERE is pi's vocabulary and nothing else: pi's ExtensionAPI type,
+// pi's event names, and pi's adapter id. A sibling build's event name appearing
+// in this file, or pi's appearing in src/agent/**, is the pair code CLAUDE.md
+// Rule 9 forbids.
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { activePaneHud } from "../../src/backends/hud.ts";
-import { createDaemonAck } from "./daemon-ack.ts";
-import { registerFleetMonitor } from "./monitor.ts";
-import { AGENT_ID, ORCH_DIR, createPiPresence } from "./presence.ts";
-import { registerPiTools } from "./tools.ts";
+import { createDaemonAck } from "../../src/agent/daemon-ack.ts";
+import { registerFleetMonitor } from "../../src/agent/monitor.ts";
+import { ORCH_DIR, createAgentPresence } from "../../src/agent/presence.ts";
+import { registerAgentTools } from "../../src/agent/tools.ts";
+import type { HarnessApi, HarnessIdentity } from "../../src/agent/harness.ts";
+
+/** pi calls itself `pi`, and fires `agent_settled` when a run will not auto-continue. */
+const PI_IDENTITY: HarnessIdentity = { agentId: "pi", settleEvent: "agent_settled" };
 
 // The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two.
 function hashExtensionFile(file: string): string {
@@ -33,6 +32,7 @@ function hashExtensionFile(file: string): string {
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 function orchestratorBridgeExtension(pi: ExtensionAPI): void {
+  const harness = pi as unknown as HarnessApi;
   const hud = activePaneHud();
   const paneId = hud.paneHandle;
 
@@ -44,11 +44,12 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
       onSessionShutdown: (handler) => pi.on("session_shutdown", (event) => handler(event)),
     },
     pi.events,
-    { agentId: AGENT_ID, extensionHash: EXTENSION_HASH },
+    { agentId: PI_IDENTITY.agentId, extensionHash: EXTENSION_HASH },
   );
 
-  const presence = createPiPresence({
-    pi,
+  const presence = createAgentPresence({
+    harness,
+    identity: PI_IDENTITY,
     paneId,
     extensionHash: EXTENSION_HASH,
     ack: createDaemonAck(ORCH_DIR),
@@ -63,8 +64,9 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
     if (applied) presence.writeStatus();
   }
 
-  const { onBlockedChange } = registerPiTools(pi, {
+  const { onBlockedChange } = registerAgentTools(harness, {
     presence,
+    identity: PI_IDENTITY,
     notify: hud.notify,
     refreshLabels,
   });
@@ -72,7 +74,7 @@ function orchestratorBridgeExtension(pi: ExtensionAPI): void {
   hud.registerBlockedRelay(pi.events, onBlockedChange);
   // A pi session that orchestrates also watches: one daemon subscription for the
   // whole session, so a worker going blocked surfaces instead of being polled for.
-  registerFleetMonitor(pi, ORCH_DIR);
+  registerFleetMonitor(harness, ORCH_DIR);
 }
 
 export default orchestratorBridgeExtension;

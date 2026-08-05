@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "bun:test";
-import { PiAdapter } from "../src/adapters/pi.ts";
+import { piAdapter } from "../src/adapters/pi.ts";
 import { CodexAdapter } from "../src/adapters/codex.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { loadConfig } from "../src/config.ts";
@@ -16,10 +16,9 @@ const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening
 
 describe("adapter and runtime hardening", () => {
   test("malformed or empty adapter output never throws and yields no result", () => {
-    const pi = new PiAdapter();
     const codex = new CodexAdapter();
-    expect(() => pi.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).not.toThrow();
-    expect(pi.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).toBeUndefined();
+    expect(() => piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).not.toThrow();
+    expect(piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).toBeUndefined();
     expect(codex.extractResult({ output: "{broken\n" })).toBeUndefined();
     expect(claudeAdapter.extractResult({ key: "missing", output: "   " })).toBeUndefined();
   });

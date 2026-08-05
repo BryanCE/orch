@@ -1,7 +1,7 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
-import { extensionBundlePath } from "../bridge-bundle.ts";
+import { EXTENSION_NAMES, extensionBundlePath } from "../bridge-bundle.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
 import type { CheckResult } from "../check-result.ts";
 import { readAgentEntries, readJson } from "./shared.ts";
@@ -18,18 +18,29 @@ function isAgentStatus(value: unknown): value is AgentStatus {
   return (value as { schema?: unknown }).schema === PRESENCE_SCHEMA;
 }
 
-/** Compare a bridge presence hash with the bundled bridge currently installed on disk. */
-export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath = extensionBundlePath(packageRoot(), "orchestrator-bridge")): boolean {
+/**
+ * Hashes of the bridge bundles currently on disk — one per harness, since each
+ * ships its own composition root. A pane is judged against the whole set: an omp
+ * agent whose hash matches omp's bundle is current, and comparing it against pi's
+ * would report a fleet-wide failure that is really just "a different harness".
+ */
+function shippedBundleHashes(bundlePath?: string): string[] {
+  const bundles = bundlePath ? [bundlePath] : EXTENSION_NAMES.map((name) => extensionBundlePath(packageRoot(), name));
+  return bundles.flatMap((bundle) => {
+    try { return [computeCodeHash(bundle)]; } catch { return []; }
+  });
+}
+
+/** Compare a bridge presence hash with the bundled bridges currently installed on disk. */
+export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath?: string): boolean {
   if (extensionHash === undefined) return false;
-  try {
-    return extensionHash !== computeCodeHash(bundlePath);
-  } catch {
-    return false;
-  }
+  const hashes = shippedBundleHashes(bundlePath);
+  if (!hashes.length) return false;
+  return !hashes.includes(extensionHash);
 }
 
 /** Verify Claude's orch hooks are installed and target this checkout's shim. */
-export async function checkExtensionStaleness(orchDir: string, bundlePath: string = extensionBundlePath(packageRoot(), "orchestrator-bridge")): Promise<CheckResult> {
+export async function checkExtensionStaleness(orchDir: string, bundlePath?: string): Promise<CheckResult> {
   await Promise.resolve();
   const id = "extension-staleness";
   const label = "Extension staleness";
@@ -42,12 +53,8 @@ export async function checkExtensionStaleness(orchDir: string, bundlePath: strin
   }
   if (!entries) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
 
-  let diskHash: string;
-  try {
-    diskHash = computeCodeHash(bundlePath);
-  } catch {
-    return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext" };
-  }
+  const diskHashes = shippedBundleHashes(bundlePath);
+  if (!diskHashes.length) return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext" };
   const stale: string[] = [];
   let liveWithHash = 0;
   for (const entry of entries) {
@@ -56,7 +63,7 @@ export async function checkExtensionStaleness(orchDir: string, bundlePath: strin
       const status = readJson(path.join(agentsDir, entry.name, STATUS_FILE));
       if (!isAgentStatus(status) || !pidAlive(status.pid) || typeof status.extensionHash !== "string") continue;
       liveWithHash += 1;
-      if (status.extensionHash !== diskHash) stale.push(entry.name);
+      if (!diskHashes.includes(status.extensionHash)) stale.push(entry.name);
     } catch {}
   }
 
@@ -69,5 +76,5 @@ export async function checkExtensionStaleness(orchDir: string, bundlePath: strin
     };
   }
   if (!liveWithHash) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
-  return { id, label, status: "ok", detail: `all live extension hashes are current (${diskHash})` };
+  return { id, label, status: "ok", detail: `all live extension hashes match a shipped bundle (${diskHashes.join(", ")})` };
 }

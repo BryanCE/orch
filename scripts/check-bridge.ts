@@ -268,7 +268,7 @@ function checkPresenceFilenameLine(line: string, relPath: string): string | unde
  * D2.1 — a package (`packages/<pkg>/src/**`) may reach into core only through
  * the ports: registry, policy, store, config, daemon client. A concrete backend
  * implementation (`src/backends/<id>/…`) or a concrete agent adapter
- * (`src/adapters/{pi,claude,codex}`) import re-couples the package to a leaf,
+ * (`src/adapters/{pi,omp,claude,codex}`) import re-couples the package to a leaf,
  * which is exactly the breach `resolveBackend`/`resolveAdapter` exist to prevent.
  * `backends/registry.ts`, `backends/backend.ts`, `adapters/registry.ts`, and the
  * shared leaves (`adapters/adapter.ts`, `adapters/transcript.ts`) sit directly
@@ -278,7 +278,7 @@ export function checkPackageImportLine(line: string): string | undefined {
   if (/backends\/[\w-]+\//.test(line)) {
     return "packages must not import a concrete backend (src/backends/<id>/…); resolve via src/backends/registry.ts or the backend port";
   }
-  if (/adapters\/(?:pi|claude|codex)(?:\.ts)?["']/.test(line)) {
+  if (/adapters\/(?:pi|omp|claude|codex)(?:\.ts)?["']/.test(line)) {
     return "packages must not import a concrete agent adapter (src/adapters/<id>); resolve via src/adapters/registry.ts";
   }
   return undefined;

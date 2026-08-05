@@ -13,6 +13,9 @@ import { seedStatus } from "./helpers/presence.ts";
 
 const headlessBackend = getBackend("headless")!;
 
+/** Above every real pid on Linux and macOS, so pidAlive is deterministically false. */
+const DEAD_PID = 0x7fffffff;
+
 const originalOrchDir = process.env.ORCH_DIR;
 const originalPath = process.env.PATH;
 const tempDirs: string[] = [];
@@ -144,5 +147,31 @@ describe("deliverControl", () => {
     recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
 
     expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/no presence dir/);
+  });
+
+  // A presence dir outlives the process that wrote it. Delivering into a dead
+  // agent's inbox "succeeds", leaves the pane idle with no task, and surfaces
+  // only as a generic RPC timeout — the daemon-bounce failure mode.
+  test("refuses inbox delivery to an agent whose bridge never registered", () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "no-bridge");
+    fs.mkdirSync(path.join(directory, "agents", key), { recursive: true });
+    recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
+
+    expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/never registered/);
+  });
+
+  test("refuses inbox delivery to an agent whose process is gone", () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "dead-bridge");
+    seedStatus(directory, key, { agent: "pi", pid: DEAD_PID });
+    recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
+
+    const dispatched = deliverControl(key, { kind: "steer", text: "lost" });
+    expect(dispatched).rejects.toThrow(/disconnected/);
+    expect(dispatched).rejects.toThrow(/respawn required/);
+    expect(fs.existsSync(path.join(directory, "agents", key, "inbox.jsonl"))).toBe(false);
   });
 });

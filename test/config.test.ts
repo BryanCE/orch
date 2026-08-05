@@ -71,7 +71,7 @@ describe("loadConfig", () => {
       installed: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: { adapter: "claude", backend: "headless", model: "sonnet", worktree: true },
       fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
-      models: { allowed: ["sonnet"] },
+      models: { allowed: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
@@ -91,7 +91,7 @@ describe("loadConfig", () => {
         worktree: true,
       },
       fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
-      models: { allowed: ["sonnet"] },
+      models: { allowed: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
@@ -132,11 +132,11 @@ describe("loadConfig", () => {
     expect(() => loadConfig(directory)).toThrow(/Unrecognized key.*junk/);
   });
 
-  test("parses models.allowed as a string array", () => {
+  test("parses models.allowed as a per-harness pattern map", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { models: { allowed: ["openrouter/a", "openrouter/b"] } });
+    writeSettingsFixture(directory, { models: { allowed: { pi: ["openrouter/a", "openrouter/b"] } } });
 
-    expect(loadConfig(directory).models.allowed).toEqual(["openrouter/a", "openrouter/b"]);
+    expect(loadConfig(directory).models.allowed.pi).toEqual(["openrouter/a", "openrouter/b"]);
   });
 
   test("rejects old settings keys", () => {
@@ -202,14 +202,15 @@ describe("allowedModelPatterns", () => {
   test("restricts nothing when no config names patterns", () => {
     // Orch ships no built-in allowlist: a hardcoded default silently pinned every
     // spawn to the one family it happened to list.
-    expect(allowedModelPatterns(tempDir())).toEqual([]);
+    expect(allowedModelPatterns(tempDir(), "pi")).toEqual([]);
   });
 
   test("returns the configured patterns when set", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { models: { allowed: ["openrouter/x"] } });
+    writeSettingsFixture(directory, { models: { allowed: { pi: ["openrouter/x"] } } });
 
-    expect(allowedModelPatterns(directory)).toEqual(["openrouter/x"]);
+    expect(allowedModelPatterns(directory, "pi")).toEqual(["openrouter/x"]);
+    expect(allowedModelPatterns(directory, "claude")).toEqual([]);
   });
 });
 
@@ -294,12 +295,12 @@ describe("writeSettingsDefault", () => {
 
   test("replaces an existing entry without disturbing other sections", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { installed: { adapters: ["claude", "pi"], backends: [] }, defaults: { adapter: "claude", model: "sonnet" }, queue: { max_retries: 3 } });
+    writeSettingsFixture(directory, { installed: { adapters: ["claude", "pi"], backends: [] }, defaults: { adapter: "claude", models: { claude: "sonnet" } }, queue: { max_retries: 3 } });
     writeSettingsDefault(directory, "adapter", "pi");
 
     const config = loadConfig(directory);
     expect(config.defaults.adapter).toBe("pi");
-    expect(config.defaults.model).toBe("sonnet");
+    expect(config.defaults.models.claude).toBe("sonnet");
     expect(config.queue.max_retries).toBe(3);
   });
 

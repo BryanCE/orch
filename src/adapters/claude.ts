@@ -7,6 +7,7 @@ import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "..
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import type {
+  HarnessModel,
   AdapterCommand,
   AgentAdapter,
   AgentState,
@@ -63,6 +64,17 @@ function presenceFor(key: string): PresenceEntry | undefined {
 }
 
 const HOME = os.homedir();
+
+/** Claude Code's accepted `--model` vocabulary: the stable aliases plus the current
+ *  dated ids. Update here when Anthropic ships a new model; nothing else reads it. */
+const CLAUDE_MODELS: readonly HarnessModel[] = [
+  { spec: "opus", label: "Latest Opus" },
+  { spec: "sonnet", label: "Latest Sonnet" },
+  { spec: "haiku", label: "Latest Haiku" },
+  { spec: "claude-opus-4-6", label: "Claude Opus 4.6" },
+  { spec: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+  { spec: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+];
 
 function isOrchShimHook(hook: unknown): boolean {
   return isRecord(hook) && hook.type === "command"
@@ -204,6 +216,7 @@ class ClaudeAdapter implements AgentAdapter {
     ask: false,
     setModel: false,
     sessionTail: true,
+    registersPresenceOnStart: true,
     lifecycle: [] as const,
     enforcesCommandLocks: false,
   };
@@ -244,6 +257,13 @@ class ClaudeAdapter implements AgentAdapter {
   /** Claude has no answer protocol; the caller must route via the target backend. */
   answer(_request: AnswerRequest): AdapterCommand | undefined {
     return undefined;
+  }
+
+  /** Claude Code takes an alias or a dated model id, never a provider/id spec. It ships
+   *  no machine-readable catalogue, so its accepted vocabulary is declared here — in the
+   *  adapter that owns it — rather than guessed at by orch. */
+  listModels(): readonly HarnessModel[] {
+    return CLAUDE_MODELS;
   }
 
   /** Prefer hook result.json, then Claude transcript JSONL, then native output. */

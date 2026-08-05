@@ -9,6 +9,7 @@ import { governWrite } from "../src/daemon/orchd.ts";
 import { setOwner } from "../src/store/sqlite.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "../src/daemon/rpc.ts";
+import { errorMessage } from "../src/util.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
@@ -26,6 +27,14 @@ function key(workspace: string, id: string): string {
 
 function answerFile(directory: string, agentKey: string): string {
   return path.join(directory, "agents", agentKey, "answer.json");
+}
+
+/** The refusal message from a call that must reject, or undefined when it wrongly resolved.
+ *  Awaiting the settled value keeps the assertion inside the test, which `expect(p).rejects`
+ *  does not: its matcher is typed non-thenable, so awaiting it is a lint error and NOT
+ *  awaiting it lets the test finish before the assertion runs. */
+function refusalOf(action: Promise<unknown>): Promise<string | undefined> {
+  return action.then(() => undefined, (error: unknown) => errorMessage(error));
 }
 
 /** The exact wiring orchd registers for the `answer` method: wall + ownership, then dispatch. */
@@ -74,9 +83,8 @@ describe("answer via the control dispatcher", () => {
     const agentKey = key("local", "claude-noask");
     seedStatus(directory, agentKey, { agent: "claude", pid: process.pid });
 
-    await expect(deliverControl(agentKey, { kind: "answer", text: "no" })).rejects.toThrow(
-      new RegExp(`cannot answer .*${agentKey}.*adapter claude declares ask false`),
-    );
+    expect(await refusalOf(deliverControl(agentKey, { kind: "answer", text: "no" })))
+      .toMatch(new RegExp(`cannot answer .*${agentKey}.*adapter claude declares ask false`));
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);
   });
 
@@ -87,9 +95,8 @@ describe("answer via the control dispatcher", () => {
     // A presence record with no `agent` field and no spawn-registry adapter is malformed, never pi.
     seedStatus(directory, agentKey, { pid: process.pid });
 
-    await expect(deliverControl(agentKey, { kind: "answer", text: "yes" })).rejects.toThrow(
-      new RegExp(`${agentKey} has no recorded adapter`),
-    );
+    expect(await refusalOf(deliverControl(agentKey, { kind: "answer", text: "yes" })))
+      .toMatch(new RegExp(`${agentKey} has no recorded adapter`));
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);
   });
 });
@@ -102,7 +109,7 @@ describe("answer over the daemon control socket", () => {
     seedStatus(directory, agentKey, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
-    await expect(rpcCall(directory, "answer", { target: agentKey, text: "delivered" })).resolves.toEqual({ ok: true });
+    expect(await rpcCall(directory, "answer", { target: agentKey, text: "delivered" })).toEqual({ ok: true });
 
     const line = JSON.parse(fs.readFileSync(answerFile(directory, agentKey), "utf8")) as { text: string };
     expect(line.text).toBe("delivered");
@@ -115,9 +122,8 @@ describe("answer over the daemon control socket", () => {
     seedStatus(directory, foreign, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
-    await expect(
-      rpcCall(directory, "answer", { target: foreign, text: "yes", actor: key("wA", "boss") }),
-    ).rejects.toThrow(/workspace wall/);
+    expect(await refusalOf(rpcCall(directory, "answer", { target: foreign, text: "yes", actor: key("wA", "boss") })))
+      .toMatch(/workspace wall/);
     expect(fs.existsSync(answerFile(directory, foreign))).toBe(false);
   });
 
@@ -129,9 +135,8 @@ describe("answer over the daemon control socket", () => {
     setOwner(directory, agentKey, key("wA", "owner"));
     await startAnswerServer(directory);
 
-    await expect(
-      rpcCall(directory, "answer", { target: agentKey, text: "yes", actor: key("wA", "intruder") }),
-    ).rejects.toThrow(/owned by/);
+    expect(await refusalOf(rpcCall(directory, "answer", { target: agentKey, text: "yes", actor: key("wA", "intruder") })))
+      .toMatch(/owned by/);
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);
   });
 });

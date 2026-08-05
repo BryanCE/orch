@@ -139,7 +139,7 @@ export async function cmdModel(args: string[]): Promise<void> {
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--no-wait" && arg !== "--json"));
   const target = rest[0];
   const modelArg = rest[1];
-  if (!target || !modelArg) die("usage: orch model <target> <provider/model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
+  if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
   const result = await setAgentModel(ent.key, modelArg, gov);
   if (json) process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");

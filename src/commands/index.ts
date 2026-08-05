@@ -16,7 +16,7 @@ import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
-import { cmdSettings } from "./settings.ts";
+import { cmdSettings, cmdSettingsModels } from "./settings.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { die } from "./target.ts";
 
@@ -53,7 +53,7 @@ REVIEW
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Queue a prompt through orchd with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter]
+  orch dispatch <target> "<prompt>" [--raw] [--model <model[:thinking]>] [--agent adapter]
                                  Durably accept a prompt through orchd.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).
@@ -61,19 +61,21 @@ DISPATCH WORK
                                  Send a completed result through orchd.
   orch broadcast "<text>" [target ...|--all]
                                  Steer named targets through orchd.
-  orch model <target> <provider/model[:thinking]>
+  orch model <target> <model[:thinking]>
                                  Durably accept a model change through orchd.
   orch notify test [--state <state>]
                                  Send a synthetic transition to each configured notification sink.
   orch steer <target> <text...>    Durably accept a mid-run steer through orchd.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
-  orch result <target> [--json]  Print a target's result (result.json or session fallback).
+  orch result <target> [--force] [--json]
+                                 Print a target's result (result.json or session fallback).
+                                 --force reads an agent another orchestrator owns.
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.
   orch reload <target>... | --all   Reload panes, signal watchers via reload.signal, and report each outcome.
   orch reset  <target>... | --all [--model M]
-                                 Start a fresh session/context, then pin M (else defaults.model). (alias: new)
+                                 Start a fresh session/context, then pin M (else that harness's defaults.models entry). (alias: new)
   orch restart <target>... | --all [--cmd pi]
                                  Fully close the harness process and relaunch it.
 
@@ -125,7 +127,8 @@ MAINTENANCE
                                  unattended (also how CI/non-TTY repairs run).
   orch clean [--worktrees [--force]]
                                  Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
-  orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--yes] [--no-install] [--copy]
+  orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]>]
+             [--yes] [--no-install] [--copy]
                                  Onboarding wizard: multi-select the adapters and backends
                                  you use (--agent pi,claude / --backend herdr,headless - the
                                  first of each is the active default), record the installed
@@ -137,6 +140,9 @@ MAINTENANCE
                                  Print each effective setting with its source (flag > env >
                                  settings.json > default), or switch the active default
                                  adapter/plexer among the installed set.
+  orch settings models [--harness=<id>] [--model=<model[:thinking]>]
+                                 Re-pick each installed harness's default model and the set it
+                                 may launch. Every harness names models in its own vocabulary.
   orch help                      This message.
 
 RECOVER
@@ -261,7 +267,10 @@ export function runCommand(argv: string[]): void {
     case "move": cmdMove(rest); break;
     case "ws": cmdWs(rest); break;
     case "clean": cmdClean(rest); break;
-    case "settings": cmdSettings(rest); break;
+    case "settings":
+      if (rest[0] === "models") void cmdSettingsModels(rest.slice(1)).catch((error: unknown) => die(errorMessage(error)));
+      else cmdSettings(rest);
+      break;
     case "setup": void cmdSetup(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "--version": case "-V": case "version": process.stdout.write(`orch ${VERSION}\n`); break;
     case "help": case "-h": case "--help": usage(); break;

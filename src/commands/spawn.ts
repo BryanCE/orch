@@ -2,6 +2,7 @@ import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords,
 import type { SpawnedRecord } from "../store/sqlite.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree } from "../policy/name.ts";
+import { assertModelAllowed } from "../policy/model.ts";
 import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
@@ -29,8 +30,31 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
     }
     await delay(500);
   }
+  // A stalled agent is a failed spawn: it holds its name and answers no control
+  // traffic. Reporting it on stderr while exiting 0 is what let a scripted fleet
+  // launch read as success and dispatch into panes that never came up.
   for (const agent of pending.values())
     process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
+  if (pending.size) process.exitCode = 1;
+}
+
+/** A launch that placed fewer agents than were asked for FAILED; a warning line
+ *  and a zero exit is how "spawn 3" quietly delivering 1 read as success. */
+function reportShortfall(requested: number, placed: number): void {
+  if (placed >= requested) return;
+  process.stderr.write(`placed ${placed} of ${requested} requested agent(s)\n`);
+  process.exitCode = 1;
+}
+
+/** Confirm the agents actually came up, or say plainly that it could not be confirmed.
+ *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
+ *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
+async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<void> {
+  if (adapter.caps.registersPresenceOnStart) {
+    await awaitBridgeRegistration(created, json);
+    return;
+  }
+  process.stderr.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
 }
 
 function printLayout(backend: Backend, group: string, header: string) {
@@ -125,15 +149,24 @@ export function requestedModel(flags: AgentFlags): string | null {
 /** The model a fresh session runs on: what the caller named, else the configured
  *  default. With neither, refuse — an unpinned session silently runs whatever the
  *  harness happens to default to, which is never what the orchestrator asked for.
- *  Every path that starts a clean session (spawn, tile, reset) resolves it here. */
-export function launchModel(flags: AgentFlags, config: OrchConfig): string {
-  const model = requestedModel(flags) ?? config.defaults.model ?? "";
-  if (!model) die("no model selected - pass --model <provider/model[:thinking]> or set defaults.model in $ORCH_DIR/settings.json");
+ *  Every path that starts a clean session (spawn, tile, reset) resolves it here, and
+ *  the gate runs here too: the launch hands this string to the harness CLI, whose own
+ *  resolver fuzzy-matches a shorthand onto whatever registry entry shares a prefix. A
+ *  model the harness does not list must never reach that resolver. */
+export function launchModel(flags: AgentFlags, config: OrchConfig, adapter: AgentAdapter): string {
+  const model = requestedModel(flags) ?? config.defaults.models[adapter.id] ?? "";
+  if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]> or set defaults.models.${adapter.id} in $ORCH_DIR/settings.json`);
+  try {
+    assertModelAllowed(orchDir(), adapter, model);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
   return model;
 }
 
 export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
   const adapter = pickAdapter(flags, config);
+  const harness = resolveAdapterOrDie(adapter);
   // Selection flows through the backend factory: explicit flag/env, then config
   // default, then a capability-probed fallback. No per-backend branch is hard-coded here.
   let backend: Backend;
@@ -145,7 +178,7 @@ export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orch
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  return { adapter, backend: backend.id, model: launchModel(flags, config) };
+  return { adapter, backend: backend.id, model: launchModel(flags, config, harness) };
 }
 
 type SpawnFlags = AgentFlags & {
@@ -220,7 +253,7 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   if (!Number.isInteger(spawnCap) || spawnCap < 1) die(`Invalid spawn cap ${spawnCap}; expected a positive integer.`);
   const n = parseInt(flags.positional[0]!, 10);
   if (!Number.isFinite(n) || n < 1)
-    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <provider/model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--spawn-cap <N>] [--worktree]");
+    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--spawn-cap <N>] [--worktree]");
   if (n > spawnCap) die(`Refusing to spawn ${n} panes - cap is ${spawnCap}.`);
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
@@ -463,7 +496,8 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
     process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${tabLabel}" (no focus stolen).\n`);
     printLayout(backend, group, "\nFinal tiling:");
   }
-  if (resolveAdapterOrDie(settings.adapter).caps.steer === "inbox") await awaitBridgeRegistration(created, settings.json);
+  reportShortfall(settings.n, created.length);
+  await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
   await pinModels(created, settings.model);
   if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, tab: tabLabel, agents: created }) + "\n");
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
@@ -503,7 +537,7 @@ export async function cmdTile(args: string[]) {
   if (!selectedBackend.panes) die(`orch tile requires a pane-capable backend; ${selectedBackend.id} has no panes to tile.`);
   const selectedAdapter = resolveAdapterOrDie(adapter);
   const target = flags.positional[0];
-  if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <provider/model[:thinking]>");
+  if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <model[:thinking]>");
 
   const tab = resolveTab(target);
   const layout = readGroupLayout(selectedBackend, tab.id);

@@ -7,15 +7,15 @@
 // by subject, not by mechanism. All filesystem access goes through the shared
 // presence writer (src/presence/writer.ts) per CLAUDE.md Rule 10.
 import * as fs from "node:fs";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { Type } from "typebox";
-import { checkWall, scopeToWorkspace, workspaceOf } from "../../src/policy/workspace.ts";
-import { INBOX_FILE, RESULT_FILE } from "../../src/presence/schema.ts";
-import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../../src/presence/writer.ts";
-import { isRecord, optionalString, pidAlive, readJsonFile, truncate, type JsonRecord } from "../../src/util.ts";
+import { checkWall, scopeToWorkspace, workspaceOf } from "../policy/workspace.ts";
+import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
+import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
+import { isRecord, optionalString, pidAlive, readJsonFile, truncate, type JsonRecord } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
-import type { PiPresence } from "./presence.ts";
+import type { AgentPresence } from "./presence.ts";
 
 export interface Peer {
   key: string;
@@ -164,8 +164,8 @@ interface OrchAgentsParams {
 }
 
 /** Registers the commands and tools through which this agent reaches its peers. */
-export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void {
-  pi.registerCommand("peers", {
+export function registerPeerTools(harness: HarnessApi, presence: AgentPresence): void {
+  harness.registerCommand("peers", {
     description: "List live orch peer agents",
     handler: (_args, ctx) => {
       try {
@@ -178,7 +178,7 @@ export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void 
     },
   });
 
-  pi.registerCommand("tell", {
+  harness.registerCommand("tell", {
     description: "Send a message to a peer agent: /tell <target> <message>",
     handler: (args, ctx) => {
       try {
@@ -197,7 +197,7 @@ export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void 
     },
   });
 
-  pi.registerTool({
+  harness.registerTool({
     name: "orch_agents",
     label: "Orchestrator Agents",
     description: "List live peer agents managed by the orchestrator.",
@@ -208,7 +208,7 @@ export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void 
       // Keep the original camelCase spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Include agents in every workspace" })),
     }),
-    async execute(_toolCallId, params: OrchAgentsParams, _signal, _onUpdate, ctx: ExtensionContext) {
+    async execute(_toolCallId, params: OrchAgentsParams, _signal, _onUpdate, ctx: HarnessContext) {
       return executeTool(
         () => JSON.stringify(peerSummaries(
           presence.ownPresenceKey(ctx),
@@ -219,7 +219,7 @@ export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void 
     },
   });
 
-  pi.registerTool({
+  harness.registerTool({
     name: "orch_send",
     label: "Send to Orchestrator Agent",
     description: "Send a coordination message to a live peer agent.",
@@ -232,7 +232,7 @@ export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void 
       // Keep the original spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow sending across workspaces" })),
     }),
-    async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: ExtensionContext) {
+    async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: HarnessContext) {
       const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
       return executeTool(
         () => sendPeerMessage(params.target, params.text, presence.ownPresenceKey(ctx), crossWorkspace),
@@ -241,7 +241,7 @@ export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void 
     },
   });
 
-  pi.registerTool({
+  harness.registerTool({
     name: "orch_read",
     label: "Read Orchestrator Agent",
     description: "Read a live peer agent's latest result or status text.",
@@ -253,7 +253,7 @@ export function registerPeerTools(pi: ExtensionAPI, presence: PiPresence): void 
       // Keep the original spelling for existing callers.
       allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow reading across workspaces" })),
     }),
-    async execute(_toolCallId, params: OrchReadParams, _signal, _onUpdate, ctx: ExtensionContext) {
+    async execute(_toolCallId, params: OrchReadParams, _signal, _onUpdate, ctx: HarnessContext) {
       const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
       return executeTool(() => {
         const ownKey = presence.ownPresenceKey(ctx);

@@ -1,8 +1,8 @@
 import * as files from "node:fs";
-import { loadConfig, resolveWithSource, settingsPath, writeSettingsDefault, type OrchConfig } from "../config.ts";
+import { loadConfig, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, type OrchConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
-import { readAssignFlag, validateSetupFlag } from "./setup.ts";
+import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup.ts";
 import { ADAPTER_IDS } from "../adapters/adapter.ts";
 import { BACKEND_IDS } from "../backends/backend.ts";
 import { die } from "./target.ts";
@@ -41,6 +41,33 @@ function switchDefault(key: "adapter" | "backend", value: string): void {
   process.stdout.write(`default ${key} = ${value}\n`);
 }
 
+/**
+ * Re-run the per-harness model pickers against the installed set and record the result.
+ * Every harness names models in its own vocabulary, so this walks them one at a time —
+ * a default it launches on, then the subset it is allowed to launch at all.
+ */
+export async function cmdSettingsModels(args: string[]): Promise<void> {
+  let config: OrchConfig;
+  try {
+    config = loadConfig(orchDir());
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  const installed = config.installed.adapters;
+  if (!installed.length) die("no harnesses are installed - run: orch setup");
+  const only = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
+  const targets = only === undefined ? installed : [validateSetupFlag("harness", only, installed)];
+
+  const chosen = await resolveHarnessModels(readAssignFlag(args, "--model"), targets, process.stdout.isTTY === true);
+  if (chosen === null) return;
+  writeSettingsModels(orchDir(), { ...config.defaults.models, ...chosen.defaults });
+  writeSettingsAllowedModels(orchDir(), { ...config.models.allowed, ...chosen.allowed });
+  for (const id of targets) {
+    const allowed = chosen.allowed[id] ?? [];
+    process.stdout.write(`  ${id}: default ${chosen.defaults[id]}${allowed.length ? `, restricted to ${allowed.length}` : ", all offered allowed"}\n`);
+  }
+}
+
 /** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
 export function cmdSettings(args: string[]): void {
   const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
@@ -59,11 +86,17 @@ export function cmdSettings(args: string[]): void {
   if (plexer !== undefined) switchDefault("backend", plexer);
   if (harness !== undefined || plexer !== undefined) return;
 
+  // One model row per installed harness: each names models in its own vocabulary,
+  // so there is no single "the model" to report.
+  const modelRows = config.installed.adapters.map((harness) => ({
+    key: `model (${harness})`,
+    ...resolveWithSource<string>({ config: config.defaults.models[harness], fallback: "(none)" }),
+  }));
+
   const provenance = [
     { key: "defaults.worktree", ...resolveWithSource<boolean>({ env: "ORCH_WORKTREE", config: rawSetting<boolean>(orchDir(), "defaults", "worktree"), fallback: config.defaults.worktree }) },
     { key: "adapter", ...resolveWithSource<string>({ env: "ORCH_ADAPTER", config: rawSetting<string>(orchDir(), "defaults", "adapter"), fallback: "(none)" }) },
     { key: "backend", ...resolveWithSource<string>({ env: "ORCH_BACKEND", config: rawSetting<string>(orchDir(), "defaults", "backend"), fallback: "(auto)" }) },
-    { key: "model", ...resolveWithSource<string>({ env: "ORCH_MODEL", config: rawSetting<string>(orchDir(), "defaults", "model"), fallback: "(none)" }) },
     { key: "daemon.tcp_port", ...resolveWithSource<number>({ env: "ORCH_DAEMON_PORT", config: rawSetting<number>(orchDir(), "daemon", "tcp_port"), fallback: config.daemon.tcp_port }) },
     { key: "fleet.spawn_cap", ...resolveWithSource<number>({ env: "ORCH_SPAWN_CAP", config: rawSetting<number>(orchDir(), "fleet", "spawn_cap"), fallback: config.fleet.spawn_cap }) },
     { key: "fleet.max_agents", ...resolveWithSource<number | string>({ config: rawSetting<number>(orchDir(), "fleet", "max_agents"), fallback: config.fleet.max_agents ?? "(none)" }) },
@@ -75,6 +108,7 @@ export function cmdSettings(args: string[]): void {
     { key: "timeouts.wait_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "wait_ms"), fallback: config.timeouts.wait_ms }) },
     { key: "timeouts.adapter_command_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "adapter_command_ms"), fallback: config.timeouts.adapter_command_ms }) },
     { key: "timeouts.notify_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "notify_ms"), fallback: config.timeouts.notify_ms }) },
+    ...modelRows,
   ];
 
   const installedSet = config.installed.adapters.length > 0 || config.installed.backends.length > 0;
@@ -95,6 +129,10 @@ export function cmdSettings(args: string[]): void {
   process.stdout.write("\n");
   process.stdout.write(`  installed.adapters  ${config.installed.adapters.join(", ") || "(none)"}\n`);
   process.stdout.write(`  installed.backends  ${config.installed.backends.join(", ") || "(none)"}\n`);
+  for (const harness of config.installed.adapters) {
+    const allowed = config.models.allowed[harness] ?? [];
+    process.stdout.write(`  allowed (${harness})${" ".repeat(Math.max(0, 9 - harness.length))} ${allowed.length ? `${allowed.length}: ${allowed.join(", ")}` : "(all offered)"}\n`);
+  }
   process.stdout.write(`  hosts               ${Object.keys(config.hosts).length}\n`);
   process.stdout.write(`  workspaces          ${Object.keys(config.workspaces).length}\n`);
   process.stdout.write(`  notify              ${config.notify.length}\n`);

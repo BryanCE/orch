@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync,
 import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PI_EXTENSION_NAMES } from "../src/bridge-bundle.ts";
+import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";
 
 // `bun reset` erases every artifact an orch install writes, so the next
 // build + install runs the first-time-user flow instead of half-adopting a
@@ -97,18 +97,26 @@ function linksIntoOrch(entry: string): boolean {
 }
 
 /**
- * Orch's pi extensions only — never the user's own footer/subagent ones.
+ * Orch's own bundles in every harness dir it installs into — never the user's own
+ * footer/subagent extensions.
  *
  * Current bundle names cover what THIS build installs; the link target covers
  * what older layouts did, which is how `herdr-agent-state.ts` outlived its
  * source file and sat dangling through every reinstall.
  */
-function piExtensionRemovals(): WipeStep[] {
-  const extensions = join(HOME, ".pi", "agent", "extensions");
-  const orchInstalled = new Set(PI_EXTENSION_NAMES.map((name) => join(extensions, `${name}.js`)));
-  for (const entry of readdirSafe(extensions)) {
-    const file = join(extensions, entry);
-    if (linksIntoOrch(file)) orchInstalled.add(file);
+const HARNESS_EXTENSION_DIRS = [
+  join(HOME, ".pi", "agent", "extensions"),
+  join(HOME, ".omp", "agent", "extensions"),
+];
+
+function harnessExtensionRemovals(): WipeStep[] {
+  const orchInstalled = new Set<string>();
+  for (const extensions of HARNESS_EXTENSION_DIRS) {
+    for (const name of EXTENSION_NAMES) orchInstalled.add(join(extensions, `${name}.js`));
+    for (const entry of readdirSafe(extensions)) {
+      const file = join(extensions, entry);
+      if (linksIntoOrch(file)) orchInstalled.add(file);
+    }
   }
   return [...orchInstalled].map(deletion).filter(nonNull);
 }
@@ -186,7 +194,7 @@ const steps: WipeStep[] = [
   deletion(ORCH_DIR),
   globalPackageRemoval(),
   ...binShimRemovals(),
-  ...piExtensionRemovals(),
+  ...harnessExtensionRemovals(),
   ...packagedCopyRemovals(join(REPO, "skills", "claude"), "skills"),
   ...packagedCopyRemovals(join(REPO, "agents"), "agents"),
   claudeHookRemoval(),

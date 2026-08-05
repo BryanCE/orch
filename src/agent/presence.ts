@@ -9,27 +9,27 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { serializeIdentity, tryParseIdentity } from "../../src/backends/identity.ts";
-import { CONTROL_FILE, PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
+import type { HarnessApi, HarnessContext } from "./harness.ts";
+import { serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
+import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
   ensurePresenceAgentDir,
   writeResult as writePresenceResult,
   writeStatus as writePresenceStatus,
-} from "../../src/presence/writer.ts";
+} from "../presence/writer.ts";
 import {
   appendAck,
   drainInbox as drainPresenceInbox,
   isInboxFilename,
   resetInbox,
-} from "../../src/presence/inbox.ts";
-import { isRecord, isUnknownArray, type JsonRecord } from "../../src/util.ts";
+} from "../presence/inbox.ts";
+import { isRecord, isUnknownArray, type JsonRecord } from "../util.ts";
 import { createModelControl, isControlCommand } from "./model-control.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { DaemonAck } from "./daemon-ack.ts";
+import type { HarnessIdentity } from "./harness.ts";
 
 export const ORCH_DIR = process.env.ORCH_DIR ?? path.join(os.homedir(), ".orch");
-export const AGENT_ID = "pi";
 
 export const LAST_TEXT_MAX = 400;
 export const TASK_MAX = 200;
@@ -118,8 +118,10 @@ export function extractText(content: unknown): string {
   return content.filter(isTextBlock).map((block) => block.text).join("\n");
 }
 
-export interface PiPresenceOptions {
-  pi: ExtensionAPI;
+export interface AgentPresenceOptions {
+  harness: HarnessApi;
+  /** Which harness build this session is, and what it calls its settle signal. */
+  identity: HarnessIdentity;
   /** Plexer pane handle for this process, or null when the backend has no panes. */
   paneId: string | null;
   /** Bridge code hash stamped into status.json for the doctor staleness check. */
@@ -130,19 +132,19 @@ export interface PiPresenceOptions {
   reportStatus: (snapshot: { state: string; task?: string; cost: number }) => void;
 }
 
-/** The live presence binding returned by {@link createPiPresence}. */
-export type PiPresence = ReturnType<typeof createPiPresence>;
+/** The live presence binding returned by {@link createAgentPresence}. */
+export type AgentPresence = ReturnType<typeof createAgentPresence>;
 
-export function createPiPresence(options: PiPresenceOptions) {
-  const { pi, ack, extensionHash, reportStatus } = options;
+export function createAgentPresence(options: AgentPresenceOptions) {
+  const { harness, ack, extensionHash, reportStatus } = options;
 
   let dir: string | undefined;
   let controlFile = "";
 
-  let lastCtx: ExtensionContext | undefined;
+  let lastCtx: HarnessContext | undefined;
   const state = {
     schema: PRESENCE_SCHEMA,
-    agent: AGENT_ID,
+    agent: options.identity.agentId,
     key: "",
     paneId: options.paneId,
     label: null as string | null,
@@ -219,7 +221,7 @@ export function createPiPresence(options: PiPresenceOptions) {
     });
   }
 
-  function updateSessionRef(ctx: ExtensionContext): void {
+  function updateSessionRef(ctx: HarnessContext): void {
     try {
       const file = ctx.sessionManager.getSessionFile();
       if (typeof file === "string" && file.startsWith("/")) state.sessionPath = file;
@@ -230,17 +232,17 @@ export function createPiPresence(options: PiPresenceOptions) {
     } catch {}
   }
 
-  function updateModel(ctx: ExtensionContext): void {
+  function updateModel(ctx: HarnessContext): void {
     try {
       const model = ctx.model;
       if (model) state.model = { provider: model.provider, id: model.id };
     } catch {}
     try {
-      state.thinking = pi.getThinkingLevel();
+      state.thinking = harness.getThinkingLevel();
     } catch {}
   }
 
-  function updateContextUsage(ctx: ExtensionContext): void {
+  function updateContextUsage(ctx: HarnessContext): void {
     try {
       const usage = ctx.getContextUsage();
       if (usage && typeof usage.tokens === "number") {
@@ -251,8 +253,8 @@ export function createPiPresence(options: PiPresenceOptions) {
       }
     } catch {}
 
-    // Do not rely only on message_end/agent_settled. Pi persists the assistant
-    // message before (or independently of) delivering those extension events,
+    // Do not rely only on the message and settle events. The harness persists the
+    // assistant message before (or independently of) delivering those events,
     // and an event handler can be delayed behind another extension handler while
     // the heartbeat continues to run. The session branch is the durable source
     // of truth, so reconcile it here on every heartbeat/context refresh.
@@ -299,8 +301,8 @@ export function createPiPresence(options: PiPresenceOptions) {
         text.runFull = latestText;
         state.lastText = latestText.slice(0, LAST_TEXT_MAX);
       }
-      // agent_settled is the normal transition, but make the status resilient
-      // when that event is delayed: idle means the visible turn is finished.
+      // The settle event is the normal transition, but make the status resilient
+      // when it is delayed: idle means the visible turn is finished.
       if (state.state === "working" && ctx.isIdle() && hasAssistant) {
         state.state = latestText.trim() ? "done" : "idle";
         state.finishedAt = new Date().toISOString();
@@ -317,7 +319,7 @@ export function createPiPresence(options: PiPresenceOptions) {
   // layer only owns the inbox transport, the control.json path and the presence
   // refresh the applier calls back into.
   const modelControl = createModelControl({
-    pi,
+    harness,
     context: () => lastCtx,
     controlFile: () => controlFile,
     refreshPresence: () => {
@@ -361,9 +363,9 @@ export function createPiPresence(options: PiPresenceOptions) {
     try {
       const idle = lastCtx?.isIdle() ?? true;
       if (idle) {
-        pi.sendUserMessage(text);
+        harness.sendUserMessage(text);
       } else {
-        pi.sendUserMessage(text, { deliverAs: "steer" });
+        harness.sendUserMessage(text, { deliverAs: "steer" });
       }
     } catch {}
   }
@@ -441,7 +443,7 @@ export function createPiPresence(options: PiPresenceOptions) {
     return state.key !== undefined && state.key !== "" ? state.key : computeKey(hasUI) ?? "";
   }
 
-  function ownPresenceKey(ctx: ExtensionContext): string {
+  function ownPresenceKey(ctx: HarnessContext): string {
     initPresence(ctx.hasUI);
     return keyOrCompute(ctx.hasUI);
   }
@@ -484,8 +486,8 @@ export function createPiPresence(options: PiPresenceOptions) {
     /** Presence directory once initialised, or undefined when presence is skipped. */
     dir: (): string | undefined => dir,
     hasPendingHandoff: (): boolean => pendingHandoff !== undefined,
-    lastCtx: (): ExtensionContext | undefined => lastCtx,
-    setLastCtx: (ctx: ExtensionContext): void => {
+    lastCtx: (): HarnessContext | undefined => lastCtx,
+    setLastCtx: (ctx: HarnessContext): void => {
       lastCtx = ctx;
     },
     initPresence,

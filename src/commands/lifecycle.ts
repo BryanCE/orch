@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as path from "node:path";
-import { buildExtensionBundle, PI_EXTENSION_NAMES } from "../bridge-bundle.ts";
+import { buildExtensionBundle, EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { buildEntities, resolvePane } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { loadPresence, orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
@@ -13,7 +13,7 @@ import type { LifecycleVerb } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
 
 import { loadConfig } from "../config.ts";
-import { adapterCommand, launchModel, pinModels, resolveAdapterOrDie, workerPrompt, type AgentFlags } from "./spawn.ts";
+import { adapterCommand, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, workerPrompt, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
@@ -94,10 +94,10 @@ export async function cmdNew(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const force = args.includes("--force");
   const { targets, flags } = parseResetArgs(args);
-  if (!targets.length) die("usage: orch reset <target>... | --all [--model <provider/model[:thinking]>] [--json]");
+  if (!targets.length) die("usage: orch reset <target>... | --all [--model <model[:thinking]>] [--json]");
   // A cleared session drops back to the harness's own default, so reset re-pins on
   // exactly the terms a spawn does: the model named here, else the configured default.
-  const model = launchModel(flags, loadConfig(orchDir()));
+  const model = launchModel(flags, loadConfig(orchDir()), resolveAdapterOrDie(pickAdapter(flags, loadConfig(orchDir()))));
   const cleared: { key: string; pane: string; name: string }[] = [];
   const results: { target: string; cleared: true; ready: true }[] = [];
   for (const target of targets) {
@@ -234,7 +234,7 @@ export async function cmdReload(args: string[]): Promise<void> {
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
   try {
-    for (const name of PI_EXTENSION_NAMES) buildExtensionBundle(packageRoot(), name);
+    for (const name of EXTENSION_NAMES) buildExtensionBundle(packageRoot(), name);
   } catch (error: unknown) {
     process.stderr.write(`warning: could not rebuild extension bundles: ${errorMessage(error)}\n`);
   }

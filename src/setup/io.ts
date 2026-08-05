@@ -9,11 +9,13 @@ function guardCancel<T>(value: T | symbol): T | null {
   return value;
 }
 
-/** Prompt for one free-text value; return the trimmed answer, or null when the user cancels. */
-export async function promptText(message: string, placeholder?: string): Promise<string | null> {
+/** Prompt for one free-text value; return the trimmed answer, or null when the user cancels.
+ *  `suggested` both hints and answers: pressing enter on an empty field accepts it, so a
+ *  wizard step with a known-good value never records the empty string. */
+export async function promptText(message: string, suggested?: string): Promise<string | null> {
   const answer = guardCancel(await text({
     message,
-    ...(placeholder !== undefined ? { placeholder } : {}),
+    ...(suggested !== undefined ? { placeholder: suggested, defaultValue: suggested } : {}),
   }));
   return answer === null ? null : answer.trim();
 }

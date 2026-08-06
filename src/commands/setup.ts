@@ -475,32 +475,19 @@ const defaultSmokeSteps: SmokeSteps = {
 
 /** The closing smoke round-trip (12.5): spawn a headless agent ON a trivial prompt through orchd
  * and read its result back — so "setup completed" means orch can actually deliver work. The work
- * goes in at spawn because a detached agent has no TTY to idle on: it runs its prompt and exits. A
- * broken write path fails loudly and sets a non-zero exit code; returns true only on a real
- * round-trip. Every step is injectable so the failure paths are testable without a live agent. */
+ * goes in at spawn because a detached agent has no TTY to idle on: it runs its prompt and exits.
+ * Reports the verdict and returns it; setup's exit code is never touched. Every step is injectable
+ * so the failure paths are testable without a live agent. */
 export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}): Promise<boolean> {
   const step = { ...defaultSmokeSteps, ...steps };
   let key: string;
   try {
-
-    key = await step.spawnHeadless(cwd);
-  } catch (error: unknown) {
-    process.stderr.write(`Smoke failed: could not spawn a headless agent - ${errorMessage(error)}\n`);
-    process.exitCode = 1;
-    return false;
-  }
-  try {
-    await step.dispatch(key, step.buildPrompt(key));
-
+    key = await step.spawnHeadless(cwd, step.buildPrompt());
   } catch (error: unknown) {
     process.stderr.write(
       `Smoke failed: orch could not deliver work - the headless spawn was rejected (${errorMessage(error)}).\n` +
       `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status'.\n`,
     );
-
-    step.cleanup(key);
-    process.exitCode = 1;
-
     return false;
   }
   const deadline = step.now() + step.timeoutMs;
@@ -516,7 +503,6 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
       `Smoke failed: the agent launched but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,
     );
-    process.exitCode = 1;
     return false;
   }
   process.stdout.write("Smoke ok - orch spawned a headless agent on a prompt and read its result back. orch can deliver work.\n");

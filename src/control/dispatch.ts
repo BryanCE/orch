@@ -6,7 +6,6 @@ import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
-import { workerPolicyFrom, workerTools } from "../policy/workers.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle, DeliverPayload } from "../backends/backend.ts";
 
@@ -147,8 +146,8 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
 }
 
 /** The backend holding a target, and its current handle. Reads the registry pane
- *  handle first, then asks a handle-owning backend — a detached process handle is
- *  replaced on every relaunch, so only the backend knows the live one. */
+ *  handle first, then asks a handle-owning backend — a detached agent records no
+ *  pane handle at all, so only the backend can name its live one. */
 function resolveBackendHandle(target: string): { backend: Backend; handle: BackendHandle } | undefined {
   const route = resolveTargetRoute(target);
   if (route) return route;
@@ -158,31 +157,13 @@ function resolveBackendHandle(target: string): { backend: Backend; handle: Backe
   return backend && handle !== undefined ? { backend, handle } : undefined;
 }
 
-/** Relaunch a detached agent under its existing identity. Its process IS its
- *  session — there is no console to type a lifecycle command into — so a fresh
- *  process is what reset, reload, and restart all mean for it. Reusing the key
- *  keeps presence, the registry, and every control target naming the same agent. */
-function relaunchAgent(target: string, adapter: AgentAdapter, backend: Backend, handle: BackendHandle): void {
-  const record = spawnedRecords().get(target);
-  if (!record?.model) throw new Error(`cannot relaunch ${target}: registry row records no model to launch on`);
-  const config = loadConfigOrNull(orchDir());
-  if (!config) throw new Error(`cannot relaunch ${target}: settings are unreadable`);
-  backend.close(handle);
-  backend.spawn(adapter, {
-    key: target,
-    orchDir: orchDir(),
-    cwd: record.cwd,
-    model: record.model,
-    tools: workerTools(config),
-    workers: workerPolicyFrom(config),
-  });
-}
-
 /**
  * Apply a session-lifecycle verb through the mechanism the target actually has.
- * A console-backed agent is sent the text its adapter declares for the verb; an
- * agent with no console has nothing to type into, so it is relaunched instead.
- * The branch is on the backend's declared keystroke capability, never its id.
+ * A console-backed agent is sent the text its adapter declares for the verb. An
+ * agent with no console has neither a console to type into nor a session to
+ * carry over — it runs the prompt it launched on and exits — so the verb is
+ * refused. The branch is on the backend's declared keystroke capability, never
+ * its id.
  */
 function deliverLifecycle(target: string, adapter: AgentAdapter, verb: LifecycleVerb): void {
   if (!adapter.caps.lifecycle.includes(verb)) {
@@ -191,8 +172,7 @@ function deliverLifecycle(target: string, adapter: AgentAdapter, verb: Lifecycle
   const route = resolveBackendHandle(target);
   if (!route) throw new Error(`cannot ${verb} ${target}: no live backend handle`);
   if (!route.backend.canSendKeys) {
-    relaunchAgent(target, adapter, route.backend, route.handle);
-    return;
+    throw new Error(`cannot ${verb} ${target}: backend ${route.backend.id} has no console, and a detached agent runs one prompt and exits - spawn a new one with 'orch spawn --backend ${route.backend.id} --prompt ...'`);
   }
   const command = adapter.lifecycleCmd?.(verb);
   if (!command) throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} returned no ${verb} command`);

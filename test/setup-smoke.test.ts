@@ -28,13 +28,11 @@ afterEach(() => {
 
 /** A fully-injected step set that always reaches a clean round-trip; each test overrides one leg. */
 function steps(overrides: Partial<SmokeSteps>): Partial<SmokeSteps> {
-  const cleaned: string[] = [];
   return {
     spawnHeadless: () => Promise.resolve("headless~local~smoke"),
     buildPrompt: () => "ready?",
-    dispatch: () => Promise.resolve(),
     readResultText: () => "ready",
-    cleanup: (key) => { cleaned.push(key); },
+    cleanup: () => {},
     now: () => 0,
     sleep: () => Promise.resolve(),
     timeoutMs: 1000,
@@ -51,45 +49,47 @@ describe("runSetupSmoke (12.5)", () => {
     expect(output).toContain("orch can deliver work");
   });
 
-  test("a rejected dispatch fails loudly and sets a non-zero exit code", async () => {
-    let cleaned = "";
-    const ok = await runSetupSmoke("/tmp/smoke", steps({
-      dispatch: () => Promise.reject(new Error("write was not applied or acknowledged")),
-      cleanup: (key) => { cleaned = key; },
+  test("the agent is launched on the prompt it built", async () => {
+    let launchedOn = "";
+    await runSetupSmoke("/tmp/smoke", steps({
+      buildPrompt: () => "Reply with the single word: ready",
+      spawnHeadless: (_cwd, prompt) => { launchedOn = prompt; return Promise.resolve("headless~local~smoke"); },
     }));
-    expect(ok).toBe(false);
-    expect(process.exitCode).toBe(1);
-    expect(output).toContain("orch could not deliver work");
-    expect(output).toContain("write was not applied or acknowledged");
-    // A rejected dispatch still tears down the spawned smoke agent.
-    expect(cleaned).toBe("headless~local~smoke");
+    expect(launchedOn).toBe("Reply with the single word: ready");
   });
 
-  test("a dispatch that is accepted but yields no result times out and fails non-zero", async () => {
+  test("an agent that launches but yields no result times out and fails non-zero", async () => {
     let ticks = 0;
     let polls = 0;
+    let cleaned = "";
     const ok = await runSetupSmoke("/tmp/smoke", steps({
       readResultText: () => { polls++; return undefined; },
       // deadline read + one in-window poll, then now() jumps past the deadline so the loop exits fast.
       now: () => (ticks++ < 2 ? 0 : 10_000),
+      cleanup: (key) => { cleaned = key; },
       timeoutMs: 1000,
     }));
     expect(polls).toBeGreaterThan(0);
     expect(ok).toBe(false);
-    expect(process.exitCode).toBe(1);
+    // The smoke REPORTS; it never fails setup's exit code.
+    expect(process.exitCode).toBeUndefined();
     expect(output).toContain("no result came back");
     expect(output).toContain("did not complete a work round-trip");
+    // A timed-out smoke still tears down the spawned agent.
+    expect(cleaned).toBe("headless~local~smoke");
   });
 
-  test("a failed spawn fails loudly before any dispatch", async () => {
-    let dispatched = false;
+  test("a rejected spawn fails loudly and never polls for a result", async () => {
+    let polls = 0;
     const ok = await runSetupSmoke("/tmp/smoke", steps({
       spawnHeadless: () => Promise.reject(new Error("headless spawn recorded no new agent")),
-      dispatch: () => { dispatched = true; return Promise.resolve(); },
+      readResultText: () => { polls++; return "ready"; },
     }));
     expect(ok).toBe(false);
-    expect(process.exitCode).toBe(1);
-    expect(output).toContain("could not spawn a headless agent");
-    expect(dispatched).toBe(false);
+    // The smoke REPORTS; it never fails setup's exit code.
+    expect(process.exitCode).toBeUndefined();
+    expect(output).toContain("orch could not deliver work");
+    expect(output).toContain("headless spawn recorded no new agent");
+    expect(polls).toBe(0);
   });
 });

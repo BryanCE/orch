@@ -192,6 +192,8 @@ type SpawnFlags = AgentFlags & {
   namePrefix: string | null;
   spawnCapFlag?: number;
   worktreeFlag?: boolean;
+  /** Initial task for a detached agent, which runs it and exits. */
+  promptFlag?: string;
   positional: string[];
 };
 
@@ -204,6 +206,7 @@ function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number
     case "--name": flags.namePrefix = args[index + 1]!; return 1;
     case "--workspace": flags.workspace = args[index + 1]!; return 1;
     case "--model": flags.modelFlag = args[index + 1]!; return 1;
+    case "--prompt": flags.promptFlag = args[index + 1]!; return 1;
     case "--agent":
     case "--adapter": flags.adapterFlag = args[index + 1]!; return 1;
     case "--backend": flags.backendFlag = args[index + 1]!; return 1;
@@ -242,6 +245,8 @@ type SpawnSettings = AgentSettings & {
   prefix: string;
   n: number;
   worktree: boolean;
+  /** Initial task for a detached agent; empty for pane agents, which idle until dispatched. */
+  prompt: string;
   fleet: OrchConfig["fleet"];
 };
 
@@ -253,7 +258,7 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   if (!Number.isInteger(spawnCap) || spawnCap < 1) die(`Invalid spawn cap ${spawnCap}; expected a positive integer.`);
   const n = parseInt(flags.positional[0]!, 10);
   if (!Number.isFinite(n) || n < 1)
-    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--spawn-cap <N>] [--worktree]");
+    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--spawn-cap <N>] [--worktree]");
   if (n > spawnCap) die(`Refusing to spawn ${n} panes - cap is ${spawnCap}.`);
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
@@ -263,7 +268,7 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   // one flag still produces a sensibly-labeled tab, but they are never conflated.
   const tabLabel = flags.tabLabel ?? flags.namePrefix ?? flags.label;
   const prefix = flags.namePrefix ?? flags.tabLabel ?? flags.label;
-  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, fleet: config.fleet };
+  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, prompt: flags.promptFlag ?? "", fleet: config.fleet };
 }
 
 interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
@@ -295,11 +300,14 @@ function assertSpawnCapacity(settings: Pick<OrchConfig, "fleet">, workspace: str
   }
 }
 
-// Detached agents are launched BY THE DAEMON, not here: the process holding an
-// agent's stdin pipe is the process the agent's life is tied to, and this CLI
-// exits in milliseconds. orchd outlives them and already owns delivery.
+// Detached agents are launched BY THE DAEMON, not here: orchd outlives this CLI
+// and already owns delivery. Each runs the prompt it was launched with and exits —
+// there is no pane for it to idle in.
 async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): Promise<void> {
   if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
+  // A detached agent has no TTY to idle on: it runs its prompt and exits, so work
+  // dispatched after launch would arrive at a dead process.
+  if (!settings.prompt.trim()) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" (a detached agent runs it and exits)`);
   // Detached agents mint their identity under the backend's own workspace (headless → "local"),
   // never the caller's herdr identity; the cap check must match that same bucket, not callerWorkspace().
   const workspace = settings.workspace ?? "local";
@@ -322,6 +330,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
         adapter: settings.adapter,
         cwd,
         model: settings.model,
+        prompt: workerPrompt(settings.prompt, false, adapter, loadConfig(orchDir()).locked_commands),
         tools: settings.tools,
         workers: settings.workers,
       });

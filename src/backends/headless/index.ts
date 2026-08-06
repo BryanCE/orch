@@ -112,24 +112,6 @@ function registeredHandle(handle: HeadlessHandle, directory: string): boolean {
 }
 
 /**
- * Agents whose stdin pipe this process owns, held so the pipe outlives the call
- * that opened it.
- *
- * An interactive harness quits the moment stdin reaches EOF. `stdio: "ignore"`
- * hands it /dev/null, which is EOF immediately — the agent was dying seconds
- * after launch, long before any work could be delivered to it. A pipe has no EOF
- * while its writer is open, so the agent idles until orch gives it something. The
- * writer is this process, which is why the spawner must be the long-lived orchd
- * and not the CLI: an `orch spawn` that exits takes its agents with it.
- */
-const stdinHolders = new Set<ChildProcess>();
-
-function holdStdinOpen(child: ChildProcess): void {
-  stdinHolders.add(child);
-  child.once("exit", () => stdinHolders.delete(child));
-}
-
-/**
  * Detached process backend. The registry is append-only; dead entries remain
  * observable, while close can only signal a registered process with matching
  * presence ownership.
@@ -187,10 +169,13 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       tools: opts.tools,
       workers: opts.workers,
     };
-    const argv = adapter.restrictedHeadlessCmd?.(opts.prompt ?? "", adapterOpts)
-      ?? adapter.headlessCmd(opts.prompt ?? "", adapterOpts);
-    // The final argv entry is the initial prompt and may legitimately be empty
-    // for `orch spawn`, while the executable itself must always be non-empty.
+    // A headless agent runs its prompt and exits, so work sent after launch
+    // arrives at a dead process: the prompt is the only way in.
+    const prompt = opts.prompt ?? "";
+    if (!prompt.trim()) throw new Error(`cannot spawn a headless ${String(adapter.id)} agent with no prompt: a headless agent runs its prompt and exits, so it has nothing to do`);
+    const argv = adapter.restrictedHeadlessCmd?.(prompt, adapterOpts)
+      ?? adapter.headlessCmd(prompt, adapterOpts);
+    // The final argv entry is the initial prompt; the executable itself must always be non-empty.
     if (!Array.isArray(argv) || argv.length === 0 || typeof argv[0] !== "string" || argv[0].length === 0
       || argv.slice(1).some((part) => typeof part !== "string")) {
       throw new Error(`adapter ${String(adapter.id)} returned an invalid headless command`);
@@ -208,14 +193,15 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         // writer running inside the child, so its own status.json can stamp
         // the same sessionPath the backend registry records below.
         env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ...(opts.env ?? {}) },
-        stdio: ["pipe", logFd, logFd],
+        // stdin MUST reach EOF: a pi-shaped harness reads its prompt from an open
+        // stdin and blocks there before starting a session, so it never registers.
+        stdio: ["ignore", logFd, logFd],
       });
     } catch (error) {
       closeSync(logFd);
       throw error;
     }
     closeSync(logFd);
-    holdStdinOpen(child);
 
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);

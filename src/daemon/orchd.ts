@@ -149,11 +149,10 @@ function optionalString(value: unknown): string | undefined {
 /**
  * Launch one detached agent from INSIDE the daemon.
  *
- * A detached agent lives exactly as long as the process holding its stdin pipe,
- * so the spawner has to be something that outlives it. `orch spawn` is a CLI that
- * exits in milliseconds; orchd is already running and already owns delivery, so
- * it owns the launch too. The CLI asks for the spawn over this RPC rather than
- * doing it itself.
+ * A detached agent has no TTY: it runs the prompt it was launched with and exits.
+ * The prompt is therefore required, not optional — a detached agent with nothing
+ * to do registers, finds no work, and dies before anything can be sent to it.
+ * orchd owns the launch because it already owns delivery and outlives the CLI.
  */
 function spawnDetached(directory: string, params: unknown): { key: string; pid: number } {
   const value = rpcParams(params);
@@ -170,6 +169,7 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
     key,
     orchDir: directory,
     cwd: optionalString(value.cwd),
+    prompt: requiredString(value.prompt, "prompt"),
     model,
     tools: optionalString(value.tools),
     workers: value.workers as WorkerPolicy | undefined,

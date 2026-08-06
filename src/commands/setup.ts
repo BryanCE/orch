@@ -18,8 +18,7 @@ import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.t
 import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
 import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
-import { writeRpc } from "./daemon.ts";
-import { cmdSpawn, resolveAdapterOrDie, workerPrompt } from "./spawn.ts";
+import { cmdSpawn } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
 
 const HOME = os.homedir();
@@ -425,12 +424,10 @@ export async function offerReapMalformedRecords(
  * plumbing `orch spawn`/`orch run`/`orch result` use — the smoke reuses those paths, never
  * reimplements them. */
 export interface SmokeSteps {
-  /** Spawn one headless agent and return its identity key; throws when none is recorded. */
-  spawnHeadless: (cwd: string) => Promise<string>;
-  /** Build the trivial prompt dispatched to the agent. */
-  buildPrompt: (key: string) => string;
-  /** Deliver the prompt through orchd — throws when the write path rejects it. */
-  dispatch: (key: string, text: string) => Promise<void>;
+  /** Spawn one headless agent ON the given prompt and return its identity key; throws when none is recorded. */
+  spawnHeadless: (cwd: string, prompt: string) => Promise<string>;
+  /** Build the trivial prompt the agent is launched on. */
+  buildPrompt: () => string;
   /** The agent's result text once it has produced one, else undefined. */
   readResultText: (key: string) => string | undefined;
   /** Best-effort teardown of the smoke agent. */
@@ -441,21 +438,18 @@ export interface SmokeSteps {
 }
 
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
-async function spawnHeadlessSmokeAgent(cwd: string): Promise<string> {
+async function spawnHeadlessSmokeAgent(cwd: string, prompt: string): Promise<string> {
   const before = new Set(spawnedRecords().keys());
-  await cmdSpawn(["1", "--backend", "headless", "--name", "orch-smoke", "--cwd", cwd]);
+  await cmdSpawn(["1", "--backend", "headless", "--name", "orch-smoke", "--cwd", cwd, "--prompt", prompt]);
   const after = spawnedRecords();
   const key = [...after.keys()].find((candidate) => !before.has(candidate) && after.get(candidate)?.backend === "headless");
   if (!key) throw new Error("headless spawn recorded no new agent");
   return key;
 }
 
-/** Build the worker-headed trivial prompt for the smoke agent, using its recorded adapter. */
-function buildSmokePrompt(key: string): string {
-  const config = loadConfig(orchDir());
-  const adapterId = spawnedRecords().get(key)?.adapter ?? config.defaults.adapter ?? "";
-  const adapter = adapterId ? resolveAdapterOrDie(adapterId) : undefined;
-  return workerPrompt("Reply with the single word: ready", false, adapter, config.locked_commands);
+/** The trivial task the smoke agent is launched on. `orch spawn` adds the worker header. */
+function buildSmokePrompt(): string {
+  return "Reply with the single word: ready";
 }
 
 /** Best-effort close of the headless smoke agent by its key. */
@@ -472,7 +466,6 @@ function closeSmokeAgent(key: string): void {
 const defaultSmokeSteps: SmokeSteps = {
   spawnHeadless: spawnHeadlessSmokeAgent,
   buildPrompt: buildSmokePrompt,
-  dispatch: (key, text) => writeRpc("dispatch", { target: key, text }).then(() => undefined),
   readResultText: (key) => resultText(loadPresence().get(key)?.result),
   cleanup: closeSmokeAgent,
   now: () => Date.now(),
@@ -480,14 +473,16 @@ const defaultSmokeSteps: SmokeSteps = {
   timeoutMs: 60_000,
 };
 
-/** The closing smoke round-trip (12.5): spawn a headless agent, dispatch a trivial prompt through
- * orchd, and read the result back — so "setup completed" means orch can actually deliver work. A
+/** The closing smoke round-trip (12.5): spawn a headless agent ON a trivial prompt through orchd
+ * and read its result back — so "setup completed" means orch can actually deliver work. The work
+ * goes in at spawn because a detached agent has no TTY to idle on: it runs its prompt and exits. A
  * broken write path fails loudly and sets a non-zero exit code; returns true only on a real
  * round-trip. Every step is injectable so the failure paths are testable without a live agent. */
 export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}): Promise<boolean> {
   const step = { ...defaultSmokeSteps, ...steps };
   let key: string;
   try {
+
     key = await step.spawnHeadless(cwd);
   } catch (error: unknown) {
     process.stderr.write(`Smoke failed: could not spawn a headless agent - ${errorMessage(error)}\n`);
@@ -496,13 +491,16 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   }
   try {
     await step.dispatch(key, step.buildPrompt(key));
+
   } catch (error: unknown) {
     process.stderr.write(
-      `Smoke failed: orch could not deliver work - the dispatch was rejected (${errorMessage(error)}).\n` +
-      `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status' and 'orch tail ${key}'.\n`,
+      `Smoke failed: orch could not deliver work - the headless spawn was rejected (${errorMessage(error)}).\n` +
+      `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status'.\n`,
     );
+
     step.cleanup(key);
     process.exitCode = 1;
+
     return false;
   }
   const deadline = step.now() + step.timeoutMs;
@@ -515,13 +513,13 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   step.cleanup(key);
   if (!result) {
     process.stderr.write(
-      `Smoke failed: the dispatch was accepted but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
+      `Smoke failed: the agent launched but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,
     );
     process.exitCode = 1;
     return false;
   }
-  process.stdout.write("Smoke ok - orch spawned a headless agent, dispatched a prompt, and read a result back. orch can deliver work.\n");
+  process.stdout.write("Smoke ok - orch spawned a headless agent on a prompt and read its result back. orch can deliver work.\n");
   return true;
 }
 
@@ -626,7 +624,7 @@ export async function cmdSetup(args: string[]) {
     if (blocker) {
       process.stdout.write(`Smoke test skipped - ${blocker}.\n`);
     } else {
-      process.stdout.write("Smoke test - verifying orch can deliver work (headless spawn + dispatch + result)...\n");
+      process.stdout.write("Smoke test - verifying orch can deliver work (headless spawn on a prompt + result)...\n");
       await runSetupSmoke(process.cwd());
     }
   } else if (!interactive) {

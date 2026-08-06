@@ -110,8 +110,8 @@ export async function cmdNew(args: string[]): Promise<void> {
     const before = readPresenceStatus(statusPath);
     const beforeUpdated = Date.parse(typeof before?.updatedAt === "string" ? before.updatedAt : "");
     const sentAt = Date.now();
-    // The daemon owns every lifecycle mechanism: a console gets the adapter's text,
-    // a detached process gets relaunched. Neither is the CLI's to choose.
+    // The daemon owns every lifecycle mechanism: a console gets the adapter's
+    // text, a detached agent has none and is refused. Neither is the CLI's to choose.
     await writeRpc("lifecycle", { target: ent.key, verb: "reset" });
     if (!awaitIdleAfter(statusPath, beforeUpdated, sentAt)) die(`${pane}: reset did not become ready within 75s.`);
     cleared.push({ key: ent.key, pane, name: ent.name ?? pane });
@@ -145,9 +145,9 @@ function awaitBridgeRefresh(statusPath: string, wasUpdatedAt: string, tries: num
   return false;
 }
 
-/** Apply a lifecycle verb to an agent with no console, through the daemon: it holds
- *  the relaunched process's stdin, so only it can carry out the verb. */
-async function relaunchThroughDaemon(verb: LifecycleVerb, key: string, pane: string): Promise<ReloadResult> {
+/** Apply a lifecycle verb to an agent with no console through the daemon, which owns
+ *  every lifecycle mechanism. A detached agent has none, so this reports its refusal. */
+async function lifecycleThroughDaemon(verb: LifecycleVerb, key: string, pane: string): Promise<ReloadResult> {
   const statusPath = path.join(presenceAgentDir(key), STATUS_FILE);
   const wasUpdatedAt = readPresenceStatus(statusPath)?.updatedAt;
   if (typeof wasUpdatedAt !== "string") return { pane, ok: false, reason: "no bridge status.json to verify against" };
@@ -248,11 +248,11 @@ export async function cmdReload(args: string[]): Promise<void> {
       const adapter = resolveAdapterOrDie(agentId);
       const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
-      // No console to type `/reload` into means the process itself is relaunched,
-      // and only the daemon can do that — it owns the new process's stdin.
+      // No console to type `/reload` into leaves only the daemon, which owns
+      // every lifecycle mechanism a backend does or does not have.
       results.push(backend.canSendKeys
         ? reloadPaneAndAwaitBridge(backend, String(handle), ent.key, reloadCmd.text)
-        : await relaunchThroughDaemon("reload", ent.key, String(handle)));
+        : await lifecycleThroughDaemon("reload", ent.key, String(handle)));
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
@@ -297,12 +297,12 @@ export async function cmdRestart(args: string[]): Promise<void> {
     const adapter = resolveAdapterOrDie(agentId);
     const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
-    // A pane is quit and relaunched by typing into its shell; a detached agent has
-    // no shell, so the daemon that owns its stdin replaces the process instead.
+    // A pane is quit and relaunched by typing into its shell; a detached agent
+    // has no shell, so the daemon rules on what restart means for it.
     if (!backend.canSendKeys) {
-      const relaunched = await relaunchThroughDaemon("restart", ent.key, String(handle));
-      if (relaunched.ok) { ok++; if (!json) process.stdout.write(`${relaunched.pane}: bridge live.\n`); }
-      else process.stderr.write(`${relaunched.pane}: ${relaunched.reason ?? "restart failed"}\n`);
+      const restarted = await lifecycleThroughDaemon("restart", ent.key, String(handle));
+      if (restarted.ok) { ok++; if (!json) process.stdout.write(`${restarted.pane}: bridge live.\n`); }
+      else process.stderr.write(`${restarted.pane}: ${restarted.reason ?? "restart failed"}\n`);
       continue;
     }
     const launch = cmd ?? adapterCommand(agentId, config);

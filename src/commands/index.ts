@@ -88,9 +88,10 @@ COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
 
 PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
-                   [--agent A] [--backend B] [--spawn-cap N] [--worktree]
+                   [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
                                  3=2+1, 4=2x2, ...; cap 8). Names <prefix>-1..N.
+                                 --backend headless needs --prompt: a detached agent runs it and exits.
   orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]

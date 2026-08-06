@@ -81,6 +81,14 @@ describe("HeadlessBackend", () => {
     expect(backend.workspaceNames()).toEqual(new Map());
   });
 
+  test("refuses to spawn with no prompt — a headless agent runs its prompt and exits", () => {
+    for (const prompt of [undefined, "", "   "]) {
+      expect(() => backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-promptless", prompt }))
+        .toThrow(/no prompt/);
+    }
+    expect(backend.list().some((entry) => entry.key === "fake-promptless")).toBe(false);
+  });
+
   test("spawns a detached process and records its handle", async () => {
     expect(backend.caps).toEqual({ panes: false, focusable: false, canSendKeys: false });
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-1", prompt: "sleep" });
@@ -135,7 +143,7 @@ describe("HeadlessBackend", () => {
   }, 30000);
 
   test("closes only when registry and presence pid/key both match", async () => {
-    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-2" });
+    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-2", prompt: "sleep" });
     handles.push(handle);
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-2", "status.json")));
 

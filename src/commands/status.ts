@@ -221,7 +221,7 @@ async function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces
   process.stdout.write(out.join("\n") + "\n");
 }
 
-interface StatusRow {
+export interface StatusRow {
   key: string;
   paneId: string | null;
   /** False for panes orch did not spawn (the orchestrator's own, the user's). */

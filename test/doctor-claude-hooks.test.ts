@@ -93,7 +93,7 @@ describe("doctor Claude hooks shim check", () => {
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
     expect(result.detail).toContain("missing or stale orch hooks");
-    expect(result.detail).toContain("run orch setup");
+    expect(result.fix?.description).toContain("reinstall orch's Claude hooks");
   });
 
   test("warns on the legacy ungated bun command form", () => {

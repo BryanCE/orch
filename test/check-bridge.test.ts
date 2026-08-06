@@ -65,6 +65,10 @@ describe("10.2 adapter control strategies are dispatcher-only (checkDispatcherCa
     expect(checkDispatcherCallLine(call, "src/adapters/pi.ts")).toBeUndefined();
   });
 
+  test("allows the shared harness model port outside the adapter dispatcher", () => {
+    expect(checkDispatcherCallLine("  await harness.setModel(model);", "src/agent/model-control.ts")).toBeUndefined();
+  });
+
   test("passes the clean tree: every .steer/.answer/.setModel call lives in dispatch.ts", () => {
     for (const line of readRepoLines("src/control/dispatch.ts")) {
       expect(checkDispatcherCallLine(line, "src/control/dispatch.ts")).toBeUndefined();

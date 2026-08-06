@@ -40,8 +40,8 @@ function orchestratorBridgeExtension(harness: HarnessApi): void {
     {
       onSessionStart: (handler) => harness.on("session_start", (_event, ctx) => handler(ctx)),
       onAgentStart: (handler) => harness.on("agent_start", (_event, ctx) => handler(ctx)),
-      onAgentEnd: (handler) => harness.on("agent_end", (event) => handler(event)),
-      onSessionShutdown: (handler) => harness.on("session_shutdown", (event) => handler(event)),
+      onAgentEnd: (handler) => harness.on("agent_end", (event) => handler(event as { messages?: unknown[] })),
+      onSessionShutdown: (handler) => harness.on("session_shutdown", (event) => handler(event as { reason?: string })),
     },
     harness.events,
     { agentId: OMP_IDENTITY.agentId, extensionHash: EXTENSION_HASH },

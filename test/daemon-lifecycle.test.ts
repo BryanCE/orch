@@ -80,7 +80,7 @@ describe("daemon lifecycle", () => {
 
   test("retries if a stale lock disappears during reclaim", () => {
     const orchDir = makeOrchDir();
-    writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify({ pid: 0, codeHash: "old", startedAt: "now" }));
+    writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify({ pid: 999999999, codeHash: "old", startedAt: "now" }));
     expect(acquireDaemonLock(orchDir, (socket) => {
       rmSync(join(orchDir, "orchd.lock"));
       expect(socket).toBe(join(orchDir, "orchd.sock"));

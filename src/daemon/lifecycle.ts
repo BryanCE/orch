@@ -133,7 +133,7 @@ function readLock(file: string): LockRecord | undefined {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const record = parsed as Partial<LockRecord>;
     if (
-      !Number.isInteger(record.pid) || record.pid <= 0 ||
+      typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0 ||
       typeof record.codeHash !== "string" ||
       typeof record.startedAt !== "string" ||
       (record.startToken !== undefined && typeof record.startToken !== "string")

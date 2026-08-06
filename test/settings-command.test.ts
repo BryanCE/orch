@@ -53,7 +53,8 @@ describe("orch settings", () => {
     const report = JSON.parse(runSettings(directory, {}, "--json")) as Record<string, { value: unknown; source: string }>;
     expect(report.adapter).toEqual({ value: "pi", source: "settings.json" });
     expect(report.backend).toEqual({ value: "headless", source: "settings.json" });
-    expect(report.model!.source).toBe("default");
+    expect(report["model (pi)"]!.source).toBe("default");
+    expect(report["model (claude)"]!.source).toBe("default");
     expect(report["fleet.spawn_cap"]).toEqual({ value: 8, source: "default" });
     expect(report.installed!.value).toEqual({ adapters: ["pi", "claude"], backends: ["headless"] });
   }, 30_000);

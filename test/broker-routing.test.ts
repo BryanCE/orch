@@ -70,7 +70,7 @@ describe("broker CLI routing", () => {
     const orchDir = makeOrchDir();
     seedAgent(orchDir);
 
-    const result = runCli(orchDir, ["status", "--offline", "--json", "--all"]);
+    const result = runCli(orchDir, ["status", "--offline", "--json", "--all", "--all-panes"]);
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("agent-alpha");

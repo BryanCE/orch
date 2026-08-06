@@ -69,7 +69,7 @@ describe("loadConfig", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
       installed: { adapters: ["pi", "claude"], backends: ["headless"] },
-      defaults: { adapter: "claude", backend: "headless", model: "sonnet", worktree: true },
+      defaults: { adapter: "claude", backend: "headless", models: { claude: "sonnet" }, worktree: true },
       fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
       models: { allowed: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
@@ -87,7 +87,7 @@ describe("loadConfig", () => {
       defaults: {
         adapter: "claude",
         backend: "headless",
-        model: "sonnet",
+        models: { claude: "sonnet" },
         worktree: true,
       },
       fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },

@@ -82,7 +82,7 @@ const SettingsFileSchema = z.strictObject({
     backend: z.enum(BACKEND_IDS).optional(),
     /** One model per harness: each names models in its own vocabulary, so a single
      *  string can only ever be launchable by one of them. */
-    models: z.record(z.enum(ADAPTER_IDS), z.string()).optional(),
+    models: z.partialRecord(z.enum(ADAPTER_IDS), z.string()).optional(),
     worktree: z.boolean().optional(),
   }).optional(),
   fleet: z.strictObject({
@@ -95,7 +95,7 @@ const SettingsFileSchema = z.strictObject({
   models: z.strictObject({
     /** Allowed model patterns PER HARNESS. A pattern is written in that harness's own
      *  vocabulary, so one shared list could only ever restrict one of them. */
-    allowed: z.record(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
+    allowed: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
   }).optional(),
   /** What a spawned worker loads. Inherits the user's own harness setup by default;
    * name the extensions that misbehave under concurrency rather than dropping all. */

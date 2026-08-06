@@ -95,7 +95,7 @@ describe("notification and presence event formatting", () => {
     expect(transition("herdr~w8~p3", { state: "done", task: dispatched })?.task).toBe("build the real thing");
 
     const longTask = "x".repeat(100);
-    expect(transition("herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(79)}…`);
+    expect(transition("herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(77)}...`);
     expect(transition("herdr~w8~p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
   });
 

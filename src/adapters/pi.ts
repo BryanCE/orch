@@ -196,7 +196,8 @@ export function readModelsStore(file: string): readonly HarnessModel[] {
 
 /** True when a launch command starts one of the named binaries. */
 export function launchesBinary(binaries: readonly string[], cmd: string): boolean {
-  return binaries.includes(cmd.trim().split(/\s+/)[0]);
+  const executable = cmd.trim().split(/\s+/)[0];
+  return executable !== undefined && binaries.includes(executable);
 }
 
 /** Pre-approve a workspace in a harness's trust store so its first launch does not block. */

@@ -38,29 +38,50 @@ export interface HarnessModelRegistry {
   find(provider: string, id: string): HarnessResolvedModel | undefined;
 }
 
+/** Per-invocation UI methods the control plane uses. */
+export interface HarnessUi {
+  notify(message: string, level: "info" | "warning" | "error"): void;
+  setStatus(key: string, text: string | undefined): void;
+  setWidget(key: string, content: string[] | undefined): void;
+}
+
+/** Shared event bus the plexer HUD may subscribe to. */
+export interface HarnessEventBus {
+  on(channel: string, handler: (data: unknown) => void): unknown;
+}
+
 /** Per-invocation state the harness passes to every handler. */
 export interface HarnessContext {
   readonly hasUI: boolean;
   readonly model?: HarnessResolvedModel;
   readonly sessionManager: HarnessSessionManager;
   readonly modelRegistry: HarnessModelRegistry;
-  readonly ui: { notify(message: string, level: "info" | "error"): void };
+  readonly ui: HarnessUi;
   isIdle(): boolean;
   getContextUsage(): HarnessContextUsage | undefined;
 }
 
 /** A handler bound to one harness event; the event payload is validated by its reader. */
-export type HarnessEventHandler = (event: unknown, ctx: HarnessContext) => void;
+export type HarnessEventHandler = (event: unknown, ctx: HarnessContext) => void | Promise<unknown>;
 
 /** A slash-command handler; `args` is the raw text after the command name. */
-export type HarnessCommandHandler = (args: string | undefined, ctx: HarnessContext) => void;
+export type HarnessCommandHandler = (args: string | undefined, ctx: HarnessContext) => void | Promise<void>;
 
 /** A tool the control plane registers into the agent's own toolset. */
 export interface HarnessTool {
   readonly name: string;
+  readonly label?: string;
   readonly description: string;
+  readonly promptSnippet?: string;
+  readonly promptGuidelines?: readonly string[];
   readonly parameters: unknown;
-  execute(args: never, ctx: HarnessContext): unknown;
+  execute(
+    toolCallId: string,
+    params: never,
+    signal: AbortSignal | undefined,
+    onUpdate: unknown,
+    ctx: HarnessContext,
+  ): unknown;
 }
 
 /** The harness API surface the control plane binds to. */
@@ -72,7 +93,7 @@ export interface HarnessApi {
   setModel(model: HarnessResolvedModel): Promise<boolean> | void;
   getThinkingLevel(): ThinkingLevel | undefined;
   setThinkingLevel(level: ThinkingLevel, persist?: boolean): void;
-  readonly events: unknown;
+  readonly events: HarnessEventBus;
 }
 
 /**

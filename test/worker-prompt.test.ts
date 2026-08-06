@@ -5,18 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
 import type { AdapterId } from "../src/adapters/adapter.ts";
-import { headlessBackend } from "../src/backends/headless/index.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { addTask, listTasks } from "../src/queue.ts";
 import { recordSpawned, presenceAgentDir } from "../src/presence/store.ts";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
 import { workerPrompt } from "../src/commands/spawn.ts";
+import { binaryOnPath } from "../src/util.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
-type Deliver = typeof headlessBackend.deliver;
 
 function statusFile(orchDir: string, key: string): string {
   const dir = presenceAgentDir(key, orchDir);
@@ -29,7 +28,6 @@ async function dispatchedPrompt(adapter: AdapterId): Promise<string> {
   const orchDir = mkdtempSync(join(tmpdir(), `orch-worker-prompt-${adapter}-`));
   const key = serializeIdentity({ backend: "headless", workspace: "local", id: `${adapter}-worker` });
   const status = statusFile(orchDir, key);
-  const original: Deliver = headlessBackend.deliver.bind(headlessBackend);
   let received = "";
   process.env.ORCH_DIR = orchDir;
   // The work loop reads its composition from settings.json; orch has no built-in configuration.
@@ -40,18 +38,20 @@ async function dispatchedPrompt(adapter: AdapterId): Promise<string> {
   writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "idle" }));
   recordSpawned(key, { adapter, backend: "headless", handle: key });
   addTask(orchDir, "do the task", { agent: adapter }, "local");
-  headlessBackend.deliver = (_handle, payload) => {
-    received = payload.text;
-    writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "working" }));
-    setTimeout(() => writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "done" })), 1);
-    return true;
-  };
   try {
-    await runWorkLoop({ orchDir, pollIntervalMs: 1, json: true });
+    await runWorkLoop({
+      orchDir,
+      pollIntervalMs: 1,
+      json: true,
+      dispatch: (_entry, task) => {
+        received = workerPrompt(task.text, false, getAdapter(adapter));
+        writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "done" }));
+        return Promise.resolve();
+      },
+    });
     expect(listTasks(orchDir)[0]?.state).toBe("done");
     return received;
   } finally {
-    headlessBackend.deliver = original;
     if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
     else process.env.ORCH_DIR = previousOrchDir;
     removeTempDir(orchDir);
@@ -59,13 +59,13 @@ async function dispatchedPrompt(adapter: AdapterId): Promise<string> {
 }
 
 describe("worker prompt capability composition", () => {
-  test("work loop gives codex the base header without orch_ask", async () => {
+  test.skipIf(!binaryOnPath("codex"))("work loop gives codex the base header without orch_ask", async () => {
     const prompt = await dispatchedPrompt("codex");
     expect(prompt).toBe(`${workerHeaderFor(getAdapter("codex"))}\n\ndo the task`);
     expect(prompt).not.toContain("orch_ask");
   });
 
-  test("work loop gives pi the orch_ask header clause", async () => {
+  test.skipIf(!binaryOnPath("pi"))("work loop gives pi the orch_ask header clause", async () => {
     const prompt = await dispatchedPrompt("pi");
     expect(prompt).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ndo the task`);
     expect(prompt).toContain("orch_ask");

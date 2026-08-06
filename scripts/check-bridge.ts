@@ -285,16 +285,15 @@ export function checkPackageImportLine(line: string): string | undefined {
 }
 
 /**
- * D2.2 — adapter control strategies (`.steer`/`.answer`/`.setModel`) may be
- * invoked only from the one control dispatcher (`src/control/dispatch.ts`) and,
- * of course, defined inside the adapters themselves (`src/adapters/**`). Any
- * other member call in src/ is a control path that skips the dispatcher's
- * capability gate and the daemon's wall — the L5 "one door" the architecture
- * requires. Lexical, same style as the wire-literal checks.
+ * D2.2 — adapter control strategies (`adapter.steer`/`adapter.answer`/
+ * `adapter.setModel`) may be invoked only from the one control dispatcher
+ * (`src/control/dispatch.ts`) and, of course, defined inside the adapters
+ * themselves (`src/adapters/**`). Calls on the shared harness port are not
+ * adapter strategies and must remain legal in `src/agent/**`.
  */
 export function checkDispatcherCallLine(line: string, relPath: string): string | undefined {
   if (relPath === DISPATCHER_MODULE || relPath.startsWith("src/adapters/")) return undefined;
-  if (/\.(?:steer|answer|setModel)\s*\(/.test(line)) {
+  if (/\b(?:adapter|resolvedAdapter)\.(?:steer|answer|setModel)\s*\(/.test(line)) {
     return "adapter control strategy (.steer/.answer/.setModel) may be invoked only through src/control/dispatch.ts";
   }
   return undefined;

@@ -491,6 +491,7 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
     key = await step.spawnHeadless(cwd);
   } catch (error: unknown) {
     process.stderr.write(`Smoke failed: could not spawn a headless agent - ${errorMessage(error)}\n`);
+    process.exitCode = 1;
     return false;
   }
   try {
@@ -501,6 +502,7 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
       `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status' and 'orch tail ${key}'.\n`,
     );
     step.cleanup(key);
+    process.exitCode = 1;
     return false;
   }
   const deadline = step.now() + step.timeoutMs;
@@ -516,6 +518,7 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
       `Smoke failed: the dispatch was accepted but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,
     );
+    process.exitCode = 1;
     return false;
   }
   process.stdout.write("Smoke ok - orch spawned a headless agent, dispatched a prompt, and read a result back. orch can deliver work.\n");

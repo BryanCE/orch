@@ -150,7 +150,7 @@ describe("doctor runtime verdict table", () => {
 
     const result = checkRuntime(orchDir, observed({ running: "bun" }));
 
-    expect(result.detail).toContain("bun run build:dev");
+    expect(result.detail).toContain("orch doctor --fix");
     expect(result.detail).toContain("orch setup --runtime bun");
   });
 

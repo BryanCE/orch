@@ -6,7 +6,7 @@ import {
   createModelControl,
   resolveRegistryModel,
   type ResolvedModel,
-} from "../extensions/pi/model-control.ts";
+} from "../src/agent/model-control.ts";
 import { splitThinkingSuffix } from "../src/policy/model.ts";
 
 const tempDirs: string[] = [];
@@ -23,7 +23,7 @@ afterEach(() => {
 // A registry model is opaque to model-control — it only forwards whatever find()
 // returns into pi.setModel. A tagged sentinel is enough to assert identity.
 function fakeModel(provider: string, id: string): ResolvedModel {
-  return { provider, id } as unknown as ResolvedModel;
+  return { provider, id };
 }
 
 const noRetry = { attempts: 1, delayMs: 0 };
@@ -125,7 +125,7 @@ describe("createModelControl.applyControlCommand", () => {
     const { pi, calls } = makePi();
     let refreshed = 0;
     const control = createModelControl({
-      pi: pi as never,
+      harness: pi as never,
       context: () => ({ modelRegistry: { find: (p: string, id: string) => fakeModel(p, id) } }) as never,
       controlFile: () => controlFile,
       refreshPresence: () => {
@@ -150,7 +150,7 @@ describe("createModelControl.applyControlCommand", () => {
     const controlFile = path.join(dir, "control.json");
     const { pi, calls } = makePi();
     const control = createModelControl({
-      pi: pi as never,
+      harness: pi as never,
       context: () => ({ modelRegistry: { find: () => undefined } }) as never,
       controlFile: () => controlFile,
       refreshPresence: () => undefined,
@@ -169,7 +169,7 @@ describe("createModelControl.applyControlCommand", () => {
     const controlFile = path.join(dir, "control.json");
     const { pi, calls } = makePi();
     const control = createModelControl({
-      pi: pi as never,
+      harness: pi as never,
       context: () => undefined,
       controlFile: () => controlFile,
       refreshPresence: () => undefined,

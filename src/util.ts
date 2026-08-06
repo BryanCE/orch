@@ -58,6 +58,11 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The message plus its traceback, for logs a human reads after the fact. */
+export function errorTrace(error: unknown): string {
+  return error instanceof Error ? error.stack ?? error.message : String(error);
+}
+
 /** A parsed JSON object. The one spelling of this shape repo-wide. */
 export type JsonRecord = Record<string, unknown>;
 

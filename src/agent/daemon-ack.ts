@@ -8,7 +8,7 @@
 // (ack.jsonl, written by presence.ts) remains the transport-neutral fallback
 // consumed by a socket-less daemon.
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { readPortFile, requestJsonLine } from "../presence/socket-client.ts";
 import { isRecord } from "../util.ts";
 
@@ -45,7 +45,7 @@ export function createDaemonAck(orchDir: string): DaemonAck {
 
   async function postDaemonAck(id: string): Promise<boolean> {
     try {
-      const socketPath = path.join(orchDir, "orchd.sock");
+      const socketPath = daemonRuntimeFiles(orchDir).socket;
       if (fs.existsSync(socketPath) && await postDaemonAckTo(socketPath, id)) return true;
       const port = readPortFile(orchDir);
       return port === undefined ? false : await postDaemonAckTo(port, id);

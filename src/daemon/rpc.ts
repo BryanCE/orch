@@ -1,7 +1,7 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { readDaemonLock } from "./lifecycle.ts";
+import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortFile } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
 
@@ -101,8 +101,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const SOCKET_NAME = "orchd.sock";
-const PORT_NAME = "orchd.port";
 const DEFAULT_TIMEOUT_MS = 5_000;
 // Bounds for the self-healing event subscription's reconnect loop. A daemon can
 // return at any time (restart, reload, machine wake), so retries never give up;
@@ -112,7 +110,8 @@ const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
 
 function endpointPaths(orchDir: string): { socket: string; port: string } {
-  return { socket: join(orchDir, SOCKET_NAME), port: join(orchDir, PORT_NAME) };
+  const files = daemonRuntimeFiles(orchDir);
+  return { socket: files.socket, port: files.port };
 }
 
 function lineResponse(socket: Socket, response: RpcResponse): void {

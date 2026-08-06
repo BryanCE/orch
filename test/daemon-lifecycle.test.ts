@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   acquireDaemonLock,
+  clearDaemonRuntime,
   computeCodeHash,
   daemonize,
   provenDaemonPid,
@@ -64,17 +65,39 @@ describe("daemon lifecycle", () => {
     expect(acquireDaemonLock(orchDir, () => true)).toBe(false);
   });
 
-  test("rejects malformed locks and a socket probe that fails", () => {
+  test("reclaims an unreadable lock, which a crash truncated and no daemon owns", () => {
     const orchDir = makeOrchDir();
-    writeFileSync(join(orchDir, "orchd.lock"), "not json");
-    expect(acquireDaemonLock(orchDir, () => false)).toBe(false);
+    for (const unreadable of ["", "not json", JSON.stringify({ pid: 1 })]) {
+      writeFileSync(join(orchDir, "orchd.lock"), unreadable);
+      expect(acquireDaemonLock(orchDir, () => false)).toBe(true);
+      releaseDaemonLock(orchDir);
+    }
+  });
 
-    writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify({ pid: 1 }));
-    expect(acquireDaemonLock(orchDir, () => false)).toBe(false);
+  test("refuses an unreadable lock while the socket still answers", () => {
+    const orchDir = makeOrchDir();
+    writeFileSync(join(orchDir, "orchd.lock"), "");
+    expect(acquireDaemonLock(orchDir, () => true)).toBe(false);
+  });
 
+  test("clears the lock, socket and port a departed daemon owned, keeping the log", () => {
+    const orchDir = makeOrchDir();
+    for (const name of ["orchd.lock", "orchd.sock", "orchd.port", "orchd.log"]) {
+      writeFileSync(join(orchDir, name), "x");
+    }
+
+    expect(clearDaemonRuntime(orchDir).length).toBe(3);
+    for (const gone of ["orchd.lock", "orchd.sock", "orchd.port"]) {
+      expect(existsSync(join(orchDir, gone))).toBe(false);
+    }
+    expect(existsSync(join(orchDir, "orchd.log"))).toBe(true);
+    expect(clearDaemonRuntime(orchDir)).toEqual([]);
+  });
+
+  test("refuses a stale lock when the socket probe cannot answer", () => {
+    const orchDir = makeOrchDir();
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify({ pid: 0, codeHash: "old", startedAt: "now" }));
     expect(acquireDaemonLock(orchDir, () => { /* noop before throwing */ throw new Error("probe failed"); })).toBe(false);
-    releaseDaemonLock(orchDir);
     releaseDaemonLock(orchDir);
   });
 
@@ -97,9 +120,10 @@ describe("daemon lifecycle", () => {
       const detachedPid = daemonize(process.execPath, ["-e", "process.stdout.write('daemon-test')"], orchDir);
       expect(detachedPid).toBeGreaterThan(0);
       expect(readFileSync(join(orchDir, "orchd.log"), "utf8")).toBeDefined();
-      expect(runForeground(process.execPath, ["-e", ""])).toBeGreaterThan(0);
-      expect(runForeground(join(import.meta.dir, "../src/daemon/lifecycle.ts"))).toBeGreaterThan(0);
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Foreground mode resolves only once the child is gone, and reports its code.
+      expect(await runForeground(process.execPath, ["-e", ""])).toBe(0);
+      expect(await runForeground(process.execPath, ["-e", "process.exit(3)"])).toBe(3);
+      expect(await runForeground(join(import.meta.dir, "../src/daemon/lifecycle.ts"))).toBe(0);
     } finally {
       if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = oldOrchDir;

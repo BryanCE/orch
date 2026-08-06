@@ -11,7 +11,7 @@ import { loadSinks, type Sink } from "../notify/router.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
 import { orchDir } from "../presence/store.ts";
-import { errorMessage } from "../util.ts";
+import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -211,13 +211,26 @@ async function answer(directory: string, params: unknown): Promise<{ ok: true }>
   return { ok: true };
 }
 
-async function shutDown(directory: string): Promise<void> {
+/** One orchd lifecycle line into orchd.log. Every start, stop and death gets one:
+ *  a daemon that vanishes without a line here is undiagnosable. */
+function logLifecycle(message: string): void {
+  process.stdout.write(`${new Date().toISOString()} orchd ${message}\n`);
+}
+
+function logFatalAndExit(kind: string, error: unknown): void {
+  logLifecycle(`${kind}: ${errorTrace(error)}`);
+  process.exit(1);
+}
+
+async function shutDown(directory: string, reason: string): Promise<void> {
+  logLifecycle(`shutting down on ${reason}`);
   presenceWatch?.stop();
   configWatch?.stop();
   workController.abort();
   await workLoop;
   await server?.stop();
   releaseDaemonLock(directory);
+  logLifecycle(`stopped pid ${process.pid}`);
   process.exit(0);
 }
 
@@ -225,7 +238,7 @@ async function main(): Promise<void> {
   const directory = orchDir();
   const answers = await socketAnswers(directory);
   if (!acquireDaemonLock(directory, () => answers)) {
-    process.stdout.write("already running\n");
+    logLifecycle(`exiting: another orchd owns ${directory}`);
     return;
   }
 
@@ -299,8 +312,10 @@ async function main(): Promise<void> {
     onEvent: (event) => emitAndNotify((value) => server?.emit(value), getSinks(directory), event),
   }).finally(() => { workLoopRunning = false; });
 
-  process.once("SIGTERM", () => void shutDown(directory));
-  process.once("SIGINT", () => void shutDown(directory));
+  process.once("SIGTERM", () => void shutDown(directory, "SIGTERM"));
+  process.once("SIGINT", () => void shutDown(directory, "SIGINT"));
+  const tcp = server?.tcpEndpoint;
+  logLifecycle(`started pid ${process.pid} hash ${bootCodeHash} on ${server?.transport ?? "unknown"}${tcp ? ` and ${tcp}` : ""}`);
 }
 
 function invokedAsMain(): boolean {
@@ -311,8 +326,10 @@ function invokedAsMain(): boolean {
 }
 
 if (invokedAsMain()) {
-  void main().catch((error: unknown) => {
-    process.stderr.write(`${errorMessage(error)}\n`);
-    process.exit(1);
-  });
+  // Without these, a throw anywhere past startup kills orchd with output node
+  // routes nowhere a detached daemon's log can keep — the silent-death report.
+  process.on("uncaughtException", (error: unknown) => logFatalAndExit("uncaught exception", error));
+  process.on("unhandledRejection", (reason: unknown) => logFatalAndExit("unhandled rejection", reason));
+  process.on("exit", (code) => { if (code !== 0) logLifecycle(`exited with code ${code}`); });
+  void main().catch((error: unknown) => logFatalAndExit("startup failed", error));
 }

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";
+import { provenDaemonPid } from "../src/daemon/lifecycle.ts";
 
 // `bun reset` erases every artifact an orch install writes, so the next
 // build + install runs the first-time-user flow instead of half-adopting a
@@ -54,9 +55,8 @@ function deletion(target: string): WipeStep | null {
 }
 
 function daemonStop(): WipeStep | null {
-  const lock = readJsonFile(join(ORCH_DIR, "orchd.lock"));
-  const pid = lock?.pid;
-  if (typeof pid !== "number" || !Number.isInteger(pid)) return null;
+  const pid = provenDaemonPid(ORCH_DIR);
+  if (pid === undefined) return null;
   return {
     describe: `stop orchd (pid ${pid})`,
     execute: () => {

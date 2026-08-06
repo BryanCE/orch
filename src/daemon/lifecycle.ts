@@ -12,10 +12,8 @@ import {
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { packageRoot } from "../util.ts";
+import { daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 
-const LOCK_NAME = "orchd.lock";
-const SOCKET_NAME = "orchd.sock";
-const LOG_NAME = "orchd.log";
 const HASH_LENGTH = 12;
 
 interface LockRecord {
@@ -49,15 +47,15 @@ export function readDaemonCodeSkew(orchDir: string, entrypoint: string): DaemonC
 export type SocketProbe = (socketPath: string) => boolean;
 
 function lockPath(orchDir: string): string {
-  return path.join(orchDir, LOCK_NAME);
+  return daemonRuntimeFiles(orchDir).lock;
 }
 
 function socketPath(orchDir: string): string {
-  return path.join(orchDir, SOCKET_NAME);
+  return daemonRuntimeFiles(orchDir).socket;
 }
 
 function logPath(orchDir: string): string {
-  return path.join(orchDir, LOG_NAME);
+  return daemonRuntimeFiles(orchDir).log;
 }
 
 function currentCodeHash(): string {
@@ -155,8 +153,10 @@ export function readDaemonLock(orchDir: string): DaemonLock | null {
   return lock;
 }
 
+/** An unreadable lock names no owner to protect — a crash truncated it — so only
+ *  a live socket can still veto the reclaim. */
 function canReclaim(record: LockRecord | undefined, probe: SocketProbe, orchDir: string): boolean {
-  if (!record || processIdentityMatches(record)) return false;
+  if (record && processIdentityMatches(record)) return false;
   try {
     return !probe(socketPath(orchDir));
   } catch {
@@ -202,6 +202,36 @@ export function releaseDaemonLock(orchDir: string): void {
   }
 }
 
+/** Erase every trace of a departed daemon, returning what was removed. Call only
+ *  once no daemon is proven live: a survivor would lose its own socket. */
+export function clearDaemonRuntime(orchDir: string): string[] {
+  const removed: string[] = [];
+  for (const file of daemonOwnershipFiles(orchDir)) {
+    try {
+      unlinkSync(file);
+      removed.push(file);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return removed;
+}
+
+/** SIGTERM a daemon and wait for the OS to reap it so its lock frees. */
+export async function terminateDaemon(pid: number, graceMs: number): Promise<void> {
+  try { process.kill(pid, "SIGTERM"); } catch { return; }
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline && processIsAlive(pid)) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** Why orch will not signal a live lock pid it cannot tie to its own daemon. */
+export function unprovenLockRefusal(orchDir: string, pid: number): string {
+  return `orchd.lock names live pid ${pid}, which orch cannot verify is its daemon - refusing to signal it. `
+    + `Stop that process yourself, or delete ${lockPath(orchDir)} if it is stale.`;
+}
+
 function commandFor(entrypoint: string, args: string[]): [string, string[]] {
   if (/\.(?:[cm]?jsx?|[cm]?tsx?)$/i.test(entrypoint)) {
     return [process.execPath, [entrypoint, ...args]];
@@ -232,8 +262,12 @@ export function daemonize(
   }
 }
 
-/** Spawn orchd attached to the current terminal (the supervisor/`--fg` mode). */
-export function runForeground(entrypoint: string, args: string[] = []): number {
+/**
+ * Run orchd attached to the current terminal (`--fg`), resolving its exit code.
+ * The caller must await it: returning while the child still owns the terminal is
+ * what made `--fg` indistinguishable from a detached start.
+ */
+export function runForeground(entrypoint: string, args: string[] = []): Promise<number> {
   const [command, commandArgs] = commandFor(entrypoint, args);
   const child = spawn(command, commandArgs, {
     detached: false,
@@ -241,7 +275,10 @@ export function runForeground(entrypoint: string, args: string[] = []): number {
     env: process.env,
   });
   if (child.pid === undefined) throw new Error("foreground process did not provide a pid");
-  return child.pid;
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("exit", (code, signal) => resolve(signal === null ? code ?? 0 : 1));
+  });
 }
 
 /** Re-run this entrypoint with unchanged argv, handing the lock to the replacement. */

@@ -120,7 +120,7 @@ WORKSPACES
   orch ws focus <workspace_id>   Jump the user's view to that workspace.
 
 MAINTENANCE
-  orch daemon start [--fg] | stop | status [--json] | reload
+  orch daemon start [--fg|--foreground] | stop | status [--json] | reload
                                  Manage the resident orch daemon.
   orch doctor [--fix] [-y|--yes] [--json]
                                  Check the install. On a TTY, doctor and 'doctor --fix'

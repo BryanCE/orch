@@ -4,7 +4,7 @@
 // transport, not the protocol.
 import { createConnection } from "node:net";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { isRecord } from "../util.ts";
 
 function isValidPort(port: unknown): port is number {
@@ -18,7 +18,7 @@ function isValidPort(port: unknown): port is number {
 export function readPortFile(orchDir: string): number | undefined {
   let text: string;
   try {
-    text = readFileSync(join(orchDir, "orchd.port"), "utf8").trim();
+    text = readFileSync(daemonRuntimeFiles(orchDir).port, "utf8").trim();
   } catch {
     return undefined;
   }

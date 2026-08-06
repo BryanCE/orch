@@ -1,5 +1,13 @@
-import * as path from "node:path";
-import { daemonEntrypoint, daemonize, provenDaemonPid, readDaemonLock, runForeground } from "../daemon/lifecycle.ts";
+import {
+  daemonEntrypoint,
+  daemonize,
+  provenDaemonPid,
+  readDaemonLock,
+  runForeground,
+  terminateDaemon,
+  unprovenLockRefusal,
+} from "../daemon/lifecycle.ts";
+import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, rpcCall } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
@@ -53,6 +61,15 @@ async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> 
   throw new Error("timed out waiting for orchd");
 }
 
+/** Stop a daemon that holds the lock but will not answer, so a fresh one can take it.
+ *  Announced: a daemon killed in silence is indistinguishable from one that crashed. */
+async function terminateWedgedDaemon(directory: string, lockPid: number, graceMs: number): Promise<void> {
+  const wedged = provenDaemonPid(directory);
+  if (wedged === undefined) die(unprovenLockRefusal(directory, lockPid));
+  process.stderr.write(`orchd pid ${wedged} holds the lock but did not answer; stopping it\n`);
+  await terminateDaemon(wedged, graceMs);
+}
+
 export async function ensureDaemon(directory: string): Promise<void> {
   if (await daemonAnswers(directory, 200)) return;
   const lockPid = daemonLockPid(directory);
@@ -60,9 +77,7 @@ export async function ensureDaemon(directory: string): Promise<void> {
     // Might be booting (lock taken, socket not yet bound); grace-poll before
     // deciding it's wedged, then clear a wedged one so a fresh daemon can start.
     if (await awaitDaemonAnswer(directory, Date.now() + 1000)) return;
-    const wedged = provenDaemonPid(directory);
-    if (wedged === undefined) die(unprovenLockRefusal(directory, lockPid));
-    await terminateDaemon(wedged, 3000);
+    await terminateWedgedDaemon(directory, lockPid, 3000);
   }
   daemonize(daemonEntrypoint(), [], directory);
   if (await awaitDaemonAnswer(directory, Date.now() + 5_000)) return;
@@ -123,19 +138,6 @@ async function awaitDaemonAnswer(directory: string, deadline: number): Promise<b
   return false;
 }
 
-/** SIGTERM a daemon and wait for the OS to reap it so its lock frees. */
-async function terminateDaemon(pid: number, graceMs: number): Promise<void> {
-  try { process.kill(pid, "SIGTERM"); } catch { return; }
-  const deadline = Date.now() + graceMs;
-  while (Date.now() < deadline && pidAlive(pid)) await delay(50);
-}
-
-/** Why orch will not signal a live lock pid it cannot tie to its own daemon. */
-function unprovenLockRefusal(directory: string, pid: number): string {
-  return `orchd.lock names live pid ${pid}, which orch cannot verify is its daemon - refusing to signal it. `
-    + `Stop that process yourself, or delete ${path.join(directory, "orchd.lock")} if it is stale.`;
-}
-
 async function startDaemon(foreground: boolean, json = false): Promise<void> {
   const directory = orchDir();
   const lockPid = daemonLockPid(directory);
@@ -151,18 +153,17 @@ async function startDaemon(foreground: boolean, json = false): Promise<void> {
   }
   // Nobody answered: a still-alive lock pid is wedged — terminate it so a fresh
   // instance can take the lock instead of being refused it forever.
-  if (lockPid !== undefined && lockAlive) {
-    const wedged = provenDaemonPid(directory);
-    if (wedged === undefined) die(unprovenLockRefusal(directory, lockPid));
-    await terminateDaemon(wedged, 3000);
-  }
+  if (lockPid !== undefined && lockAlive) await terminateWedgedDaemon(directory, lockPid, 3000);
   const entrypoint = daemonEntrypoint();
   if (foreground) {
-    runForeground(entrypoint);
+    process.exitCode = await runForeground(entrypoint);
     return;
   }
   daemonize(entrypoint, [], directory);
-  const status = await waitForDaemon();
+  // Never announce a start the daemon did not make: it exits silently when it
+  // cannot take the lock, and its reason is in the log.
+  const status = await waitForDaemon().catch((): never =>
+    die(`orchd did not answer after start; see ${daemonRuntimeFiles(directory).log}`));
   if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: true }) + "\n");
   else process.stdout.write(`started (pid ${status.pid})\n`);
 }
@@ -203,14 +204,35 @@ async function reloadDaemon(json = false): Promise<void> {
   else process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);
 }
 
+const FOREGROUND_FLAGS = ["--fg", "--foreground"];
+
+/** Refuse a flag orch does not define, so a typo never silently changes what runs —
+ *  `--foreground` used to daemonize instead of attaching, with no complaint. */
+function rejectUnknownFlags(action: string, args: string[], allowed: readonly string[]): void {
+  const unknown = args.filter((arg) => !allowed.includes(arg));
+  if (unknown.length > 0) die(`orch daemon ${action}: unknown ${unknown.length === 1 ? "flag" : "flags"} ${unknown.join(" ")}`);
+}
+
 export async function cmdDaemon(args: string[]): Promise<void> {
-  const action = args[0];
-  const json = args.includes("--json");
-  if (action === "start") return startDaemon(args.includes("--fg"), json);
-  if (action === "stop") return stopDaemon(json);
-  if (action === "status") return statusDaemon(json);
-  if (action === "reload") return reloadDaemon(json);
-  die("usage: orch daemon start [--fg] | stop | status [--json] | reload [--json]");
+  const [action, ...flags] = args;
+  const json = flags.includes("--json");
+  if (action === "start") {
+    rejectUnknownFlags(action, flags, [...FOREGROUND_FLAGS, "--json"]);
+    return startDaemon(flags.some((flag) => FOREGROUND_FLAGS.includes(flag)), json);
+  }
+  if (action === "stop") {
+    rejectUnknownFlags(action, flags, ["--json"]);
+    return stopDaemon(json);
+  }
+  if (action === "status") {
+    rejectUnknownFlags(action, flags, ["--json"]);
+    return statusDaemon(json);
+  }
+  if (action === "reload") {
+    rejectUnknownFlags(action, flags, ["--json"]);
+    return reloadDaemon(json);
+  }
+  die("usage: orch daemon start [--fg|--foreground] | stop | status [--json] | reload [--json]");
 }
 
 export async function cmdWork(args: string[]) {

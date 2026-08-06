@@ -1,13 +1,13 @@
 import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { daemonEntrypoint, readDaemonCodeSkew, readDaemonLock } from "../daemon/lifecycle.ts";
+import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import type { CheckResult } from "../check-result.ts";
 import { pidAlive } from "../util.ts";
 
 export async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
-  const lockFile = path.join(orchDir, "orchd.lock");
+  const lockFile = daemonRuntimeFiles(orchDir).lock;
   if (!filesystem.existsSync(lockFile)) {
     return { id: "orchd", label: "orchd presence", status: "ok", detail: "orchd is absent (daemon is optional)" };
   }
@@ -38,31 +38,35 @@ export async function checkDaemonStaleness(orchDir: string): Promise<CheckResult
   return { id: "orchd-staleness", label: "orchd code", status: "ok", detail: `orchd code is current (${lock.codeHash})` };
 }
 
-export async function checkDaemonLock(orchDir: string): Promise<CheckResult> {
-  await Promise.resolve();
-  const lockFile = path.join(orchDir, "orchd.lock");
-  if (!filesystem.existsSync(lockFile)) {
-    return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: "no orchd lock" };
-  }
-  const lock = readDaemonLock(orchDir);
-  if (!lock) {
-    return { id: "orchd-lock", label: "orchd lock", status: "fail", detail: `invalid orchd lock: ${lockFile}` };
-  }
-  if (pidAlive(lock.pid)) {
-    return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: `lock belongs to live pid ${lock.pid}` };
-  }
+/** Every lock that names no live daemon is stale, and every stale lock is removable —
+ *  leaving one behind is what refuses the next `orch daemon start` forever. */
+function staleLockResult(lockFile: string, why: string): CheckResult {
   return {
     id: "orchd-lock",
     label: "orchd lock",
     status: "fail",
-    detail: `stale orchd lock ${lockFile} (dead pid ${lock.pid})`,
+    detail: `stale orchd lock ${lockFile} (${why})`,
     fix: {
-      description: `Remove stale orchd lock ${lockFile} (dead pid ${lock.pid})`,
+      description: `Remove stale orchd lock ${lockFile} (${why})`,
       apply() {
         filesystem.rmSync(lockFile, { force: true });
       },
     },
   };
+}
+
+export async function checkDaemonLock(orchDir: string): Promise<CheckResult> {
+  await Promise.resolve();
+  const lockFile = daemonRuntimeFiles(orchDir).lock;
+  if (!filesystem.existsSync(lockFile)) {
+    return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: "no orchd lock" };
+  }
+  const lock = readDaemonLock(orchDir);
+  if (!lock) return staleLockResult(lockFile, "names no verifiable daemon");
+  if (pidAlive(lock.pid)) {
+    return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: `lock belongs to live pid ${lock.pid}` };
+  }
+  return staleLockResult(lockFile, `dead pid ${lock.pid}`);
 }
 
 export async function checkDaemonSocket(orchDir: string): Promise<CheckResult> {

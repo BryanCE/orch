@@ -113,6 +113,9 @@ describe("runDoctor", () => {
     const invalidResult = check(await runDoctor(invalid), "orchd-lock");
     expect(invalidResult.status).toBe("fail");
     expect(invalidResult.detail).toContain(invalidLock);
+    // An unreadable lock is removable: leaving it refuses every later daemon start.
+    expect(applyFixes([invalidResult]).applied[0]).toContain(invalidLock);
+    expect(fs.existsSync(invalidLock)).toBe(false);
 
     const unanswerable = tempDir();
     fs.writeFileSync(path.join(unanswerable, "orchd.lock"), JSON.stringify({

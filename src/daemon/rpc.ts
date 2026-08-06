@@ -10,12 +10,24 @@ export type RpcEventEmitter = (event: unknown) => void;
 export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter) => unknown;
 export type RpcHandlers = Record<string, RpcHandler>;
 
+/** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
 export class DaemonAbsentError extends Error {
   readonly code = "DAEMON_ABSENT";
 
   constructor(orchDir: string) {
     super(`orchd daemon is absent (${orchDir})`);
     this.name = "DaemonAbsentError";
+  }
+}
+
+/** A dial or request outran its budget. Says nothing about liveness — a loaded
+ *  machine starves a healthy daemon — so no caller may signal a pid on it. */
+export class DaemonUnreachableError extends Error {
+  readonly code = "DAEMON_UNREACHABLE";
+
+  constructor(stage: "connect" | "response") {
+    super(`orchd did not answer in time (${stage}); its liveness is unknown`);
+    this.name = "DaemonUnreachableError";
   }
 }
 
@@ -252,7 +264,7 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
       if (settled) return;
       settled = true;
       socket.unref();
-      reject(new Error("RPC connection timed out"));
+      reject(new DaemonUnreachableError("connect"));
     }, timeoutMs);
     socket.once("connect", () => {
       clearTimeout(timer);
@@ -275,28 +287,48 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
   });
 }
 
-/** Dial one daemon endpoint, or null when it is absent or unreachable. An absent
- *  unix-socket path is skipped without dialing — a dead pipe path faults
- *  uncatchably on Windows, and a missing endpoint is "daemon absent" regardless. */
-async function dialEndpoint(endpoint: string | number | undefined, timeoutMs: number): Promise<Socket | null> {
-  if (endpoint === undefined) return null;
-  if (typeof endpoint === "string" && !existsSync(endpoint)) return null;
+/** Why a dial yielded no socket. Only these two codes prove nothing is listening;
+ *  every other failure (a full accept backlog's EAGAIN, EACCES, a timeout) leaves
+ *  liveness unknown, and callers must not act as if the daemon were dead. */
+const NOT_LISTENING_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
+
+export type DialSilence = "not-listening" | "unreachable";
+
+function silenceOf(error: unknown): DialSilence {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return typeof code === "string" && NOT_LISTENING_CODES.has(code) ? "not-listening" : "unreachable";
+}
+
+/** Dial one daemon endpoint, or say why it stayed silent. An absent unix-socket
+ *  path is skipped without dialing — a dead pipe path faults uncatchably on
+ *  Windows, and a missing endpoint is proof nothing listens there. */
+async function dialEndpoint(endpoint: string | number | undefined, timeoutMs: number): Promise<Socket | DialSilence> {
+  if (endpoint === undefined) return "not-listening";
+  if (typeof endpoint === "string" && !existsSync(endpoint)) return "not-listening";
   try {
     return await connect(endpoint, timeoutMs);
-  } catch {
-    return null;
+  } catch (error: unknown) {
+    return silenceOf(error);
   }
 }
 
-/** Dial orchd. Deliberately NOT retried: `daemonAnswers` probes with a 300ms budget to tell a
- *  wedged daemon from a live one, and reattempts would turn that verdict into a multi-second
- *  stall. A slow orchd is handled by giving the CALL a budget that matches its work. */
+function stayedSilent(outcome: Socket | DialSilence): outcome is DialSilence {
+  return typeof outcome === "string";
+}
+
+/** Dial orchd. Deliberately NOT retried: callers probe with a short budget to tell a
+ *  daemon that is not listening from a live one, and reattempts would turn that verdict
+ *  into a multi-second stall. A slow orchd is handled by giving the CALL a budget that
+ *  matches its work. Absent only when BOTH endpoints proved nothing is listening —
+ *  otherwise the daemon is merely unreachable and may be perfectly healthy. */
 async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket> {
   const paths = endpointPaths(orchDir);
-  const connection = (await dialEndpoint(paths.socket, timeoutMs))
-    ?? (await dialEndpoint(readPortFile(orchDir), timeoutMs));
-  if (!connection) throw new DaemonAbsentError(orchDir);
-  return connection;
+  const unix = await dialEndpoint(paths.socket, timeoutMs);
+  if (!stayedSilent(unix)) return unix;
+  const loopback = await dialEndpoint(readPortFile(orchDir), timeoutMs);
+  if (!stayedSilent(loopback)) return loopback;
+  if (unix === "not-listening" && loopback === "not-listening") throw new DaemonAbsentError(orchDir);
+  throw new DaemonUnreachableError("connect");
 }
 
 function responseError(response: RpcResponse): RpcError {
@@ -309,7 +341,7 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(new Error("RPC request timed out"));
+      reject(new DaemonUnreachableError("response"));
     }, timeoutMs);
     framedLineReader(socket, (raw) => {
       const line = raw.trim();

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { acquireDaemonLock } from "../src/daemon/lifecycle";
 import {
   DaemonAbsentError,
+  DaemonUnreachableError,
   RpcError,
   rpcCall,
   rpcSubscribe,
@@ -31,6 +32,7 @@ async function waitForLine(lines: string[], index: number): Promise<void> {
 async function start(dir: string): Promise<RpcServer> {
   const server = await startRpcServer(dir, {
     echo: (params) => params,
+    hang: () => new Promise(() => {}),
     "subscribe-events": (_params, emit) => {
       setTimeout(() => emit({ kind: "pushed", value: 1 }), 5);
       return { subscribed: true };
@@ -101,6 +103,21 @@ describe("daemon RPC", () => {
 
   test("has a catchable absent-daemon error", () => {
     const dir = tempOrchDir();
+    expect(rpcCall(dir, "echo")).rejects.toBeInstanceOf(DaemonAbsentError);
+  });
+
+  // A live daemon too slow to answer must never look absent: callers SIGTERM on
+  // absent, and a loaded machine would make them kill the daemon they came to use.
+  test("calls a slow daemon unreachable, not absent", async () => {
+    const dir = tempOrchDir();
+    await start(dir);
+    expect(rpcCall(dir, "hang", undefined, 100)).rejects.toBeInstanceOf(DaemonUnreachableError);
+    expect(rpcCall(dir, "hang", undefined, 100)).rejects.not.toBeInstanceOf(DaemonAbsentError);
+  });
+
+  test("calls a refused endpoint absent so a wedged daemon is still reclaimable", () => {
+    const dir = tempOrchDir();
+    writeFileSync(join(dir, "orchd.sock"), "");
     expect(rpcCall(dir, "echo")).rejects.toBeInstanceOf(DaemonAbsentError);
   });
 });

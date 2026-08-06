@@ -4,6 +4,7 @@ import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup.ts";
 import { ADAPTER_IDS } from "../adapters/adapter.ts";
+import { signedOutFix } from "../adapters/prerequisites.ts";
 import { BACKEND_IDS } from "../backends/backend.ts";
 import { die } from "./target.ts";
 
@@ -65,7 +66,7 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
   for (const id of targets) {
     const recorded = chosen.defaults[id];
     if (!recorded) {
-      process.stdout.write(`  ${id}: unchanged - ${id} listed no models; sign it in, then rerun: orch settings models --harness=${id}\n`);
+      process.stdout.write(`  ${id}: unchanged - ${id} listed no models; ${signedOutFix(id)}\n`);
       continue;
     }
     const allowed = chosen.allowed[id] ?? [];

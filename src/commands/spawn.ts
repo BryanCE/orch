@@ -6,6 +6,7 @@ import { assertModelAllowed } from "../policy/model.ts";
 import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
+import { repickCommand } from "../adapters/prerequisites.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendId } from "../backends/backend.ts";
@@ -155,7 +156,7 @@ export function requestedModel(flags: AgentFlags): string | null {
  *  model the harness does not list must never reach that resolver. */
 export function launchModel(flags: AgentFlags, config: OrchConfig, adapter: AgentAdapter): string {
   const model = requestedModel(flags) ?? config.defaults.models[adapter.id] ?? "";
-  if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]>, or record one with: orch settings models --harness=${adapter.id}`);
+  if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]>, or record one with: ${repickCommand(adapter.id)}`);
   try {
     assertModelAllowed(orchDir(), adapter, model);
   } catch (error: unknown) {

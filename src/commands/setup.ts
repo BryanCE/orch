@@ -8,6 +8,7 @@ import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts
 import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
+import { PREREQUISITES, signedOutFix } from "../adapters/prerequisites.ts";
 import { BACKEND_IDS, type BackendId } from "../backends/backend.ts";
 import { assertModelListed } from "../policy/model.ts";
 import { binaryStatus } from "../doctor/bins.ts";
@@ -22,29 +23,6 @@ import { cmdSpawn } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
 
 const HOME = os.homedir();
-
-/** The install action for one provider id: exactly one of a real install command or a
- * documentation URL, an optional ordered list of prerequisite provider ids installed
- * first, and the harness's own command for signing in — installed is not the same as
- * usable, and a harness with no credentials lists no models.
- * Keyed by real provider id, so an installer can never drift from its provider. */
-interface InstallerEntry {
-  install?: string;
-  docsUrl?: string;
-  needs?: readonly string[];
-  signIn?: string;
-}
-
-const INSTALLERS: Record<string, InstallerEntry> = {
-  // bun is never probed on its own — it surfaces only as pi's declared dependency.
-  pi: { install: "bun add -g @earendil-works/pi-coding-agent", needs: ["bun"], signIn: "pi auth" },
-  omp: { install: "bun add -g @oh-my-pi/pi-coding-agent", needs: ["bun"], signIn: "omp setup" },
-  claude: { install: "curl -fsSL https://claude.ai/install.sh | bash", signIn: "claude auth" },
-  codex: { docsUrl: "https://github.com/openai/codex", signIn: "codex login" },
-  bun: { install: "curl -fsSL https://bun.sh/install | bash" },
-  tmux: { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" },
-  herdr: { docsUrl: "https://github.com/BryanCE/orch#readme" },
-};
 
 /** Read the value following `name` in `args`, or undefined when the flag is absent. */
 export function readValueFlag(args: string[], name: string): string | undefined {
@@ -138,12 +116,10 @@ export interface HarnessModelChoices {
  *  run afterwards. Skipping the model prompt is silent otherwise: an empty list looks
  *  like orch forgot to ask. */
 function emptyCatalogueHint(harnessId: string): string {
-  const signIn = INSTALLERS[harnessId]?.signIn;
   return [
     `Hey - ${harnessId} is installed but lists no models, so it has nothing to spawn with.`,
     `It is not signed in yet, not configured, or its login went stale. No model was recorded for it.`,
-    signIn ? `Set up ${harnessId}:      ${signIn}` : `Finish setting up your ${harnessId} install.`,
-    `Then tell orch about it:  orch settings models --harness=${harnessId}`,
+    `To fix it: ${signedOutFix(harnessId)}`,
   ].join("\n");
 }
 
@@ -310,11 +286,11 @@ async function installPrerequisites(
   const missing: { bin: string; cmd: string }[] = [];
   const manual: { id: string; url: string }[] = [];
   const queueInstall = (id: string): void => {
-    const entry = INSTALLERS[id];
+    const entry = PREREQUISITES[id];
     if (entry?.install) {
       for (const need of entry.needs ?? []) {
         if (binaryOnPath(need)) continue;
-        const needCmd = INSTALLERS[need]?.install;
+        const needCmd = PREREQUISITES[need]?.install;
         if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
       }
       if (!missing.some((candidate) => candidate.bin === id)) missing.push({ bin: id, cmd: entry.install });

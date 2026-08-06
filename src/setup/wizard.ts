@@ -1,7 +1,10 @@
 import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import type { HarnessModel } from "../adapters/adapter.ts";
-import { promptSelect, promptMultiselect, promptText } from "./io.ts";
+import { splitThinkingSuffix } from "../policy/model.ts";
+import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect, promptText } from "./io.ts";
+
+const MODEL_PICKER_MAX_ITEMS = 15;
 
 /** Pick the JS runtime this install executes under. All three are supported: orch's code is
  * runtime-agnostic, so run it with whichever you have. The one real differentiator is deno's
@@ -47,19 +50,47 @@ export function selectDefaultBackend<Id extends string>(selected: readonly Id[])
   return promptSelect("Default backend for new spawns", selected);
 }
 
+type ModelPicker = (
+  mode: "select" | "autocomplete",
+  message: string,
+  offered: readonly HarnessModel[],
+  initial: string,
+  maxItems: number,
+) => Promise<string | null>;
+
+const defaultModelPicker: ModelPicker = (mode, message, offered, initial, maxItems) =>
+  mode === "autocomplete"
+    ? promptAutocomplete(
+      message,
+      offered.map((model) => ({ value: model.spec, label: model.spec, ...(model.label ? { hint: model.label } : {}) })),
+      initial,
+      maxItems,
+    )
+    : promptSelect(message, offered.map((model) => model.spec), initial);
+
 /** Pick the model one harness's spawns launch on. orch owns the choice and records it in orch's
  *  own settings; the harness only REPORTS what it can run, in its own vocabulary — which is why
  *  the prompt names the harness. One that enumerates nothing leaves free text as the only honest
- *  prompt. Null on cancel. */
-export function selectDefaultModel(
+ *  prompt. Large catalogues use a searchable, bounded view; clearing the query still lets the
+ *  operator browse every offered model. Null on cancel. */
+export async function selectDefaultModel(
   harnessId: string,
   offered: readonly HarnessModel[],
   suggested: string | undefined,
+  pick: ModelPicker = defaultModelPicker,
 ): Promise<string | null> {
   if (!offered.length) return promptText(`Default model for ${harnessId} spawns`, suggested);
+
   const specs = offered.map((model) => model.spec);
-  const initial = suggested !== undefined && specs.includes(suggested) ? suggested : specs[0];
-  return promptSelect(`Default model for ${harnessId} spawns`, specs, initial);
+  const suggestedBare = suggested === undefined ? undefined : splitThinkingSuffix(suggested).bare;
+  const initial = suggestedBare !== undefined && specs.includes(suggestedBare) ? suggestedBare : specs[0]!;
+  const searchable = offered.length > MODEL_PICKER_MAX_ITEMS;
+  const message = searchable
+    ? `Default model for ${harnessId} spawns (${offered.length} available; type to search or browse)`
+    : `Default model for ${harnessId} spawns`;
+  const chosen = await pick(searchable ? "autocomplete" : "select", message, offered, initial, MODEL_PICKER_MAX_ITEMS);
+  if (chosen === null) return null;
+  return suggested !== undefined && suggestedBare === chosen ? suggested : chosen;
 }
 
 /** Multi-select which of a harness's models its spawns may launch. Empty means every model
@@ -71,10 +102,18 @@ export function selectAllowedModels(
   already: readonly string[],
 ): Promise<string[] | null> {
   const checked = new Set(already);
-  return promptMultiselect(
-    `Models ${harnessId} spawns may use (space to toggle, none = allow all)`,
-    offered.map((model) => ({ value: model.spec, label: model.spec, hint: model.label ?? "", checked: checked.has(model.spec) })),
-  );
+  const message = offered.length > MODEL_PICKER_MAX_ITEMS
+    ? `Models ${harnessId} spawns may use (${offered.length} available; type to search or browse, none = allow all)`
+    : `Models ${harnessId} spawns may use (space to toggle, none = allow all)`;
+  const options = offered.map((model) => ({
+    value: model.spec,
+    label: model.spec,
+    ...(model.label ? { hint: model.label } : {}),
+    checked: checked.has(model.spec),
+  }));
+  return offered.length > MODEL_PICKER_MAX_ITEMS
+    ? promptAutocompleteMultiselect(message, options, MODEL_PICKER_MAX_ITEMS)
+    : promptMultiselect(message, options.map((option) => ({ ...option, hint: option.hint ?? "" })));
 }
 
 /** Multi-select which missing prerequisites to install; null when the user cancels, [] when none are missing. */

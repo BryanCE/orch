@@ -94,8 +94,11 @@ const SettingsFileSchema = z.strictObject({
   }).optional(),
   models: z.strictObject({
     /** Allowed model patterns PER HARNESS. A pattern is written in that harness's own
-     *  vocabulary, so one shared list could only ever restrict one of them. */
+     *  vocabulary, so one shared list could only ever restrict one of them. Concrete
+     *  selections are also forwarded to that harness's native model cycle/picker. */
     allowed: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
+    /** Preferred model specs for each harness's native cycle/picker. */
+    preferred: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
   }).optional(),
   /** What a spawned worker loads. Inherits the user's own harness setup by default;
    * name the extensions that misbehave under concurrency rather than dropping all. */
@@ -132,7 +135,7 @@ export interface OrchConfig {
   installed: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; worktree: boolean };
   fleet: { spawn_cap: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
-  models: { allowed: Partial<Record<AdapterId, string[]>> };
+  models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
@@ -295,7 +298,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
       worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
       cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
     },
-    models: { allowed: root.models?.allowed ?? {} },
+    models: { allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} },
     workers: {
       inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
       exclude_extensions: root.workers?.exclude_extensions ?? [],
@@ -508,6 +511,11 @@ export function writeSettingsAllowedModels(orchDir: string, allowed: Partial<Rec
   updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, allowed: { ...allowed } } }));
 }
 
+/** Record the preferred quicklist each harness exposes to its native picker. */
+export function writeSettingsPreferredModels(orchDir: string, preferred: Partial<Record<AdapterId, string[]>>): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, preferred: { ...preferred } } }));
+}
+
 /** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */
 function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
   const file = settingsPath(orchDir);
@@ -559,7 +567,7 @@ export function writeSettingsFullTree(orchDir: string): void {
       worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
       cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
     },
-    models: { allowed: root.models?.allowed ?? {} },
+    models: { allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} },
     workers: {
       inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
       exclude_extensions: root.workers?.exclude_extensions ?? [],

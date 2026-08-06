@@ -34,6 +34,8 @@ export interface SpawnOpts {
   readonly cwd?: string;
   /** Model specification selected for the session, when supported. */
   readonly model?: string;
+  /** Model patterns the harness should expose in its native cycle/picker, when configured. */
+  readonly preferredModels?: readonly string[];
   /** Directory containing orch's presence protocol files. */
   readonly orchDir?: string;
   /** Additional environment values required by the adapter process. */

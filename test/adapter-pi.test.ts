@@ -7,7 +7,7 @@ import { seedStatus } from "./helpers/presence.ts";
 const originalOrchDir = process.env.ORCH_DIR;
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
 
-const { PiAdapter } = await import("../src/adapters/pi.ts");
+const { PiAdapter, parsePiModelsOutput } = await import("../src/adapters/pi.ts");
 const { presenceDir } = await import("../src/presence/store.ts");
 const adapter = new PiAdapter();
 
@@ -104,4 +104,19 @@ describe("PiAdapter", () => {
     }) + "\n");
     expect(adapter.extractResult({ key: "missing", sessionPath })).toBe("from session");
   });
+  test("parses pi's supported model table without importing harness internals", () => {
+    const output = [
+      "provider      model                         context  max-out  thinking  images",
+      "anthropic     claude-sonnet-4-6             1M       128K     yes       yes",
+      "openai-codex  gpt-5.6-luna                  372K     128K     yes       yes",
+      "No models available",
+    ].join("\n");
+
+    expect(parsePiModelsOutput(output)).toEqual([
+      { spec: "anthropic/claude-sonnet-4-6" },
+      { spec: "openai-codex/gpt-5.6-luna" },
+    ]);
+    expect(parsePiModelsOutput("No models available")).toEqual([]);
+  });
 });
+

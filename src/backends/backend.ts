@@ -35,6 +35,8 @@ export interface BackendSpawnOpts {
   readonly cwd?: string;
   /** Model selected for this process. */
   readonly model?: string;
+  /** Model patterns the adapter should expose in its native cycle/picker, when configured. */
+  readonly preferredModels?: readonly string[];
   /** ORCH_DIR override for the adapter process. */
   readonly orchDir?: string;
   /** Extra environment passed to the adapter process. */

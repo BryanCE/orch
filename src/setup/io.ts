@@ -1,4 +1,4 @@
-import { select, multiselect, text, spinner, isCancel, cancel } from "@clack/prompts";
+import { autocomplete, autocompleteMultiselect, select, multiselect, text, spinner, isCancel, cancel } from "@clack/prompts";
 
 /** Unwrap a clack prompt result, or emit a cancel line and return null when the user aborts. */
 function guardCancel<T>(value: T | symbol): T | null {
@@ -38,6 +38,23 @@ export async function promptSelect<Id extends string>(
   })) as Id | null;
 }
 
+/** Run a bounded, searchable single-select over model options. */
+export async function promptAutocomplete<Id extends string>(
+  message: string,
+  options: readonly { value: Id; label: string; hint?: string }[],
+  initial: Id | undefined,
+  maxItems: number,
+): Promise<Id | null> {
+  return guardCancel(await autocomplete<string>({
+    message,
+    options: options.map(({ value, label, hint }) => ({ value, label, hint })),
+    ...(initial !== undefined ? { initialValue: initial } : {}),
+    placeholder: "Type to search; clear the query to browse all",
+    maxItems,
+  })) as Id | null;
+}
+
+
 /** Run a clack multi-select; options default to pre-checked unless `checked: false`.
  *  Return the selected values, or null on cancel. Empty options → []. */
 export async function promptMultiselect<Id extends string>(
@@ -50,6 +67,22 @@ export async function promptMultiselect<Id extends string>(
     options: options.map(({ value, label, hint }) => ({ value, label, hint })),
     required: false,
     initialValues: options.filter(({ checked }) => checked !== false).map(({ value }) => value),
+  })) as Id[] | null;
+}
+
+/** Run a bounded, searchable multi-select over model options. */
+export async function promptAutocompleteMultiselect<Id extends string>(
+  message: string,
+  options: readonly { value: Id; label: string; hint?: string; checked?: boolean }[],
+  maxItems: number,
+): Promise<Id[] | null> {
+  return guardCancel(await autocompleteMultiselect<string>({
+    message,
+    options: options.map(({ value, label, hint }) => ({ value, label, hint })),
+    required: false,
+    initialValues: options.filter(({ checked }) => checked !== false).map(({ value }) => value),
+    placeholder: "Type to search; clear the query to browse all",
+    maxItems,
   })) as Id[] | null;
 }
 

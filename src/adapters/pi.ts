@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -60,7 +61,6 @@ const AGENT_STATES = new Set<AgentState>([
 const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
 const PI_EXTENSION_DIR = path.join(PI_AGENT_DIR, "extensions");
 const PI_TRUST_FILE = path.join(PI_AGENT_DIR, "trust.json");
-const PI_MODELS_STORE = path.join(PI_AGENT_DIR, "models-store.json");
 /** pi's shipped bundle, built from extensions/pi/. */
 const PI_EXTENSION: ExtensionName = "orchestrator-bridge";
 /** Binaries that start pi: the CLI and orch's `pif` wrapper. */
@@ -179,19 +179,43 @@ function writeAnswerFile(presence: PresenceEntry, text: string): void {
   fs.writeFileSync(path.join(presence.dir, ANSWER_FILE), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
 }
 
-/** pi's registry keys each provider to `{ models: [...] }`; that shape lives only here. */
-function piRegistryModels(entry: unknown): { id?: unknown; name?: unknown }[] {
-  if (!isRecord(entry) || !Array.isArray(entry.models)) return [];
-  return entry.models.filter(isRecord);
+/**
+ * Parse pi's supported `--list-models` table into orch's provider/id vocabulary.
+ * pi exposes its built-in and authenticated custom registry through this CLI
+ * command rather than a stable models file; the adapter owns this parsing.
+ */
+export function parsePiModelsOutput(output: string): readonly HarnessModel[] {
+  const lines = output
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const header = lines.findIndex((line) => /^provider\s+model\s+context\b/.test(line));
+  if (header < 0) return [];
+
+  const specs = new Set<string>();
+  for (const line of lines.slice(header + 1)) {
+    const columns = line.split(/\s+/);
+    const [provider, model] = columns;
+    if (columns.length < 6 || !provider || !model || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(provider)) continue;
+    specs.add(`${provider}/${model}`);
+  }
+  return [...specs].map((spec) => ({ spec }));
 }
 
-/** Read a pi-flavour `models-store.json` and report it in orch's `provider/id` vocabulary. */
-export function readModelsStore(file: string): readonly HarnessModel[] {
-  const store = readJSON<Record<string, unknown>>(file) ?? {};
-  return Object.entries(store).flatMap(([provider, entry]) => piRegistryModels(entry).flatMap((model) =>
-    typeof model.id === "string" && model.id
-      ? [{ spec: `${provider}/${model.id}`, ...(typeof model.name === "string" ? { label: model.name } : {}) }]
-      : []));
+/** Ask pi itself which authenticated models it can run. */
+function queryPiModels(): readonly HarnessModel[] {
+  let stdout: string;
+  try {
+    stdout = execFileSync("pi", ["--list-models"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return [];
+  }
+  return parsePiModelsOutput(stdout);
 }
 
 /** True when a launch command starts one of the named binaries. */
@@ -471,9 +495,9 @@ export class PiAdapter implements AgentAdapter {
     return settingsDefaultModel(PI_AGENT_DIR);
   }
 
-  /** Read pi's own model registry and report it in orch's provider/id vocabulary. */
+  /** Ask pi's own registry through its supported model-listing command. */
   listModels(): readonly HarnessModel[] {
-    return readModelsStore(PI_MODELS_STORE);
+    return queryPiModels();
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory. */

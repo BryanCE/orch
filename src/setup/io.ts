@@ -1,4 +1,4 @@
-import { autocomplete, autocompleteMultiselect, select, multiselect, text, spinner, isCancel, cancel } from "@clack/prompts";
+import { autocomplete, autocompleteMultiselect, select, multiselect, text, spinner, log, isCancel, cancel } from "@clack/prompts";
 
 /** Unwrap a clack prompt result, or emit a cancel line and return null when the user aborts. */
 function guardCancel<T>(value: T | symbol): T | null {
@@ -7,6 +7,16 @@ function guardCancel<T>(value: T | symbol): T | null {
     return null;
   }
   return value;
+}
+
+/** Emit one progress line inside the wizard's guide rail; a raw stdout write breaks the rail. */
+export function logStep(message: string): void {
+  log.info(message);
+}
+
+/** Emit one warning line inside the wizard's guide rail. */
+export function logWarning(message: string): void {
+  log.warn(message);
 }
 
 /** Prompt for one free-text value; return the trimmed answer, or null when the user cancels.

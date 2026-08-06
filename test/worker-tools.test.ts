@@ -8,7 +8,7 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
   locked_commands: [],
   defaults: { models: {}, worktree: false },
   fleet: { worker_peer_tools: workerPeerTools ?? false, spawn_cap: 8, cross_workspace: false, workspace_caps: {} },
-  models: { allowed: {} },
+  models: { allowed: {}, preferred: {} },
   workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: allowTools },
   queue: { max_retries: 1 },
   daemon: { tcp_port: 3716 },

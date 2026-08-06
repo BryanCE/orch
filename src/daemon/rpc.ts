@@ -289,6 +289,9 @@ async function dialEndpoint(endpoint: string | number | undefined, timeoutMs: nu
   }
 }
 
+/** Dial orchd. Deliberately NOT retried: `daemonAnswers` probes with a 300ms budget to tell a
+ *  wedged daemon from a live one, and reattempts would turn that verdict into a multi-second
+ *  stall. A slow orchd is handled by giving the CALL a budget that matches its work. */
 async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket> {
   const paths = endpointPaths(orchDir);
   const connection = (await dialEndpoint(paths.socket, timeoutMs))

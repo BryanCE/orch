@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { readModelCatalogue } from "./model-catalogue.ts";
 import {
   loadPresence,
   readJSON,
@@ -205,17 +205,7 @@ export function parsePiModelsOutput(output: string): readonly HarnessModel[] {
 
 /** Ask pi itself which authenticated models it can run. */
 function queryPiModels(): readonly HarnessModel[] {
-  let stdout: string;
-  try {
-    stdout = execFileSync("pi", ["--list-models"], {
-      encoding: "utf8",
-      timeout: 10_000,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    return [];
-  }
-  return parsePiModelsOutput(stdout);
+  return parsePiModelsOutput(readModelCatalogue("pi", ["--list-models"]));
 }
 
 /** True when a launch command starts one of the named binaries. */
@@ -235,13 +225,14 @@ export function writeTrustEntry(trustFile: string, cwd: string) {
   process.stdout.write(`Pre-trusted ${resolved} in ${trustFile}\n`);
 }
 
-/** The `provider/model:thinking` a pi-flavour build launches on when orch names none. */
-export function settingsDefaultModel(agentDir: string): string {
+/** The `provider/model:thinking` a pi-flavour build launches on, or nothing when it names no
+ *  model of its own — inventing one hands orch a spec no registry can resolve. */
+export function settingsDefaultModel(agentDir: string): string | undefined {
   const source = readJSON<Record<string, unknown>>(path.join(agentDir, "settings.json")) ?? {};
+  if (typeof source.defaultModel !== "string" || !source.defaultModel) return undefined;
   const provider = typeof source.defaultProvider === "string" ? source.defaultProvider : "openai-codex";
-  const model = typeof source.defaultModel === "string" ? source.defaultModel : "unknown";
   const thinking = typeof source.defaultThinkingLevel === "string" ? source.defaultThinkingLevel : "medium";
-  return `${provider}/${model}:${thinking}`;
+  return `${provider}/${source.defaultModel}:${thinking}`;
 }
 
 /** The slash-commands a pi-shaped CLI answers for each lifecycle verb. */

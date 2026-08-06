@@ -86,7 +86,7 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
   return { gov, rest };
 }
 
-export async function writeRpc(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}): Promise<unknown> {
+export async function writeRpc(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
   const directory = orchDir();
   const actor = selfActor();
   const enriched: Record<string, unknown> = { ...params };
@@ -95,7 +95,7 @@ export async function writeRpc(method: string, params: Record<string, unknown>, 
   if (gov.crossWorkspace) enriched.crossWorkspace = true;
   try {
     await ensureDaemon(directory);
-    return await rpcCall(directory, method, enriched);
+    return await rpcCall(directory, method, enriched, timeoutMs);
   } catch (error: unknown) {
     if (error instanceof DaemonAbsentError) die(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
     throw error;

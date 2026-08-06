@@ -62,11 +62,16 @@ function nearestOffered(offered: readonly HarnessModel[], bare: string): string[
  * be checked, and orch does not pretend otherwise.
  */
 export function assertModelOffered(adapter: AgentAdapter, model: string): void {
-  const offered = adapter.listModels?.() ?? [];
+  assertModelListed(adapter.id, adapter.listModels?.() ?? [], model);
+}
+
+/** The same rejection against a catalogue the caller already holds, so a caller that has asked
+ *  the harness once never asks again and never sees two different answers. */
+export function assertModelListed(harness: AdapterId, offered: readonly HarnessModel[], model: string): void {
   if (!offered.length) return;
   const { bare } = splitThinkingSuffix(model);
   if (offered.some((candidate) => candidate.spec === bare)) return;
-  throw new Error(`${adapter.id} does not list model ${bare}; it offers ${nearestOffered(offered, bare).join(", ")}`);
+  throw new Error(`${harness} does not list model ${bare}; it offers ${nearestOffered(offered, bare).join(", ")}`);
 }
 
 /** Reject a model the harness does not offer or the settings allowlist refuses. */

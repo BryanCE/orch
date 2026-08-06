@@ -9,11 +9,11 @@ import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, wri
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
 import { BACKEND_IDS, type BackendId } from "../backends/backend.ts";
-import { assertModelOffered } from "../policy/model.ts";
+import { assertModelListed } from "../policy/model.ts";
 import { binaryStatus } from "../doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { runDoctor, type CheckResult } from "../doctor/runner.ts";
-import { withSpinner, promptText } from "../setup/io.ts";
+import { withSpinner, promptText, logStep, logWarning } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
 import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
 import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
@@ -110,11 +110,13 @@ export async function resolveHarnessModels(
   const choices: HarnessModelChoices = { defaults: {}, allowed: {} };
   for (const id of harnesses) {
     const harness = resolveAdapter(id);
-    const chosen = await resolveDefaultModel(flag, harness, interactive);
+    const offered = readHarnessCatalogue(harness, interactive);
+    const chosen = await resolveDefaultModel(flag, harness, offered, interactive);
     if (chosen === null) return null;
-    choices.defaults[id] = chosen;
+    // Blank means the harness is not ready; leaving it unrecorded is what lets setup finish and
+    // `orch settings models --harness=<id>` fill it in once the harness can enumerate.
+    if (chosen) choices.defaults[id] = chosen;
 
-    const offered = harness.listModels?.() ?? [];
     if (!interactive || !offered.length) continue;
     const allowed = await selectAllowedModels(id, offered, config?.models.allowed[id] ?? []);
     if (allowed === null) return null;
@@ -129,22 +131,38 @@ export interface HarnessModelChoices {
   allowed: Partial<Record<AdapterId, string[]>>;
 }
 
+/** Ask a harness what it can run, ONCE per setup run — both model prompts read this one answer,
+ *  so they can never disagree about what the harness offers. */
+function readHarnessCatalogue(harness: AgentAdapter, interactive: boolean): readonly HarnessModel[] {
+  if (!interactive) return harness.listModels?.() ?? [];
+  // The query shells out to the harness binary; a cold registry is slow enough to read as a hang.
+  logStep(`asking ${harness.id} which models it can run...`);
+  const offered = harness.listModels?.() ?? [];
+  if (offered.length) logStep(`${harness.id} lists ${offered.length} models`);
+  else logWarning(`${harness.id} lists no models - finish setting up your ${harness.id} install. It is probably not configured yet, not logged in, or its login went stale.\nNo model recorded for ${harness.id}. Once ${harness.id} works, run: orch settings models --harness=${harness.id}`);
+  return offered;
+}
+
 /** The model spawns of ONE harness launch on: `--model=`, else a pick from what that harness
  * reports it can run, else its own default when non-interactive. orch decides and records; the
- * harness only enumerates. Null when the user cancels. */
+ * harness only enumerates. Null when the user cancels, empty when the harness offers nothing
+ * and the operator named nothing either. */
 export async function resolveDefaultModel(
   flag: string | undefined,
   harness: AgentAdapter,
+  offered: readonly HarnessModel[],
   interactive: boolean,
   pick: (harnessId: string, offered: readonly HarnessModel[], suggested: string | undefined) => Promise<string | null> = selectDefaultModel,
 ): Promise<string | null> {
-  const offered = harness.listModels?.() ?? [];
+  // A harness listing nothing is not signed in. readHarnessCatalogue already said so; asking for
+  // a model it cannot resolve would only record a broken one.
+  if (flag === undefined && !offered.length) return "";
   const suggested = harness.defaultModelString?.();
   const chosen = flag ?? (interactive ? await pick(harness.id, offered, suggested) : suggested ?? offered[0]?.spec);
   if (chosen === null) return null;
-  if (!chosen) die(`no default model: pass --model=<model[:thinking]> or run setup interactively (${harness.id} lists none)`);
+  if (!chosen) return "";
   try {
-    assertModelOffered(harness, chosen);
+    assertModelListed(harness.id, offered, chosen);
   } catch (error: unknown) {
     die(errorMessage(error));
   }

@@ -2,7 +2,7 @@ import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import type { HarnessModel } from "../adapters/adapter.ts";
 import { splitThinkingSuffix } from "../policy/model.ts";
-import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect, promptText } from "./io.ts";
+import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 
 const MODEL_PICKER_MAX_ITEMS = 15;
 
@@ -68,19 +68,16 @@ const defaultModelPicker: ModelPicker = (mode, message, offered, initial, maxIte
     )
     : promptSelect(message, offered.map((model) => model.spec), initial);
 
-/** Pick the model one harness's spawns launch on. orch owns the choice and records it in orch's
- *  own settings; the harness only REPORTS what it can run, in its own vocabulary — which is why
- *  the prompt names the harness. One that enumerates nothing leaves free text as the only honest
- *  prompt. Large catalogues use a searchable, bounded view; clearing the query still lets the
- *  operator browse every offered model. Null on cancel. */
+/** Pick the model one harness's spawns launch on, from the models that harness reports it can
+ *  run — the prompt names the harness because each has its own vocabulary. Callers must hold a
+ *  non-empty catalogue; a harness enumerating nothing is warned about, never prompted for. Large
+ *  catalogues use a searchable, bounded view; clearing the query browses them all. Null on cancel. */
 export async function selectDefaultModel(
   harnessId: string,
   offered: readonly HarnessModel[],
   suggested: string | undefined,
   pick: ModelPicker = defaultModelPicker,
 ): Promise<string | null> {
-  if (!offered.length) return promptText(`Default model for ${harnessId} spawns`, suggested);
-
   const specs = offered.map((model) => model.spec);
   const suggestedBare = suggested === undefined ? undefined : splitThinkingSuffix(suggested).bare;
   const initial = suggestedBare !== undefined && specs.includes(suggestedBare) ? suggestedBare : specs[0]!;

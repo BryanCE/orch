@@ -155,7 +155,7 @@ export function requestedModel(flags: AgentFlags): string | null {
  *  model the harness does not list must never reach that resolver. */
 export function launchModel(flags: AgentFlags, config: OrchConfig, adapter: AgentAdapter): string {
   const model = requestedModel(flags) ?? config.defaults.models[adapter.id] ?? "";
-  if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]> or set defaults.models.${adapter.id} in $ORCH_DIR/settings.json`);
+  if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]>, or record one with: orch settings models --harness=${adapter.id}`);
   try {
     assertModelAllowed(orchDir(), adapter, model);
   } catch (error: unknown) {
@@ -313,6 +313,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
   const workspace = settings.workspace ?? "local";
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
+  const config = loadConfig(orchDir());
   const created: CreatedAgent[] = [];
   for (let index = 1; index <= settings.n; index++) {
     const name = `${settings.prefix}-${index}`;
@@ -325,15 +326,17 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
       // never encodes it, and the backend never re-mints a second identity.
       assertNameFree(name, workspace);
       const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
+      // orchd launches a real harness process inside this call, so it gets the adapter-command
+      // budget, not the 5s default meant for a question orchd answers from memory.
       await writeRpc("spawn-detached", {
         key,
         adapter: settings.adapter,
         cwd,
         model: settings.model,
-        prompt: workerPrompt(settings.prompt, false, adapter, loadConfig(orchDir()).locked_commands),
+        prompt: workerPrompt(settings.prompt, false, adapter, config.locked_commands),
         tools: settings.tools,
         workers: settings.workers,
-      });
+      }, {}, config.timeouts.adapter_command_ms);
       // A detached agent has no pane, so its key is the handle every display uses.
       created.push({ key, pane: key, name });
       recordSpawned(key, {

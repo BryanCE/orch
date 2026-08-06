@@ -63,8 +63,13 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
   writeSettingsModels(orchDir(), { ...config.defaults.models, ...chosen.defaults });
   writeSettingsAllowedModels(orchDir(), { ...config.models.allowed, ...chosen.allowed });
   for (const id of targets) {
+    const recorded = chosen.defaults[id];
+    if (!recorded) {
+      process.stdout.write(`  ${id}: unchanged - ${id} listed no models; sign it in, then rerun: orch settings models --harness=${id}\n`);
+      continue;
+    }
     const allowed = chosen.allowed[id] ?? [];
-    process.stdout.write(`  ${id}: default ${chosen.defaults[id]}${allowed.length ? `, restricted to ${allowed.length}` : ", all offered allowed"}\n`);
+    process.stdout.write(`  ${id}: default ${recorded}${allowed.length ? `, restricted to ${allowed.length}` : ", all offered allowed"}\n`);
   }
 }
 

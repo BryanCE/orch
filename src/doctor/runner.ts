@@ -4,12 +4,14 @@ import { loadConfigOrNull } from "../config.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
+import type { AdapterId } from "../adapters/adapter.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
 import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { checkBackendCapabilities } from "./backends.ts";
 import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
+import { checkHarnessModels } from "./models.ts";
 import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkSpawnedRegistry, checkWorktreeGitignore } from "./config.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
 import { checkDaemonLock, checkDaemonPresence, checkDaemonSocket, checkDaemonStaleness } from "./daemon.ts";
@@ -63,7 +65,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
   // providers, and checkConfig owns the user-facing failure result, so neither an absent nor a
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
   // you reach for when the install is broken; it never refuses to run for want of configuration.
-  let installedAdapters: string[] = [];
+  let installedAdapters: AdapterId[] = [];
   let installedBackends: string[] = [];
   let configuredBackend: string | null = null;
   try {
@@ -81,6 +83,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
       const adapter = resolveAdapter(id);
       return adapter.diagnoseShim ? await adapter.diagnoseShim() : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
     }),
+    isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(orchDir, id)),
   ]).flat();
   const livePairs = await checkLiveFleetPairs(orchDir);
   return Promise.all([

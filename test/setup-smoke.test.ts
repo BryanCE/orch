@@ -5,9 +5,12 @@ import { runSetupSmoke, type SmokeSteps } from "../src/commands/setup.ts";
  *  without a live daemon, model, or real spawn. */
 let output: string;
 let restore: (() => void) | null = null;
+/** Keys torn down by the default `cleanup` leg, so a test can assert teardown without overriding it. */
+let cleanedKeys: string[] = [];
 
 beforeEach(() => {
   output = "";
+  cleanedKeys = [];
   process.exitCode = undefined;
   const originalOut = process.stdout.write.bind(process.stdout);
   const originalErr = process.stderr.write.bind(process.stderr);
@@ -32,7 +35,7 @@ function steps(overrides: Partial<SmokeSteps>): Partial<SmokeSteps> {
     spawnHeadless: () => Promise.resolve("headless~local~smoke"),
     buildPrompt: () => "ready?",
     readResultText: () => "ready",
-    cleanup: () => {},
+    cleanup: (key) => { cleanedKeys.push(key); },
     now: () => 0,
     sleep: () => Promise.resolve(),
     timeoutMs: 1000,
@@ -47,6 +50,7 @@ describe("runSetupSmoke (12.5)", () => {
     expect(process.exitCode).toBeUndefined();
     expect(output).toContain("Smoke ok");
     expect(output).toContain("orch can deliver work");
+    expect(cleanedKeys).toEqual(["headless~local~smoke"]);
   });
 
   test("the agent is launched on the prompt it built", async () => {

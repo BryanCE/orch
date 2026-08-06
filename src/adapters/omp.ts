@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
+import { readModelCatalogue } from "./model-catalogue.ts";
 import { isRecord } from "../util.ts";
 import {
   answerViaFile,
@@ -50,10 +50,8 @@ const OMP_AGENT_DIR = path.join(os.homedir(), ".omp", "agent");
 const OMP_EXTENSION_DIR = path.join(OMP_AGENT_DIR, "extensions");
 /** omp's shipped bundle, built from extensions/omp/. */
 const OMP_EXTENSION: ExtensionName = "omp-bridge";
-/** How long to wait on `omp models --json` before treating the catalogue as unavailable. */
-const MODEL_QUERY_TIMEOUT_MS = 10_000;
 
-/** One row of `omp models --json`; that shape lives only here. */
+/** One row of `omp models --json`. */
 function modelRow(entry: unknown): HarnessModel[] {
   if (!isRecord(entry) || typeof entry.provider !== "string" || typeof entry.id !== "string") return [];
   if (!entry.provider || !entry.id) return [];
@@ -63,23 +61,14 @@ function modelRow(entry: unknown): HarnessModel[] {
   }];
 }
 
-/**
- * Ask omp itself what it can run. omp keeps its registry in a SQLite database
- * whose schema is its own business, so the CLI is the only supported reader. A
- * build that is absent, unauthenticated, or slow reports nothing, which leaves
- * orch's model gate with nothing to check rather than a wrong answer.
- */
+/** Ask omp itself what it can run; its registry is a private SQLite database, so its CLI is
+ *  the only supported reader. */
 function queryOmpModels(): readonly HarnessModel[] {
-  let stdout: string;
-  try {
-    stdout = execFileSync("omp", ["models", "--json"], {
-      encoding: "utf8",
-      timeout: MODEL_QUERY_TIMEOUT_MS,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    return [];
-  }
+  return parseOmpModelsOutput(readModelCatalogue("omp", ["models", "--json"]));
+}
+
+/** Map `omp models --json` onto orch's provider/id vocabulary; that shape lives only here. */
+function parseOmpModelsOutput(stdout: string): readonly HarnessModel[] {
   let payload: unknown;
   try {
     payload = JSON.parse(stdout);

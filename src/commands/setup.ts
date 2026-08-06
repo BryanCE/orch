@@ -24,20 +24,23 @@ import { die, resultText } from "./target.ts";
 const HOME = os.homedir();
 
 /** The install action for one provider id: exactly one of a real install command or a
- * documentation URL, plus an optional ordered list of prerequisite provider ids installed
- * first. Keyed by real provider id, so an installer can never drift from its provider. */
+ * documentation URL, an optional ordered list of prerequisite provider ids installed
+ * first, and the harness's own command for signing in — installed is not the same as
+ * usable, and a harness with no credentials lists no models.
+ * Keyed by real provider id, so an installer can never drift from its provider. */
 interface InstallerEntry {
   install?: string;
   docsUrl?: string;
   needs?: readonly string[];
+  signIn?: string;
 }
 
 const INSTALLERS: Record<string, InstallerEntry> = {
   // bun is never probed on its own — it surfaces only as pi's declared dependency.
-  pi: { install: "bun add -g @earendil-works/pi-coding-agent", needs: ["bun"] },
-  omp: { install: "bun add -g @oh-my-pi/pi-coding-agent", needs: ["bun"] },
-  claude: { install: "curl -fsSL https://claude.ai/install.sh | bash" },
-  codex: { docsUrl: "https://github.com/openai/codex" },
+  pi: { install: "bun add -g @earendil-works/pi-coding-agent", needs: ["bun"], signIn: "pi auth" },
+  omp: { install: "bun add -g @oh-my-pi/pi-coding-agent", needs: ["bun"], signIn: "omp setup" },
+  claude: { install: "curl -fsSL https://claude.ai/install.sh | bash", signIn: "claude auth" },
+  codex: { docsUrl: "https://github.com/openai/codex", signIn: "codex login" },
   bun: { install: "curl -fsSL https://bun.sh/install | bash" },
   tmux: { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" },
   herdr: { docsUrl: "https://github.com/BryanCE/orch#readme" },
@@ -131,6 +134,19 @@ export interface HarnessModelChoices {
   allowed: Partial<Record<AdapterId, string[]>>;
 }
 
+/** Tell the operator how to make an installed-but-signed-out harness usable, and what to
+ *  run afterwards. Skipping the model prompt is silent otherwise: an empty list looks
+ *  like orch forgot to ask. */
+function emptyCatalogueHint(harnessId: string): string {
+  const signIn = INSTALLERS[harnessId]?.signIn;
+  return [
+    `Hey - ${harnessId} is installed but lists no models, so it has nothing to spawn with.`,
+    `It is not signed in yet, not configured, or its login went stale. No model was recorded for it.`,
+    signIn ? `Set up ${harnessId}:      ${signIn}` : `Finish setting up your ${harnessId} install.`,
+    `Then tell orch about it:  orch settings models --harness=${harnessId}`,
+  ].join("\n");
+}
+
 /** Ask a harness what it can run, ONCE per setup run — both model prompts read this one answer,
  *  so they can never disagree about what the harness offers. */
 function readHarnessCatalogue(harness: AgentAdapter, interactive: boolean): readonly HarnessModel[] {
@@ -139,7 +155,7 @@ function readHarnessCatalogue(harness: AgentAdapter, interactive: boolean): read
   logStep(`asking ${harness.id} which models it can run...`);
   const offered = harness.listModels?.() ?? [];
   if (offered.length) logStep(`${harness.id} lists ${offered.length} models`);
-  else logWarning(`${harness.id} lists no models - finish setting up your ${harness.id} install. It is probably not configured yet, not logged in, or its login went stale.\nNo model recorded for ${harness.id}. Once ${harness.id} works, run: orch settings models --harness=${harness.id}`);
+  else logWarning(emptyCatalogueHint(harness.id));
   return offered;
 }
 

@@ -23,6 +23,11 @@ function tempOrchDir(): string {
   return dir;
 }
 
+/** A handler that never responds — the shape a starved daemon presents to the CLI. */
+function neverAnswers(): Promise<never> {
+  return new Promise(() => undefined);
+}
+
 async function waitForLine(lines: string[], index: number): Promise<void> {
   const deadline = Date.now() + 2_000;
   while (lines.length <= index && Date.now() < deadline) await Bun.sleep(5);
@@ -32,7 +37,7 @@ async function waitForLine(lines: string[], index: number): Promise<void> {
 async function start(dir: string): Promise<RpcServer> {
   const server = await startRpcServer(dir, {
     echo: (params) => params,
-    hang: () => new Promise(() => {}),
+    hang: neverAnswers,
     "subscribe-events": (_params, emit) => {
       setTimeout(() => emit({ kind: "pushed", value: 1 }), 5);
       return { subscribed: true };

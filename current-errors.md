@@ -1,3 +1,6 @@
+$ bun run lint && bunx tsc --noEmit && bun run check:bridge
+$ oxlint bin src test extensions scripts
 Found 0 warnings and 0 errors.
-Finished in 7.0s on 208 files with 65 rules using 8 threads.
+Finished in 1.7s on 208 files with 65 rules using 8 threads.
+$ bun scripts/check-bridge.ts
 check:bridge OK (405 files scanned)

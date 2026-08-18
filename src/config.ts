@@ -93,11 +93,12 @@ const SettingsFileSchema = z.strictObject({
     cross_workspace: z.boolean().optional(),
   }).optional(),
   models: z.strictObject({
-    /** Allowed model patterns PER HARNESS. A pattern is written in that harness's own
-     *  vocabulary, so one shared list could only ever restrict one of them. Concrete
-     *  selections are also forwarded to that harness's native model cycle/picker. */
+    /** The launch gate PER HARNESS: a spawn is refused unless its model matches one of
+     *  these patterns. A pattern is written in that harness's own vocabulary, so one
+     *  shared list could only ever restrict one of them. Empty allows every offered model. */
     allowed: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
-    /** Preferred model specs for each harness's native cycle/picker. */
+    /** The quicklist PER HARNESS, passed to that harness's native cycle/picker and nothing
+     *  else. It never gates a launch: a model outside it stays launchable. Empty passes none. */
     preferred: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
   }).optional(),
   /** What a spawned worker loads. Inherits the user's own harness setup by default;
@@ -506,14 +507,24 @@ export function allowedModelPatterns(orchDir: string, harness: AdapterId): strin
   }
 }
 
+/** Drop the harnesses whose list is empty: for both model maps an empty list means the same
+ *  thing as no entry, and recording `[]` leaves settings.json claiming a selection nobody made. */
+function withoutEmptyLists(lists: Partial<Record<AdapterId, string[]>>): Partial<Record<AdapterId, string[]>> {
+  const kept: Partial<Record<AdapterId, string[]>> = {};
+  for (const [harness, models] of Object.entries(lists) as [AdapterId, string[] | undefined][]) {
+    if (models?.length) kept[harness] = models;
+  }
+  return kept;
+}
+
 /** Record which models each harness may launch, replacing any previous set. */
 export function writeSettingsAllowedModels(orchDir: string, allowed: Partial<Record<AdapterId, string[]>>): void {
-  updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, allowed: { ...allowed } } }));
+  updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, allowed: withoutEmptyLists(allowed) } }));
 }
 
 /** Record the preferred quicklist each harness exposes to its native picker. */
 export function writeSettingsPreferredModels(orchDir: string, preferred: Partial<Record<AdapterId, string[]>>): void {
-  updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, preferred: { ...preferred } } }));
+  updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, preferred: withoutEmptyLists(preferred) } }));
 }
 
 /** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */

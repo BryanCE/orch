@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as path from "node:path";
 import { buildExtensionBundle, EXTENSION_NAMES } from "../bridge-bundle.ts";
-import { buildEntities, resolvePane } from "../entities.ts";
+import { buildEntities, recipientFor, recipientLabel, resolvePane } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { loadPresence, orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
@@ -26,8 +26,9 @@ export async function cmdRun(args: string[]): Promise<void> {
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
   const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), loadConfig(orchDir()).locked_commands) }, gov);
-  if (json) process.stdout.write(JSON.stringify({ target: pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Dispatched to ${pane}.\n`);
+  const recipient = recipientFor(ent.key);
+  if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
 }
 
 export function cmdWait(args: string[]) {
@@ -118,7 +119,9 @@ export async function cmdNew(args: string[]): Promise<void> {
     results.push({ target: pane, cleared: true, ready: true });
     if (!json) process.stdout.write(`Cleared session on ${pane}; ready.\n`);
   }
-  await pinModels(cleared, model);
+  // A reset that could not re-pin its model left the agent on the wrong one, and
+  // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
+  if ((await pinModels(cleared, model)).length) process.exitCode = 1;
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
   else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${model}.\n`);
 }

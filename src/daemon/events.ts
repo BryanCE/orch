@@ -192,11 +192,19 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   };
 }
 
+/** How many events this daemon has published for each agent. The publish point is the
+ *  one place every event passes through, so the ordinal it stamps is unique per agent
+ *  without any emitter having to know about the others. */
+const published = new Map<string, number>();
+
+/** Publish one event to the RPC stream and every configured sink, stamped with the
+ *  agent name and transition ordinal that make it identifiable downstream. */
 export function emitAndNotify(emit: (event: unknown) => void, sinks: Sink[], event: NotifyEvent): void {
   const workspace = event.workspace ?? workspaceLabelForKey(event.key);
-  const canonical: NotifyEvent = event.agent?.trim()
-    ? event
-    : { ...event, agent: abstractAgentLabel(workspace, event.key), workspace };
+  const seq = (published.get(event.key) ?? 0) + 1;
+  published.set(event.key, seq);
+  const named = event.agent?.trim() ? event : { ...event, agent: abstractAgentLabel(workspace, event.key), workspace };
+  const canonical: NotifyEvent = { ...named, seq };
   emit(canonical);
   notify(sinks, canonical);
 }

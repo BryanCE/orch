@@ -8,7 +8,7 @@ import {
   statusForPresence,
   type PresenceEntry,
 } from "../presence/store.ts";
-import { isRecord } from "../util.ts";
+import { isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
 import { buildExtensionBundle, extensionBundlePath, EXTENSION_NAMES, type ExtensionName } from "../bridge-bundle.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
@@ -118,6 +118,27 @@ export function bridgeExtensionArgv(
   for (const installed of installedUserExtensions(extensionDir)) {
     if (!excluded.has(installed.name)) argv.push("-e", installed.file);
   }
+  return argv;
+}
+
+/** How a builder renders the quicklist argument: verbatim in an argv array, quoted in a shell
+ *  string so a glob pattern (`anthropic/*`) reaches the harness instead of the shell's expansion. */
+export type QuicklistForm = "argv" | "shell";
+
+/**
+ * The tokens that pick a launch model and, when configured, hand the harness the quicklist its
+ * own picker cycles. Each harness names its two flags; the quicklist is one comma-separated
+ * argument. It is never a gate — the launch model was ruled on long before a command is built,
+ * and a model outside the quicklist stays launchable.
+ */
+export function modelSelectionArgv(
+  flags: { model: string; cycle: string },
+  opts: SpawnOpts,
+  form: QuicklistForm,
+): string[] {
+  const argv = opts.model ? [flags.model, opts.model] : [];
+  const patterns = opts.preferredModels?.length ? opts.preferredModels.join(",") : "";
+  if (patterns) argv.push(flags.cycle, form === "shell" ? shellQuote(patterns) : patterns);
   return argv;
 }
 
@@ -407,31 +428,23 @@ export class PiAdapter implements AgentAdapter {
 
   /** Start pi directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
-    return opts.model ? `pi --model ${opts.model}` : "pi";
+    return ["pi", ...piModelArgv(opts, "shell")].join(" ");
   }
 
   /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    const argv = ["pi", ...piToolArgv(opts), ...piExtensionArgv(opts)];
-    if (opts.model) argv.push("--model", opts.model);
-    return argv.join(" ");
+    return ["pi", ...piToolArgv(opts), ...piExtensionArgv(opts), ...piModelArgv(opts, "shell")].join(" ");
   }
 
   /** Start the pif wrapper with the initial prompt for headless runs. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["pif"];
-    if (opts.model) command.push("--model", opts.model);
-    command.push(prompt);
-    return command;
+    return ["pif", ...piModelArgv(opts, "argv"), prompt];
   }
 
   /** Start pif under the same worker policy as an interactive pi worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["pif", ...piToolArgv(opts), ...piExtensionArgv(opts)];
-    if (opts.model) command.push("--model", opts.model);
-    command.push(prompt);
-    return command;
+    return ["pif", ...piToolArgv(opts), ...piExtensionArgv(opts), ...piModelArgv(opts, "argv"), prompt];
   }
 
   /** Read pi's authoritative status.json through the shared presence helpers. */
@@ -506,6 +519,11 @@ function piExtensionArgv(opts: SpawnOpts): string[] {
 /** pi's tool-gating tokens for one worker; pi spells the built-ins switch --no-builtin-tools. */
 function piToolArgv(opts: SpawnOpts): string[] {
   return toolPolicyArgv("--no-builtin-tools", opts.workers, opts.tools);
+}
+
+/** pi's model tokens: `--model` selects the session's model, `--models` fills its Ctrl+P cycle. */
+function piModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
+  return modelSelectionArgv({ model: "--model", cycle: "--models" }, opts, form);
 }
 
 /** Shared pi adapter instance for command wiring. */

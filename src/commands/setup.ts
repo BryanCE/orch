@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
-import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
+import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
 import { PREREQUISITES, signedOutFix } from "../adapters/prerequisites.ts";
@@ -16,7 +16,7 @@ import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { runDoctor, type CheckResult } from "../doctor/runner.ts";
 import { withSpinner, promptText, logStep, logWarning } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
-import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
+import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectPreferredModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
 import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
 import { cmdSpawn } from "./spawn.ts";
@@ -88,7 +88,7 @@ export async function resolveHarnessModels(
   interactive: boolean,
 ): Promise<HarnessModelChoices | null> {
   const config = loadConfigOrNull(orchDir());
-  const choices: HarnessModelChoices = { defaults: {}, allowed: {} };
+  const choices: HarnessModelChoices = { defaults: {}, preferred: {}, allowed: {} };
   for (const id of harnesses) {
     const harness = resolveAdapter(id);
     const offered = readHarnessCatalogue(harness, interactive);
@@ -99,16 +99,23 @@ export async function resolveHarnessModels(
     if (chosen) choices.defaults[id] = chosen;
 
     if (!interactive || !offered.length) continue;
+    // Two prompts, two meanings: the quicklist the harness shows in its own picker, then the
+    // gate its spawns are held to. A prompted harness records what it was given, empty
+    // included — that is how an operator clears a list they no longer want.
+    const preferred = await selectPreferredModels(id, offered, config?.models.preferred[id] ?? []);
+    if (preferred === null) return null;
+    choices.preferred[id] = preferred;
     const allowed = await selectAllowedModels(id, offered, config?.models.allowed[id] ?? []);
     if (allowed === null) return null;
-    if (allowed.length) choices.allowed[id] = allowed;
+    choices.allowed[id] = allowed;
   }
   return choices;
 }
 
-/** What each installed harness may launch, and what it launches by default. */
+/** What each installed harness launches by default, offers in its own picker, and may launch at all. */
 export interface HarnessModelChoices {
   defaults: Partial<Record<AdapterId, string>>;
+  preferred: Partial<Record<AdapterId, string[]>>;
   allowed: Partial<Record<AdapterId, string[]>>;
 }
 
@@ -231,9 +238,12 @@ function linkBin(src: string, dest: string, copy: boolean): void {
   process.stdout.write(`  ${dest} ${copy ? "(copy)" : "-> " + src}\n`);
 }
 
-/** How many models a harness is restricted to, or nothing when it is unrestricted. */
-function allowedNote(allowed: readonly string[] | undefined): string {
-  return allowed?.length ? `  (restricted to ${allowed.length})` : "";
+/** What each of a harness's two model lists was recorded as: the quicklist its own picker
+ *  shows, and the gate its spawns are held to. Neither is the other, so both are named. */
+function modelListsNote(preferred: readonly string[] | undefined, allowed: readonly string[] | undefined): string {
+  const quicklist = preferred?.length ?? 0;
+  const gate = allowed?.length ?? 0;
+  return `  picker: ${quicklist || "none"}, allowed: ${gate || "all offered"}`;
 }
 
 /** Persist the composition selections (runtime, installed sets, active defaults) to settings.json. */
@@ -255,6 +265,9 @@ function recordComposition(
   // Every launch path resolves its harness's model from here. Recording them is not
   // optional: an install without one fails at the first spawn, including setup's own smoke.
   writeSettingsModels(orchDir(), models.defaults);
+  // Two independent lists, two writers: the quicklist a harness shows in its own picker,
+  // and the gate its spawns are held to. Neither may stand in for the other.
+  writeSettingsPreferredModels(orchDir(), models.preferred);
   writeSettingsAllowedModels(orchDir(), models.allowed);
   // Seed the complete live settings tree only after composition writes have landed.
   writeSettingsFullTree(orchDir());
@@ -265,7 +278,7 @@ function recordComposition(
     `  default adapter   = ${defaultAdapter}\n` +
     `  backends          = ${backends.join(", ")}\n` +
     `  default backend   = ${defaultBackend}\n` +
-    adapters.map((id) => `  model (${id})${" ".repeat(Math.max(0, 11 - id.length))} = ${models.defaults[id] ?? "(none)"}${allowedNote(models.allowed[id])}\n`).join(""),
+    adapters.map((id) => `  model (${id})${" ".repeat(Math.max(0, 11 - id.length))} = ${models.defaults[id] ?? "(none)"}${modelListsNote(models.preferred[id], models.allowed[id])}\n`).join(""),
   );
 }
 

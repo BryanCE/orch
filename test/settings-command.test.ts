@@ -87,6 +87,23 @@ describe("orch settings", () => {
     expect(rejected.stderr).toContain("installed");
   }, 60_000);
 
+  test("reports each harness's picker quicklist and launch gate as separate rows", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, {
+      installed: { adapters: ["pi", "claude"], backends: ["headless"] },
+      defaults: { adapter: "pi", backend: "headless" },
+      models: { preferred: { pi: ["openrouter/a", "openrouter/b"] }, allowed: { pi: ["openrouter/*"] } },
+    });
+
+    const printed = runSettings(directory, {});
+    // The quicklist is never labelled "allowed": one is convenience, the other is permission.
+    expect(printed).toMatch(/picker \(pi\)\s+2: openrouter\/a, openrouter\/b/);
+    expect(printed).toMatch(/allowed \(pi\)\s+1: openrouter\/\*/);
+    // A harness with neither list says what empty means for each.
+    expect(printed).toMatch(/picker \(claude\)\s+\(none\)/);
+    expect(printed).toMatch(/allowed \(claude\)\s+\(all offered\)/);
+  }, 30_000);
+
   test("a load error surfaces loudly with no partial table", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "config.toml"), "[defaults]\n");

@@ -12,7 +12,7 @@ import {
   taskShouldRetry,
   type TaskRec,
 } from "../queue.ts";
-import { emitAndNotify, derivePresenceTransition, type PresenceMetadata } from "./events.ts";
+import { emitAndNotify } from "./events.ts";
 import { loadSinks } from "../notify/router.ts";
 import { type NotifyEvent } from "../notify/format.ts";
 import { loadPresence, statusForPresence, type PresenceEntry } from "../presence/store.ts";
@@ -148,25 +148,17 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
   }
 }
 
+/** Drive the task queue: claim queued work for idle agents and settle what they finish.
+ *  It emits TASK events only — presence transitions belong to `startPresenceWatch`, and
+ *  deriving them here too is what published every agent transition twice. */
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
     emitAndNotify(() => { /* noop */ }, loadSinks(options.orchDir), event);
   });
-  const states = new Map<string, string>();
   while (!options.signal?.aborted) {
     const config = options.getConfig?.();
     const maxRetries = config?.queue.max_retries ?? options.maxRetries ?? 1;
     const presence = loadPresence();
-    for (const entry of presence.values()) {
-      const status = entry.status;
-      const metadata: PresenceMetadata = {
-        name: status?.label ?? status?.agent ?? null,
-        tab: status?.tabLabel ?? null,
-        pid: status?.pid,
-      };
-      const event = derivePresenceTransition(entry.key, status, metadata, states);
-      if (event) emit(event);
-    }
     settleClaimedTasks(options.orchDir, maxRetries, emit);
     let assigned = 0;
     for (const entry of [...presence.values()].filter(agentIdle)) {

@@ -17,6 +17,7 @@ import { cmdClean } from "./clean.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
 import { cmdSettings, cmdSettingsModels } from "./settings.ts";
+import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { die } from "./target.ts";
 
@@ -142,8 +143,15 @@ MAINTENANCE
                                  settings.json > default), or switch the active default
                                  adapter/plexer among the installed set.
   orch settings models [--harness=<id>] [--model=<model[:thinking]>]
-                                 Re-pick each installed harness's default model and the set it
-                                 may launch. Every harness names models in its own vocabulary.
+                                 Re-pick, per installed harness: the model it launches on, the
+                                 quicklist its own picker cycles (models.preferred), and the set
+                                 it may launch at all (models.allowed; none = all offered).
+                                 Every harness names models in its own vocabulary.
+  orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
+                                 List every model each installed harness reports it can run -
+                                 the quicklist never hides the rest. --preferred shows only the
+                                 quicklist, --search matches spec or label, --pick prints one
+                                 full spec for scripting. Lists only; records nothing.
   orch help                      This message.
 
 RECOVER
@@ -251,6 +259,7 @@ export function runCommand(argv: string[]): void {
     case "tile": void cmdTile(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "run": void cmdRun(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "model": void cmdModel(rest).catch((error: unknown) => die(errorMessage(error))); break;
+    case "models": cmdModels(rest); break;
     case "wait": cmdWait(rest); break;
     case "dispatch": void cmdDispatch(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "reload": void cmdReload(rest).catch((error: unknown) => die(errorMessage(error))); break;

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsDefault, writeSettingsInstalled, writeSettingsRuntime } from "../src/config.ts";
+import { SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsInstalled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
@@ -391,5 +391,74 @@ describe("resolveWithSource", () => {
     delete process.env.ORCH_CONFIG_TEST;
     expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", config: 3, fallback: 1 })).toEqual({ value: 3, source: "settings.json" });
     expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", fallback: 1 })).toEqual({ value: 1, source: "default" });
+  });
+});
+
+// models.preferred is the quicklist a harness's own picker cycles; models.allowed is the launch
+// gate. They are stored, written, and read independently — merging them is what let a
+// convenience list silently forbid every model an operator had not put in the picker.
+describe("models.preferred and models.allowed are independent", () => {
+  test("loadConfig parses a per-harness preferred quicklist", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { models: { preferred: { pi: ["openrouter/a", "openrouter/b"] } } });
+
+    expect(loadConfig(directory).models.preferred.pi).toEqual(["openrouter/a", "openrouter/b"]);
+  });
+
+  test("an absent preferred map normalizes to an empty map, not to allowed", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { models: { allowed: { pi: ["openrouter/a"] } } });
+
+    const config = loadConfig(directory);
+    expect(config.models.preferred).toEqual({});
+    expect(config.models.allowed.pi).toEqual(["openrouter/a"]);
+  });
+
+  test("writing one list leaves the other byte-for-value intact", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { installed: { adapters: ["pi", "claude"], backends: [] } });
+
+    writeSettingsAllowedModels(directory, { pi: ["openrouter/a"] });
+    writeSettingsPreferredModels(directory, { pi: ["openrouter/b", "openrouter/c"] });
+    expect(loadConfig(directory).models.allowed.pi).toEqual(["openrouter/a"]);
+    expect(loadConfig(directory).models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
+
+    writeSettingsAllowedModels(directory, { pi: ["openrouter/a", "openrouter/z"] });
+    expect(loadConfig(directory).models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
+
+    writeSettingsPreferredModels(directory, { claude: ["sonnet"] });
+    expect(loadConfig(directory).models.allowed.pi).toEqual(["openrouter/a", "openrouter/z"]);
+  });
+
+  test("an empty list is recorded as no list at all, so a cleared picker really clears", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { installed: { adapters: ["pi"], backends: [] } });
+
+    writeSettingsPreferredModels(directory, { pi: ["openrouter/a"] });
+    writeSettingsPreferredModels(directory, { pi: [] });
+    expect(loadConfig(directory).models.preferred).toEqual({});
+  });
+
+  test("the full tree seeds both maps when absent and preserves both when present", () => {
+    const seeded = tempDir();
+    writeSettingsFixture(seeded, { installed: { adapters: ["pi"], backends: [] } });
+    writeSettingsFullTree(seeded);
+    expect(loadConfig(seeded).models).toEqual({ allowed: {}, preferred: {} });
+
+    const filled = tempDir();
+    writeSettingsFixture(filled, {
+      installed: { adapters: ["pi"], backends: [] },
+      models: { allowed: { pi: ["openrouter/a"] }, preferred: { pi: ["openrouter/b"] } },
+    });
+    writeSettingsFullTree(filled);
+    expect(loadConfig(filled).models).toEqual({ allowed: { pi: ["openrouter/a"] }, preferred: { pi: ["openrouter/b"] } });
+  });
+
+  test("the allowlist gate reads models.allowed only", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { models: { preferred: { pi: ["openrouter/b"] } } });
+
+    // A preferred quicklist restricts nothing: with no allowed patterns every offered model passes.
+    expect(allowedModelPatterns(directory, "pi")).toEqual([]);
   });
 });

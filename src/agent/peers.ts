@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { Type } from "typebox";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../policy/workspace.ts";
+import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
 import { isRecord, optionalString, pidAlive, readJsonFile, truncate, type JsonRecord } from "../util.ts";
@@ -119,7 +120,8 @@ export function sendPeerMessage(target: string, text: string, ownKey: string, al
   const resolved = resolvePeer(target, ownKey, allWorkspaces);
   if ("error" in resolved) return resolved.error;
   appendPeerInbox(resolved.peer.dir, `[from ${ownKey}] ${text}`);
-  return `sent to ${resolved.peer.key}`;
+  // The sender knows a peer by its name and harness, not by the transport key that routed there.
+  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, workspaceOf(resolved.peer.key) ?? "workspace", resolved.peer.status))}`;
 }
 
 export function formatPeerLines(peers: PeerSummary[]): string {

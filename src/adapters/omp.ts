@@ -7,6 +7,7 @@ import {
   bridgeExtensionArgv,
   diagnoseExtensionLink,
   installExtensionLink,
+  modelSelectionArgv,
   PI_LIFECYCLE_TEXT,
   piSessionView,
   presenceAgentState,
@@ -17,6 +18,7 @@ import {
   toolPolicyArgv,
   type PiResultExtractionInput,
   type PiStateDetectionInput,
+  type QuicklistForm,
 } from "./pi.ts";
 import type { ExtensionName } from "../bridge-bundle.ts";
 import type { CheckResult } from "../check-result.ts";
@@ -90,6 +92,11 @@ function ompToolArgv(opts: SpawnOpts): string[] {
   return toolPolicyArgv("--no-tools", opts.workers, opts.tools);
 }
 
+/** omp's model tokens: `--model` selects the session's model, `--models` fills its Ctrl+P cycle. */
+function ompModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
+  return modelSelectionArgv({ model: "--model", cycle: "--models" }, opts, form);
+}
+
 /** Adapter for omp (@oh-my-pi/pi-coding-agent), driven through orch's omp-bridge extension. */
 export class OmpAdapter implements AgentAdapter {
   readonly id = "omp" as const;
@@ -107,31 +114,23 @@ export class OmpAdapter implements AgentAdapter {
 
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
-    return opts.model ? `omp --model ${opts.model}` : "omp";
+    return ["omp", ...ompModelArgv(opts, "shell")].join(" ");
   }
 
   /** Start omp as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    const argv = ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts)];
-    if (opts.model) argv.push("--model", opts.model);
-    return argv.join(" ");
+    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...ompModelArgv(opts, "shell")].join(" ");
   }
 
   /** omp's single binary serves headless runs too — no launcher wrapper. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["omp"];
-    if (opts.model) command.push("--model", opts.model);
-    command.push(prompt);
-    return command;
+    return ["omp", ...ompModelArgv(opts, "argv"), prompt];
   }
 
   /** Start omp headless under the same worker policy as an interactive omp worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts)];
-    if (opts.model) command.push("--model", opts.model);
-    command.push(prompt);
-    return command;
+    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...ompModelArgv(opts, "argv"), prompt];
   }
 
   /** Read omp's authoritative status.json through the shared presence helpers. */

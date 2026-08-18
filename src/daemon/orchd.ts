@@ -146,6 +146,17 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/** A model quicklist as it arrives over RPC: absent, or an array of non-empty specs. A joined
+ *  string is REJECTED rather than coerced — it would reach the harness as one model id no
+ *  registry lists, and the picker it was meant to fill would come up empty. */
+export function optionalModelSpecs(value: unknown, name: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((spec) => typeof spec !== "string" || spec.trim().length === 0)) {
+    throw new Error(`${name} must be an array of non-empty model specs`);
+  }
+  return value as string[];
+}
+
 /**
  * Launch one detached agent from INSIDE the daemon.
  *
@@ -171,6 +182,9 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
     cwd: optionalString(value.cwd),
     prompt: requiredString(value.prompt, "prompt"),
     model,
+    // The quicklist the harness's own picker gets. It is NOT a second gate: the launch model
+    // was ruled on above, and a model outside this list stays launchable.
+    preferredModels: optionalModelSpecs(value.preferredModels, "preferredModels"),
     tools: optionalString(value.tools),
     workers: value.workers as WorkerPolicy | undefined,
   });

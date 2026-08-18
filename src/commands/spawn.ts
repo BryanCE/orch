@@ -14,11 +14,12 @@ import { resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { errorMessage } from "../util.ts";
-import { writeRpc } from "./daemon.ts";
+import { callDaemon, writeRpc } from "./daemon.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 
-async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false) {
+/** Wait for every agent to write its bridge dir; returns the ones that never did. */
+async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
   const deadline = Date.now() + 60_000;
   if (!json) process.stdout.write("\nWaiting for agents to register:\n");
@@ -37,6 +38,7 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
   for (const agent of pending.values())
     process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
   if (pending.size) process.exitCode = 1;
+  return [...pending.values()];
 }
 
 /** A launch that placed fewer agents than were asked for FAILED; a warning line
@@ -47,15 +49,16 @@ function reportShortfall(requested: number, placed: number): void {
   process.exitCode = 1;
 }
 
-/** Confirm the agents actually came up, or say plainly that it could not be confirmed.
+/** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<void> {
+async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<number | null> {
   if (adapter.caps.registersPresenceOnStart) {
-    await awaitBridgeRegistration(created, json);
-    return;
+    const stalled = await awaitBridgeRegistration(created, json);
+    return created.length - stalled.length;
   }
   process.stderr.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
+  return null;
 }
 
 function printLayout(backend: Backend, group: string, header: string) {
@@ -82,9 +85,16 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
   }
 }
 
-export function adapterCommand(adapter: string, config = loadConfig(orchDir())): string {
+/** The command one harness launches under, built by that harness's own adapter. `launch` carries
+ *  what this launch selected — the model it starts on and the quicklist its picker shows — so a
+ *  previewed command is the command the backend actually runs. */
+export function adapterCommand(
+  adapter: string,
+  config = loadConfig(orchDir()),
+  launch: { model?: string; preferredModels?: readonly string[] } = {},
+): string {
   const resolved = resolveAdapterOrDie(adapter);
-  const opts = { tools: workerTools(config), workers: workerPolicyFrom(config) };
+  const opts = { ...launch, tools: workerTools(config), workers: workerPolicyFrom(config) };
   return resolved.restrictedInteractiveCmd?.(opts) ?? resolved.interactiveCmd(opts);
 }
 
@@ -99,7 +109,7 @@ async function deliverModelPin(key: string, model: string): Promise<string | nul
   for (const wait of backoffMs) {
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     try {
-      await writeRpc("set-model", { target: key, model });
+      await callDaemon("set-model", { target: key, model });
       return null;
     } catch (error: unknown) {
       reason = errorMessage(error);
@@ -108,16 +118,21 @@ async function deliverModelPin(key: string, model: string): Promise<string | nul
   return reason;
 }
 
-export async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<void> {
+/** Pin every agent to the launch model and return the refusals as warning text.
+ *  A pin is the last step of a launch whose panes already exist and are registered:
+ *  its failure is a warning the caller reads, never an exit code that tells an
+ *  automated caller to retry a spawn that already created panes. */
+export async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<string[]> {
   const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
     pane,
     name,
     failure: await deliverModelPin(key, model),
   })));
-  for (const result of results) {
-    if (result.failure) process.stderr.write(`warning: could not pin ${result.name} (${result.pane}) to ${model}: ${result.failure}\n`);
-  }
-  if (results.some((result) => result.failure)) process.exitCode = 1;
+  const warnings = results
+    .filter((result) => result.failure)
+    .map((result) => `could not pin ${result.name} (${result.pane}) to ${model}: ${result.failure}`);
+  for (const warning of warnings) process.stderr.write(`warning: ${warning}\n`);
+  return warnings;
 }
 
 export interface AgentFlags {
@@ -130,6 +145,8 @@ export interface AgentSettings {
   adapter: AdapterId;
   backend: BackendId;
   model: string;
+  /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
+  preferredModels: readonly string[];
 }
 
 /** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
@@ -179,7 +196,12 @@ export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orch
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  return { adapter, backend: backend.id, model: launchModel(flags, config, harness) };
+  return {
+    adapter,
+    backend: backend.id,
+    model: launchModel(flags, config, harness),
+    preferredModels: config.models.preferred[adapter] ?? [],
+  };
 }
 
 type SpawnFlags = AgentFlags & {
@@ -264,7 +286,9 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
   const workers = workerPolicyFrom(config);
-  const cmd = flags.commandFlag ? flags.cmd : adapterCommand(settings.adapter, config);
+  const cmd = flags.commandFlag
+    ? flags.cmd
+    : adapterCommand(settings.adapter, config, { model: settings.model, preferredModels: settings.preferredModels });
   // --tab names the tab; --name names the agents. Each defaults to the other so
   // one flag still produces a sensibly-labeled tab, but they are never conflated.
   const tabLabel = flags.tabLabel ?? flags.namePrefix ?? flags.label;
@@ -329,11 +353,14 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
       const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
       // orchd launches a real harness process inside this call, so it gets the adapter-command
       // budget, not the 5s default meant for a question orchd answers from memory.
-      await writeRpc("spawn-detached", {
+      await callDaemon("spawn-detached", {
         key,
         adapter: settings.adapter,
         cwd,
         model: settings.model,
+        // A JSON array over the wire, never a joined string: the harness's own quicklist
+        // syntax is the adapter's to write, at the far end of the launch.
+        preferredModels: [...settings.preferredModels],
         prompt: workerPrompt(settings.prompt, false, adapter, config.locked_commands),
         tools: settings.tools,
         workers: settings.workers,
@@ -352,14 +379,24 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
       });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
-      die(`headless spawn failed for ${name}: ${errorMessage(error)}`);
+      // Stop asking for more, but report the agents already launched: a caller told
+      // only "failed" retries the whole spawn and ends up with a duplicate fleet.
+      process.stderr.write(`${settings.backend} spawn failed for ${name}: ${errorMessage(error)}\n`);
+      break;
     }
   }
   // Same gate the pane path uses: an inbox adapter is only reachable once it has
   // written its presence dir, so returning before that hands the caller a key it
   // cannot dispatch to yet.
-  if (adapter.caps.steer === "inbox") await awaitBridgeRegistration(created, settings.json);
-  if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, agents: created }) + "\n");
+  reportShortfall(settings.n, created.length);
+  const stalled = adapter.caps.steer === "inbox" ? await awaitBridgeRegistration(created, settings.json) : [];
+  if (settings.json) process.stdout.write(JSON.stringify({
+    backend: settings.backend,
+    agents: created,
+    requested: settings.n,
+    created: created.length,
+    registered: created.length - stalled.length,
+  }) + "\n");
   else {
     process.stdout.write(`\nSpawned ${created.length} detached agent(s) (no panes).\n`);
     process.stdout.write("'orch status' shows the fleet.\n");
@@ -391,7 +428,7 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   // handle is recorded as a field, never re-minted into a second key.
   assertNameFree(rootName, workspace);
   const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
-  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
+  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
   backend.close(shellRoot);
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
@@ -405,6 +442,8 @@ export interface TabSpawnSpec {
   workspace: string;
   group: string;
   model: string;
+  /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
+  preferredModels: readonly string[];
   /** Where the pane lands in the group, from the tiling planner. */
   placement?: TilePlacement;
   tools?: string;
@@ -434,6 +473,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     targetPane: spec.placement?.targetPane,
     orchDir: orchDir(),
     model: spec.model,
+    preferredModels: spec.preferredModels,
     tools: spec.tools,
     workers: spec.workers,
     cmd: spec.cmd,
@@ -466,6 +506,7 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     group,
     placement,
     model: settings.model,
+    preferredModels: settings.preferredModels,
     tools: settings.tools,
     workers: settings.workers,
     cmd: settings.commandFlag ? settings.cmd : undefined,
@@ -510,9 +551,17 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
     printLayout(backend, group, "\nFinal tiling:");
   }
   reportShortfall(settings.n, created.length);
-  await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
-  await pinModels(created, settings.model);
-  if (settings.json) process.stdout.write(JSON.stringify({ backend: settings.backend, tab: tabLabel, agents: created }) + "\n");
+  const registered = await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
+  const warnings = await pinModels(created, settings.model);
+  if (settings.json) process.stdout.write(JSON.stringify({
+    backend: settings.backend,
+    tab: tabLabel,
+    agents: created,
+    requested: settings.n,
+    created: created.length,
+    registered,
+    warnings,
+  }) + "\n");
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }
 
@@ -545,7 +594,7 @@ export async function cmdSpawn(args: string[]) {
 export async function cmdTile(args: string[]) {
   const flags = parseSpawnFlags(args);
   const config = loadConfig(orchDir());
-  const { adapter, model } = resolveAgentSettings(flags, config);
+  const { adapter, model, preferredModels } = resolveAgentSettings(flags, config);
   const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: config.defaults.backend ?? null });
   if (!selectedBackend.panes) die(`orch tile requires a pane-capable backend; ${selectedBackend.id} has no panes to tile.`);
   const selectedAdapter = resolveAdapterOrDie(adapter);
@@ -578,6 +627,7 @@ export async function cmdTile(args: string[]) {
       tools: workerTools(config),
       workers: workerPolicyFrom(config),
       model,
+      preferredModels,
     });
   } catch (e: unknown) {
     die(`tile failed: ${errorMessage(e)}`);

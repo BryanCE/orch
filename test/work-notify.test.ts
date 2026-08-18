@@ -32,7 +32,7 @@ afterEach(() => {
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 }, 20_000);
 
-describe("orch work notifications", () => {
+describe("orch presence notifications", () => {
   test("delivers a presence transition through a configured command sink", async () => {
     const orchDir = mkdtempSync(join(tmpdir(), "orch-work-notify-"));
     tempDirs.push(orchDir);
@@ -49,13 +49,18 @@ describe("orch work notifications", () => {
     });
 
     try {
-      const { runWorkLoop } = await import("../src/daemon/work-loop.ts");
+      // The presence watch is orch's ONE presence-transition source; the work loop
+      // publishes task events only, which is why this exercises the watch.
+      const { emitAndNotify, startPresenceWatch } = await import("../src/daemon/events.ts");
       const { loadSinks } = await import("../src/notify/router.ts");
       expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command, timeoutMs: 3_000 }]);
-      const controller = new AbortController();
-      const loop = runWorkLoop({ orchDir, pollIntervalMs: 20, continuous: true, signal: controller.signal });
+      const watch = startPresenceWatch({
+        orchDir,
+        pollIntervalMs: 20,
+        onEvent: (event) => emitAndNotify(() => { /* no rpc server in this test */ }, loadSinks(orchDir), event),
+      });
       try {
-        // runWorkLoop seeds the initial idle state before its first delay.
+        // startPresenceWatch seeds the initial idle state during its first scan.
         seedStatusInDir(agentsDir, { state: "working", label: "Test agent", pid: process.pid });
         const payload: Record<string, unknown> = await waitForFile(output);
         expect(payload).toMatchObject({
@@ -64,8 +69,7 @@ describe("orch work notifications", () => {
           newState: "working",
         });
       } finally {
-        controller.abort();
-        await loop;
+        watch.stop();
       }
     } finally {
       removeTempDir(agentsDir);

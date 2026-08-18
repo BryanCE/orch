@@ -1,11 +1,14 @@
 import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./presence/store.ts";
-import { serializeIdentity } from "./backends/identity.ts";
+import { serializeIdentity, tryParseIdentity } from "./backends/identity.ts";
 import { checkWall, sameWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
+import { abstractAgentLabel } from "./notify/format.ts";
+import type { Recipient } from "./recipient.ts";
 
 export { workspaceOf } from "./policy/workspace.ts";
+export { recipientLabel, type Recipient } from "./recipient.ts";
 
 export interface Entity {
   key: string;
@@ -49,6 +52,21 @@ export function parseTarget(target: string, hosts?: Record<string, HostConfig>):
 
 export function formatTarget(ref: TargetRef): string {
   return ref.host ? `${ref.host}/${ref.target}` : ref.target;
+}
+
+/** Resolve an identity key to the agent an operator knows, enriched with the routing
+ *  facts only orch's spawn registry holds. */
+export function recipientFor(key: string, spawned = spawnedRecords()): Recipient {
+  const record = spawned.get(key);
+  const status = loadPresence().get(key)?.status;
+  const identity = tryParseIdentity(key);
+  const workspace = record?.workspace ?? identity?.workspace ?? workspaceOf(key) ?? "workspace";
+  return {
+    name: record?.name ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key),
+    harness: record?.adapter ?? status?.agent ?? null,
+    multiplexer: record?.backend ?? identity?.backend ?? null,
+    transportId: record?.handle ?? key,
+  };
 }
 
 export function collapse(value: string): string {

@@ -15,6 +15,10 @@ export interface NotifyEvent {
   model: string | null;
   oldState: string;
   newState: string;
+  /** This agent's transition ordinal, stamped once as the event is published.
+   *  `(key, seq)` is the event's identity: a consumer that has already acted on
+   *  a seq can drop a redelivery instead of collecting the same result twice. */
+  seq?: number;
   task?: string;
   cost?: number;
   ts: string;
@@ -84,6 +88,8 @@ interface NotificationPayload {
   model: string | null;
   oldState: string;
   newState: string;
+  /** Transition ordinal for this agent; `(key, seq)` identifies the event. */
+  seq: number | null;
   task: string | null;
   cost: number | null;
   ts: string;
@@ -106,6 +112,7 @@ function notificationPayload(event: NotifyEvent): NotificationPayload {
     model: event.model,
     oldState: event.oldState,
     newState: event.newState,
+    seq: event.seq ?? null,
     task: event.task ?? null,
     cost: event.cost ?? null,
     ts: event.ts,

@@ -50,6 +50,15 @@ function nearestOffered(offered: readonly HarnessModel[], bare: string): string[
   return (near.length ? near : offered).slice(0, 5).map((model) => model.spec);
 }
 
+/** What to paste instead of the spec that was refused: one concrete `--model`
+ *  argument, the thinking levels orch's ladder accepts after it, and the command
+ *  that lists the rest. A refusal that only names what is wrong costs a round trip. */
+function correctedSpecHint(harness: AdapterId, candidates: readonly string[]): string {
+  const best = candidates[0];
+  if (!best) return `run: orch models --agent=${harness}`;
+  return `try: --model ${best}[:${THINKING_LEVELS.join("|")}] — full list: orch models --agent=${harness}`;
+}
+
 /**
  * Reject a model the harness does not list.
  *
@@ -71,7 +80,8 @@ export function assertModelListed(harness: AdapterId, offered: readonly HarnessM
   if (!offered.length) return;
   const { bare } = splitThinkingSuffix(model);
   if (offered.some((candidate) => candidate.spec === bare)) return;
-  throw new Error(`${harness} does not list model ${bare}; it offers ${nearestOffered(offered, bare).join(", ")}`);
+  const near = nearestOffered(offered, bare);
+  throw new Error(`${harness} does not list model ${bare}; it offers ${near.join(", ")}. ${correctedSpecHint(harness, near)}`);
 }
 
 /** Reject a model the harness does not offer or the settings allowlist refuses. */
@@ -79,5 +89,8 @@ export function assertModelAllowed(orchDir: string, adapter: AgentAdapter, model
   assertModelOffered(adapter, model);
   const { bare } = splitThinkingSuffix(model);
   if (isAllowedModel(orchDir, adapter.id, bare)) return;
-  throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(orchDir, adapter.id).join(", ")})`);
+  const permitted = (adapter.listModels?.() ?? [])
+    .map((candidate) => candidate.spec)
+    .filter((spec) => isAllowedModel(orchDir, adapter.id, spec));
+  throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(orchDir, adapter.id).join(", ")}); ${correctedSpecHint(adapter.id, permitted)}`);
 }

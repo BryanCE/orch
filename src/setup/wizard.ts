@@ -90,6 +90,45 @@ export async function selectDefaultModel(
   return suggested !== undefined && suggestedBare === chosen ? suggested : chosen;
 }
 
+/** One option row of a catalogue multiselect. */
+interface CatalogueOption {
+  value: string;
+  label: string;
+  hint?: string;
+  checked: boolean;
+}
+
+export type CataloguePicker = (
+  mode: "multiselect" | "autocomplete",
+  message: string,
+  options: readonly CatalogueOption[],
+  maxItems: number,
+) => Promise<string[] | null>;
+
+const defaultCataloguePicker: CataloguePicker = (mode, message, options, maxItems) =>
+  mode === "autocomplete"
+    ? promptAutocompleteMultiselect(message, [...options], maxItems)
+    : promptMultiselect(message, options.map((option) => ({ ...option, hint: option.hint ?? "" })));
+
+/** One multi-select over a harness's catalogue, pre-checking what is already recorded. Large
+ *  catalogues get the searchable bounded view; clearing the query browses them all. Null on cancel. */
+function pickFromCatalogue(
+  message: string,
+  offered: readonly HarnessModel[],
+  already: readonly string[],
+  pick: CataloguePicker,
+): Promise<string[] | null> {
+  const checked = new Set(already);
+  const options = offered.map((model) => ({
+    value: model.spec,
+    label: model.spec,
+    ...(model.label ? { hint: model.label } : {}),
+    checked: checked.has(model.spec),
+  }));
+  const searchable = offered.length > MODEL_PICKER_MAX_ITEMS;
+  return pick(searchable ? "autocomplete" : "multiselect", message, options, MODEL_PICKER_MAX_ITEMS);
+}
+
 /** Multi-select which of a harness's models its spawns may launch. Empty means every model
  *  that harness offers stays allowed — orch ships no built-in restriction. A harness that
  *  enumerates nothing has nothing to choose from, so it is skipped. Null on cancel. */
@@ -97,20 +136,27 @@ export function selectAllowedModels(
   harnessId: string,
   offered: readonly HarnessModel[],
   already: readonly string[],
+  pick: CataloguePicker = defaultCataloguePicker,
 ): Promise<string[] | null> {
-  const checked = new Set(already);
   const message = offered.length > MODEL_PICKER_MAX_ITEMS
     ? `Models ${harnessId} spawns may use (${offered.length} available; type to search or browse, none = allow all)`
     : `Models ${harnessId} spawns may use (space to toggle, none = allow all)`;
-  const options = offered.map((model) => ({
-    value: model.spec,
-    label: model.spec,
-    ...(model.label ? { hint: model.label } : {}),
-    checked: checked.has(model.spec),
-  }));
-  return offered.length > MODEL_PICKER_MAX_ITEMS
-    ? promptAutocompleteMultiselect(message, options, MODEL_PICKER_MAX_ITEMS)
-    : promptMultiselect(message, options.map((option) => ({ ...option, hint: option.hint ?? "" })));
+  return pickFromCatalogue(message, offered, already, pick);
+}
+
+/** Multi-select the quicklist a harness offers in its OWN model picker/cycle. This is
+ *  convenience, never permission: every model the harness offers stays launchable whether or
+ *  not it is picked here. Empty means the harness gets no quicklist. Null on cancel. */
+export function selectPreferredModels(
+  harnessId: string,
+  offered: readonly HarnessModel[],
+  already: readonly string[],
+  pick: CataloguePicker = defaultCataloguePicker,
+): Promise<string[] | null> {
+  const message = offered.length > MODEL_PICKER_MAX_ITEMS
+    ? `Models to put in ${harnessId}'s own model picker/cycle (${offered.length} available; type to search or browse, none = no quicklist)`
+    : `Models to put in ${harnessId}'s own model picker/cycle (space to toggle, none = no quicklist)`;
+  return pickFromCatalogue(message, offered, already, pick);
 }
 
 /** Multi-select which missing prerequisites to install; null when the user cancels, [] when none are missing. */

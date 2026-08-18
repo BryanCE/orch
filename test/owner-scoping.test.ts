@@ -90,6 +90,7 @@ describe("fleet ownership scoping", () => {
       workspace: "local",
       group: "tab-1",
       model: "openai/gpt-5.6",
+      preferredModels: [],
     });
 
     expect(spawnedRecords().get(agent.key)?.owner).toBe("orch-owner");

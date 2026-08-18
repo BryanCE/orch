@@ -73,27 +73,30 @@ function starvedDaemonRefusal(directory: string, lockPid: number | undefined): s
  *  Announced: a daemon killed in silence is indistinguishable from one that crashed. */
 async function terminateWedgedDaemon(directory: string, lockPid: number, graceMs: number): Promise<void> {
   const wedged = provenDaemonPid(directory);
-  if (wedged === undefined) die(unprovenLockRefusal(directory, lockPid));
+  if (wedged === undefined) throw new Error(unprovenLockRefusal(directory, lockPid));
   process.stderr.write(`orchd pid ${wedged} holds the lock but did not answer; stopping it\n`);
   await terminateDaemon(wedged, graceMs);
 }
 
+/** Reach orchd, starting one when nothing holds its lock. THROWS when it cannot be
+ *  reached: whether an unreachable daemon ends the command is the caller's ruling, and
+ *  exiting from in here is what killed a spawn that had already placed its panes. */
 export async function ensureDaemon(directory: string): Promise<void> {
   const probe = await probeDaemon(directory);
   if (probe === "answered") return;
   const lockPid = daemonLockPid(directory);
-  if (probe === "unreachable") die(starvedDaemonRefusal(directory, lockPid));
+  if (probe === "unreachable") throw new Error(starvedDaemonRefusal(directory, lockPid));
   if (lockPid !== undefined && pidAlive(lockPid)) {
     // Lock taken but nothing listening: it may still be binding its socket.
     const graced = await awaitDaemonProbe(directory, Date.now() + BIND_GRACE_MS);
     if (graced === "answered") return;
-    if (graced === "unreachable") die(starvedDaemonRefusal(directory, lockPid));
+    if (graced === "unreachable") throw new Error(starvedDaemonRefusal(directory, lockPid));
     await terminateWedgedDaemon(directory, lockPid, 3000);
   }
   daemonize(daemonEntrypoint(), [], directory);
   const started = await awaitDaemonProbe(directory, Date.now() + START_GRACE_MS);
   if (started === "answered") return;
-  if (started === "unreachable") die(starvedDaemonRefusal(directory, daemonLockPid(directory)));
+  if (started === "unreachable") throw new Error(starvedDaemonRefusal(directory, daemonLockPid(directory)));
   throw new DaemonAbsentError(directory);
 }
 
@@ -114,7 +117,10 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
   return { gov, rest };
 }
 
-export async function writeRpc(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
+/** One write to orchd, stamped with the caller's actor and governance. Throws the
+ *  refusal text a human should read; the caller owns what an unreachable daemon costs.
+ *  Use {@link writeRpc} when that cost is the whole command. */
+export async function callDaemon(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
   const directory = orchDir();
   const actor = selfActor();
   const enriched: Record<string, unknown> = { ...params };
@@ -125,9 +131,18 @@ export async function writeRpc(method: string, params: Record<string, unknown>, 
     await ensureDaemon(directory);
     return await rpcCall(directory, method, enriched, timeoutMs);
   } catch (error: unknown) {
-    if (error instanceof DaemonAbsentError) die(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
-    if (error instanceof DaemonUnreachableError) die(starvedDaemonRefusal(directory, daemonLockPid(directory)));
+    if (error instanceof DaemonAbsentError) throw new Error(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
+    if (error instanceof DaemonUnreachableError) throw new Error(starvedDaemonRefusal(directory, daemonLockPid(directory)));
     throw error;
+  }
+}
+
+/** The daemon write whose failure ends the command. */
+export async function writeRpc(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
+  try {
+    return await callDaemon(method, params, gov, timeoutMs);
+  } catch (error: unknown) {
+    die(errorMessage(error));
   }
 }
 

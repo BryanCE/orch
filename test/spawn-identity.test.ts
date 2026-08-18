@@ -55,6 +55,7 @@ describe("one key per pane spawn (12.1)", () => {
       workspace: "wsA",
       group: "tab1",
       model: "openai/gpt-5.6",
+      preferredModels: [],
     });
 
     // The key passed via ORCH_AGENT_KEY IS the identity key returned to the caller.
@@ -89,6 +90,7 @@ describe("one key per pane spawn (12.1)", () => {
       workspace: "wsC",
       group: "tab1",
       model: "openai/gpt-5.6",
+      preferredModels: [],
     });
 
     // No presence is ever stamped, so the first agent is not alive: its name is
@@ -113,6 +115,7 @@ describe("one key per pane spawn (12.1)", () => {
       workspace: "wsB",
       group: "tab1",
       model: "openai/gpt-5.6",
+      preferredModels: [],
     });
 
     // The agent's bridge stamps its presence under the same key, carrying the

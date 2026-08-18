@@ -1,5 +1,5 @@
 import * as files from "node:fs";
-import { loadConfig, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, type OrchConfig } from "../config.ts";
+import { loadConfig, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsPreferredModels, type OrchConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup.ts";
@@ -32,6 +32,11 @@ function formatValue(value: unknown): string {
   return JSON.stringify(value) ?? "(none)";
 }
 
+/** One harness's model list as a settings row: its count and specs, or what empty means for it. */
+function modelListRow(label: string, harness: string, models: readonly string[], empty: string): string {
+  return `  ${`${label} (${harness})`.padEnd(20)}${models.length ? `${models.length}: ${models.join(", ")}` : empty}\n`;
+}
+
 function switchDefault(key: "adapter" | "backend", value: string): void {
   try {
     if (key === "adapter") writeSettingsDefault(orchDir(), key, validateSetupFlag(key, value, ADAPTER_IDS));
@@ -45,7 +50,8 @@ function switchDefault(key: "adapter" | "backend", value: string): void {
 /**
  * Re-run the per-harness model pickers against the installed set and record the result.
  * Every harness names models in its own vocabulary, so this walks them one at a time —
- * a default it launches on, then the subset it is allowed to launch at all.
+ * a default it launches on, the quicklist its own picker shows, and the subset it is
+ * allowed to launch at all.
  */
 export async function cmdSettingsModels(args: string[]): Promise<void> {
   let config: OrchConfig;
@@ -61,7 +67,10 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
 
   const chosen = await resolveHarnessModels(readAssignFlag(args, "--model"), targets, process.stdout.isTTY === true);
   if (chosen === null) return;
+  // Only the targeted harnesses were prompted, so each map merges over what is already
+  // recorded; a harness this run never asked about keeps every list it had.
   writeSettingsModels(orchDir(), { ...config.defaults.models, ...chosen.defaults });
+  writeSettingsPreferredModels(orchDir(), { ...config.models.preferred, ...chosen.preferred });
   writeSettingsAllowedModels(orchDir(), { ...config.models.allowed, ...chosen.allowed });
   for (const id of targets) {
     const recorded = chosen.defaults[id];
@@ -69,8 +78,13 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
       process.stdout.write(`  ${id}: unchanged - ${id} listed no models; ${signedOutFix(id)}\n`);
       continue;
     }
+    const preferred = chosen.preferred[id] ?? [];
     const allowed = chosen.allowed[id] ?? [];
-    process.stdout.write(`  ${id}: default ${recorded}${allowed.length ? `, restricted to ${allowed.length}` : ", all offered allowed"}\n`);
+    process.stdout.write(
+      `  ${id}: default ${recorded}`
+      + `, picker ${preferred.length ? preferred.join(", ") : "(none)"}`
+      + `, allowed ${allowed.length ? allowed.join(", ") : "(all offered)"}\n`,
+    );
   }
 }
 
@@ -136,8 +150,10 @@ export function cmdSettings(args: string[]): void {
   process.stdout.write(`  installed.adapters  ${config.installed.adapters.join(", ") || "(none)"}\n`);
   process.stdout.write(`  installed.backends  ${config.installed.backends.join(", ") || "(none)"}\n`);
   for (const harness of config.installed.adapters) {
-    const allowed = config.models.allowed[harness] ?? [];
-    process.stdout.write(`  allowed (${harness})${" ".repeat(Math.max(0, 9 - harness.length))} ${allowed.length ? `${allowed.length}: ${allowed.join(", ")}` : "(all offered)"}\n`);
+    // Two lists, never conflated: the quicklist that harness's own picker shows, then the
+    // gate its spawns are held to. A model missing from the first is still launchable.
+    process.stdout.write(modelListRow("picker", harness, config.models.preferred[harness] ?? [], "(none)"));
+    process.stdout.write(modelListRow("allowed", harness, config.models.allowed[harness] ?? [], "(all offered)"));
   }
   process.stdout.write(`  hosts               ${Object.keys(config.hosts).length}\n`);
   process.stdout.write(`  workspaces          ${Object.keys(config.workspaces).length}\n`);

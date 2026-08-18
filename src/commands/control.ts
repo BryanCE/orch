@@ -1,6 +1,6 @@
 import * as files from "node:fs";
 import * as path from "node:path";
-import { collapse, resolvePane, resolveTarget, type Entity } from "../entities.ts";
+import { collapse, recipientFor, recipientLabel, resolvePane, resolveTarget, type Entity } from "../entities.ts";
 import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import { isRecord, truncate } from "../util.ts";
@@ -52,13 +52,15 @@ export async function cmdSteer(args: string[]): Promise<void> {
     // The daemon's control dispatcher applies the effect; the CLI never steers directly.
     const key = entity.presence.key;
     const result = await writeRpc("steer", { target: key, text }, gov);
-    if (json) process.stdout.write(JSON.stringify({ target: key, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-    else process.stdout.write(`Steered ${key} -> ${truncate(collapse(text), 60)}\n`);
+    const recipient = recipientFor(key);
+    if (json) process.stdout.write(JSON.stringify({ target: key, recipient, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
+    else process.stdout.write(`Steered ${recipientLabel(recipient)} -> ${truncate(collapse(text), 60)}\n`);
     return;
   }
   const result = await writeRpc("steer", { target: entity.key, text }, gov);
-  if (json) process.stdout.write(JSON.stringify({ target: entity.paneId, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Steered ${entity.paneId} -> ${truncate(collapse(text), 60)}\n`);
+  const recipient = recipientFor(entity.key);
+  if (json) process.stdout.write(JSON.stringify({ target: entity.paneId, recipient, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  else process.stdout.write(`Steered ${recipientLabel(recipient)} -> ${truncate(collapse(text), 60)}\n`);
 }
 
 export async function cmdBroadcast(args: string[]) {
@@ -130,8 +132,9 @@ export async function cmdAnswer(args: string[]): Promise<void> {
   // The daemon's control dispatcher applies the answer (wall + ownership + caps.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
   const result = await writeRpc("answer", { target: ent.presence.key, text }, gov);
-  if (json) process.stdout.write(JSON.stringify({ target: ent.presence.key, answered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Answered ${ent.presence.key}.\n`);
+  const recipient = recipientFor(ent.presence.key);
+  if (json) process.stdout.write(JSON.stringify({ target: ent.presence.key, recipient, answered: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  else process.stdout.write(`Answered ${recipientLabel(recipient)}.\n`);
 }
 
 export async function cmdModel(args: string[]): Promise<void> {
@@ -142,9 +145,11 @@ export async function cmdModel(args: string[]): Promise<void> {
   if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
   const result = await setAgentModel(ent.key, modelArg, gov);
-  if (json) process.stdout.write(JSON.stringify({ target: pane, requested: modelArg, ...result }) + "\n");
-  else if (result.unchanged) process.stdout.write(`${pane}: already ${modelArg} (no-op)\n`);
-  else process.stdout.write(`${pane}: ${result.old ?? "(unknown)"} -> ${result.now} (accepted)\n`);
+  const recipient = recipientFor(ent.key);
+  const label = recipientLabel(recipient);
+  if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, requested: modelArg, ...result }) + "\n");
+  else if (result.unchanged) process.stdout.write(`${label}: already ${modelArg} (no-op)\n`);
+  else process.stdout.write(`${label}: ${result.old ?? "(unknown)"} -> ${result.now} (accepted)\n`);
 }
 
 /** Retarget an agent's model. Throws with the agent's own reason when it refuses —
@@ -186,8 +191,9 @@ export async function cmdDispatch(args: string[]) {
   // A spawned agent is already registered under its key; only an unrecorded
   // bare pane needs a row, and it must carry the same key we just dispatched to.
   if (!spawnedRecords().has(key)) recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined });
-  if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Dispatched to ${settings.pane}.\n`);
+  const recipient = recipientFor(key);
+  if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
 }
 
 export function parseDispatchFlags(args: string[]): DispatchFlags {

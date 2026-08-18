@@ -234,7 +234,11 @@ export interface StatusRow {
   focused: boolean;
   model: string;
   modelShort: string;
+  /** What the AGENT reports about itself through its presence record — the only
+   *  field that answers "is the work finished". It moves ahead of `backendStatus`
+   *  by design: an agent is done the moment it says so, whatever its pane shows. */
   state: string;
+  /** True when no live bridge answered and `state` came from the backend or session. */
   stateFallback: boolean;
   staleExtension?: boolean;
   exited: boolean;
@@ -244,6 +248,8 @@ export interface StatusRow {
   ctxPercent: number | null;
   task: string | null;
   lastText: string | null;
+  /** What the MULTIPLEXER reports about the pane the agent runs in. It lags `state`
+   *  and is a routing/diagnostic fact, never a completion signal — read `state`. */
   backendStatus: string | null;
   sessionPath: string | null;
   presenceDir: string | null;

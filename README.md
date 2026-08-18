@@ -126,12 +126,18 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) �
 ```json
 {
   "schemaVersion": 1,
+  "runtime": "node",
+  "installed": { "adapters": ["pi", "claude"], "backends": ["herdr", "headless"] },
   "defaults": {
     "adapter": "pi",
     "backend": "herdr",
-    "model": "provider/model:thinking",
-    "spawn_cap": 8,
+    "models": { "pi": "provider/model:thinking", "claude": "sonnet" },
     "worktree": false
+  },
+  "fleet": { "spawn_cap": 8 },
+  "models": {
+    "preferred": { "pi": ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"] },
+    "allowed": { "pi": ["anthropic/*"] }
   },
   "notify": [
     { "id": "desktop", "on": ["blocked", "error"] },
@@ -143,7 +149,31 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) �
 }
 ```
 
-`defaults` supports `adapter`, `backend`, `model`, `allowed_models`, `spawn_cap`, `worktree`, and `worker_peer_tools`. Each `notify` entry selects a notifier with `id`. `hosts` entries define remote SSH destinations with `dest`, optional `orch_dir`, and `timeout_ms`.
+`defaults` supports `adapter`, `backend`, `models` (one per harness), and `worktree`; `fleet` supports `spawn_cap`, `max_agents`, `workspace_caps`, `worker_peer_tools`, and `cross_workspace`. Each `notify` entry selects a notifier with `id`. `hosts` entries define remote SSH destinations with `dest`, optional `orch_dir`, and `timeout_ms`.
+
+### Models: three independent settings per harness
+
+Every harness names models in its own vocabulary, so each of these is recorded per harness — and none of them substitutes for another:
+
+| Setting | What it does | Empty means |
+| --- | --- | --- |
+| `defaults.models.<harness>` | The model a new agent launches on. | nothing recorded; `orch spawn` refuses until `--model` or `orch settings models` supplies one |
+| `models.preferred.<harness>` | The quicklist passed to that harness's OWN model cycle/picker (pi and omp: `--models`). | no quicklist is passed |
+| `models.allowed.<harness>` | The launch gate: a spawn is refused unless its model matches one of these glob patterns. | every model the harness offers is allowed |
+
+A model outside `models.preferred` is still launchable — the quicklist is convenience, never permission. Restricting what may launch is `models.allowed` and nothing else.
+
+`orch setup` and `orch settings models [--harness=<id>]` ask for all three, one harness at a time. To see what a harness can actually run:
+
+```sh
+orch models                          # every installed harness's full catalogue
+orch models --agent=pi --search=son  # narrow by spec or label
+orch models --agent=pi --preferred   # only the picker quicklist
+orch models --agent=pi --pick=3      # print one full spec, for scripting
+orch models --json                   # { harnesses: [{ id, default, preferred, models }] }
+```
+
+`orch models` lists the whole catalogue whichever lists are configured — neither `preferred` nor `allowed` hides a row — and it records nothing.
 
 ## Files and data layout
 

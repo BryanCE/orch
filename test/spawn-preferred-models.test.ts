@@ -47,6 +47,7 @@ const config = (preferred: string[]): OrchConfig => ({
   notify: [],
   hosts: {},
   workspaces: {},
+  tiling: { first_split: "rows" },
 });
 
 /** A pane backend that records the launch options it was handed. */

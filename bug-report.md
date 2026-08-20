@@ -1,162 +1,71 @@
+# orch bug report
 
-## 2026-08-06 — stale empty `orchd.lock` makes `daemon start` lie "started" while the process exits "already running"
+Issues hit while driving the orch CLI from this repo.
 
-- **Sequence:** Prior crash left an EMPTY `~/.orch/orchd.lock`. `orch daemon start` printed `started (pid N)` but the spawned process logged `already running` and exited; `orch daemon status` said `not running`. Loop repeats forever — 8 "already running" lines in orchd.log.
-- **Expected:** Start should validate the lock (empty or dead-pid lock = stale, remove and proceed) and report the real outcome instead of claiming started.
-- **Fix applied:** `rm ~/.orch/orchd.lock orchd.sock orchd.port`, then start → running.
-- **Impact:** High — daemon is unstartable via the CLI until the lock is hand-deleted, and `start`'s output actively misleads.
-- **Root cause:** `canReclaim` (`src/daemon/lifecycle.ts`) bailed on `!record`, so an
-  UNREADABLE lock — the one case with no owner to protect — was the one case orch
-  would never reclaim. A parseable lock naming a dead pid reclaimed fine.
-- **Code fix:**
-  - `canReclaim` now guards on `record && processIdentityMatches(record)`; an unreadable
-    lock is reclaimable, still vetoed by a socket that answers.
-  - `doctor`'s `orchd-lock` check offers a removal fix for an unreadable lock too, so
-    `orch doctor -y` self-heals it instead of reporting an unfixable `fail`.
-  - `orch daemon start` no longer prints `started` when orchd never answered; it dies
-    pointing at `orchd.log`.
-  - `bun run build:cli` runs `scripts/retire-daemon.ts` first: every build stops the
-    daemon whose code it is about to replace and clears its lock/socket/port.
-  - `orchd.lock`/`.sock`/`.port`/`.log` now have one definition site,
-    `src/daemon/runtime-files.ts`.
+## 2026-08-20 — dead daemon reported as a 2000ms timeout, and `spawn` reported success against it
 
-## 2026-08-06 — orchd dies silently ~1s after start, logs nothing
+- **Sequence:** `orch spawn 3 --name recon` created and tiled three panes, registered all three
+  ("ok" for each), then printed three `could not pin ... to openai-codex/gpt-5.6-luna:high` warnings,
+  each saying `orchd pid 81440 did not answer within 2000ms; it was NOT stopped`. Every later
+  command, `orch status`, `orch status --json`, `orch daemon status`, returned only that same
+  timeout line. `orchd.log` showed `2026-08-19T20:42:19.678Z orchd shutting down on SIGTERM` and
+  nothing after it. The daemon had been dead for hours; nothing was slow.
+- **Expected:**
+  1. `daemon status` must distinguish "dead" from "busy". The pid is not running, so this is
+     knowable without waiting 2000ms. The message actively argues the opposite ("a timeout is no
+     proof it died"), which sends the operator to `orchd.log` to discover what `status` should
+     have said.
+  2. `spawn` must not report a successful fleet when it could not reach the daemon. It printed
+     the tiling, "Spawned 3 named agent(s)", and per-pane `ok` registration lines, so the fleet
+     looked healthy while its control plane was absent.
+  3. `status --json` returned non-JSON on this path, so a JSON consumer crashes on a parse error
+     instead of reading an error object. Error output on `--json` should still be JSON.
+- **Impact:** High. The operator spawns a fleet, sees success, dispatches into it, and gets
+  nothing back. Diagnosis requires reading `orchd.log` by hand because every CLI surface reports
+  the same misleading timeout.
+- **Suggested fix:** In the RPC client, when the connect/answer deadline expires, probe the
+  recorded pid before composing the message. Dead pid gives "orchd pid N is not running (last log
+  line: ...)" plus the reclaim path. Live pid keeps the current timeout wording. Make `spawn`
+  fail loudly, or at minimum print a "control plane unreachable, panes are unmanaged" banner,
+  when any post-create daemon call times out.
 
-- **Sequence:** After the stale-lock cleanup, `orch daemon start` → `started (pid 356916)`; `orch daemon status` 1s later → `running (pid 356916, uptime 1s, hash c4313d4ee948, unix, tcp://127.0.0.1:3716)`. Seconds later the pid is gone, `status` says `not running`, no orchd process exists, nothing listens on 3716, and lock/sock/port files are gone. `orchd.log` contains ONLY repeated `already running` lines — zero crash output, zero startup output from the instance that died.
-- **Also:** `orch daemon start --foreground` does not run in foreground — it returned `started (pid 357452)` immediately, so the flag is ignored or silently unknown. No way to capture the crash on stderr through the CLI.
-- **Expected:** orchd logs its own startup + fatal error to orchd.log; a crash within seconds should leave a traceback. `--foreground` (or an equivalent) should exist for exactly this diagnosis and unknown flags should error.
-- **Impact:** High — daemon cannot stay up on this machine right now and there is no diagnostic path through the CLI. Fleet spawns tile panes but every dispatch path is dead (`orch spawn` ends with "daemon absent", exit 1).
-- **State when stopped:** panes wE:p7D/wE:p7E (payroll-1/-2) are open and registered but launched daemonless; no dispatches sent.
-- **Read of the evidence:** lock/sock/port were all GONE, which only `shutDown()` does —
-  so orchd exited CLEANLY on a signal, it did not crash. The likeliest sender is orch
-  itself: `ensureDaemon` gives a daemon 200ms + 1s to answer, then SIGTERMs it as
-  "wedged". A busy daemon that misses that 1.2s window is killed by the next CLI
-  command, silently. Unproven — the logging below is what will name the killer.
-- **Code fix:**
-  - orchd now logs its own lifecycle to `orchd.log`: `started pid/hash/transport`,
-    `shutting down on SIGTERM|SIGINT`, `stopped pid`, and `exiting: another orchd owns
-    <dir>` in place of the bare `already running`.
-  - orchd installs `uncaughtException` / `unhandledRejection` handlers that log a full
-    traceback before exiting, plus a nonzero-exit-code line.
-  - The CLI announces a kill: `orchd pid N holds the lock but did not answer; stopping
-    it` on stderr, from the one `terminateWedgedDaemon` both `ensureDaemon` and
-    `daemon start` now use.
-  - `--foreground` is accepted alongside `--fg`, and `orch daemon <action>` now REJECTS
-    unknown flags instead of ignoring them.
-  - `--fg` actually stays in the foreground: `runForeground` resolves the child's exit
-    code and `daemon start` awaits it, so orchd's stderr reaches the terminal.
+## 2026-08-20 — `orch result` returns the last line, not the agent's report
 
+Pane `dispersal-2` (`wF:p1E`), state `done`, cost $0.04, 24% context.
 
-
-
-
-
-    ===================================NW FROM OTHER REPO===============
-    # Orch integration feedback
-
-Observed from an OMP parent session dispatching two Pi panes on 2026-08-18.
-
-## 1. Add a real orch-to-parent push bridge
-
-`orch events` already receives daemon transitions, but OMP can only keep that stream in a managed process. Events are not injected into the parent conversation, so the parent still needs `hub wait` or `hub logs` to discover state changes. `orch questions` and `orch result` have the same problem.
-
-Provide one session-scoped subscription, filtered to pane names owned by that parent, which pushes notices for:
-
-- `asking`: include the question and a reply handle
-- `blocked`: include the blocking reason
-- `error`: include the error and recent relevant output
-- `done`: include the final result, not just the state transition
-
-The subscription should deduplicate transitions, survive later dispatches to the same panes, clean itself up with the parent session, and never emit events from panes owned by another session. OMP's native background jobs already auto-inject completion notices; orch should integrate with the same broker mechanism.
-
-A useful interface would be either `orch subscribe <targets...> --sink <omp-session>` or a harness-level `orch_watch` tool. `orch dispatch --notify-parent` could create/reuse that subscription automatically. This removes status polling, a separately managed `orch events` process, `orch questions`, and the final `orch result` call.
-
-## 2. Distinguish dispatch acceptance from agent completion
-
-Running `orch dispatch` through an async OMP command produces a completion notice as soon as orch accepts the prompt. That notice says only `Dispatched to <pane>` and can look like the delegated task completed.
-
-Return a durable dispatch ID and explicit phase, for example `accepted`, while the push bridge later reports `working`, `asking`, and `done`. The `done` event should carry the result for that exact dispatch ID so results cannot be confused after pane reuse.
-
-## 3. Do not return spawn failure after panes were successfully created
-
-This command created and registered both requested panes, then exited with code 1 because a later orchd health check timed out:
+`orch result dispersal-2` printed one line:
 
 ```text
-orch spawn 2 --name snapshot-recon --model openai-codex/gpt-5.6-luna:high
-...
-Spawned 2 named agent(s) on tab "snapshot-recon"
-...
-orchd pid 80144 did not answer within 2000ms
-Command exited with code 1
+Noted. Key distinction: `detectedReassignments` can increment without a `DISPERSED` event...
 ```
 
-That is dangerous for automation: a caller may retry and create duplicate panes even though spawn succeeded. Make spawn atomic from the caller's perspective, or return success with a structured warning once every requested pane is created and registered. JSON output should expose separate fields such as `created`, `registered`, and `daemonHealthWarning`.
+That is the agent's acknowledgement of a `steer`, not the multi-section report it produced. The full answer was only recoverable by finding the raw session JSONL under `~/.pi/agent/sessions/` and pulling assistant text out by hand.
 
-## 4. Make model identifiers discoverable and consistent
+A `steer` mid-task makes the trailing message an acknowledgement, so "last assistant message" is the wrong thing to return. Return the substantive final report, or return every assistant turn since the original dispatch and let the caller pick.
 
-The documented/provider-style model ID was rejected:
+## 2026-08-20 — `orch tail` reports "(no entries)" for a pane that produced output
+
+Same pane, same moment. `orch status` showed `done`, $0.04 spent, 24% context used. `orch tail dispersal-2` printed:
 
 ```text
-openrouter/openai/gpt-5.6-luna is not in models.allowed.pi
+model: openai-codex/gpt-5.6-luna:high   cost: $0.0000   turns: 0
+
+(no entries)
 ```
 
-The accepted model was:
+Cost `$0.0000` and `turns: 0` contradict the `orch status` row for the same agent, so `tail` is reading a different session file than the one the work happened in, probably a newly created empty one. When a pane has several session files, `tail` has to resolve the one tied to the dispatch instead of the newest on disk.
+
+## 2026-08-20 — `orch status --json` shape is undocumented, and getting it wrong fails silently
+
+`orch status --json` emits a top-level array. Writing `.agents[]` against it is a natural first guess and fails with:
 
 ```text
-openai-codex/gpt-5.6-luna:high
+jq: error: Cannot index array with string "agents"
 ```
 
-The error did list allowed base models, which helped, but callers still have to retry and then run `orch status --json` to verify the effective model. Prefer one canonical model vocabulary across docs, settings, and CLI. At minimum, add `orch models --json` and make a rejected spawn emit a paste-ready corrected spec including supported thinking levels.
+That failure is invisible in the case that matters. jq writes the error to stderr while a watcher only consumes stdout, so a poll loop built on the wrong path emits zero events forever, which looks exactly like "nothing has finished yet". Cost here was a monitor that ran six minutes past both agents completing, while I sat waiting on it.
 
-## 5. Collapse the normal integration sequence
+Either fix works:
 
-The current parent workflow is:
-
-1. spawn
-2. status/model verification
-3. dispatch
-4. start and manage `orch events`
-5. separately check questions
-6. consume the transition
-7. fetch the result
-8. close the watcher and panes
-
-A durable `spawn/dispatch + automatic parent subscription` path should reduce that to dispatch and receive pushed result/question notices. Keep the lower-level commands for interactive debugging, but do not require every coding-agent parent to rebuild orchestration plumbing.
-
-## 6. Deduplicate daemon transition events
-
-One `working` → `done` transition for `snapshot-recon-2` was emitted repeatedly by `orch events` for more than 30 seconds. The payload was effectively identical except for timestamps and occasional cost changes; more than twenty `done` events arrived for the same pane and task.
-
-Emit each state transition once. A stable event ID or `(pane, dispatchId, oldState, newState, transitionSequence)` identity would let downstream bridges enforce idempotency as a second line of defense. Repeated terminal events would otherwise spam the proposed parent push bridge and trigger duplicate result collection.
-
-At the same checkpoint, `orch status --json` reported `state: \"done\"` while `backendStatus` was still `\"working\"` for that pane. Terminal state should not be published until the backend is actually terminal, or the fields need explicit names/documentation that make the distinction actionable.
-
-## 7. Display logical agent identities, not backend routing IDs
-
-Human-facing send and steer output currently exposes transport-specific targets such as:
-
-```text
-orch_send
-sent to herdr~wF~v4gh24w0af
-```
-
-That identifier is useful to the multiplexer implementation, not to the operator. The operator knows the agent by its logical name and only needs enough runtime context to distinguish harnesses or multiplexers.
-
-Render a stable logical identity such as:
-
-```text
-sent to pi/herdr: snapshot-recon-1
-```
-
-The exact labels should come from structured runtime metadata rather than parsing or hardcoding Herdr IDs. Use the same presentation for dispatch, send, steer, answer, results, events, and questions.
-
-Keep the interface implementation-neutral:
-
-- primary display fields: logical agent name, harness/adapter, and multiplexer/backend;
-- optional verbose/debug fields: pane ID, workspace ID, transport key, and raw backend address;
-- JSON fields should remain separate, for example `recipient.name`, `recipient.harness`, `recipient.multiplexer`, and `recipient.transportId`;
-- moving a pane, changing workspaces, or replacing the multiplexer must not change the human-facing agent identity;
-- when no explicit name exists, generate a stable logical name instead of falling back to a raw pane or transport ID.
-
-This separation lets orch change pane layouts, workspace IDs, multiplexers, and transport implementations without leaking those details into normal agent-facing output.
-
+- document the array shape and element fields in `orch help status` (`name`, `state`, `key`, `paneId`, `tab`, `model`, `modelShort`, `cost`, `ctxPercent`, `tokens`, `turns`, `task`, `lastText`, `alive`, `exited`, `sessionPath`, `presenceDir`, `workspace`, `owner`);
+- or add `orch status --names <a,b> --states done,error,blocked,asking`, printing one `name<TAB>state` line per match, so a watcher never needs jq at all.

@@ -129,33 +129,19 @@ function pickFromCatalogue(
   return pick(searchable ? "autocomplete" : "multiselect", message, options, MODEL_PICKER_MAX_ITEMS);
 }
 
-/** Multi-select which of a harness's models its spawns may launch. Empty means every model
- *  that harness offers stays allowed — orch ships no built-in restriction. A harness that
- *  enumerates nothing has nothing to choose from, so it is skipped. Null on cancel. */
+/** Multi-select the models a harness may launch, which is also the quicklist its own picker
+ *  cycles. Empty means every model that harness offers stays allowed — orch ships no built-in
+ *  restriction. A harness that enumerates nothing has nothing to choose from, so it is
+ *  skipped. Null on cancel. */
 export function selectAllowedModels(
   harnessId: string,
   offered: readonly HarnessModel[],
   already: readonly string[],
   pick: CataloguePicker = defaultCataloguePicker,
 ): Promise<string[] | null> {
-  const message = offered.length > MODEL_PICKER_MAX_ITEMS
-    ? `Models ${harnessId} spawns may use (${offered.length} available; type to search or browse, none = allow all)`
-    : `Models ${harnessId} spawns may use (space to toggle, none = allow all)`;
-  return pickFromCatalogue(message, offered, already, pick);
-}
-
-/** Multi-select the quicklist a harness offers in its OWN model picker/cycle. This is
- *  convenience, never permission: every model the harness offers stays launchable whether or
- *  not it is picked here. Empty means the harness gets no quicklist. Null on cancel. */
-export function selectPreferredModels(
-  harnessId: string,
-  offered: readonly HarnessModel[],
-  already: readonly string[],
-  pick: CataloguePicker = defaultCataloguePicker,
-): Promise<string[] | null> {
-  const message = offered.length > MODEL_PICKER_MAX_ITEMS
-    ? `Models to put in ${harnessId}'s own model picker/cycle (${offered.length} available; type to search or browse, none = no quicklist)`
-    : `Models to put in ${harnessId}'s own model picker/cycle (space to toggle, none = no quicklist)`;
+  const browse = offered.length > MODEL_PICKER_MAX_ITEMS;
+  const message = `Models ${harnessId} may spawn, and cycle in its own picker `
+    + `(${browse ? `${offered.length} available; type to search or browse` : "space to toggle"}, none = allow all)`;
   return pickFromCatalogue(message, offered, already, pick);
 }
 

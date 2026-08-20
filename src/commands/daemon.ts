@@ -1,4 +1,6 @@
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 import {
+  clearDaemonRuntime,
   daemonEntrypoint,
   daemonize,
   provenDaemonPid,
@@ -68,6 +70,61 @@ function starvedDaemonRefusal(directory: string, lockPid: number | undefined): s
     + `The machine is likely loaded: retry, or read ${daemonRuntimeFiles(directory).log}`;
 }
 
+/** How far back the log is read for the one line that says why orchd went. */
+const LOG_TAIL_BYTES = 4_096;
+
+/** The last line orchd logged, read from the tail so a long log stays cheap. */
+function lastDaemonLogLine(directory: string): string | null {
+  const file = daemonRuntimeFiles(directory).log;
+  try {
+    const size = statSync(file).size;
+    const from = Math.max(0, size - LOG_TAIL_BYTES);
+    const tail = Buffer.alloc(size - from);
+    const handle = openSync(file, "r");
+    try {
+      readSync(handle, tail, 0, tail.length, from);
+    } finally {
+      closeSync(handle);
+    }
+    return tail.toString("utf8").trimEnd().split(/\r?\n/).pop() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** What orch says when nothing answered and no process was alive to answer. The pid
+ *  is knowable without waiting, so a departed daemon must never be reported as a
+ *  timeout: that wording sends the operator to the log to learn what orch already knew. */
+function departedDaemonRefusal(directory: string, lockPid: number | undefined): string {
+  const owner = lockPid === undefined ? "orchd holds no lock and nothing answered" : `orchd pid ${lockPid} is not running`;
+  const lastLine = lastDaemonLogLine(directory);
+  return `${owner}; its endpoint is stale, not busy. ${lastLine ? `Last log line: ${lastLine}. ` : ""}`
+    + `Start a fresh one with 'orch daemon start'; ${daemonRuntimeFiles(directory).log} has the rest.`;
+}
+
+/** The lock's pid, but only while that process is running. A dial that times out
+ *  with none leaves nothing that could have been starved: orchd is gone. */
+function liveDaemonPid(directory: string): number | undefined {
+  const lockPid = daemonLockPid(directory);
+  return lockPid !== undefined && pidAlive(lockPid) ? lockPid : undefined;
+}
+
+/** Why orchd stayed silent past its budget — a live daemon starved, or a departed one. */
+function unreachableRefusal(directory: string): string {
+  const lockPid = daemonLockPid(directory);
+  return lockPid !== undefined && pidAlive(lockPid)
+    ? starvedDaemonRefusal(directory, lockPid)
+    : departedDaemonRefusal(directory, lockPid);
+}
+
+/** orchd's silence as text a human should read, or null when it answers. */
+export async function daemonOutage(directory = orchDir()): Promise<string | null> {
+  const probe = await probeDaemon(directory);
+  if (probe === "answered") return null;
+  if (probe === "unreachable") return unreachableRefusal(directory);
+  return `orchd is not listening (${directory}); run 'orch daemon start'`;
+}
+
 /** Stop a daemon that holds the lock while nothing listens on its endpoints, so a fresh
  *  one can take it. Callers owe a `not-listening` verdict first — never a timeout.
  *  Announced: a daemon killed in silence is indistinguishable from one that crashed. */
@@ -84,20 +141,36 @@ async function terminateWedgedDaemon(directory: string, lockPid: number, graceMs
 export async function ensureDaemon(directory: string): Promise<void> {
   const probe = await probeDaemon(directory);
   if (probe === "answered") return;
-  const lockPid = daemonLockPid(directory);
-  if (probe === "unreachable") throw new Error(starvedDaemonRefusal(directory, lockPid));
-  if (lockPid !== undefined && pidAlive(lockPid)) {
+  const livePid = liveDaemonPid(directory);
+  // A timeout only leaves liveness unknown while some process is alive to be starved.
+  // With none, a stale endpoint file swallowed the dial, and orch owes a fresh daemon
+  // rather than a refusal — refusing is what left every later command timing out at a
+  // daemon that had been dead for hours.
+  if (probe === "unreachable" && livePid !== undefined) throw new Error(starvedDaemonRefusal(directory, livePid));
+  if (livePid !== undefined) {
     // Lock taken but nothing listening: it may still be binding its socket.
     const graced = await awaitDaemonProbe(directory, Date.now() + BIND_GRACE_MS);
     if (graced === "answered") return;
-    if (graced === "unreachable") throw new Error(starvedDaemonRefusal(directory, lockPid));
-    await terminateWedgedDaemon(directory, lockPid, 3000);
+    if (graced === "unreachable") throw new Error(starvedDaemonRefusal(directory, livePid));
+    await terminateWedgedDaemon(directory, livePid, 3000);
+  } else if (probe === "unreachable") {
+    clearDaemonRuntime(directory);
   }
   daemonize(daemonEntrypoint(), [], directory);
   const started = await awaitDaemonProbe(directory, Date.now() + START_GRACE_MS);
   if (started === "answered") return;
-  if (started === "unreachable") throw new Error(starvedDaemonRefusal(directory, daemonLockPid(directory)));
+  if (started === "unreachable") throw new Error(unreachableRefusal(directory));
   throw new DaemonAbsentError(directory);
+}
+
+/** Reach orchd, or warn and carry on. For the commands specified to work with the
+ *  daemon absent, where its silence costs its rows and never the whole command. */
+export async function ensureDaemonOrWarn(directory: string): Promise<void> {
+  try {
+    await ensureDaemon(directory);
+  } catch (error: unknown) {
+    process.stderr.write(`warning: ${errorMessage(error)}\n`);
+  }
 }
 
 export interface WriteGovernance {
@@ -132,7 +205,7 @@ export async function callDaemon(method: string, params: Record<string, unknown>
     return await rpcCall(directory, method, enriched, timeoutMs);
   } catch (error: unknown) {
     if (error instanceof DaemonAbsentError) throw new Error(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
-    if (error instanceof DaemonUnreachableError) throw new Error(starvedDaemonRefusal(directory, daemonLockPid(directory)));
+    if (error instanceof DaemonUnreachableError) throw new Error(unreachableRefusal(directory));
     throw error;
   }
 }
@@ -186,21 +259,22 @@ async function awaitDaemonProbe(directory: string, deadline: number): Promise<Da
 
 async function startDaemon(foreground: boolean, json = false): Promise<void> {
   const directory = orchDir();
-  const lockPid = daemonLockPid(directory);
-  const lockAlive = lockPid !== undefined && pidAlive(lockPid);
+  const livePid = liveDaemonPid(directory);
   // A live lock pid might be a daemon still binding its socket; grace-poll it
   // before judging. No live lock = nothing to wait on.
-  const probe = lockAlive ? await awaitDaemonProbe(directory, Date.now() + BIND_GRACE_MS) : await probeDaemon(directory);
+  const probe = livePid !== undefined ? await awaitDaemonProbe(directory, Date.now() + BIND_GRACE_MS) : await probeDaemon(directory);
   if (probe === "answered") {
     const status = await fetchDaemonStatus();
     if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: false }) + "\n");
     else process.stdout.write(`already running (pid ${status.pid})\n`);
     return;
   }
-  if (probe === "unreachable") die(starvedDaemonRefusal(directory, lockPid));
+  if (probe === "unreachable" && livePid !== undefined) die(starvedDaemonRefusal(directory, livePid));
   // Nothing is listening: a still-alive lock pid is wedged — terminate it so a fresh
-  // instance can take the lock instead of being refused it forever.
-  if (lockPid !== undefined && lockAlive) await terminateWedgedDaemon(directory, lockPid, 3000);
+  // instance can take the lock instead of being refused it forever. With no live pid,
+  // a dial that timed out hit a departed daemon's endpoint files; reap them.
+  if (livePid !== undefined) await terminateWedgedDaemon(directory, livePid, 3000);
+  else if (probe === "unreachable") clearDaemonRuntime(directory);
   const entrypoint = daemonEntrypoint();
   if (foreground) {
     process.exitCode = await runForeground(entrypoint);
@@ -231,21 +305,23 @@ async function stopDaemon(json = false): Promise<void> {
   else process.stdout.write(`stopped (pid ${pid})\n`);
 }
 
+/** Report a daemon that did not answer, in the shape the caller asked for. A `--json`
+ *  caller gets JSON on this path too: a parse error is not a diagnosis. */
+function reportDaemonDown(json: boolean, reason: string): void {
+  process.stdout.write(json ? `${JSON.stringify({ running: false, reason })}\n` : `${reason}\n`);
+  process.exitCode = 1;
+}
+
 async function statusDaemon(json: boolean): Promise<void> {
   try {
     const status = await fetchDaemonStatus();
     if (json) process.stdout.write(`${JSON.stringify(status)}\n`);
     else process.stdout.write(`running (pid ${status.pid}, uptime ${status.uptimeSec}s, hash ${status.codeHash}, ${status.socket}${status.tcpEndpoint ? `, ${status.tcpEndpoint}` : ""})\n`);
   } catch (error) {
-    // Only "nothing is listening" is proof it stopped; a starved probe is not.
-    if (error instanceof DaemonUnreachableError) {
-      process.stdout.write(`${starvedDaemonRefusal(orchDir(), daemonLockPid())}\n`);
-      process.exitCode = 1;
-      return;
-    }
+    // A starved daemon and a departed one both go silent; only its pid tells them apart.
+    if (error instanceof DaemonUnreachableError) return reportDaemonDown(json, unreachableRefusal(orchDir()));
     if (!(error instanceof DaemonAbsentError)) throw error;
-    process.stdout.write("not running\n");
-    process.exitCode = 1;
+    reportDaemonDown(json, "not running");
   }
 }
 

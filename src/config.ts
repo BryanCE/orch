@@ -7,6 +7,7 @@ import { z } from "zod";
 // graph mid-initialization. The closed id sets live in the pure port modules.
 import { ADAPTER_IDS, type AdapterId } from "./adapters/adapter.ts";
 import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.ts";
+import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errorMessage } from "./util.ts";
 
@@ -62,6 +63,7 @@ export const SETTINGS_DEFAULTS = {
   defaults: { worktree: false },
   daemon: { tcp_port: 3716 },
   workers: { inherit_extensions: true, builtin_tools: true },
+  tiling: { first_split: "rows" },
 } as const;
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
@@ -125,6 +127,11 @@ const SettingsFileSchema = z.strictObject({
   daemon: z.strictObject({
     tcp_port: PositiveInt.optional(),
   }).optional(),
+  /** How a tab lays its agents out. `first_split` runs the tab's opening split;
+   * every split after it halves the biggest pane's longer side regardless. */
+  tiling: z.strictObject({
+    first_split: z.enum(TILE_FIRST_SPLITS).optional(),
+  }).optional(),
 });
 
 export type SettingsFile = z.infer<typeof SettingsFileSchema>;
@@ -145,6 +152,7 @@ export interface OrchConfig {
   hosts: Record<string, HostConfig>;
   workspaces: Record<string, string>;
   daemon: { tcp_port: number };
+  tiling: { first_split: TileFirstSplit };
 }
 
 /** The settings filename, as a directory watcher sees it. */
@@ -318,6 +326,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
     daemon: { tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port },
+    tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
   };
 }
 
@@ -597,6 +606,7 @@ export function writeSettingsFullTree(orchDir: string): void {
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
     daemon: { tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port },
+    tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
   }));
 }
 

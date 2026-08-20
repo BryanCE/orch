@@ -135,6 +135,7 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) â€
     "worktree": false
   },
   "fleet": { "spawn_cap": 8 },
+  "tiling": { "first_split": "rows" },
   "models": {
     "preferred": { "pi": ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"] },
     "allowed": { "pi": ["anthropic/*"] }
@@ -151,6 +152,16 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) â€
 
 `defaults` supports `adapter`, `backend`, `models` (one per harness), and `worktree`; `fleet` supports `spawn_cap`, `max_agents`, `workspace_caps`, `worker_peer_tools`, and `cross_workspace`. Each `notify` entry selects a notifier with `id`. `hosts` entries define remote SSH destinations with `dest`, optional `orch_dir`, and `timeout_ms`.
 
+### Tiling: `tiling.first_split`
+
+A tab's opening split decides its whole grid; every split after it halves the biggest pane's longer visual side.
+
+| `first_split` | The second agent lands | Four agents land |
+| --- | --- | --- |
+| `rows` (default) | under the first (a horizontal divider) | 2x2, at any tab width |
+| `columns` | beside the first (a vertical divider) | 2x2, until the tab is wide enough that halving keeps picking columns |
+| `longest-edge` | across the tab's own longer edge | four thin columns on a wide monitor |
+
 ### Models: three independent settings per harness
 
 Every harness names models in its own vocabulary, so each of these is recorded per harness â€” and none of them substitutes for another:
@@ -161,7 +172,9 @@ Every harness names models in its own vocabulary, so each of these is recorded p
 | `models.preferred.<harness>` | The quicklist passed to that harness's OWN model cycle/picker (pi and omp: `--models`). | no quicklist is passed |
 | `models.allowed.<harness>` | The launch gate: a spawn is refused unless its model matches one of these glob patterns. | every model the harness offers is allowed |
 
-A model outside `models.preferred` is still launchable â€” the quicklist is convenience, never permission. Restricting what may launch is `models.allowed` and nothing else.
+A model outside `models.preferred` is still launchable. The quicklist is convenience, never permission. Restricting what may launch is `models.allowed` and nothing else.
+
+`orch setup` and `orch settings models` ask for that list **once** and write it to both keys, since a list you want spawnable is the list you want in the picker. Hand-edit `settings.json` if you want them to differ.
 
 `orch setup` and `orch settings models [--harness=<id>]` ask for all three, one harness at a time. To see what a harness can actually run:
 

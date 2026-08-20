@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectAllowedModels, selectDefaultModel, selectPreferredModels, type CataloguePicker } from "../src/setup/wizard.ts";
+import { selectAllowedModels, selectDefaultModel, type CataloguePicker } from "../src/setup/wizard.ts";
 
 describe("setup model picker", () => {
   test("switches large catalogues to searchable bounded mode and preserves effort", async () => {
@@ -50,10 +50,9 @@ describe("setup model picker", () => {
   });
 });
 
-// Two prompts with two meanings: the quicklist a harness shows in its own picker, and the gate
-// its spawns are held to. Setup asks for them separately because picking one must never
-// silently forbid everything the operator left unpicked.
-describe("setup preferred-model picker", () => {
+// ONE model list per harness: what it may spawn is also what its own picker cycles. Two
+// prompts asked the operator the same question twice and recorded the answer in two keys.
+describe("setup model list picker", () => {
   const offered = Array.from({ length: 16 }, (_, index) => ({ spec: `provider/model-${index}` }));
 
   function capture() {
@@ -68,42 +67,31 @@ describe("setup preferred-model picker", () => {
   test("large catalogues use the bounded searchable multiselect", async () => {
     const { seen, pick } = capture();
 
-    await selectPreferredModels("pi", offered, [], pick);
+    await selectAllowedModels("pi", offered, [], pick);
 
     expect(seen[0]).toMatchObject({ mode: "autocomplete", maxItems: 15 });
     expect(seen[0]!.message).toContain("16 available; type to search or browse");
   });
 
-  test("the prompt names the harness's own picker and never claims the rest are forbidden", async () => {
+  test("the prompt names both jobs the list does, and that an empty one forbids nothing", async () => {
     const { seen, pick } = capture();
 
-    await selectPreferredModels("omp", [{ spec: "openai/gpt-5.4" }], [], pick);
+    await selectAllowedModels("omp", [{ spec: "openai/gpt-5.4" }], [], pick);
 
     expect(seen[0]!.mode).toBe("multiselect");
-    expect(seen[0]!.message).toContain("own model picker/cycle");
-    expect(seen[0]!.message).toContain("none = no quicklist");
-    expect(seen[0]!.message).not.toContain("may use");
+    expect(seen[0]!.message).toContain("may spawn");
+    expect(seen[0]!.message).toContain("cycle in its own picker");
+    expect(seen[0]!.message).toContain("none = allow all");
   });
 
-  test("stored quicklist values start checked, and clearing them returns an empty selection", async () => {
+  test("stored values start checked, and clearing them returns an empty selection", async () => {
     const { seen, pick } = capture();
 
-    const kept = await selectPreferredModels("pi", offered, ["provider/model-2"], pick);
+    const kept = await selectAllowedModels("pi", offered, ["provider/model-2"], pick);
     expect(seen[0]!.checked).toEqual(["provider/model-2"]);
     expect(kept).toEqual(["provider/model-2"]);
 
-    const cleared = await selectPreferredModels("pi", offered, [], pick);
+    const cleared = await selectAllowedModels("pi", offered, [], pick);
     expect(cleared).toEqual([]);
-  });
-
-  test("the two pickers read their own stored lists, so neither edits the other", async () => {
-    const { seen, pick } = capture();
-
-    await selectPreferredModels("pi", offered, ["provider/model-1"], pick);
-    await selectAllowedModels("pi", offered, ["provider/model-9"], pick);
-
-    expect(seen[0]!.checked).toEqual(["provider/model-1"]);
-    expect(seen[1]!.checked).toEqual(["provider/model-9"]);
-    expect(seen[1]!.message).toContain("spawns may use");
   });
 });

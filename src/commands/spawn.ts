@@ -14,7 +14,7 @@ import { resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { errorMessage } from "../util.ts";
-import { callDaemon, writeRpc } from "./daemon.ts";
+import { callDaemon, daemonOutage, writeRpc } from "./daemon.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 
@@ -271,6 +271,7 @@ type SpawnSettings = AgentSettings & {
   /** Initial task for a detached agent; empty for pane agents, which idle until dispatched. */
   prompt: string;
   fleet: OrchConfig["fleet"];
+  tiling: OrchConfig["tiling"];
 };
 
 function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
@@ -293,7 +294,7 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   // one flag still produces a sensibly-labeled tab, but they are never conflated.
   const tabLabel = flags.tabLabel ?? flags.namePrefix ?? flags.label;
   const prefix = flags.namePrefix ?? flags.tabLabel ?? flags.label;
-  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, prompt: flags.promptFlag ?? "", fleet: config.fleet };
+  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, prompt: flags.promptFlag ?? "", fleet: config.fleet, tiling: config.tiling };
 }
 
 interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
@@ -518,7 +519,7 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
 function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): void {
   for (let i = 2; i <= settings.n; i++) {
     try {
-      created.push(placeAgent(settings, `${settings.prefix}-${i}`, root.workspace, root.tabId, nextTilePlacement(backend, root.tabId), backend));
+      created.push(placeAgent(settings, `${settings.prefix}-${i}`, root.workspace, root.tabId, nextTilePlacement(backend, root.tabId, settings.tiling.first_split), backend));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
@@ -536,12 +537,24 @@ async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup
   const created: CreatedAgent[] = [];
   for (let i = 1; i <= settings.n; i++) {
     try {
-      created.push(placeAgent(settings, `${settings.prefix}-${i}`, workspace, group.id, nextTilePlacement(backend, group.id), backend));
+      created.push(placeAgent(settings, `${settings.prefix}-${i}`, workspace, group.id, nextTilePlacement(backend, group.id, settings.tiling.first_split), backend));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
     }
   }
   await reportSpawnResults(settings, group.id, group.label ?? group.id, created, backend);
+}
+
+/** Announce a fleet whose control plane is down, and fail the launch. Panes without
+ *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
+ *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
+ *  dispatching into a fleet that answered nothing. Null when orchd answers. */
+async function reportControlPlaneOutage(paneCount: number): Promise<string | null> {
+  const outage = await daemonOutage();
+  if (!outage) return null;
+  process.stderr.write(`CONTROL PLANE UNREACHABLE - ${paneCount} pane(s) are UNMANAGED: ${outage}\n`);
+  process.exitCode = 1;
+  return outage;
 }
 
 async function reportSpawnResults(settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
@@ -553,6 +566,7 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
   reportShortfall(settings.n, created.length);
   const registered = await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
   const warnings = await pinModels(created, settings.model);
+  const outage = warnings.length ? await reportControlPlaneOutage(created.length) : null;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
     tab: tabLabel,
@@ -561,6 +575,7 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
     created: created.length,
     registered,
     warnings,
+    daemon: outage ?? "ok",
   }) + "\n");
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }
@@ -620,7 +635,7 @@ export async function cmdTile(args: string[]) {
       workspace,
       group: tab.id,
       // Same planner `spawn` uses, off the same tab-wide geometry.
-      placement: planTilePlacement(layout),
+      placement: planTilePlacement(layout, config.tiling.first_split),
       cmd: flags.commandFlag ? flags.cmd : undefined,
       // A tiled worker loads exactly what a spawned one does; dropping these is
       // how tiled agents lost the user's own harness extensions.

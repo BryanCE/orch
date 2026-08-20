@@ -16,7 +16,7 @@ import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { runDoctor, type CheckResult } from "../doctor/runner.ts";
 import { withSpinner, promptText, logStep, logWarning } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
-import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectPreferredModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
+import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
 import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
 import { cmdSpawn } from "./spawn.ts";
@@ -99,15 +99,13 @@ export async function resolveHarnessModels(
     if (chosen) choices.defaults[id] = chosen;
 
     if (!interactive || !offered.length) continue;
-    // Two prompts, two meanings: the quicklist the harness shows in its own picker, then the
-    // gate its spawns are held to. A prompted harness records what it was given, empty
-    // included — that is how an operator clears a list they no longer want.
-    const preferred = await selectPreferredModels(id, offered, config?.models.preferred[id] ?? []);
-    if (preferred === null) return null;
-    choices.preferred[id] = preferred;
+    // ONE list per harness: the models it may spawn, which is also the quicklist its own
+    // picker cycles. Asking for both was asking the same question twice. A prompted harness
+    // records what it was given, empty included — that is how an operator clears a list.
     const allowed = await selectAllowedModels(id, offered, config?.models.allowed[id] ?? []);
     if (allowed === null) return null;
     choices.allowed[id] = allowed;
+    choices.preferred[id] = allowed;
   }
   return choices;
 }

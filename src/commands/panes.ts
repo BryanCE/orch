@@ -7,7 +7,7 @@ import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { splitOptionFlags, die, backendTarget } from "./target.ts";
-import { planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
+import { openingPlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { displayWorkspace } from "./status.ts";
 import { workspaceName } from "../policy/workspace.ts";
 export function cmdPanes(args: string[]) {
@@ -237,9 +237,10 @@ export function cmdZoom(args: string[]) {
 /** Where a pane should land in a group, ignoring the pane itself — a pane
  *  already in that group must never be planned as its own split target. */
 function tilePlacementBesides(backend: Backend, group: string, mover: string): TilePlacement {
+  const firstSplit = loadConfig(orchDir()).tiling.first_split;
   const layout = readGroupLayout(backend, group);
-  if (!layout) return { split: "right" };
-  return planTilePlacement({ ...layout, panes: layout.panes.filter((pane) => String(pane.handle) !== mover) });
+  if (!layout) return openingPlacement(firstSplit);
+  return planTilePlacement({ ...layout, panes: layout.panes.filter((pane) => String(pane.handle) !== mover) }, firstSplit);
 }
 
 export function cmdMove(args: string[]) {

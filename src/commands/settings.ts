@@ -49,9 +49,9 @@ function switchDefault(key: "adapter" | "backend", value: string): void {
 
 /**
  * Re-run the per-harness model pickers against the installed set and record the result.
- * Every harness names models in its own vocabulary, so this walks them one at a time —
- * a default it launches on, the quicklist its own picker shows, and the subset it is
- * allowed to launch at all.
+ * Every harness names models in its own vocabulary, so this walks them one at a time: the
+ * default it launches on, then the one list that is both what it may launch and what its
+ * own picker cycles.
  */
 export async function cmdSettingsModels(args: string[]): Promise<void> {
   let config: OrchConfig;
@@ -78,12 +78,10 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
       process.stdout.write(`  ${id}: unchanged - ${id} listed no models; ${signedOutFix(id)}\n`);
       continue;
     }
-    const preferred = chosen.preferred[id] ?? [];
     const allowed = chosen.allowed[id] ?? [];
     process.stdout.write(
       `  ${id}: default ${recorded}`
-      + `, picker ${preferred.length ? preferred.join(", ") : "(none)"}`
-      + `, allowed ${allowed.length ? allowed.join(", ") : "(all offered)"}\n`,
+      + `, models ${allowed.length ? allowed.join(", ") : "(all offered)"}\n`,
     );
   }
 }
@@ -124,6 +122,7 @@ export function cmdSettings(args: string[]): void {
     { key: "fleet.worker_peer_tools", ...resolveWithSource<boolean>({ config: rawSetting<boolean>(orchDir(), "fleet", "worker_peer_tools"), fallback: config.fleet.worker_peer_tools }) },
     { key: "fleet.cross_workspace", ...resolveWithSource<boolean>({ config: rawSetting<boolean>(orchDir(), "fleet", "cross_workspace"), fallback: config.fleet.cross_workspace }) },
     { key: "queue.max_retries", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "queue", "max_retries"), fallback: config.queue.max_retries }) },
+    { key: "tiling.first_split", ...resolveWithSource<string>({ config: rawSetting<string>(orchDir(), "tiling", "first_split"), fallback: config.tiling.first_split }) },
     { key: "timeouts.dispatch_ack_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "dispatch_ack_ms"), fallback: config.timeouts.dispatch_ack_ms }) },
     { key: "timeouts.wait_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "wait_ms"), fallback: config.timeouts.wait_ms }) },
     { key: "timeouts.adapter_command_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "adapter_command_ms"), fallback: config.timeouts.adapter_command_ms }) },

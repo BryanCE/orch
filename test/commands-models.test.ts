@@ -31,6 +31,7 @@ const config = (): OrchConfig => ({
   notify: [],
   hosts: {},
   workspaces: {},
+  tiling: { first_split: "rows" },
 });
 
 const listAll = (targets: AdapterId[] = ["pi", "claude"]) =>

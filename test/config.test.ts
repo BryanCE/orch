@@ -79,6 +79,7 @@ describe("loadConfig", () => {
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
       daemon: { tcp_port: 4321 },
+      tiling: { first_split: "columns" },
     });
 
     expect(loadConfig(directory)).toEqual({
@@ -100,6 +101,7 @@ describe("loadConfig", () => {
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
       daemon: { tcp_port: 4321 },
+      tiling: { first_split: "columns" },
     });
   });
 

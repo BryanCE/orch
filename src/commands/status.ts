@@ -8,7 +8,7 @@ import { orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.t
 import type { SpawnedRecord } from "../store/sqlite.ts";
 import { renderTable } from "../table.ts";
 import { sameWorkspace, workspaceName } from "../policy/workspace.ts";
-import { ensureDaemon } from "./daemon.ts";
+import { ensureDaemonOrWarn } from "./daemon.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import {
   firstNonEmptyText,
@@ -340,7 +340,10 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
 export async function cmdStatus(args: string[]): Promise<void> {
   const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--offline"]);
   const offline = enabled.has("--offline");
-  if (!offline) await ensureDaemon(orchDir());
+  // status is specified to work with orchd absent, so a control plane that will not
+  // come up costs its rows and warns, never the command: dying here is what made a
+  // `--json` caller parse a bare timeout line instead of a fleet.
+  if (!offline) await ensureDaemonOrWarn(orchDir());
   const json = enabled.has("--json");
   const all = enabled.has("--all");
   const localOnly = enabled.has("--local");

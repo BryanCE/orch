@@ -16,6 +16,7 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
   notify: [],
   hosts: {},
   workspaces: {},
+  tiling: { first_split: "rows" },
 });
 
 describe("worker tool policy", () => {

@@ -325,15 +325,9 @@ export function diagnoseExtensionLink(harness: string, extensionDir: string, ext
   const { stale, fixable } = linkState(source, destination);
   const apply: FixDescriptor = {
     description: extensionDirMissing
-      ? `Build bundled bridge, create missing extension dir, and redeploy: ${file}`
-      : `Build bundled bridge and redeploy: ${file}`,
-    apply: () => {
-      if (fixable) buildExtensionBundle(packageRoot(), extension);
-      fs.mkdirSync(extensionDir, { recursive: true });
-      fs.rmSync(path.join(extensionDir, `${extension}.ts`), { force: true });
-      fs.rmSync(destination, { recursive: true, force: true });
-      fs.symlinkSync(extensionBundlePath(packageRoot(), extension), destination);
-    },
+      ? `Create missing extension dir and redeploy: ${file}`
+      : `Redeploy: ${file}`,
+    apply: () => installExtensionLink(harness, extensionDir, extension, { copy: deployedAsCopy(destination) }),
   };
   if (bundleMissing) return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext", ...(fixable ? { fix: apply } : {}) };
   if (!stale) return { id, label, status: "ok", detail: `bundled ${extension} extension is current` };
@@ -350,10 +344,19 @@ function linkState(source: string, destination: string): { stale: boolean; fixab
       const linked = fs.realpathSync(destination) === sourcePath;
       return { stale: !linked, fixable: !linked };
     }
-    return { stale: computeCodeHash(destination) !== computeCodeHash(source), fixable: false };
+    // A copy deployment (no symlink support) goes stale on every orch update;
+    // re-copying the shipped bundle is exactly the repair.
+    const copied = computeCodeHash(destination) !== computeCodeHash(source);
+    return { stale: copied, fixable: copied };
   } catch (error: unknown) {
     return { stale: true, fixable: (error as NodeJS.ErrnoException).code === "ENOENT" };
   }
+}
+
+/** A deployed artifact that is a real file keeps copy mode on redeploy. */
+function deployedAsCopy(destination: string): boolean {
+  try { return !fs.lstatSync(destination).isSymbolicLink(); }
+  catch { return false; }
 }
 
 /** Link one shipped bundle into a harness's extension directory, building it from a checkout when absent. */

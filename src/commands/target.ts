@@ -3,6 +3,7 @@ import { getBackend, resolveBackend } from "../backends/registry.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget, selfActor, type Entity } from "../entities.ts";
+import { operatorControls } from "../policy/workspace.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/sqlite.ts";
@@ -94,24 +95,31 @@ export function requireCallerOwnerToken(): string {
   return token;
 }
 
-export function ownsAgent(record: { owner?: string }): boolean {
+/** True when this process was launched as an orch-spawned agent. */
+export function callerIsSpawnedAgent(): boolean {
+  return tryParseIdentity(process.env.ORCH_AGENT_KEY) !== null;
+}
+
+/** Owner-gate overrides are operator-only. A spawned agent may touch exactly
+ *  what it spawned — no flag widens that, ever. */
+export function forbidAgentOverride(flag: string): void {
+  if (callerIsSpawnedAgent()) die(`${flag} is operator-only: a spawned agent may only touch agents it spawned.`);
+}
+
+export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
   const token = callerOwnerToken();
-  return Boolean(token && record.owner === token);
+  if (!token) return false;
+  if (record.owner === token) return true;
+  return !callerIsSpawnedAgent() && operatorControls(token, record.pane ?? null);
 }
 
 export function assertAgentOwned(target: string, entity: Pick<Entity, "key">, force = false): void {
-  if (force) return;
-  const record = spawnedRecords().get(entity.key);
-  if (record?.owner && !ownsAgent(record)) {
-    die(`Target "${target}" is owned by ${record.owner}. Use --force to override.`);
+  if (force) {
+    forbidAgentOverride("--force");
+    return;
   }
-}
-
-/** Check a registry-addressable target before resolving its live pane. */
-export function assertRegisteredTargetOwned(target: string, force = false): void {
-  if (force) return;
-  const record = [...spawnedRecords().values()].find((candidate) => candidate.pane === target || candidate.handle === target);
-  if (record?.owner && !ownsAgent(record)) {
+  const record = spawnedRecords().get(entity.key);
+  if (record?.owner && !ownsAgent({ ...record, pane: entity.key })) {
     die(`Target "${target}" is owned by ${record.owner}. Use --force to override.`);
   }
 }

@@ -20,7 +20,7 @@ import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { isRecord, parsePid, type JsonRecord } from "../../src/util.ts";
+import { isRecord, parsePid, projectRoot, type JsonRecord } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
 
@@ -108,6 +108,7 @@ const status: JsonRecord = {
   paneId,
   pid,
   cwd: textValue(input.cwd) ?? previous.cwd ?? process.cwd(),
+  project: projectRoot(),
   model,
   task,
   sessionPath: transcriptPath ?? previous.sessionPath,

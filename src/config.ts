@@ -61,7 +61,7 @@ export const SETTINGS_DEFAULTS = {
   queue: { max_retries: 1 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false },
-  daemon: { tcp_port: 3716 },
+  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
 } as const;
@@ -126,6 +126,8 @@ const SettingsFileSchema = z.strictObject({
   workspaces: z.record(z.string(), z.string()).optional(),
   daemon: z.strictObject({
     tcp_port: PositiveInt.optional(),
+    /** Minutes of no live agents, no subscribers, and no RPC before orchd exits; 0 = never. */
+    idle_shutdown_minutes: z.number().int().min(0).optional(),
   }).optional(),
   /** How a tab lays its agents out. `first_split` runs the tab's opening split;
    * every split after it halves the biggest pane's longer side regardless. */
@@ -151,7 +153,7 @@ export interface OrchConfig {
   locked_commands: string[];
   hosts: Record<string, HostConfig>;
   workspaces: Record<string, string>;
-  daemon: { tcp_port: number };
+  daemon: { tcp_port: number; idle_shutdown_minutes: number };
   tiling: { first_split: TileFirstSplit };
 }
 
@@ -325,7 +327,10 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
     locked_commands: root.locked_commands ?? [],
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
-    daemon: { tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port },
+    daemon: {
+      tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
+      idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
+    },
     tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
   };
 }
@@ -605,7 +610,10 @@ export function writeSettingsFullTree(orchDir: string): void {
     locked_commands: root.locked_commands ?? [],
     hosts: root.hosts ?? {},
     workspaces: root.workspaces ?? {},
-    daemon: { tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port },
+    daemon: {
+      tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
+      idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
+    },
     tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
   }));
 }

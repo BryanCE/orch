@@ -88,6 +88,11 @@ export function currentWorkspace(): string | null {
 
 /** The orchestrator's own target key, used for ownership and wall checks. */
 export function selfActor(): string | null {
+  // A spawned agent acts as ITSELF — the key minted at its launch — never as
+  // the shared workspace operator. One shared token was how a single agent's
+  // `close --all` owned, and killed, every fleet in the workspace.
+  const spawnedIdentity = tryParseIdentity(process.env.ORCH_AGENT_KEY);
+  if (spawnedIdentity) return serializeIdentity(spawnedIdentity);
   const id = resolveBackend({}).currentIdentity?.();
   return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;
 }

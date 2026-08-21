@@ -1,5 +1,16 @@
 import { rmSync } from "node:fs";
 import { closeAllStores } from "../../src/store/sqlite.ts";
+import { daemonLockPid } from "../../src/commands/daemon.ts";
+import { pidAlive } from "../../src/util.ts";
+
+/** Kill the detached orchd a CLI-driven test auto-started under this dir. A
+ *  live daemon holds the dir's orch.db open forever — no rm retry outwaits a
+ *  process — and each one leaked survives the whole test run. */
+function killTempDirDaemon(dir: string): void {
+  const pid = daemonLockPid(dir);
+  if (pid === undefined || !pidAlive(pid)) return;
+  try { process.kill(pid, "SIGTERM"); } catch {}
+}
 
 // Close this process's cached SQLite handles, then remove the dir with a REAL
 // retry loop. bun's rmSync silently ignores node's maxRetries/retryDelay
@@ -11,7 +22,11 @@ import { closeAllStores } from "../../src/store/sqlite.ts";
 // whether Windows released a file handle in time.
 export function removeTempDir(dir: string): void {
   closeAllStores();
-  const deadline = Date.now() + 10_000;
+  killTempDirDaemon(dir);
+  // 2s covers AV/handle-release lag. A lock outlasting that is bun holding a
+  // WAL database file (oven-sh/bun#25964) — no wait releases it, and a longer
+  // spin only trips bun's own hook timeout and fails a passing test.
+  const deadline = Date.now() + 2_000;
   for (;;) {
     try {
       rmSync(dir, { recursive: true, force: true });

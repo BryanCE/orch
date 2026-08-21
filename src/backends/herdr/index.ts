@@ -1,7 +1,7 @@
 import type { AgentAdapter } from "../../adapters/adapter.ts";
 import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
-import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
+import { binaryOnPath, errorMessage, isRecord, projectRoot } from "../../util.ts";
 import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
@@ -152,6 +152,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     const envArgs = Object.entries(opts.env ?? {}).map(([key, value]) => `${key}=${value}`);
     if (opts.key?.trim()) envArgs.push(`ORCH_AGENT_KEY=${opts.key}`);
     if (opts.orchDir) envArgs.push(`ORCH_DIR=${opts.orchDir}`);
+    // The fleet's project identity survives worktree/launch-dir differences.
+    envArgs.push(`ORCH_PROJECT=${projectRoot()}`);
 
     const launcher = envArgs.length ? ["env", ...envArgs] : [];
     const result = herdrJSON<AgentStartResult>([...flags, "--", ...launcher, "bash", "-lc", command]);
@@ -271,14 +273,25 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   /** Move a pane into an existing tab, splitting `against` (the planned pane)
    *  when given so the tab stays balanced instead of stacking. Throws on failure. */
   moveToGroup(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): boolean {
-    const args = ["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"];
-    if (against) args.push("--target-pane", against);
-    herdrJSON<unknown>(args);
+    const move = this.movePaneIntoTab(handle, group, split, against);
+    if (move.changed) return true;
+    if (move.reason !== "same_tab") throw new Error(`herdr refused to move ${handle} into ${group}: ${move.reason ?? "unchanged"}`);
+    // herdr no-ops a same-tab re-seat, so hop out to a throwaway tab (it closes
+    // itself once empty) and back: the cross-tab move honours the target pane.
+    this.moveToNewGroup(handle, null);
+    if (!this.movePaneIntoTab(handle, group, split, against).changed) throw new Error(`herdr left ${handle} outside tab ${group}`);
     return true;
   }
 
+  /** One `pane move` into a tab, reduced to whether herdr changed the layout. */
+  private movePaneIntoTab(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): { changed: boolean; reason: string | null } {
+    const args = ["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"];
+    if (against) args.push("--target-pane", against);
+    const result = herdrJSON<{ move_result?: { changed?: boolean; reason?: string } }>(args);
+    return { changed: result?.move_result?.changed !== false, reason: result?.move_result?.reason ?? null };
+  }
+
   /** Move a pane into a freshly created tab. Throws on herdr failure. */
-  // fallow-ignore-next-line unused-class-member
   moveToNewGroup(handle: HerdrHandle, label: string | null): boolean {
     const args = ["pane", "move", handle, "--new-tab", "--no-focus"];
     if (label) args.push("--label", label);

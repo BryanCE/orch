@@ -100,7 +100,7 @@ describe("loadConfig", () => {
       locked_commands: [],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       workspaces: { wD: "Design" },
-      daemon: { tcp_port: 4321 },
+      daemon: { tcp_port: 4321, idle_shutdown_minutes: 30 },
       tiling: { first_split: "columns" },
     });
   });

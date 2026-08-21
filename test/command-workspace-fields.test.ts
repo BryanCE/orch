@@ -22,7 +22,7 @@ function presenceFixture(): { orchDir: string; key: string } {
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: 2,
+    schema: 3,
     key,
     backend: "headless",
     workspace: "reported-workspace",
@@ -39,7 +39,7 @@ function writePresence(orchDir: string, key: string, agent: string, workspace: s
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: 2, key, backend: "headless", workspace, handle, paneId: handle,
+    schema: 3, key, backend: "headless", workspace, handle, paneId: handle,
     pid: process.pid, agent, state: "idle",
   }));
 }

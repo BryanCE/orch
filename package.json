@@ -1,5 +1,5 @@
 {
-  "name": "orch",
+  "name": "@bryance/orch",
   "version": "0.1.0",
   "description": "Fleet orchestration control plane for various coding afent harness's and multiplexers for optimal coding agent orchestration and control from any provider.",
   "keywords": [

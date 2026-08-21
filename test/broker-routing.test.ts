@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 interface CliResult {
@@ -30,7 +31,7 @@ function seedAgent(orchDir: string): void {
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "status.json"),
-    JSON.stringify({ schema: 2, agent: "pi", paneId: "agent-alpha", pid: process.pid, state: "working" }),
+    JSON.stringify({ schema: 3, agent: "pi", paneId: "agent-alpha", pid: process.pid, state: "working" }),
   );
 }
 
@@ -44,7 +45,7 @@ function runCli(orchDir: string, args: string[]): CliResult {
 }
 
 afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
 afterAll(() => {
@@ -55,7 +56,7 @@ describe("broker CLI routing", () => {
   // The lock names THIS process: a live pid orch never started, in a record orch
   // never wrote. Reaching the assertions at all is the regression guard — orch
   // used to SIGTERM this pid as a "wedged daemon", killing the test runner.
-  test("write refuses when the daemon socket is unavailable", () => {
+  test("an unprovable foreign lock is never signalled; dispatch starts a fresh daemon and fails on delivery", () => {
     const orchDir = makeOrchDir();
     seedAgent(orchDir);
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify({ pid: process.pid }));
@@ -63,7 +64,7 @@ describe("broker CLI routing", () => {
     const result = runCli(orchDir, ["dispatch", "agent-alpha", "hello"]);
 
     expect(result.status).not.toBe(0);
-    expect(`${result.stdout}\n${result.stderr}`).toContain("orch daemon start");
+    expect(`${result.stdout}\n${result.stderr}`).toContain("was not applied or acknowledged");
   }, 15_000);
 
   test("status --offline reads seeded presence files without a daemon", () => {
@@ -77,7 +78,7 @@ describe("broker CLI routing", () => {
     expect(result.stdout).toContain("working");
   }, 15_000);
 
-  test("dispatch failure is daemon-absent, not herdr-not-found", () => {
+  test("dispatch failure is a delivery verdict, never herdr-not-found", () => {
     const orchDir = makeOrchDir();
     seedAgent(orchDir);
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify({ pid: process.pid }));
@@ -86,8 +87,7 @@ describe("broker CLI routing", () => {
     const output = `${result.stdout}\n${result.stderr}`;
 
     expect(result.status).not.toBe(0);
-    expect(output).toContain("orch daemon start");
+    expect(output).toContain("was not applied or acknowledged");
     expect(output.toLowerCase()).not.toContain("herdr");
-    expect(existsSync(join(orchDir, "orchd.sock"))).toBe(false);
   }, 15_000);
 });

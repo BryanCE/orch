@@ -1,5 +1,6 @@
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { presenceAgentDir, writeStatus } from "../../src/presence/writer.ts";
+import { projectRoot } from "../../src/util.ts";
 import { mkdirSync } from "node:fs";
 
 /** Seed a presence status record the way a real harness writer does: stamped with
@@ -8,7 +9,7 @@ import { mkdirSync } from "node:fs";
 export function seedStatus(root: string, key: string, status: Record<string, unknown>): string {
   const directory = presenceAgentDir(key, root);
   mkdirSync(directory, { recursive: true });
-  writeStatus(directory, { schema: PRESENCE_SCHEMA, ...status });
+  writeStatus(directory, { schema: PRESENCE_SCHEMA, project: projectRoot(), ...status });
   return directory;
 }
 

@@ -68,7 +68,7 @@ describe("Claude adapter", () => {
 
   test("detects state from a live presence status", () => {
     const key = "claude-state";
-    writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: 2, agent: "claude", pid: process.pid, state: "working" }));
+    writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: 3, agent: "claude", pid: process.pid, state: "working" }));
     expect(claudeAdapter.detectState({ key })).toBe("working");
   });
 
@@ -116,13 +116,13 @@ describe("Claude adapter", () => {
 
   test("maps Claude hook events to presence states and schema", () => {
     const key = "claude-hooks";
-    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 2, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
-    expect(runHook("Notification", key, { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: 2, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
-    expect(runHook("Stop", key, { pid: process.pid })).toMatchObject({ schema: 2, agent: "claude", state: "idle" });
+    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 3, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
+    expect(runHook("Notification", key, { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: 3, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
+    expect(runHook("Stop", key, { pid: process.pid })).toMatchObject({ schema: 3, agent: "claude", state: "idle" });
 
     const transcript = join(agentDir(key), "session.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "Finished" })}\n`);
-    expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: 2, agent: "claude", state: "done" });
+    expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: 3, agent: "claude", state: "done" });
   }, 20_000);
 
   test("exits silently and writes no presence without ORCH_AGENT_KEY (a non-orch session)", () => {

@@ -87,6 +87,9 @@ describe("notification and presence event formatting", () => {
       cost: null,
       ts: "2026-01-01T00:00:00.000Z",
       lastError: null,
+      // (key, seq) is the event's identity for dedup; direct sink deliveries
+      // outside the daemon carry no ordinal.
+      seq: null,
     });
   });
 

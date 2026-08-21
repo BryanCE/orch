@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "orch",
+      "name": "@bryance/orch",
       "dependencies": {
         "@clack/prompts": "^1.7.0",
         "typebox": "^1.1.38",

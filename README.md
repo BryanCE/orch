@@ -11,7 +11,7 @@ orch is also a headless control-plane backend: the daemon, presence protocol, ev
 Install the published CLI globally with npm:
 
 ```sh
-npm install -g orch
+npm install -g @bryance/orch
 orch setup
 ```
 

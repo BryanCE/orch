@@ -19,6 +19,7 @@ import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessag
 import { cmdSettings, cmdSettingsModels } from "./settings.ts";
 import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
+import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
 
 function usage() {
@@ -152,7 +153,8 @@ MAINTENANCE
                                  the quicklist never hides the rest. --preferred shows only the
                                  quicklist, --search matches spec or label, --pick prints one
                                  full spec for scripting. Lists only; records nothing.
-  orch help                      This message.
+  orch help [command]            This message, or one command's detailed help.
+                                 'orch <command> -h' shows the same detail.
 
 RECOVER
   orch abort <target>            Escape twice, 500ms apart, to dismiss and cancel a turn.
@@ -212,9 +214,20 @@ export function needsFirstRunSetup(cmd: string | undefined): boolean {
   return compositionUnrecorded();
 }
 
+/** `orch <cmd> -h|--help` and `orch help <cmd>` both name one command's topic. */
+function requestedHelpTopic(cmd: string | undefined, rest: string[]): string | null {
+  if (cmd === undefined) return null;
+  if (rest[0] === "-h" || rest[0] === "--help") return helpTopic(cmd);
+  if (cmd === "help" && rest[0] !== undefined) return helpTopic(rest[0]);
+  return null;
+}
+
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
   let rest = argv.slice(1);
+  // Help must never require setup, a daemon, or a current install to read.
+  const topic = requestedHelpTopic(cmd, rest);
+  if (topic !== null) { process.stdout.write(topic); return; }
   // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it
   // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
   // below is only ever reached with a real recorded configuration.

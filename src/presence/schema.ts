@@ -6,8 +6,8 @@
 /** The one presence status.json schema. Pre-publish there is no legacy support:
  * every record stamps exactly this value; anything else is malformed and gets
  * reaped. On a shape change, bump this and fix every writer/reader/test in the
- * same commit. */
-export const PRESENCE_SCHEMA = 2;
+ * same commit. v3: `project` (the fleet's project root) became part of the record. */
+export const PRESENCE_SCHEMA = 3;
 
 /* The presence protocol filenames. These are orch vocabulary, not any harness's
  * wire format — orch defines them and every harness conforms. This is their ONE

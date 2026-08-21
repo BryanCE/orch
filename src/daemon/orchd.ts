@@ -5,18 +5,18 @@ import {
   reexecSelf,
   releaseDaemonLock,
 } from "./lifecycle.ts";
-import { rpcCall, startRpcServer, type RpcServer } from "./rpc.ts";
+import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "./rpc.ts";
 import { loadConfig, watchConfig, type ConfigWatch, type OrchConfig } from "../config.ts";
 import { loadSinks, type Sink } from "../notify/router.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
-import { orchDir } from "../presence/store.ts";
+import { loadPresence, orchDir } from "../presence/store.ts";
 import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox, checkOwnerWrite } from "../store/sqlite.ts";
-import { checkWall } from "../policy/workspace.ts";
+import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox, checkOwnerWrite, getOwner } from "../store/sqlite.ts";
+import { checkWall, operatorControls } from "../policy/workspace.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
 import { normalizeControlTarget } from "../backends/identity.ts";
@@ -38,6 +38,28 @@ let presenceWatch: PresenceWatch | undefined;
 let configWatch: ConfigWatch | undefined;
 let currentConfig: OrchConfig | undefined;
 let sinks: Sink[] | undefined;
+let lastActivityAt = Date.now();
+
+/** The daemon owes its own exit: with nothing to serve, staying resident only
+ *  accumulates orphaned processes. Live agents, event subscribers, or recent RPC
+ *  traffic each count as being in use. */
+export function idleShutdownDue(input: { idleMinutes: number; liveAgents: number; subscribers: number; msSinceActivity: number }): boolean {
+  if (input.idleMinutes <= 0) return false;
+  if (input.liveAgents > 0 || input.subscribers > 0) return false;
+  return input.msSinceActivity >= input.idleMinutes * 60_000;
+}
+
+function liveAgentCount(): number {
+  return [...loadPresence().values()].filter((entry) => entry.alive).length;
+}
+
+/** Every served call proves the daemon is in use; the idle clock restarts. */
+function touchOnCall(handlers: RpcHandlers): RpcHandlers {
+  return Object.fromEntries(Object.entries(handlers).map(([method, handler]): [string, RpcHandlers[string]] => [
+    method,
+    (params, emit) => { lastActivityAt = Date.now(); return handler(params, emit); },
+  ]));
+}
 
 function getConfig(directory: string): OrchConfig {
   return currentConfig ??= loadConfig(directory);
@@ -117,8 +139,8 @@ export function validateWriteParams(params: unknown): { target: string; text: st
 }
 
 /** Enforce the workspace wall, then ownership, before a write is accepted.
- *  An unscoped actor is wall-eligible and unattributable, so ownership is skipped
- *  for it. Throws to reject the write. */
+ *  An unscoped actor cannot own anything, so an owned target refuses it outright;
+ *  only unowned targets accept anonymous writes. Throws to reject the write. */
 export function governWrite(directory: string, target: string, params: unknown): void {
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
@@ -126,7 +148,15 @@ export function governWrite(directory: string, target: string, params: unknown):
   const crossWorkspace = value.crossWorkspace === true;
   const wall = checkWall(actor, target, { crossWorkspace, orchDir: directory });
   if (!wall.allowed) throw new Error(wall.reason ?? "workspace wall denied the write");
-  if (actor === null) return;
+  if (actor === null) {
+    const owner = getOwner(directory, target);
+    if (owner !== undefined) throw new Error(`agent is owned by ${owner}; anonymous writes are refused - set ORCH_OWNER to identify this caller`);
+    return;
+  }
+  // The workspace's human operator keeps control of every fleet keyed into it;
+  // spawned agents carry their own key, never the operator id, so this grants
+  // an agent nothing beyond what it spawned.
+  if (operatorControls(actor, target)) return;
   const owned = checkOwnerWrite(directory, target, actor, { steal });
   if (!owned.ok) throw new Error(owned.reason ?? "ownership denied the write");
 }
@@ -258,7 +288,7 @@ async function main(): Promise<void> {
 
   try {
     const tcpPort = loadConfig(directory).daemon.tcp_port;
-    server = await startRpcServer(directory, {
+    server = await startRpcServer(directory, touchOnCall({
       "daemon-status": () => ({
         pid: process.pid,
         startedAt: startedAt.toISOString(),
@@ -292,7 +322,7 @@ async function main(): Promise<void> {
         }, 10);
         return { ok: true };
       },
-    }, {
+    }), {
       holdsDaemonLock: true,
       tcpPort,
       onTcpError: (error, port) => process.stderr.write(`orchd TCP listener failed on 127.0.0.1:${port}: ${errorMessage(error)}\n`),
@@ -314,7 +344,7 @@ async function main(): Promise<void> {
   });
   presenceWatch = startPresenceWatch({
     orchDir: directory,
-    onEvent: (event) => emitAndNotify((value) => server?.emit(value), getSinks(directory), event),
+    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event); },
   });
   workLoopRunning = true;
   workLoop = runWorkLoop({
@@ -323,8 +353,18 @@ async function main(): Promise<void> {
     getConfig: () => getConfig(directory),
     signal: workController.signal,
     continuous: true,
-    onEvent: (event) => emitAndNotify((value) => server?.emit(value), getSinks(directory), event),
+    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event); },
   }).finally(() => { workLoopRunning = false; });
+
+  const idleCheck = setInterval(() => {
+    const idleMinutes = getConfig(directory).daemon.idle_shutdown_minutes;
+    const liveAgents = liveAgentCount();
+    if (liveAgents > 0) lastActivityAt = Date.now();
+    const msSinceActivity = Date.now() - lastActivityAt;
+    if (!idleShutdownDue({ idleMinutes, liveAgents, subscribers: server?.subscriberCount() ?? 0, msSinceActivity })) return;
+    clearInterval(idleCheck);
+    void shutDown(directory, `idle ${idleMinutes}m: no live agents, no subscribers`);
+  }, 30_000);
 
   process.once("SIGTERM", () => void shutDown(directory, "SIGTERM"));
   process.once("SIGINT", () => void shutDown(directory, "SIGINT"));

@@ -142,6 +142,9 @@ describe("notify", () => {
       cost: 1.25,
       ts: "2026-01-01T00:00:00.000Z",
       lastError: "boom",
+      // (key, seq) is the event's identity for dedup; direct sink deliveries
+      // outside the daemon carry no ordinal.
+      seq: null,
     });
   }, 20_000);
 
@@ -198,7 +201,8 @@ describe("notify", () => {
           ts: "2026-01-01T00:00:00.000Z",
         },
       );
-      for (let attempt = 0; attempt < 40 && !stderr.includes("webhook sink failed"); attempt++) {
+      // Up to 5s: a refused connect on a loaded Windows box can take over 1s.
+      for (let attempt = 0; attempt < 200 && !stderr.includes("webhook sink failed"); attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     } finally {

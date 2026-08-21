@@ -116,6 +116,7 @@ export function cmdSettings(args: string[]): void {
     { key: "adapter", ...resolveWithSource<string>({ env: "ORCH_ADAPTER", config: rawSetting<string>(orchDir(), "defaults", "adapter"), fallback: "(none)" }) },
     { key: "backend", ...resolveWithSource<string>({ env: "ORCH_BACKEND", config: rawSetting<string>(orchDir(), "defaults", "backend"), fallback: "(auto)" }) },
     { key: "daemon.tcp_port", ...resolveWithSource<number>({ env: "ORCH_DAEMON_PORT", config: rawSetting<number>(orchDir(), "daemon", "tcp_port"), fallback: config.daemon.tcp_port }) },
+    { key: "daemon.idle_shutdown_minutes", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "daemon", "idle_shutdown_minutes"), fallback: config.daemon.idle_shutdown_minutes }) },
     { key: "fleet.spawn_cap", ...resolveWithSource<number>({ env: "ORCH_SPAWN_CAP", config: rawSetting<number>(orchDir(), "fleet", "spawn_cap"), fallback: config.fleet.spawn_cap }) },
     { key: "fleet.max_agents", ...resolveWithSource<number | string>({ config: rawSetting<number>(orchDir(), "fleet", "max_agents"), fallback: config.fleet.max_agents ?? "(none)" }) },
     { key: "fleet.workspace_caps", ...resolveWithSource<Record<string, number>>({ config: rawSetting<Record<string, number>>(orchDir(), "fleet", "workspace_caps"), fallback: config.fleet.workspace_caps }) },

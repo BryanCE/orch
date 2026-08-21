@@ -49,7 +49,7 @@ function commit(worktreePath: string, file: string, contents: string, message: s
 function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, branch: string): void {
   fs.mkdirSync(path.join(orchDir, "agents", pane), { recursive: true });
   fs.writeFileSync(path.join(orchDir, "agents", pane, "status.json"), JSON.stringify({
-    schema: 2, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
+    schema: 3, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
   }));
   insertSpawnedRecord(orchDir, {
     pane, ts: new Date().toISOString(), adapter: "pi", worktree: worktreePath, branch,

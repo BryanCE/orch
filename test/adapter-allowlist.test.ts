@@ -70,11 +70,13 @@ describe("omp worker launch obeys the worker policy through its own harness", ()
   test("omp loads its own bundle from its own config root, never pi's", () => {
     const command = ompAdapter.restrictedInteractiveCmd({ workers: LOCKED_DOWN });
 
+    // The bundle path is OS-native, so compare with separators normalized.
+    const slashed = command.replaceAll("\\", "/");
     expect(command).toContain("--no-extensions");
     expect(command).toContain("omp-bridge.js");
-    expect(command).toContain(".omp/agent/extensions");
+    expect(slashed).toContain(".omp/agent/extensions");
     expect(command).not.toContain("orchestrator-bridge.js");
-    expect(command).not.toContain(".pi/agent");
+    expect(slashed).not.toContain(".pi/agent");
   });
 
   test("omp drops built-ins with --no-tools, the flag its CLI actually has", () => {

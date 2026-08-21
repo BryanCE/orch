@@ -93,6 +93,8 @@ export interface RpcServer {
   stop(): Promise<void>;
   /** Push an event to every connection subscribed with subscribe-events. */
   emit(event: unknown): void;
+  /** How many connections currently hold a subscribe-events subscription. */
+  subscriberCount(): number;
   readonly transport: "unix" | "tcp";
   readonly socketPath: string;
   readonly portFile: string;
@@ -407,8 +409,8 @@ export async function startRpcServer(
         try {
           unlinkSync(paths.port);
         } catch {}
-        tcpServer = await startTcpServer(handlers, subscriptions, replayBuffer, sockets, options, paths);
-        tcpEndpoint = tcpServer ? `tcp://127.0.0.1:${options.tcpPort}` : undefined;
+        tcpServer = await startTcpServer(attach, options, paths);
+        tcpEndpoint = tcpEndpointOf(tcpServer);
         return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
       } catch {
         // A live endpoint or an unremovable path still requires TCP fallback.
@@ -423,35 +425,41 @@ export async function startRpcServer(
     tcpEndpoint = `tcp://127.0.0.1:${boundPort}`;
     return makeRpcServer(tcpServer, undefined, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
   }
-  tcpServer = await startTcpServer(handlers, subscriptions, replayBuffer, sockets, options, paths);
-  tcpEndpoint = tcpServer ? `tcp://127.0.0.1:${options.tcpPort}` : undefined;
+  tcpServer = await startTcpServer(attach, options, paths);
+  tcpEndpoint = tcpEndpointOf(tcpServer);
   return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
 }
 
 async function startTcpServer(
-  handlers: RpcHandlers,
-  subscriptions: Set<Socket>,
-  replayBuffer: ReplayBuffer,
-  sockets: Set<Socket>,
+  attach: (socket: Socket) => void,
   options: RpcServerOptions,
   paths: { socket: string; port: string },
 ): Promise<Server | undefined> {
-  const port = options.tcpPort;
+  const port = companionTcpPort(options);
   if (port === undefined) return undefined;
-  const tcpServer = createServer((socket) => {
-    sockets.add(socket);
-    attachConnection(socket, handlers, subscriptions, replayBuffer);
-    socket.once("close", () => sockets.delete(socket));
-  });
+  const tcpServer = createServer(attach);
   try {
     await listen(tcpServer, { host: "127.0.0.1", port });
-    writeFileSync(paths.port, `${port}\n`, { mode: 0o600 });
+    const boundPort = (tcpServer.address() as { port: number }).port;
+    writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
     return tcpServer;
   } catch (error: unknown) {
     try { tcpServer.close(); } catch {}
     options.onTcpError?.(error, port);
     return undefined;
   }
+}
+
+/** The loopback port bound beside the unix socket: the configured one, else an
+ *  ephemeral one on Windows, where a client cannot stat an AF_UNIX socket path
+ *  and needs the port file as its fallback dial to a live daemon. */
+function companionTcpPort(options: RpcServerOptions): number | undefined {
+  return options.tcpPort ?? (process.platform === "win32" ? 0 : undefined);
+}
+
+function tcpEndpointOf(tcpServer: Server | undefined): string | undefined {
+  const address = tcpServer?.address();
+  return address !== null && typeof address === "object" ? `tcp://127.0.0.1:${address.port}` : undefined;
 }
 
 function makeRpcServer(
@@ -481,6 +489,7 @@ function makeRpcServer(
       const buffered = replayBuffer.push(event);
       for (const socket of subscriptions) lineResponse(socket, buffered);
     },
+    subscriberCount: () => subscriptions.size,
     transport,
     socketPath: paths.socket,
     portFile: paths.port,

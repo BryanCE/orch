@@ -124,3 +124,26 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
   }
   return { applied };
 }
+
+/** Redeploy every installed adapter's stale integration shim. Cheap when current
+ *  (a live symlink resolves with two stats), so spawn and reload run it first —
+ *  a freshly updated orch must never launch agents on the last version's bridge. */
+export async function refreshStaleShims(orchDir: string): Promise<string[]> {
+  const refreshed: string[] = [];
+  const adapters = loadConfigOrNull(orchDir)?.installed.adapters ?? [];
+  for (const id of adapters) {
+    try {
+      const adapter = resolveAdapter(id);
+      if (!adapter.diagnoseShim) continue;
+      const diagnosis = await adapter.diagnoseShim();
+      if (diagnosis.status === "ok" || diagnosis.status === "skip") continue;
+      if (!diagnosis.fix || diagnosis.fix.destructive) continue;
+      diagnosis.fix.apply();
+      refreshed.push(id);
+    } catch (error: unknown) {
+      // A broken shim diagnosis warns; it never blocks the command that asked.
+      process.stderr.write(`warning: ${id} integration refresh failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  }
+  return refreshed;
+}

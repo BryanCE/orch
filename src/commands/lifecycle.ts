@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as path from "node:path";
 import { buildExtensionBundle, EXTENSION_NAMES } from "../bridge-bundle.ts";
+import { refreshStaleShims } from "../doctor/runner.ts";
 import { buildEntities, recipientFor, recipientLabel, resolvePane } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { loadPresence, orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
@@ -241,6 +242,8 @@ export async function cmdReload(args: string[]): Promise<void> {
   } catch (error: unknown) {
     process.stderr.write(`warning: could not rebuild extension bundles: ${errorMessage(error)}\n`);
   }
+  // A reload exists to pick up new code, so stale deployments redeploy first.
+  await refreshStaleShims(orchDir());
   const results: ReloadResult[] = [];
   for (const target of targets) {
     try {
@@ -333,11 +336,13 @@ function renameAgent(backend: Backend, handle: BackendHandle, key: string, name:
 export function cmdRename(args: string[]) {
   const paneLabel = args.includes("--pane");
   const json = args.includes("--json");
-  const positional = args.filter((arg) => arg !== "--pane" && arg !== "--json");
+  const force = args.includes("--force");
+  const positional = args.filter((arg) => arg !== "--pane" && arg !== "--json" && arg !== "--force");
   const target = positional[0];
   const name = positional[1];
-  if (!target || !name) die("usage: orch rename <target> <name> [--pane]");
+  if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
   const { backend, handle, key } = backendTarget(target, "rename");
+  assertAgentOwned(target, { key }, force);
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.
   // --pane relabels the backend's pane chrome instead and leaves the name alone.
@@ -425,9 +430,11 @@ export function cmdClose(args: string[]) {
 
 export function cmdAbort(args: string[]) {
   const json = args.includes("--json");
-  const target = args.find((arg) => arg !== "--json");
-  if (!target) die("usage: orch abort <target> [--json]");
-  const { backend, handle } = backendTarget(target, "abort");
+  const force = args.includes("--force");
+  const target = args.find((arg) => arg !== "--json" && arg !== "--force");
+  if (!target) die("usage: orch abort <target> [--force] [--json]");
+  const { backend, handle, key } = backendTarget(target, "abort");
+  assertAgentOwned(target, { key }, force);
   if (!backend.canSendKeys) die(`backend ${backend.id} cannot send keys.`);
   if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${handle}.`);
   sleepMs(500);

@@ -5,7 +5,7 @@ import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir } from "../../presence/store.ts";
-import { pidAlive } from "../../util.ts";
+import { pidAlive, projectRoot } from "../../util.ts";
 import type {
   Backend,
   BackendCapabilities,
@@ -193,7 +193,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         // ORCH_AGENT_LOG mirrors the recorded log path (D3a) to the presence
         // writer running inside the child, so its own status.json can stamp
         // the same sessionPath the backend registry records below.
-        env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ...(opts.env ?? {}) },
+        env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ORCH_PROJECT: projectRoot(), ...(opts.env ?? {}) },
         // stdin MUST reach EOF: a pi-shaped harness reads its prompt from an open
         // stdin and blocks there before starting a session, so it never registers.
         stdio: ["ignore", logFd, logFd],

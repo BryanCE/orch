@@ -128,6 +128,17 @@ export function readJsonFile(file: string): unknown {
 }
 
 /**
+ * The project this process acts for: the spawner's stamp, else the working dir.
+ * Spawners hand ORCH_PROJECT down so a worker in a worktree (or any other
+ * launch dir) still carries its fleet's project identity, and every presence
+ * scope (peer discovery, HUD) walls on it — one machine runs many projects,
+ * and only same-project agents are one fleet.
+ */
+export function projectRoot(): string {
+  return process.env.ORCH_PROJECT ?? process.cwd();
+}
+
+/**
  * True when a process with this pid exists and we may signal it.
  *
  * `pid <= 0` is rejected rather than passed through: on POSIX `process.kill(0)`

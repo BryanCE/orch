@@ -44,7 +44,7 @@ describe("commands/results", () => {
     seedSettings(root);
     const dir = presenceAgentDir(key, root);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 2, key, backend: "headless", workspace: "wD", handle: "4242", pid: process.pid, agent: "pi", state: "done" }));
+    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "wD", handle: "4242", pid: process.pid, agent: "pi", state: "done" }));
     writeFileSync(join(dir, "result.json"), JSON.stringify({ text: "finished" }));
     const output: string[] = [];
     // eslint-disable-next-line typescript/unbound-method
@@ -67,7 +67,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "earlier turn" }] } }),
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "" }, { type: "text", text: "claude final" }] } }),
     ].join("\n") + "\n");
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 2, key, backend: "headless", workspace: "wT", handle: "5150", pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
+    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "wT", handle: "5150", pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
     try { joined = captureStdout(() => cmdTail([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("claude final");
@@ -91,7 +91,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "message", timestamp: "2026-07-20T10:00:03Z", message: { role: "toolResult", toolName: "bash", content: "file listing", isError: false } }),
       JSON.stringify({ type: "message", timestamp: "2026-07-20T10:00:04Z", message: { role: "assistant", content: [{ type: "text", text: "final answer" }] } }),
     ].join("\n") + "\n");
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 2, key, backend: "headless", workspace: "wP", handle: "7000", pid: process.pid, agent: "pi", state: "done", sessionPath: session }));
+    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "wP", handle: "7000", pid: process.pid, agent: "pi", state: "done", sessionPath: session }));
     return { root, key, restore: () => { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); } };
   }
 
@@ -132,7 +132,7 @@ describe("commands/results", () => {
     mkdirSync(dir, { recursive: true });
     const transcript = join(dir, "session.jsonl");
     writeFileSync(transcript, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "claude only" }] } }) + "\n");
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 2, key, backend: "headless", workspace: "wS", handle: "8000", pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
+    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "wS", handle: "8000", pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
     try { joined = captureStdout(() => cmdSession([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("entries: 0");

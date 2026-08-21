@@ -23,7 +23,7 @@ import {
   isInboxFilename,
   resetInbox,
 } from "../presence/inbox.ts";
-import { isRecord, isUnknownArray, type JsonRecord } from "../util.ts";
+import { isRecord, isUnknownArray, projectRoot, type JsonRecord } from "../util.ts";
 import { createModelControl, isControlCommand } from "./model-control.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { DaemonAck } from "./daemon-ack.ts";
@@ -151,6 +151,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     tabLabel: null as string | null,
     pid: process.pid,
     cwd: process.cwd(),
+    project: projectRoot(),
     state: "idle" as "idle" | "working" | "blocked" | "done" | "exited" | "error" | "aborted",
     lastError: undefined as string | undefined,
     model: undefined as { provider: string; id: string } | undefined,

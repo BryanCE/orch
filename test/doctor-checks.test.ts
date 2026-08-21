@@ -72,7 +72,9 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     const binDir = path.join(directory, "bin");
     fs.mkdirSync(binDir);
-    const bash = path.join(binDir, "bash");
+    // Windows resolves executables through PATHEXT, so the fixture needs a real
+    // executable extension there; POSIX needs the execute bit instead.
+    const bash = path.join(binDir, process.platform === "win32" ? "bash.exe" : "bash");
     fs.writeFileSync(bash, "#!/bin/sh\n");
     fs.chmodSync(bash, 0o755);
     writeConfig(directory, { notify: [{ id: "command", command: ["bash"] }] });

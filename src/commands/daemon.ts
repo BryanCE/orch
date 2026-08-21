@@ -13,8 +13,7 @@ import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, rpcCall } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
-import { selfActor } from "../entities.ts";
-import { die } from "./target.ts";
+import { callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -187,6 +186,10 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
     else if (arg === "--cross-workspace") gov.crossWorkspace = true;
     else rest.push(arg);
   }
+  // Refused at parse time so the message names the flag, before any wall or
+  // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
+  if (gov.steal) forbidAgentOverride("--steal");
+  if (gov.crossWorkspace) forbidAgentOverride("--cross-workspace");
   return { gov, rest };
 }
 
@@ -195,7 +198,11 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
  *  Use {@link writeRpc} when that cost is the whole command. */
 export async function callDaemon(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
   const directory = orchDir();
-  const actor = selfActor();
+  if (gov.steal) forbidAgentOverride("--steal");
+  if (gov.crossWorkspace) forbidAgentOverride("--cross-workspace");
+  // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
+  // selfActor); anything else and an orchestrator cannot steer its own fleet.
+  const actor = callerOwnerToken() ?? null;
   const enriched: Record<string, unknown> = { ...params };
   if (actor !== null) enriched.actor = actor;
   if (gov.steal) enriched.steal = true;

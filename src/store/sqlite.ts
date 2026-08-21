@@ -196,6 +196,10 @@ function openStore(orchDir: string): DatabaseLike {
 /** Close every cached connection; tests call this before removing their temp dirs. */
 export function closeAllStores(): void {
   for (const [path, db] of connections) {
+    // bun's node:sqlite keeps a WAL-mode database file locked on Windows past
+    // close() (oven-sh/bun#25964); leaving WAL first releases the mapping so
+    // the file is deletable the moment close returns.
+    try { db.exec("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;"); } catch {}
     db.close();
     connections.delete(path);
   }

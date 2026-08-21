@@ -13,6 +13,7 @@ import type { Backend, BackendGroup, BackendHandle, BackendId } from "../backend
 import { resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
+import { refreshStaleShims } from "../doctor/runner.ts";
 import { errorMessage } from "../util.ts";
 import { callDaemon, daemonOutage, writeRpc } from "./daemon.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
@@ -603,6 +604,8 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
 }
 
 export async function cmdSpawn(args: string[]) {
+  // A freshly updated orch never launches agents on the last version's bridge.
+  await refreshStaleShims(orchDir());
   await executeSpawn(resolveSpawnSettings(parseSpawnFlags(args)));
 }
 

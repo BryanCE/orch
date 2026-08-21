@@ -9,11 +9,12 @@
 import * as fs from "node:fs";
 import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { Type } from "typebox";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { checkWall, scopeToWorkspace, workspaceOf } from "../policy/workspace.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
-import { isRecord, optionalString, pidAlive, readJsonFile, truncate, type JsonRecord } from "../util.ts";
+import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate, type JsonRecord } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
 import type { AgentPresence } from "./presence.ts";
@@ -54,6 +55,22 @@ export function peerModel(status: unknown): string | undefined {
   return `${provider}/${id}:${thinking}`;
 }
 
+/** Only a human's own session may lift the fleet wall. A spawned agent's view
+ * and reach never widen past the fleet it belongs to — no flag changes that. */
+function callerMayCrossFleets(): boolean {
+  return tryParseIdentity(process.env.ORCH_AGENT_KEY) === null;
+}
+
+/** The fleet wall: same workspace AND same project, unless explicitly unscoped.
+ * One machine runs many projects against one $ORCH_DIR, and a shared plexer
+ * session gives them all one workspace — the project is what separates fleets. */
+function scopeToFleet(peers: Peer[], ownKey: string, allRequested: boolean): Peer[] {
+  const all = allRequested && callerMayCrossFleets();
+  const sameWorkspacePeers = scopeToWorkspace(peers, (peer) => peer.key, workspaceOf(ownKey), { all });
+  if (all) return sameWorkspacePeers;
+  return sameWorkspacePeers.filter((peer) => optionalString(peer.status.project) === projectRoot());
+}
+
 // src/backends/identity.ts is the single escaping authority: every serialized
 // identity key segment is already percent-escaped on all platforms, so the
 // presence directory name IS the key — no remapping (see src/presence/store.ts).
@@ -66,13 +83,15 @@ function livePeers(ownKey: string, allWorkspaces = false): Peer[] {
         return { key: entry.name, dir, status: readStatus(dir) };
       })
       .filter((peer) => pidAlive(peer.status.pid));
-    return scopeToWorkspace(peers, (peer) => peer.key, workspaceOf(ownKey), { all: allWorkspaces });
+    return scopeToFleet(peers, ownKey, allWorkspaces);
   } catch {
     return [];
   }
 }
 
-export function resolvePeer(target: string, ownKey: string, allWorkspaces = false): PeerResolution {
+export function resolvePeer(target: string, ownKey: string, allRequested = false): PeerResolution {
+  // A spawned agent's flag never lifts the wall; only a human session's does.
+  const allWorkspaces = allRequested && callerMayCrossFleets();
   const peers = livePeers(ownKey, true);
   const exact = peers.find((peer) => peer.key === target);
   const matches = exact ? [exact] : peers.filter((peer) => peer.key.endsWith(target));
@@ -81,7 +100,7 @@ export function resolvePeer(target: string, ownKey: string, allWorkspaces = fals
     const wall = checkWall(ownKey, firstMatch.key, { crossWorkspace: allWorkspaces });
     if (!wall.allowed) return { error: `error: ${wall.reason}` };
   }
-  const scopedMatches = scopeToWorkspace(matches, (peer) => peer.key, workspaceOf(ownKey), { all: allWorkspaces });
+  const scopedMatches = scopeToFleet(matches, ownKey, allWorkspaces);
   const firstScopedMatch = scopedMatches[0];
   if (scopedMatches.length === 1 && firstScopedMatch) return { peer: firstScopedMatch };
   if (scopedMatches.length > 1) {

@@ -26,7 +26,7 @@ function identityFixture() {
     const directory = presenceAgentDir(key, orchDir);
     mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, "status.json"), JSON.stringify({
-      schema: 2, key, backend: "headless", workspace: "reported-workspace", handle,
+      schema: 3, key, backend: "headless", workspace: "reported-workspace", handle,
       paneId: handle, pid: process.pid, agent: "pi", state: "idle",
     }));
   }

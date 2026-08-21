@@ -17,7 +17,7 @@ import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { isRecord, parsePid, type JsonRecord } from "../../src/util.ts";
+import { isRecord, parsePid, projectRoot, type JsonRecord } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 
 const AGENT_ID = "codex";
@@ -75,6 +75,7 @@ const status: JsonRecord = {
   paneId,
   pid: agentPid(),
   cwd: textValue(payload.cwd) ?? previous.cwd ?? process.cwd(),
+  project: projectRoot(),
   state,
   sessionPath,
   lastText: truncateOptional(resultText, MAX_TEXT) ?? textValue(previous.lastText),

@@ -28,6 +28,14 @@ export function sameWorkspace(a: string | null | undefined, b: string | null | u
   return a !== null && a !== undefined && b !== null && b !== undefined && a === b;
 }
 
+/** The human operator of a workspace controls every agent keyed into it. A
+ *  spawned agent never carries the `operator` id — its actor token is its own
+ *  minted key — so this grants an agent nothing beyond what it spawned. */
+export function operatorControls(actor: string | null | undefined, agentKey: string | null | undefined): boolean {
+  const identity = tryParseIdentity(actor);
+  return identity?.id === "operator" && sameWorkspace(identity.workspace, workspaceOf(agentKey));
+}
+
 /** Decide whether a caller may cross the workspace wall. */
 export function checkWall(
   ownKey: string | null | undefined,

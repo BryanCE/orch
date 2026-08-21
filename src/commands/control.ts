@@ -6,7 +6,7 @@ import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRe
 import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
-import { assertAgentOwned, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
+import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, workerPrompt, type AgentFlags } from "./spawn.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
@@ -190,7 +190,9 @@ export async function cmdDispatch(args: string[]) {
   const result = await writeRpc("dispatch", { target: key, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), config.locked_commands) }, gov);
   // A spawned agent is already registered under its key; only an unrecorded
   // bare pane needs a row, and it must carry the same key we just dispatched to.
-  if (!spawnedRecords().has(key)) recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined });
+  // Dispatching to a bare pane adopts it: the record carries the dispatcher's
+  // owner token, or the adopted pane stays open to every other orchestrator.
+  if (!spawnedRecords().has(key)) recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, owner: callerOwnerToken() });
   const recipient = recipientFor(key);
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);

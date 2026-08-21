@@ -40,7 +40,7 @@ function writeStatus(dir: string, key: string, handle: string, pid: number, work
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: 2, key, backend: "headless", workspace, handle, paneId: handle,
+    schema: 3, key, backend: "headless", workspace, handle, paneId: handle,
     pid, agent: "pi", state: "working",
   }));
 }
@@ -96,7 +96,7 @@ describe("close always works", () => {
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-      schema: 2, key, backend: "headless", workspace: "foreign-workspace",
+      schema: 3, key, backend: "headless", workspace: "foreign-workspace",
       handle, pid: 99999999, agent: "pi", state: "done",
     }));
 

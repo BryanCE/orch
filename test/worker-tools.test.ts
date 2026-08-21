@@ -11,7 +11,7 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
   models: { allowed: {}, preferred: {} },
   workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: allowTools },
   queue: { max_retries: 1 },
-  daemon: { tcp_port: 3716 },
+  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   notify: [],
   hosts: {},

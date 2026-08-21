@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { projectRoot } from "../src/util.ts";
 import type { NotifyEvent } from "../src/notify/format.ts";
 
 const herdrArgv: string[][] = [];
@@ -58,7 +59,7 @@ describe("herdr and notification hardening", () => {
     expect(handle).toBe("w6:p10");
     expect(herdrArgv.at(-1)).toEqual([
       "agent", "start", "pi-", "--workspace", "ws-test", "--cwd", "/tmp/work dir",
-      "--no-focus", "--", "bash", "-lc", `printf 'quoted "value" spaces $HOME'`,
+      "--no-focus", "--", "env", `ORCH_PROJECT=${projectRoot()}`, "bash", "-lc", `printf 'quoted "value" spaces $HOME'`,
     ]);
   });
 

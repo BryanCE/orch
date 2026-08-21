@@ -32,7 +32,7 @@ function seedAgent(orchDir: string): void {
   const agentDir = path.join(orchDir, "agents", "agent-alpha");
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "status.json"), JSON.stringify({
-    schema: 2,
+    schema: 3,
     agent: "pi",
     paneId: "agent-alpha",
     pid: process.pid,
@@ -120,7 +120,9 @@ describe("CLI daemon skew guard", () => {
     expect(skew?.detail).toContain(staleHash);
     expect(skew?.detail).toContain(installedDaemonHash);
     expect(skew?.detail).toContain("orch daemon reload");
-  });
+    // runDoctor probes the daemon endpoints; on a loaded machine that dial
+    // budget alone can pass bun's default 5s.
+  }, 20_000);
 
   test("does not treat an absent daemon as skew and auto-starts a fresh daemon", () => {
     const orchDir = makeOrchDir();

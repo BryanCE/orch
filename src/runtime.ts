@@ -32,6 +32,7 @@ const SHIM_ENV_VARS = [
   "ORCH_AGENT_KEY",
   "ORCH_DIR",
   "ORCH_AGENT_LOG",
+  "ORCH_PROJECT",
   "CLAUDE_PID",
   "CODEX_PID",
   "HOME",

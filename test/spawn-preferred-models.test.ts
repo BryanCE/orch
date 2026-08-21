@@ -42,7 +42,7 @@ const config = (preferred: string[]): OrchConfig => ({
   models: { allowed: {}, preferred: { pi: preferred } },
   workers: { inherit_extensions: false, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
   queue: { max_retries: 1 },
-  daemon: { tcp_port: 3716 },
+  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   notify: [],
   hosts: {},
@@ -122,7 +122,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     } as unknown as AgentAdapter;
 
     new HeadlessBackend().spawn(adapter, {
-      key: "headless:local:quick",
+      key: "headless~local~quick",
       cwd: directory,
       orchDir: directory,
       prompt: "go",

@@ -4,8 +4,8 @@ import * as files from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
-import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
-import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
+import { allBackends, detectBackends, getBackend, resolveBackend } from "../backends/registry.ts";
+import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, tryLoadSettings, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsNotify, writeSettingsRuntime, writeSettingsSkills } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
 import { PREREQUISITES, signedOutFix } from "../adapters/prerequisites.ts";
@@ -16,6 +16,7 @@ import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { runDoctor, type CheckResult } from "../doctor/runner.ts";
 import { withSpinner, promptText, logStep, logWarning } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
+import { installSkills, packagedSkillNames } from "../setup/skills.ts";
 import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
 import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
@@ -183,6 +184,36 @@ export async function resolveRuntime(
 async function promptConfirm(message: string): Promise<boolean> {
   const answer = await confirm({ message, initialValue: false });
   return !isCancel(answer) && answer === true;
+}
+
+/** Ask whether orch may write its packaged skills into the user's harness directories,
+ *  defaulting to YES. Copying files into `~/.claude` and `~/.agents` is the user's call,
+ *  so a declined or cancelled prompt records the refusal rather than installing anyway. */
+async function askSkillsConsent(roots: readonly string[], recorded: boolean): Promise<boolean> {
+  const answer = await confirm({
+    message: `Install orch's skills (${packagedSkillNames().join(", ")}) into ${roots.join(" and ")}?`,
+    initialValue: recorded,
+  });
+  return !isCancel(answer) && answer === true;
+}
+
+/** Resolve skills consent from `--skills`/`--no-skills`, the prompt, or what is already
+ *  recorded, then write every packaged skill into the configured roots when allowed. */
+async function offerSkills(
+  args: string[],
+  interactive: boolean,
+  ask: (roots: readonly string[], recorded: boolean) => Promise<boolean> = askSkillsConsent,
+): Promise<void> {
+  const { install: recorded, roots } = loadConfig(orchDir()).skills;
+  const forced = args.includes("--skills") ? true : args.includes("--no-skills") ? false : undefined;
+  const install = forced ?? (interactive ? await ask(roots, recorded) : recorded);
+  writeSettingsSkills(orchDir(), { install });
+  process.stdout.write("Skills:\n");
+  if (!install) {
+    process.stdout.write(`  not installed - turn it back on with: orch settings skills --install\n`);
+    return;
+  }
+  for (const written of installSkills(roots)) process.stdout.write(`  ${written}\n`);
 }
 
 /** Print the manual install commands for each missing prerequisite. */
@@ -593,6 +624,8 @@ export async function cmdSetup(args: string[]) {
   process.stdout.write(`  ${presenceDir()}\n`);
 
   const gaps = await installAdapterShims(adapters, copy);
+
+  await offerSkills(args, interactive);
 
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (interactive) await configureNotifiers();

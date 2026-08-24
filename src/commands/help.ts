@@ -198,7 +198,7 @@ Delete dead agent dirs.
   --worktrees   Also clean orphaned worktrees; --force discards unmerged work.
 `,
   setup: `orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]>]
-           [--yes] [--no-install] [--copy]
+           [--yes] [--no-install] [--copy] [--skills|--no-skills]
 Onboarding wizard: multi-select the adapters and backends you use, record them to
 ~/.orch/settings.json, install missing deps, and wire every selected adapter's shim.
 The first id of each list becomes the active default. Prompts interactively on a TTY
@@ -206,13 +206,22 @@ when a selection is omitted.
   --yes         Auto-install missing dependencies.
   --no-install  Report what is missing without installing.
   --copy        Copy shims instead of symlinking.
+  --skills      Install orch's packaged skills without asking.
+  --no-skills   Skip them without asking; nothing is written to your harness dirs.
+Setup asks before copying skills into ~/.claude/skills and ~/.agents/skills. Change the
+answer later with 'orch settings skills'.
 `,
   settings: `orch settings [--json] [--harness=<id>] [--plexer=<id>]
 orch settings models [--harness=<id>] [--model=<model[:thinking]>]
+orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
 Print each effective setting with its source (flag > env > settings.json > default),
 or switch the active default adapter/plexer among the enabled set.
   models        Re-pick, per enabled harness: launch model, picker quicklist
                 (models.preferred), and the launchable set (models.allowed).
+  skills        Turn the skill install on or off and choose its roots. --install writes
+                every packaged skill into them now; --no-install records the refusal and
+                leaves the files already there alone. Roots default to ~/.claude/skills
+                and ~/.agents/skills; a leading ~ expands to your home directory.
 `,
   models: `orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
 List every model each enabled harness reports it can run.

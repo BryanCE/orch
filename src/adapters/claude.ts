@@ -156,20 +156,6 @@ function installClaudeHooks(pkgRoot: string): void {
   }
 }
 
-/** Copy the packaged Claude Code skills into ~/.claude/skills. */
-function installClaudeSkills(pkgRoot: string): void {
-  const skillsSrc = path.join(pkgRoot, "skills", "claude");
-  if (!fs.existsSync(skillsSrc)) return;
-  process.stdout.write("Claude Code skills:\n");
-  for (const s of fs.readdirSync(skillsSrc)) {
-    const dest = path.join(HOME, ".claude", "skills", s);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.rmSync(dest, { recursive: true, force: true });
-    fs.cpSync(path.join(skillsSrc, s), dest, { recursive: true });
-    process.stdout.write(`  ${dest}\n`);
-  }
-}
-
 /** Copy the packaged Claude Code agent definitions into ~/.claude/agents. */
 function installClaudeAgents(pkgRoot: string): void {
   const agentsSrc = path.join(pkgRoot, "agents");
@@ -298,11 +284,12 @@ class ClaudeAdapter implements AgentAdapter {
     return text === undefined ? undefined : { lastText: text };
   }
 
-  /** Install the settings.json presence hooks and copy packaged skills/agents. */
+  /** Install the settings.json presence hooks and copy the packaged subagent definitions.
+   *  Skills are not installed here: they are read by every harness, so setup writes them
+   *  once into the configured roots rather than once per adapter. */
   installShim(): void {
     const root = packageRoot();
     installClaudeHooks(root);
-    installClaudeSkills(root);
     installClaudeAgents(root);
   }
 

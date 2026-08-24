@@ -1,5 +1,6 @@
 import * as files from "node:fs";
-import { loadConfig, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsPreferredModels, type OrchConfig } from "../config.ts";
+import { loadConfig, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsPreferredModels, writeSettingsSkills, type OrchConfig } from "../config.ts";
+import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup.ts";
@@ -86,6 +87,30 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
   }
 }
 
+/**
+ * Turn skill installation on or off, and re-point or re-write the roots. `--install`
+ * copies every packaged skill into the recorded roots straight away, so the setting and
+ * what is on disk never disagree; `--no-install` records the refusal and leaves whatever
+ * the user has there alone, since those files are theirs to remove.
+ */
+export function cmdSettingsSkills(args: string[]): void {
+  const rootsFlag = readAssignFlag(args, "--roots");
+  const install = args.includes("--install") ? true : args.includes("--no-install") ? false : undefined;
+  const roots = rootsFlag?.split(",").map((root) => root.trim()).filter(Boolean);
+  if (install === undefined && roots === undefined) {
+    die("usage: orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]");
+  }
+  if (rootsFlag !== undefined && !roots?.length) die("--roots needs at least one directory.");
+
+  const current = loadConfig(orchDir()).skills;
+  const wanted = install ?? current.install;
+  writeSettingsSkills(orchDir(), { install: wanted, roots });
+  const target = roots ?? current.roots;
+  process.stdout.write(`skills.install = ${wanted}\nskills.roots   = ${target.join(", ")}\n`);
+  if (!wanted) return;
+  for (const written of installSkills(target)) process.stdout.write(`  ${written}\n`);
+}
+
 /** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
 export function cmdSettings(args: string[]): void {
   const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
@@ -124,6 +149,8 @@ export function cmdSettings(args: string[]): void {
     { key: "fleet.cross_workspace", ...resolveWithSource<boolean>({ config: rawSetting<boolean>(orchDir(), "fleet", "cross_workspace"), fallback: config.fleet.cross_workspace }) },
     { key: "queue.max_retries", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "queue", "max_retries"), fallback: config.queue.max_retries }) },
     { key: "tiling.first_split", ...resolveWithSource<string>({ config: rawSetting<string>(orchDir(), "tiling", "first_split"), fallback: config.tiling.first_split }) },
+    { key: "skills.install", ...resolveWithSource<boolean>({ config: rawSetting<boolean>(orchDir(), "skills", "install"), fallback: config.skills.install }) },
+    { key: "skills.roots", ...resolveWithSource<string[]>({ config: rawSetting<string[]>(orchDir(), "skills", "roots"), fallback: config.skills.roots }) },
     { key: "timeouts.dispatch_ack_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "dispatch_ack_ms"), fallback: config.timeouts.dispatch_ack_ms }) },
     { key: "timeouts.wait_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "wait_ms"), fallback: config.timeouts.wait_ms }) },
     { key: "timeouts.adapter_command_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "adapter_command_ms"), fallback: config.timeouts.adapter_command_ms }) },

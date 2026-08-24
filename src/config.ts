@@ -64,6 +64,10 @@ export const SETTINGS_DEFAULTS = {
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
+  // Writing into a user's harness directories needs their say-so, so setup asks and
+  // records the answer here. Both roots ship the same skills: `.claude` is Claude Code's
+  // own, `.agents` is the cross-harness convention every other harness reads.
+  skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
 } as const;
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
@@ -134,6 +138,13 @@ const SettingsFileSchema = z.strictObject({
   tiling: z.strictObject({
     first_split: z.enum(TILE_FIRST_SPLITS).optional(),
   }).optional(),
+  /** Whether orch may copy its packaged skills into the user's harness directories, and
+   * where. Setup asks before the first install and records the answer; a user who wants
+   * to manage the files themselves turns `install` off and orch never writes them again. */
+  skills: z.strictObject({
+    install: z.boolean().optional(),
+    roots: z.array(z.string().min(1)).optional(),
+  }).optional(),
 });
 
 export type SettingsFile = z.infer<typeof SettingsFileSchema>;
@@ -155,6 +166,7 @@ export interface OrchConfig {
   workspaces: Record<string, string>;
   daemon: { tcp_port: number; idle_shutdown_minutes: number };
   tiling: { first_split: TileFirstSplit };
+  skills: { install: boolean; roots: string[] };
 }
 
 /** The settings filename, as a directory watcher sees it. */
@@ -253,14 +265,14 @@ function readSettingsFile(file: string): SettingsFile | null {
  * return the backup path; null when the file is absent or already readable. Pre-publish, a file
  * from an older schema is malformed data rather than something to migrate (Rule 8) — setup reaps
  * it. This is the ONE place that does so, and it is never reached by an ordinary command. */
-export function reapUnreadableSettings(orchDir: string): string | null {
+export function reapUnreadableSettings(orchDir: string, suffix = "invalid"): string | null {
   const file = settingsPath(orchDir);
   if (!filesystem.existsSync(file)) return null;
   try {
     readSettingsFile(file);
     return null;
   } catch {
-    const backup = `${file}.invalid`;
+    const backup = `${file}.${suffix}`;
     filesystem.rmSync(backup, { force: true });
     filesystem.renameSync(file, backup);
     return backup;
@@ -332,12 +344,26 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
       idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
     },
     tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
+    skills: {
+      install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
+      roots: root.skills?.roots ?? [...SETTINGS_DEFAULTS.skills.roots],
+    },
   };
 }
 
 /** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
  * settings.json is a loud error naming the file and `orch setup`, never a silent empty
  * config. Use `loadConfigOrNull` only where first-run really must be distinguished. */
+/** A non-throwing settings load used only by setup recovery. Missing is a clean null;
+ * malformed data returns its validation error so setup can reap the whole file. */
+export function tryLoadSettings(orchDir: string): { config: OrchConfig | null; error: Error | null } {
+  try {
+    return { config: loadConfigOrNull(orchDir), error: null };
+  } catch (error: unknown) {
+    return { config: null, error: error instanceof Error ? error : new Error(errorMessage(error)) };
+  }
+}
+
 export function loadConfig(orchDir: string): OrchConfig {
   const config = loadConfigOrNull(orchDir);
   if (config === null) {
@@ -574,6 +600,15 @@ export function writeSettingsModels(orchDir: string, models: Partial<Record<Adap
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, models: { ...models } } }));
 }
 
+/** Record the user's answer to "may orch write its skills into your harness directories?"
+ *  and, when they named them, which directories. */
+export function writeSettingsSkills(orchDir: string, skills: { install: boolean; roots?: readonly string[] }): void {
+  updateSettingsFile(orchDir, (root) => ({
+    ...root,
+    skills: { install: skills.install, roots: [...(skills.roots ?? root.skills?.roots ?? SETTINGS_DEFAULTS.skills.roots)] },
+  }));
+}
+
 /** Record the setup-enabled provider sets in settings.json. */
 export function writeSettingsEnabled(orchDir: string, enabled: { adapters: readonly AdapterId[]; backends: readonly BackendId[] }): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, enabled: { adapters: [...enabled.adapters], backends: [...enabled.backends] } }));
@@ -615,6 +650,10 @@ export function writeSettingsFullTree(orchDir: string): void {
       idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
     },
     tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
+    skills: {
+      install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
+      roots: root.skills?.roots ?? [...SETTINGS_DEFAULTS.skills.roots],
+    },
   }));
 }
 

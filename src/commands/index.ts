@@ -16,7 +16,7 @@ import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
-import { cmdSettings, cmdSettingsModels } from "./settings.ts";
+import { cmdSettings, cmdSettingsModels, cmdSettingsSkills } from "./settings.ts";
 import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { helpTopic } from "./help.ts";
@@ -131,7 +131,7 @@ MAINTENANCE
   orch clean [--worktrees [--force]]
                                  Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
   orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]>]
-             [--yes] [--no-install] [--copy]
+             [--yes] [--no-install] [--copy] [--skills|--no-skills]
                                  Onboarding wizard: multi-select the adapters and backends
                                  you use (--agent pi,claude / --backend herdr,headless - the
                                  first of each is the active default), record the enabled
@@ -139,6 +139,8 @@ MAINTENANCE
                                  every selected adapter's shim. Prompts interactively when a
                                  selection is omitted on a TTY; --yes auto-installs deps,
                                  --no-install just reports, --copy copies instead of symlinking.
+                                 Asks before copying orch's skills into your harness dirs;
+                                 --skills / --no-skills answers that without the prompt.
   orch settings [--json] [--harness=<id>] [--plexer=<id>]
                                  Print each effective setting with its source (flag > env >
                                  settings.json > default), or switch the active default
@@ -148,6 +150,10 @@ MAINTENANCE
                                  quicklist its own picker cycles (models.preferred), and the set
                                  it may launch at all (models.allowed; none = all offered).
                                  Every harness names models in its own vocabulary.
+  orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
+                                 Turn orch's skill install on or off and choose where it
+                                 writes. --install copies them into the roots right away;
+                                 default roots are ~/.claude/skills and ~/.agents/skills.
   orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
                                  List every model each enabled harness reports it can run -
                                  the quicklist never hides the rest. --preferred shows only the
@@ -292,6 +298,7 @@ export function runCommand(argv: string[]): void {
     case "clean": cmdClean(rest); break;
     case "settings":
       if (rest[0] === "models") void cmdSettingsModels(rest.slice(1)).catch((error: unknown) => die(errorMessage(error)));
+      else if (rest[0] === "skills") cmdSettingsSkills(rest.slice(1));
       else cmdSettings(rest);
       break;
     case "setup": void cmdSetup(rest).catch((error: unknown) => die(errorMessage(error))); break;

@@ -136,6 +136,22 @@ function packagedCopyRemovals(sourceDir: string, claudeDir: string): WipeStep[] 
   return readdirSync(sourceDir).map((entry) => deletion(join(HOME, ".claude", claudeDir, entry))).filter(nonNull);
 }
 
+/** The roots the install actually wrote skills to: what settings.json records, else the
+ *  shipped defaults. Reading the raw file keeps the wipe working on a settings.json too
+ *  malformed for the config loader — the exact state a reset exists to clear. */
+function recordedSkillRoots(): string[] {
+  const recorded = readJsonFile(join(ORCH_DIR, "settings.json"));
+  const roots = isRecord(recorded?.skills) ? recorded.skills.roots : undefined;
+  const named = Array.isArray(roots) ? roots.filter((root): root is string => typeof root === "string") : [];
+  return (named.length ? named : [...SETTINGS_DEFAULTS.skills.roots]).map(resolveSkillRoot);
+}
+
+/** Every packaged skill, removed from every root the install wrote it to. */
+function skillRemovals(): WipeStep[] {
+  const roots = recordedSkillRoots();
+  return packagedSkillNames(REPO).flatMap((name) => roots.map((root) => deletion(join(root, name)))).filter(nonNull);
+}
+
 function claudeHookRemoval(): WipeStep | null {
   const file = join(HOME, ".claude", "settings.json");
   const settings = readJsonFile(file);

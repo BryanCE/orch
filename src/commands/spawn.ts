@@ -1,7 +1,8 @@
 import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/sqlite.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
-import { assertNameFree } from "../policy/name.ts";
+import { assertNameFree, liveNamedRecords, nextNameIndex } from "../policy/name.ts";
+import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
@@ -342,8 +343,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
   const adapter = resolveAdapterOrDie(settings.adapter);
   const config = loadConfig(orchDir());
   const created: CreatedAgent[] = [];
-  for (let index = 1; index <= settings.n; index++) {
-    const name = `${settings.prefix}-${index}`;
+  for (const name of claimSpawnNames(settings.prefix, workspace, settings.n)) {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.preTrustWorkspace?.(cwd, settings.cmd);
     try {
@@ -351,14 +351,17 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
       // it via ORCH_AGENT_KEY, exactly like the pane paths (spawnOneIntoTab).
       // The backend records the OS pid separately for close ownership; the key
       // never encodes it, and the backend never re-mints a second identity.
-      assertNameFree(name, workspace);
       const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
+      const spawner = spawnerIdentity();
       // orchd launches a real harness process inside this call, so it gets the adapter-command
       // budget, not the 5s default meant for a question orchd answers from memory.
       await callDaemon("spawn-detached", {
         key,
         adapter: settings.adapter,
         cwd,
+        // The daemon launches the process, but the IDENTITY of the spawner is
+        // this CLI's: orchd's own env knows nothing about the calling session.
+        env: { ...agentIdentityEnv(name, spawner, callerOwnerToken()), ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined) },
         model: settings.model,
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
@@ -378,6 +381,8 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
         worktree: settings.worktree ? cwd : undefined,
         branch: settings.worktree ? `orch/${name}` : undefined,
         owner: callerOwnerToken(),
+        spawnedBy: spawner.key ?? callerOwnerToken(),
+        spawnedByLabel: spawner.label,
       });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
@@ -411,11 +416,21 @@ function resolveSpawnWorkspace(requested: string | null): string {
   return workspace;
 }
 
-function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter): SpawnRoot {
-  const rootName = `${settings.prefix}-1`;
+function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter, rootName: string): SpawnRoot {
   const rootCwd = settings.worktree ? createAgentWorktree(settings.cwd, rootName) : settings.cwd;
   adapter.preTrustWorkspace?.(rootCwd, settings.cmd);
   if (!backend.createGroup) die(`backend ${backend.id} lacks group creation.`);
+  // The name is ruled on BEFORE the backend allocates anything: a collision
+  // discovered after createGroup left a phantom tab lingering on screen.
+  try {
+    assertNameFree(rootName, workspace);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  // ONE key per agent: the identity passed via ORCH_AGENT_KEY is THE key — the
+  // presence writer, registry, and daemon ack all join on it. The backend pane
+  // handle is recorded as a field, never re-minted into a second key.
+  const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
   let group: BackendGroup;
   let shellRoot: BackendHandle;
   try {
@@ -425,12 +440,15 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   } catch (error: unknown) {
     die(`group create failed: ${errorMessage(error)}`);
   }
-  // ONE key per agent: the identity passed via ORCH_AGENT_KEY is THE key — the
-  // presence writer, registry, and daemon ack all join on it. The backend pane
-  // handle is recorded as a field, never re-minted into a second key.
-  assertNameFree(rootName, workspace);
-  const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
-  const handle = backend.spawn(adapter, { key, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
+  const spawner = spawnerIdentity();
+  let handle: BackendHandle;
+  try {
+    handle = backend.spawn(adapter, { key, env: { ...agentIdentityEnv(rootName, spawner, callerOwnerToken()), ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined) }, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
+  } catch (error: unknown) {
+    // A tab holding no agent is pure pollution: close it before failing the launch.
+    try { backend.closeGroup?.(group.id); } catch { /* the failure below is the report */ }
+    die(`root spawn failed: ${errorMessage(error)}`);
+  }
   backend.close(shellRoot);
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
@@ -465,8 +483,10 @@ export interface TabSpawnSpec {
 export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   assertNameFree(spec.name, spec.workspace);
   const key = serializeIdentity({ backend: spec.backend.id, workspace: spec.workspace, id: mintAgentId() });
+  const spawner = spawnerIdentity();
   const handle = spec.backend.spawn(spec.adapter, {
     key,
+    env: { ...agentIdentityEnv(spec.name, spawner, callerOwnerToken()), ...worktreeEnv(spec.worktree, spec.branch) },
     cwd: spec.cwd,
     name: spec.name,
     workspace: spec.workspace,
@@ -491,6 +511,8 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     worktree: spec.worktree,
     branch: spec.branch,
     owner: callerOwnerToken(),
+    spawnedBy: spawner.key ?? callerOwnerToken(),
+    spawnedByLabel: spawner.label,
   });
   return { key, pane: String(handle), name: spec.name };
 }
@@ -517,12 +539,12 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
   });
 }
 
-function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend): void {
-  for (let i = 2; i <= settings.n; i++) {
+function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend, names: readonly string[]): void {
+  for (const name of names) {
     try {
-      created.push(placeAgent(settings, `${settings.prefix}-${i}`, root.workspace, root.tabId, nextTilePlacement(backend, root.tabId, settings.tiling.first_split), backend));
+      created.push(placeAgent(settings, name, root.workspace, root.tabId, nextTilePlacement(backend, root.tabId, settings.tiling.first_split), backend));
     } catch (error: unknown) {
-      process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
+      process.stderr.write(`warning: could not place agent ${name}: ${errorMessage(error)}\n`);
     }
   }
 }
@@ -533,14 +555,37 @@ function findGroupInWorkspace(backend: Backend, workspace: string, target: strin
     (group.id === target || group.label === target) && (group.workspace === null || group.workspace === workspace));
 }
 
+/** The tab housing this workspace's live "<prefix>-<n>" agents, when the backend
+ *  can see one. It is what `spawn --name <existing-group>` grows into. */
+function groupOfLivePrefix(backend: Backend, prefix: string, workspace: string): BackendGroup | undefined {
+  const handles = new Set(liveNamedRecords(prefix, workspace).map((record) => record.handle).filter((handle) => handle !== undefined));
+  if (handles.size === 0) return undefined;
+  const housed = (backend.inventory?.() ?? []).find((target) => handles.has(String(target.handle)) && target.group !== null);
+  return housed ? (backend.groups?.() ?? []).find((group) => group.id === housed.group) : undefined;
+}
+
+/** The names this launch will use, every one validated BEFORE any tab, pane, or
+ *  worktree exists: numbering continues past live "<prefix>-<n>" agents, so
+ *  spawning under a live name grows that fleet instead of colliding with it. */
+function claimSpawnNames(prefix: string, workspace: string, count: number): string[] {
+  const start = nextNameIndex(prefix, workspace);
+  const names = Array.from({ length: count }, (_, offset) => `${prefix}-${start + offset}`);
+  try {
+    for (const name of names) assertNameFree(name, workspace);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  return names;
+}
+
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
-async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend): Promise<void> {
+async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend, names: readonly string[]): Promise<void> {
   const created: CreatedAgent[] = [];
-  for (let i = 1; i <= settings.n; i++) {
+  for (const name of names) {
     try {
-      created.push(placeAgent(settings, `${settings.prefix}-${i}`, workspace, group.id, nextTilePlacement(backend, group.id, settings.tiling.first_split), backend));
+      created.push(placeAgent(settings, name, workspace, group.id, nextTilePlacement(backend, group.id, settings.tiling.first_split), backend));
     } catch (error: unknown) {
-      process.stderr.write(`warning: could not place agent #${i}: ${errorMessage(error)}\n`);
+      process.stderr.write(`warning: could not place agent ${name}: ${errorMessage(error)}\n`);
     }
   }
   await reportSpawnResults(settings, group.id, group.label ?? group.id, created, backend);
@@ -591,15 +636,19 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const workspace = resolveSpawnWorkspace(settings.workspace);
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
-  // `--tab <existing>` fills that tab instead of opening a new one; the tab
-  // auto-balances as it fills, so no follow-up move/tile is needed.
-  const existing = settings.tabExplicit ? findGroupInWorkspace(backend, workspace, settings.label) : undefined;
-  if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend);
-  const root = createSpawnRoot(settings, workspace, backend, adapter);
+  const names = claimSpawnNames(settings.prefix, workspace, settings.n);
+  // `--tab <existing>` fills that tab instead of opening a new one, and a live
+  // "<prefix>-<n>" fleet is grown in its own tab; both auto-balance as they
+  // fill, so no follow-up move/tile is needed.
+  const existing = (settings.tabExplicit ? findGroupInWorkspace(backend, workspace, settings.label) : undefined)
+    ?? groupOfLivePrefix(backend, settings.prefix, workspace);
+  if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend, names);
+  const root = createSpawnRoot(settings, workspace, backend, adapter, names[0]!);
   const created: CreatedAgent[] = [];
-  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken() });
+  const spawner = spawnerIdentity();
+  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? callerOwnerToken(), spawnedByLabel: spawner.label });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
-  launchAdditionalAgents(settings, root, created, backend);
+  launchAdditionalAgents(settings, root, created, backend, names.slice(1));
   await reportSpawnResults(settings, root.tabId, root.tabLabel, created, backend);
 }
 

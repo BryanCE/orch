@@ -276,6 +276,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     presence.setLastCtx(ctx);
     if (isBeforeAgentStartEvent(event) && typeof event.prompt === "string" && event.prompt.trim()) {
       state.task = truncate(event.prompt, TASK_MAX);
+      state.dispatchId = presence.dispatchIdFor(event.prompt);
     }
   });
 
@@ -286,6 +287,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     state.startedAt = new Date().toISOString();
     state.finishedAt = undefined;
     state.currentFile = undefined;
+    state.filesTouched = [];
     state.lastError = undefined;
     runText.runFull = undefined;
     presence.updateSessionRef(ctx);
@@ -327,6 +329,13 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     return typeof candidate === "string" ? candidate : undefined;
   }
 
+  const WRITING_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
+
+  function recordFileTouched(toolName: string, file: string | undefined): void {
+    if (!file || !WRITING_TOOLS.has(toolName)) return;
+    if (!state.filesTouched.includes(file)) state.filesTouched.push(file);
+  }
+
   function shouldWriteToolStatus(
     previousTool: string | undefined,
     currentTool: string | undefined,
@@ -344,6 +353,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     if (file && file !== state.currentFile) {
       state.currentFile = file;
     }
+    recordFileTouched(name, file);
     if (shouldWriteToolStatus(previousTool, state.lastTool, file)) {
       presence.writeStatus();
     }

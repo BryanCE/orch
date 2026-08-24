@@ -47,12 +47,22 @@ function sleepMs(ms: number): void {
   try { execFileSync("sleep", [String(ms / 1000)], { stdio: "ignore" }); } catch {}
 }
 
-function waitForWorking(entry: PresenceEntry, timeoutMs: number): string | null {
+/** True when the agent's reported status speaks for THIS task's dispatch: the ids
+ *  match, or the bridge reports none at all (hook-based harnesses cannot attribute
+ *  one). A status carrying a DIFFERENT id is another prompt's — an orchestrator's
+ *  own dispatch, say — and settling from it is how results crossed wires. */
+export function statusSpeaksForTask(status: { dispatchId?: string } | null, task: TaskRec): boolean {
+  if (!status) return false;
+  return status.dispatchId === undefined || status.dispatchId === task.dispatchId;
+}
+
+function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: number): string | null {
   const deadline = Date.now() + timeoutMs;
   let state: string | null = null;
   do {
-    state = statusForPresence(entry)?.state ?? null;
-    if (state === "working") return state;
+    const status = statusForPresence(entry);
+    state = status?.state ?? null;
+    if (state === "working" && statusSpeaksForTask(status, task)) return state;
     if (Date.now() >= deadline) return state;
     sleepMs(250);
   } while (true);
@@ -62,16 +72,20 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const adapterId = spawnedRecords().get(entry.key)?.adapter ?? entry.status?.agent;
   const lockedCommands = (options.getConfig?.() ?? loadConfig(options.orchDir)).locked_commands;
   const prompt = `${workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, lockedCommands)}\n\n${task.text}`;
-  const sendPrompt = () => deliverControl(entry.key, { kind: "run", text: prompt, id: randomUUID() });
+  // The claim's dispatch id rides every attempt: the bridge acks per id, so a
+  // retry of the same id can never deliver the prompt twice, and the agent's
+  // status/result echo the id the settle path verifies against.
+  const dispatchId = task.dispatchId ?? randomUUID();
+  const sendPrompt = () => deliverControl(entry.key, { kind: "run", text: prompt, id: dispatchId });
   const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
   try {
     await sendPrompt();
-    let status = waitForWorking(entry, dispatchAckTimeoutMs);
+    let status = waitForWorking(entry, task, dispatchAckTimeoutMs);
     let retried = false;
     if (status !== "working") {
       retried = true;
       await sendPrompt();
-      status = waitForWorking(entry, dispatchAckTimeoutMs);
+      status = waitForWorking(entry, task, dispatchAckTimeoutMs);
     }
     if (!options.json) process.stdout.write(`Dispatched to ${entry.key} -> status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
   } catch (error) {
@@ -79,11 +93,12 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   }
 }
 
-async function waitForTaskState(entry: PresenceEntry, timeoutMs: number): Promise<string> {
+async function waitForTaskState(entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const state = statusForPresence(entry)?.state;
-    if (state === "working" || state === "done" || state === "error") return state;
+    const status = statusForPresence(entry);
+    const state = status?.state;
+    if ((state === "working" || state === "done" || state === "error") && statusSpeaksForTask(status, task)) return state;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return "timeout";
@@ -105,17 +120,33 @@ function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newSta
   };
 }
 
+/** Fail a task whose bound agent can no longer run it. NEVER a requeue: the
+ *  binding is the whole point — a task freed here would land on whatever idle
+ *  pane happens to exist, running a prompt its orchestrator never sent it. */
+function failBoundTask(orchDir: string, task: TaskRec, reason: string, emit: (event: NotifyEvent) => void, entry?: PresenceEntry): void {
+  const settled = recordTaskFailure(orchDir, task.id, reason);
+  if (entry) emit(taskEvent(entry, settled, task.state, settled.state, reason));
+}
+
 function settleClaimedTasks(orchDir: string, maxRetries: number, emit: (event: NotifyEvent) => void): void {
   const presence = loadPresence();
   for (const task of listTasks(orchDir)) {
-    if (task.state !== "claimed" || !task.agentKey) continue;
+    if ((task.state !== "claimed" && task.state !== "queued") || !task.agentKey) continue;
     const agent = presence.get(task.agentKey);
-    const status = agent ? statusForPresence(agent) : null;
-    if (status?.state === "done" && agent) {
+    // The bound agent is gone: the task dies with it rather than re-binding to
+    // whichever new pane shows up under a matching name (the stale-task bite).
+    if (!agent || !agent.alive) {
+      failBoundTask(orchDir, task, `bound agent ${task.agentKey} is gone; a claimed task never re-binds`, emit, agent);
+      continue;
+    }
+    if (task.state !== "claimed") continue;
+    const status = statusForPresence(agent);
+    if (!statusSpeaksForTask(status, task)) continue;
+    if (status?.state === "done") {
       const settled = recordTaskDone(orchDir, task.id, agent.result);
       emit(taskEvent(agent, settled, task.state, settled.state));
     }
-    if (status?.state === "error" && agent) settleError(orchDir, task, maxRetries, typeof status.lastError === "string" ? status.lastError : "agent reported error", agent, emit);
+    if (status?.state === "error") settleError(orchDir, task, maxRetries, typeof status?.lastError === "string" ? status.lastError : "agent reported error", agent, emit);
   }
 }
 
@@ -130,7 +161,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
   try {
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
     const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
-    const state = await waitForTaskState(entry, dispatchAckTimeoutMs);
+    const state = await waitForTaskState(entry, task, dispatchAckTimeoutMs);
     const current = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
     if (state === "timeout") {
       const requeued = requeueTask(options.orchDir, task.id, "agent did not acknowledge working");
@@ -172,12 +203,14 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         listTasks(options.orchDir),
         workerAgent,
         workerWorkspace,
+        entry.key,
       );
-      if (!task || !claimTask(options.orchDir, task.id, entry.key)) continue;
+      const dispatchId = randomUUID();
+      if (!task || !claimTask(options.orchDir, task.id, entry.key, dispatchId)) continue;
       assigned++;
-      const claimed = listTasks(options.orchDir).find((item) => item.id === task.id) ?? { ...task, state: "claimed" as const, agentKey: entry.key };
+      const claimed = listTasks(options.orchDir).find((item) => item.id === task.id) ?? { ...task, state: "claimed" as const, agentKey: entry.key, dispatchId };
       emit(taskEvent(entry, claimed, task.state, claimed.state));
-      await assignTask(options, entry, task, maxRetries, emit);
+      await assignTask(options, entry, claimed, maxRetries, emit);
       if (options.once || options.signal?.aborted) break;
     }
     if (options.once) {

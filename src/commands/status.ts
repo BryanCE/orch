@@ -37,6 +37,15 @@ interface View {
   agent: string;
   /** Orchestrator that spawned this agent; null for panes orch never recorded. */
   owner: string | null;
+  /** Exact session that spawned this agent; null when unreported. */
+  spawnedBy: string | null;
+  /** Human label for the spawning session; null when unreported. */
+  spawnedByLabel: string | null;
+  /** Git worktree and branch used for this agent; null when unreported. */
+  worktree: string | null;
+  branch: string | null;
+  /** Directory the agent works in; the repo boundary a wandering worker crossed. */
+  cwd: string | null;
   model: string; // display, provider stripped
   modelFull: string;
   state: string;
@@ -45,6 +54,8 @@ interface View {
   cost: number;
   ctxPercent: number | null;
   task: string;
+  /** Id of the dispatch the agent reports running, for diffing against what was sent. */
+  dispatchId: string | null;
   last: string;
   exited: boolean;
   sview: SessionView | null;
@@ -100,6 +111,7 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
   const adapter = entityAdapter(ent, spawned);
   const sview = (adapter?.caps.sessionTail && ent.sessionPath ? adapter.readSessionView?.({ sessionPath: ent.sessionPath }) : undefined) ?? null;
 
+  const spawnedRecord = spawned.get(ent.key);
   const modelFull = deriveModelString(pres, sview, adapter);
   const model = modelFull.replace(/^openai-codex\//, "");
   const { state, stateFallback, exited } = deriveState(pres, ent, sview);
@@ -122,7 +134,12 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
     name: ent.name ?? "",
     tab: ent.tabLabel ?? "-",
     agent: pres?.status?.agent ?? (spawned.get(ent.key)?.adapter) ?? ent.agent ?? "-",
-    owner: spawned.get(ent.key)?.owner ?? null,
+    owner: spawnedRecord?.owner ?? null,
+    spawnedBy: spawnedRecord?.spawnedBy ?? pres?.status?.spawnedBy ?? null,
+    spawnedByLabel: spawnedRecord?.spawnedByLabel ?? pres?.status?.spawnedByLabel ?? null,
+    worktree: spawnedRecord?.worktree ?? pres?.status?.worktree ?? null,
+    branch: spawnedRecord?.branch ?? pres?.status?.branch ?? null,
+    cwd: spawnedRecord?.cwd ?? pres?.status?.cwd ?? null,
     model,
     modelFull,
     state,
@@ -131,6 +148,7 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
     cost: deriveCost(pres, sview),
     ctxPercent: deriveContextPercent(pres),
     task: collapse(task),
+    dispatchId: pres?.status?.dispatchId ?? null,
     last: collapse(last),
     exited,
     sview,
@@ -187,14 +205,16 @@ async function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces
   // Two orchestrators sharing a fleet is the only time the owner matters, and it
   // is exactly when a name collision silently hands one session another's pane.
   const showOwner = new Set(visible.map((row) => row.owner ?? "-")).size > 1;
-  const headers = ["PANE", "NAME", ...(showOwner ? ["OWNER"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
-  const caps = [12, 14, ...(showOwner ? [20] : []), 10, 6, 30, 12, 8, 5, 40, 50];
+  const showBranch = visible.some((row) => row.branch);
+  const headers = ["PANE", "NAME", ...(showOwner ? ["OWNER"] : []), ...(showBranch ? ["BRANCH"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
+  const caps = [12, 14, ...(showOwner ? [20] : []), ...(showBranch ? [24] : []), 10, 6, 30, 12, 8, 5, 40, 50];
   for (const row of visible) {
     const name = row.name ?? "";
     rows.push([
       (row.paneId ?? row.key) + (row.focused ? "*" : ""),
       showWorkspace ? `${formatWorkspace(row.workspace, row.workspaceName)} / ${name}` : name,
       ...(showOwner ? [row.owner ?? "-"] : []),
+      ...(showBranch ? [row.branch ?? "-"] : []),
       row.tab ?? "-",
       row.agent ?? "-",
       row.modelShort || row.model || "-",
@@ -231,6 +251,12 @@ export interface StatusRow {
   agent: string | null;
   /** Orchestrator that spawned the agent; null for panes orch never recorded. */
   owner: string | null;
+  spawnedBy: string | null;
+  spawnedByLabel: string | null;
+  worktree: string | null;
+  branch: string | null;
+  /** Directory the agent works in; the repo boundary a wandering worker crossed. */
+  cwd: string | null;
   focused: boolean;
   model: string;
   modelShort: string;
@@ -247,6 +273,9 @@ export interface StatusRow {
   cost: number;
   ctxPercent: number | null;
   task: string | null;
+  /** Id of the dispatch the agent reports running; diff against the id `orch
+   *  dispatch` printed to prove a pane runs the prompt it was sent. */
+  dispatchId: string | null;
   lastText: string | null;
   /** What the MULTIPLEXER reports about the pane the agent runs in. It lags `state`
    *  and is a routing/diagnostic fact, never a completion signal — read `state`. */
@@ -284,6 +313,11 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
     tab: v.entity.tabLabel,
     agent: v.entity.agent,
     owner: v.owner,
+    spawnedBy: v.spawnedBy ?? null,
+    spawnedByLabel: v.spawnedByLabel ?? null,
+    worktree: v.worktree ?? null,
+    branch: v.branch ?? null,
+    cwd: v.cwd ?? null,
     focused: v.entity.focused,
     model: v.modelFull,
     modelShort: v.model,
@@ -294,6 +328,7 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
     cost: v.cost,
     ctxPercent: v.ctxPercent,
     task: viewTask(v),
+    dispatchId: v.dispatchId,
     lastText: viewLastText(v),
     backendStatus: v.entity.backendStatus,
     sessionPath: v.entity.sessionPath,
@@ -329,9 +364,10 @@ async function localStatusRows(args: string[], workspaces: OrchConfig["workspace
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
-    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", owner: null, tab: null, agent: null,
+    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", owner: null,
+    spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
-    exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, lastText: null,
+    exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
     backendStatus: null, sessionPath: null, presenceDir: null, presenceOnly: false,
     tokens: null, turns: null, host, warning,
   };
@@ -380,13 +416,15 @@ export async function cmdStatus(args: string[]): Promise<void> {
   }
   const showWorkspace = all && new Set(rows.map((row) => row.workspace ?? "-")).size > 1;
   const showOwner = new Set(rows.map((row) => row.owner ?? "-")).size > 1;
-  const headers = ["HOST", "PANE", ...(showWorkspace ? ["WORKSPACE"] : []), "NAME", ...(showOwner ? ["OWNER"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
-  const caps = [10, 14, ...(showWorkspace ? [20] : []), 14, ...(showOwner ? [20] : []), 10, 8, 30, 12, 8, 5, 40, 50];
+  const showBranch = rows.some((row) => row.branch);
+  const headers = ["HOST", "PANE", ...(showWorkspace ? ["WORKSPACE"] : []), "NAME", ...(showOwner ? ["OWNER"] : []), ...(showBranch ? ["BRANCH"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
+  const caps = [10, 14, ...(showWorkspace ? [20] : []), 14, ...(showOwner ? [20] : []), ...(showBranch ? [24] : []), 10, 8, 30, 12, 8, 5, 40, 50];
   const tableRows = rows.map((row) => [
     row.host ?? "local", row.warning ? "-" : row.paneId ?? row.key,
     ...(showWorkspace ? [formatWorkspace(row.workspace, row.workspaceName)] : []),
     row.name ?? (row.warning ? "WARNING" : ""),
     ...(showOwner ? [row.owner ?? "-"] : []),
+    ...(showBranch ? [row.branch ?? "-"] : []),
     row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", row.state + (row.staleExtension ? " (stale)" : ""),
     row.cost > 0 ? "$" + row.cost.toFixed(2) : "", row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "",
     truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),

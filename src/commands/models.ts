@@ -66,10 +66,10 @@ function rejectUnsupportedArgs(args: string[]): void {
 }
 
 /** The harnesses to list: the one named by --agent/--harness, else every installed one in order. */
-function readTargets(args: string[], installed: readonly AdapterId[]): AdapterId[] {
-  if (!installed.length) die("no harnesses are installed - run: orch setup");
+function readTargets(args: string[], enabled: readonly AdapterId[]): AdapterId[] {
+  if (!enabled.length) die("no harnesses are installed - run: orch setup");
   const only = readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--harness");
-  return only === undefined ? [...installed] : [validateSetupFlag("harness", only, installed)];
+  return only === undefined ? [...enabled] : [validateSetupFlag("harness", only, enabled)];
 }
 
 /** What a harness reports it can run. One that cannot enumerate lists nothing here rather than
@@ -181,7 +181,7 @@ export function cmdModels(args: string[]): void {
     die(errorMessage(error));
   }
   const search = readAssignFlag(args, "--search");
-  const sections = buildSections(readTargets(args, config.installed.adapters), config, {
+  const sections = buildSections(readTargets(args, config.enabled.adapters), config, {
     quicklistOnly: args.includes("--preferred"),
     ...(search === undefined ? {} : { search }),
   });

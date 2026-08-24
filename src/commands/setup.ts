@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
-import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsInstalled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
+import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsNotify, writeSettingsRuntime } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
 import { PREREQUISITES, signedOutFix } from "../adapters/prerequisites.ts";
@@ -257,7 +257,7 @@ function recordComposition(
   // produce a valid file until it is present. Re-recording the same value is a no-op change.
   writeSettingsRuntime(orchDir(), runtime);
   // Then the installed sets — writeSettingsDefault validates the default against them.
-  writeSettingsInstalled(orchDir(), { adapters, backends });
+  writeSettingsEnabled(orchDir(), { adapters, backends });
   writeSettingsDefault(orchDir(), "adapter", defaultAdapter);
   writeSettingsDefault(orchDir(), "backend", defaultBackend);
   // Every launch path resolves its harness's model from here. Recording them is not

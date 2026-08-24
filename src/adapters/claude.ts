@@ -224,6 +224,12 @@ class ClaudeAdapter implements AgentAdapter {
   /** State is authoritative only when the Claude settings hooks are installed. */
   readonly hookDriven = true;
 
+  /** Claude Code exports CLAUDECODE=1 into every subprocess it runs. */
+  readonly sessionEnvMarker = "CLAUDECODE";
+
+  /** Claude Code exports its per-session UUID, telling parallel sessions apart. */
+  readonly sessionIdEnv = "CLAUDE_CODE_SESSION_ID";
+
   /** Start Claude Code directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
     return opts.model ? `claude --model ${opts.model}` : "claude";

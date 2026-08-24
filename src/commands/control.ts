@@ -5,6 +5,7 @@ import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import { isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
+import { spawnerIdentity } from "../policy/spawner.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
@@ -192,10 +193,16 @@ export async function cmdDispatch(args: string[]) {
   // bare pane needs a row, and it must carry the same key we just dispatched to.
   // Dispatching to a bare pane adopts it: the record carries the dispatcher's
   // owner token, or the adopted pane stays open to every other orchestrator.
-  if (!spawnedRecords().has(key)) recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, owner: callerOwnerToken() });
+  if (!spawnedRecords().has(key)) {
+    const spawner = spawnerIdentity();
+    recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? callerOwnerToken(), spawnedByLabel: spawner.label });
+  }
   const recipient = recipientFor(key);
+  // The id names this dispatch in `orch status` (.dispatchId): matching the two
+  // proves the pane runs the prompt this command sent, not some other delivery.
+  const dispatchId = isRecord(result) && typeof result.id === "string" ? result.id : null;
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
+  else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}${dispatchId ? ` (dispatch ${dispatchId})` : ""}.\n`);
 }
 
 export function parseDispatchFlags(args: string[]): DispatchFlags {

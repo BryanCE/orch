@@ -2,10 +2,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SETTINGS_SCHEMA } from "../../src/config.ts";
 
-/** Derive an `installed` composition from `defaults.adapter`/`defaults.backend` so fixtures that only set
+/** Derive an `enabled` composition from `defaults.adapter`/`defaults.backend` so fixtures that only set
  * a default stay valid under settings.json's membership validation, unless the fixture already specifies one. */
-function deriveInstalled(settings: Record<string, unknown>): { adapters: string[]; backends: string[] } | undefined {
-  if ("installed" in settings) return undefined;
+function deriveEnabled(settings: Record<string, unknown>): { adapters: string[]; backends: string[] } | undefined {
+  if ("enabled" in settings) return undefined;
   const defaults = settings.defaults as Record<string, unknown> | undefined;
   const adapter = defaults?.adapter;
   const backend = defaults?.backend;
@@ -22,8 +22,12 @@ function deriveInstalled(settings: Record<string, unknown>): { adapters: string[
 export function writeSettingsFixture(orchDir: string, settings: Record<string, unknown> = {}): string {
   mkdirSync(orchDir, { recursive: true });
   const file = join(orchDir, "settings.json");
-  const installed = deriveInstalled(settings);
-  const body = installed ? { installed, ...settings } : settings;
+  const enabled = deriveEnabled(settings);
+  // Any daemon a test auto-starts must reap itself fast: one idle minute, not
+  // the production default — a leaked test daemon pins its temp dir and lives
+  // past the whole run.
+  const daemon = "daemon" in settings ? {} : { daemon: { idle_shutdown_minutes: 1 } };
+  const body = enabled ? { enabled, ...daemon, ...settings } : { ...daemon, ...settings };
   writeFileSync(file, JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", ...body }, null, 2) + "\n");
   return file;
 }

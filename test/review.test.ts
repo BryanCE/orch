@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import * as fs from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
@@ -20,7 +21,7 @@ const directories: string[] = [];
 function orchDirWithSettings(): string {
   const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
   directories.push(orchDir);
-  writeSettingsFixture(orchDir, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+  writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
   return orchDir;
 }
 
@@ -49,7 +50,7 @@ function commit(worktreePath: string, file: string, contents: string, message: s
 function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, branch: string): void {
   fs.mkdirSync(path.join(orchDir, "agents", pane), { recursive: true });
   fs.writeFileSync(path.join(orchDir, "agents", pane, "status.json"), JSON.stringify({
-    schema: 3, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
+    schema: PRESENCE_SCHEMA, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
   }));
   insertSpawnedRecord(orchDir, {
     pane, ts: new Date().toISOString(), adapter: "pi", worktree: worktreePath, branch,

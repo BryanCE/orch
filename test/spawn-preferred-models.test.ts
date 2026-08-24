@@ -35,7 +35,7 @@ const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
 
 const config = (preferred: string[]): OrchConfig => ({
   runtime: "node",
-  installed: { adapters: ["pi"], backends: ["headless"] },
+  enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: [],
   defaults: { models: {}, worktree: false },
   fleet: { worker_peer_tools: false, spawn_cap: 8, cross_workspace: false, workspace_caps: {} },

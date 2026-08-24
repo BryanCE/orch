@@ -39,10 +39,10 @@ describe("doctor backend and presence checks", () => {
   });
 
   // The observed real-world install: herdr is the active pane backend, headless and
-  // tmux are also installed, and tmux is not inside a session because you cannot be
+  // tmux are also enabled, and tmux is not inside a session because you cannot be
   // inside a herdr session and a tmux session at once. Requiring insideSession of
   // every backend made this permanently unsatisfiable.
-  test("passes with herdr active while an installed tmux sits outside a session", () => {
+  test("passes with herdr active while an enabled tmux sits outside a session", () => {
     const result = backendCapabilitiesVerdict([
       report("herdr", true, true),
       report("headless", true, true),
@@ -77,7 +77,7 @@ describe("doctor backend and presence checks", () => {
     expect(result.detail).toContain("open a herdr workspace and re-run");
   });
 
-  test("fails when any installed backend is unavailable, active or not", () => {
+  test("fails when any enabled backend is unavailable, active or not", () => {
     const result = backendCapabilitiesVerdict([
       report("herdr", true, true),
       report("tmux", false, false),

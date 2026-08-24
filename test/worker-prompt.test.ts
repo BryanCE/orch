@@ -32,7 +32,7 @@ async function dispatchedPrompt(adapter: AdapterId): Promise<string> {
   process.env.ORCH_DIR = orchDir;
   // The work loop reads its composition from settings.json; orch has no built-in configuration.
   writeSettingsFixture(orchDir, {
-    installed: { adapters: [adapter], backends: ["headless"] },
+    enabled: { adapters: [adapter], backends: ["headless"] },
     defaults: { adapter, backend: "headless" },
   });
   writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "idle" }));

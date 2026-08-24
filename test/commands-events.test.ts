@@ -3,7 +3,8 @@ import { isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/ev
 import { subscribeEvents } from "../src/daemon/rpc.ts";
 
 describe("commands/events", () => {
-  test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, targets: ["agent"] }));
+  test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, sinceSeq: undefined, once: false, mine: false, targets: ["agent"] }));
+  test("parses the wake-up flags", () => expect(parseEventsOptions(["--mine", "--once", "--since-seq", "42", "--json"])).toEqual({ statusFilter: null, all: false, json: true, sinceSeq: 42, once: true, mine: true, targets: [] }));
   test("a subscription with no daemon keeps redialing instead of exiting", () => {
     // One subscription must cover a whole session: a daemon restart drops the
     // socket, and the stream has to come back on its own. Dialing an orch dir with

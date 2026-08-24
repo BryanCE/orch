@@ -17,7 +17,7 @@ import { loadConfig } from "../config.ts";
 import { adapterCommand, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, workerPrompt, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
-import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
+import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, selfSpawnAddress, spawnedBySelf, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
 export async function cmdRun(args: string[]): Promise<void> {
@@ -377,6 +377,7 @@ export function cmdClose(args: string[]) {
     requireCallerOwnerToken();
     for (const record of spawnedRecords().values()) {
       if (!ownsAgent(record)) continue;
+      if (!spawnedBySelf(record)) continue;
       const backend = getBackend(record.backend ?? "") ?? null;
       if (!backend) process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
       const presence = loadPresence().get(record.pane);
@@ -388,6 +389,10 @@ export function cmdClose(args: string[]) {
     assertAgentOwned(target, resolved.entity, force);
     if (resolved.record.owner && !ownsAgent(resolved.record) && !force) {
       die(`Target "${target}" is owned by ${resolved.record.owner}. Use --force to override.`);
+    }
+    if (resolved.record.spawnedBy !== undefined && resolved.record.spawnedBy !== selfSpawnAddress() && !force) {
+      const label = resolved.record.spawnedByLabel ?? "another session";
+      die(`Target "${target}" was spawned by ${label} (${resolved.record.spawnedBy}). Use --force to override.`);
     }
     const pid = resolved.entity.presence?.status?.pid;
     targets.push({ backend: resolved.backend, handle: resolved.handle, key: resolved.record.pane, pid });

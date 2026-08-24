@@ -14,7 +14,7 @@ import { checkExtensionStaleness } from "./extensions.ts";
 import { checkHarnessModels } from "./models.ts";
 import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkSpawnedRegistry, checkWorktreeGitignore } from "./config.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
-import { checkDaemonLock, checkDaemonPresence, checkDaemonSocket, checkDaemonStaleness } from "./daemon.ts";
+import { checkDaemonLock, checkDaemonPresence, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons } from "./daemon.ts";
 import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion, type SshRunner } from "./remote.ts";
 import { checkRuntime } from "./runtime.ts";
 import { readJson } from "./shared.ts";
@@ -66,12 +66,12 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
   // you reach for when the install is broken; it never refuses to run for want of configuration.
   let installedAdapters: AdapterId[] = [];
-  let installedBackends: string[] = [];
+  let enabledBackends: string[] = [];
   let configuredBackend: string | null = null;
   try {
     const config = loadConfigOrNull(orchDir);
     installedAdapters = config?.installed.adapters ?? [];
-    installedBackends = config?.installed.backends ?? [];
+    enabledBackends = config?.installed.backends ?? [];
     configuredBackend = config?.defaults.backend ?? null;
   } catch {}
   const bins = binaryStatus(installedAdapters);
@@ -90,7 +90,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("bins", "Required binaries", () => checkBins(bins, installedAdapters)),
     ...providerChecks,
     ...livePairs.map((pair) => Promise.resolve(pair)),
-    isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(installedBackends, configuredBackend)),
+    isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(enabledBackends, configuredBackend)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
@@ -108,6 +108,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("orchd-staleness", "orchd code", () => checkDaemonStaleness(orchDir)),
     isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),
     isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(orchDir)),
+    isolated("orphan-daemons", "Orphaned daemons", () => checkOrphanDaemons(orchDir)),
     isolated("remote-ssh", "Remote SSH reachability", () => checkRemoteReachability(orchDir, sshRunner)),
     isolated("remote-orch-version", "Remote orch version/schema", () => checkRemoteVersion(orchDir, sshRunner)),
     isolated("remote-orch-dir", "Remote ORCH_DIR", () => checkRemoteOrchDir(orchDir, sshRunner)),

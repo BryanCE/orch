@@ -1,4 +1,4 @@
-import { allBackends } from "../backends/registry.ts";
+import { allBackends, detectBackends } from "../backends/registry.ts";
 import type { CheckResult, DoctorBackendReport } from "../check-result.ts";
 
 /** The backend orch would actually pick, given the configured default. Mirrors
@@ -12,15 +12,18 @@ import type { CheckResult, DoctorBackendReport } from "../check-result.ts";
 function activeBackend(reports: readonly DoctorBackendReport[], configured?: string | null): DoctorBackendReport | null {
   // A configured id resolves through a registry lookup, never an equality branch:
   // core may key a map by id, it may not ask "is this the herdr one?".
-  if (configured) return new Map(reports.map((report) => [report.id, report])).get(configured) ?? null;
-  const live = reports.find((report) => report.panes && report.available && report.insideSession);
+  if (configured) {
+    const report = new Map(reports.map((entry) => [entry.id, entry])).get(configured) ?? null;
+    return report && (report.enabled ?? true) ? report : null;
+  }
+  const live = reports.find((report) => report.panes && (report.detected ?? report.available) && report.insideSession && (report.enabled ?? true));
   if (live) return live;
-  return reports.find((report) => !report.panes) ?? null;
+  return reports.find((report) => !report.panes && (report.enabled ?? true)) ?? null;
 }
 
-/** Every installed backend must be available; only the active one must be inside
+/** Every enabled backend must be detected; only the active one must be inside
  *  a live session. Requiring insideSession of all of them is unsatisfiable the
- *  moment two pane backends are installed — you cannot be inside both a herdr
+ *  moment two pane backends are enabled — you cannot be inside both a herdr
  *  and a tmux session at once, so the check could never pass (design D6).
  *
  *  Severity separates a broken install from situational context (11.3): a missing
@@ -32,7 +35,7 @@ export function backendCapabilitiesVerdict(
   configured?: string | null,
 ): CheckResult {
   const active = activeBackend(backends, configured);
-  const unavailable = backends.filter((backend) => !backend.available).map((backend) => backend.id);
+  const unavailable = backends.filter((backend) => (backend.enabled ?? true) && !(backend.detected ?? backend.available)).map((backend) => backend.id);
 
   const failReasons: string[] = [];
   const warnReasons: string[] = [];
@@ -40,12 +43,16 @@ export function backendCapabilitiesVerdict(
   // headless reports insideSession=true unconditionally (it has no session
   // concept), so this rule needs no special case for it. An available active
   // backend outside its session is situational — warn, do not fail.
-  if (active?.available && !active.insideSession)
+  if (active && (active.detected ?? active.available) && !active.insideSession)
     warnReasons.push(`active backend ${active.id} is not inside a live session - open a ${active.id} workspace and re-run`);
 
-  const rows = backends.map((backend) =>
-    `${backend.id}${backend === active ? " (active)" : ""}: available=${backend.available}, insideSession=${backend.insideSession}, panes=${backend.panes}, focusable=${backend.focusable}, canSendKeys=${backend.canSendKeys}`);
-  const summary = rows.join("\n    ") || "no installed backends";
+  const rows = backends.map((backend) => {
+    const detected = backend.detected ?? backend.available;
+    const enabled = backend.enabled ?? true;
+    const isActive = backend === active || backend.active === true;
+    return `${backend.id}${isActive ? " (active)" : ""}: detected=${detected}, enabled=${enabled}, active=${isActive}, insideSession=${backend.insideSession}, panes=${backend.panes}, focusable=${backend.focusable}, canSendKeys=${backend.canSendKeys}`;
+  });
+  const summary = rows.join("\n    ") || "no supported backends";
   const reasons = [...failReasons, ...warnReasons];
 
   return {
@@ -57,20 +64,31 @@ export function backendCapabilitiesVerdict(
   };
 }
 
-/** Probe the installed backends, then apply the verdict. */
+/** Probe every supported backend, mark enabled ones, then apply the verdict. */
 export function checkBackendCapabilities(
-  ids: readonly string[] = allBackends().map((backend) => backend.id),
+  enabledIds: readonly string[] = allBackends().map((backend) => backend.id),
   configured?: string | null,
 ): CheckResult {
-  const selected = new Set(ids);
-  const backends: DoctorBackendReport[] = allBackends().filter((backend) => selected.has(backend.id)).map((backend) => ({
-    id: backend.id,
-    available: backend.isAvailable(),
-    insideSession: backend.isInsideSession(),
-    workspace: backend.currentIdentity?.()?.workspace ?? null,
-    panes: backend.panes,
-    focusable: backend.focusable,
-    canSendKeys: backend.canSendKeys,
-  }));
-  return backendCapabilitiesVerdict(backends, configured);
+  const enabled = new Set(enabledIds);
+  const detected = detectBackends();
+  const candidates = allBackends();
+  const reports: DoctorBackendReport[] = candidates.map((backend) => {
+    const probe = detected.get(backend.id)!;
+    const isEnabled = enabled.has(backend.id);
+    return {
+      id: backend.id,
+      detected: probe.detected,
+      enabled: isEnabled,
+      active: false,
+      available: probe.detected,
+      insideSession: probe.insideSession,
+      workspace: backend.currentIdentity?.()?.workspace ?? null,
+      panes: backend.panes,
+      focusable: backend.focusable,
+      canSendKeys: backend.canSendKeys,
+    };
+  });
+  const active = activeBackend(reports, configured);
+  for (const report of reports) report.active = report === active;
+  return backendCapabilitiesVerdict(reports, configured);
 }

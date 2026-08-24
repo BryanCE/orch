@@ -33,7 +33,11 @@ export interface TaskRec {
   state: TaskState;
   retries: number;
   lastError?: string;
+  /** Agent this task is bound to, stamped at first claim and kept through every
+   * requeue: a claimed task retries only on its own agent, never another pane. */
   agentKey?: string;
+  /** Id of the dispatch sent for the current claim; a settle must match it. */
+  dispatchId?: string;
   result?: unknown;
   error?: string;
 }
@@ -86,11 +90,11 @@ export function cancelTask(orchDir: string, id: string): TaskRec {
   return requireTask(orchDir, id);
 }
 
-export function claimTask(orchDir: string, id: string, agentKey: string): boolean {
+export function claimTask(orchDir: string, id: string, agentKey: string, dispatchId: string): boolean {
   if (requireTask(orchDir, id).state !== "queued") {
     return false;
   }
-  return writeTaskClaim(orchDir, id, agentKey, new Date().toISOString());
+  return writeTaskClaim(orchDir, id, agentKey, new Date().toISOString(), dispatchId);
 }
 
 export function unclaimTask(orchDir: string, id: string): void {
@@ -100,7 +104,7 @@ export function unclaimTask(orchDir: string, id: string): void {
 // FIFO pick among queued tasks whose constraints the candidate agent satisfies.
 // Constraint matching is by task.opts.agent (exact adapter/agent name) only for
 // now; richer constraints ride in opts.constraints once adapters land.
-export function nextQueuedTask(tasks: TaskRec[], agentName?: string, workspace?: string): TaskRec | undefined {
+export function nextQueuedTask(tasks: TaskRec[], agentName?: string, workspace?: string, candidateKey?: string): TaskRec | undefined {
   return tasks
     .filter((task) => task.state === "queued")
     // A row without an origin workspace is malformed (Rule 8): never claimable by
@@ -109,6 +113,9 @@ export function nextQueuedTask(tasks: TaskRec[], agentName?: string, workspace?:
     .filter((task) => !task.opts.agent || task.opts.agent === agentName)
     // A pinned task stays within its origin workspace when a workspace is supplied.
     .filter((task) => workspace === undefined || task.workspace === workspace)
+    // A once-claimed task stays bound to its agent: a requeue is a retry on that
+    // same pane, never a hand-off to whatever idle pane shows up under the name.
+    .filter((task) => task.agentKey === undefined || task.agentKey === candidateKey)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
 }
 

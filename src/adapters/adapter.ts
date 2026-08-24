@@ -216,6 +216,18 @@ export interface AgentAdapter {
     /** Whether the adapter has a pre-tool seam that can transparently wrap locked commands in the machine-wide lock (pi bridge); false adapters get the worker-prompt clause only, and doctor/setup report the gap. */
     readonly enforcesCommandLocks: boolean;
   };
+  /**
+   * Env var this harness's interactive session exports into its subprocesses,
+   * letting orch name the session KIND a spawn came from when the caller is not
+   * itself an orch agent. Absent when the harness exports none.
+   */
+  readonly sessionEnvMarker?: string;
+  /**
+   * Env var carrying this harness's per-session id, when its sessions export
+   * one. It is what tells two sessions of the same harness apart — without it a
+   * spawn is attributed to the harness kind, never to one session.
+   */
+  readonly sessionIdEnv?: string;
   /** Build the normal shell command used to start one agent in an interactive pane. */
   interactiveCmd(opts: SpawnOpts): string;
   /**

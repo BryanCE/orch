@@ -10,6 +10,11 @@ const WORKER_HEADER_BASE =
 const WORKER_HEADER_ASK_CLAUSE =
   " For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
 
+/** Appended only for adapters whose bridge carries the peer tools (inbox steer). */
+const WORKER_HEADER_SPAWNER_CLAUSE =
+  " The session orchestrating you is named in your status record (spawnedByLabel);" +
+  " reply or report to it with orch_send target \"spawner\".";
+
 /** Names the machine-wide locked commands; empty when the user declared none. */
 function lockedCommandsClause(lockedCommands: readonly string[]): string {
   if (lockedCommands.length === 0) return "";
@@ -20,7 +25,8 @@ function lockedCommandsClause(lockedCommands: readonly string[]): string {
 /** Compose the worker header from one resolved adapter's ask capability and the locked-command list. */
 export function workerHeaderFor(adapter: AgentAdapter | undefined, lockedCommands: readonly string[] = []): string {
   const ask = adapter?.caps.ask ? WORKER_HEADER_ASK_CLAUSE : "";
-  return WORKER_HEADER_BASE + ask + lockedCommandsClause(lockedCommands);
+  const spawner = adapter?.caps.steer === "inbox" ? WORKER_HEADER_SPAWNER_CLAUSE : "";
+  return WORKER_HEADER_BASE + ask + spawner + lockedCommandsClause(lockedCommands);
 }
 
 /** Strip the composed worker header (base + any clauses) from a dispatched task's text. */

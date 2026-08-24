@@ -10,7 +10,7 @@ import { loadConfig, watchConfig, type ConfigWatch, type OrchConfig } from "../c
 import { loadSinks, type Sink } from "../notify/router.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -176,6 +176,18 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/** Extra env as it arrives over RPC: absent, or a flat record of strings. The
+ *  CLI passes the SPAWNER's identity through here — orchd launches the process,
+ *  but its own env knows nothing about the session that asked for the spawn. */
+export function optionalEnvRecord(value: unknown, name: string): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)
+    || Object.values(value).some((entry) => typeof entry !== "string")) {
+    throw new Error(`${name} must be a record of string env values`);
+  }
+  return value as Record<string, string>;
+}
+
 /** A model quicklist as it arrives over RPC: absent, or an array of non-empty specs. A joined
  *  string is REJECTED rather than coerced — it would reach the harness as one model id no
  *  registry lists, and the picker it was meant to fill would come up empty. */
@@ -208,6 +220,7 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
   assertModelAllowed(directory, adapter, model);
   const handle = detachedBackend.spawn(adapter, {
     key,
+    env: optionalEnvRecord(value.env, "env"),
     orchDir: directory,
     cwd: optionalString(value.cwd),
     prompt: requiredString(value.prompt, "prompt"),
@@ -344,6 +357,16 @@ async function main(): Promise<void> {
   });
   presenceWatch = startPresenceWatch({
     orchDir: directory,
+    metadataFor: (key) => {
+      const record = spawnedRecords().get(key);
+      return {
+        name: record?.name ?? null,
+        tab: null,
+        pid: undefined,
+        spawnedBy: record?.spawnedBy,
+        spawnedByLabel: record?.spawnedByLabel,
+      };
+    },
     onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event); },
   });
   workLoopRunning = true;

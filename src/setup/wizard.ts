@@ -2,6 +2,7 @@ import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import type { HarnessModel } from "../adapters/adapter.ts";
 import { splitThinkingSuffix } from "../policy/model.ts";
+import { allBackends } from "../backends/registry.ts";
 import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 
 const MODEL_PICKER_MAX_ITEMS = 15;
@@ -42,7 +43,8 @@ export function selectDefaultAdapter<Id extends string>(selected: readonly Id[])
 
 /** Multi-select every backend to set up; null when the user cancels. */
 export function selectBackends<Id extends string>(backends: readonly Id[]): Promise<Id[] | null> {
-  return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({ value: id, label: id, hint: "", checked: false })));
+  const detected = new Set(allBackends().filter((backend) => backend.isAvailable()).map((backend) => backend.id));
+  return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({ value: id, label: id, hint: "", checked: detected.has(id) })));
 }
 
 /** Pick the default backend among the selected set; null when the user cancels. */

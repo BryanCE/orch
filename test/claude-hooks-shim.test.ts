@@ -31,7 +31,7 @@ interface ShimRun {
   stderr: string;
 }
 
-/** Run the built shim under one runtime, exactly as the installed settings.json hook does. */
+/** Run the built shim under one runtime, exactly as the enabled settings.json hook does. */
 function runShim(runtime: OrchRuntime, event: string, env: Record<string, string | undefined>): ShimRun {
   const [bin, ...args] = runtime === "deno" ? ["deno", "run", "--allow-all", shim, event] : [runtime, shim, event];
   try {

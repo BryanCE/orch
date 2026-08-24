@@ -169,6 +169,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     const cwd = opts.cwd ?? process.cwd();
     const orchDir = opts.orchDir ?? process.env.ORCH_DIR ?? "";
     const envArgs = ["-e", `ORCH_AGENT_KEY=${opts.key ?? ""}`, "-e", `ORCH_DIR=${orchDir}`];
+    for (const [name, value] of Object.entries(opts.env ?? {})) envArgs.push("-e", `${name}=${value}`);
 
     // A planned target pane wins over the group: `-t <window>` splits whatever
     // pane happens to be active there, which makes placement depend on focus.

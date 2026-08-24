@@ -1,14 +1,15 @@
 import { rmSync } from "node:fs";
 import { closeAllStores } from "../../src/store/sqlite.ts";
-import { daemonLockPid } from "../../src/commands/daemon.ts";
-import { pidAlive } from "../../src/util.ts";
+import { provenDaemonPid } from "../../src/daemon/lifecycle.ts";
 
 /** Kill the detached orchd a CLI-driven test auto-started under this dir. A
  *  live daemon holds the dir's orch.db open forever — no rm retry outwaits a
- *  process — and each one leaked survives the whole test run. */
+ *  process — and each one leaked survives the whole test run. Only a PROVEN
+ *  owner is signalled: fixtures seed locks naming this very test runner's pid,
+ *  and a start-token match is what no seeded record can fake. */
 function killTempDirDaemon(dir: string): void {
-  const pid = daemonLockPid(dir);
-  if (pid === undefined || !pidAlive(pid)) return;
+  const pid = provenDaemonPid(dir);
+  if (pid === undefined || pid === process.pid) return;
   try { process.kill(pid, "SIGTERM"); } catch {}
 }
 

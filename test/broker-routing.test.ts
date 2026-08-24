@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,9 +21,9 @@ function makeOrchDir(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-broker-routing-"));
   tempDirs.push(directory);
   // Dispatch resolves the adapter before probing the daemon; without an
-  // installed default it dies on "no harness selected" instead of the
+  // enabled default it dies on "no harness selected" instead of the
   // daemon-absent failure these tests assert.
-  writeSettingsFixture(directory, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+  writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
   return directory;
 }
 
@@ -31,7 +32,7 @@ function seedAgent(orchDir: string): void {
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "status.json"),
-    JSON.stringify({ schema: 3, agent: "pi", paneId: "agent-alpha", pid: process.pid, state: "working" }),
+    JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "pi", paneId: "agent-alpha", pid: process.pid, state: "working" }),
   );
 }
 

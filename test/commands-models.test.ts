@@ -19,7 +19,7 @@ const read = (id: AdapterId): readonly HarnessModel[] => catalogues[id] ?? [];
 
 const config = (): OrchConfig => ({
   runtime: "node",
-  installed: { adapters: ["pi", "claude"], backends: ["headless"] },
+  enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
   locked_commands: [],
   defaults: { models: { pi: "openai/gpt-5.6:high", claude: "sonnet" }, worktree: false },
   fleet: { worker_peer_tools: false, spawn_cap: 8, cross_workspace: false, workspace_caps: {} },

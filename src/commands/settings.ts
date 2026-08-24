@@ -60,10 +60,10 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  const installed = config.installed.adapters;
-  if (!installed.length) die("no harnesses are installed - run: orch setup");
+  const enabled = config.enabled.adapters;
+  if (!enabled.length) die("no harnesses are installed - run: orch setup");
   const only = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
-  const targets = only === undefined ? installed : [validateSetupFlag("harness", only, installed)];
+  const targets = only === undefined ? enabled : [validateSetupFlag("harness", only, enabled)];
 
   const chosen = await resolveHarnessModels(readAssignFlag(args, "--model"), targets, process.stdout.isTTY === true);
   if (chosen === null) return;
@@ -106,7 +106,7 @@ export function cmdSettings(args: string[]): void {
 
   // One model row per installed harness: each names models in its own vocabulary,
   // so there is no single "the model" to report.
-  const modelRows = config.installed.adapters.map((harness) => ({
+  const modelRows = config.enabled.adapters.map((harness) => ({
     key: `model (${harness})`,
     ...resolveWithSource<string>({ config: config.defaults.models[harness], fallback: "(none)" }),
   }));
@@ -131,11 +131,11 @@ export function cmdSettings(args: string[]): void {
     ...modelRows,
   ];
 
-  const installedSet = config.installed.adapters.length > 0 || config.installed.backends.length > 0;
+  const enabledSet = config.enabled.adapters.length > 0 || config.enabled.backends.length > 0;
   if (json) {
     const out: Record<string, unknown> = {};
     for (const { key, value, source } of provenance) out[key] = { value, source };
-    out.installed = { value: config.installed, source: installedSet ? "settings.json" : "default" };
+    out.enabled = { value: config.enabled, source: enabledSet ? "settings.json" : "default" };
     process.stdout.write(JSON.stringify(out, null, 2) + "\n");
     return;
   }
@@ -147,9 +147,9 @@ export function cmdSettings(args: string[]): void {
     process.stdout.write(`  ${key.padEnd(width)}  ${formatValue(value).padEnd(valueWidth)}  ${source}\n`);
   }
   process.stdout.write("\n");
-  process.stdout.write(`  installed.adapters  ${config.installed.adapters.join(", ") || "(none)"}\n`);
-  process.stdout.write(`  installed.backends  ${config.installed.backends.join(", ") || "(none)"}\n`);
-  for (const harness of config.installed.adapters) {
+  process.stdout.write(`  enabled.adapters  ${config.enabled.adapters.join(", ") || "(none)"}\n`);
+  process.stdout.write(`  enabled.backends  ${config.enabled.backends.join(", ") || "(none)"}\n`);
+  for (const harness of config.enabled.adapters) {
     // Two lists, never conflated: the quicklist that harness's own picker shows, then the
     // gate its spawns are held to. A model missing from the first is still launchable.
     process.stdout.write(modelListRow("picker", harness, config.models.preferred[harness] ?? [], "(none)"));

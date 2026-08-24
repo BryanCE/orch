@@ -8,7 +8,14 @@ export interface FixDescriptor {
 
 export interface DoctorBackendReport {
   id: string;
-  available: boolean;
+  /** Whether the backend runtime is present on this machine. */
+  detected?: boolean;
+  /** Whether the backend is enabled in settings. */
+  enabled?: boolean;
+  /** Whether this backend is the selected runtime for this invocation. */
+  active?: boolean;
+  /** Legacy spelling retained for consumers of the detailed capability report. */
+  available?: boolean;
   insideSession: boolean;
   panes: boolean;
   focusable: boolean;

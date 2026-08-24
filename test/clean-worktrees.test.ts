@@ -13,7 +13,7 @@ const directories: string[] = [];
 function orchDirWithSettings(): string {
   const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
   directories.push(orchDir);
-  writeSettingsFixture(orchDir, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+  writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
   return orchDir;
 }
 

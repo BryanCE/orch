@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -16,13 +17,13 @@ interface CliResult {
 
 const directories: string[] = [];
 const binPath = path.join(import.meta.dir, "../bin/orch.ts");
-const installedDaemonHash = computeCodeHash(path.join(import.meta.dir, "../dist/daemon/orchd.js"));
+const enabledDaemonHash = computeCodeHash(path.join(import.meta.dir, "../dist/daemon/orchd.js"));
 
 function makeOrchDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-skew-guard-"));
   directories.push(directory);
   writeSettingsFixture(directory, {
-    installed: { adapters: ["pi"], backends: [] },
+    enabled: { adapters: ["pi"], backends: [] },
     defaults: { adapter: "pi" },
   });
   return directory;
@@ -32,7 +33,7 @@ function seedAgent(orchDir: string): void {
   const agentDir = path.join(orchDir, "agents", "agent-alpha");
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "status.json"), JSON.stringify({
-    schema: 3,
+    schema: PRESENCE_SCHEMA,
     agent: "pi",
     paneId: "agent-alpha",
     pid: process.pid,
@@ -77,7 +78,7 @@ describe("CLI daemon skew guard", () => {
 
     expect(result.status).not.toBe(0);
     expect(text).toContain(staleHash);
-    expect(text).toContain(installedDaemonHash);
+    expect(text).toContain(enabledDaemonHash);
     expect(text).toContain("orch daemon reload");
   }, 15_000);
 
@@ -118,7 +119,7 @@ describe("CLI daemon skew guard", () => {
 
     expect(skew?.status).toBe("warn");
     expect(skew?.detail).toContain(staleHash);
-    expect(skew?.detail).toContain(installedDaemonHash);
+    expect(skew?.detail).toContain(enabledDaemonHash);
     expect(skew?.detail).toContain("orch daemon reload");
     // runDoctor probes the daemon endpoints; on a loaded machine that dial
     // budget alone can pass bun's default 5s.

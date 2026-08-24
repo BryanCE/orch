@@ -72,10 +72,10 @@ const SettingsFileSchema = z.strictObject({
   schemaVersion: z.literal(SETTINGS_SCHEMA),
   /** The JS runtime this install executes under — a REQUIRED top-level scalar, chosen at
    * `orch setup`. Not a member of `defaults` (no spawn may pick its own runtime) and not
-   * an `installed` set (exactly one runtime executes an install). Never defaulted on read. */
+   * an `enabled` set (exactly one runtime executes an install). Never defaulted on read. */
   runtime: z.enum(ORCH_RUNTIMES),
-  /** Providers whose integrations setup installed; any of them can be spawned. */
-  installed: z.strictObject({
+  /** Providers whose integrations setup enabled; any of them can be spawned. */
+  enabled: z.strictObject({
     adapters: z.array(z.enum(ADAPTER_IDS)),
     backends: z.array(z.enum(BACKEND_IDS)),
   }).optional(),
@@ -142,7 +142,7 @@ export type HostConfig = z.infer<typeof HostSchema>;
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchConfig {
   runtime: OrchRuntime;
-  installed: { adapters: AdapterId[]; backends: BackendId[] };
+  enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; worktree: boolean };
   fleet: { spawn_cap: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
@@ -194,7 +194,7 @@ function valueAtPath(root: unknown, path: readonly PropertyKey[]): unknown {
 }
 
 /** Describe a rejected provider id so the operator sees the value and the closed set,
- *  never a raw enum dump. `installed.adapters[0]` and `defaults.adapter` both name one adapter. */
+ *  never a raw enum dump. `enabled.adapters[0]` and `defaults.adapter` both name one adapter. */
 function unknownProviderId(root: unknown, path: readonly PropertyKey[]):
   { noun: string; at: string; found: unknown; supported: readonly string[] } | null {
   const supported = { adapter: ADAPTER_IDS, adapters: ADAPTER_IDS, backend: BACKEND_IDS, backends: BACKEND_IDS };
@@ -267,17 +267,17 @@ export function reapUnreadableSettings(orchDir: string): string | null {
   }
 }
 
-/** Reject defaults outside the installed sets — composition validation the pure schema can't do.
+/** Reject defaults outside the enabled sets — composition validation the pure schema can't do.
  *  Unknown ids never reach here: the schema's enums are the closed provider sets. */
-function requireInstalledComposition(file: string, root: SettingsFile): void {
-  const installed = root.installed ?? { adapters: [], backends: [] };
+function requireEnabledComposition(file: string, root: SettingsFile): void {
+  const enabled = root.enabled ?? { adapters: [], backends: [] };
   const adapter = root.defaults?.adapter;
-  if (adapter !== undefined && !installed.adapters.includes(adapter)) {
-    throw new Error(`${file}: defaults.adapter: "${adapter}" is not an installed adapter - installed: ${installed.adapters.join(", ") || "(none)"}; re-run orch setup`);
+  if (adapter !== undefined && !enabled.adapters.includes(adapter)) {
+    throw new Error(`${file}: defaults.adapter: "${adapter}" is not an enabled adapter - enabled: ${enabled.adapters.join(", ") || "(none)"}; re-run orch setup`);
   }
   const backend = root.defaults?.backend;
-  if (backend !== undefined && !installed.backends.includes(backend)) {
-    throw new Error(`${file}: defaults.backend: "${backend}" is not an installed backend - installed: ${installed.backends.join(", ") || "(none)"}; re-run orch setup`);
+  if (backend !== undefined && !enabled.backends.includes(backend)) {
+    throw new Error(`${file}: defaults.backend: "${backend}" is not an enabled backend - enabled: ${enabled.backends.join(", ") || "(none)"}; re-run orch setup`);
   }
 }
 
@@ -297,10 +297,10 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
     }
     return null;
   }
-  requireInstalledComposition(file, root);
+  requireEnabledComposition(file, root);
   return {
     runtime: root.runtime,
-    installed: { adapters: root.installed?.adapters ?? [], backends: root.installed?.backends ?? [] },
+    enabled: { adapters: root.enabled?.adapters ?? [], backends: root.enabled?.backends ?? [] },
     defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
     fleet: {
       spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
@@ -541,14 +541,14 @@ export function writeSettingsPreferredModels(orchDir: string, preferred: Partial
   updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, preferred: withoutEmptyLists(preferred) } }));
 }
 
-/** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the installed sets) never lands on disk — write `installed` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */
+/** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the enabled sets) never lands on disk — write `enabled` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the config watcher only ever reads a complete file. */
 function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
   const file = settingsPath(orchDir);
   // The seed for a brand-new file is deliberately incomplete: `runtime` is required and has
   // no default, so setup must record it (writeSettingsRuntime) before any other write lands.
   const root: Partial<SettingsFile> = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
   const updated = SettingsFileSchema.parse(mutate(root));
-  requireInstalledComposition(file, updated);
+  requireEnabledComposition(file, updated);
   filesystem.mkdirSync(orchDir, { recursive: true });
   const tmp = settingsTemporaryPath(file);
   filesystem.writeFileSync(tmp, JSON.stringify(updated, null, 2) + "\n");
@@ -569,21 +569,21 @@ export function writeSettingsDefault(orchDir: string, key: "adapter" | "backend"
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, [key]: value } }));
 }
 
-/** Record the model each installed harness launches on, replacing any previous set. */
+/** Record the model each enabled harness launches on, replacing any previous set. */
 export function writeSettingsModels(orchDir: string, models: Partial<Record<AdapterId, string>>): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, models: { ...models } } }));
 }
 
-/** Record the setup-installed provider sets in settings.json. */
-export function writeSettingsInstalled(orchDir: string, installed: { adapters: readonly AdapterId[]; backends: readonly BackendId[] }): void {
-  updateSettingsFile(orchDir, (root) => ({ ...root, installed: { adapters: [...installed.adapters], backends: [...installed.backends] } }));
+/** Record the setup-enabled provider sets in settings.json. */
+export function writeSettingsEnabled(orchDir: string, enabled: { adapters: readonly AdapterId[]; backends: readonly BackendId[] }): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, enabled: { adapters: [...enabled.adapters], backends: [...enabled.backends] } }));
 }
 
 /** Seed the complete settings tree while preserving every value already present. */
 export function writeSettingsFullTree(orchDir: string): void {
   updateSettingsFile(orchDir, (root) => ({
     ...root,
-    installed: root.installed ?? { adapters: [], backends: [] },
+    enabled: root.enabled ?? { adapters: [], backends: [] },
     defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
     fleet: {
       spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,

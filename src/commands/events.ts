@@ -1,6 +1,6 @@
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { buildEntities, currentWorkspace, resolveTarget, workspaceOf } from "../entities.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { scopeToWorkspace, workspaceName } from "../policy/workspace.ts";
@@ -8,8 +8,9 @@ import { type PresenceMetadata } from "../daemon/events.ts";
 import { subscribeEvents } from "../daemon/rpc.ts";
 import { deliverToSink, loadSinks, type Sink } from "../notify/router.ts";
 import { notificationText, type NotifyEvent } from "../notify/format.ts";
+import { spawnerIdentity } from "../policy/spawner.ts";
 import { ensureDaemon } from "./daemon.ts";
-import { die } from "./target.ts";
+import { callerOwnerToken, die } from "./target.ts";
 
 interface WatchItem {
   key: string;
@@ -27,6 +28,9 @@ interface EventsOptions {
   statusFilter: Set<string> | null;
   all: boolean;
   json: boolean;
+  sinceSeq: number | undefined;
+  once: boolean;
+  mine: boolean;
   targets: string[];
 }
 
@@ -34,8 +38,8 @@ interface EventsContext {
   options: EventsOptions;
   items: Map<string, WatchItem>;
   metadata: (key: string) => PresenceMetadata;
-  accepts: (key: string) => boolean;
-  emit: (event: NotifyEvent) => void;
+  accepts: (key: string, event?: NotifyEvent) => boolean;
+  emit: (event: NotifyEvent, streamSeq: number) => boolean;
 }
 
 
@@ -43,10 +47,16 @@ export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
   const items = eventsItems(options);
-  const accepts = (key: string): boolean => {
-    if (options.targets.length) return items.has(key);
-    if (!looksLikePaneKey(key)) return false;
-    return scopeToWorkspace([key], (item) => item, currentWorkspace(), { all: options.all }).length > 0;
+  const mineAddress = options.mine ? spawnerIdentity().key ?? callerOwnerToken() : undefined;
+  const accepts = (key: string, event?: NotifyEvent): boolean => {
+    const inScope = options.targets.length
+      ? items.has(key)
+      : looksLikePaneKey(key)
+        && scopeToWorkspace([key], (item) => item, currentWorkspace(), { all: options.all }).length > 0;
+    if (!inScope) return false;
+    if (!options.mine) return true;
+    const eventSpawnedBy = isRecord(event) && typeof event.spawnedBy === "string" ? event.spawnedBy : undefined;
+    return eventSpawnedBy === mineAddress || spawnedRecords().get(key)?.spawnedBy === mineAddress;
   };
   const context: EventsContext = {
     options,
@@ -99,15 +109,26 @@ export function parseEventsOptions(args: string[]): EventsOptions {
   let statusFilter: Set<string> | null = null;
   let all = false;
   let json = false;
+  let sinceSeq: number | undefined;
+  let once = false;
+  let mine = false;
   const targets: string[] = [];
+  const usage = "usage: orch events [--all] [target ...] [--status s[,s...]] [--json] [--since-seq <n>] [--once] [--mine]";
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--status") statusFilter = new Set((args[++index] ?? "").split(",").map((state) => state.trim()).filter(Boolean));
     else if (argument === "--all") all = true;
     else if (argument === "--json") json = true;
+    else if (argument === "--since-seq") {
+      const value = args[++index];
+      const parsed = value === undefined ? Number.NaN : Number(value);
+      if (!Number.isSafeInteger(parsed)) die(usage);
+      sinceSeq = parsed;
+    } else if (argument === "--once") once = true;
+    else if (argument === "--mine") mine = true;
     else targets.push(argument);
   }
-  return { statusFilter, all, json, targets };
+  return { statusFilter, all, json, sinceSeq, once, mine, targets };
 }
 
 function presenceMetadata(key: string): PresenceMetadata {
@@ -150,20 +171,21 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
   return items;
 }
 
-function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"]): (event: NotifyEvent) => void {
-  return (event): void => {
-    if (options.statusFilter && !options.statusFilter.has(event.newState)) return;
+function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"]): (event: NotifyEvent, streamSeq: number) => boolean {
+  return (event, streamSeq): boolean => {
+    if (options.statusFilter && !options.statusFilter.has(event.newState)) return false;
     const id = event.workspace ?? workspaceOf(event.key);
     const label = workspaceName(id, resolver);
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ...event, workspaceName: label })}\n`);
-      return;
+      process.stdout.write(`${JSON.stringify({ ...event, workspaceName: label, streamSeq })}\n`);
+      return true;
     }
     const rawTitle = notificationText(event, { colorize: true }).title;
     const title = label && id && label !== id ? rawTitle.replace(`[${id}]`, `[${label} (${id})]`) : rawTitle;
     const transition = `  ${event.oldState}->${event.newState}`;
     const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
     process.stdout.write(`${title}${transition}${cost}\n`);
+    return true;
   };
 }
 
@@ -177,10 +199,13 @@ function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"])
 function startEventsTransport(context: EventsContext): () => void {
   const subscription = subscribeEvents(
     orchDir(),
-    { since: 0 },
-    (value) => {
-      if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
-      context.emit(value);
+    context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
+    (value, streamSeq) => {
+      if (!isNotifyEvent(value) || !context.accepts(value.key, value)) return;
+      if (context.emit(value, streamSeq) && context.options.once) {
+        subscription.close();
+        process.exit(0);
+      }
     },
   );
   return () => subscription.close();

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,7 @@ function makeDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-close-always-"));
   dirs.push(dir);
   writeSettingsFixture(dir, {
-    installed: { adapters: ["pi"], backends: ["headless"] },
+    enabled: { adapters: ["pi"], backends: ["headless"] },
     defaults: { adapter: "pi", backend: "headless" },
   });
   process.env.ORCH_DIR = dir;
@@ -40,7 +41,7 @@ function writeStatus(dir: string, key: string, handle: string, pid: number, work
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: 3, key, backend: "headless", workspace, handle, paneId: handle,
+    schema: PRESENCE_SCHEMA, key, backend: "headless", workspace, handle, paneId: handle,
     pid, agent: "pi", state: "working",
   }));
 }
@@ -96,7 +97,7 @@ describe("close always works", () => {
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-      schema: 3, key, backend: "headless", workspace: "foreign-workspace",
+      schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "foreign-workspace",
       handle, pid: 99999999, agent: "pi", state: "done",
     }));
 

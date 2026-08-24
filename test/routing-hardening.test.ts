@@ -61,8 +61,8 @@ describe("store hardening", () => {
   test("the conditional claim is exactly once", () => {
     const dir = tempDir("orch-routing-claim-");
     const task = addTask(dir, "claim me", {}, "w1");
-    expect(writeTaskClaim(dir, task.id, "worker-a", "2026-01-01T00:00:00.000Z")).toBe(true);
-    expect(writeTaskClaim(dir, task.id, "worker-b", "2026-01-01T00:00:01.000Z")).toBe(false);
+    expect(writeTaskClaim(dir, task.id, "worker-a", "2026-01-01T00:00:00.000Z", "dispatch-a")).toBe(true);
+    expect(writeTaskClaim(dir, task.id, "worker-b", "2026-01-01T00:00:01.000Z", "dispatch-b")).toBe(false);
     expect(listTasks(dir).find((candidate) => candidate.id === task.id)?.agentKey).toBe("worker-a");
   });
 });
@@ -71,7 +71,7 @@ describe("CLI offline routing", () => {
   test("status --offline does not start or contact orchd", async () => {
     const dir = tempDir("orch-routing-cli-");
     // orch has no built-in configuration: a spawned CLI reads its composition from this ORCH_DIR.
-    writeSettingsFixture(dir, { installed: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+    writeSettingsFixture(dir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
     const emptyPath = tempDir("orch-routing-path-");
     const child = Bun.spawn([process.execPath, "bin/orch.ts", "status", "--offline", "--local", "--json"], {
       cwd: join(import.meta.dir, ".."),

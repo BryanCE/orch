@@ -193,13 +193,13 @@ describe("runDoctor", () => {
     expect(registryResult.detail).toContain("2");
   });
 
-  test("bins check is driven by the installed set and offers no fix", async () => {
+  test("bins check is driven by the enabled set and offers no fix", async () => {
     const directory = tempDir();
     const previousPath = process.env.PATH;
     try {
       process.env.PATH = path.join(directory, "empty-bin");
       const bins = check(await runDoctor(directory), "bins");
-      expect(bins).toMatchObject({ status: "ok", detail: "no adapters installed" });
+      expect(bins).toMatchObject({ status: "ok", detail: "no adapters enabled" });
       expect(bins.fix).toBeUndefined();
     } finally {
       if (previousPath === undefined) delete process.env.PATH;

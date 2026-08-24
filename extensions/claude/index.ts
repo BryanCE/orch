@@ -107,7 +107,13 @@ const status: JsonRecord = {
   key,
   paneId,
   pid,
+  // Identity stamped at launch: this agent's display name and its spawner.
+  label: textValue(process.env.ORCH_AGENT_NAME) ?? previous.label,
+  spawnedBy: textValue(process.env.ORCH_SPAWNER) ?? previous.spawnedBy,
+  spawnedByLabel: textValue(process.env.ORCH_SPAWNER_LABEL) ?? previous.spawnedByLabel,
   cwd: textValue(input.cwd) ?? previous.cwd ?? process.cwd(),
+  worktree: textValue(process.env.ORCH_AGENT_WORKTREE) ?? previous.worktree,
+  branch: textValue(process.env.ORCH_AGENT_BRANCH) ?? previous.branch,
   project: projectRoot(),
   model,
   task,

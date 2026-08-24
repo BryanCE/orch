@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
@@ -22,7 +23,7 @@ function presenceFixture(): { orchDir: string; key: string } {
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: 3,
+    schema: PRESENCE_SCHEMA,
     key,
     backend: "headless",
     workspace: "reported-workspace",
@@ -39,7 +40,7 @@ function writePresence(orchDir: string, key: string, agent: string, workspace: s
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: 3, key, backend: "headless", workspace, handle, paneId: handle,
+    schema: PRESENCE_SCHEMA, key, backend: "headless", workspace, handle, paneId: handle,
     pid: process.pid, agent, state: "idle",
   }));
 }

@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +26,7 @@ function makeDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-owner-scope-"));
   dirs.push(dir);
   writeSettingsFixture(dir, {
-    installed: { adapters: ["pi"], backends: ["headless"] },
+    enabled: { adapters: ["pi"], backends: ["headless"] },
     defaults: { adapter: "pi", backend: "headless" },
   });
   process.env.ORCH_DIR = dir;
@@ -140,7 +141,7 @@ describe("fleet ownership scoping", () => {
     children.push(child);
     const pid = child.pid!;
     mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "local", handle: String(pid), pid, agent: "pi", state: "working" }));
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "local", handle: String(pid), pid, agent: "pi", state: "working" }));
     writeFileSync(join(dir, "spawned.jsonl"), JSON.stringify({ backend: "headless", adapter: "pi", handle: { pid, key } }) + "\n");
     recordSpawned(key, { backend: "headless", adapter: "pi", handle: String(pid), owner: "other-orchestrator" });
 
@@ -156,7 +157,7 @@ describe("fleet ownership scoping", () => {
     const dir = makeDir();
     const key = "headless~local~foreign-result";
     mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "local", handle: key, pid: process.pid, agent: "pi", state: "done" }));
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "local", handle: key, pid: process.pid, agent: "pi", state: "done" }));
     writeFileSync(join(dir, "agents", key, "result.json"), JSON.stringify({ text: "other session's answer" }));
     recordSpawned(key, { backend: "headless", adapter: "pi", handle: key, owner: "other-orchestrator" });
 
@@ -175,7 +176,7 @@ describe("fleet ownership scoping", () => {
     const dir = makeDir();
     const key = "headless~local~foreign-pane";
     mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "local", handle: key, pid: process.pid, agent: "pi", state: "working" }));
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "local", handle: key, pid: process.pid, agent: "pi", state: "working" }));
     recordSpawned(key, { backend: "headless", adapter: "pi", handle: key, owner: "other-orchestrator" });
 
     const mutations = [
@@ -199,7 +200,7 @@ describe("fleet ownership scoping", () => {
     children.push(child);
     const pid = child.pid!;
     mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "local", handle: String(pid), pid, agent: "pi", state: "working" }));
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "local", handle: String(pid), pid, agent: "pi", state: "working" }));
     writeFileSync(join(dir, "spawned.jsonl"), JSON.stringify({ backend: "headless", adapter: "pi", handle: { pid, key } }) + "\n");
     recordSpawned(key, { backend: "headless", adapter: "pi", handle: String(pid), owner: "other-orchestrator" });
 
@@ -227,7 +228,7 @@ describe("a spawned agent touches only what it spawned", () => {
     const dir = makeDir();
     const key = "headless~wB~victim";
     mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "wB", handle: key, pid: 99999999, agent: "pi", state: "working" }));
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "wB", handle: key, pid: 99999999, agent: "pi", state: "working" }));
     recordSpawned(key, { backend: "headless", adapter: "pi", handle: key });
 
     const result = runCli(dir, ["dispatch", key, "hi", "--cross-workspace"], undefined, { ORCH_AGENT_KEY: agentKey });
@@ -250,7 +251,7 @@ describe("a spawned agent touches only what it spawned", () => {
     const dir = makeDir();
     const key = "headless~wF~victim";
     mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 3, key, backend: "headless", workspace: "wF", handle: key, pid: process.pid, agent: "pi", state: "working" }));
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "wF", handle: key, pid: process.pid, agent: "pi", state: "working" }));
     recordSpawned(key, { backend: "headless", adapter: "pi", handle: key, owner: "herdr~wF~operator" });
 
     const result = runCli(dir, ["close", key, "--force"], undefined, { ORCH_AGENT_KEY: agentKey });
@@ -264,7 +265,7 @@ describe("a spawned agent touches only what it spawned", () => {
     const key = "herdr~wF~worker-b";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     // A dead pid: close must reap the record, never signal a live process here.
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: 3, key, backend: "herdr", workspace: "wF", handle: key, pid: 99999999, agent: "pi", state: "working" }));
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, backend: "herdr", workspace: "wF", handle: key, pid: 99999999, agent: "pi", state: "working" }));
     recordSpawned(key, { backend: "herdr", adapter: "pi", handle: key, owner: agentKey });
 
     const result = runCli(dir, ["close", key], "herdr~wF~operator");

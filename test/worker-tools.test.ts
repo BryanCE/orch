@@ -4,7 +4,7 @@ import type { OrchConfig } from "../src/config.ts";
 
 const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfig => ({
   runtime: "node",
-  installed: { adapters: [], backends: [] },
+  enabled: { adapters: [], backends: [] },
   locked_commands: [],
   defaults: { models: {}, worktree: false },
   fleet: { worker_peer_tools: workerPeerTools ?? false, spawn_cap: 8, cross_workspace: false, workspace_caps: {} },

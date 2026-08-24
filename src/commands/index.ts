@@ -134,7 +134,7 @@ MAINTENANCE
              [--yes] [--no-install] [--copy]
                                  Onboarding wizard: multi-select the adapters and backends
                                  you use (--agent pi,claude / --backend herdr,headless - the
-                                 first of each is the active default), record the installed
+                                 first of each is the active default), record the enabled
                                  sets to ~/.orch/settings.json, install missing deps, and wire
                                  every selected adapter's shim. Prompts interactively when a
                                  selection is omitted on a TTY; --yes auto-installs deps,
@@ -142,14 +142,14 @@ MAINTENANCE
   orch settings [--json] [--harness=<id>] [--plexer=<id>]
                                  Print each effective setting with its source (flag > env >
                                  settings.json > default), or switch the active default
-                                 adapter/plexer among the installed set.
+                                 adapter/plexer among the enabled set.
   orch settings models [--harness=<id>] [--model=<model[:thinking]>]
-                                 Re-pick, per installed harness: the model it launches on, the
+                                 Re-pick, per enabled harness: the model it launches on, the
                                  quicklist its own picker cycles (models.preferred), and the set
                                  it may launch at all (models.allowed; none = all offered).
                                  Every harness names models in its own vocabulary.
   orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
-                                 List every model each installed harness reports it can run -
+                                 List every model each enabled harness reports it can run -
                                  the quicklist never hides the rest. --preferred shows only the
                                  quicklist, --search matches spec or label, --pick prints one
                                  full spec for scripting. Lists only; records nothing.

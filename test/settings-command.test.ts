@@ -46,7 +46,7 @@ describe("orch settings", () => {
   test("--json reports value + source per setting, settings.json winning over defaults", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
-      installed: { adapters: ["pi", "claude"], backends: ["headless"] },
+      enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: { adapter: "pi", backend: "headless" },
     });
 
@@ -56,13 +56,13 @@ describe("orch settings", () => {
     expect(report["model (pi)"]!.source).toBe("default");
     expect(report["model (claude)"]!.source).toBe("default");
     expect(report["fleet.spawn_cap"]).toEqual({ value: 8, source: "default" });
-    expect(report.installed!.value).toEqual({ adapters: ["pi", "claude"], backends: ["headless"] });
+    expect(report.enabled!.value).toEqual({ adapters: ["pi", "claude"], backends: ["headless"] });
   }, 30_000);
 
   test("--json reports env as the winning source over settings.json", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
-      installed: { adapters: ["pi"], backends: [] },
+      enabled: { adapters: ["pi"], backends: [] },
       defaults: { adapter: "pi" },
     });
 
@@ -70,10 +70,10 @@ describe("orch settings", () => {
     expect(report.adapter).toEqual({ value: "claude", source: "env" });
   }, 30_000);
 
-  test("--harness switches defaults.adapter between installed ids and rejects a non-installed id", () => {
+  test("--harness switches defaults.adapter between enabled ids and rejects a non-enabled id", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
-      installed: { adapters: ["pi", "claude"], backends: ["headless"] },
+      enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: { adapter: "pi", backend: "headless" },
     });
 
@@ -84,13 +84,13 @@ describe("orch settings", () => {
     const rejected = runSettingsExpectingFailure(directory, "--harness=codex");
     expect(rejected.status).not.toBe(0);
     expect(rejected.stderr).toContain("codex");
-    expect(rejected.stderr).toContain("installed");
+    expect(rejected.stderr).toContain("enabled");
   }, 60_000);
 
   test("reports each harness's picker quicklist and launch gate as separate rows", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
-      installed: { adapters: ["pi", "claude"], backends: ["headless"] },
+      enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: { adapter: "pi", backend: "headless" },
       models: { preferred: { pi: ["openrouter/a", "openrouter/b"] }, allowed: { pi: ["openrouter/*"] } },
     });

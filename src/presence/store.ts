@@ -43,13 +43,22 @@ export interface PresenceStatus {
   paneId?: string | null;
   pid?: number;
   cwd?: string;
+  /** Git worktree the launch isolated this agent into; absent when it shares the fleet's tree. */
+  worktree?: string;
+  /** Branch of that worktree. */
+  branch?: string;
   state?: string;
   lastError?: string;
   model?: { provider?: string; id?: string };
   thinking?: string;
   task?: string;
+  /** Id of the orch dispatch whose prompt the agent is running; absent on a
+   *  human-typed run or a bridge that cannot attribute one (hook-based). */
+  dispatchId?: string;
   lastText?: string;
   currentFile?: string;
+  /** Files the agent's writing tools touched this run, when its bridge tracks them. */
+  filesTouched?: string[];
   tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
   cost?: number;
   context?: { tokens?: number; percent?: number };
@@ -61,6 +70,11 @@ export interface PresenceStatus {
   updatedAt?: string;
   extensionHash?: string;
   label?: string | null;
+  /** Address of the session that spawned this agent (its presence key, else its
+   *  governance token); absent for agents nothing spawned. */
+  spawnedBy?: string;
+  /** Human description of the spawner: "lead-1 (pi)", "claude session", "operator". */
+  spawnedByLabel?: string;
   tabLabel?: string | null;
   asking?: { question: string; id: string; ts: string };
   blockedMessage?: string;
@@ -102,7 +116,7 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
 
 export function recordSpawned(
   pane: string,
-  metadata: { adapter?: AdapterId; model?: string; backend?: BackendId; workspace?: string; handle?: string; name?: string; cwd?: string; worktree?: string; branch?: string; owner?: string } = {},
+  metadata: { adapter?: AdapterId; model?: string; backend?: BackendId; workspace?: string; handle?: string; name?: string; cwd?: string; worktree?: string; branch?: string; owner?: string; spawnedBy?: string; spawnedByLabel?: string } = {},
 ): void {
   // Never swallowed. An agent whose registry row is missing has no recorded
   // backend handle, so nothing can ever address it again: status shows nothing,
@@ -119,6 +133,8 @@ export function recordSpawned(
   if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
   if (metadata.branch !== undefined) record.branch = metadata.branch;
   if (metadata.owner !== undefined) record.owner = metadata.owner;
+  if (metadata.spawnedBy !== undefined) record.spawnedBy = metadata.spawnedBy;
+  if (metadata.spawnedByLabel !== undefined) record.spawnedByLabel = metadata.spawnedByLabel;
   insertSpawnedRecord(orchDir(), record);
   if (metadata.owner) setOwner(orchDir(), pane, metadata.owner);
 }

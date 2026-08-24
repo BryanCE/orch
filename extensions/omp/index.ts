@@ -58,7 +58,9 @@ function orchestratorBridgeExtension(harness: HarnessApi): void {
 
   async function refreshLabels(): Promise<void> {
     const applied = await hud.readLabels((labels) => {
-      presence.state.label = labels.label;
+      // A live pane label refines the name; an unlabeled pane never erases the
+      // launch-stamped one.
+      if (labels.label) presence.state.label = labels.label;
       presence.state.tabLabel = labels.tabLabel;
     });
     if (applied) presence.writeStatus();

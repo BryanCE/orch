@@ -51,7 +51,7 @@ EOF_HERDR
 chmod +x "$BIN_DIR/herdr"
 
 cat > "$ORCH_FIXTURE/settings.json" <<'EOF_CONFIG'
-{"schemaVersion":1,"runtime":"node","installed":{"adapters":["pi"],"backends":[]},"defaults":{"adapter":"pi"},"fleet":{"spawn_cap":1}}
+{"schemaVersion":1,"runtime":"node","enabled":{"adapters":["pi"],"backends":[]},"defaults":{"adapter":"pi"},"fleet":{"spawn_cap":1}}
 EOF_CONFIG
 
 cat > "$ORCH_FIXTURE/agents/w0:p1/status.json" <<EOF_STATUS

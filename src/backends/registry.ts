@@ -24,6 +24,14 @@ export function allBackends(): Backend[] {
   return [...backends.values()];
 }
 
+/** Probe every registered backend without selecting one. */
+export function detectBackends(): ReadonlyMap<string, { detected: boolean; insideSession: boolean }> {
+  return new Map<string, { detected: boolean; insideSession: boolean }>(allBackends().map((backend): [string, { detected: boolean; insideSession: boolean }] => [backend.id, {
+    detected: backend.isAvailable(),
+    insideSession: backend.isInsideSession(),
+  }]));
+}
+
 function supportedIds(): string {
   return allBackends().map((backend) => backend.id).join(", ");
 }

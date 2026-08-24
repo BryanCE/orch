@@ -10,9 +10,9 @@ import { isBackendId, type BackendId } from "../backends/backend.ts";
 // outbox, and spawn registry. jsonl remains the human-visible truth channel for
 // presence/results/transitions; only this internal state lives here.
 
-/** Stamped into `PRAGMA user_version`. BUMP THIS whenever a table's columns
- *  change: a store carrying any other stamp is reaped and recreated empty. */
-const STORE_SCHEMA = 2;
+/** Stamped into `PRAGMA user_version`. Pre-publish this stays 1: a store
+ *  carrying any other stamp is malformed and gets reaped and recreated empty. */
+const STORE_SCHEMA = 1;
 
 export interface SpawnedRecord {
   /** Primary registry id: the agent's serialized identity key. */
@@ -33,6 +33,10 @@ export interface SpawnedRecord {
   branch?: string;
   /** Orchestrator ownership token stamped at spawn time. */
   owner?: string;
+  /** Address of the exact session that spawned this pane; `owner` only names the workspace operator. */
+  spawnedBy?: string;
+  /** Human description of the spawning session ("lead-1 (pi)", "claude session"). */
+  spawnedByLabel?: string;
 }
 
 interface StatementLike {
@@ -116,6 +120,7 @@ function createTables(db: DatabaseLike): void {
       retries INTEGER NOT NULL DEFAULT 0,
       last_error TEXT,
       agent_key TEXT,
+      dispatch_id TEXT,
       result TEXT
     );
     CREATE TABLE IF NOT EXISTS ownership (
@@ -145,7 +150,9 @@ function createTables(db: DatabaseLike): void {
       name TEXT,
       cwd TEXT,
       worktree TEXT,
-      branch TEXT
+      branch TEXT,
+      spawned_by TEXT,
+      spawned_by_label TEXT
     );
   `);
 }
@@ -216,6 +223,7 @@ interface QueueRow {
   retries: number;
   last_error: string | null;
   agent_key: string | null;
+  dispatch_id: string | null;
   result: string | null;
 }
 
@@ -232,6 +240,7 @@ function rowToTask(row: QueueRow): TaskRec {
   if (row.origin_workspace !== null) task.workspace = row.origin_workspace;
   if (row.last_error !== null) task.lastError = row.last_error;
   if (row.agent_key !== null) task.agentKey = row.agent_key;
+  if (row.dispatch_id !== null) task.dispatchId = row.dispatch_id;
   if (row.result !== null) task.result = JSON.parse(row.result) as unknown;
   return task;
 }
@@ -305,11 +314,13 @@ export function selectQueueTask(orchDir: string, id: string): TaskRec | undefine
   return row ? rowToTask(row) : undefined;
 }
 
-/** Atomic queued->claimed transition; true only for the single winning caller. */
-export function writeTaskClaim(orchDir: string, id: string, agentKey: string, ts: string): boolean {
+/** Atomic queued->claimed transition; true only for the single winning caller.
+ *  The claim stamps the dispatch id the agent will be sent, so a later settle
+ *  can prove the agent's reported state is for THIS task and not another prompt. */
+export function writeTaskClaim(orchDir: string, id: string, agentKey: string, ts: string, dispatchId: string): boolean {
   const changes = openStore(orchDir)
-    .query("UPDATE queue SET state = 'claimed', agent_key = ?, updated_at = ? WHERE id = ? AND state = 'queued'")
-    .run(agentKey, ts, id).changes;
+    .query("UPDATE queue SET state = 'claimed', agent_key = ?, dispatch_id = ?, updated_at = ? WHERE id = ? AND state = 'queued'")
+    .run(agentKey, dispatchId, ts, id).changes;
   return changes === 1;
 }
 
@@ -319,9 +330,11 @@ export function writeTaskDone(orchDir: string, id: string, ts: string, result: u
     .run(result === undefined ? null : JSON.stringify(result), ts, id);
 }
 
+/** Terminal failure. Reaches claimed tasks and bound-but-requeued ones (queued
+ *  with an agent_key): a retry whose agent died must die too, never re-bind. */
 export function writeTaskFailure(orchDir: string, id: string, ts: string, error: string): void {
   openStore(orchDir)
-    .query("UPDATE queue SET state = 'failed', last_error = ?, updated_at = ? WHERE id = ? AND state = 'claimed'")
+    .query("UPDATE queue SET state = 'failed', last_error = ?, updated_at = ? WHERE id = ? AND (state = 'claimed' OR (state = 'queued' AND agent_key IS NOT NULL))")
     .run(error, ts, id);
 }
 
@@ -356,6 +369,8 @@ interface SpawnedRow {
   cwd: string | null;
   worktree: string | null;
   branch: string | null;
+  spawned_by: string | null;
+  spawned_by_label: string | null;
 }
 
 function rowToSpawned(row: SpawnedRow): SpawnedRecord {
@@ -372,6 +387,8 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
   if (row.cwd !== null) record.cwd = row.cwd;
   if (row.worktree !== null) record.worktree = row.worktree;
   if (row.branch !== null) record.branch = row.branch;
+  if (row.spawned_by !== null) record.spawnedBy = row.spawned_by;
+  if (row.spawned_by_label !== null) record.spawnedByLabel = row.spawned_by_label;
   return record;
 }
 
@@ -379,13 +396,14 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
 export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): void {
   openStore(orchDir)
     .query(
-      `INSERT INTO spawned (pane, ts, adapter, model, backend, workspace, handle, name, cwd, worktree, branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO spawned (pane, ts, adapter, model, backend, workspace, handle, name, cwd, worktree, branch, spawned_by, spawned_by_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(pane) DO UPDATE SET
          ts = excluded.ts, adapter = excluded.adapter, model = excluded.model,
          backend = excluded.backend, workspace = excluded.workspace, handle = excluded.handle,
          name = excluded.name, cwd = excluded.cwd,
-         worktree = excluded.worktree, branch = excluded.branch`,
+         worktree = excluded.worktree, branch = excluded.branch,
+         spawned_by = excluded.spawned_by, spawned_by_label = excluded.spawned_by_label`,
     )
     .run(
       record.pane,
@@ -399,6 +417,8 @@ export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): voi
       record.cwd ?? null,
       record.worktree ?? null,
       record.branch ?? null,
+      record.spawnedBy ?? null,
+      record.spawnedByLabel ?? null,
     );
 }
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   derivePresenceTransition,
   emitAndNotify,
+  isRepeatTransition,
   startPresenceWatch,
   type PresenceWatch,
 } from "../src/daemon/events.ts";
@@ -72,6 +73,31 @@ describe("daemon presence events", () => {
     await waitFor(() => received.some((event) => eventState(event) === "idle"));
     stop();
     expect(eventState(received[0])).toBe("idle");
+  });
+
+  test("a flapping status file cannot storm the stream with repeat transitions", () => {
+    const flap = { key: "w9:flap", agent: "pi", tab: null, model: null, oldState: "aborted", newState: "done", task: "same task", ts: "t" };
+    const emitted: unknown[] = [];
+    emitAndNotify((event) => emitted.push(event), [], { ...flap });
+    emitAndNotify((event) => emitted.push(event), [], { ...flap });
+    emitAndNotify((event) => emitted.push(event), [], { ...flap, oldState: "done", newState: "aborted" });
+    emitAndNotify((event) => emitted.push(event), [], { ...flap, oldState: "done", newState: "aborted" });
+    expect(emitted.length).toBe(2);
+  });
+
+  test("a genuine repeat of the same transition for new work still publishes", () => {
+    const done = { key: "w9:redo", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
+    const emitted: unknown[] = [];
+    emitAndNotify((event) => emitted.push(event), [], { ...done, task: "first dispatch", dispatchId: "d1" });
+    emitAndNotify((event) => emitted.push(event), [], { ...done, task: "second dispatch", dispatchId: "d2" });
+    expect(emitted.length).toBe(2);
+  });
+
+  test("a repeat transition publishes again once the suppression window passes", () => {
+    const event = { key: "w9:window", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", task: "t", ts: "t" };
+    expect(isRepeatTransition(event, 1_000)).toBe(false);
+    expect(isRepeatTransition(event, 2_000)).toBe(true);
+    expect(isRepeatTransition(event, 2_000 + 121_000)).toBe(false);
   });
 
   test("presence transitions resolve the human name before emission", () => {

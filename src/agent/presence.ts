@@ -23,7 +23,7 @@ import {
   isInboxFilename,
   resetInbox,
 } from "../presence/inbox.ts";
-import { isRecord, isUnknownArray, projectRoot, type JsonRecord } from "../util.ts";
+import { isRecord, isUnknownArray, optionalString, projectRoot, type JsonRecord } from "../util.ts";
 import { createModelControl, isControlCommand } from "./model-control.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { DaemonAck } from "./daemon-ack.ts";
@@ -147,19 +147,29 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     agent: options.identity.agentId,
     key: "",
     paneId: options.paneId,
-    label: null as string | null,
+    // The launch stamps the agent's display name and its spawner's identity into
+    // env; a plexer HUD may later refine the label, but identity never depends on one.
+    label: (optionalString(process.env.ORCH_AGENT_NAME) ?? null) as string | null,
+    spawnedBy: optionalString(process.env.ORCH_SPAWNER),
+    spawnedByLabel: optionalString(process.env.ORCH_SPAWNER_LABEL),
     tabLabel: null as string | null,
     pid: process.pid,
     cwd: process.cwd(),
     project: projectRoot(),
+    // Stamped by the launch when this agent got its own git worktree; absent
+    // for an agent sharing the fleet's working tree.
+    worktree: optionalString(process.env.ORCH_AGENT_WORKTREE),
+    branch: optionalString(process.env.ORCH_AGENT_BRANCH),
     state: "idle" as "idle" | "working" | "blocked" | "done" | "exited" | "error" | "aborted",
     lastError: undefined as string | undefined,
     model: undefined as { provider: string; id: string } | undefined,
     thinking: undefined as string | undefined,
     lastTool: undefined as string | undefined,
     task: undefined as string | undefined,
+    dispatchId: undefined as string | undefined,
     lastText: undefined as string | undefined,
     currentFile: undefined as string | undefined,
+    filesTouched: [] as string[],
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     cost: 0,
     context: undefined as { tokens: number; percent?: number } | undefined,
@@ -182,6 +192,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     runFull: undefined as string | undefined,
   };
   let pendingHandoff: { target: string; note?: string } | undefined;
+  /** The last inbox text delivery, kept so the run it starts can name its dispatch. */
+  let delivered: { id: string; text: string } | undefined;
 
   function writeStatus() {
     if (!dir) return;
@@ -212,6 +224,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       text,
       ...details,
       task: state.task,
+      dispatchId: state.dispatchId,
       model: state.model,
       thinking: state.thinking,
       tokens: state.tokens,
@@ -377,19 +390,21 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     appendAck(dir, id, state.key);
   }
 
-  async function applyInboxMessage(parsed: unknown): Promise<void> {
+  async function applyInboxMessage(parsed: unknown, messageId: string | undefined): Promise<void> {
     if (await routeInboxCommand(parsed)) return;
     const text = typeof parsed === "string"
       ? parsed
       : isRecord(parsed) && typeof parsed.text === "string" ? parsed.text : undefined;
-    if (text) deliverSteerText(text);
+    if (!text) return;
+    if (messageId !== undefined) delivered = { id: messageId, text };
+    deliverSteerText(text);
   }
 
   async function routeInboxLine(line: string): Promise<void> {
     const parsed = parseInboxLine(line);
     const messageId = ack.messageIdOf(parsed);
     if (messageId !== undefined && ack.isAcked(messageId)) return;
-    await applyInboxMessage(parsed);
+    await applyInboxMessage(parsed, messageId);
     if (messageId !== undefined) {
       ack.markAcked(messageId);
       try {
@@ -421,6 +436,10 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     if (!candidate) return;
     dir = candidate;
     state.key = key;
+    // Subprocesses of this session (the harness's own shell tools running the
+    // orch CLI) inherit this, so a spawn made FROM here can hand its workers
+    // this session's reply address — whatever harness this happens to be.
+    process.env.ORCH_SESSION_KEY = key;
     controlFile = path.join(dir, CONTROL_FILE);
 
     resetInbox(dir); // ignore steers from a previous life
@@ -465,7 +484,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
         return;
       }
       const note = handoff.note ? `${handoff.note}\n` : "";
-      appendPeerInbox(resolved.peer.dir, `[result from ${ownKey}] ${note}${finalText}`);
+      const sender = state.label ? `${state.label} (${ownKey})` : ownKey;
+      appendPeerInbox(resolved.peer.dir, `[result from ${sender}] ${note}${finalText}`);
       state.handoffError = undefined;
       clearPendingHandoff();
     } catch {
@@ -494,6 +514,9 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     initPresence,
     keyOrCompute,
     ownPresenceKey,
+    /** Id of the dispatch whose delivered text is this prompt, or undefined for a human-typed run. */
+    dispatchIdFor: (prompt: string): string | undefined =>
+      delivered && delivered.text.trim() === prompt.trim() ? delivered.id : undefined,
     writeStatus,
     writeResult,
     updateSessionRef,

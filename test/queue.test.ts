@@ -53,12 +53,12 @@ describe("queue", () => {
     const orchDir = makeOrchDir();
     const task = addTask(orchDir, "claim me", {}, "w1");
 
-    expect(claimTask(orchDir, task.id, "agent-one")).toBe(true);
-    expect(claimTask(orchDir, task.id, "agent-two")).toBe(false);
+    expect(claimTask(orchDir, task.id, "agent-one", "dispatch-one")).toBe(true);
+    expect(claimTask(orchDir, task.id, "agent-two", "dispatch-two")).toBe(false);
 
     const anotherTask = addTask(orchDir, "race me", {}, "w1");
     const claims = await Promise.all(
-      Array.from({ length: 32 }, (_, index) => Promise.resolve().then(() => claimTask(orchDir, anotherTask.id, `agent-${index}`))),
+      Array.from({ length: 32 }, (_, index) => Promise.resolve().then(() => claimTask(orchDir, anotherTask.id, `agent-${index}`, `dispatch-${index}`))),
     );
 
     expect(claims.filter(Boolean)).toHaveLength(1);
@@ -71,13 +71,13 @@ describe("queue", () => {
     const failed = addTask(orchDir, "break", {}, "w1");
     const retried = addTask(orchDir, "try again", {}, "w1");
 
-    expect(claimTask(orchDir, done.id, "agent-a")).toBe(true);
+    expect(claimTask(orchDir, done.id, "agent-a", "dispatch-done")).toBe(true);
     recordTaskDone(orchDir, done.id, "ok");
 
-    expect(claimTask(orchDir, failed.id, "agent-b")).toBe(true);
+    expect(claimTask(orchDir, failed.id, "agent-b", "dispatch-failed")).toBe(true);
     recordTaskFailure(orchDir, failed.id, "boom");
 
-    expect(claimTask(orchDir, retried.id, "agent-c")).toBe(true);
+    expect(claimTask(orchDir, retried.id, "agent-c", "dispatch-retried")).toBe(true);
     unclaimTask(orchDir, retried.id);
 
     expect(listTasks(orchDir)).toEqual(
@@ -96,7 +96,7 @@ describe("queue", () => {
     const claimed = addTask(orchDir, "do not cancel me", {}, "w1");
 
     expect(cancelTask(orchDir, queued.id)).toMatchObject({ state: "cancelled" });
-    expect(claimTask(orchDir, claimed.id, "agent-a")).toBe(true);
+    expect(claimTask(orchDir, claimed.id, "agent-a", "dispatch-claimed")).toBe(true);
     expect(cancelTask(orchDir, claimed.id)).toMatchObject({ state: "claimed", error: "Cannot cancel claimed task" });
   });
 
@@ -116,31 +116,31 @@ describe("queue", () => {
     const orchDir = makeOrchDir();
     const task = addTask(orchDir, "flaky", {}, "w1");
 
-    expect(claimTask(orchDir, task.id, "agent-a")).toBe(true);
+    expect(claimTask(orchDir, task.id, "agent-a", "dispatch-a")).toBe(true);
     let current = requeueTask(orchDir, task.id, "turn died");
     expect(current).toMatchObject({ state: "queued", retries: 1, lastError: "turn died" });
     expect(taskShouldRetry(current, 1)).toBe(false);
 
-    expect(claimTask(orchDir, task.id, "agent-a")).toBe(true);
+    expect(claimTask(orchDir, task.id, "agent-a", "dispatch-a")).toBe(true);
     current = recordTaskFailure(orchDir, task.id, "died again");
     expect(current).toMatchObject({ state: "failed", lastError: "died again" });
-    expect(claimTask(orchDir, task.id, "agent-b")).toBe(false);
+    expect(claimTask(orchDir, task.id, "agent-b", "dispatch-b")).toBe(false);
   });
 
   test("settles a claimed task to done and blocks any later claim", () => {
     const orchDir = makeOrchDir();
     const task = addTask(orchDir, "one shot", {}, "w1");
 
-    expect(claimTask(orchDir, task.id, "agent-a")).toBe(true);
+    expect(claimTask(orchDir, task.id, "agent-a", "dispatch-a")).toBe(true);
     expect(recordTaskDone(orchDir, task.id, "ok")).toMatchObject({ state: "done", result: "ok" });
-    expect(claimTask(orchDir, task.id, "agent-b")).toBe(false);
+    expect(claimTask(orchDir, task.id, "agent-b", "dispatch-b")).toBe(false);
   });
 
   test("exactly one of two racing claimers wins", () => {
     const orchDir = makeOrchDir();
     const task = addTask(orchDir, "contended", {}, "w1");
 
-    const outcomes = [claimTask(orchDir, task.id, "runner-1"), claimTask(orchDir, task.id, "runner-2")];
+    const outcomes = [claimTask(orchDir, task.id, "runner-1", "dispatch-r1"), claimTask(orchDir, task.id, "runner-2", "dispatch-r2")];
     expect(outcomes.filter(Boolean)).toHaveLength(1);
     expect(listTasks(orchDir)[0]).toMatchObject({ state: "claimed", agentKey: "runner-1" });
   });
@@ -150,6 +150,37 @@ describe("queue", () => {
     expect(() => addTask(orchDir, "no workspace")).toThrow(/origin workspace/i);
     expect(() => addTask(orchDir, "blank workspace", {}, "   ")).toThrow(/origin workspace/i);
     expect(listTasks(orchDir)).toHaveLength(0);
+  });
+
+  test("a claim stamps the dispatch id the settle path verifies against", () => {
+    const orchDir = makeOrchDir();
+    const task = addTask(orchDir, "traced", {}, "w1");
+
+    expect(claimTask(orchDir, task.id, "agent-a", "dispatch-42")).toBe(true);
+    expect(listTasks(orchDir)[0]).toMatchObject({ state: "claimed", agentKey: "agent-a", dispatchId: "dispatch-42" });
+  });
+
+  test("a once-claimed task is only ever offered back to its own agent", () => {
+    const orchDir = makeOrchDir();
+    const task = addTask(orchDir, "bound", {}, "w1");
+    expect(claimTask(orchDir, task.id, "agent-a", "dispatch-1")).toBe(true);
+    unclaimTask(orchDir, task.id); // a retry keeps the binding
+
+    const tasks = listTasks(orchDir);
+    expect(tasks[0]).toMatchObject({ state: "queued", agentKey: "agent-a" });
+    expect(nextQueuedTask(tasks, "worker", "w1", "agent-a")?.id).toBe(task.id);
+    expect(nextQueuedTask(tasks, "worker", "w1", "agent-b")).toBeUndefined();
+    expect(nextQueuedTask(tasks, "worker", "w1")).toBeUndefined();
+  });
+
+  test("a bound-but-requeued task can fail terminally instead of re-binding", () => {
+    const orchDir = makeOrchDir();
+    const task = addTask(orchDir, "orphaned retry", {}, "w1");
+    expect(claimTask(orchDir, task.id, "agent-a", "dispatch-1")).toBe(true);
+    unclaimTask(orchDir, task.id);
+
+    const failed = recordTaskFailure(orchDir, task.id, "bound agent agent-a is gone");
+    expect(failed).toMatchObject({ state: "failed", lastError: "bound agent agent-a is gone" });
   });
 
   test("a malformed null-workspace row is skipped at claim, never dispatched", () => {

@@ -62,6 +62,8 @@ Queue a prompt through orchd with the worker header prepended.
 `,
   dispatch: `orch dispatch <target> "<prompt>" [--raw] [--model <model[:thinking]>] [--agent <adapter>]
 Durably accept a prompt through orchd: the write lands in the outbox and survives restarts.
+Prints the dispatch id; 'orch status --json' echoes it as .dispatchId once the
+agent runs that prompt, proving the pane runs what THIS command sent.
   --raw         Send the exact prompt, no worker header.
   --model       Pin the model (and optional thinking effort) for this dispatch.
   --agent       Route through a specific adapter instead of the recorded one.
@@ -124,8 +126,11 @@ One heavy command machine-wide (see settings.locked_commands).
   spawn: `orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
           [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]
 Fresh tab with N balanced-tiled named agents (2=side-by-side, 3=2+1, 4=2x2, ...; cap 8).
-Names are <prefix>-1..N.
-  --tab         Label for the new tab.
+Names are <prefix>-1..N. Spawning under a live prefix GROWS that fleet: numbering
+continues past the highest live <prefix>-<n> and the new panes land in its tab.
+Every name is validated before any tab or pane is created — a refused spawn
+leaves nothing behind.
+  --tab         Label for the new tab; an existing tab's label fills that tab.
   --cwd         Working directory for every agent.
   --model       Pin each agent's launch model.
   --agent       Adapter id (pi, claude, codex, ...).
@@ -205,12 +210,12 @@ when a selection is omitted.
   settings: `orch settings [--json] [--harness=<id>] [--plexer=<id>]
 orch settings models [--harness=<id>] [--model=<model[:thinking]>]
 Print each effective setting with its source (flag > env > settings.json > default),
-or switch the active default adapter/plexer among the installed set.
-  models        Re-pick, per installed harness: launch model, picker quicklist
+or switch the active default adapter/plexer among the enabled set.
+  models        Re-pick, per enabled harness: launch model, picker quicklist
                 (models.preferred), and the launchable set (models.allowed).
 `,
   models: `orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
-List every model each installed harness reports it can run.
+List every model each enabled harness reports it can run.
   --preferred   Only the quicklist.
   --search      Match against spec or label, case-insensitive.
   --pick        Print one full spec for scripting (by displayed index or exact spec).

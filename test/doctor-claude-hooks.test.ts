@@ -10,7 +10,7 @@ const directories: string[] = [];
 const settingsFile = path.join(os.homedir(), ".claude", "settings.json");
 const originalSettings = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile) : undefined;
 
-// diagnoseShim compares the installed hook against the DECLARED runtime, so these tests need
+// diagnoseShim compares the enabled hook against the DECLARED runtime, so these tests need
 // an orch dir they control rather than whatever this machine happens to have configured.
 const orchHome = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-claude-hooks-orchdir-"));
 directories.push(orchHome);
@@ -73,7 +73,7 @@ describe("doctor Claude hooks shim check", () => {
     writeSettingsFixture(orchHome, { runtime: "node" });
   });
 
-  // The declaration has to be ENFORCED, not merely recorded: accepting a hook installed under
+  // The declaration has to be ENFORCED, not merely recorded: accepting a hook enabled under
   // any recognized runtime is what let the declared value drift from reality unnoticed.
   test.each(["deno", "bun"] as const)("reports a %s hook as stale when node is declared", (runtime) => {
     const file = settingsPath();

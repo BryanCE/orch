@@ -3,6 +3,7 @@ import { getBackend, resolveBackend } from "../backends/registry.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget, selfActor, type Entity } from "../entities.ts";
+import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/workspace.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
@@ -111,6 +112,16 @@ export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
   if (!token) return false;
   if (record.owner === token) return true;
   return !callerIsSpawnedAgent() && operatorControls(token, record.pane ?? null);
+}
+
+/** Return the exact session address that spawned this caller. */
+export function selfSpawnAddress(): string | undefined {
+  return spawnerIdentity().key ?? callerOwnerToken();
+}
+
+/** True when a record predates spawn-session stamping or belongs to this session. */
+export function spawnedBySelf(record: { spawnedBy?: string }): boolean {
+  return record.spawnedBy === undefined || record.spawnedBy === selfSpawnAddress();
 }
 
 export function assertAgentOwned(target: string, entity: Pick<Entity, "key">, force = false): void {

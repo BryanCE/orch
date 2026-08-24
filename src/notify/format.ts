@@ -10,6 +10,14 @@ export interface NotifyEvent {
   workspace?: string;
   /** Human-assigned agent name. */
   agent: string | null;
+  /** Human/registry display name. */
+  name?: string | null;
+  /** Dispatch id associated with this transition. */
+  dispatchId?: string;
+  /** Identity of the session that spawned this agent. */
+  spawnedBy?: string;
+  /** Human label of the session that spawned this agent. */
+  spawnedByLabel?: string;
   tab: string | null;
   /** Model id plus thinking level, e.g. terra:medium. */
   model: string | null;
@@ -23,6 +31,16 @@ export interface NotifyEvent {
   cost?: number;
   ts: string;
   lastError?: string;
+  /** Final assistant text reported when the agent is done. */
+  result?: string;
+  /** Why the agent stopped, or the question blocking it. */
+  reason?: string;
+  /** Context-window usage percentage. */
+  ctxPercent?: number;
+  /** Token usage counters reported by the agent. */
+  tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  /** Files touched by the agent during this run. */
+  filesTouched?: string[];
 };
 
 export function oneLine(error: unknown): string {
@@ -84,6 +102,8 @@ interface NotificationPayload {
   host: string | null;
   key: string;
   agent: string | null;
+  /** Human/registry display name. */
+  name: string | null;
   tab: string | null;
   model: string | null;
   oldState: string;
@@ -108,6 +128,7 @@ function notificationPayload(event: NotifyEvent): NotificationPayload {
     host: event.host ?? null,
     key: event.key,
     agent: eventAgent(event, workspace),
+    name: event.name ?? null,
     tab: event.tab,
     model: event.model,
     oldState: event.oldState,

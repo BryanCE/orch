@@ -33,7 +33,7 @@ export const Route = createFileRoute("/ws/$slug")({
 });
 
 function WorkspaceDetail() {
-  const { slug } = Route.useParams();
+  const { slug } = Route.useParams() as { slug: string };
   const { data: workspaces = [], isPending } = useFleet();
   const [selected, setSelected] = useState<FleetAgent | null>(null);
 

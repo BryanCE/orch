@@ -1,15 +1,21 @@
 import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
-import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./store.ts";
-import { serializeIdentity } from "./backends/identity.ts";
+import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./presence/store.ts";
+import { serializeIdentity, tryParseIdentity } from "./backends/identity.ts";
 import { checkWall, sameWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
+import { abstractAgentLabel } from "./notify/format.ts";
+import type { Recipient } from "./recipient.ts";
 
 export { workspaceOf } from "./policy/workspace.ts";
+export { recipientLabel, type Recipient } from "./recipient.ts";
 
 export interface Entity {
   key: string;
   paneId: string | null;
+  /** True when orch spawned this agent. A backend reports every pane it owns,
+   *  including the orchestrator's own — false means "someone else's pane". */
+  managed: boolean;
   name: string | null;
   tabLabel: string | null;
   agent: string | null;
@@ -24,7 +30,7 @@ export interface Entity {
   host?: string;
 }
 
-export interface TargetRef {
+interface TargetRef {
   host: string | null;
   target: string;
 }
@@ -48,6 +54,21 @@ export function formatTarget(ref: TargetRef): string {
   return ref.host ? `${ref.host}/${ref.target}` : ref.target;
 }
 
+/** Resolve an identity key to the agent an operator knows, enriched with the routing
+ *  facts only orch's spawn registry holds. */
+export function recipientFor(key: string, spawned = spawnedRecords()): Recipient {
+  const record = spawned.get(key);
+  const status = loadPresence().get(key)?.status;
+  const identity = tryParseIdentity(key);
+  const workspace = record?.workspace ?? identity?.workspace ?? workspaceOf(key) ?? "workspace";
+  return {
+    name: record?.name ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key),
+    harness: record?.adapter ?? status?.agent ?? null,
+    multiplexer: record?.backend ?? identity?.backend ?? null,
+    transportId: record?.handle ?? key,
+  };
+}
+
 export function collapse(value: string): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -67,8 +88,13 @@ export function currentWorkspace(): string | null {
 
 /** The orchestrator's own target key, used for ownership and wall checks. */
 export function selfActor(): string | null {
+  // A spawned agent acts as ITSELF — the key minted at its launch — never as
+  // the shared workspace operator. One shared token was how a single agent's
+  // `close --all` owned, and killed, every fleet in the workspace.
+  const spawnedIdentity = tryParseIdentity(process.env.ORCH_AGENT_KEY);
+  if (spawnedIdentity) return serializeIdentity(spawnedIdentity);
   const id = resolveBackend({}).currentIdentity?.();
-  return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, handle: "operator" }) : null;
+  return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;
 }
 
 export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
@@ -97,13 +123,19 @@ export function buildEntities(): Entity[] {
       entities.push({
         key,
         paneId,
-        name: target.name,
+        managed: records.has(key),
+        // Orch's registry owns the name; the backend's own pane label is only a
+        // fallback for panes orch never spawned.
+        name: records.get(key)?.name ?? target.name,
         tabLabel: target.groupLabel,
         agent: target.agent,
         focused: target.focused,
         backendStatus: target.status,
         presence: pres,
-        sessionPath: target.sessionPath ?? pres?.status?.sessionPath ?? null,
+        // Bridge-first: the adapter's own presence status tracks the LIVE session
+        // and follows a `/new` reset; the backend's agent_session is launch-time
+        // and goes stale, which is what makes mid-run `tail` read an empty session.
+        sessionPath: pres?.status?.sessionPath ?? target.sessionPath ?? null,
         presenceOnly: false,
         workspace: target.workspace ?? workspaceOf(key),
       });
@@ -115,7 +147,8 @@ export function buildEntities(): Entity[] {
     entities.push({
       key: entry.key,
       paneId: entry.status?.paneId ?? null,
-      name: null,
+      managed: records.has(entry.key),
+      name: records.get(entry.key)?.name ?? null,
       tabLabel: null,
       agent: entry.status?.agent ?? null,
       focused: false,

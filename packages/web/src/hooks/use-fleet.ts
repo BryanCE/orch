@@ -1,17 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { useLiveQueryInvalidation } from "@/hooks/use-live-query-invalidation";
 import { getFleet } from "@/server/orch";
 
-/**
- * Live fleet from the real presence store. TanStack Query owns the poll loop —
- * no effects. (SSE push off the daemon's subscribe-events will replace the
- * interval; the shape stays the same.)
- */
+export const FLEET_QUERY_KEY = ["fleet"] as const;
+
+/** Fleet snapshots are refreshed only when the daemon SSE stream changes. */
 export function useFleet() {
+  useLiveQueryInvalidation(FLEET_QUERY_KEY);
+
   return useQuery({
-    queryKey: ["fleet"],
+    queryKey: FLEET_QUERY_KEY,
     queryFn: () => getFleet(),
-    refetchInterval: 1500,
-    staleTime: 0,
+    staleTime: Infinity,
   });
 }

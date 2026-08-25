@@ -1,14 +1,27 @@
-/** Agent CLIs supported by orch. */
-export type AdapterId = "pi" | "claude" | "codex";
+import type { CheckResult } from "../check-result.ts";
+import type { WorkerPolicy } from "../policy/workers.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
-export const ADAPTER_IDS: readonly AdapterId[] = ["pi", "claude", "codex"];
+export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;
+
+/** Agent CLIs supported by orch. */
+export type AdapterId = (typeof ADAPTER_IDS)[number];
+
+export function isAdapterId(value: unknown): value is AdapterId {
+  return typeof value === "string" && (ADAPTER_IDS as readonly string[]).includes(value);
+}
 
 /** Ways an adapter can deliver a mid-run steering message. */
 export type SteerMechanism = "inbox" | "keys" | "resume" | "none";
 
 /** Session-lifecycle verbs an adapter may declare a native mechanism for. */
-export type LifecycleVerb = "reset" | "reload" | "restart";
+export const LIFECYCLE_VERBS = ["reset", "reload", "restart"] as const;
+
+export type LifecycleVerb = (typeof LIFECYCLE_VERBS)[number];
+
+export function isLifecycleVerb(value: unknown): value is LifecycleVerb {
+  return typeof value === "string" && (LIFECYCLE_VERBS as readonly string[]).includes(value);
+}
 
 /** States an adapter may expose through orch's presence protocol. */
 export type AgentState = "idle" | "working" | "blocked" | "done" | "error" | "aborted" | "exited" | "unknown";
@@ -21,12 +34,16 @@ export interface SpawnOpts {
   readonly cwd?: string;
   /** Model specification selected for the session, when supported. */
   readonly model?: string;
+  /** Model patterns the harness should expose in its native cycle/picker, when configured. */
+  readonly preferredModels?: readonly string[];
   /** Directory containing orch's presence protocol files. */
   readonly orchDir?: string;
   /** Additional environment values required by the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
   /** Explicit worker tool allowlist, when the launcher applies one. */
   readonly tools?: string;
+  /** What this worker may load; the adapter maps it onto its harness's flags. */
+  readonly workers?: WorkerPolicy;
 }
 
 /** Native process/session information an adapter may use to classify state. */
@@ -45,6 +62,8 @@ export interface SteerRequest {
   readonly key: string;
   /** Text to deliver to the running agent. */
   readonly text: string;
+  /** Outbox id used to acknowledge lossless inbox delivery. */
+  readonly id?: string;
   /** Session options needed by resume- or keys-based delivery. */
   readonly opts?: SpawnOpts;
 }
@@ -55,6 +74,8 @@ export interface ModelRequest {
   readonly key: string;
   /** Model specification to switch the running session to. */
   readonly model: string;
+  /** Dispatcher request id the agent must echo into its control outcome. */
+  readonly id: string;
 }
 
 /** Request passed to an adapter when answering a blocking question. */
@@ -89,6 +110,35 @@ export interface ResultExtractionInput {
   readonly sessionPath?: string;
 }
 
+/** A tool invocation summarized for a session-view assistant turn. */
+export interface SessionViewToolCall {
+  /** Tool name, or "tool" when the adapter cannot name it. */
+  readonly name: string;
+  /** The most descriptive argument value the adapter recovered, unformatted (commands own truncation/collapsing). */
+  readonly arg: string;
+}
+
+/**
+ * One content-bearing turn in a session view, normalized across harnesses so
+ * `orch tail`/`orch session` can render per-turn rows without importing any
+ * per-harness session parser. Adapters emit only renderable turns; commands own
+ * all layout (columns, role labels, timestamps, truncation, collapsing).
+ */
+export interface SessionViewEntry {
+  /** Turn role, normalized to orch's three tail rows. */
+  readonly role: "user" | "assistant" | "tool";
+  /** Flattened turn text, when the turn carries any. */
+  readonly text?: string;
+  /** Tool calls for an assistant turn that only invoked tools; omitted otherwise. */
+  readonly toolCalls?: readonly SessionViewToolCall[];
+  /** Tool name for a tool-result turn. */
+  readonly tool?: string;
+  /** Whether a tool-result turn reported an error. */
+  readonly isError?: boolean;
+  /** ISO timestamp of the turn, when the session records one. */
+  readonly timestamp?: string;
+}
+
 /** Supplementary display data an adapter can recover from its native session output. */
 export interface SessionView {
   /** Presence-protocol state inferred from session content, when the adapter derives one. */
@@ -109,6 +159,12 @@ export interface SessionView {
   readonly tokens?: unknown;
   /** Completed turn count, when the session records one. */
   readonly turns?: number;
+  /**
+   * Per-turn items for rich tailing, populated by adapters whose parser can
+   * produce them. Commands render the header+last-text fallback when omitted;
+   * an empty array means the session was read but had no content-bearing turns.
+   */
+  readonly entries?: readonly SessionViewEntry[];
 }
 
 /** Input to an adapter's session-tail read. */
@@ -125,6 +181,14 @@ export interface SessionViewInput {
  * Adapters translate agent-native behavior into orch's presence protocol;
  * core commands must continue to consume presence data rather than native formats.
  */
+/** One model a harness can run, reported in orch's vocabulary rather than the harness's. */
+export interface HarnessModel {
+  /** orch's `provider/id` spec — exactly the token `--model` accepts. */
+  readonly spec: string;
+  /** The harness's own display name for it, when it has one. */
+  readonly label?: string;
+}
+
 export interface AgentAdapter {
   /** Stable adapter id recorded in the spawn registry and presence status. */
   readonly id: AdapterId;
@@ -140,9 +204,30 @@ export interface AgentAdapter {
     readonly setModel: boolean;
     /** Whether native session output can be tailed for supplementary state/result data. */
     readonly sessionTail: boolean;
+    /**
+     * Whether the harness writes a presence status record as its session starts.
+     * True is what lets a launch VERIFY the agent came up instead of trusting that
+     * the backend returned a handle; false makes an unverifiable spawn, and a
+     * launch must say so rather than report a success it never confirmed.
+     */
+    readonly registersPresenceOnStart: boolean;
     /** Session-lifecycle verbs (reset/reload/restart) this adapter declares a native mechanism for; empty when none. */
     readonly lifecycle: readonly LifecycleVerb[];
+    /** Whether the adapter has a pre-tool seam that can transparently wrap locked commands in the machine-wide lock (pi bridge); false adapters get the worker-prompt clause only, and doctor/setup report the gap. */
+    readonly enforcesCommandLocks: boolean;
   };
+  /**
+   * Env var this harness's interactive session exports into its subprocesses,
+   * letting orch name the session KIND a spawn came from when the caller is not
+   * itself an orch agent. Absent when the harness exports none.
+   */
+  readonly sessionEnvMarker?: string;
+  /**
+   * Env var carrying this harness's per-session id, when its sessions export
+   * one. It is what tells two sessions of the same harness apart — without it a
+   * spawn is attributed to the harness kind, never to one session.
+   */
+  readonly sessionIdEnv?: string;
   /** Build the normal shell command used to start one agent in an interactive pane. */
   interactiveCmd(opts: SpawnOpts): string;
   /**
@@ -177,6 +262,34 @@ export interface AgentAdapter {
    * callers must gate on that capability, never on method presence.
    */
   readSessionView?(input: SessionViewInput): SessionView | undefined;
+  /**
+   * Seed the adapter's own trust/approval store for `cwd` before a launch.
+   * `cmd` is the shell command the launcher will actually run, so an adapter
+   * can skip seeding when a custom --cmd does not start its CLI.
+   * Omit this method when the adapter has no trust store.
+   */
+  preTrustWorkspace?(cwd: string, cmd: string): void;
   /** Install adapter-specific hooks/shims without removing unrelated user setup. */
   installShim?(opts?: ShimInstallOpts): void | Promise<void>;
+  /**
+   * Verify exactly the integration artifacts written by installShim for this adapter.
+   * Omit this method when the adapter declares no integration shim.
+   */
+  diagnoseShim?(): CheckResult | Promise<CheckResult>;
+  /** The adapter's persisted default model, for display; undefined if it has none. */
+  defaultModelString?(): string | undefined;
+  /**
+   * Every model this harness can run, read from ITS OWN registry and reported in
+   * orch's `provider/id` vocabulary. orch never parses a harness registry itself —
+   * that format is the adapter's only knowledge — and orch still owns which model
+   * is chosen. Omit when the harness exposes no enumerable model list.
+   */
+  listModels?(): readonly HarnessModel[];
+  /**
+   * Start enumerating in the background so a later `listModels` answers from cache.
+   * Callers fire this for every selected harness at once and await it just before
+   * they need the list, turning a sum of cold registry queries into one wait.
+   * Omit when the harness enumerates from memory or a local file.
+   */
+  warmModels?(): Promise<void>;
 }

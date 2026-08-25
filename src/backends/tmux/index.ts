@@ -4,7 +4,9 @@ import type { AgentAdapter } from "../../adapters/adapter.ts";
 import type {
   Backend,
   BackendCapabilities,
+  BackendId,
   BackendGroup,
+  BackendGroupLayout,
   BackendSpawnOpts,
   BackendSplit,
   BackendTarget,
@@ -13,14 +15,14 @@ import type {
 } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
-import { presenceAgentDir, readJSON, type PresenceStatus } from "../../store.ts";
-import { bestEffortTmux, execTmux, orchPanes, type TmuxPane } from "./cli.ts";
+import { STATUS_FILE } from "../../presence/schema.ts";
+import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
+import { bestEffortTmux, execTmux, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
 
 /** Handle owned by one tmux pane. */
 export type TmuxHandle = string;
 
-const TMUX_BACKEND = "tmux";
-const FALLBACK_WORKSPACE = "tmux";
+const TMUX_BACKEND: BackendId = "tmux";
 
 /** Pause the calling process; tmux has no native blocking wait primitive to poll against. */
 function sleepMs(ms: number): void {
@@ -34,7 +36,7 @@ function sleepMs(ms: number): void {
 /** Agent status read from the presence protocol for one pane's stamped key. */
 function statusForAgentKey(key: string): string | null {
   if (!key) return null;
-  const status = readJSON<PresenceStatus>(join(presenceAgentDir(key), "status.json"));
+  const status = readPresenceStatus(join(presenceAgentDir(key), STATUS_FILE));
   return status?.state ?? null;
 }
 
@@ -104,30 +106,23 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return bestEffortTmux(["display-message", "-p", "-t", pane, "#{@orch_agent_key}"])?.trim() ?? "";
   }
 
-  mintIdentity(handle: TmuxHandle): Identity {
-    return {
-      backend: TMUX_BACKEND,
-      workspace: this.sessionOf(handle) || FALLBACK_WORKSPACE,
-      handle,
-    };
-  }
-
   /** Identity of the calling pane, resolved from tmux's environment. */
   currentIdentity(): Identity | null {
     const handle = process.env.TMUX_PANE;
     if (!handle) return null;
     const workspace = this.sessionOf(handle);
     if (!workspace) return null;
-    return { backend: TMUX_BACKEND, workspace, handle };
+    // Not orch-spawned, so nothing was minted; the pane id is this process's stable id.
+    return { backend: TMUX_BACKEND, workspace, id: handle };
   }
 
-  /** Split an existing window to place a new pane inside a created group (D8). */
-  private placeInGroup(group: string, split: BackendSplit | undefined, cwd: string, envArgs: readonly string[], command: string): TmuxHandle {
+  /** Split one pane (or the group's active pane) to place a new pane inside a group (D8). */
+  private placeInGroup(target: string, split: BackendSplit | undefined, cwd: string, envArgs: readonly string[], command: string): TmuxHandle {
     const orientation = split === "right" ? "-h" : "-v";
     const output = bestEffortTmux([
       "split-window",
       "-t",
-      group,
+      target,
       orientation,
       "-P",
       "-F",
@@ -167,20 +162,24 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {
     if (!this.isInsideSession()) throw new Error("tmux spawn requires running inside a tmux session");
-    const command = adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
+    // An explicit --cmd is the caller's launch line verbatim; without one the adapter builds it.
+    const command = opts.cmd ?? adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const cwd = opts.cwd ?? process.cwd();
     const orchDir = opts.orchDir ?? process.env.ORCH_DIR ?? "";
     const envArgs = ["-e", `ORCH_AGENT_KEY=${opts.key ?? ""}`, "-e", `ORCH_DIR=${orchDir}`];
+    for (const [name, value] of Object.entries(opts.env ?? {})) envArgs.push("-e", `${name}=${value}`);
 
-    const handle = opts.group
-      ? this.placeInGroup(opts.group, opts.split, cwd, envArgs, command)
+    // A planned target pane wins over the group: `-t <window>` splits whatever
+    // pane happens to be active there, which makes placement depend on focus.
+    const splitTarget = typeof opts.targetPane === "string" ? opts.targetPane : opts.group;
+    const handle = splitTarget
+      ? this.placeInGroup(splitTarget, opts.split, cwd, envArgs, command)
       : this.placeInNewWindow(cwd, envArgs, command);
 
     bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent_key", opts.key ?? ""]);
     bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent", String(adapter.id)]);
-    bestEffortTmux(["select-layout", "-t", handle, "tiled"]);
     return handle;
   }
 
@@ -201,6 +200,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   /** Select the target window and pane in tmux. */
+  // fallow-ignore-next-line unused-class-member
   focus(handle: TmuxHandle): boolean {
     return bestEffortTmux(["select-window", "-t", handle]) !== null
       && bestEffortTmux(["select-pane", "-t", handle]) !== null;
@@ -211,10 +211,9 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return bestEffortTmux(["send-keys", "-t", handle, "--", ...keys]) !== null;
   }
 
-  /** Apply tmux's built-in tiled layout to the target group. */
-  // fallow-ignore-next-line unused-class-member
-  applyLayout(group: string, layout: "tiled"): boolean {
-    return bestEffortTmux(["select-layout", "-t", group, layout]) !== null;
+  /** tmux workspaces carry no display names distinct from their ids. */
+  workspaceNames(): Map<string, string> {
+    return new Map();
   }
 
   /** Every orch pane with its workspace, group, name, and presence status (D1, D2). */
@@ -251,10 +250,10 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   waitAgentStatus(handle: TmuxHandle, status: string, timeoutMs: number): boolean {
     const key = this.agentKeyOf(handle);
     if (!key) return false;
-    const statusPath = join(presenceAgentDir(key), "status.json");
+    const statusPath = join(presenceAgentDir(key), STATUS_FILE);
     const deadline = Date.now() + timeoutMs;
     while (true) {
-      if (readJSON<PresenceStatus>(statusPath)?.state === status) return true;
+      if (readPresenceStatus(statusPath)?.state === status) return true;
       if (Date.now() >= deadline) return false;
       sleepMs(250);
     }
@@ -279,6 +278,13 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       },
       rootHandle: paneId,
     };
+  }
+
+  /** Geometry of every pane in a window, orch-spawned or not. Throws on failure. */
+  groupLayout(group: string): BackendGroupLayout<TmuxHandle> {
+    const panes = windowPaneRects(group);
+    if (!panes.length) throw new Error(`no panes on window ${group}`);
+    return { group, panes: panes.map((pane) => ({ handle: pane.paneId, rect: pane.rect })) };
   }
 
   /** tmux windows containing at least one orch pane (D4). */

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
-import type { NotifyEvent } from "../src/notify.ts";
+import { projectRoot } from "../src/util.ts";
+import type { NotifyEvent } from "../src/notify/format.ts";
 
 const herdrArgv: string[][] = [];
 void mock.module("../src/backends/herdr/cli.ts", () => ({
@@ -22,11 +23,11 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
 
 const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
 const { emitAndNotify } = await import("../src/daemon/events.ts");
-const { notificationText } = await import("../src/notify.ts");
+const { notificationText } = await import("../src/notify/format.ts");
 
 const adapter: AgentAdapter = {
   id: "pi",
-  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, lifecycle: [] },
+  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
   interactiveCmd: () => `printf 'quoted "value" spaces $HOME'`,
   headlessCmd: () => ["true"],
   detectState: () => "unknown",
@@ -58,7 +59,7 @@ describe("herdr and notification hardening", () => {
     expect(handle).toBe("w6:p10");
     expect(herdrArgv.at(-1)).toEqual([
       "agent", "start", "pi-", "--workspace", "ws-test", "--cwd", "/tmp/work dir",
-      "--no-focus", "--", "bash", "-lc", `printf 'quoted "value" spaces $HOME'`,
+      "--no-focus", "--", "env", `ORCH_PROJECT=${projectRoot()}`, "bash", "-lc", `printf 'quoted "value" spaces $HOME'`,
     ]);
   });
 

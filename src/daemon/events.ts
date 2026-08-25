@@ -1,17 +1,24 @@
 import { mkdirSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { collapse } from "../entities.ts";
-import { abstractAgentLabel, notify, workspaceLabelForKey, type NotifyEvent, type Sink } from "../notify.ts";
-import { pidAlive, presenceAgentDir, presenceKeyFromDirectoryName, readJSON } from "../store.ts";
-import { truncate } from "../table.ts";
-import { rpcCall, rpcSubscribe } from "./rpc.ts";
+import { notify, type Sink } from "../notify/router.ts";
+import { abstractAgentLabel, workspaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
+import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
+import { namesPresenceFile } from "../presence/writer.ts";
+import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus } from "../presence/store.ts";
+import { pidAlive, truncate } from "../util.ts";
 import { workspaceOf } from "../policy/workspace.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
+import { optionalString } from "../util.ts";
 
 export interface PresenceMetadata {
   name: string | null;
   tab: string | null;
   pid?: number;
+  /** Address of the session that spawned this agent. */
+  spawnedBy?: string;
+  /** Human description of the session that spawned this agent. */
+  spawnedByLabel?: string;
 };
 
 export interface PresenceWatchOptions {
@@ -30,19 +37,6 @@ export interface PresenceWatch {
   stop: () => void;
 };
 
-export interface PreferredEventsOptions {
-  orchDir: string;
-  onEvent: (event: unknown) => void;
-  onFallback: () => void;
-  onDisconnect: () => void;
-  probeIntervalMs?: number;
-};
-
-export interface PreferredEvents {
-  mode: "daemon" | "files";
-  stop: () => void;
-};
-
 function property(value: object, key: string): unknown {
   return Reflect.get(value, key) as unknown;
 }
@@ -57,6 +51,24 @@ function eventModel(status: unknown): string | null {
   return `${id}${thinking ? `:${JSON.stringify(thinking) ?? ""}` : ""}`;
 }
 
+function eventTokens(status: object): NotifyEvent["tokens"] | undefined {
+  const raw = property(status, "tokens");
+  if (!raw || typeof raw !== "object") return undefined;
+  const input = property(raw, "input");
+  const output = property(raw, "output");
+  const cacheRead = property(raw, "cacheRead");
+  const cacheWrite = property(raw, "cacheWrite");
+  const values = [input, output, cacheRead, cacheWrite];
+  if (values.some((value) => value !== undefined && typeof value !== "number")) return undefined;
+  if (values.every((value) => value === undefined)) return undefined;
+  const normalized: NonNullable<NotifyEvent["tokens"]> = {};
+  if (typeof input === "number") normalized.input = input;
+  if (typeof output === "number") normalized.output = output;
+  if (typeof cacheRead === "number") normalized.cacheRead = cacheRead;
+  if (typeof cacheWrite === "number") normalized.cacheWrite = cacheWrite;
+  return normalized;
+}
+
 function statusState(status: unknown, fallbackPid?: number): string | null {
   if (!status || typeof status !== "object") {
     if (fallbackPid === undefined) return null;
@@ -69,10 +81,6 @@ function statusState(status: unknown, fallbackPid?: number): string | null {
   else if (property(status, "state")) state = String(property(status, "state"));
   if (!pidAlive(pid)) state = "exited";
   return state;
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function eventTask(status: object): string | undefined {
@@ -107,14 +115,30 @@ export function derivePresenceTransition(
   const assignedName = optionalString(property(value, "agent"));
   const label = optionalString(property(value, "label"));
   const tabLabel = optionalString(property(value, "tabLabel"));
+  const dispatchId = optionalString(property(value, "dispatchId"));
+  const spawnedBy = optionalString(property(value, "spawnedBy")) ?? metadata.spawnedBy;
+  const spawnedByLabel = optionalString(property(value, "spawnedByLabel")) ?? metadata.spawnedByLabel;
   const cost = property(value, "cost");
   const lastError = optionalString(property(value, "lastError"));
+  const asking = property(value, "asking");
+  const question = asking && typeof asking === "object" ? optionalString(property(asking, "question")) : undefined;
+  const context = property(value, "context");
+  const contextPercent = context && typeof context === "object" ? property(context, "percent") : undefined;
+  const filesValue = property(value, "filesTouched");
+  const filesTouched = Array.isArray(filesValue) && filesValue.every((file) => typeof file === "string")
+    ? filesValue
+    : undefined;
+  const reason = state === "error" || state === "aborted" ? lastError : state === "blocked" ? question : undefined;
   return {
     key,
     workspace,
     // Presence is authoritative; the abstract label keeps events usable when
     // a legacy/future harness has not supplied a human name.
     agent: assignedName ?? label ?? metadata.name ?? abstractAgentLabel(workspace ?? "workspace", key),
+    name: label ?? metadata.name ?? null,
+    dispatchId,
+    spawnedBy,
+    spawnedByLabel,
     tab: tabLabel ?? metadata.tab,
     model: eventModel(value),
     oldState: previous,
@@ -123,6 +147,10 @@ export function derivePresenceTransition(
     cost: typeof cost === "number" ? cost : undefined,
     ts: now.toISOString(),
     lastError: lastError === undefined ? undefined : collapse(lastError),
+    reason: reason === undefined ? undefined : collapse(reason),
+    ctxPercent: typeof contextPercent === "number" ? contextPercent : undefined,
+    tokens: eventTokens(value),
+    filesTouched,
   };
 }
 
@@ -140,7 +168,13 @@ function directoryNames(directory: string): string[] {
   }
 }
 
-/** Continuously watch presence status files, sharing the CLI transition rules. */
+/** Continuously watch presence status files and derive transitions from them.
+ *
+ * DAEMON-ONLY. Presence files are the harness→orch ingress: shims write them and
+ * orchd is the single reader that turns them into events. Clients never watch
+ * them — `orch events` subscribes over RPC, with no file-watch fallback when the
+ * daemon is absent. Importing this outside `src/daemon/` reintroduces the second
+ * event source this layering exists to prevent. */
 export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch {
   const agentsDir = join(options.orchDir, "agents");
   mkdirSync(agentsDir, { recursive: true });
@@ -152,14 +186,21 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   const check = (key: string): void => {
     if (stopped) return;
     const metadata = options.keys?.get(key) ?? options.metadataFor?.(key) ?? { name: null, tab: null };
-    const event = derivePresenceTransition(key, readJSON(join(presenceAgentDir(key, options.orchDir), "status.json")), metadata, states);
+    const event = derivePresenceTransition(key, readPresenceStatus(join(presenceAgentDir(key, options.orchDir), STATUS_FILE)), metadata, states);
+    if (event?.newState === "done") {
+      const result = readJSON(join(presenceAgentDir(key, options.orchDir), RESULT_FILE));
+      if (result && typeof result === "object") {
+        const text = property(result, "text");
+        if (typeof text === "string" && text.length > 0) event.result = truncate(text, 2000);
+      }
+    }
     if (event) options.onEvent(event);
   };
   const attach = (key: string): void => {
     if (watchers.has(key)) return;
     try {
       const watcher = watch(presenceAgentDir(key, options.orchDir), (_event, filename) => {
-        if (!filename || filename.toString() === "status.json") check(key);
+        if (!filename || namesPresenceFile(filename.toString(), STATUS_FILE)) check(key);
       });
       watcher.on("error", () => { /* noop */ });
       watchers.set(key, watcher);
@@ -200,44 +241,41 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   };
 }
 
-/** Prefer an RPC event stream, then invoke direct-file fallback once on disconnect. */
-export async function startPreferredEvents(options: PreferredEventsOptions): Promise<PreferredEvents> {
-  let stopSubscription: (() => void) | undefined;
-  let probe: ReturnType<typeof setInterval> | undefined;
-  let stopped = false;
-  let fellBack = false;
-  const fallback = (disconnected: boolean): void => {
-    if (stopped || fellBack) return;
-    fellBack = true;
-    if (probe) clearInterval(probe);
-    stopSubscription?.();
-    if (disconnected) options.onDisconnect();
-    options.onFallback();
-  };
-  try {
-    stopSubscription = await rpcSubscribe(options.orchDir, "subscribe-events", options.onEvent);
-  } catch {
-    fallback(false);
-    return { mode: "files", stop: () => { stopped = true; } };
+/** How many events this daemon has published for each agent. The publish point is the
+ *  one place every event passes through, so the ordinal it stamps is unique per agent
+ *  without any emitter having to know about the others. */
+const published = new Map<string, number>();
+
+/** How long an identical transition for one agent stays suppressed. Two processes
+ *  briefly sharing one status file (a reset's old and new pi) re-derive the same
+ *  transitions many times a minute; each repeat would be its own notification. */
+const REPEAT_WINDOW_MS = 120_000;
+
+/** When each (agent, transition-signature) pair was last published. */
+const recentTransitions = new Map<string, number>();
+
+/** True when this exact transition for this agent published inside the window.
+ *  The timestamp slides on every sighting, so an ongoing flap stays suppressed
+ *  while a genuine repeat after a quiet spell publishes again. */
+export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolean {
+  const signature = `${event.key}|${event.oldState}>${event.newState}|${event.dispatchId ?? ""}|${event.task ?? ""}`;
+  const lastSeen = recentTransitions.get(signature);
+  recentTransitions.set(signature, now);
+  if (recentTransitions.size > 1_000) {
+    for (const [key, at] of recentTransitions) if (now - at > REPEAT_WINDOW_MS) recentTransitions.delete(key);
   }
-  probe = setInterval(() => {
-    void rpcCall(options.orchDir, "daemon-status", undefined, 200).catch(() => fallback(true));
-  }, options.probeIntervalMs ?? 500);
-  return {
-    mode: "daemon",
-    stop: () => {
-      stopped = true;
-      if (probe) clearInterval(probe);
-      stopSubscription?.();
-    },
-  };
+  return lastSeen !== undefined && now - lastSeen < REPEAT_WINDOW_MS;
 }
 
+/** Publish one event to the RPC stream and every configured sink, stamped with the
+ *  agent name and transition ordinal that make it identifiable downstream. */
 export function emitAndNotify(emit: (event: unknown) => void, sinks: Sink[], event: NotifyEvent): void {
+  if (isRepeatTransition(event)) return;
   const workspace = event.workspace ?? workspaceLabelForKey(event.key);
-  const canonical: NotifyEvent = event.agent?.trim()
-    ? event
-    : { ...event, agent: abstractAgentLabel(workspace, event.key), workspace };
+  const seq = (published.get(event.key) ?? 0) + 1;
+  published.set(event.key, seq);
+  const named = event.agent?.trim() ? event : { ...event, agent: abstractAgentLabel(workspace, event.key), workspace };
+  const canonical: NotifyEvent = { ...named, seq };
   emit(canonical);
   notify(sinks, canonical);
 }

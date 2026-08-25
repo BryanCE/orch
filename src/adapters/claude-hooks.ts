@@ -1,30 +1,35 @@
+import * as os from "node:os";
 import * as path from "node:path";
+import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
+import { shellQuote } from "../util.ts";
 
 // Claude's hook wire format lives here, in the claude adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
 // purpose — imported by both the adapter's installShim and doctor's hook check
 // without pulling either's graph into the other.
 
-/** Built hook shim inside a package root (source: scripts/claude-hooks.ts); plain ESM JS any runtime can run. */
+/** Built hook shim inside a package root (source: extensions/claude/index.ts); plain ESM JS any runtime can run. */
 export function claudeHookShimPath(root: string): string {
   return path.join(root, "dist", "scripts", "claude-hooks.js");
 }
 
 /**
- * Runtimes a user may run the hook shim with — whichever is on their PATH.
- * orch never requires one specific runtime; node, deno, and bun all work.
- * Order is the installer's preference when several are available.
+ * The exact settings.json command for one orch Claude hook event under the
+ * runtime declared in settings.json. orch requires ONE declared runtime — the
+ * hook installer never probes PATH to pick one, and the invocation form comes
+ * from the shared `runtimeArgv` builder so claude, codex, and pi agree.
+ * The env gate makes non-orch sessions skip the shim without spawning a runtime
+ * at all; the shim also self-gates, so this is defense in depth.
+ *
+ * `orchDir` scopes deno's filesystem permissions; it is unused by node and bun,
+ * which take no permission flags. Every argv element is quoted — the runtime path
+ * and shim path are absolute and may contain spaces (Windows "Program Files",
+ * macOS "Application Support").
  */
-export const CLAUDE_HOOK_RUNTIMES = ["node", "deno", "bun"] as const;
-export type ClaudeHookRuntime = (typeof CLAUDE_HOOK_RUNTIMES)[number];
-
-/**
- * The exact settings.json command for one orch Claude hook event under one
- * runtime. The env gate makes non-orch sessions skip the shim without
- * spawning a runtime at all; the shim also self-gates, so this is defense in
- * depth.
- */
-export function claudeHookCommand(shim: string, event: string, runtime: ClaudeHookRuntime): string {
-  const run = runtime === "deno" ? "deno run --allow-all" : runtime;
-  return `[ -n "$ORCH_AGENT_KEY" ] || exit 0; ${run} ${shim} ${event}`;
+export function claudeHookCommand(shim: string, event: string, runtime: OrchRuntime, orchDir: string): string {
+  // Claude writes transcripts under its own config dir; the shim reads the one
+  // named in the hook payload to recover the last assistant message.
+  const transcriptRoot = path.join(os.homedir(), ".claude");
+  const argv = runtimeArgv(runtime, shim, [event], { orchDir, readOnly: [transcriptRoot] });
+  return `[ -n "$ORCH_AGENT_KEY" ] || exit 0; ${argv.map(shellQuote).join(" ")}`;
 }

@@ -1,7 +1,8 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "./lifecycle.ts";
+import { daemonRuntimeFiles } from "./runtime-files.ts";
+import { readPortFile } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
 
 export type RpcParams = unknown;
@@ -9,12 +10,24 @@ export type RpcEventEmitter = (event: unknown) => void;
 export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter) => unknown;
 export type RpcHandlers = Record<string, RpcHandler>;
 
+/** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
 export class DaemonAbsentError extends Error {
   readonly code = "DAEMON_ABSENT";
 
   constructor(orchDir: string) {
     super(`orchd daemon is absent (${orchDir})`);
     this.name = "DaemonAbsentError";
+  }
+}
+
+/** A dial or request outran its budget. Says nothing about liveness — a loaded
+ *  machine starves a healthy daemon — so no caller may signal a pid on it. */
+export class DaemonUnreachableError extends Error {
+  readonly code = "DAEMON_UNREACHABLE";
+
+  constructor(stage: "connect" | "response") {
+    super(`orchd did not answer in time (${stage}); its liveness is unknown`);
+    this.name = "DaemonUnreachableError";
   }
 }
 
@@ -33,6 +46,10 @@ export class RpcError extends Error {
 export interface RpcServerOptions {
   /** Allow one stale unix endpoint to be removed during daemon boot. */
   holdsDaemonLock?: boolean;
+  /** TCP port to bind on loopback alongside the unix socket. */
+  tcpPort?: number;
+  /** Report a TCP bind failure without taking down the unix listener. */
+  onTcpError?: (error: unknown, port: number) => void;
 };
 
 export interface BufferedEvent {
@@ -76,9 +93,12 @@ export interface RpcServer {
   stop(): Promise<void>;
   /** Push an event to every connection subscribed with subscribe-events. */
   emit(event: unknown): void;
+  /** How many connections currently hold a subscribe-events subscription. */
+  subscriberCount(): number;
   readonly transport: "unix" | "tcp";
   readonly socketPath: string;
   readonly portFile: string;
+  readonly tcpEndpoint?: string;
 }
 
 interface RpcResponse {
@@ -95,13 +115,17 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const SOCKET_NAME = "orchd.sock";
-const PORT_NAME = "orchd.port";
 const DEFAULT_TIMEOUT_MS = 5_000;
+// Bounds for the self-healing event subscription's reconnect loop. A daemon can
+// return at any time (restart, reload, machine wake), so retries never give up;
+// they only stop climbing once the delay reaches the cap.
+const RECONNECT_BASE_MS = 250;
+const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
 
 function endpointPaths(orchDir: string): { socket: string; port: string } {
-  return { socket: join(orchDir, SOCKET_NAME), port: join(orchDir, PORT_NAME) };
+  const files = daemonRuntimeFiles(orchDir);
+  return { socket: files.socket, port: files.port };
 }
 
 function lineResponse(socket: Socket, response: RpcResponse): void {
@@ -165,26 +189,51 @@ function handleLine(
     });
 }
 
-function attachConnection(
-  socket: Socket,
-  handlers: RpcHandlers,
-  subscriptions: Set<Socket>,
-  replayBuffer: ReplayBuffer,
-): void {
+/**
+ * Drive `onLine` for each newline-framed line arriving on `socket`, buffering
+ * partial lines across chunks. This owns only the framing loop — encoding,
+ * split-on-newline, and cross-chunk buffering. Callers keep their own error,
+ * close, and per-line parse semantics by attaching those listeners themselves
+ * and doing any trim/parse inside `onLine`.
+ */
+function framedLineReader(socket: Socket, onLine: (line: string) => void): void {
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
     buffer += chunk;
     let newline = buffer.indexOf("\n");
     while (newline >= 0) {
-      const line = buffer.slice(0, newline).replace(/\r$/, "");
+      const line = buffer.slice(0, newline);
       buffer = buffer.slice(newline + 1);
-      handleLine(socket, line, handlers, subscriptions, replayBuffer);
+      onLine(line);
       newline = buffer.indexOf("\n");
     }
   });
+}
+
+function attachConnection(
+  socket: Socket,
+  handlers: RpcHandlers,
+  subscriptions: Set<Socket>,
+  replayBuffer: ReplayBuffer,
+): void {
+  framedLineReader(socket, (line) =>
+    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer),
+  );
   socket.on("close", () => subscriptions.delete(socket));
   socket.on("error", () => subscriptions.delete(socket));
+}
+
+/** Mark the socket path on disk after binding. A POSIX bind creates that entry
+ *  itself; a Windows named pipe never does, so a client probing the path would
+ *  call a live daemon absent. `close()` unlinks the path either way. */
+function markSocketBound(socketPath: string): void {
+  if (process.platform !== "win32") return;
+  try {
+    writeFileSync(socketPath, "", { mode: 0o600 });
+  } catch {
+    // No marker just means clients fall back to the port file.
+  }
 }
 
 function listen(server: Server, endpoint: string | { port: number; host: string }): Promise<void> {
@@ -203,61 +252,85 @@ function listen(server: Server, endpoint: string | { port: number; host: string 
   });
 }
 
-function readPort(portFile: string): number | null {
-  let text: string;
-  try {
-    text = readFileSync(portFile, "utf8").trim();
-  } catch {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(text);
-    const port = typeof parsed === "number" ? parsed : isObject(parsed) ? parsed.port : undefined;
-    if (typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536) return port;
-  } catch {
-    const port = Number(text);
-    if (Number.isInteger(port) && port > 0 && port < 65536) return port;
-  }
-  return null;
-}
-
 function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = typeof pathOrPort === "string"
       ? createConnection(pathOrPort)
       : createConnection({ host: "127.0.0.1", port: pathOrPort });
     let settled = false;
-    const finishError = (error: Error) => {
+    // The timeout rejects WITHOUT destroying: tearing down a socket whose
+    // native connect is still in flight makes the late completion surface as
+    // an uncatchable error on Windows. The connect/error handlers stay armed
+    // and destroy the socket once the native attempt actually settles.
+    const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      socket.destroy();
-      reject(error);
-    };
-    const timer = setTimeout(() => finishError(new Error("RPC connection timed out")), timeoutMs);
+      socket.unref();
+      reject(new DaemonUnreachableError("connect"));
+    }, timeoutMs);
     socket.once("connect", () => {
-      if (settled) return;
-      settled = true;
       clearTimeout(timer);
+      if (settled) {
+        socket.destroy();
+        return;
+      }
+      settled = true;
       resolve(socket);
     });
-    socket.once("error", finishError);
+    // "on", not "once": a Windows pipe connect can emit a second error after the
+    // first settles the promise — an unlistened emission throws in the caller.
+    socket.on("error", (error: Error) => {
+      clearTimeout(timer);
+      socket.destroy();
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
   });
 }
 
+/** Why a dial yielded no socket. Only these two codes prove nothing is listening;
+ *  every other failure (a full accept backlog's EAGAIN, EACCES, a timeout) leaves
+ *  liveness unknown, and callers must not act as if the daemon were dead. */
+const NOT_LISTENING_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
+
+export type DialSilence = "not-listening" | "unreachable";
+
+function silenceOf(error: unknown): DialSilence {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return typeof code === "string" && NOT_LISTENING_CODES.has(code) ? "not-listening" : "unreachable";
+}
+
+/** Dial one daemon endpoint, or say why it stayed silent. An absent unix-socket
+ *  path is skipped without dialing — a dead pipe path faults uncatchably on
+ *  Windows, and a missing endpoint is proof nothing listens there. */
+async function dialEndpoint(endpoint: string | number | undefined, timeoutMs: number): Promise<Socket | DialSilence> {
+  if (endpoint === undefined) return "not-listening";
+  if (typeof endpoint === "string" && !existsSync(endpoint)) return "not-listening";
+  try {
+    return await connect(endpoint, timeoutMs);
+  } catch (error: unknown) {
+    return silenceOf(error);
+  }
+}
+
+function stayedSilent(outcome: Socket | DialSilence): outcome is DialSilence {
+  return typeof outcome === "string";
+}
+
+/** Dial orchd. Deliberately NOT retried: callers probe with a short budget to tell a
+ *  daemon that is not listening from a live one, and reattempts would turn that verdict
+ *  into a multi-second stall. A slow orchd is handled by giving the CALL a budget that
+ *  matches its work. Absent only when BOTH endpoints proved nothing is listening —
+ *  otherwise the daemon is merely unreachable and may be perfectly healthy. */
 async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket> {
   const paths = endpointPaths(orchDir);
-  try {
-    return await connect(paths.socket, timeoutMs);
-  } catch {}
-  const port = existsSync(paths.port) ? readPort(paths.port) : null;
-  if (port !== null) {
-    try {
-      return await connect(port, timeoutMs);
-    } catch {
-      // A stale port file is the same as an absent daemon to callers.
-    }
-  }
-  throw new DaemonAbsentError(orchDir);
+  const unix = await dialEndpoint(paths.socket, timeoutMs);
+  if (!stayedSilent(unix)) return unix;
+  const loopback = await dialEndpoint(readPortFile(orchDir), timeoutMs);
+  if (!stayedSilent(loopback)) return loopback;
+  if (unix === "not-listening" && loopback === "not-listening") throw new DaemonAbsentError(orchDir);
+  throw new DaemonUnreachableError("connect");
 }
 
 function responseError(response: RpcResponse): RpcError {
@@ -268,36 +341,25 @@ function responseError(response: RpcResponse): RpcError {
 
 function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise<RpcResponse> {
   return new Promise((resolve, reject) => {
-    let buffer = "";
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(new Error("RPC request timed out"));
+      reject(new DaemonUnreachableError("response"));
     }, timeoutMs);
-    const onData = (chunk: string) => {
-      buffer += chunk;
-      let newline = buffer.indexOf("\n");
-      while (newline >= 0) {
-        const line = buffer.slice(0, newline).trim();
-        buffer = buffer.slice(newline + 1);
-        if (line) {
-          try {
-            const parsed: unknown = JSON.parse(line);
-            if (!isObject(parsed)) continue;
-            const message = parsed as unknown as RpcResponse;
-            if (message.id === id) {
-              clearTimeout(timer);
-              socket.off("data", onData);
-              resolve(message);
-              return;
-            }
-          } catch {
-            // Ignore unsolicited malformed data from a server.
-          }
+    framedLineReader(socket, (raw) => {
+      const line = raw.trim();
+      if (!line) return;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (!isObject(parsed)) return;
+        const message = parsed as unknown as RpcResponse;
+        if (message.id === id) {
+          clearTimeout(timer);
+          resolve(message);
         }
-        newline = buffer.indexOf("\n");
+      } catch {
+        // Ignore unsolicited malformed data from a server.
       }
-    };
-    socket.on("data", onData);
+    });
     socket.once("error", (error) => {
       clearTimeout(timer);
       reject(error);
@@ -320,16 +382,19 @@ export async function startRpcServer(
   const subscriptions = new Set<Socket>();
   const sockets = new Set<Socket>();
   const replayBuffer = new ReplayBuffer();
-  const server = createServer((socket) => {
+  const attach = (socket: Socket): void => {
     sockets.add(socket);
     attachConnection(socket, handlers, subscriptions, replayBuffer);
     socket.once("close", () => sockets.delete(socket));
-  });
+  };
+  const server = createServer(attach);
   let transport: "unix" | "tcp";
-  let port = 0;
+  let tcpServer: Server | undefined;
+  let tcpEndpoint: string | undefined;
   try {
     await listen(server, paths.socket);
     transport = "unix";
+    markSocketBound(paths.socket);
     try {
       unlinkSync(paths.port);
     } catch {}
@@ -340,54 +405,81 @@ export async function startRpcServer(
         unlinkSync(paths.socket);
         await listen(server, paths.socket);
         transport = "unix";
+        markSocketBound(paths.socket);
         try {
           unlinkSync(paths.port);
         } catch {}
-        return makeRpcServer(server, sockets, subscriptions, replayBuffer, paths, transport);
+        tcpServer = await startTcpServer(attach, options, paths);
+        tcpEndpoint = tcpEndpointOf(tcpServer);
+        return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
       } catch {
         // A live endpoint or an unremovable path still requires TCP fallback.
       }
     }
-    try {
-      server.close();
-    } catch {}
-    const tcpServer = createServer((socket) => {
-      sockets.add(socket);
-      attachConnection(socket, handlers, subscriptions, replayBuffer);
-      socket.once("close", () => sockets.delete(socket));
-    });
-    await listen(tcpServer, { host: "127.0.0.1", port: 0 });
-    port = (tcpServer.address() as { port: number }).port;
-    writeFileSync(paths.port, `${port}\n`, { mode: 0o600 });
+    try { server.close(); } catch {}
+    tcpServer = createServer(attach);
+    await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
+    const boundPort = (tcpServer.address() as { port: number }).port;
+    writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
     transport = "tcp";
-    return makeRpcServer(tcpServer, sockets, subscriptions, replayBuffer, paths, transport);
+    tcpEndpoint = `tcp://127.0.0.1:${boundPort}`;
+    return makeRpcServer(tcpServer, undefined, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
   }
-  return makeRpcServer(server, sockets, subscriptions, replayBuffer, paths, transport);
+  tcpServer = await startTcpServer(attach, options, paths);
+  tcpEndpoint = tcpEndpointOf(tcpServer);
+  return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
+}
+
+async function startTcpServer(
+  attach: (socket: Socket) => void,
+  options: RpcServerOptions,
+  paths: { socket: string; port: string },
+): Promise<Server | undefined> {
+  const port = companionTcpPort(options);
+  if (port === undefined) return undefined;
+  const tcpServer = createServer(attach);
+  try {
+    await listen(tcpServer, { host: "127.0.0.1", port });
+    const boundPort = (tcpServer.address() as { port: number }).port;
+    writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
+    return tcpServer;
+  } catch (error: unknown) {
+    try { tcpServer.close(); } catch {}
+    options.onTcpError?.(error, port);
+    return undefined;
+  }
+}
+
+/** The loopback port bound beside the unix socket: the configured one, else an
+ *  ephemeral one on Windows, where a client cannot stat an AF_UNIX socket path
+ *  and needs the port file as its fallback dial to a live daemon. */
+function companionTcpPort(options: RpcServerOptions): number | undefined {
+  return options.tcpPort ?? (process.platform === "win32" ? 0 : undefined);
+}
+
+function tcpEndpointOf(tcpServer: Server | undefined): string | undefined {
+  const address = tcpServer?.address();
+  return address !== null && typeof address === "object" ? `tcp://127.0.0.1:${address.port}` : undefined;
 }
 
 function makeRpcServer(
   server: Server,
+  tcpServer: Server | undefined,
   sockets: Set<Socket>,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
   paths: { socket: string; port: string },
   transport: "unix" | "tcp",
+  tcpEndpoint?: string,
 ): RpcServer {
   const close = async (): Promise<void> => {
     for (const socket of sockets) socket.destroy();
-    await new Promise<void>((resolve) => {
-      if (!server.listening) return resolve();
-      server.close(() => resolve());
-    });
-    if (transport === "unix") {
-      try {
-        unlinkSync(paths.socket);
-      } catch {}
-    } else {
-      try {
-        unlinkSync(paths.port);
-      } catch {}
-    }
+    await Promise.all([server, tcpServer].filter((value): value is Server => value !== undefined).map((listener) => new Promise<void>((resolve) => {
+      if (!listener.listening) return resolve();
+      listener.close(() => resolve());
+    })));
+    try { unlinkSync(paths.socket); } catch {}
+    try { unlinkSync(paths.port); } catch {}
     subscriptions.clear();
   };
   return {
@@ -397,9 +489,11 @@ function makeRpcServer(
       const buffered = replayBuffer.push(event);
       for (const socket of subscriptions) lineResponse(socket, buffered);
     },
+    subscriberCount: () => subscriptions.size,
     transport,
     socketPath: paths.socket,
     portFile: paths.port,
+    tcpEndpoint,
   };
 }
 
@@ -428,8 +522,14 @@ export interface EventSubscription {
 }
 
 /**
- * Subscribe to daemon-pushed events. A caller can reconnect by passing
- * `lastSeq()` as `since`; the daemon then replays events after that sequence.
+ * Subscribe to daemon-pushed events, self-healing across daemon restarts. The
+ * socket dying is the disconnect signal: on close or error the subscription
+ * redials with bounded exponential backoff — reading `orchd.port` fresh each
+ * attempt via {@link connectDaemon}, since the port changes when the daemon
+ * comes back on a new instance — and resubscribes on success. It retries
+ * forever at the capped interval; only {@link EventSubscription.close} stops the
+ * loop, and every timer is `unref`'d so a pending retry never keeps the process
+ * alive.
  */
 export function subscribeEvents(
   orchDir: string,
@@ -440,110 +540,133 @@ export function subscribeEvents(
   let last = opts.since ?? 0;
   let socket: Socket | undefined;
   let closed = false;
+  let connectedBefore = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let backoffMs = RECONNECT_BASE_MS;
 
-  const subscription: EventSubscription = {
+  const scheduleReconnect = (): void => {
+    if (closed || retryTimer) return;
+    const delay = backoffMs;
+    backoffMs = Math.min(backoffMs * 2, RECONNECT_CAP_MS);
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      connect();
+    }, delay);
+    retryTimer.unref?.();
+  };
+
+  // A dead socket means the daemon is gone; both error and close route here, but
+  // only the first schedules — scheduleReconnect no-ops while a retry is pending.
+  const onDisconnect = (): void => {
+    socket = undefined;
+    scheduleReconnect();
+  };
+
+  const connect = (): void => {
+    if (closed) return;
+    void connectDaemon(orchDir, DEFAULT_TIMEOUT_MS)
+      .then((connected) => {
+        if (closed) {
+          connected.destroy();
+          return;
+        }
+        socket = connected;
+        backoffMs = RECONNECT_BASE_MS; // a healthy dial resets the climb
+        framedLineReader(connected, (raw) => {
+          const line = raw.trim();
+          if (!line) return;
+          try {
+            const parsed: unknown = JSON.parse(line);
+            if (!isObject(parsed)) return;
+            const message = parsed as RpcResponse;
+            if (message.gap === true && typeof message.oldestSeq === "number") {
+              onGap?.(message.oldestSeq);
+            } else if (message.seq !== undefined && typeof message.seq === "number" && "event" in message) {
+              last = Math.max(last, message.seq);
+              onEvent(message.event, message.seq);
+            }
+          } catch {
+            // Ignore malformed unsolicited data from the daemon.
+          }
+        });
+        connected.once("error", onDisconnect);
+        connected.once("close", onDisconnect);
+        // First dial honours the caller's `since` (undefined = live only). A
+        // reconnect lands on a fresh daemon whose sequence numbers restarted
+        // from 1, so `last` from the previous instance no longer maps to its
+        // buffer — request `since: 0` to replay whatever the new daemon still
+        // holds rather than silently miss its early events.
+        const since = connectedBefore ? 0 : opts.since;
+        connectedBefore = true;
+        connected.write(`${JSON.stringify({
+          id: nextRequestId++,
+          method: "subscribe-events",
+          params: { since },
+        })}\n`);
+      })
+      .catch(() => {
+        // Daemon absent or the dial failed; keep retrying — it may return.
+        scheduleReconnect();
+      });
+  };
+
+  connect();
+
+  return {
     close: () => {
       closed = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
       socket?.destroy();
+      socket = undefined;
     },
     lastSeq: () => last,
   };
-
-  void connectDaemon(orchDir, DEFAULT_TIMEOUT_MS)
-    .then((connected) => {
-      if (closed) {
-        connected.destroy();
-        return;
-      }
-      socket = connected;
-      let buffer = "";
-      connected.setEncoding("utf8");
-      connected.on("data", (chunk: string) => {
-        buffer += chunk;
-        let newline = buffer.indexOf("\n");
-        while (newline >= 0) {
-          const line = buffer.slice(0, newline).trim();
-          buffer = buffer.slice(newline + 1);
-          if (line) {
-            try {
-              const parsed: unknown = JSON.parse(line);
-              if (!isObject(parsed)) {
-                newline = buffer.indexOf("\n");
-                continue;
-              }
-              const message = parsed as RpcResponse;
-              if (message.gap === true && typeof message.oldestSeq === "number") {
-                onGap?.(message.oldestSeq);
-              } else if (message.seq !== undefined && typeof message.seq === "number" && "event" in message) {
-                last = Math.max(last, message.seq);
-                onEvent(message.event, message.seq);
-              }
-            } catch {
-              // Ignore malformed unsolicited data from the daemon.
-            }
-          }
-          newline = buffer.indexOf("\n");
-        }
-      });
-      connected.on("error", () => {
-        // The caller can reconnect using the sequence exposed by lastSeq().
-      });
-      connected.write(`${JSON.stringify({
-        id: nextRequestId++,
-        method: "subscribe-events",
-        params: { since: opts.since },
-      })}\n`);
-    })
-    .catch(() => {
-      // A failed initial connection is surfaced by an empty subscription;
-      // callers may retry with lastSeq() and a new subscription.
-    });
-
-  return subscription;
 }
 
-/** Subscribe to pushed events; the returned function closes the subscription. */
+/** Subscribe to pushed events; the returned function closes the subscription.
+ *  `onClose` fires when the daemon drops the connection but NOT when the caller
+ *  stops it — the socket is the disconnect signal, so no caller has to poll. */
 export async function rpcSubscribe(
   orchDir: string,
   method: string,
   onEvent: (event: unknown) => void,
+  onClose?: () => void,
 ): Promise<() => void> {
   const socket = await connectDaemon(orchDir, DEFAULT_TIMEOUT_MS);
   const id = nextRequestId++;
-  let buffer = "";
   let responseResolve!: (value: unknown) => void;
   let responseReject!: (reason?: unknown) => void;
   const response = new Promise<unknown>((resolve, reject) => {
     responseResolve = resolve;
     responseReject = reject;
   });
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk: string) => {
-    buffer += chunk;
-    let newline = buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) {
+  framedLineReader(socket, (raw) => {
+    const line = raw.trim();
+    if (!line) return;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (!isObject(parsed)) return;
+      const message = parsed as unknown as RpcResponse;
+      if (Object.prototype.hasOwnProperty.call(message, "event")) {
         try {
-          const parsed: unknown = JSON.parse(line);
-          if (!isObject(parsed)) continue;
-          const message = parsed as unknown as RpcResponse;
-          if (Object.prototype.hasOwnProperty.call(message, "event")) {
-            try {
-              onEvent(message.event);
-            } catch {}
-          } else if (message.id === id) {
-            if (message.error !== undefined) responseReject(responseError(message));
-            else responseResolve(message.result);
-          }
+          onEvent(message.event);
         } catch {}
+      } else if (message.id === id) {
+        if (message.error !== undefined) responseReject(responseError(message));
+        else responseResolve(message.result);
       }
-      newline = buffer.indexOf("\n");
-    }
+    } catch {}
   });
   socket.once("error", responseReject);
   socket.write(`${JSON.stringify({ id, method })}\n`);
   await response;
-  return () => socket.destroy();
+  let stopped = false;
+  socket.on("close", () => { if (!stopped) onClose?.(); });
+  return () => {
+    stopped = true;
+    socket.destroy();
+  };
 }

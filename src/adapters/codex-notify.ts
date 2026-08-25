@@ -1,26 +1,24 @@
 import * as path from "node:path";
+import { runtimeArgv, type OrchRuntime, type ShimScope } from "../runtime.ts";
 
 // Codex's notify wire format lives here, in the codex adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
 // purpose — imported by both the adapter's installShim() and the bundled
-// scripts/codex-notify.ts shim without pulling either's graph into the other.
+// extensions/codex/index.ts shim without pulling either's graph into the other.
 
-/** Built notify shim inside a package root (source: scripts/codex-notify.ts); plain ESM JS any runtime can run. */
+/** Built notify shim inside a package root (source: extensions/codex/index.ts); plain ESM JS any runtime can run. */
 export function codexNotifyShimPath(root: string): string {
   return path.join(root, "dist", "scripts", "codex-notify.js");
 }
 
 /**
- * Runtimes a user may run the notify shim with — whichever is on their PATH.
- * orch never requires one specific runtime; node, deno, and bun all work.
- * Order is the installer's preference when several are available.
+ * argv codex's `notify` config key should invoke the shim with, under the runtime
+ * DECLARED in settings.json. The runtime vocabulary and the deno permission form
+ * live in src/runtime.ts, which is their one definition site — claude, codex, and
+ * pi all build their shim argv from it so the three can never drift apart.
  */
-export const CODEX_NOTIFY_RUNTIMES = ["node", "deno", "bun"] as const;
-export type CodexNotifyRuntime = (typeof CODEX_NOTIFY_RUNTIMES)[number];
-
-/** argv codex's `notify` config key should invoke the shim with, under one runtime. */
-export function codexNotifyArgv(shim: string, runtime: CodexNotifyRuntime): string[] {
-  return runtime === "deno" ? ["deno", "run", "--allow-all", shim] : [runtime, shim];
+export function codexNotifyArgv(shim: string, runtime: OrchRuntime, scope: ShimScope): string[] {
+  return runtimeArgv(runtime, shim, [], scope);
 }
 
 /** Whether a raw TOML `notify` value already points at the orch shim (any runtime/path form). */
@@ -60,10 +58,19 @@ export function editCodexNotifyConfig(raw: string, argv: readonly string[]): Cod
     if (trimmed.startsWith("[")) { inTable = true; continue; }
     if (inTable || trimmed.startsWith("#")) continue;
     const match = /^notify\s*=\s*(.+)$/.exec(trimmed);
-    if (!match) continue;
+    if (!match) {
+      if (/^notify\s*=/.test(trimmed)) return { status: "ambiguous" };
+      continue;
+    }
+    const candidate = match[1]!.trim();
+    // Refuse malformed notify literals rather than treating them as foreign
+    // (or silently inserting a second key).
+    if ((candidate.startsWith("[") && !candidate.endsWith("]"))
+      || (candidate.startsWith("\"") && !candidate.endsWith("\""))
+      || (candidate.startsWith("'") && !candidate.endsWith("'"))) return { status: "ambiguous" };
     if (matchIndex !== -1) return { status: "ambiguous" };
     matchIndex = index;
-    matchValue = match[1]!.trim();
+    matchValue = candidate;
   }
 
   const withLine = (index: number, line: string): string => {

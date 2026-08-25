@@ -3,25 +3,33 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { projectRoot } from "../src/util.ts";
 
 // Replace the CLI boundary before loading HerdrBackend. This records argv without
 // ever starting a herdr process (and therefore cannot create a live pane).
 const herdrArgv: string[][] = [];
+const moveResults: { changed: boolean; reason?: string }[] = [];
 void mock.module("../src/backends/herdr/cli.ts", () => ({
   herdrPanes: () => {
     herdrArgv.push(["pane", "list"]);
     return [
-      { pane_id: "w0:p1", workspace_id: "ws-test" },
-      { pane_id: "w0:p2", workspace_id: "ws-test" },
+      { pane_id: "w0:p1", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 0, y: 0 } },
+      { pane_id: "w0:p2", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 100, y: 0 } },
     ];
   },
   herdrNames: () => new Map(),
-  herdrTabs: () => new Map(),
+  herdrTabs: () => new Map([
+    ["t1", { tab_id: "t1", workspace_id: "ws-test", label: "Alpha" }],
+    ["t2", { tab_id: "t2", workspace_id: "ws-test", label: "Beta" }],
+    ["t3", { tab_id: "t3", workspace_id: "ws-2", label: "Gamma" }],
+    ["t4", { tab_id: "t4", workspace_id: "ws-3" }],
+  ]),
   herdrReachable: () => true,
   paneStatus: () => null,
   herdrExec: () => "",
   herdrJSON: (args: string[]) => {
     herdrArgv.push([...args]);
+    if (args[0] === "pane" && args[1] === "move") return { move_result: moveResults.shift() ?? { changed: true } };
     return { agent: { pane_id: "w0:p3" } };
   },
   herdrBestEffort: (args: string[]) => {
@@ -36,7 +44,7 @@ const backend = new HerdrBackend();
 
 const fakeAdapter: AgentAdapter = {
   id: "pi",
-  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, lifecycle: [] },
+  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
   interactiveCmd: () => "fake-agent",
   headlessCmd: () => ["true"],
   detectState: () => "unknown",
@@ -62,7 +70,7 @@ describe("HerdrBackend", () => {
     expect(handle).toBe("w0:p3");
     expect(herdrArgv).toEqual([
       ["pane", "list"],
-      ["agent", "start", "pi-agent", "--workspace", "ws-test", "--cwd", testDir, "--no-focus", "--", "bash", "-lc", "fake-agent"],
+      ["agent", "start", "pi-agent", "--workspace", "ws-test", "--cwd", testDir, "--no-focus", "--", "env", `ORCH_PROJECT=${projectRoot()}`, "bash", "-lc", "fake-agent"],
     ]);
   });
 
@@ -71,5 +79,50 @@ describe("HerdrBackend", () => {
     expect(backend.close("")).toBe(false);
     expect(backend.close("w0:p2")).toBe(true);
     expect(herdrArgv.at(-1)).toEqual(["pane", "close", "w0:p2"]);
+  });
+
+  test("a planned target pane is honoured by re-seating the fresh pane against it", () => {
+    // `herdr agent start` has no --target-pane, so placement would otherwise
+    // follow whatever herdr had focused.
+    backend.spawn(fakeAdapter, { cwd: testDir, group: "t1", split: "down", targetPane: "w0:p1" });
+
+    expect(herdrArgv.at(-1)).toEqual(["pane", "move", "w0:p3", "--tab", "t1", "--split", "down", "--no-focus", "--target-pane", "w0:p1"]);
+  });
+
+  test("a same-tab re-seat bounces through a throwaway tab so herdr executes it", () => {
+    // herdr answers a same-tab move with `changed: false, reason: "same_tab"`
+    // and touches nothing, which is what silently ignored every planned target.
+    moveResults.push({ changed: false, reason: "same_tab" });
+    expect(backend.moveToGroup("w0:p3", "t1", "right", "w0:p1")).toBe(true);
+    expect(herdrArgv.slice(-3)).toEqual([
+      ["pane", "move", "w0:p3", "--tab", "t1", "--split", "right", "--no-focus", "--target-pane", "w0:p1"],
+      ["pane", "move", "w0:p3", "--new-tab", "--no-focus"],
+      ["pane", "move", "w0:p3", "--tab", "t1", "--split", "right", "--no-focus", "--target-pane", "w0:p1"],
+    ]);
+  });
+
+  test("a refused move surfaces herdr's reason instead of claiming success", () => {
+    moveResults.push({ changed: false, reason: "tab_not_found" });
+    expect(() => backend.moveToGroup("w0:p3", "t9", "right")).toThrow("tab_not_found");
+  });
+
+  test("groupLayout reads tab geometry straight off the pane listing", () => {
+    expect(backend.groupLayout("t1")).toEqual({
+      group: "t1",
+      panes: [
+        { handle: "w0:p1", rect: { width: 100, height: 50, x: 0, y: 0 } },
+        { handle: "w0:p2", rect: { width: 100, height: 50, x: 100, y: 0 } },
+      ],
+    });
+    expect(() => backend.groupLayout("t2")).toThrow("no panes on tab t2");
+  });
+
+  test("workspaceNames maps tab labels by workspace, first label wins, unlabeled skipped", () => {
+    expect(backend.workspaceNames()).toEqual(
+      new Map([
+        ["ws-test", "Alpha"],
+        ["ws-2", "Gamma"],
+      ]),
+    );
   });
 });

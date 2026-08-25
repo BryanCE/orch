@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/sqlite.ts";
@@ -13,7 +14,7 @@ const servers: RpcServer[] = [];
 
 afterEach(async () => {
   while (servers.length > 0) await servers.pop()!.close();
-  while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true });
+  while (dirs.length > 0) removeTempDir(dirs.pop()!);
 });
 
 function fixture(): string {

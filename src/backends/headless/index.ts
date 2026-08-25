@@ -3,15 +3,17 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
-import { pidAlive, presenceAgentDir } from "../../store.ts";
+import { PRESENCE_SCHEMA, STATUS_FILE } from "../../presence/schema.ts";
+import { presenceAgentDir } from "../../presence/store.ts";
+import { pidAlive, projectRoot } from "../../util.ts";
 import type {
   Backend,
   BackendCapabilities,
+  BackendId,
   BackendRegistryRecord,
   BackendSpawnOpts,
   DeliverPayload,
 } from "../backend.ts";
-import { parseIdentity, serializeIdentity, type Identity } from "../identity.ts";
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {
@@ -23,10 +25,7 @@ export interface HeadlessHandle {
 
 type HeadlessRegistryRecord = BackendRegistryRecord<HeadlessHandle>;
 
-const HEADLESS_BACKEND = "headless";
-/** Headless agents run on the local machine and report the literal workspace `local`. */
-const HEADLESS_WORKSPACE = "local";
-let generatedKey = 0;
+const HEADLESS_BACKEND: BackendId = "headless";
 
 function orchDirectory(override?: string): string {
   return override ?? process.env.ORCH_DIR ?? join(homedir(), ".orch");
@@ -54,7 +53,7 @@ function logFileName(key: string, pid: number): string {
   return join(`${printable}-${pid}.log`);
 }
 
-function isRecord(value: unknown): value is HeadlessRegistryRecord {
+function isHeadlessRegistryRecord(value: unknown): value is HeadlessRegistryRecord {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<HeadlessRegistryRecord>;
   const handle = candidate.handle;
@@ -75,7 +74,7 @@ function readHeadlessRegistry(directory = orchDirectory()): HeadlessRegistryReco
       .flatMap((line) => {
         try {
           const value: unknown = JSON.parse(line);
-          return isRecord(value) ? [value] : [];
+          return isHeadlessRegistryRecord(value) ? [value] : [];
         } catch {
           return [];
         }
@@ -94,8 +93,9 @@ function appendRegistry(record: HeadlessRegistryRecord, directory: string): void
 function statusPid(directory: string, key: string): number | undefined {
   if (!safeKey(key)) return undefined;
   try {
-    const status: unknown = JSON.parse(readFileSync(join(presenceAgentDir(key, directory), "status.json"), "utf8"));
+    const status: unknown = JSON.parse(readFileSync(join(presenceAgentDir(key, directory), STATUS_FILE), "utf8"));
     if (!status || typeof status !== "object" || Array.isArray(status)) return undefined;
+    if (Reflect.get(status, "schema") !== PRESENCE_SCHEMA) return undefined;
     const pid: unknown = Reflect.get(status, "pid");
     return typeof pid === "number" ? pid : undefined;
   } catch {
@@ -145,12 +145,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return true;
   }
 
-  /** Recover the identity a headless handle was spawned with (its key is the
-   *  serialized identity minted at spawn). */
-  mintIdentity(handle: HeadlessHandle): Identity {
-    return parseIdentity(handle.key);
-  }
-
   constructor(deps: HeadlessBackendDeps = {}) {
     this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
     this.killer = deps.killer ?? ((pid, signal) => process.kill(pid, signal));
@@ -159,28 +153,30 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Start the adapter's restricted worker command detached, redirecting output to a log. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const directory = orchDirectory(opts.orchDir);
-    // Mint the serialized identity as the presence key BEFORE launch so it can be
-    // passed opaquely via ORCH_AGENT_KEY. The OS pid is recorded separately (below)
-    // for close-time ownership checks; it is not part of the identity handle.
-    const key = opts.key ?? serializeIdentity({
-      backend: HEADLESS_BACKEND,
-      workspace: HEADLESS_WORKSPACE,
-      handle: `${process.pid}-${++generatedKey}`,
-    });
-    if (!safeKey(key)) throw new Error(`invalid headless presence key: ${JSON.stringify(key)}`);
+    // The caller mints the serialized identity BEFORE launch (one key per agent)
+    // and passes it via ORCH_AGENT_KEY; the backend never mints a second one. The
+    // OS pid is recorded separately (below) for close-time ownership checks; it is
+    // not part of the identity handle.
+    const key = opts.key;
+    if (!safeKey(key)) throw new Error(`headless spawn requires a caller-minted presence key (ORCH_AGENT_KEY); got ${JSON.stringify(key)}`);
 
     const adapterOpts: SpawnOpts = {
       key,
       cwd: opts.cwd,
       model: opts.model,
+      preferredModels: opts.preferredModels,
       orchDir: directory,
       env: opts.env,
       tools: opts.tools,
+      workers: opts.workers,
     };
-    const argv = adapter.restrictedHeadlessCmd?.(opts.prompt ?? "", adapterOpts)
-      ?? adapter.headlessCmd(opts.prompt ?? "", adapterOpts);
-    // The final argv entry is the initial prompt and may legitimately be empty
-    // for `orch spawn`, while the executable itself must always be non-empty.
+    // A headless agent runs its prompt and exits, so work sent after launch
+    // arrives at a dead process: the prompt is the only way in.
+    const prompt = opts.prompt ?? "";
+    if (!prompt.trim()) throw new Error(`cannot spawn a headless ${String(adapter.id)} agent with no prompt: a headless agent runs its prompt and exits, so it has nothing to do`);
+    const argv = adapter.restrictedHeadlessCmd?.(prompt, adapterOpts)
+      ?? adapter.headlessCmd(prompt, adapterOpts);
+    // The final argv entry is the initial prompt; the executable itself must always be non-empty.
     if (!Array.isArray(argv) || argv.length === 0 || typeof argv[0] !== "string" || argv[0].length === 0
       || argv.slice(1).some((part) => typeof part !== "string")) {
       throw new Error(`adapter ${String(adapter.id)} returned an invalid headless command`);
@@ -197,7 +193,9 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         // ORCH_AGENT_LOG mirrors the recorded log path (D3a) to the presence
         // writer running inside the child, so its own status.json can stamp
         // the same sessionPath the backend registry records below.
-        env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ...(opts.env ?? {}) },
+        env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ORCH_PROJECT: projectRoot(), ...(opts.env ?? {}) },
+        // stdin MUST reach EOF: a pi-shaped harness reads its prompt from an open
+        // stdin and blocks there before starting a session, so it never registers.
         stdio: ["ignore", logFd, logFd],
       });
     } catch (error) {
@@ -205,12 +203,11 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       throw error;
     }
     closeSync(logFd);
-    child.unref();
 
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
     const handle: HeadlessHandle = { pid, key };
-    appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: String(adapter.id), cwd: opts.cwd, log: logPath }, directory);
+    appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: adapter.id, cwd: opts.cwd, log: logPath }, directory);
     return handle;
   }
 
@@ -232,6 +229,12 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     }
   }
 
+  /** The live handle for one agent key. A detached handle carries the OS pid, which
+   *  a relaunch replaces, so the registry is the only current source for it. */
+  handleFor(key: string): HeadlessHandle | undefined {
+    return this.list().find((handle) => handle.key === key && handle.alive);
+  }
+
   /** Return every registered headless handle with a fresh liveness result. */
   list(): HeadlessHandle[] {
     const directory = orchDirectory();
@@ -247,6 +250,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   }
 
   /** Headless has no console UI, so it cannot focus a target. */
+  // fallow-ignore-next-line unused-class-member
   focus(_handle: HeadlessHandle): boolean {
     return false;
   }
@@ -256,10 +260,9 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return false;
   }
 
-  /** Headless has no console UI, so it cannot apply a pane layout. */
-  // fallow-ignore-next-line unused-class-member
-  applyLayout(_group: string, _layout: "tiled"): boolean {
-    return false;
+  /** Headless has no workspace naming; ids stand in for names. */
+  workspaceNames(): Map<string, string> {
+    return new Map();
   }
 }
 

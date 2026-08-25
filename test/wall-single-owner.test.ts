@@ -3,14 +3,15 @@ import { describe, expect, test } from "bun:test";
 const canonicalWallModule = "src/policy/workspace.ts";
 const wallMarkers = [
   /opts:\s*\{\s*crossWorkspace/,
-  /opts\.crossWorkspace\s*===\s*true/,
+  /opts\.crossWorkspace\b/,
   /allowed:\s*false/,
   /workspace wall:/,
 ] as const;
 
 async function sourceFiles(): Promise<string[]> {
   const files: string[] = [];
-  for await (const path of new Bun.Glob("src/**/*.ts").scan(".")) files.push(path);
+  // Bun.Glob yields OS-native separators; normalize so path equality holds on Windows.
+  for await (const path of new Bun.Glob("src/**/*.ts").scan(".")) files.push(path.replace(/\\/g, "/"));
   return files.sort();
 }
 

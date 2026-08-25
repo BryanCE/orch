@@ -1,7 +1,11 @@
 import type { Backend } from "./backend.ts";
-import { headlessBackend } from "./headless/index.ts";
+import { headlessBackend, type HeadlessHandle } from "./headless/index.ts";
 import { herdrBackend } from "./herdr/index.ts";
 import { tmuxBackend } from "./tmux/index.ts";
+
+/** The pane-less backend a daemon-owned detached launch runs on. Named here so
+ *  core reaches it through this boundary instead of reaching into a backend. */
+export const detachedBackend: Backend<HeadlessHandle> = headlessBackend;
 
 const backends = new Map<string, Backend>();
 
@@ -18,6 +22,14 @@ export function getBackend(id: string): Backend | undefined {
 /** Return all registered backends in registration order. */
 export function allBackends(): Backend[] {
   return [...backends.values()];
+}
+
+/** Probe every registered backend without selecting one. */
+export function detectBackends(): ReadonlyMap<string, { detected: boolean; insideSession: boolean }> {
+  return new Map<string, { detected: boolean; insideSession: boolean }>(allBackends().map((backend): [string, { detected: boolean; insideSession: boolean }] => [backend.id, {
+    detected: backend.isAvailable(),
+    insideSession: backend.isInsideSession(),
+  }]));
 }
 
 function supportedIds(): string {

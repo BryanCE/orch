@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -10,35 +10,52 @@ import {
   writeFileSync,
 } from "node:fs";
 import * as path from "node:path";
-import { orchDir as resolveOrchDir } from "../store.ts";
+import { orchDir as resolveOrchDir } from "../presence/store.ts";
+import { packageRoot } from "../util.ts";
+import { daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 
-const LOCK_NAME = "orchd.lock";
-const SOCKET_NAME = "orchd.sock";
-const LOG_NAME = "orchd.log";
 const HASH_LENGTH = 12;
 
 interface LockRecord {
   pid: number;
   codeHash: string;
   startedAt: string;
-  startTicks?: string;
+  startToken?: string;
 }
 
-export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startTicks">;
+export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
+
+export interface DaemonCodeSkew {
+  daemonHash: string;
+  diskHash: string;
+}
+
+/** Read the exact live-daemon code-hash skew used by doctor. */
+/** The orchd entrypoint every caller starts, re-execs, or verifies. */
+export function daemonEntrypoint(): string {
+  return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
+}
+
+export function readDaemonCodeSkew(orchDir: string, entrypoint: string): DaemonCodeSkew | null {
+  const lock = readDaemonLock(orchDir);
+  if (!lock || !processIsAlive(lock.pid)) return null;
+  const diskHash = computeCodeHash(entrypoint);
+  return lock.codeHash === diskHash ? null : { daemonHash: lock.codeHash, diskHash };
+}
 
 /** A synchronous socket answer check supplied by the RPC layer (and by tests). */
 export type SocketProbe = (socketPath: string) => boolean;
 
 function lockPath(orchDir: string): string {
-  return path.join(orchDir, LOCK_NAME);
+  return daemonRuntimeFiles(orchDir).lock;
 }
 
 function socketPath(orchDir: string): string {
-  return path.join(orchDir, SOCKET_NAME);
+  return daemonRuntimeFiles(orchDir).socket;
 }
 
 function logPath(orchDir: string): string {
-  return path.join(orchDir, LOG_NAME);
+  return daemonRuntimeFiles(orchDir).log;
 }
 
 function currentCodeHash(): string {
@@ -53,23 +70,59 @@ function processIsAlive(pid: number): boolean {
   catch (error: unknown) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
 }
 
-function processStartTicks(pid: number): string | undefined {
+/** Read one field from a process-reporting tool; undefined when it cannot answer. */
+function readProcessField(command: string, args: string[]): string | undefined {
   try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const closingParen = stat.lastIndexOf(")");
-    if (closingParen < 0) return undefined;
-    const fields = stat.slice(closingParen + 2).trim().split(/\s+/);
-    return fields[19] ?? undefined;
+    const output = execFileSync(command, args, { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] });
+    return output.trim() || undefined;
   } catch {
     return undefined;
   }
 }
 
+/** Field 22 of /proc/<pid>/stat: the process's start time in clock ticks. */
+function linuxStartTicks(pid: number): string | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const closingParen = stat.lastIndexOf(")");
+    if (closingParen < 0) return undefined;
+    return stat.slice(closingParen + 2).trim().split(/\s+/)[19];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A token identifying one process INSTANCE, so a pid the OS has recycled can
+ * never pass for the daemon that took the lock. Every platform orch runs on
+ * reports one; undefined only when the OS refuses, and callers treat that as
+ * "unproven", never as "matches".
+ */
+function processStartToken(pid: number): string | undefined {
+  if (process.platform === "linux") return linuxStartTicks(pid);
+  if (process.platform === "win32") {
+    return readProcessField("powershell", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.Ticks`]);
+  }
+  return readProcessField("ps", ["-o", "lstart=", "-p", String(pid)]);
+}
+
 function processIdentityMatches(record: LockRecord): boolean {
   if (!processIsAlive(record.pid)) return false;
-  if (!record.startTicks) return true;
-  const currentTicks = processStartTicks(record.pid);
-  return currentTicks === undefined || currentTicks === record.startTicks;
+  if (!record.startToken) return true;
+  const currentToken = processStartToken(record.pid);
+  return currentToken === undefined || currentToken === record.startToken;
+}
+
+/**
+ * The daemon's pid, but ONLY when the live process is provably the instance that
+ * took the lock. Orch must never signal an unproven pid: a lock left behind by a
+ * crashed daemon names a number the OS is free to hand to anything, and killing
+ * it kills a stranger.
+ */
+export function provenDaemonPid(orchDir: string): number | undefined {
+  const record = readLock(lockPath(orchDir));
+  if (!record?.startToken || !processIsAlive(record.pid)) return undefined;
+  return processStartToken(record.pid) === record.startToken ? record.pid : undefined;
 }
 
 function readLock(file: string): LockRecord | undefined {
@@ -78,10 +131,10 @@ function readLock(file: string): LockRecord | undefined {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const record = parsed as Partial<LockRecord>;
     if (
-      !Number.isInteger(record.pid) ||
+      typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0 ||
       typeof record.codeHash !== "string" ||
       typeof record.startedAt !== "string" ||
-      (record.startTicks !== undefined && typeof record.startTicks !== "string")
+      (record.startToken !== undefined && typeof record.startToken !== "string")
     ) {
       return undefined;
     }
@@ -96,12 +149,14 @@ export function readDaemonLock(orchDir: string): DaemonLock | null {
   const record = readLock(lockPath(orchDir));
   if (!record || processIsAlive(record.pid) && !processIdentityMatches(record)) return null;
   const lock: DaemonLock = { pid: record.pid, codeHash: record.codeHash };
-  if (record.startTicks !== undefined) lock.startTicks = record.startTicks;
+  if (record.startToken !== undefined) lock.startToken = record.startToken;
   return lock;
 }
 
+/** An unreadable lock names no owner to protect — a crash truncated it — so only
+ *  a live socket can still veto the reclaim. */
 function canReclaim(record: LockRecord | undefined, probe: SocketProbe, orchDir: string): boolean {
-  if (!record || processIdentityMatches(record)) return false;
+  if (record && processIdentityMatches(record)) return false;
   try {
     return !probe(socketPath(orchDir));
   } catch {
@@ -118,7 +173,7 @@ export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = ()
     pid: process.pid,
     codeHash: currentCodeHash(),
     startedAt: new Date().toISOString(),
-    startTicks: processStartTicks(process.pid),
+    startToken: processStartToken(process.pid),
   };
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -145,6 +200,36 @@ export function releaseDaemonLock(orchDir: string): void {
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+}
+
+/** Erase every trace of a departed daemon, returning what was removed. Call only
+ *  once no daemon is proven live: a survivor would lose its own socket. */
+export function clearDaemonRuntime(orchDir: string): string[] {
+  const removed: string[] = [];
+  for (const file of daemonOwnershipFiles(orchDir)) {
+    try {
+      unlinkSync(file);
+      removed.push(file);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return removed;
+}
+
+/** SIGTERM a daemon and wait for the OS to reap it so its lock frees. */
+export async function terminateDaemon(pid: number, graceMs: number): Promise<void> {
+  try { process.kill(pid, "SIGTERM"); } catch { return; }
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline && processIsAlive(pid)) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** Why orch will not signal a live lock pid it cannot tie to its own daemon. */
+export function unprovenLockRefusal(orchDir: string, pid: number): string {
+  return `orchd.lock names live pid ${pid}, which orch cannot verify is its daemon - refusing to signal it. `
+    + `Stop that process yourself, or delete ${lockPath(orchDir)} if it is stale.`;
 }
 
 function commandFor(entrypoint: string, args: string[]): [string, string[]] {
@@ -177,8 +262,12 @@ export function daemonize(
   }
 }
 
-/** Spawn orchd attached to the current terminal (the supervisor/`--fg` mode). */
-export function runForeground(entrypoint: string, args: string[] = []): number {
+/**
+ * Run orchd attached to the current terminal (`--fg`), resolving its exit code.
+ * The caller must await it: returning while the child still owns the terminal is
+ * what made `--fg` indistinguishable from a detached start.
+ */
+export function runForeground(entrypoint: string, args: string[] = []): Promise<number> {
   const [command, commandArgs] = commandFor(entrypoint, args);
   const child = spawn(command, commandArgs, {
     detached: false,
@@ -186,7 +275,10 @@ export function runForeground(entrypoint: string, args: string[] = []): number {
     env: process.env,
   });
   if (child.pid === undefined) throw new Error("foreground process did not provide a pid");
-  return child.pid;
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("exit", (code, signal) => resolve(signal === null ? code ?? 0 : 1));
+  });
 }
 
 /** Re-run this entrypoint with unchanged argv, handing the lock to the replacement. */

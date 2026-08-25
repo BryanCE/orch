@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -9,22 +8,13 @@ import {
   removeWorktree,
   worktreeHasCommitsAheadOf,
 } from "../src/worktree.ts";
+import { fixtureRepo, git } from "./helpers/git-repo.ts";
 
 const directories: string[] = [];
 
-function git(repoRoot: string, args: string[]): string {
-  return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
-}
-
-function fixtureRepo(): string {
-  const repoRoot = filesystem.mkdtempSync(path.join(os.tmpdir(), "orch-worktree-"));
+function repo(): string {
+  const repoRoot = fixtureRepo("orch-worktree-");
   directories.push(repoRoot);
-  git(repoRoot, ["init"]);
-  git(repoRoot, ["config", "user.email", "test@example.com"]);
-  git(repoRoot, ["config", "user.name", "Orch Test"]);
-  filesystem.writeFileSync(path.join(repoRoot, "README.md"), "fixture\n");
-  git(repoRoot, ["add", "README.md"]);
-  git(repoRoot, ["commit", "-m", "initial commit"]);
   return repoRoot;
 }
 
@@ -34,17 +24,17 @@ afterEach(() => {
 
 describe("worktree primitives", () => {
   test("creates and lists an agent worktree on an orch branch", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const worktreePath = createAgentWorktree(repoRoot, "fixes-1");
 
     expect(worktreePath).toBe(path.join(repoRoot, ".orch-worktrees", "fixes-1"));
     expect(filesystem.existsSync(worktreePath)).toBe(true);
     expect(git(worktreePath, ["branch", "--show-current"])).toBe("orch/fixes-1");
     expect(listAgentWorktrees(repoRoot)).toEqual([worktreePath]);
-  });
+  }, 30_000);
 
   test("detects commits ahead of a base branch", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const baseBranch = git(repoRoot, ["branch", "--show-current"]);
     const worktreePath = createAgentWorktree(repoRoot, "feature");
 
@@ -53,17 +43,17 @@ describe("worktree primitives", () => {
     git(worktreePath, ["add", "feature.txt"]);
     git(worktreePath, ["commit", "-m", "add feature"]);
     expect(worktreeHasCommitsAheadOf(repoRoot, worktreePath, baseBranch)).toBe(true);
-  });
+  }, 30_000);
 
   test("removes an agent worktree", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const worktreePath = createAgentWorktree(repoRoot, "remove-me");
 
     removeWorktree(repoRoot, worktreePath);
 
     expect(filesystem.existsSync(worktreePath)).toBe(false);
     expect(listAgentWorktrees(repoRoot)).toEqual([]);
-  });
+  }, 30_000);
 
   test("rejects a non-repository path with a clear error", () => {
     const directory = filesystem.mkdtempSync(path.join(os.tmpdir(), "orch-not-a-repo-"));

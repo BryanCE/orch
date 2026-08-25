@@ -1,30 +1,43 @@
 {
-  "name": "orch",
+  "name": "@bryance/orch",
   "version": "0.1.0",
-  "description": "Fleet orchestration control plane for pi agents in herdr panes — orch CLI, pif headless dispatch, and the pi extensions that make every agent visible and steerable.",
+  "description": "Fleet orchestration control plane for various coding afent harness's and multiplexers for optimal coding agent orchestration and control from any provider.",
   "keywords": [
-    "pi-package",
-    "pi-extension",
     "herdr",
     "orchestration",
     "agents"
   ],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "check": "oxlint . && bunx tsc --noEmit && fallow check && bun run check:bridge",
+    "test": "bun test --parallel",
+    "check": "bun run lint && bunx tsc --noEmit && bun run check:bridge",
+    "fallow:dupes": "bunx fallow dupes --baseline .fallow-dupes-baseline.json --fail-on-issues",
+    "fallow:health": "bunx fallow health --baseline .fallow-health-baseline.json --fail-on-issues",
+    "fallow:dead": "bunx fallow dead-code",
+    "fallow:accept": "bunx fallow dupes --save-baseline .fallow-dupes-baseline.json && bunx fallow health --save-baseline .fallow-health-baseline.json",
+    "check:web": "bun --filter orch-web lint && bun --filter orch-web tc",
+    "check:all": "bun run check && bun run check:web",
     "check:bridge": "bun scripts/check-bridge.ts",
     "build": "bun run build:cli && bun run build:web",
-    "build:cli": "bun run build:ext && bun run build:bin && bun run build:daemon && bun run build:hooks && bun run build:notify",
-    "build:hooks": "bun build scripts/claude-hooks.ts --target=node --format=esm --outfile dist/scripts/claude-hooks.js",
-    "build:notify": "bun build scripts/codex-notify.ts --target=node --format=esm --outfile dist/scripts/codex-notify.js",
-    "build:ext": "bun build extensions/orchestrator-bridge.ts --target=node --format=esm --outfile dist/extensions/orchestrator-bridge.js",
+    "build:cli": "bun run retire-daemon && bun run build:ext && bun run build:bin && bun run build:daemon && bun run build:hooks && bun run build:notify",
+    "retire-daemon": "bun scripts/retire-daemon.ts",
+    "build:hooks": "bun build extensions/claude/index.ts --target=node --format=esm --outfile dist/scripts/claude-hooks.js",
+    "build:notify": "bun build extensions/codex/index.ts --target=node --format=esm --outfile dist/scripts/codex-notify.js",
+    "build:ext": "bun run build:ext:pi && bun run build:ext:omp",
+    "build:ext:pi": "bun build extensions/pi/index.ts --target=node --format=esm --outfile dist/extensions/orchestrator-bridge.js",
+    "build:ext:omp": "bun build extensions/omp/index.ts --target=node --format=esm --outfile dist/extensions/omp-bridge.js",
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
-    "build:web": "cd packages/web && bun run build",
-    "build:dev": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
+    "build:web": "bun --filter orch-web build",
+    "install:global": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
+    "build:dev": "bun run install:global && orch doctor -y && orch daemon start",
     "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
-    "lint": "oxlint .",
-    "test": "bun test"
+    "lint": "oxlint bin src test extensions scripts",
+    "reset": "bun scripts/reset.ts",
+    "reinstall": "bun scripts/reset.ts && bun run install:global && orch setup && orch doctor -y && orch daemon start"
   },
   "license": "MIT",
   "author": "Bryan Edman",
@@ -35,30 +48,18 @@
   },
   "files": [
     "bin/",
-    "src/",
-    "scripts/",
-    "extensions/",
+    "scripts/wsl-toast.ps1",
     "dist/",
     "skills/",
     "agents/",
     "README.md"
   ],
-  "pi": {
-    "extensions": [
-      "./extensions"
-    ]
-  },
   "engines": {
     "node": ">=18.0.0",
     "bun": ">=1.0.0"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
-    "@tanstack/react-db": "^0.1.92",
-    "@tanstack/react-router": "^1.170.18",
-    "@tanstack/react-start": "^1.168.28",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
     "typebox": "^1.1.38",
     "zod": "^4.4.3"
   },
@@ -67,12 +68,11 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",
-    "@vitejs/plugin-react": "^6.0.3",
-    "fallow": "^3.4.2",
+    "@types/node": "^26.1.1",
+    "fallow": "^3.6.0",
     "oxlint": "^1.73.0",
     "oxlint-tsgolint": "^0.24.0",
-    "typescript": "^7",
-    "vite": "^8.1.4"
+    "typescript": "^7"
   },
   "trustedDependencies": [
     "@google/genai",

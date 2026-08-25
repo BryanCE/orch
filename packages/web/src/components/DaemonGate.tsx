@@ -10,8 +10,8 @@ import { startDaemon } from "@/server/orch";
 /**
  * Whole-app liveness gate. The cockpit shows NOTHING off stale/fake data — if
  * the orch daemon is unreachable, the app is replaced by a down screen that
- * offers to start it or retry. Reactive: flips back the moment the poll sees
- * the daemon (see {@link useDaemonStatus}).
+ * offers to start it or retry. Reactive: the SSE-backed status query updates
+ * when the daemon connection changes (see {@link useDaemonStatus}).
  */
 export function DaemonGate({ children }: { children: ReactNode }) {
   const { data, isPending, isFetching, refetch } = useDaemonStatus();
@@ -28,7 +28,7 @@ export function DaemonGate({ children }: { children: ReactNode }) {
   if (!data?.running) {
     const start = async () => {
       await startDaemon();
-      // let the next poll confirm; nudge it immediately
+      // Nudge the SSE-backed status query immediately.
       await qc.invalidateQueries({ queryKey: ["daemon-status"] });
     };
 

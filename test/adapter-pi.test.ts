@@ -2,12 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { seedStatus } from "./helpers/presence.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
 
-const { PiAdapter } = await import("../src/adapters/pi.ts");
-const { presenceDir } = await import("../src/store.ts");
+const { PiAdapter, parsePiModelsOutput } = await import("../src/adapters/pi.ts");
+const { presenceDir } = await import("../src/presence/store.ts");
 const adapter = new PiAdapter();
 
 function storePresenceDir(): string {
@@ -23,7 +24,8 @@ function presencePath(key: string, file: string): string {
 }
 
 function writeStatus(key: string, state: string): void {
-  fs.writeFileSync(presencePath(key, "status.json"), JSON.stringify({ state, pid: process.pid }));
+  fixtureKeys.add(key);
+  seedStatus(orchDir, key, { state, pid: process.pid });
 }
 
 function restoreOrchDir(): void {
@@ -57,7 +59,7 @@ describe("PiAdapter", () => {
       "openai/gpt-5",
       "fix tests",
     ]);
-    expect(adapter.caps).toEqual({ steer: "inbox", ask: true, setModel: true, sessionTail: true, lifecycle: ["reset", "reload", "restart"] });
+    expect(adapter.caps).toEqual({ steer: "inbox", ask: true, setModel: true, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: true, lifecycle: ["reset", "reload", "restart"] });
   });
 
   test("declares its lifecycle slash-commands", () => {
@@ -102,4 +104,19 @@ describe("PiAdapter", () => {
     }) + "\n");
     expect(adapter.extractResult({ key: "missing", sessionPath })).toBe("from session");
   });
+  test("parses pi's supported model table without importing harness internals", () => {
+    const output = [
+      "provider      model                         context  max-out  thinking  images",
+      "anthropic     claude-sonnet-4-6             1M       128K     yes       yes",
+      "openai-codex  gpt-5.6-luna                  372K     128K     yes       yes",
+      "No models available",
+    ].join("\n");
+
+    expect(parsePiModelsOutput(output)).toEqual([
+      { spec: "anthropic/claude-sonnet-4-6" },
+      { spec: "openai-codex/gpt-5.6-luna" },
+    ]);
+    expect(parsePiModelsOutput("No models available")).toEqual([]);
+  });
 });
+

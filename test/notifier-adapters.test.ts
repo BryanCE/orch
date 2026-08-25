@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createBuiltinNotifiers, createNotifierRegistry, type NotifyEvent, type Notifier } from "../src/notify.ts";
+import { createBuiltinNotifiers, type Notifier } from "../src/notify/sinks.ts";
+import { createNotifierRegistry } from "../src/notify/router.ts";
+import type { NotifyEvent } from "../src/notify/format.ts";
 
 const event: NotifyEvent = {
   key: "demo:worker", workspace: "demo", agent: "worker", tab: "tab-1", model: "model-1",

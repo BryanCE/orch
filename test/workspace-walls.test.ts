@@ -4,7 +4,7 @@ import { checkWall } from "../src/policy/workspace.ts";
 import { nextQueuedTask, type TaskRec } from "../src/queue.ts";
 
 function fakeEntity(key: string, paneId: string | null): Entity {
-  return { key, paneId, workspace: null, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, presence: null, sessionPath: null, presenceOnly: true };
+  return { key, paneId, managed: true, workspace: null, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, presence: null, sessionPath: null, presenceOnly: true };
 }
 
 function fakeTask(id: string, createdAt: string, workspace?: string, agent?: string): TaskRec {
@@ -52,6 +52,19 @@ describe("workspace wall writes", () => {
     expect(decision.reason).toContain("w2");
   });
 
+  test("applies the same wall rule to herdr, tmux, and headless identities", () => {
+    const identities = [
+      ["herdr~w1~p1", "herdr~w2~p2"],
+      ["tmux~w1~%251", "tmux~w2~%252"],
+      ["headless~w1~1001", "headless~w2~1002"],
+    ] as const;
+
+    for (const [actor, target] of identities) {
+      expect(checkWall(actor, target, { crossWorkspace: false })).toMatchObject({ allowed: false });
+      expect(checkWall(actor, target, { crossWorkspace: true })).toEqual({ allowed: true });
+    }
+  });
+
   test("allows a cross-workspace write with an explicit override", () => {
     expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
   });
@@ -68,10 +81,11 @@ describe("workspace-aware queued task selection", () => {
     expect(nextQueuedTask([task], "pi", "w8")).toBe(task);
   });
 
-  test("keeps legacy tasks eligible in any workspace", () => {
-    const task = fakeTask("legacy", "2026-01-01T00:00:00.000Z");
-    expect(nextQueuedTask([task], "pi", "w1")).toBe(task);
-    expect(nextQueuedTask([task], "pi", "w8")).toBe(task);
+  test("skips a malformed unscoped task in every workspace", () => {
+    const task = fakeTask("orphan", "2026-01-01T00:00:00.000Z");
+    expect(nextQueuedTask([task], "pi", "w1")).toBeUndefined();
+    expect(nextQueuedTask([task], "pi", "w8")).toBeUndefined();
+    expect(nextQueuedTask([task], "pi")).toBeUndefined();
   });
 
   test("selects the earliest eligible task and respects agent constraints", () => {

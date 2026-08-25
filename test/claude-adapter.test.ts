@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +9,9 @@ import { serializeIdentity } from "../src/backends/identity.ts";
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
 const { claudeAdapter } = await import("../src/adapters/claude.ts");
-const hookScript = join(import.meta.dir, "../scripts/claude-hooks.ts");
+const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
 // The hook receives its identity only through the opaque serialized key.
-const fakeKey = serializeIdentity({ backend: "herdr", workspace: "w9", handle: "p1" });
+const fakeKey = serializeIdentity({ backend: "herdr", workspace: "w9", id: "p1" });
 
 function agentDir(key: string): string {
   const directory = join(orchDir, "agents", key);
@@ -54,16 +55,21 @@ afterAll(() => {
 describe("Claude adapter", () => {
   test("declares its identity and capabilities", () => {
     expect(claudeAdapter.id).toBe("claude");
-    expect(claudeAdapter.caps).toEqual({ steer: "keys", ask: false, setModel: false, sessionTail: true, lifecycle: [] });
+    expect(claudeAdapter.caps).toEqual({ steer: "keys", ask: false, setModel: false, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: false, lifecycle: [] });
   });
 
   test("builds the interactive Claude launch command", () => {
     expect(claudeAdapter.interactiveCmd({})).toBe("claude");
   });
 
+  test("pins headless print mode to the hook-driven presence path", () => {
+    expect(claudeAdapter.hookDriven).toBe(true);
+    expect(claudeAdapter.headlessCmd("reply", {})).toEqual(["claude", "-p", "reply"]);
+  });
+
   test("detects state from a live presence status", () => {
     const key = "claude-state";
-    writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: 2, agent: "claude", pid: process.pid, state: "working" }));
+    writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "claude", pid: process.pid, state: "working" }));
     expect(claudeAdapter.detectState({ key })).toBe("working");
   });
 
@@ -79,16 +85,46 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("transcript text");
   });
 
+  test("reads the final assistant text from a Stop-hook transcript", () => {
+    const key = "claude-session-view";
+    const transcript = join(agentDir(key), "stop-hook-session.jsonl");
+    writeFileSync(transcript, [
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Earlier answer" }] } }),
+      "not-json hook noise",
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Final answer" }] } }),
+    ].join("\n") + "\n");
+
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript })).toBe("Final answer");
+    expect(claudeAdapter.readSessionView?.({ sessionPath: transcript })).toEqual({ lastText: "Final answer" });
+  });
+
+  test("shim and adapter extract identical text from one transcript (empty-string parts)", () => {
+    const key = "claude-shared-fixture";
+    const transcript = join(agentDir(key), "shared.jsonl");
+    // The final assistant carries an empty-string part beside a real one — the
+    // exact divergence D4 collapsed onto the adapter's `part !== undefined`
+    // filter. Both readers now route through src/adapters/transcript.ts, so the
+    // subprocess shim and the in-process adapter must agree byte-for-byte.
+    writeFileSync(transcript, JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "" }, { type: "text", text: "shared answer" }] },
+    }) + "\n");
+    const adapterText = claudeAdapter.readSessionView?.({ sessionPath: transcript })?.lastText;
+    expect(adapterText).toBe("shared answer");
+    const status = runHook("Stop", key, { pid: process.pid, transcript_path: transcript });
+    expect(status.lastText).toBe(adapterText);
+  }, 20_000);
+
   test("maps Claude hook events to presence states and schema", () => {
     const key = "claude-hooks";
-    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: 2, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
-    expect(runHook("Notification", key, { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: 2, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
-    expect(runHook("Stop", key, { pid: process.pid })).toMatchObject({ schema: 2, agent: "claude", state: "idle" });
+    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
+    expect(runHook("Notification", key, { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
+    expect(runHook("Stop", key, { pid: process.pid })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "idle" });
 
     const transcript = join(agentDir(key), "session.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "Finished" })}\n`);
-    expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: 2, agent: "claude", state: "done" });
-  });
+    expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "done" });
+  }, 20_000);
 
   test("exits silently and writes no presence without ORCH_AGENT_KEY (a non-orch session)", () => {
     const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));

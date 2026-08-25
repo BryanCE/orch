@@ -27,7 +27,16 @@ export function sameWorkspace(a: string | null | undefined, b: string | null | u
   return a !== null && a !== undefined && b !== null && b !== undefined && a === b;
 }
 
-/** Decide whether a caller may cross the workspace wall. */
+/** The human operator of a workspace controls every agent keyed into it. A
+ *  spawned agent never carries the `operator` id — its actor token is its own
+ *  minted key — so this grants an agent nothing beyond what it spawned. */
+export function operatorControls(actor: string | null | undefined, agentKey: string | null | undefined): boolean {
+  const identity = tryParseIdentity(actor);
+  return identity?.id === "operator" && sameWorkspace(identity.workspace, workspaceOf(agentKey));
+}
+
+/** Decide whether a caller may cross the workspace wall. The caller resolves
+ *  `crossWorkspace` from its own flag and settings — policy never reads config. */
 export function checkWall(
   ownKey: string | null | undefined,
   targetKey: string | null | undefined,
@@ -39,7 +48,7 @@ export function checkWall(
   // Unscoped actors and legacy/unscoped targets are eligible by policy.
   if (ownWorkspace === null || targetWorkspace === null) return { allowed: true };
   if (sameWorkspace(ownWorkspace, targetWorkspace)) return { allowed: true };
-  if (opts.crossWorkspace === true) return { allowed: true };
+  if (opts.crossWorkspace) return { allowed: true };
   return {
     allowed: false,
     reason: `workspace wall: actor workspace ${ownWorkspace} cannot write to target workspace ${targetWorkspace} (${targetKey ?? "unknown"})`,

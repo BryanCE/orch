@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deliverToSink, loadSinks, notificationText, notify, type NotifyEvent } from "../src/notify";
+import { deliverToSink, loadSinks, notify } from "../src/notify/router.ts";
+import { notificationText, type NotifyEvent } from "../src/notify/format.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 // Registers the herdr sink provider, as the real CLI does, so herdr entries parse deterministically.
 import "../src/backends/herdr/index.ts";
@@ -20,10 +21,13 @@ function nodeCommand(script: string): string[] {
 }
 
 async function waitForFile(file: string): Promise<void> {
-  for (let attempt = 0; attempt < 40; attempt++) {
+  // A command sink spawns a fresh runtime to write the file; under a loaded
+  // full-suite run that cold start can take seconds, so wait generously.
+  for (let attempt = 0; attempt < 400; attempt++) {
     if (existsSync(file) && readFileSync(file, "utf8").length > 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  throw new Error(`timed out waiting for ${file}`);
 }
 
 function captureStderr<T>(callback: () => T): { value: T; stderr: string } {
@@ -45,17 +49,13 @@ afterEach(() => {
 });
 
 describe("notify", () => {
-  test("parses valid sinks and warns about unknown types and missing fields", () => {
+  test("parses valid sinks and applies default on states", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
       notify: [
         { id: "desktop" },
         { id: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
         { id: "command", command: nodeCommand("") },
-        { id: "email", on: ["done"] },
-        { id: "webhook" },
-        { id: "command", on: ["done"] },
-        { id: "desktop", on: [1] },
         { id: "herdr", on: ["done"] },
       ],
     });
@@ -64,14 +64,11 @@ describe("notify", () => {
 
     expect(result.value).toEqual([
       { type: "desktop", on: ["blocked", "error"] },
-      { type: "webhook", on: ["done", "error"], url: "https://example.test/hook" },
-      { type: "command", on: ["blocked", "error"], command: nodeCommand("") },
-      { type: "herdr", on: ["done"] },
+      { type: "webhook", on: ["done", "error"], url: "https://example.test/hook", timeoutMs: 3000 },
+      { type: "command", on: ["blocked", "error"], command: nodeCommand(""), timeoutMs: 3000 },
+      { type: "herdr", on: ["done"], timeoutMs: 3000 },
     ]);
-    expect(result.stderr).toContain("unknown sink type");
-    expect(result.stderr).toContain("webhook sink requires url");
-    expect(result.stderr).toContain("command sink requires command");
-    expect(result.stderr).toContain("on must be an array of strings");
+    expect(result.stderr).toBe("");
   });
 
   test("delivers only to sinks whose on filter matches the event", async () => {
@@ -102,7 +99,7 @@ describe("notify", () => {
 
     expect(readFileSync(matchingFile, "utf8")).toBe("matched");
     expect(existsSync(nonMatchingFile)).toBe(false);
-  });
+  }, 20_000);
 
   test("command sink writes the event payload as JSON on stdin", async () => {
     const directory = tempDir();
@@ -137,6 +134,7 @@ describe("notify", () => {
       host: "gpu1",
       key: "task-1",
       agent: "worker",
+      name: null,
       tab: "workers",
       model: "terra:medium",
       oldState: "working",
@@ -145,8 +143,11 @@ describe("notify", () => {
       cost: 1.25,
       ts: "2026-01-01T00:00:00.000Z",
       lastError: "boom",
+      // (key, seq) is the event's identity for dedup; direct sink deliveries
+      // outside the daemon carry no ordinal.
+      seq: null,
     });
-  });
+  }, 20_000);
 
   test("titles lead with exactly one terminal state and agent", () => {
     expect(notificationText({
@@ -201,7 +202,8 @@ describe("notify", () => {
           ts: "2026-01-01T00:00:00.000Z",
         },
       );
-      for (let attempt = 0; attempt < 40 && !stderr.includes("webhook sink failed"); attempt++) {
+      // Up to 5s: a refused connect on a loaded Windows box can take over 1s.
+      for (let attempt = 0; attempt < 200 && !stderr.includes("webhook sink failed"); attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     } finally {

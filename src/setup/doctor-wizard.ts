@@ -1,4 +1,4 @@
-import type { CheckResult } from "../doctor.ts";
+import type { CheckResult } from "../check-result.ts";
 import { promptMultiselect } from "./io.ts";
 
 const green = (value: string): string => `\x1b[32m${value}\x1b[0m`;
@@ -19,10 +19,10 @@ export function renderDoctorResults(results: readonly CheckResult[]): void {
  *  Destructive fixes are labeled and left unchecked so a blind Enter never deletes data. */
 export function pickFixes(fixable: readonly { id: string; label: string; description: string; destructive?: boolean }[]): Promise<string[] | null> {
   return promptMultiselect(
-    "Select fixes to apply (destructive ones are unchecked — review before selecting)",
+    "Select fixes to apply (destructive ones are unchecked - review before selecting)",
     fixable.map(({ id, label, description, destructive }) => ({
       value: id,
-      label: destructive ? `⚠ ${label} (deletes data)` : label,
+      label: destructive ? `! ${label} (deletes data)` : label,
       hint: description,
       checked: !destructive,
     })),

@@ -1,34 +1,37 @@
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentWorktree, listAgentWorktrees, worktreeBranch } from "../src/worktree.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { fixtureRepo, git } from "./helpers/git-repo.ts";
 
 const directories: string[] = [];
 
-function git(repoRoot: string, args: string[]): string {
-  return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
+/** orch has no built-in configuration, so a spawned CLI needs a recorded composition in its
+ * ORCH_DIR exactly as a real install does. */
+function orchDirWithSettings(): string {
+  const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
+  directories.push(orchDir);
+  writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+  return orchDir;
 }
 
-function fixtureRepo(): string {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-worktree-"));
+function repo(): string {
+  const repoRoot = fixtureRepo("orch-clean-worktree-");
   directories.push(repoRoot);
-  git(repoRoot, ["init"]);
-  git(repoRoot, ["config", "user.email", "test@example.com"]);
-  git(repoRoot, ["config", "user.name", "Orch Test"]);
-  fs.writeFileSync(path.join(repoRoot, "README.md"), "fixture\n");
-  git(repoRoot, ["add", "README.md"]);
-  git(repoRoot, ["commit", "-m", "initial"]);
   return repoRoot;
 }
 
 function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
-  return execFileSync("bun", [path.join(import.meta.dir, "../bin/orch.ts"), ...args], {
+  const ran = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "../bin/orch.ts"), ...args], {
     cwd: repoRoot,
     env: { ...process.env, ORCH_DIR: orchDir },
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
   });
+  if (!ran.success) throw new Error(`orch ${args.join(" ")} exited ${ran.exitCode}: ${ran.stderr.toString()}`);
+  return ran.stdout.toString();
 }
 
 function commit(worktreePath: string, contents = "feature\n"): void {
@@ -43,9 +46,8 @@ afterEach(() => {
 
 describe("clean worktrees", () => {
   test("removes empty and merged orphan worktrees, but keeps unmerged work", () => {
-    const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
-    directories.push(orchDir);
+    const repoRoot = repo();
+    const orchDir = orchDirWithSettings();
     const empty = createAgentWorktree(repoRoot, "empty");
     const merged = createAgentWorktree(repoRoot, "merged");
     const mergedBranch = worktreeBranch(merged);
@@ -65,9 +67,8 @@ describe("clean worktrees", () => {
   }, 30_000);
 
   test("--force discards an unmerged orphan and its branch", () => {
-    const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
-    directories.push(orchDir);
+    const repoRoot = repo();
+    const orchDir = orchDirWithSettings();
     const unmerged = createAgentWorktree(repoRoot, "discard");
     const branch = worktreeBranch(unmerged);
     commit(unmerged);

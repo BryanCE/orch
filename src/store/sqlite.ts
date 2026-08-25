@@ -1,12 +1,43 @@
 import { createRequire } from "node:module";
-import { mkdirSync } from "node:fs";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskOptions, TaskRec, TaskState } from "../queue.ts";
-import type { SpawnedRecord } from "../store.ts";
+import { isAdapterId, type AdapterId } from "../adapters/adapter.ts";
+import { isBackendId, type BackendId } from "../backends/backend.ts";
 
 // One SQLite file per $ORCH_DIR holds the queue, ownership registry, delivery
 // outbox, and spawn registry. jsonl remains the human-visible truth channel for
 // presence/results/transitions; only this internal state lives here.
+
+/** Stamped into `PRAGMA user_version`. Pre-publish this stays 1: a store
+ *  carrying any other stamp is malformed and gets reaped and recreated empty. */
+const STORE_SCHEMA = 1;
+
+export interface SpawnedRecord {
+  /** Primary registry id: the agent's serialized identity key. */
+  pane: string;
+  ts?: string;
+  adapter?: AdapterId;
+  model?: string;
+  backend?: BackendId;
+  /** Identity workspace assigned by the spawning backend. */
+  workspace?: string;
+  /** Backend-native control handle (herdr/tmux pane id) for close/focus/send-keys. */
+  handle?: string;
+  /** Mutable display name. NOT identity — renaming it must never change `pane`. */
+  name?: string;
+  /** Working directory the agent launched in. */
+  cwd?: string;
+  worktree?: string;
+  branch?: string;
+  /** Orchestrator ownership token stamped at spawn time. */
+  owner?: string;
+  /** Address of the exact session that spawned this pane; `owner` only names the workspace operator. */
+  spawnedBy?: string;
+  /** Human description of the spawning session ("lead-1 (pi)", "claude session"). */
+  spawnedByLabel?: string;
+}
 
 interface StatementLike {
   run(...params: unknown[]): { changes: number };
@@ -17,51 +48,59 @@ interface StatementLike {
 interface DatabaseLike {
   exec(sql: string): void;
   query(sql: string): StatementLike;
+  close(): void;
 }
 
-interface NodeStatement {
-  run(...params: unknown[]): { changes: number | bigint };
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown;
+/** Bind values crossing from orch's untyped statement port into the driver. Callers
+ *  build these from row shapes the schema already fixes, so the driver rejects a
+ *  genuinely unbindable value at run time rather than this cast hiding it. */
+function asSqlInputs(params: readonly unknown[]): SQLInputValue[] {
+  return params as SQLInputValue[];
 }
 
-interface NodeDatabase {
-  exec(sql: string): void;
-  prepare(sql: string): NodeStatement;
-}
-
-class NodeDatabaseAdapter implements DatabaseLike {
-  public constructor(private readonly database: NodeDatabase) {}
+class SqliteDatabaseAdapter implements DatabaseLike {
+  public constructor(private readonly database: DatabaseSync) {}
 
   exec(sql: string): void {
     this.database.exec(sql);
   }
 
+  close(): void {
+    this.database.close();
+  }
+
   query(sql: string): StatementLike {
     const statement = this.database.prepare(sql);
     return {
-      run: (...params) => ({ changes: Number(statement.run(...params).changes) }),
-      all: (...params) => statement.all(...params),
-      get: (...params) => statement.get(...params),
+      run: (...params) => ({ changes: Number(statement.run(...asSqlInputs(params)).changes) }),
+      all: (...params) => statement.all(...asSqlInputs(params)),
+      get: (...params) => statement.get(...asSqlInputs(params)),
     };
   }
 }
 
 const connections = new Map<string, DatabaseLike>();
 
-const bunSqlite = process.versions.bun
-  ? await import("bun:sqlite") as unknown as {
-      Database: new (path: string, options: { create: boolean }) => DatabaseLike;
-    }
-  : null;
 const require = createRequire(import.meta.url);
 
-function createDatabase(path: string): DatabaseLike {
-  if (bunSqlite) return new bunSqlite.Database(path, { create: true });
-  const nodeSqlite = require("node:sqlite") as {
-    DatabaseSync: new (path: string) => NodeDatabase;
-  };
-  return new NodeDatabaseAdapter(new nodeSqlite.DatabaseSync(path));
+/** A built-in module this runtime provides, or null when it does not ship one. */
+function builtinModuleOrNull<Module>(specifier: string): Module | null {
+  try {
+    return require(specifier) as Module;
+  } catch {
+    return null;
+  }
+}
+
+/** node:sqlite is the driver everywhere it exists; bun predates it, so bun:sqlite
+ *  is the guarded fallback there (CLAUDE.md Rule 6). Resolved lazily so a runtime
+ *  carrying neither fails at first use, with a name, rather than at module load. */
+function createDatabase(file: string): DatabaseLike {
+  const nodeSqlite = builtinModuleOrNull<{ DatabaseSync: new (file: string) => DatabaseSync }>("node:sqlite");
+  if (nodeSqlite) return new SqliteDatabaseAdapter(new nodeSqlite.DatabaseSync(file));
+  const bunSqlite = builtinModuleOrNull<{ Database: new (file: string, options: { create: boolean }) => DatabaseLike }>("bun:sqlite");
+  if (bunSqlite) return new bunSqlite.Database(file, { create: true });
+  throw new Error(`cannot open ${file}: this runtime provides neither node:sqlite nor bun:sqlite`);
 }
 
 function databasePath(orchDir: string): string {
@@ -81,6 +120,7 @@ function createTables(db: DatabaseLike): void {
       retries INTEGER NOT NULL DEFAULT 0,
       last_error TEXT,
       agent_key TEXT,
+      dispatch_id TEXT,
       result TEXT
     );
     CREATE TABLE IF NOT EXISTS ownership (
@@ -105,28 +145,43 @@ function createTables(db: DatabaseLike): void {
       adapter TEXT,
       model TEXT,
       backend TEXT,
+      workspace TEXT,
       handle TEXT,
+      name TEXT,
       cwd TEXT,
       worktree TEXT,
-      branch TEXT
+      branch TEXT,
+      spawned_by TEXT,
+      spawned_by_label TEXT
     );
   `);
-
-  // Keep migrations additive for databases created by earlier versions.
-  addColumnIfMissing(db, "outbox", "next_attempt_at", "INTEGER NOT NULL DEFAULT 0");
-  addColumnIfMissing(db, "spawned", "handle", "TEXT");
-  addColumnIfMissing(db, "spawned", "cwd", "TEXT");
 }
 
-/** Apply an additive column migration, tolerating a concurrent applier's race. */
-function addColumnIfMissing(db: DatabaseLike, table: string, column: string, definition: string): void {
-  const columns = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (columns.some((existing) => existing.name === column)) return;
-  try {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-  } catch (error: unknown) {
-    if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) throw error;
-  }
+/** True once any table exists — a file this open just created has none, and an
+ *  unstamped empty file is new, not stale. */
+function storeIsPopulated(db: DatabaseLike): boolean {
+  return db.query("SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1").get() != null;
+}
+
+function storeSchemaOf(db: DatabaseLike): number {
+  const row = db.query("PRAGMA user_version").get() as { user_version?: number } | null;
+  return row?.user_version ?? 0;
+}
+
+/**
+ * Reap a store written against a different shape and hand back an empty one.
+ *
+ * `CREATE TABLE IF NOT EXISTS` cannot add a column, so a store from an older
+ * shape survives every open and then rejects each insert against the new
+ * columns — which spawned panes that no row ever described. Pre-publish there is
+ * exactly one shape (Rule 8): the old file is malformed data, not a version to
+ * migrate.
+ */
+function recreateStore(db: DatabaseLike, path: string): DatabaseLike {
+  db.close();
+  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
+  process.stderr.write(`orch: ${path} was written against an older store shape - recreated empty\n`);
+  return createDatabase(path);
 }
 
 /** Open (create-if-absent) the WAL store for one orch dir; connection is cached. */
@@ -135,12 +190,26 @@ function openStore(orchDir: string): DatabaseLike {
   const cached = connections.get(path);
   if (cached) return cached;
   mkdirSync(orchDir, { recursive: true });
-  const db = createDatabase(path);
+  let db = createDatabase(path);
+  if (storeIsPopulated(db) && storeSchemaOf(db) !== STORE_SCHEMA) db = recreateStore(db, path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
   createTables(db);
+  db.exec(`PRAGMA user_version = ${STORE_SCHEMA}`);
   connections.set(path, db);
   return db;
+}
+
+/** Close every cached connection; tests call this before removing their temp dirs. */
+export function closeAllStores(): void {
+  for (const [path, db] of connections) {
+    // bun's node:sqlite keeps a WAL-mode database file locked on Windows past
+    // close() (oven-sh/bun#25964); leaving WAL first releases the mapping so
+    // the file is deletable the moment close returns.
+    try { db.exec("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;"); } catch {}
+    db.close();
+    connections.delete(path);
+  }
 }
 
 interface QueueRow {
@@ -154,6 +223,7 @@ interface QueueRow {
   retries: number;
   last_error: string | null;
   agent_key: string | null;
+  dispatch_id: string | null;
   result: string | null;
 }
 
@@ -170,6 +240,7 @@ function rowToTask(row: QueueRow): TaskRec {
   if (row.origin_workspace !== null) task.workspace = row.origin_workspace;
   if (row.last_error !== null) task.lastError = row.last_error;
   if (row.agent_key !== null) task.agentKey = row.agent_key;
+  if (row.dispatch_id !== null) task.dispatchId = row.dispatch_id;
   if (row.result !== null) task.result = JSON.parse(row.result) as unknown;
   return task;
 }
@@ -243,11 +314,13 @@ export function selectQueueTask(orchDir: string, id: string): TaskRec | undefine
   return row ? rowToTask(row) : undefined;
 }
 
-/** Atomic queued->claimed transition; true only for the single winning caller. */
-export function writeTaskClaim(orchDir: string, id: string, agentKey: string, ts: string): boolean {
+/** Atomic queued->claimed transition; true only for the single winning caller.
+ *  The claim stamps the dispatch id the agent will be sent, so a later settle
+ *  can prove the agent's reported state is for THIS task and not another prompt. */
+export function writeTaskClaim(orchDir: string, id: string, agentKey: string, ts: string, dispatchId: string): boolean {
   const changes = openStore(orchDir)
-    .query("UPDATE queue SET state = 'claimed', agent_key = ?, updated_at = ? WHERE id = ? AND state = 'queued'")
-    .run(agentKey, ts, id).changes;
+    .query("UPDATE queue SET state = 'claimed', agent_key = ?, dispatch_id = ?, updated_at = ? WHERE id = ? AND state = 'queued'")
+    .run(agentKey, dispatchId, ts, id).changes;
   return changes === 1;
 }
 
@@ -257,9 +330,11 @@ export function writeTaskDone(orchDir: string, id: string, ts: string, result: u
     .run(result === undefined ? null : JSON.stringify(result), ts, id);
 }
 
+/** Terminal failure. Reaches claimed tasks and bound-but-requeued ones (queued
+ *  with an agent_key): a retry whose agent died must die too, never re-bind. */
 export function writeTaskFailure(orchDir: string, id: string, ts: string, error: string): void {
   openStore(orchDir)
-    .query("UPDATE queue SET state = 'failed', last_error = ?, updated_at = ? WHERE id = ? AND state = 'claimed'")
+    .query("UPDATE queue SET state = 'failed', last_error = ?, updated_at = ? WHERE id = ? AND (state = 'claimed' OR (state = 'queued' AND agent_key IS NOT NULL))")
     .run(error, ts, id);
 }
 
@@ -288,22 +363,32 @@ interface SpawnedRow {
   adapter: string | null;
   model: string | null;
   backend: string | null;
+  workspace: string | null;
   handle: string | null;
+  name: string | null;
   cwd: string | null;
   worktree: string | null;
   branch: string | null;
+  spawned_by: string | null;
+  spawned_by_label: string | null;
 }
 
 function rowToSpawned(row: SpawnedRow): SpawnedRecord {
   const record: SpawnedRecord = { pane: row.pane };
   if (row.ts !== null) record.ts = row.ts;
-  if (row.adapter !== null) record.adapter = row.adapter;
+  // A row naming a provider this orch does not ship is malformed, not a version
+  // to support (Rule 8): drop the field so callers take their unknown-provider path.
+  if (isAdapterId(row.adapter)) record.adapter = row.adapter;
   if (row.model !== null) record.model = row.model;
-  if (row.backend !== null) record.backend = row.backend;
+  if (isBackendId(row.backend)) record.backend = row.backend;
+  if (row.workspace !== null) record.workspace = row.workspace;
   if (row.handle !== null) record.handle = row.handle;
+  if (row.name !== null) record.name = row.name;
   if (row.cwd !== null) record.cwd = row.cwd;
   if (row.worktree !== null) record.worktree = row.worktree;
   if (row.branch !== null) record.branch = row.branch;
+  if (row.spawned_by !== null) record.spawnedBy = row.spawned_by;
+  if (row.spawned_by_label !== null) record.spawnedByLabel = row.spawned_by_label;
   return record;
 }
 
@@ -311,12 +396,14 @@ function rowToSpawned(row: SpawnedRow): SpawnedRecord {
 export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): void {
   openStore(orchDir)
     .query(
-      `INSERT INTO spawned (pane, ts, adapter, model, backend, handle, cwd, worktree, branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO spawned (pane, ts, adapter, model, backend, workspace, handle, name, cwd, worktree, branch, spawned_by, spawned_by_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(pane) DO UPDATE SET
          ts = excluded.ts, adapter = excluded.adapter, model = excluded.model,
-         backend = excluded.backend, handle = excluded.handle, cwd = excluded.cwd,
-         worktree = excluded.worktree, branch = excluded.branch`,
+         backend = excluded.backend, workspace = excluded.workspace, handle = excluded.handle,
+         name = excluded.name, cwd = excluded.cwd,
+         worktree = excluded.worktree, branch = excluded.branch,
+         spawned_by = excluded.spawned_by, spawned_by_label = excluded.spawned_by_label`,
     )
     .run(
       record.pane,
@@ -324,16 +411,34 @@ export function insertSpawnedRecord(orchDir: string, record: SpawnedRecord): voi
       record.adapter ?? null,
       record.model ?? null,
       record.backend ?? null,
+      record.workspace ?? null,
       record.handle ?? null,
+      record.name ?? null,
       record.cwd ?? null,
       record.worktree ?? null,
       record.branch ?? null,
+      record.spawnedBy ?? null,
+      record.spawnedByLabel ?? null,
     );
 }
 
 export function selectSpawnedRecords(orchDir: string): SpawnedRecord[] {
   const rows = openStore(orchDir).query("SELECT * FROM spawned").all() as SpawnedRow[];
-  return rows.map(rowToSpawned);
+  return rows.map((row) => {
+    const record = rowToSpawned(row);
+    const owner = getOwner(orchDir, record.pane);
+    if (owner !== undefined) record.owner = owner;
+    return record;
+  });
+}
+
+/** Relabel an agent. The name is a mutable column; the key it sits beside is not. */
+export function writeSpawnedName(orchDir: string, pane: string, name: string): boolean {
+  return openStore(orchDir).query("UPDATE spawned SET name = ? WHERE pane = ?").run(name, pane).changes === 1;
+}
+
+export function deleteSpawnedRecord(orchDir: string, pane: string): void {
+  openStore(orchDir).query("DELETE FROM spawned WHERE pane = ?").run(pane);
 }
 
 export interface OutboxMessageInput {

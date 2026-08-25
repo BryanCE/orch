@@ -15,7 +15,7 @@ Resident daemon (orchd) contract: lifecycle management via `orch daemon`, reside
 
 #### Scenario: Reload after code change
 
-- **WHEN** src/ or settings.json changes on disk and `orch daemon reload` runs
+- **WHEN** `src/` or `$ORCH_DIR/settings.json` changes on disk and `orch daemon reload` runs
 - **THEN** the daemon re-execs with the same lock, subsystems resume, and `orch daemon status` shows the new code hash and a fresh start time
 
 ### Requirement: Resident subsystems
@@ -34,7 +34,7 @@ orchd SHALL own the resident behaviors: watch presence dirs and emit state-trans
 
 ### Requirement: Local control endpoint
 
-orchd SHALL expose newline-delimited JSON-RPC on `$ORCH_DIR/orchd.sock` (unix socket; 127.0.0.1 TCP + port file where unix sockets are unavailable), serving at minimum: subscribe-events, fleet-status, enqueue, daemon-status, and the write methods dispatch, steer, set-model, and ack. The RPC method semantics SHALL NOT depend on unix-socket specifics, so the same surface can later be served over an authenticated network transport. The endpoint is localhost-only; remote access remains SSH (group 9).
+orchd SHALL expose newline-delimited JSON-RPC on `$ORCH_DIR/orchd.sock` (unix socket; 127.0.0.1 TCP + port file where unix sockets are unavailable), serving at minimum: subscribe-events, status, enqueue, daemon-status, and the write methods dispatch, steer, set-model, and ack. The RPC method semantics SHALL NOT depend on unix-socket specifics, so the same surface can later be served over an authenticated network transport. The endpoint is localhost-only; remote access remains SSH (group 9).
 
 #### Scenario: CLI prefers the daemon
 
@@ -48,12 +48,12 @@ orchd SHALL expose newline-delimited JSON-RPC on `$ORCH_DIR/orchd.sock` (unix so
 
 ### Requirement: Daemon-optional operation
 
-Read-only orch commands (`orch status`, `orch result`, `orch doctor`) SHALL keep working with orchd absent via the existing file-protocol paths. `orch events` SHALL require orchd by default; only explicit `--offline` enables read-only file-watch diagnostics. Write commands (`orch dispatch`, `orch run`, `orch steer`, `orch model`, `orch work`) SHALL require the broker: with orchd absent they SHALL refuse with a nonzero exit and a message to run `orch daemon start`, and SHALL NOT fall back to a direct herdr or inbox-file write. `orch doctor` SHALL report whether orchd is running, stale, or absent.
+Read-only orch commands (`orch status`, `orch result`, `orch doctor`) SHALL keep working with orchd absent via the existing file-protocol paths; with orchd present they SHALL read fleet state from the `status` RPC so the daemon stays the single source. `orch events` SHALL require orchd unconditionally: it subscribes over RPC and provides no file-watch mode, flag-gated or otherwise. Presence files SHALL be read as event ingress by orchd only; no client command SHALL derive state transitions from them. When the daemon drops the subscription, `orch events` SHALL exit non-zero naming `orch daemon start`, and a caller-initiated shutdown SHALL NOT be reported as a disconnect. Write commands (`orch dispatch`, `orch run`, `orch steer`, `orch model`, `orch work`) SHALL require the broker: with orchd absent they SHALL refuse with a nonzero exit and a message to run `orch daemon start`, and SHALL NOT fall back to a direct herdr or inbox-file write. `orch doctor` SHALL report whether orchd is running, stale, or absent.
 
 #### Scenario: Socket dead mid-stream
 
 - **WHEN** orchd is stopped while `orch events` is subscribed
-- **THEN** the CLI prints one notice and falls back to direct file watching without losing transitions that occur after the switch
+- **THEN** the close handler fires once, the command exits non-zero naming `orch daemon start`, and no transition is emitted from a presence file after the drop
 
 #### Scenario: Write refuses without the broker
 

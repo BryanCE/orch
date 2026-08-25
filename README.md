@@ -11,7 +11,7 @@ orch is also a headless control-plane backend: the daemon, presence protocol, ev
 Install the published CLI globally with npm:
 
 ```sh
-npm install -g orch
+npm install -g @bryance/orch
 orch setup
 ```
 
@@ -60,7 +60,7 @@ These are the top-level commands accepted by the CLI. `orch status` is also the 
 | --- | --- |
 | `status [--json] [--all] [--offline]` | Show merged agent and pane state; no command defaults to `status`. |
 | `questions [--all] [--json] [--local]` | List pending agent questions. |
-| `events [--all] [target ...] [--status s[,s…]] [--notify] [--json] [--offline]` | Stream pane state transitions. |
+| `events [--all] [target ...] [--status s[,s…]] [--json]` | Stream pane state transitions; requires a running daemon. Notifications are delivered by orchd from `settings.json`, not by this command. |
 | `queue add|list|history|cancel` | Add, list, inspect history, or cancel queued tasks; `add` accepts `--host`, `--worktree`, and `--json`. |
 | `work [--once] [--json]` | Assign queued tasks to idle agents. |
 | `review [list|approve|reject]` | Interactively review, or list, approve, or reject worktree results; subcommands accept `--json`. |
@@ -96,7 +96,10 @@ These are the top-level commands accepted by the CLI. `orch status` is also the 
 | `daemon start [--fg] \| stop \| status [--json] \| reload [--json]` | Manage the resident orch daemon. |
 | `doctor [--fix] [-y\|--yes] [--json]` | Check the install; TTY fix mode opens a menu, while `-y`/`--yes` applies every fix unattended. |
 | `clean [--worktrees [--force]] [--json]` | Remove dead agent directories and optionally clean orphaned worktrees. |
-| `setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]` | Configure an agent/backend and install or link integrations. |
+| `setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy] [--skills\|--no-skills]` | Configure an agent/backend and install or link integrations. Asks before installing orch's skills. |
+| `settings [--json] [--harness=<id>] [--plexer=<id>]` | Print every effective setting with its winning source, or switch the active default. |
+| `settings models [--harness=<id>] [--model=<spec>]` | Re-pick each harness's launch model, picker quicklist, and launchable set. |
+| `settings skills [--install\|--no-install] [--roots=<dir>[,<dir>…]]` | Turn orch's skill install on or off and choose where it writes. |
 | `help` | Print the full built-in usage text. |
 
 Run `orch help` for subcommands and flags.
@@ -126,12 +129,20 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) �
 ```json
 {
   "schemaVersion": 1,
+  "runtime": "node",
+  "installed": { "adapters": ["pi", "claude"], "backends": ["herdr", "headless"] },
   "defaults": {
     "adapter": "pi",
     "backend": "herdr",
-    "model": "provider/model:thinking",
-    "spawn_cap": 8,
+    "models": { "pi": "provider/model:thinking", "claude": "sonnet" },
     "worktree": false
+  },
+  "fleet": { "spawn_cap": 8 },
+  "tiling": { "first_split": "rows" },
+  "skills": { "install": true, "roots": ["~/.claude/skills", "~/.agents/skills"] },
+  "models": {
+    "preferred": { "pi": ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"] },
+    "allowed": { "pi": ["anthropic/*"] }
   },
   "notify": [
     { "id": "desktop", "on": ["blocked", "error"] },
@@ -143,7 +154,57 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) �
 }
 ```
 
-`defaults` supports `adapter`, `backend`, `model`, `allowed_models`, `spawn_cap`, `worktree`, and `worker_peer_tools`. Each `notify` entry selects a notifier with `id`. `hosts` entries define remote SSH destinations with `dest`, optional `orch_dir`, and `timeout_ms`.
+`defaults` supports `adapter`, `backend`, `models` (one per harness), and `worktree`; `fleet` supports `spawn_cap`, `max_agents`, `workspace_caps`, `worker_peer_tools`, and `cross_workspace`. Each `notify` entry selects a notifier with `id`. `hosts` entries define remote SSH destinations with `dest`, optional `orch_dir`, and `timeout_ms`.
+
+### Skills: `skills.install` and `skills.roots`
+
+orch ships skills that teach a coding agent how to drive it — `orch` itself, plus `pi-agent` and `herdr`. `orch setup` **asks** before writing them anywhere; answer no and orch never touches those directories. `--skills` / `--no-skills` answers without the prompt.
+
+The same skills go to every root, because a skill file is read by whichever harness finds it: `~/.claude/skills` is Claude Code's own directory, and `~/.agents/skills` is the cross-harness convention other harnesses read. Point `roots` somewhere else, or list only one, to change that. A leading `~` expands to your home directory.
+
+```sh
+orch settings skills --no-install                    # stop installing them
+orch settings skills --install                       # install them now, into the recorded roots
+orch settings skills --roots=~/.agents/skills        # one root only
+```
+
+`--no-install` records the refusal and leaves any files already there alone — they are yours to remove.
+
+### Tiling: `tiling.first_split`
+
+A tab's opening split decides its whole grid; every split after it halves the biggest pane's longer visual side.
+
+| `first_split` | The second agent lands | Four agents land |
+| --- | --- | --- |
+| `rows` (default) | under the first (a horizontal divider) | 2x2, at any tab width |
+| `columns` | beside the first (a vertical divider) | 2x2, until the tab is wide enough that halving keeps picking columns |
+| `longest-edge` | across the tab's own longer edge | four thin columns on a wide monitor |
+
+### Models: three independent settings per harness
+
+Every harness names models in its own vocabulary, so each of these is recorded per harness — and none of them substitutes for another:
+
+| Setting | What it does | Empty means |
+| --- | --- | --- |
+| `defaults.models.<harness>` | The model a new agent launches on. | nothing recorded; `orch spawn` refuses until `--model` or `orch settings models` supplies one |
+| `models.preferred.<harness>` | The quicklist passed to that harness's OWN model cycle/picker (pi and omp: `--models`). | no quicklist is passed |
+| `models.allowed.<harness>` | The launch gate: a spawn is refused unless its model matches one of these glob patterns. | every model the harness offers is allowed |
+
+A model outside `models.preferred` is still launchable. The quicklist is convenience, never permission. Restricting what may launch is `models.allowed` and nothing else.
+
+`orch setup` and `orch settings models` ask for that list **once** and write it to both keys, since a list you want spawnable is the list you want in the picker. Hand-edit `settings.json` if you want them to differ.
+
+`orch setup` and `orch settings models [--harness=<id>]` ask for all three, one harness at a time. To see what a harness can actually run:
+
+```sh
+orch models                          # every installed harness's full catalogue
+orch models --agent=pi --search=son  # narrow by spec or label
+orch models --agent=pi --preferred   # only the picker quicklist
+orch models --agent=pi --pick=3      # print one full spec, for scripting
+orch models --json                   # { harnesses: [{ id, default, preferred, models }] }
+```
+
+`orch models` lists the whole catalogue whichever lists are configured — neither `preferred` nor `allowed` hides a row — and it records nothing.
 
 ## Files and data layout
 

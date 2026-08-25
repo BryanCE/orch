@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import * as fs from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -10,22 +11,23 @@ import {
   worktreeBranch,
 } from "../src/worktree.ts";
 import { insertSpawnedRecord } from "../src/store/sqlite.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { fixtureRepo, git } from "./helpers/git-repo.ts";
 
 const directories: string[] = [];
 
-function git(repoRoot: string, args: string[]): string {
-  return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
+/** orch has no built-in configuration, so a spawned CLI needs a recorded composition in its
+ * ORCH_DIR exactly as a real install does. */
+function orchDirWithSettings(): string {
+  const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
+  directories.push(orchDir);
+  writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
+  return orchDir;
 }
 
-function fixtureRepo(): string {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-"));
+function repo(): string {
+  const repoRoot = fixtureRepo("orch-review-");
   directories.push(repoRoot);
-  git(repoRoot, ["init"]);
-  git(repoRoot, ["config", "user.email", "test@example.com"]);
-  git(repoRoot, ["config", "user.name", "Orch Test"]);
-  fs.writeFileSync(path.join(repoRoot, "README.md"), "base\n");
-  git(repoRoot, ["add", "README.md"]);
-  git(repoRoot, ["commit", "-m", "initial"]);
   return repoRoot;
 }
 
@@ -38,7 +40,7 @@ function commit(worktreePath: string, file: string, contents: string, message: s
 function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, branch: string): void {
   fs.mkdirSync(path.join(orchDir, "agents", pane), { recursive: true });
   fs.writeFileSync(path.join(orchDir, "agents", pane, "status.json"), JSON.stringify({
-    schema: 2, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
+    schema: PRESENCE_SCHEMA, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
   }));
   insertSpawnedRecord(orchDir, {
     pane, ts: new Date().toISOString(), adapter: "pi", worktree: worktreePath, branch,
@@ -46,37 +48,57 @@ function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, 
 }
 
 function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
-  return execFileSync("bun", [path.join(import.meta.dir, "../bin/orch.ts"), ...args], {
+  const ran = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "../bin/orch.ts"), ...args], {
     cwd: repoRoot,
     // The daemon must run today's source, not a possibly stale dist/ build —
     // write commands auto-start it and deliver through its code.
     env: { ...process.env, ORCH_DIR: orchDir, ORCHD_ENTRYPOINT: path.join(import.meta.dir, "../src/daemon/orchd.ts") },
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
   });
+  if (!ran.success) throw new Error(`orch ${args.join(" ")} exited ${ran.exitCode}: ${ran.stderr.toString()}`);
+  return ran.stdout.toString();
 }
 
-function stopDaemon(orchDir: string): void {
+async function stopDaemon(orchDir: string): Promise<void> {
+  let pid: number | undefined;
   try {
     const lock = JSON.parse(fs.readFileSync(path.join(orchDir, "orchd.lock"), "utf8")) as { pid?: number };
-    if (lock.pid) process.kill(lock.pid, "SIGTERM");
+    pid = lock.pid;
   } catch {
-    // No daemon was started for this directory.
+    return; // No daemon was started for this directory.
+  }
+  if (!pid) return;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return; // Already gone.
+  }
+  // Wait until the daemon actually exits and releases its open files (orch.db,
+  // socket, log) — removing the dir while it lives is a guaranteed EBUSY on Windows.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return; // Process is gone; its handles are released.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
 
-afterEach(() => {
+afterEach(async () => {
   while (directories.length) {
     const directory = directories.pop()!;
-    stopDaemon(directory);
-    fs.rmSync(directory, { recursive: true, force: true });
+    await stopDaemon(directory);
+    removeTempDir(directory);
   }
 });
 
 describe("review plumbing", () => {
   test("lists only done worktree agents with commits ahead", () => {
-    const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
-    directories.push(orchDir);
+    const repoRoot = repo();
+    const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "feature-1");
     commit(worktreePath, "feature.txt", "feature\n", "add feature");
     registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
@@ -88,9 +110,8 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("reject re-dispatches feedback through the adapter inbox", async () => {
-    const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
-    directories.push(orchDir);
+    const repoRoot = repo();
+    const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "iterate-1");
     commit(worktreePath, "feature.txt", "feature\n", "first pass");
     registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
@@ -105,9 +126,8 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("approve merges and removes the worktree and branch", () => {
-    const repoRoot = fixtureRepo();
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
-    directories.push(orchDir);
+    const repoRoot = repo();
+    const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "approve-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "approved.txt", "approved\n", "approved change");
@@ -120,7 +140,7 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("conflicting approval aborts without changing either branch", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const worktreePath = createAgentWorktree(repoRoot, "conflict-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "README.md", "branch\n", "branch change");
@@ -136,7 +156,7 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("non-fast-forward approval creates a merge commit", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const worktreePath = createAgentWorktree(repoRoot, "merge-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "branch.txt", "branch\n", "branch change");

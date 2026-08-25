@@ -2,9 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { runDoctor } from "../src/doctor.ts";
+import { runDoctor } from "../src/doctor/runner.ts";
 import type { SshResult } from "../src/remote.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 
@@ -30,7 +31,7 @@ function successfulRunner(_destination: string, command: string): SshResult {
 }
 
 afterEach(() => {
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("doctor remote host checks", () => {

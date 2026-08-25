@@ -5,7 +5,7 @@ import {
 } from "../store/sqlite.ts";
 
 export interface OutboxDeps {
-  deliver(target: string, payload: unknown): Promise<boolean>;
+  deliver(target: string, payload: unknown, id: string): Promise<boolean>;
   now(): number;
 }
 
@@ -37,7 +37,7 @@ export async function drainOutbox(
     try {
       let acknowledged = false;
       try {
-        acknowledged = await deps.deliver(message.target, message.payload);
+        acknowledged = await deps.deliver(message.target, message.payload, message.id);
       } catch {
         acknowledged = false;
       }

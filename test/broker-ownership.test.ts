@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
@@ -15,7 +16,7 @@ function makeOrchDir(): string {
 }
 
 afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
 describe("broker ownership and workspace governance", () => {
@@ -50,12 +51,12 @@ describe("broker ownership and workspace governance", () => {
     const orchDir = makeOrchDir();
     const origin = addTask(orchDir, "origin task", {}, "w1");
     const foreign = addTask(orchDir, "foreign task", {}, "w2");
-    const legacy = addTask(orchDir, "legacy task");
     const tasks = listTasks(orchDir);
 
     expect(nextQueuedTask(tasks, "worker", "w1")?.id).toBe(origin.id);
     expect(nextQueuedTask(tasks, "worker", "w2")?.id).toBe(foreign.id);
-    expect(nextQueuedTask(tasks, "worker", "w3")?.id).toBe(legacy.id);
+    // No unscoped tasks exist, and neither scoped task leaks into a third workspace.
+    expect(nextQueuedTask(tasks, "worker", "w3")).toBeUndefined();
     expect(nextQueuedTask(tasks.filter((task) => task.id === foreign.id), "worker", "w1")).toBeUndefined();
   });
 });

@@ -88,3 +88,27 @@ function tmuxPanes(): TmuxPane[] {
 export function orchPanes(): TmuxPane[] {
   return tmuxPanes().filter((pane) => pane.agentKey.length > 0);
 }
+
+/** One pane's id and cell geometry, for layout planning. */
+export interface TmuxPaneRect {
+  readonly paneId: string;
+  readonly rect: { readonly width: number; readonly height: number; readonly x: number; readonly y: number };
+}
+
+const RECT_FORMAT = ["#{pane_id}", "#{pane_width}", "#{pane_height}", "#{pane_left}", "#{pane_top}"].join(FIELD_SEP);
+
+function parseRectRow(line: string): TmuxPaneRect | null {
+  const [paneId, width, height, left, top] = line.split(FIELD_SEP);
+  if (!paneId) return null;
+  return { paneId, rect: { width: Number(width), height: Number(height), x: Number(left), y: Number(top) } };
+}
+
+/** Every pane of one window with its geometry, orch-spawned or not. Throws on failure. */
+export function windowPaneRects(window: string): TmuxPaneRect[] {
+  return execTmux(["list-panes", "-t", window, "-F", RECT_FORMAT])
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      const pane = parseRectRow(line);
+      return pane ? [pane] : [];
+    });
+}

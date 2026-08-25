@@ -1,11 +1,19 @@
 import type { AgentAdapter } from "../adapters/adapter.ts";
 import type { Identity } from "./identity.ts";
-
-/** Plexer backends supported by orch. */
-export type BackendId = "herdr" | "tmux" | "headless";
+import type { WorkerPolicy } from "../policy/workers.ts";
 
 /** The closed backend-id set, importable without pulling any provider code. */
-export const BACKEND_IDS: readonly BackendId[] = ["herdr", "tmux", "headless"];
+export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;
+
+/** Plexer backends supported by orch. */
+export type BackendId = (typeof BACKEND_IDS)[number];
+
+export function isBackendId(value: unknown): value is BackendId {
+  return typeof value === "string" && (BACKEND_IDS as readonly string[]).includes(value);
+}
+
+/** Herdr's backend-owned notification sink id — the one spelling core may import. */
+export const HERDR_SINK_ID = "herdr";
 
 /** Capabilities exposed by a backend. */
 export interface BackendCapabilities {
@@ -27,12 +35,18 @@ export interface BackendSpawnOpts {
   readonly cwd?: string;
   /** Model selected for this process. */
   readonly model?: string;
+  /** Model patterns the adapter should expose in its native cycle/picker, when configured. */
+  readonly preferredModels?: readonly string[];
   /** ORCH_DIR override for the adapter process. */
   readonly orchDir?: string;
   /** Extra environment passed to the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
   /** Explicit worker tool allowlist, when the launcher applies one. */
   readonly tools?: string;
+  /** What this worker may load; the adapter maps it onto its harness's flags. */
+  readonly workers?: WorkerPolicy;
+  /** Verbatim launch command overriding the adapter's own; `orch spawn --cmd`. */
+  readonly cmd?: string;
   /** Display name given to the spawned agent, when the backend supports naming. */
   readonly name?: string;
   /** Backend workspace to spawn into; defaults to the caller's workspace. */
@@ -41,6 +55,8 @@ export interface BackendSpawnOpts {
   readonly group?: string;
   /** Split direction within the target group. */
   readonly split?: BackendSplit;
+  /** Pane the new pane must split, so placement never depends on what has focus. */
+  readonly targetPane?: BackendHandle;
 }
 
 /** Opaque backend-specific process or pane handle. */
@@ -111,7 +127,7 @@ export interface BackendWorkspace {
   readonly status: string | null;
 }
 
-/** Geometry of every pane in the group containing a handle. */
+/** Geometry of every pane in one group. */
 export interface BackendGroupLayout<Handle = BackendHandle> {
   readonly group: string;
   readonly panes: readonly { readonly handle: Handle; readonly rect: BackendRect }[];
@@ -119,6 +135,9 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
 
 /** Entry written to the spawn registry. */
 export interface BackendRegistryRecord<Handle = BackendHandle> {
+  // Written by orch, but read back from disk: an id this build no longer ships
+  // must still yield a closable record, so the read guard is the boundary here
+  // and these stay plain strings.
   readonly backend: string;
   readonly handle: Handle;
   readonly adapter: string;
@@ -132,8 +151,11 @@ export interface BackendRegistryRecord<Handle = BackendHandle> {
  * Lifecycle, identity, and control contract shared by pane and
  * detached-process backends.
  *
- * The backend is the identity authority (design D2): it mints a stable
- * {@link Identity} for each handle and probes its own availability. It is also
+ * The backend owns its workspace/session identity (design D2): it reports the
+ * calling process's own {@link Identity} via {@link Backend.currentIdentity} and
+ * probes its own availability. An agent's stable identity is minted BEFORE
+ * launch by the spawner and passed opaquely via `ORCH_AGENT_KEY`; the backend
+ * never re-mints a second identity from a post-spawn handle. The backend is also
  * the control authority: delivery, focus, keystrokes, and layout route through
  * this port, never through a concrete plexer CLI at the call site. The port is
  * agent-agnostic — it never references pi/claude/codex.
@@ -143,7 +165,7 @@ export interface BackendRegistryRecord<Handle = BackendHandle> {
  * (callers gate on presence, never on the backend id).
  */
 export interface Backend<Handle = BackendHandle> {
-  readonly id: string;
+  readonly id: BackendId;
   readonly panes: boolean;
   readonly focusable: boolean;
   /** Whether raw keystroke delivery is supported (capability-gated by callers). */
@@ -152,8 +174,6 @@ export interface Backend<Handle = BackendHandle> {
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
   isInsideSession(): boolean;
-  /** Mint the stable structured identity for a spawned handle. */
-  mintIdentity(handle: Handle): Identity;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   close(handle: Handle): boolean;
   list(): Handle[];
@@ -163,9 +183,19 @@ export interface Backend<Handle = BackendHandle> {
   focus(handle: Handle): boolean;
   /** Send raw keystrokes (backend key names, e.g. "Escape", "Enter"). */
   sendKeys(handle: Handle, keys: readonly string[]): boolean;
-  /** Re-tile every pane in a group. */
-  applyLayout(group: string, layout: "tiled"): boolean;
+  /**
+   * Workspace id → human display name for the workspaces the backend can
+   * enumerate. A backend with no name concept returns an empty map; consumers
+   * fall back to the workspace id.
+   */
+  workspaceNames(): Map<string, string>;
 
+  /**
+   * Live handle for one agent identity key. Declared by backends whose handle is
+   * not a pane the spawn registry can record — a detached process handle changes
+   * every relaunch, so only the backend knows the current one.
+   */
+  handleFor?(key: string): Handle | undefined;
   /** Identity of the calling process's own target, when inside a session. */
   currentIdentity?(): Identity | null;
   /** Every live target with display metadata (fleet enumeration). */
@@ -178,11 +208,11 @@ export interface Backend<Handle = BackendHandle> {
   /** Rename the pane border label of a target. */
   renamePane?(handle: Handle, name: string): boolean;
   /** Move a target into an existing group. */
-  moveToGroup?(handle: Handle, group: string, split: BackendSplit): boolean;
+  moveToGroup?(handle: Handle, group: string, split: BackendSplit, against?: Handle): boolean;
   /** Move a target into a freshly created group. */
   moveToNewGroup?(handle: Handle, label: string | null): boolean;
-  /** Geometry of the group containing a handle. Throws when unresolvable. */
-  layoutOf?(handle: Handle): BackendGroupLayout<Handle>;
+  /** Geometry of every pane in a group, orch-spawned or not. Throws when unresolvable. */
+  groupLayout?(group: string): BackendGroupLayout<Handle>;
   /** Names of foreground processes running in a target. */
   foregroundProcesses?(handle: Handle): string[];
   /** Block until the backend reports the agent status, or time out. */

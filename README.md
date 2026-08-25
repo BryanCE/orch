@@ -316,6 +316,18 @@ Two gates decide whether a configured sink ever fires, and both are silent:
    notification tier on the daemon's PATH; `herdr` needs `HERDR_ENV=1` there, so a daemon
    started outside a herdr pane will never deliver herdr notifications even when configured.
 
+`orch settings notify` is the writer for that array; each sink declares the fields it takes,
+so `add` names them as flags. A sink already configured is replaced, keeping the fields the
+call does not name — which is how you change `on` alone.
+
+```sh
+orch settings notify                                          # what is configured, and when each fires
+orch settings notify add desktop --on=blocked,error,done      # fire on done too
+orch settings notify add command --command="notify-send orch" # spawns with canonical JSON on stdin
+orch settings notify add webhook --url=https://example.org/hook
+orch settings notify remove command
+```
+
 ```sh
 orch doctor                        # reports each sink's availability and how to fix it
 orch notify test --state blocked   # push a synthetic event through every sink now

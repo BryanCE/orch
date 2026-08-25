@@ -90,6 +90,17 @@ Each `notify` object maps to one adapter through `id`. Keys other than `id` and 
 }
 ```
 
+`orch settings notify` writes that array without hand-editing the file. Sink ids and their field flags are read from each adapter's declared `requiredConfig`, so the command names no adapter's fields itself — an adapter added to the registry and the settings schema is configurable with no change to it:
+
+```sh
+orch settings notify                                     # sink, on-states, target
+orch settings notify add webhook --url=https://example.test/orch-events
+orch settings notify add command --command="logger -t orch" --on=blocked,error,done
+orch settings notify remove webhook
+```
+
+`add` upserts on `id`: one sink id is one entry, and the fields a call does not name are kept from what was already recorded.
+
 Entries are delivered independently and best-effort. An unavailable adapter, invalid configuration, timeout, rejected delivery, or delivery failure is reported as a warning and does not block delivery to the other configured adapters or the producer.
 
 ## Future adapters (follow-up work; not built-in)

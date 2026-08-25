@@ -29,6 +29,9 @@ const HostSchema = z.strictObject({
 });
 
 export const NOTIFY_STATES = ["idle", "working", "blocked", "done", "error", "aborted", "exited", "unknown"] as const;
+export type NotifyState = (typeof NOTIFY_STATES)[number];
+/** The states a notify entry delivers on when it declares no `on` list of its own. */
+export const NOTIFY_DEFAULT_ON: readonly NotifyState[] = ["blocked", "error"];
 const NotifyOnSchema = z.array(z.enum(NOTIFY_STATES)).optional();
 const NotifyEntrySchema = z.discriminatedUnion("id", [
   z.strictObject({ id: z.literal("desktop"), on: NotifyOnSchema }),
@@ -657,12 +660,18 @@ export function writeSettingsFullTree(orchDir: string): void {
   }));
 }
 
-/** Append setup-selected notifier entries to the settings.json `notify` array, skipping ids already configured. */
+/** Upsert notifier entries into the settings.json `notify` array, keyed by sink id: an id
+ *  already configured is replaced where it sits, a new one is appended. One sink id, one entry. */
 export function writeSettingsNotify(orchDir: string, entries: readonly NotifyEntry[]): void {
   updateSettingsFile(orchDir, (root) => {
-    const existing = root.notify ?? [];
-    const configured = new Set(existing.map((entry) => entry.id));
-    const added = entries.filter((entry) => !configured.has(entry.id));
-    return { ...root, notify: [...existing, ...added] };
+    const written = new Map(entries.map((entry) => [entry.id, entry]));
+    const upserted = (root.notify ?? []).map((entry) => written.get(entry.id) ?? entry);
+    const configured = new Set(upserted.map((entry) => entry.id));
+    return { ...root, notify: [...upserted, ...entries.filter((entry) => !configured.has(entry.id))] };
   });
+}
+
+/** Drop the `notify` entry for one sink id. Callers gate on it being configured. */
+export function deleteSettingsNotify(orchDir: string, id: NotifyEntry["id"]): void {
+  updateSettingsFile(orchDir, (root) => ({ ...root, notify: (root.notify ?? []).filter((entry) => entry.id !== id) }));
 }

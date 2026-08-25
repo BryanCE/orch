@@ -1,5 +1,6 @@
 import * as files from "node:fs";
-import { loadConfig, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsPreferredModels, writeSettingsSkills, type OrchConfig } from "../config.ts";
+import { deleteSettingsNotify, loadConfig, NOTIFY_DEFAULT_ON, NOTIFY_STATES, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsNotify, writeSettingsPreferredModels, writeSettingsSkills, type NotifyEntry, type NotifyState, type OrchConfig } from "../config.ts";
+import { buildSelectedNotifyEntries, probeNotifiers, type NotifierChoice } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
@@ -118,6 +119,118 @@ export function cmdSettingsSkills(args: string[]): void {
   process.stdout.write(`skills.install = ${wanted}\nskills.roots   = ${target.join(", ")}\n`);
   if (!wanted) return;
   for (const written of installSkills(target)) process.stdout.write(`  ${written}\n`);
+}
+
+const NOTIFY_USAGE = "usage: orch settings notify [list] [--json]\n"
+  + "       orch settings notify add <sink> [--<field>=<value>...] [--on=<state,...>]\n"
+  + "       orch settings notify remove <sink>";
+
+/** Every notifier declares the config fields it needs, so no sink's fields are named here. */
+function pickDeclaredFields(
+  fields: NotifierChoice["requiredFields"],
+  read: (name: string) => unknown,
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const field of fields) {
+    const value = read(field.name);
+    if (value !== undefined) config[field.name] = value;
+  }
+  return config;
+}
+
+/** Exit on a flag this sink never declared, rather than silently recording nothing for it. */
+function rejectUndeclaredFlags(args: string[], fields: NotifierChoice["requiredFields"]): void {
+  const declared = ["--on", ...fields.map((field) => `--${field.name}`)];
+  const undeclared = args.filter((arg, index) =>
+    arg.startsWith("--")
+    && !declared.includes(arg.split("=")[0] ?? arg)
+    && !declared.includes(args[index - 1] ?? ""));
+  if (undeclared.length) die(`Unknown flag ${undeclared.join(", ")}. This sink takes: ${declared.join(" ")}.`);
+}
+
+/** Read `--on=<state,...>` as the states this sink fires on, or exit naming the supported set. */
+function readNotifyStates(args: string[]): NotifyState[] | undefined {
+  const flag = readAssignFlag(args, "--on");
+  if (flag === undefined) return undefined;
+  const states = flag.split(",").map((state) => state.trim()).filter(Boolean);
+  const unsupported = states.filter((state) => !NOTIFY_STATES.includes(state as NotifyState));
+  if (!states.length || unsupported.length) die(`--on takes a comma-separated list of: ${NOTIFY_STATES.join(", ")}.`);
+  return states as NotifyState[];
+}
+
+function notifyEntryTarget(entry: NotifyEntry): string {
+  if ("command" in entry) return formatValue(entry.command);
+  if ("url" in entry) return entry.url;
+  return "";
+}
+
+function notifyEntryRow(entry: NotifyEntry): string {
+  return `  ${entry.id.padEnd(8)}  ${(entry.on ?? NOTIFY_DEFAULT_ON).join(",").padEnd(26)}  ${notifyEntryTarget(entry)}\n`;
+}
+
+function printNotifyEntries(json: boolean): void {
+  const configured = currentConfig().notify;
+  if (json) {
+    process.stdout.write(JSON.stringify(configured, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(`notify  ${settingsPath(orchDir())}\n\n`);
+  if (!configured.length) {
+    process.stdout.write("  (none configured)\n");
+    return;
+  }
+  process.stdout.write(`  ${"sink".padEnd(8)}  ${"on".padEnd(26)}  target\n`);
+  for (const entry of configured) process.stdout.write(notifyEntryRow(entry));
+}
+
+/** Record one sink over whatever it already had, so a re-add changes only what the flags name. */
+async function addNotifyEntry(args: string[]): Promise<void> {
+  const [id, ...flags] = args;
+  if (id === undefined || id.startsWith("--")) die(NOTIFY_USAGE);
+  const choices = await probeNotifiers();
+  const choice = choices.find((notifier) => notifier.id === id);
+  if (!choice) die(`Unknown notify sink "${id}". Supported: ${choices.map((notifier) => notifier.id).join(", ")}.`);
+  rejectUndeclaredFlags(flags, choice.requiredFields);
+
+  const recorded = currentConfig().notify.find((entry) => entry.id === id);
+  const recordedFields = { ...recorded } as Record<string, unknown>;
+  const config = {
+    ...pickDeclaredFields(choice.requiredFields, (name) => recordedFields[name]),
+    ...pickDeclaredFields(choice.requiredFields, (name) => readAssignFlag(flags, `--${name}`)),
+    on: readNotifyStates(flags) ?? recorded?.on,
+  };
+
+  const written = await buildSelectedNotifyEntries([{ id, config }]);
+  const missing = written.errors.flatMap((error) => error.missing);
+  if (missing.length) die(`${id} needs ${missing.map((field) => `--${field}=<value>`).join(" ")}.`);
+
+  writeSettingsNotify(orchDir(), written.entries);
+  process.stdout.write(`notify  ${settingsPath(orchDir())}\n\n`);
+  for (const entry of written.entries) process.stdout.write(notifyEntryRow(entry));
+  if (!choice.available) process.stdout.write(`\n  ${choice.remediation}\n`);
+  process.stdout.write("\nverify delivery with: orch doctor\n");
+}
+
+function removeNotifyEntry(args: string[]): void {
+  const [id] = args;
+  if (id === undefined) die(NOTIFY_USAGE);
+  const configured = currentConfig().notify;
+  const entry = configured.find((candidate) => candidate.id === id);
+  if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
+  deleteSettingsNotify(orchDir(), entry.id);
+  process.stdout.write(`removed notify sink ${id} from ${settingsPath(orchDir())}\n`);
+}
+
+/** List, add, or remove the settings.json `notify` sinks the daemon delivers through. */
+export async function cmdSettingsNotify(args: string[]): Promise<void> {
+  const [verb, ...rest] = args;
+  if (verb === undefined || verb === "list" || verb.startsWith("--")) {
+    printNotifyEntries(args.includes("--json"));
+    return;
+  }
+  if (verb === "add") return addNotifyEntry(rest);
+  if (verb === "remove") return removeNotifyEntry(rest);
+  die(NOTIFY_USAGE);
 }
 
 /** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */

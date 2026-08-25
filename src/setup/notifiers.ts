@@ -116,7 +116,8 @@ export async function buildSelectedNotifyEntries(
   for (const selection of selections) {
     const result = collectRequiredConfig(selection.id, selection.config);
     if (!result.ok) errors.push({ id: selection.id, missing: result.missing });
-    else entries.push(renderNotifyEntry(selection.id, result.config));
+    // `on` is entry-level routing rather than adapter config, so it skips the required-field filter.
+    else entries.push(renderNotifyEntry(selection.id, { ...result.config, on: selection.config.on }));
   }
   await Promise.resolve();
   return { entries, errors };

@@ -14,6 +14,8 @@ import {
   startRpcServer,
   type RpcServer,
 } from "../src/daemon/rpc";
+import { type SessionIdentity } from "../src/store/sqlite";
+import { isRecord } from "../src/util";
 
 const dirs: string[] = [];
 const servers: RpcServer[] = [];
@@ -22,6 +24,16 @@ function tempOrchDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-rpc-"));
   dirs.push(dir);
   return dir;
+}
+
+/** Verifies what `hello` claims to return, so a test can read `.id` without a cast.
+ *  `expect.any(String)` would assert the same thing as an `any`, which the lint rules
+ *  reject and which narrows nothing for the lines that follow. */
+function isSessionIdentity(value: unknown): value is SessionIdentity {
+  return isRecord(value)
+    && typeof value.id === "string" && value.id.length > 0
+    && typeof value.label === "string"
+    && value.kind === "session";
 }
 
 /** A handler that never responds — the shape a starved daemon presents to the CLI. */
@@ -92,9 +104,10 @@ describe("daemon RPC", () => {
     await start(dir);
     const first = await rpcCall(dir, "hello");
     const second = await rpcCall(dir, "hello");
-    expect(first).toMatchObject({ label: expect.any(String), kind: "session" });
+    if (!isSessionIdentity(first)) throw new Error(`hello returned a non-identity: ${JSON.stringify(first)}`);
     expect(second).toEqual(first);
-    expect((first as { id: string }).id).not.toContain("~");
+    // An issued id is opaque; a plexer coordinate would carry `~` separators.
+    expect(first.id).not.toContain("~");
   });
 
   test("a TCP hello with the daemon token gets an identity", async () => {
@@ -102,10 +115,10 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    expect(await tcpHello(server, { token })).toMatchObject({
-      id: 1,
-      result: { kind: "session", label: "local TCP client", id: expect.any(String) },
-    });
+    const reply = await tcpHello(server, { token });
+    expect(reply.id).toBe(1);
+    if (!isSessionIdentity(reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
+    expect(reply.result.label).toBe("local TCP client");
   });
 
   test("refuses a TCP hello without a token", async () => {

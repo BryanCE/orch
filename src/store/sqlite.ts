@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { TaskOptions, TaskRec, TaskState } from "../queue.ts";
 import { isAdapterId, type AdapterId } from "../adapters/adapter.ts";
 import { isBackendId, type BackendId } from "../backends/backend.ts";
+import { isRecord } from "../util.ts";
 
 // One SQLite file per $ORCH_DIR holds the queue, ownership registry, delivery
 // outbox, and spawn registry. jsonl remains the human-visible truth channel for
@@ -13,7 +14,7 @@ import { isBackendId, type BackendId } from "../backends/backend.ts";
 
 /** Stamped into `PRAGMA user_version`; a store carrying any other stamp is
  * malformed and gets reaped and recreated empty. */
-const STORE_SCHEMA = 3;
+const STORE_SCHEMA = 4;
 
 export interface SessionIdentity {
   readonly id: string;
@@ -32,7 +33,17 @@ function rowToSessionIdentity(row: SessionIdentityRow): SessionIdentity {
   return { id: row.id, label: row.label, kind: "session" };
 }
 
-/** Return the identity for an ancestor, minting it once when first observed. */
+/** The one place an identity read off the wire is verified, so a caller of `hello`
+ *  can use the result without a cast. */
+export function isSessionIdentity(value: unknown): value is SessionIdentity {
+  return isRecord(value)
+    && typeof value.id === "string" && value.id.length > 0
+    && typeof value.label === "string"
+    && value.kind === "session";
+}
+
+/** Return the identity for a session process, minting it once when first observed.
+ *  Every caller keys on the same column: there is no second class of participant. */
 export function getOrCreateSessionIdentity(orchDir: string, ancestorPid: number, label: string): SessionIdentity {
   const db = openStore(orchDir);
   db.query(
@@ -42,24 +53,6 @@ export function getOrCreateSessionIdentity(orchDir: string, ancestorPid: number,
   const row = db.query("SELECT id, label, kind FROM session_identities WHERE ancestor_pid = ?").get(ancestorPid) as SessionIdentityRow | null;
   if (!row) throw new Error(`session identity disappeared for ancestor ${ancestorPid}`);
   return rowToSessionIdentity(row);
-}
-
-/** Return the one persisted identity used by authenticated loopback TCP callers. */
-export function getOrCreateTcpSessionIdentity(orchDir: string, label: string): SessionIdentity {
-  const db = openStore(orchDir);
-  db.query(
-    `INSERT INTO session_identities (tcp_anchor, id, label, kind)
-     VALUES ('local-tcp', ?, ?, 'session') ON CONFLICT(tcp_anchor) DO NOTHING`,
-  ).run(randomUUID(), label);
-  const row = db.query("SELECT id, label, kind FROM session_identities WHERE tcp_anchor = 'local-tcp'").get() as SessionIdentityRow | null;
-  if (!row) throw new Error("TCP session identity disappeared");
-  return rowToSessionIdentity(row);
-}
-
-/** Resolve a previously issued identity presented over TCP. */
-export function selectSessionIdentity(orchDir: string, id: string): SessionIdentity | undefined {
-  const row = openStore(orchDir).query("SELECT id, label, kind FROM session_identities WHERE id = ?").get(id) as SessionIdentityRow | null;
-  return row ? rowToSessionIdentity(row) : undefined;
 }
 
 export interface SpawnedRecord {
@@ -204,7 +197,6 @@ function createTables(db: DatabaseLike): void {
     );
     CREATE TABLE IF NOT EXISTS session_identities (
       ancestor_pid INTEGER PRIMARY KEY,
-      tcp_anchor TEXT UNIQUE,
       id TEXT NOT NULL UNIQUE,
       label TEXT NOT NULL,
       kind TEXT NOT NULL CHECK (kind = 'session')

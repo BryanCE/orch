@@ -298,4 +298,8 @@ Bare `orch review` walks it interactively.
 - `orch settings` prints every effective setting with the source that won
   (flag > env > settings.json > default). `orch settings --harness=<id>` / `--plexer=<id>`
   switches the active default among the enabled set.
+- `orch settings notify` lists the sinks orchd delivers through; `add <sink> [--<field>=…]
+  [--on=<state,…>]` upserts one (fields the call omits are kept), `remove <sink>` drops it.
+  `on` defaults to `blocked,error`, so a sink that should announce completions needs
+  `--on=blocked,error,done`.
 - `$ORCH_DIR/agents/` is the store. `orch help` is authoritative for the full surface.

@@ -1,4 +1,4 @@
-import { loadConfigOrNull, SETTINGS_DEFAULTS, type NotifyEntry } from "../config.ts";
+import { loadConfigOrNull, NOTIFY_DEFAULT_ON, SETTINGS_DEFAULTS, type NotifyEntry } from "../config.ts";
 import {
   allSinkProviders,
   commandAvailable,
@@ -38,7 +38,7 @@ function loadNotifierEntries(orchDir: string): NotifierEntry[] {
         warning(`invalid notify entry: unknown sink type ${JSON.stringify(entry.id)}`);
         return [];
       }
-      const on = entry.on ?? ["blocked", "error"];
+      const on = entry.on ?? NOTIFY_DEFAULT_ON;
       const value = { ...entry } as Record<string, unknown>;
       delete value.id;
       delete value.on;

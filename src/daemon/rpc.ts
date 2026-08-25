@@ -164,69 +164,24 @@ interface ConnectionState {
   identity?: SessionIdentity;
 }
 
-/** Resolve SO_PEERCRED's pid using the Linux socket table; node:net does not
- * expose getsockopt, so the kernel-owned /proc descriptor and ss peer inode are
- * joined before reading the caller's ancestry. */
-function peerPidOf(socket: Socket): number | undefined {
-  const fd = (socket as Socket & { _handle?: { fd?: number } })._handle?.fd;
-  if (typeof fd !== "number" || process.platform === "win32") return undefined;
-  try {
-    const descriptor = readFileSync(`/proc/self/fd/${fd}`, "utf8");
-    const inode = /socket:\[(\d+)\]/.exec(descriptor)?.[1];
-    if (!inode) return undefined;
-    const listing = execFileSync("ss", ["-xnp"], { encoding: "utf8", timeout: 1_000 });
-    const peer = new RegExp(`\\s${inode}\\s+\\*\\s+(\\d+)\\b`).exec(listing)?.[1];
-    if (!peer) return undefined;
-    const reverse = new RegExp(`\\*\\s+${peer}\\s+\\*\\s+${inode}\\b([^\\n]*)`).exec(listing)?.[1];
-    const pid = /pid=(\d+)/.exec(reverse ?? "")?.[1];
-    return pid ? Number(pid) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function stableAncestorOf(pid: number): number | undefined {
-  let current = pid;
-  const seen = new Set<number>();
-  for (let step = 0; step < 64 && current > 1 && !seen.has(current); step++) {
-    seen.add(current);
-    let stat: string;
-    try { stat = readFileSync(`/proc/${current}/stat`, "utf8"); } catch { return undefined; }
-    const end = stat.lastIndexOf(")");
-    if (end < 0) return undefined;
-    const fields = stat.slice(end + 2).split(" ");
-    const parent = Number(fields[1]);
-    if (!Number.isInteger(parent) || parent <= 1) return current;
-    current = parent;
-  }
-  return seen.size ? current : undefined;
-}
-
-function sessionLabel(pid: number): string {
-  try {
-    const command = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
-    if (command) return `${command} session ${pid}`;
-  } catch {}
-  return `session ${pid}`;
-}
-
-function helloIdentity(
-  orchDir: string,
-  transport: "unix" | "tcp",
-  params: unknown,
-  socket: Socket,
-  tcpToken: string,
-  tcpIdentity: SessionIdentity | undefined,
-): SessionIdentity {
-  if (transport === "tcp") {
-    const token = isObject(params) && typeof params.token === "string" ? params.token : undefined;
-    if (token !== tcpToken) throw new RpcError("IDENTITY_REQUIRED", "TCP hello requires the daemon token");
-    return tcpIdentity ?? getOrCreateTcpSessionIdentity(orchDir, "local TCP client");
-  }
-  const pid = peerPidOf(socket);
-  const ancestor = pid === undefined ? undefined : stableAncestorOf(pid);
-  if (ancestor === undefined) throw new RpcError("IDENTITY_UNAVAILABLE", "Could not read unix peer credentials");
-  return getOrCreateSessionIdentity(orchDir, ancestor, sessionLabel(ancestor));
+/**
+ * Issue the caller's identity. One mechanism serves both transports: the token file
+ * is `0600` in a directory only this uid can read, so presenting it proves the caller
+ * is the same uid as the daemon — exactly what peer credentials establish, and the
+ * only proof portable node can obtain (it exposes neither SO_PEERCRED nor a peer's
+ * ancestry, and scraping `/proc` or `ss` for them works on Linux alone).
+ *
+ * The session pid and label are the caller's own report, used for continuity and
+ * display, never for authorization: a same-uid caller that misreports its session
+ * gains nothing it could not already do by dialing again.
+ */
+function helloIdentity(orchDir: string, params: unknown, daemonToken: string): SessionIdentity {
+  const claim = isObject(params) ? params : {};
+  if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "hello requires the daemon token");
+  const pid = typeof claim.pid === "number" ? claim.pid : Number.NaN;
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's session pid");
+  const claimed = typeof claim.label === "string" ? claim.label.trim() : "";
+  return getOrCreateSessionIdentity(orchDir, pid, claimed || `session ${pid}`);
 }
 
 function handleLine(
@@ -248,10 +203,9 @@ function handleLine(
   }
   if (request.method === "hello") {
     Promise.resolve()
-      .then(() => helloIdentity(orchDir, transport, request.params, socket, tcpToken, tcpIdentity.current))
+      .then(() => helloIdentity(orchDir, request.params, daemonToken))
       .then((identity) => {
         state.identity = identity;
-        if (transport === "tcp") tcpIdentity.current = identity;
         lineResponse(socket, { id: request.id, result: identity });
       })
       .catch((error: unknown) => {

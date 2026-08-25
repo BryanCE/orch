@@ -16,7 +16,7 @@ import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
-import { cmdSettings, cmdSettingsModels, cmdSettingsSkills } from "./settings.ts";
+import { cmdSettings, cmdSettingsModels, cmdSettingsNotify, cmdSettingsSkills } from "./settings.ts";
 import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { helpTopic } from "./help.ts";
@@ -152,6 +152,17 @@ MAINTENANCE
                                  quicklist its own picker cycles (models.preferred), and the set
                                  it may launch at all (models.allowed; none = all offered).
                                  Every harness names models in its own vocabulary.
+  orch settings notify [list] [--json]
+                                 List the sinks orchd delivers notifications through, with the
+                                 states each fires on and where it delivers.
+  orch settings notify add <sink> [--<field>=<value>...] [--on=<state,...>]
+                                 Record one sink; a sink already configured is replaced, keeping
+                                 the fields this call does not name. Each sink declares its own
+                                 fields (webhook --url, command --command; desktop and herdr take
+                                 none). --on defaults to blocked,error.
+                                 e.g. orch settings notify add command --command="notify-send orch"
+  orch settings notify remove <sink>
+                                 Stop delivering through that sink.
   orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
                                  Turn orch's skill install on or off and choose where it
                                  writes. --install copies them into the roots right away;
@@ -300,6 +311,7 @@ export function runCommand(argv: string[]): void {
     case "clean": cmdClean(rest); break;
     case "settings":
       if (rest[0] === "models") void cmdSettingsModels(rest.slice(1)).catch((error: unknown) => die(errorMessage(error)));
+      else if (rest[0] === "notify") void cmdSettingsNotify(rest.slice(1)).catch((error: unknown) => die(errorMessage(error)));
       else if (rest[0] === "skills") cmdSettingsSkills(rest.slice(1));
       else cmdSettings(rest);
       break;

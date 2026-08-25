@@ -96,7 +96,7 @@ const previous = readStatus(directory);
 const model = modelValue(input) ?? previous.model;
 const rawTask = input.task ?? input.prompt ?? input.initial_prompt;
 const preparedTask = typeof rawTask === "string" ? prepareWorkerTask(rawTask, MAX_TASK) : undefined;
-const task = preparedTask || previous.task;
+const task = textValue(preparedTask) ?? previous.task;
 const sessionId = textValue(input.session_id ?? input.sessionId) ?? previous.sessionId;
 const existingText = textValue(previous.lastText);
 const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath ?? textValue(previous.sessionPath)));

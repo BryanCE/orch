@@ -13,8 +13,10 @@ function activeBackend(reports: readonly DoctorBackendReport[], configured?: str
   // A configured id resolves through a registry lookup, never an equality branch:
   // core may key a map by id, it may not ask "is this the herdr one?".
   if (configured) {
-    const report = new Map(reports.map((entry) => [entry.id, entry])).get(configured) ?? null;
-    return report && (report.enabled ?? true) ? report : null;
+    const report = new Map(reports.map((entry) => [entry.id, entry])).get(configured);
+    if (!report) return null;
+    // An absent `enabled` means the backend never declared one, which reads as enabled.
+    return (report.enabled ?? true) ? report : null;
   }
   const live = reports.find((report) => report.panes && (report.detected ?? report.available) && report.insideSession && (report.enabled ?? true));
   if (live) return live;

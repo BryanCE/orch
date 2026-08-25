@@ -1,8 +1,5 @@
 # Model matrix — provider-agnostic routing (openai-codex is the worked example, NOT the system)
 
-Raw research:
-`~/.claude/learnings/-mnt-c-Users-Bryan-Documents-NewReports-t3reports/model-metrics-aa-2026-07-06.md`
-
 Every pif dispatch pins one exact `provider/model-id:effort` explicitly. Never
 rely on the saved pi default.
 

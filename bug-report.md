@@ -1,5 +1,48 @@
 # orch bug reports / suggestions
 
+## 2026-08-25 — `orch spawn` crashes: half-finished `installed` → `enabled` rename in the shipped build
+
+- Observed: every `orch spawn` (any args) exits 1 with
+  `undefined is not an object (evaluating 'loadConfigOrNull(orchDir2)?.installed.adapters')`.
+  Daemon is healthy (`orch daemon status` answers, `orch doctor -y` all-OK — including
+  "Config validity OK", so doctor validates a config the spawn path then crashes on).
+- Root cause: the 2026-08-24 rename suggestion was applied to the settings schema and to
+  `loadConfigOrNull` (settings.json now has `enabled.adapters`/`enabled.backends`, and the
+  loader returns `{ enabled: {...} }`), but call sites in the shipped
+  `@bryance/orch/dist/bin/orch.js` still read the OLD key: `config2?.installed.adapters`,
+  `config2?.installed.backends`, and `loadConfigOrNull(orchDir2)?.installed.adapters` inside
+  `refreshStaleShims`. Optional chaining only guards the config being null — `.installed` is
+  `undefined`, so `.adapters` throws. One site is inside a try/catch and fails silently;
+  `refreshStaleShims` is not, and that is the crash.
+- Impact: the whole fleet surface is unusable — spawn is the entry point for everything.
+  Silent-swallow at the try/catch site also means adapter/backend lists resolve to `[]`
+  there, which would misbehave even if the crash site were fixed alone.
+- Fix: grep the orch repo for `.installed.adapters` / `.installed.backends` and finish the
+  rename to `.enabled.*` at every call site, then rebuild + reinstall the global package.
+- Suggestion: a field rename on the loadConfig return type should be a compile error at the
+  call sites — if `dist` is bundled from TS this was built with type errors present, or the
+  loader's return type is `any`. Type the loader's return and make CI fail on `tsc` before
+  packaging. Also: `orch doctor`'s "Config validity" check should exercise the same accessor
+  path spawn uses, so a schema/call-site mismatch shows up in doctor instead of as a spawn
+  crash.
+
+## 2026-08-24 — `installed.backends` means "enabled", not "installed", and nothing detects the difference
+
+- Observed: `~/.orch/settings.json` has `installed.backends: ["herdr"]`, but tmux 3.4 IS installed
+  on this machine (`/usr/bin/tmux`, dpkg `tmux 3.4-1ubuntu0.1`) and tmux is a backend orch
+  supports (`orch spawn --backend tmux`). `orch doctor` reports capabilities ONLY for the active
+  backend — `Backend capabilities  herdr (active): available=true, ...` — and never probes tmux or
+  headless at all, so a supported, present, working backend is invisible everywhere in the CLI.
+- Impact: the key name is actively misleading. A user reading `installed: ["herdr"]` concludes
+  tmux is missing from the machine and goes to reinstall a package that is already there. There is
+  no command that answers "what backends COULD I use here?" — only `orch setup`, which asks you to
+  declare the answer rather than telling you.
+- Suggestion: split the concepts — `detected` (probed at runtime: is the binary present and
+  usable) vs `enabled` (what the user opted into). Have `orch doctor` report a row per SUPPORTED
+  backend with detected/enabled/active state, not just the active one. Rename the settings key to
+  `enabled` so it stops implying machine state, and have `orch setup` preselect from what it
+  detected.
+
 ## 2026-08-24 — a spawned pane is bound to a WORKSPACE, not to the calling session or its repo
 
 - Observed: `orch spawn 4 --name mcpname` run from `/mnt/c/dev/ils/t3reports` produced four panes

@@ -8,7 +8,7 @@ allowed-tools: Bash, Read
 
 herdr multiplexes AI agents in terminal panes over a socket API. When
 `HERDR_ENV=1`, dispatch pi/codex work into PANES instead of Claude wrapper
-agents: zero wrapper tokens, Bryan watches live, you steer mid-flight.
+agents: zero wrapper tokens, the user watches it live, you steer mid-flight.
 If `HERDR_ENV` is unset, do NOT control panes (guardrail); fall back to the
 pi-agent skill's wrapper model.
 
@@ -36,7 +36,7 @@ herdr pane close <pane_id>
 
 Fan out N slices = N `agent start` calls in one message, then ONE background
 wait per pane. Keep working while they run; read tails between steps and
-relay interim findings to Bryan (constant feedback is the point).
+relay interim findings to the user (constant feedback is the point).
 
 ## Hard rules
 
@@ -56,7 +56,7 @@ relay interim findings to Bryan (constant feedback is the point).
 - **IDs compact when panes close — never reuse remembered IDs.** Re-query
   with `herdr pane list` or parse the spawn response (`result.agent.pane_id`,
   format `w1:p4`). Targets also accept unique agent names.
-- Always `--no-focus` on start/split so Bryan's focused pane is untouched.
+- Always `--no-focus` on start/split so the user's focused pane is untouched.
 - `agent read` outputs text; everything else outputs JSON.
 - `--source recent-unwrapped` for matching/parsing (no soft wraps);
   `recent` for eyeballing.
@@ -75,11 +75,12 @@ herdr agent get <target>   # one agent's state
 herdr wait output <pane_id> --match "## Answer" --timeout 300000   # wait on text instead of status
 ```
 
-## Bryan's keybindings (HIS config: prefix = ctrl+x, NOT the ctrl+b default)
+## Keybindings
 
-READ `~/.config/herdr/config.toml` [keys] BEFORE quoting hotkeys — his prefix
-is `ctrl+x` and he has custom command panes. After ctrl+x:
+READ `~/.config/herdr/config.toml` `[keys]` BEFORE quoting any hotkey — the
+prefix is rebindable and the user may have custom command panes, so the
+defaults below are a starting point, not their config. After the prefix:
 n/p next/prev tab · 1-9 jump tab · c new tab · h/j/k/l move panes ·
 tab cycle panes · v split · w workspace picker · ? help overlay · q detach ·
-shift+c Claude temp pane · shift+p pi temp pane · shift+i rename pane.
+shift+i rename pane.
 Server: `herdr server` headless; `herdr status` health.

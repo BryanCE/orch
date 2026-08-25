@@ -50,8 +50,8 @@ export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const config = loadConfigOrNull(orchDir);
   if (!config || config.locked_commands.length === 0) return { id: "command-locks", label: "Command locks", status: "skip", detail: "no locked_commands configured" };
-  const unenforced = config.installed.adapters.filter((id) => !resolveAdapter(id).caps.enforcesCommandLocks);
-  if (unenforced.length === 0) return { id: "command-locks", label: "Command locks", status: "ok", detail: `${config.locked_commands.length} locked command(s); every installed adapter enforces them` };
+  const unenforced = config.enabled.adapters.filter((id) => !resolveAdapter(id).caps.enforcesCommandLocks);
+  if (unenforced.length === 0) return { id: "command-locks", label: "Command locks", status: "ok", detail: `${config.locked_commands.length} locked command(s); every enabled adapter enforces them` };
   return {
     id: "command-locks",
     label: "Command locks",

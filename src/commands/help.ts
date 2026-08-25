@@ -198,7 +198,7 @@ Delete dead agent dirs.
   --worktrees   Also clean orphaned worktrees; --force discards unmerged work.
 `,
   setup: `orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]>]
-           [--yes] [--no-install] [--copy] [--skills|--no-skills]
+           [--yes] [--no-install] [--copy] [--skills|--no-skills] [--refresh]
 Onboarding wizard: multi-select the adapters and backends you use, record them to
 ~/.orch/settings.json, install missing deps, and wire every selected adapter's shim.
 The first id of each list becomes the active default. Prompts interactively on a TTY
@@ -208,16 +208,20 @@ when a selection is omitted.
   --copy        Copy shims instead of symlinking.
   --skills      Install orch's packaged skills without asking.
   --no-skills   Skip them without asking; nothing is written to your harness dirs.
+  --refresh     Ask every harness for its models again instead of using the stored
+                catalogues. Slower; for a model installed since the last refresh.
 Setup asks before copying skills into ~/.claude/skills and ~/.agents/skills. Change the
 answer later with 'orch settings skills'.
 `,
   settings: `orch settings [--json] [--harness=<id>] [--plexer=<id>]
-orch settings models [--harness=<id>] [--model=<model[:thinking]>]
+orch settings models [--harness=<id>] [--model=<model[:thinking]>] [--refresh]
 orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
 Print each effective setting with its source (flag > env > settings.json > default),
 or switch the active default adapter/plexer among the enabled set.
   models        Re-pick, per enabled harness: launch model, picker quicklist
                 (models.preferred), and the launchable set (models.allowed).
+                --refresh asks the harnesses again rather than using the stored
+                catalogues, for a model installed since the last refresh.
   skills        Turn the skill install on or off and choose its roots. --install writes
                 every packaged skill into them now; --no-install records the refusal and
                 leaves the files already there alone. Roots default to ~/.claude/skills

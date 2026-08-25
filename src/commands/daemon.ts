@@ -85,7 +85,8 @@ function lastDaemonLogLine(directory: string): string | null {
     } finally {
       closeSync(handle);
     }
-    return tail.toString("utf8").trimEnd().split(/\r?\n/).pop() || null;
+    // filter first: an all-blank tail must read as "orchd logged nothing", not as an empty line.
+    return tail.toString("utf8").trimEnd().split(/\r?\n/).filter(Boolean).pop() ?? null;
   } catch {
     return null;
   }

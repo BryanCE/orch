@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readModelCatalogue } from "./model-catalogue.ts";
+import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import {
   loadPresence,
   readJSON,
@@ -225,8 +225,10 @@ export function parsePiModelsOutput(output: string): readonly HarnessModel[] {
 }
 
 /** Ask pi itself which authenticated models it can run. */
+const PI_MODELS_ARGV = ["--list-models"] as const;
+
 function queryPiModels(): readonly HarnessModel[] {
-  return parsePiModelsOutput(readModelCatalogue("pi", ["--list-models"]));
+  return parsePiModelsOutput(readModelCatalogue("pi", PI_MODELS_ARGV));
 }
 
 /** True when a launch command starts one of the named binaries. */
@@ -505,6 +507,11 @@ export class PiAdapter implements AgentAdapter {
   /** Ask pi's own registry through its supported model-listing command. */
   listModels(): readonly HarnessModel[] {
     return queryPiModels();
+  }
+
+  /** pi's registry is a shell-out; start it early so setup's next prompt covers the wait. */
+  warmModels(): Promise<void> {
+    return warmModelCatalogue("pi", PI_MODELS_ARGV);
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory. */

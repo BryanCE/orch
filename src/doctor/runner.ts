@@ -61,21 +61,21 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
 
 /** Run independent environment diagnostics; individual check failures never reject this function. */
 export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH): Promise<CheckResult[]> {
-  // Read settings only to derive provider checks. An unconfigured install has no installed
+  // Read settings only to derive provider checks. An unconfigured install has no enabled
   // providers, and checkConfig owns the user-facing failure result, so neither an absent nor a
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
   // you reach for when the install is broken; it never refuses to run for want of configuration.
-  let installedAdapters: AdapterId[] = [];
+  let enabledAdapters: AdapterId[] = [];
   let enabledBackends: string[] = [];
   let configuredBackend: string | null = null;
   try {
     const config = loadConfigOrNull(orchDir);
-    installedAdapters = config?.installed.adapters ?? [];
-    enabledBackends = config?.installed.backends ?? [];
+    enabledAdapters = config?.enabled.adapters ?? [];
+    enabledBackends = config?.enabled.backends ?? [];
     configuredBackend = config?.defaults.backend ?? null;
   } catch {}
-  const bins = binaryStatus(installedAdapters);
-  const providerChecks = installedAdapters.map((id) => [
+  const bins = binaryStatus(enabledAdapters);
+  const providerChecks = enabledAdapters.map((id) => [
     isolated(`bin-${id}`, `${id} binary`, () => bins[id]
       ? { id: `bin-${id}`, label: `${id} binary`, status: "ok", detail: `${id} is on PATH` }
       : { id: `bin-${id}`, label: `${id} binary`, status: "fail", detail: `${id} is not on PATH` }),
@@ -87,7 +87,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
   ]).flat();
   const livePairs = await checkLiveFleetPairs(orchDir);
   return Promise.all([
-    isolated("bins", "Required binaries", () => checkBins(bins, installedAdapters)),
+    isolated("bins", "Required binaries", () => checkBins(bins, enabledAdapters)),
     ...providerChecks,
     ...livePairs.map((pair) => Promise.resolve(pair)),
     isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(enabledBackends, configuredBackend)),
@@ -131,14 +131,16 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
  *  a freshly updated orch must never launch agents on the last version's bridge. */
 export async function refreshStaleShims(orchDir: string): Promise<string[]> {
   const refreshed: string[] = [];
-  const adapters = loadConfigOrNull(orchDir)?.installed.adapters ?? [];
+  const adapters = loadConfigOrNull(orchDir)?.enabled.adapters ?? [];
   for (const id of adapters) {
     try {
       const adapter = resolveAdapter(id);
       if (!adapter.diagnoseShim) continue;
       const diagnosis = await adapter.diagnoseShim();
       if (diagnosis.status === "ok" || diagnosis.status === "skip") continue;
-      if (!diagnosis.fix || diagnosis.fix.destructive) continue;
+      if (!diagnosis.fix) continue;
+      // An undeclared `destructive` means a safe fix; only a declared one is left for the operator.
+      if (diagnosis.fix.destructive) continue;
       diagnosis.fix.apply();
       refreshed.push(id);
     } catch (error: unknown) {

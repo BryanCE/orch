@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
-import { allBackends, detectBackends, getBackend, resolveBackend } from "../backends/registry.ts";
-import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, tryLoadSettings, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsNotify, writeSettingsRuntime, writeSettingsSkills } from "../config.ts";
+import { allAdapters, refreshAdapterCatalogues, resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
+import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
+import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsNotify, writeSettingsRuntime, writeSettingsSkills } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
 import { PREREQUISITES, signedOutFix } from "../adapters/prerequisites.ts";
@@ -90,9 +90,10 @@ export async function resolveHarnessModels(
 ): Promise<HarnessModelChoices | null> {
   const config = loadConfigOrNull(orchDir());
   const choices: HarnessModelChoices = { defaults: {}, preferred: {}, allowed: {} };
+  warmAdapterCatalogues();
   for (const id of harnesses) {
     const harness = resolveAdapter(id);
-    const offered = readHarnessCatalogue(harness, interactive);
+    const offered = await readHarnessCatalogue(harness, interactive);
     const chosen = await resolveDefaultModel(flag, harness, offered, interactive);
     if (chosen === null) return null;
     // Blank means the harness is not ready; leaving it unrecorded is what lets setup finish and
@@ -130,10 +131,11 @@ function emptyCatalogueHint(harnessId: string): string {
 }
 
 /** Ask a harness what it can run, ONCE per setup run — both model prompts read this one answer,
- *  so they can never disagree about what the harness offers. */
-function readHarnessCatalogue(harness: AgentAdapter, interactive: boolean): readonly HarnessModel[] {
+ *  so they can never disagree about what the harness offers. Resolves against the stored
+ *  catalogue, so a harness asked before answers without shelling out at all. */
+async function readHarnessCatalogue(harness: AgentAdapter, interactive: boolean): Promise<readonly HarnessModel[]> {
+  await harness.warmModels?.();
   if (!interactive) return harness.listModels?.() ?? [];
-  // The query shells out to the harness binary; a cold registry is slow enough to read as a hang.
   logStep(`asking ${harness.id} which models it can run...`);
   const offered = harness.listModels?.() ?? [];
   if (offered.length) logStep(`${harness.id} lists ${offered.length} models`);
@@ -204,13 +206,16 @@ async function offerSkills(
   interactive: boolean,
   ask: (roots: readonly string[], recorded: boolean) => Promise<boolean> = askSkillsConsent,
 ): Promise<void> {
+  // A build that packaged no skills has nothing to consent to; asking would offer an
+  // empty list and then write nothing.
+  if (!packagedSkillNames().length) return;
   const { install: recorded, roots } = loadConfig(orchDir()).skills;
   const forced = args.includes("--skills") ? true : args.includes("--no-skills") ? false : undefined;
   const install = forced ?? (interactive ? await ask(roots, recorded) : recorded);
   writeSettingsSkills(orchDir(), { install });
   process.stdout.write("Skills:\n");
   if (!install) {
-    process.stdout.write(`  not installed - turn it back on with: orch settings skills --install\n`);
+    process.stdout.write("  not installed - turn it back on with: orch settings skills --install\n");
     return;
   }
   for (const written of installSkills(roots)) process.stdout.write(`  ${written}\n`);
@@ -595,6 +600,10 @@ export async function cmdSetup(args: string[]) {
   const adapterIds = allAdapters().map((adapter) => adapter.id);
   const backendIds = allBackends().map((entry) => entry.id);
   const interactive = process.stdin.isTTY && !yes;
+  // Before the first prompt, and for every harness rather than the ones about to be picked:
+  // the registry queries then run under the whole wizard instead of stalling the model step.
+  if (args.includes("--refresh")) await refreshAdapterCatalogues();
+  else warmAdapterCatalogues();
   if (interactive) setupIntro();
 
   // setup is the ONE recovery path: a settings.json from an older schema (or otherwise invalid)

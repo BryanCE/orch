@@ -32,6 +32,7 @@ const config = (): OrchConfig => ({
   hosts: {},
   workspaces: {},
   tiling: { first_split: "rows" },
+  skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
 });
 
 const listAll = (targets: AdapterId[] = ["pi", "claude"]) =>

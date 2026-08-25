@@ -4,10 +4,21 @@ import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup.ts";
+import { refreshAdapterCatalogues } from "../adapters/registry.ts";
 import { ADAPTER_IDS } from "../adapters/adapter.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
 import { BACKEND_IDS } from "../backends/backend.ts";
 import { die } from "./target.ts";
+
+/** The effective settings, or a plain-language exit. A load error (invalid settings, a
+ *  legacy config.toml) must never reach the user as a stack trace or a partial table. */
+function currentConfig(): OrchConfig {
+  try {
+    return loadConfig(orchDir());
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
 
 /** Read a raw nested setting so normalized defaults do not claim settings.json provenance. */
 function rawSetting<T>(orchDirPath: string, ...keys: string[]): T | undefined {
@@ -55,17 +66,15 @@ function switchDefault(key: "adapter" | "backend", value: string): void {
  * own picker cycles.
  */
 export async function cmdSettingsModels(args: string[]): Promise<void> {
-  let config: OrchConfig;
-  try {
-    config = loadConfig(orchDir());
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  const config = currentConfig();
   const enabled = config.enabled.adapters;
   if (!enabled.length) die("no harnesses are installed - run: orch setup");
   const only = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
   const targets = only === undefined ? enabled : [validateSetupFlag("harness", only, enabled)];
 
+  // Catalogues are stored and refreshed on a cycle, so an operator who just installed a model
+  // needs a way to say "ask again now" rather than picking from yesterday's list.
+  if (args.includes("--refresh")) await refreshAdapterCatalogues();
   const chosen = await resolveHarnessModels(readAssignFlag(args, "--model"), targets, process.stdout.isTTY === true);
   if (chosen === null) return;
   // Only the targeted harnesses were prompted, so each map merges over what is already
@@ -102,7 +111,7 @@ export function cmdSettingsSkills(args: string[]): void {
   }
   if (rootsFlag !== undefined && !roots?.length) die("--roots needs at least one directory.");
 
-  const current = loadConfig(orchDir()).skills;
+  const current = currentConfig().skills;
   const wanted = install ?? current.install;
   writeSettingsSkills(orchDir(), { install: wanted, roots });
   const target = roots ?? current.roots;
@@ -117,13 +126,7 @@ export function cmdSettings(args: string[]): void {
   const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
   const json = args.includes("--json");
 
-  // A load error (invalid settings, legacy config.toml) surfaces loudly with no partial table.
-  let config: OrchConfig;
-  try {
-    config = loadConfig(orchDir());
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  const config = currentConfig();
 
   if (harness !== undefined) switchDefault("adapter", harness);
   if (plexer !== undefined) switchDefault("backend", plexer);

@@ -1,14 +1,16 @@
 ---
 name: pi-agent
-description: Drive the `pi` coding agent CLI from Claude Code to run prompts through Bryan's OpenAI-subscription models (gpt-5.6 via openai-codex OAuth). Use to get a second-model opinion, offload a self-contained task, or cross-check work with GPT. Trigger on "ask pi", "ask gpt", "use pi", "get gpt-5.6's take", "second opinion from pi".
+description: Drive the `pi` coding agent CLI to run prompts through whichever models pi is signed in to (the gpt-5.6 family via openai-codex OAuth, among others). Use to get a second-model opinion, offload a self-contained task, or cross-check work with another model. Trigger on "ask pi", "ask gpt", "use pi", "second opinion from pi".
 allowed-tools: Bash, Read, Write
 model: sonnet
 ---
 
 # Using the `pi` Coding Agent
 
-`pi` is a local terminal coding agent wired to Bryan's **OpenAI subscription**
-(the gpt-5.6 family via openai-codex OAuth, no API credits spent). Use it for a
+`pi` is a local terminal coding agent that runs on whatever models it is signed
+in to — commonly an **OpenAI subscription** (the gpt-5.6 family via openai-codex
+OAuth, spending no API credits). Run `orch models --agent=pi` to see what this
+install can actually launch. Use it for a
 second-model opinion, a cross-check on load-bearing work, or a self-contained
 offload.
 
@@ -25,8 +27,8 @@ extensions (`herdr-agent-state`, `orchestrator-bridge`) ALWAYS loaded: same CLI,
 faster startup, and every run stays visible/steerable via `orch` (status, result,
 inbox steering). `PIF_BARE=1 pif ...` strips all extensions — rare fire-and-forget
 one-offs only, never the default. ALWAYS dispatch with `pif`; plain `pi` is only
-for Bryan's interactive TUI. `-p` prints and exits; `--no-session` leaves no session file.
-Read the output yourself, never ask Bryan to paste it. `@file` / `@img.png`
+for the user's interactive TUI. `-p` prints and exits; `--no-session` leaves no session file.
+Read the output yourself, never ask the user to paste it. `@file` / `@img.png`
 before the prompt attaches files; pipe stdin (`git diff | pif -p --no-session --model "openai-codex/<exact-id>:<effort-from-model-matrix>" "..."`).
 
 ## You orchestrate, pi does the work
@@ -212,8 +214,8 @@ of the CRUD. Targets accept pane ids, unique suffixes (`p3`), or herdr agent nam
 
 **Agent-to-agent:** every bridged pi agent has tools `orch_agents` (discover live
 peers), `orch_send` (drop a message in a peer's inbox), `orch_read` (read a peer's
-result) — write handoffs INTO the dispatch prompt, or use `orch pipe`. Bryan's manual equivalents inside a pane: `/peers` and
-`/tell <target> <msg>`.
+result) — write handoffs INTO the dispatch prompt, or use `orch pipe`. The manual
+equivalents a user can type inside a pane: `/peers` and `/tell <target> <msg>`.
 
 NEVER `herdr pane read` an agent (it scrapes the TUI and lies) — `orch status`
 lastText, `orch result`, and `orch tail` are the channel (`orch peek` exists as a
@@ -284,7 +286,7 @@ dispatch, not "done".
 
 ## PATH B — no herdr: background sub-agent wrapper
 
-pi is verbose; sitting in the main loop waiting burns Bryan's context on pi's
+pi is verbose; sitting in the main loop waiting burns your own context on pi's
 transcript. **Default (off-herdr):** spawn the **`pi-dispatch`** agent
 (`run_in_background: true`) to run the pif command in FOREGROUND Bash and return a
 distilled few-line answer. EVERY pif dispatch MUST include an explicit combined

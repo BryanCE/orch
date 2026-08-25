@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsInstalled as writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/config.ts";
+import { SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: string[] = [];
@@ -102,6 +102,7 @@ describe("loadConfig", () => {
       workspaces: { wD: "Design" },
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30 },
       tiling: { first_split: "columns" },
+      skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
     });
   });
 

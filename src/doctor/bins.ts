@@ -9,7 +9,7 @@ export function binaryStatus(ids: readonly string[]): BinaryStatus {
 
 export function checkBins(bins: BinaryStatus, ids: readonly string[]): CheckResult {
   const missing = ids.filter((id) => !bins[id]);
-  if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: ids.length ? `${ids.join(" and ")} ${ids.length === 1 ? "is" : "are"} on PATH` : "no adapters installed" };
+  if (!missing.length) return { id: "bins", label: "Required binaries", status: "ok", detail: ids.length ? `${ids.join(" and ")} ${ids.length === 1 ? "is" : "are"} on PATH` : "no adapters enabled" };
   return {
     id: "bins",
     label: "Required binaries",

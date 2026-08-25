@@ -48,6 +48,7 @@ const config = (preferred: string[]): OrchConfig => ({
   hosts: {},
   workspaces: {},
   tiling: { first_split: "rows" },
+  skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
 });
 
 /** A pane backend that records the launch options it was handed. */

@@ -285,4 +285,11 @@ export interface AgentAdapter {
    * is chosen. Omit when the harness exposes no enumerable model list.
    */
   listModels?(): readonly HarnessModel[];
+  /**
+   * Start enumerating in the background so a later `listModels` answers from cache.
+   * Callers fire this for every selected harness at once and await it just before
+   * they need the list, turning a sum of cold registry queries into one wait.
+   * Omit when the harness enumerates from memory or a local file.
+   */
+  warmModels?(): Promise<void>;
 }

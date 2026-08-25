@@ -30,6 +30,28 @@ function sleepBlocking(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Reattempt an asynchronous operation until it succeeds or the policy runs out, then throw. */
+export async function retryingAsync<T>(
+  label: string,
+  operation: () => Promise<T>,
+  policy: RetryPolicy = DEFAULT_RETRY,
+): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < policy.attempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error: unknown) {
+      last = error;
+      if (attempt < policy.attempts - 1) await sleep(waitMs(policy, attempt));
+    }
+  }
+  throw exhausted(label, policy, last);
+}
+
 /** Reattempt a synchronous operation until it succeeds or the policy runs out, then throw. */
 export function retryingSync<T>(
   label: string,

@@ -3,11 +3,20 @@
 # GROUND-TRUTH FILES — READ THESE, NEVER RUN THE GATES YOURSELF
 These files ARE the state of the tree. The USER runs the commands (on Windows); I only READ the result files. Running `bun test`/`bun run check` myself = FIRED.
 - **`test-results.md`** — full `bun test` output. User regenerates with: `bun test *> .\test-results.md`
-- **`current-errors.md`** — `bun run check` + `check:bridge` output. User regenerates with: `orch > bun check > .\current-errors.md`
+- **`current-errors.md`** — `bun run check` + `check:bridge` output. User regenerates with: `bun check > .\current-errors.md`
 - **`specview.md`** — openspec status snapshot.
 WORKFLOW: after ANY change that needs verifying, ASK the user to rerun the relevant command above, then RE-READ the file before claiming anything. Always re-open the file after a rerun — never rely on a prior read.
 
 # No running tetsing or checking from wsl only windows ! 
+
+## Rule 0 — ☢️ QUOTE THE GATE COMMANDS EXACTLY. NEVER PREFIX, DECORATE, OR INVENT. ☢️
+There are exactly TWO commands to ever hand the user, character for character:
+```
+bun check > .\current-errors.md
+bun test *> .\test-results.md
+```
+**`orch` is NOT part of either command.** It is a directory/prompt name. Never prepend it, never prepend any `cd`, path, shell name, or `>`-chained prefix. Never "helpfully" expand `bun check` to `bun run check`, `bunx`, or a `&&` chain. Copy the line from this file verbatim into chat and stop.
+Getting this wrong wastes the user's time on a command that does not run, in the one place they cannot skip. Zero variants. Zero improvisation.
 
 ## Rule 1 — The user's file/output IS ground truth. Never argue with it.
 When the user hands you a file or output — ESPECIALLY one named `current-errors.md` or anything "current" — it is the CURRENT state, full stop. NEVER say it is "stale", "cached", "a snapshot", "outdated", or "predates the fixes". NEVER re-characterize what's in it ("it's just warnings", "only fallow", "the count is small"). Open it, read what it says, and FIX every item in it. If you think reality differs, you are wrong — trust the file.

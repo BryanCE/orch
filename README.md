@@ -96,7 +96,10 @@ These are the top-level commands accepted by the CLI. `orch status` is also the 
 | `daemon start [--fg] \| stop \| status [--json] \| reload [--json]` | Manage the resident orch daemon. |
 | `doctor [--fix] [-y\|--yes] [--json]` | Check the install; TTY fix mode opens a menu, while `-y`/`--yes` applies every fix unattended. |
 | `clean [--worktrees [--force]] [--json]` | Remove dead agent directories and optionally clean orphaned worktrees. |
-| `setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy]` | Configure an agent/backend and install or link integrations. |
+| `setup [--agent <id>] [--backend <id>] [--yes] [--no-install] [--copy] [--skills\|--no-skills]` | Configure an agent/backend and install or link integrations. Asks before installing orch's skills. |
+| `settings [--json] [--harness=<id>] [--plexer=<id>]` | Print every effective setting with its winning source, or switch the active default. |
+| `settings models [--harness=<id>] [--model=<spec>]` | Re-pick each harness's launch model, picker quicklist, and launchable set. |
+| `settings skills [--install\|--no-install] [--roots=<dir>[,<dir>â€¦]]` | Turn orch's skill install on or off and choose where it writes. |
 | `help` | Print the full built-in usage text. |
 
 Run `orch help` for subcommands and flags.
@@ -136,6 +139,7 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) â€
   },
   "fleet": { "spawn_cap": 8 },
   "tiling": { "first_split": "rows" },
+  "skills": { "install": true, "roots": ["~/.claude/skills", "~/.agents/skills"] },
   "models": {
     "preferred": { "pi": ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"] },
     "allowed": { "pi": ["anthropic/*"] }
@@ -151,6 +155,20 @@ Configuration lives at `~/.orch/settings.json` (or `$ORCH_DIR/settings.json`) â€
 ```
 
 `defaults` supports `adapter`, `backend`, `models` (one per harness), and `worktree`; `fleet` supports `spawn_cap`, `max_agents`, `workspace_caps`, `worker_peer_tools`, and `cross_workspace`. Each `notify` entry selects a notifier with `id`. `hosts` entries define remote SSH destinations with `dest`, optional `orch_dir`, and `timeout_ms`.
+
+### Skills: `skills.install` and `skills.roots`
+
+orch ships skills that teach a coding agent how to drive it â€” `orch` itself, plus `pi-agent` and `herdr`. `orch setup` **asks** before writing them anywhere; answer no and orch never touches those directories. `--skills` / `--no-skills` answers without the prompt.
+
+The same skills go to every root, because a skill file is read by whichever harness finds it: `~/.claude/skills` is Claude Code's own directory, and `~/.agents/skills` is the cross-harness convention other harnesses read. Point `roots` somewhere else, or list only one, to change that. A leading `~` expands to your home directory.
+
+```sh
+orch settings skills --no-install                    # stop installing them
+orch settings skills --install                       # install them now, into the recorded roots
+orch settings skills --roots=~/.agents/skills        # one root only
+```
+
+`--no-install` records the refusal and leaves any files already there alone â€” they are yours to remove.
 
 ### Tiling: `tiling.first_split`
 

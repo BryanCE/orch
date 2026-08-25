@@ -21,7 +21,7 @@ import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
 import { normalizeControlTarget } from "../backends/identity.ts";
 import { deliverControl, KEYSTROKE_KIND, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
-import { resolveAdapter } from "../adapters/registry.ts";
+import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
@@ -344,6 +344,10 @@ async function main(): Promise<void> {
     releaseDaemonLock(directory);
     throw error;
   }
+
+  // orchd gates every spawn on the catalogues; reading them at boot keeps that gate off the
+  // harness binaries, and re-stamps whatever went stale while no daemon was running.
+  warmAdapterCatalogues();
 
   let configLoaded = false;
   configWatch = watchConfig(directory, {

@@ -126,7 +126,7 @@ export function derivePresenceTransition(
   const contextPercent = context && typeof context === "object" ? property(context, "percent") : undefined;
   const filesValue = property(value, "filesTouched");
   const filesTouched = Array.isArray(filesValue) && filesValue.every((file) => typeof file === "string")
-    ? filesValue as string[]
+    ? filesValue
     : undefined;
   const reason = state === "error" || state === "aborted" ? lastError : state === "blocked" ? question : undefined;
   return {

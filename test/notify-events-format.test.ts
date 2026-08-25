@@ -79,6 +79,7 @@ describe("notification and presence event formatting", () => {
       host: null,
       key: "herdr~w6~p21",
       agent: "w-2",
+      name: null,
       tab: null,
       model: null,
       oldState: "working",

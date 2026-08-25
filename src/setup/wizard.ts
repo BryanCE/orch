@@ -43,7 +43,9 @@ export function selectDefaultAdapter<Id extends string>(selected: readonly Id[])
 
 /** Multi-select every backend to set up; null when the user cancels. */
 export function selectBackends<Id extends string>(backends: readonly Id[]): Promise<Id[] | null> {
-  const detected = new Set(allBackends().filter((backend) => backend.isAvailable()).map((backend) => backend.id));
+  // Widened to strings: the offered ids are generic here, and this only asks whether one of
+  // them is among the detected backend ids — a membership test, not a narrowing.
+  const detected = new Set<string>(allBackends().filter((backend) => backend.isAvailable()).map((backend) => backend.id));
   return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({ value: id, label: id, hint: "", checked: detected.has(id) })));
 }
 

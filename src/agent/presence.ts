@@ -149,7 +149,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     paneId: options.paneId,
     // The launch stamps the agent's display name and its spawner's identity into
     // env; a plexer HUD may later refine the label, but identity never depends on one.
-    label: (optionalString(process.env.ORCH_AGENT_NAME) ?? null) as string | null,
+    label: optionalString(process.env.ORCH_AGENT_NAME) ?? null,
     spawnedBy: optionalString(process.env.ORCH_SPAWNER),
     spawnedByLabel: optionalString(process.env.ORCH_SPAWNER_LABEL),
     tabLabel: null as string | null,

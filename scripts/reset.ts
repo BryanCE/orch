@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";
+import { SETTINGS_DEFAULTS } from "../src/config.ts";
 import { provenDaemonPid } from "../src/daemon/lifecycle.ts";
+import { packagedSkillNames, resolveSkillRoot } from "../src/setup/skills.ts";
 
 // `bun reset` erases every artifact an orch install writes, so the next
 // build + install runs the first-time-user flow instead of half-adopting a
@@ -141,7 +143,8 @@ function packagedCopyRemovals(sourceDir: string, claudeDir: string): WipeStep[] 
  *  malformed for the config loader — the exact state a reset exists to clear. */
 function recordedSkillRoots(): string[] {
   const recorded = readJsonFile(join(ORCH_DIR, "settings.json"));
-  const roots = isRecord(recorded?.skills) ? recorded.skills.roots : undefined;
+  const skills = recorded === null ? null : recorded.skills;
+  const roots = isRecord(skills) ? skills.roots : undefined;
   const named = Array.isArray(roots) ? roots.filter((root): root is string => typeof root === "string") : [];
   return (named.length ? named : [...SETTINGS_DEFAULTS.skills.roots]).map(resolveSkillRoot);
 }
@@ -211,7 +214,7 @@ const steps: WipeStep[] = [
   globalPackageRemoval(),
   ...binShimRemovals(),
   ...harnessExtensionRemovals(),
-  ...packagedCopyRemovals(join(REPO, "skills", "claude"), "skills"),
+  ...skillRemovals(),
   ...packagedCopyRemovals(join(REPO, "agents"), "agents"),
   claudeHookRemoval(),
   codexNotifyRemoval(),

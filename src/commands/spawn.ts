@@ -16,7 +16,7 @@ import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlaceme
 import { createAgentWorktree } from "../worktree.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
 import { errorMessage } from "../util.ts";
-import { callDaemon, daemonOutage, writeRpc } from "./daemon.ts";
+import { callDaemon, daemonOutage } from "./daemon.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 

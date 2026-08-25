@@ -134,6 +134,7 @@ describe("notify", () => {
       host: "gpu1",
       key: "task-1",
       agent: "worker",
+      name: null,
       tab: "workers",
       model: "terra:medium",
       oldState: "working",

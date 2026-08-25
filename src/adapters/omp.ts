@@ -1,6 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { readModelCatalogue } from "./model-catalogue.ts";
+import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { isRecord } from "../util.ts";
 import {
   answerViaFile,
@@ -65,8 +65,10 @@ function modelRow(entry: unknown): HarnessModel[] {
 
 /** Ask omp itself what it can run; its registry is a private SQLite database, so its CLI is
  *  the only supported reader. */
+const OMP_MODELS_ARGV = ["models", "--json"] as const;
+
 function queryOmpModels(): readonly HarnessModel[] {
-  return parseOmpModelsOutput(readModelCatalogue("omp", ["models", "--json"]));
+  return parseOmpModelsOutput(readModelCatalogue("omp", OMP_MODELS_ARGV));
 }
 
 /** Map `omp models --json` onto orch's provider/id vocabulary; that shape lives only here. */
@@ -182,6 +184,11 @@ export class OmpAdapter implements AgentAdapter {
   /** Report what omp says it can run, asked of omp itself. */
   listModels(): readonly HarnessModel[] {
     return queryOmpModels();
+  }
+
+  /** omp's registry is a shell-out; start it early so setup's next prompt covers the wait. */
+  warmModels(): Promise<void> {
+    return warmModelCatalogue("omp", OMP_MODELS_ARGV);
   }
 
   /** Link the prebuilt omp-bridge bundle into omp's extension directory. */

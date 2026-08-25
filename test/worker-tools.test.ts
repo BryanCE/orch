@@ -17,6 +17,7 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
   hosts: {},
   workspaces: {},
   tiling: { first_split: "rows" },
+  skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
 });
 
 describe("worker tool policy", () => {

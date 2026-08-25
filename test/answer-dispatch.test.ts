@@ -9,7 +9,7 @@ import { governWrite } from "../src/daemon/orchd.ts";
 import { setOwner } from "../src/store/sqlite.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "../src/daemon/rpc.ts";
-import { errorMessage } from "../src/util.ts";
+import { refusalOf } from "./helpers/refusal.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
@@ -27,14 +27,6 @@ function key(workspace: string, id: string): string {
 
 function answerFile(directory: string, agentKey: string): string {
   return path.join(directory, "agents", agentKey, "answer.json");
-}
-
-/** The refusal message from a call that must reject, or undefined when it wrongly resolved.
- *  Awaiting the settled value keeps the assertion inside the test, which `expect(p).rejects`
- *  does not: its matcher is typed non-thenable, so awaiting it is a lint error and NOT
- *  awaiting it lets the test finish before the assertion runs. */
-function refusalOf(action: Promise<unknown>): Promise<string | undefined> {
-  return action.then(() => undefined, (error: unknown) => errorMessage(error));
 }
 
 /** The exact wiring orchd registers for the `answer` method: wall + ownership, then dispatch. */

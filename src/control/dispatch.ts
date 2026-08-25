@@ -89,6 +89,19 @@ function requireLiveAgent(target: string, adapter: AgentAdapter, action: string)
 }
 
 /**
+ * A steer at an agent waiting on an answer is accepted by the inbox and then lost
+ * inside the harness's blocked turn — and `Steered` printed for a dropped message
+ * is worse than an error, because the orchestrator believes the question is
+ * answered while the pane sits in `asking` with no transition to notice. A pending
+ * question has its own primitive; refuse and name it.
+ */
+function refuseSteerWhileAsking(target: string, action: PromptAction): void {
+  if (action.kind !== "steer") return;
+  if (loadPresence().get(target)?.status?.state !== "asking") return;
+  throw new Error(`cannot steer ${target}: it is awaiting an answer - use 'orch answer ${target} "<text>"'`);
+}
+
+/**
  * Route prompt text into a live agent through the mechanism its ADAPTER declares.
  * New work and a mid-run steer travel the same way — an agent has exactly one text
  * channel, and which one it is belongs to the adapter, never to the backend it
@@ -99,6 +112,7 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
   const mechanism = adapter.caps.steer;
   if (mechanism === "none") throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} declares steer "none"`);
   if (mechanism === "inbox") requireLiveAgent(target, adapter, action.kind);
+  refuseSteerWhileAsking(target, action);
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
   if (command) {
     await runAdapterCommand(command, timeoutMs);

@@ -3,10 +3,10 @@ import * as path from "node:path";
 import { collapse, recipientFor, recipientLabel, resolvePane, resolveTarget, type Entity } from "../entities.ts";
 import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import { isRecord, truncate } from "../util.ts";
+import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
-import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
+import { callDaemon, parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
@@ -92,9 +92,23 @@ export async function cmdBroadcast(args: string[]) {
     destinations.set(ent.presence!.key, ent.presence!);
   }
   if (!destinations.size) die("No live pane agent dirs to broadcast to.");
-  await Promise.all([...destinations.values()].map((pres) => writeRpc("steer", { target: pres.key, text })));
-  if (json) process.stdout.write(JSON.stringify({ count: destinations.size, broadcast: true }) + "\n");
-  else process.stdout.write(`Broadcast to ${destinations.size} agent(s).\n`);
+  // Per target, never Promise.all + die: one agent refusing (a pane awaiting an
+  // answer refuses a steer) must not hide which of its siblings did receive the text.
+  const refusals: { key: string; reason: string }[] = [];
+  await Promise.all([...destinations.values()].map(async (pres) => {
+    try {
+      await callDaemon("steer", { target: pres.key, text });
+    } catch (error: unknown) {
+      refusals.push({ key: pres.key, reason: errorMessage(error) });
+    }
+  }));
+  const delivered = destinations.size - refusals.length;
+  if (json) process.stdout.write(JSON.stringify({ count: delivered, refused: refusals, broadcast: true }) + "\n");
+  else {
+    process.stdout.write(`Broadcast to ${delivered} of ${destinations.size} agent(s).\n`);
+    for (const refusal of refusals) process.stderr.write(`  refused ${recipientLabel(recipientFor(refusal.key))}: ${refusal.reason}\n`);
+  }
+  if (delivered === 0) process.exitCode = 1;
 }
 
 export async function cmdPipe(args: string[]) {

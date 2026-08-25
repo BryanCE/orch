@@ -10,6 +10,7 @@ import { serializeIdentity } from "../src/backends/identity.ts";
 import { getBackend } from "../src/backends/registry.ts";
 import type { BackendId } from "../src/backends/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { refusalOf } from "./helpers/refusal.ts";
 
 const headlessBackend = getBackend("headless")!;
 
@@ -51,6 +52,46 @@ describe("deliverControl", () => {
       const line = JSON.parse(fs.readFileSync(path.join(dir, "inbox.jsonl"), "utf8")) as { text: string };
       expect(line.text).toBe("check the inbox");
     });
+  });
+
+  test("refuses to steer a pane awaiting an answer, naming the primitive that lands", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "pi-asking");
+    const dir = presence(directory, key, "pi");
+    seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
+
+    // A steer at an asking pane is accepted by the inbox and then lost inside the
+    // harness's blocked turn. Reporting success for it is the whole defect: the
+    // orchestrator believes the question is answered, the pane stays `asking`, and
+    // nothing in `orch status` contradicts the belief because there is no transition
+    // to notice. Recovery cost two full reset + re-dispatch cycles.
+    expect(await refusalOf(deliverControl(key, { kind: "steer", text: "the answer" }))).toMatch(/orch answer/);
+    expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
+  });
+
+  test("still answers a pane awaiting an answer", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "pi-answerable");
+    const dir = presence(directory, key, "pi");
+    seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
+
+    await deliverControl(key, { kind: "answer", text: "yes, pattern C" });
+    const answer = JSON.parse(fs.readFileSync(path.join(dir, "answer.json"), "utf8")) as { text: string };
+    expect(answer.text).toBe("yes, pattern C");
+  });
+
+  test("a run dispatch is not blocked by an asking pane", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target("headless", "pi-run-asking");
+    const dir = presence(directory, key, "pi");
+    seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
+
+    await deliverControl(key, { kind: "run", text: "next slice" });
+    const line = JSON.parse(fs.readFileSync(path.join(dir, "inbox.jsonl"), "utf8")) as { text: string };
+    expect(line.text).toBe("next slice");
   });
 
   test("warns and succeeds when claude keys fallback delivers", async () => {

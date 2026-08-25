@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Send, Radio, Inbox } from "lucide-react";
+import { Activity, Send, Radio, Inbox } from "lucide-react";
 
+import { DaemonEventList } from "@/components/DaemonEventList";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,7 @@ import {
 import { AgentCard } from "@/components/AgentCard";
 import { NotFoundPage } from "@/components/common/NotFoundPage";
 import { useFleet } from "@/hooks/use-fleet";
+import { useDaemonEvents } from "@/lib/daemon-events";
 import { findWorkspace, stateColor, type FleetAgent } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +37,7 @@ export const Route = createFileRoute("/ws/$slug")({
 function WorkspaceDetail() {
   const { slug } = Route.useParams() as { slug: string };
   const { data: workspaces = [], isPending } = useFleet();
+  const { events, status } = useDaemonEvents();
   const [selected, setSelected] = useState<FleetAgent | null>(null);
 
   const ws = findWorkspace(workspaces, slug);
@@ -47,6 +50,9 @@ function WorkspaceDetail() {
     );
   }
   if (!ws) return <NotFoundPage />;
+
+  const agentKeys = new Set(ws.agents.map((agent) => agent.key));
+  const workspaceEvents = events.filter((event) => typeof event.key === "string" && agentKeys.has(event.key));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -87,10 +93,26 @@ function WorkspaceDetail() {
           </ScrollArea>
         </TabsContent>
 
-        <TabsContent value="events" className="min-h-0 flex-1 p-6">
-          <p className="text-sm text-muted-foreground">
-            Live transition stream lands here (SSE off the daemon's subscribe-events).
-          </p>
+        <TabsContent value="events" className="min-h-0 flex-1">
+          <ScrollArea className="h-full">
+            <div className="p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <Activity className="size-5 text-primary" />
+                <h2 className="text-xl font-semibold">Activity</h2>
+                <Badge variant="outline" className="gap-1.5 font-mono text-[10px] uppercase">
+                  <Radio className="size-3" /> {status}
+                </Badge>
+              </div>
+              {workspaceEvents.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
+                  <Activity className="size-10" />
+                  <p className="text-sm">No transitions for this workspace yet.</p>
+                </div>
+              ) : (
+                <DaemonEventList events={workspaceEvents} />
+              )}
+            </div>
+          </ScrollArea>
         </TabsContent>
 
         <TabsContent value="overview" className="min-h-0 flex-1 p-6">

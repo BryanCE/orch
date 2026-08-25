@@ -4,6 +4,7 @@ import type { HarnessModel } from "../adapters/adapter.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { allBackends } from "../backends/registry.ts";
 import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
+import type { NotifierChoice } from "./notifiers.ts";
 
 const MODEL_PICKER_MAX_ITEMS = 15;
 
@@ -154,7 +155,20 @@ export function chooseInstalls(missing: readonly { bin: string; cmd: string }[])
   return promptMultiselect("Select installations", missing.map(({ bin, cmd }) => ({ value: bin, label: bin, hint: cmd })));
 }
 
-/** Multi-select which available notifiers to configure (none pre-checked); null on cancel, [] when none are offered. */
-export function selectNotifiers(ids: readonly string[]): Promise<string[] | null> {
-  return promptMultiselect("Configure notifiers (space to toggle)", ids.map((id) => ({ value: id, label: id, hint: "", checked: false })));
+/** Build notifier rows; unavailable integrations stay visible but cannot be selected. */
+export function notifierPromptOptions(choices: readonly NotifierChoice[]): {
+  value: string;
+  label: string;
+  hint: string;
+  checked: false;
+  disabled?: boolean;
+}[] {
+  return choices.map((choice) => choice.available
+    ? { value: choice.id, label: choice.label, hint: "", checked: false }
+    : { value: choice.id, label: `${choice.label} (unavailable)`, hint: choice.remediation, checked: false, disabled: true });
+}
+
+/** Multi-select notifiers to configure (none pre-checked); null on cancel. */
+export function selectNotifiers(choices: readonly NotifierChoice[]): Promise<string[] | null> {
+  return promptMultiselect("Configure notifiers (space to toggle)", notifierPromptOptions(choices));
 }

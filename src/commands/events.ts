@@ -105,15 +105,26 @@ export async function cmdNotify(args: string[]) {
   if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
 
+/** The value of a `--flag=value` target, refused when empty so it cannot widen the stream. */
+function namedTarget(argument: string, flag: string, usage: string): string {
+  const value = argument.slice(flag.length).trim();
+  if (!value) die(usage);
+  return value;
+}
+
 export function parseEventsOptions(args: string[]): EventsOptions {
   let statusFilter: Set<string> | null = null;
   let all = false;
+  // The norm is a readable line per transition that needs no jq to make sense of;
+  // --json opts into the raw record for a caller that parses it.
   let json = false;
   let sinceSeq: number | undefined;
   let once = false;
-  let mine = false;
+  // An orchestrator watches the fleet it spawned. Every other session's agents are noise it
+  // has no business acting on, so the spawner filter is the default and --any-agent lifts it.
+  let mine = true;
   const targets: string[] = [];
-  const usage = "usage: orch events [--all] [target ...] [--status s[,s...]] [--json] [--since-seq <n>] [--once] [--mine]";
+  const usage = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--status") statusFilter = new Set((args[++index] ?? "").split(",").map((state) => state.trim()).filter(Boolean));
@@ -125,7 +136,9 @@ export function parseEventsOptions(args: string[]): EventsOptions {
       if (!Number.isSafeInteger(parsed)) die(usage);
       sinceSeq = parsed;
     } else if (argument === "--once") once = true;
-    else if (argument === "--mine") mine = true;
+    else if (argument === "--any-agent") mine = false;
+    else if (argument.startsWith("--agent=")) targets.push(namedTarget(argument, "--agent=", usage));
+    else if (argument.startsWith("--agent-id=")) targets.push(namedTarget(argument, "--agent-id=", usage));
     else targets.push(argument);
   }
   return { statusFilter, all, json, sinceSeq, once, mine, targets };

@@ -69,12 +69,12 @@ export async function promptAutocomplete<Id extends string>(
  *  Return the selected values, or null on cancel. Empty options → []. */
 export async function promptMultiselect<Id extends string>(
   message: string,
-  options: readonly { value: Id; label: string; hint: string; checked?: boolean }[],
+  options: readonly { value: Id; label: string; hint: string; checked?: boolean; disabled?: boolean }[],
 ): Promise<Id[] | null> {
   if (options.length === 0) return [];
   return guardCancel(await multiselect<string>({
     message,
-    options: options.map(({ value, label, hint }) => ({ value, label, hint })),
+    options: options.map(({ value, label, hint, disabled }) => ({ value, label, hint, ...(disabled === undefined ? {} : { disabled }) })),
     required: false,
     initialValues: options.filter(({ checked }) => checked !== false).map(({ value }) => value),
   })) as Id[] | null;

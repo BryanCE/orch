@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor, type CheckResult } from "../src/doctor/runner.ts";
+import { checkNotifiers } from "../src/doctor/notify.ts";
+import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { loadConfig } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -18,6 +20,12 @@ function tempDir(): string {
 function notifyResult(results: CheckResult[]): CheckResult {
   const result = results.find((entry) => entry.id === "notify-sinks");
   if (!result) throw new Error("missing notify-sinks result");
+  return result;
+}
+
+function notifierResult(results: CheckResult[]): CheckResult {
+  const result = results.find((entry) => entry.id === "notifiers");
+  if (!result) throw new Error("missing notifiers result");
   return result;
 }
 
@@ -60,6 +68,15 @@ describe("doctor notification-sink checks", () => {
     expect(() => loadConfig(directory)).toThrow(/notify/);
   });
 
+  test("uses the notify-send prerequisite install command in desktop remediation", async () => {
+    const directory = tempDir();
+    writeConfig(directory, { notify: [{ id: "desktop" }] });
+
+    const result = await withPath(path.join(directory, "empty-path"), () => checkNotifiers(directory));
+    const install = PREREQUISITES["notify-send"]!.install!;
+    expect(result).toMatchObject({ status: "fail", detail: expect.stringContaining(`fix: install notify-send (\`${install}\`)`) as unknown as string });
+  });
+
   test("warns for a command binary missing from PATH", async () => {
     const directory = tempDir();
     writeConfig(directory, { notify: [{ id: "command", command: ["missing-notify-command"] }] });
@@ -81,5 +98,33 @@ describe("doctor notification-sink checks", () => {
 
     const result = await withPath(binDir, async () => notifyResult(await runDoctor(directory)));
     expect(result).toMatchObject({ status: "ok", detail: "1 configured sink look deliverable" });
+  });
+
+  test("warns when a notifier omits done from its on list", async () => {
+    const directory = tempDir();
+    writeConfig(directory, { notify: [{ id: "command", command: [process.execPath] }] });
+
+    const result = notifierResult(await runDoctor(directory));
+    expect(result).toMatchObject({
+      status: "warn",
+      detail: 'command: effective "on" list omits "done"; fix: add "on": ["blocked","error","done"] to that notify entry in settings.json',
+    });
+  });
+
+  test("does not warn when a notifier includes done in its on list", async () => {
+    const directory = tempDir();
+    writeConfig(directory, { notify: [{ id: "command", on: ["done"], command: [process.execPath] }] });
+
+    expect(notifierResult(await runDoctor(directory))).toMatchObject({ status: "ok" });
+  });
+
+  test("keeps unavailable notifier failures when done is omitted", async () => {
+    const directory = tempDir();
+    const missingCommand = path.join(directory, "missing-notifier-command");
+    writeConfig(directory, { notify: [{ id: "command", command: [missingCommand] }] });
+
+    const result = notifierResult(await runDoctor(directory));
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain(`fix: install ${missingCommand}`);
   });
 });

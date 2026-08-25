@@ -17,6 +17,8 @@
     "fallow:health": "bunx fallow health --baseline .fallow-health-baseline.json --fail-on-issues",
     "fallow:dead": "bunx fallow dead-code",
     "fallow:accept": "bunx fallow dupes --save-baseline .fallow-dupes-baseline.json && bunx fallow health --save-baseline .fallow-health-baseline.json",
+    "dev": "bun run dev:web",
+    "dev:web": "bun --filter orch-web dev",
     "check:web": "bun --filter orch-web lint && bun --filter orch-web tc",
     "check:all": "bun run check && bun run check:web",
     "check:bridge": "bun scripts/check-bridge.ts",

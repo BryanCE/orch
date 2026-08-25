@@ -1,6 +1,6 @@
 ---
 name: orch
-description: Drive the orch CLI to run a fleet of coding agents in visible panes - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, your FIRST action is `orch spawn` - no preflight, no asking. Then dispatch async and watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
+description: Drive the orch CLI to run a fleet of coding agents in visible panes - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, use it, or spawn agents, your FIRST action is `orch spawn` - one command, no preflight, no driving the plexer yourself, no asking. Then dispatch async and watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
 allowed-tools: Bash, Read
 ---
 
@@ -48,7 +48,7 @@ run `orch doctor` — with `-y` it applies every fix unattended.
   explore, never think through a system. A dispatch that needs a worker to "figure out" the
   approach is under-specced; fix the prompt. The loop is small change → land → green-check →
   next small dispatch. Idle panes are waste: the moment a worker lands, its pane gets the
-  next slice.
+  next slice. A big fleet of fast small tasks beats a small fleet of big thinking tasks.
 - **Keep the tab open while the domain probably has more work.** Between tasks reuse the
   pane: `orch reset <target>` gives fresh context in the same pane, name and model intact.
   `orch close` a tab only when that domain is DONE. Close/respawn cycles per round waste
@@ -59,7 +59,7 @@ run `orch doctor` — with `-y` it applies every fix unattended.
   what that worker holds; by round three you cannot tell which pane owns which slice and
   every event line becomes unreadable. Name by SLICE: `mcp-types`, `mcp-tools`, `mcp-guards`.
   After a `reset` onto a new slice, rename in the same breath — a stale name is worse than an
-  ordinal because it actively lies. Renaming does NOT break the watch: `--mine` filters on
+  ordinal because it actively lies. Renaming does NOT break the watch: the scope filters on
   `spawnedBy`, not on the name.
 - **Reuse before spawn, always.** Next task in a domain: `orch reset <idle-pane>`, then
   dispatch to it. Spawn a replacement ONLY after that dispatch actually errors, spawn it INTO
@@ -158,11 +158,11 @@ wake-ups. A poll loop is worse in every dimension. `orch status` is for one-shot
 on task completion — the stream never exits. Arm a persistent monitor instead:
 
 ```bash
-orch events --mine --status done,error,blocked,asking --json |
-  jq -r --unbuffered '"\(.name // .agent): \(.newState) \(.reason // "" | .[0:120])"'
+orch events --status done,error,blocked,asking
 ```
 
-Each line becomes a wake-up.
+Each line becomes a wake-up. No `jq`, no `--json`, no scope flag: bare `orch events` already
+emits one readable line per transition, scoped to the agents THIS session spawned.
 
 - **Preflight before arming, every time.** This survives a context compaction because it
   reads the OS instead of your memory — after a compaction you will not remember arming a
@@ -174,13 +174,13 @@ Each line becomes a wake-up.
 
   Non-empty = a watch is ALREADY ARMED; do not arm another. If it names panes that no longer
   exist (compare to `orch status`), `kill` that pid and arm one fresh.
-- **Smoke-test the pipeline before arming it.** Run the line backgrounded for ~4s and confirm
-  plausible output. `jq` errors go to stderr while stdout stays empty, so an unproven filter
-  is a watch that never fires and looks exactly like "still working".
-- **`--mine` scopes to agents THIS session spawned** (matched on `spawnedBy`), and it covers
-  panes you dispatch to later without re-arming — unlike a hand-kept list. Other sessions run
-  workers in the same fleet; their transitions are their orchestrator's to collect and every
-  stray alert burns a wake-up.
+- **Smoke-test it before arming.** Run the line backgrounded for ~4s and confirm plausible
+  output. A watch that never fires looks exactly like "still working".
+- **The default scope is the agents THIS session spawned** (matched on `spawnedBy`), and it
+  covers panes you dispatch to later without re-arming — unlike a hand-kept list. Other
+  sessions run workers in the same fleet; their transitions are their orchestrator's to
+  collect and every stray alert burns a wake-up. `--any-agent` lifts that scope; `--agent=<name>`
+  or `--agent-id=<id>` narrows to one.
 - **No dedupe needed.** The daemon suppresses an identical `(key, oldState→newState,
   dispatchId, task)` for 120s at the publish point, so a flapping status file produces one
   event, not fifteen. `seq` is that agent's transition ordinal — `(key, seq)` identifies an

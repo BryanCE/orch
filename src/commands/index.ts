@@ -32,8 +32,10 @@ OBSERVE
                                  Glanceable table of the fleet (default command); --all-panes also lists
                                  panes orch did not spawn; --offline reads agent files only.
   orch questions                 List pending agent questions from live agents.
-  orch events [--all] [target ...] [--status s[,s...]] [--notify] [--json]
+  orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
+                                 Bare: one readable line per transition, scoped to the agents THIS
+                                 session spawned. Flags widen or reshape that.
                                  Notifications are delivered by orchd from settings.json, not by this command.
 
 QUEUE

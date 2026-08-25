@@ -19,6 +19,7 @@ export const PREREQUISITES: Record<string, Prerequisite> = {
   bun: { install: "curl -fsSL https://bun.sh/install | bash" },
   tmux: { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" },
   herdr: { docsUrl: "https://github.com/BryanCE/orch#readme" },
+  "notify-send": { install: "sudo apt install libnotify-bin" },
 };
 
 /** The one command that re-picks a harness's default and allowlist after its catalogue changes. */

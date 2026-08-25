@@ -8,10 +8,13 @@ import {
 } from "../notify/sinks.ts";
 import type { NotifyEntry } from "../config.ts";
 import { HERDR_SINK_ID } from "../backends/backend.ts";
+import { notifierRemediation } from "../notify/remediation.ts";
 
 export interface NotifierChoice {
   id: string;
+  label: string;
   available: boolean;
+  remediation: string;
   requiredFields: NotifierConfigField[];
 }
 
@@ -36,7 +39,9 @@ export async function probeNotifiers(): Promise<NotifierChoice[]> {
     }
     return {
       id: notifier.id,
+      label: notifier.label,
       available,
+      remediation: notifierRemediation(notifier.id, {}, notifier.remediation),
       requiredFields: notifier.metadata.requiredConfig.map(fieldDetails),
     };
   }));

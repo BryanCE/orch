@@ -16,13 +16,16 @@ Glanceable table of the fleet (the default command when none is given).
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
 `,
-  events: `orch events [--all] [target ...] [--status s[,s...]] [--notify] [--json]
+  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json]
 Continuous stream of pane state transitions; requires a running daemon.
+Bare 'orch events' is the normal use: one readable line per transition, scoped to the
+agents THIS session spawned. Every flag below is a deviation from that.
+  --agent       Watch one agent by name.
+  --agent-id    Watch one agent by identity key.
+  --any-agent   Every agent, not just the ones this session spawned.
   --all         Every workspace's transitions, not just the caller's.
-  target ...    Limit the stream to named targets.
   --status      Only transitions into these states (comma-separated).
-  --notify      Also render each event through the notification formatter.
-  --json        One JSON event per line.
+  --json        Raw event records, one per line, for a caller that parses them.
 Notifications are delivered by orchd from settings.json sinks, not by this command.
 An attached events stream counts as daemon usage: orchd will not idle-shutdown while one is open.
 `,

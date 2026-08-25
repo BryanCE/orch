@@ -69,6 +69,7 @@ export interface NotifierMetadata {
 export interface Notifier {
   id: string;
   label: string;
+  remediation?: string;
   metadata: NotifierMetadata;
   /** A rejected availability probe is treated as unavailable by the registry. */
   available(config?: Record<string, unknown>): boolean | Promise<boolean>;
@@ -80,6 +81,7 @@ export function providerNotifier(provider: SinkProvider): Notifier {
   return {
     id: provider.id,
     label: provider.label ?? provider.id,
+    ...(provider.remediation ? { remediation: provider.remediation } : {}),
     metadata: { description: provider.description, requiredConfig: [] },
     available: () => provider.available(),
     deliver: async (event) => {

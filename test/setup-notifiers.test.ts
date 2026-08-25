@@ -9,6 +9,7 @@ import {
   probeNotifiers,
   renderNotifyEntry,
 } from "../src/setup/notifiers.ts";
+import { notifierPromptOptions } from "../src/setup/wizard.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 describe("notifier setup logic", () => {
@@ -17,6 +18,37 @@ describe("notifier setup logic", () => {
     expect(choices.map((choice) => choice.id)).toEqual(["herdr", "desktop", "webhook", "command"]);
     expect(choices.every((choice) => typeof choice.available === "boolean")).toBe(true);
     expect(choices.find((choice) => choice.id === "webhook")?.requiredFields.map((field) => field.name)).toEqual(["url"]);
+  });
+
+  test("lists unavailable notifiers with remediation and disables selection", () => {
+    const options = notifierPromptOptions([
+      {
+        id: "desktop",
+        label: "Desktop",
+        available: false,
+        remediation: "fix: install notify-send",
+        requiredFields: [],
+      },
+      {
+        id: "webhook",
+        label: "Webhook",
+        available: true,
+        remediation: "fix: verify the adapter installation and configuration",
+        requiredFields: [],
+      },
+    ]);
+    expect(options).toEqual([
+      {
+        value: "desktop",
+        label: "Desktop (unavailable)",
+        hint: "fix: install notify-send",
+        checked: false,
+        disabled: true,
+      },
+      { value: "webhook", label: "Webhook", hint: "", checked: false },
+    ]);
+    expect(options.find((option) => option.value === "desktop")?.disabled).toBe(true);
+    expect(options.find((option) => option.value === "webhook")?.disabled).toBeUndefined();
   });
 
   test("collects only declared fields and rejects a missing webhook URL", () => {

@@ -115,3 +115,71 @@ run via Bash `run_in_background`, re-armed after each wake while dispatches
 remain in flight. Or the Claude Code `Monitor` tool with an until-condition on
 `orch status --json`. Both still depend on the model remembering — hence this
 report.
+
+---
+
+# orch defects surfaced while folding `orch-cli` into the `orch` skill
+
+**Date:** 2026-08-25
+**Context:** the two skills were merged into one. Four of the `orch-cli` bullets were
+not doctrine at all — they were workarounds an orchestrator had to memorize because orch
+misbehaves. Prose in a skill file is the wrong home for every one of them: it only works
+while the model remembers it, and it ships user-hostile advice to anyone who installs orch.
+They belong here, as things orch should fix.
+
+## A. `orch steer` is accepted and then lost on an `asking` pane
+
+**Observed:** a pane sitting in `asking` takes a steer without error; the text disappears
+inside the blocked turn. `orch questions` still lists the same question afterward. The
+memorized workaround was "if the question reappears, reset the pane and re-dispatch with the
+answer baked into the prompt."
+
+**Fix:** `orch steer` must refuse an `asking` target with a non-zero exit and a message
+naming `orch answer <target>`. If a steer aimed at a blocked pane can be delivered at all,
+route it into the answer channel instead of the inbox — silently swallowing a write is the
+worst of the three options. `orch answer` should likewise verify the question actually
+cleared and report it if not.
+
+## B. A claimed queue task cannot be cancelled
+
+**Observed:** `orch queue cancel <id>` does nothing once a task is claimed. Stale claimed
+tasks then retry into any new pane that reuses the old fleet name, so a fresh fleet inherits
+a dead task. The memorized workaround was "check `orch queue list` before reusing names, and
+pick a different name to sidestep it."
+
+**Fix:** allow cancelling a claimed task (abort the turn on the holding pane, mark the task
+cancelled, do not retry). Failing that, expire a claim whose pane no longer exists, and make
+`orch queue cancel` say why it refused instead of exiting quiet.
+
+## C. An unrecognized model spec fuzzy-matches instead of failing
+
+**Observed:** a shorthand or half-remembered model name is matched onto whatever is closest
+and the agent silently launches on a model nobody chose (`sol:high` → `upstage/solar-pro-3`,
+2026-08-05). The only defense was a memorized rule to resolve exact specs first and re-read
+the MODEL column after every spawn and pin.
+
+**Fix:** `--model` should hard-fail on a spec that is not an exact match against what the
+harness reports, printing the near-misses and pointing at `orch models --pick`. Fuzzy
+matching, if kept, belongs behind an explicit opt-in flag — never on the default path where
+a typo becomes a silent model swap.
+
+## D. Editing the repo does not change the running CLI, and nothing says so
+
+**Observed:** orch runs from an installed build; source edits do nothing until a rebuild,
+reinstall, and `orch daemon reload`. The failure is a CLI/daemon hash-skew refusal, or worse,
+a fix that appears not to work.
+
+**Fix:** this is a contributor concern, not user documentation — it does not belong in the
+skill. Put it in `CONTRIBUTING`/`README`, and have `orch doctor` detect a CLI/daemon version
+or hash mismatch and name `orch daemon reload` as the fix.
+
+## Not filed — kept in the skill
+
+Doctrine that holds for any user with any harness stays where it was: fleet/tab/pane shape,
+slice-small dispatching, reuse-before-spawn, `--cwd` scoping, push-stream over polling,
+`done` is a claim.
+
+**Deliberately dropped in the merge, not filed:** the `luna`/`sol`/`terra` model ladder and
+its hard ceiling, `~/.pi/agent/models-store.json` lookups, `bun run build:dev`, and the
+`src/worker-prompt.ts` path. Those are one user's setup and one repo's internals. orch does
+not know what models someone wants to run, and the skill must not tell them.

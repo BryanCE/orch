@@ -3,6 +3,7 @@ import { Activity, Radio } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DaemonEventList } from "@/components/DaemonEventList";
 import { useDaemonEvents } from "@/lib/daemon-events";
 
 export const Route = createFileRoute("/events")({
@@ -29,13 +30,7 @@ function Events() {
             <p className="text-sm">Waiting for daemon events…</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {[...events].reverse().map((event, index) => (
-              <pre key={`${index}-${JSON.stringify(event)}`} className="overflow-x-auto rounded-md border bg-muted/30 p-3 font-mono text-xs">
-                {JSON.stringify(event, null, 2)}
-              </pre>
-            ))}
-          </div>
+          <DaemonEventList events={events} />
         )}
       </div>
     </ScrollArea>

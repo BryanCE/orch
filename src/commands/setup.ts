@@ -687,16 +687,17 @@ export async function cmdSetup(args: string[]) {
   else process.stdout.write(`${doneMessage}\n`);
 }
 
-/** Interactive notifier onboarding: probe available notifiers, pick a set, collect each one's
+/** Interactive notifier onboarding: probe all notifiers, pick a set, collect each one's
  * declared fields, and persist them as settings.json `notify` entries. A cancel skips the step. */
 async function configureNotifiers(): Promise<void> {
-  const available = (await probeNotifiers()).filter((notifier) => notifier.available);
-  if (!available.length) return;
-  const picked = await selectNotifiers(available.map((notifier) => notifier.id));
+  const choices = await probeNotifiers();
+  if (!choices.length) return;
+  const picked = await selectNotifiers(choices);
   if (!picked?.length) return;
   const selections: { id: string; config: Record<string, unknown> }[] = [];
   for (const id of picked) {
-    const choice = available.find((notifier) => notifier.id === id)!;
+    const choice = choices.find((notifier) => notifier.id === id);
+    if (!choice?.available) continue;
     const config: Record<string, unknown> = {};
     for (const field of choice.requiredFields) {
       const answer = await promptText(`${id}: ${field.label ?? field.name}`);

@@ -5,8 +5,8 @@ import { createNotifierRegistry, loadSinks, type Sink } from "../notify/router.t
 import { allBackends } from "../backends/registry.ts";
 import type { CheckResult } from "../check-result.ts";
 import type { BinaryStatus } from "./bins.ts";
-import { isWslRuntime } from "./shared.ts";
 import { binaryOnPath, packageRoot } from "../util.ts";
+import { notifierRemediation } from "../notify/remediation.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
@@ -37,9 +37,14 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
 
   const registry = createNotifierRegistry();
   const failures: string[] = [];
+  const warnings: string[] = [];
   for (const [index, entry] of configured.entries()) {
     const number = index + 1;
     const adapter = entry.id;
+    const effectiveOn = entry.on ?? ["blocked", "error"];
+    if (!effectiveOn.includes("done")) {
+      warnings.push(`${adapter}: effective "on" list omits "done"; fix: add "on": ["blocked","error","done"] to that notify entry in settings.json`);
+    }
     const config: Record<string, unknown> = { ...entry };
     delete config.id;
     delete config.on;
@@ -56,22 +61,14 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
     }
     const result = await registry.probe(adapter, config);
     if (!result.available) {
-      let remediation = "fix: verify the adapter installation and configuration";
-      if (adapter === "desktop") {
-        remediation = isWslRuntime()
-          ? "fix: install notify-send (`sudo apt install libnotify-bin`) or ensure powershell.exe and wslpath are reachable"
-          : "fix: install notify-send (`sudo apt install libnotify-bin`)";
-      } else if (adapter === "command") {
-        const command = Array.isArray(config.command) && typeof config.command[0] === "string" ? config.command[0] : "the command";
-        remediation = `fix: install ${command} (for example: sudo apt install ${command})`;
-      }
+      const remediation = notifierRemediation(adapter, config, registry.get(adapter)?.remediation);
       failures.push(`${adapter || `notifier #${number}`}: ${result.reason ?? result.error ?? "unavailable"}; ${remediation}`);
     }
   }
 
-  return failures.length
-    ? { id, label, status: "fail", detail: failures.join("; ") }
-    : { id, label, status: "ok", detail: `${configured.length} configured notifier${configured.length === 1 ? "" : "s"} are available` };
+  if (failures.length) return { id, label, status: "fail", detail: failures.join("; ") };
+  if (warnings.length) return { id, label, status: "warn", detail: warnings.join("; ") };
+  return { id, label, status: "ok", detail: `${configured.length} configured notifier${configured.length === 1 ? "" : "s"} are available` };
 }
 
 export function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResult {

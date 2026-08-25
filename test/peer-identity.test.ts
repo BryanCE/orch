@@ -47,11 +47,14 @@ describe("spawner identity", () => {
     expect(spawnerIdentity()).toEqual({ key: null, label: "claude session" });
   });
 
-  test("a Claude Code session exporting its session id gets a per-session key", () => {
+  test("a Claude Code session has NO reply address; its session id only names it apart", () => {
     tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "e2277e83-74d9";
-    expect(spawnerIdentity()).toEqual({ key: "claude-session-e2277e83-74d9", label: "claude session" });
+    // A harness session with no presence dir has no inbox to reply to, whether or
+    // not it exports a session id. The id distinguishes two parallel sessions in
+    // the LABEL; minting it as a key hands workers an address that cannot resolve.
+    expect(spawnerIdentity()).toEqual({ key: null, label: "claude session e2277e83" });
   });
 
   test("a harness session with presence hands out its own reply address", () => {
@@ -71,15 +74,16 @@ describe("spawner identity", () => {
     expect(spawnerIdentity()).toEqual({ key, label: "lead-1 (pi)" });
   });
 
-  test("agentIdentityEnv stamps the name and falls back to the owner token as address", () => {
-    expect(agentIdentityEnv("sweep-2", { key: "session-1", label: "pi session" }, "op-token")).toEqual({
+  test("agentIdentityEnv stamps a reply address only when the spawner has one", () => {
+    expect(agentIdentityEnv("sweep-2", { key: "session-1", label: "pi session" })).toEqual({
       ORCH_AGENT_NAME: "sweep-2",
       ORCH_SPAWNER: "session-1",
       ORCH_SPAWNER_LABEL: "pi session",
     });
-    expect(agentIdentityEnv("sweep-2", { key: null, label: "claude session" }, "herdr~wF~operator")).toEqual({
+    // An owner token proves who may STEER an agent; it is not a presence dir.
+    // Stamping it as ORCH_SPAWNER hands the worker an unreachable reply address.
+    expect(agentIdentityEnv("sweep-2", { key: null, label: "claude session" })).toEqual({
       ORCH_AGENT_NAME: "sweep-2",
-      ORCH_SPAWNER: "herdr~wF~operator",
       ORCH_SPAWNER_LABEL: "claude session",
     });
   });
@@ -109,6 +113,46 @@ describe("spawner identity", () => {
     expect(record?.owner).toBe("herdr~wF~operator");
     expect(record?.spawnedBy).toBe("claude-session-e2277e83-74d9");
     expect(record?.spawnedByLabel).toBe("claude session");
+  });
+});
+
+/**
+ * The seam no unit test owned. `spawnerIdentity` MINTS the address, `agentIdentityEnv`
+ * STAMPS it into ORCH_SPAWNER, and `resolvePeer` RESOLVES it. Each was verified against
+ * its own local contract while the invariant spanning all three — an address orch hands
+ * out is an address orch can reach — had no owner and no test. That is how every pi
+ * worker spawned from a Claude Code session came to be told to reply to a mailbox that
+ * never existed.
+ */
+describe("the spawner address invariant", () => {
+  function stampedSpawnerAddress(): string | undefined {
+    return agentIdentityEnv("worker-1", spawnerIdentity()).ORCH_SPAWNER;
+  }
+
+  test("a Claude Code session stamps no address, so no worker is handed an unreachable one", () => {
+    tempOrchDir();
+    process.env.CLAUDECODE = "1";
+    process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859-4757-8c32-15bcaa9c761a";
+    expect(stampedSpawnerAddress()).toBeUndefined();
+  });
+
+  test("a bare operator stamps no address", () => {
+    tempOrchDir();
+    expect(stampedSpawnerAddress()).toBeUndefined();
+  });
+
+  test("an address that IS stamped resolves to a live inbox", () => {
+    const orchDir = tempOrchDir();
+    seedStatus(orchDir, "session-4242", { agent: "pi", pid: process.pid, state: "idle" });
+    process.env.ORCH_SESSION_KEY = "session-4242";
+
+    const address = stampedSpawnerAddress();
+    expect(address).toBe("session-4242");
+    process.env.ORCH_SPAWNER = address;
+    process.env.ORCH_SPAWNER_LABEL = "pi session";
+
+    const resolved = resolvePeer("spawner", "headless~wF~worker0006");
+    expect("error" in resolved ? resolved.error : null).toBeNull();
   });
 });
 

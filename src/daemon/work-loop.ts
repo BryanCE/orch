@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../control/dispatch.ts";
-import { errorMessage } from "../util.ts";
+import { errorMessage, pidAlive } from "../util.ts";
 import {
   claimTask,
   listTasks,
@@ -71,7 +71,12 @@ function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: number):
 async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
   const adapterId = spawnedRecords().get(entry.key)?.adapter ?? entry.status?.agent;
   const lockedCommands = (options.getConfig?.() ?? loadConfig(options.orchDir)).locked_commands;
-  const prompt = `${workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, lockedCommands)}\n\n${task.text}`;
+  // The daemon is not this agent's spawner; the agent's own record names it. Only a
+  // spawner still writing live presence can receive the reply the clause instructs.
+  const spawnerKey = spawnedRecords().get(entry.key)?.spawnedBy ?? entry.status?.spawnedBy;
+  const spawnerRepliable = typeof spawnerKey === "string" && pidAlive(loadPresence().get(spawnerKey)?.status?.pid);
+  const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { lockedCommands, spawnerRepliable });
+  const prompt = `${header}\n\n${task.text}`;
   // The claim's dispatch id rides every attempt: the bridge acks per id, so a
   // retry of the same id can never deliver the prompt twice, and the agent's
   // status/result echo the id the settle path verifies against.

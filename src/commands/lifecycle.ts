@@ -14,7 +14,7 @@ import type { LifecycleVerb } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
 
 import { loadConfig } from "../config.ts";
-import { adapterCommand, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, workerPrompt, type AgentFlags } from "./spawn.ts";
+import { adapterCommand, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, selfSpawnAddress, spawnedBySelf, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
@@ -26,7 +26,8 @@ export async function cmdRun(args: string[]): Promise<void> {
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
   const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
-  const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), loadConfig(orchDir()).locked_commands) }, gov);
+  const headerContext = { lockedCommands: loadConfig(orchDir()).locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), headerContext) }, gov);
   const recipient = recipientFor(ent.key);
   if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);

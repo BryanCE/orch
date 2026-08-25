@@ -36,16 +36,18 @@ function harnessSessionIdentity(): SpawnerIdentity | null {
 }
 
 /** The caller is a harness session with no presence, named by its env marker.
- *  A harness exporting a per-session id yields a key that tells two parallel
- *  sessions of the same harness apart; one that does not stays kind-only. */
+ *  Its key is ALWAYS null: this is the branch for sessions that have no presence
+ *  dir, so there is no inbox to address. A harness exporting a per-session id
+ *  tells two parallel sessions of the same harness apart in the LABEL — minting
+ *  that id as a key hands every worker a reply address that cannot resolve. */
 function markedSessionIdentity(): SpawnerIdentity | null {
   const marked = allAdapters().find((adapter) =>
     adapter.sessionEnvMarker !== undefined && optionalString(process.env[adapter.sessionEnvMarker]) !== undefined);
   if (!marked) return null;
   const sessionId = marked.sessionIdEnv ? optionalString(process.env[marked.sessionIdEnv]) : undefined;
   return {
-    key: sessionId ? `${marked.id}-session-${sessionId}` : null,
-    label: `${marked.id} session`,
+    key: null,
+    label: sessionId ? `${marked.id} session ${sessionId.slice(0, 8)}` : `${marked.id} session`,
   };
 }
 
@@ -61,10 +63,13 @@ export function spawnerIdentity(): SpawnerIdentity {
  * status.json, which is what lets peer tools show names instead of keys and
  * lets a worker reply to the exact session that spawned it.
  */
-export function agentIdentityEnv(name: string, spawner: SpawnerIdentity, ownerToken: string | undefined): Record<string, string> {
+export function agentIdentityEnv(name: string, spawner: SpawnerIdentity): Record<string, string> {
   const env: Record<string, string> = { ORCH_AGENT_NAME: name, ORCH_SPAWNER_LABEL: spawner.label };
-  const address = spawner.key ?? ownerToken;
-  if (address) env.ORCH_SPAWNER = address;
+  // ORCH_SPAWNER is a REPLY ADDRESS, and `ownerToken` is not one — it is the
+  // write-governance actor proving who may steer this agent. Falling back to it
+  // stamped workers with an address that names no presence dir; the worker obeyed
+  // the header, called orch_send, and got refused. No inbox, no address.
+  if (spawner.key) env.ORCH_SPAWNER = spawner.key;
   return env;
 }
 

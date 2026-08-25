@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 const canonicalWallModule = "src/policy/workspace.ts";
 const wallMarkers = [
   /opts:\s*\{\s*crossWorkspace/,
-  /opts\.crossWorkspace\s*===\s*true/,
+  /opts\.crossWorkspace\b/,
   /allowed:\s*false/,
   /workspace wall:/,
 ] as const;

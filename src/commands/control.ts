@@ -9,7 +9,7 @@ import { spawnerIdentity } from "../policy/spawner.ts";
 import { parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
-import { pickAdapter, requestedModel, workerPrompt, type AgentFlags } from "./spawn.ts";
+import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
 
 type DispatchFlags = AgentFlags & {
@@ -188,7 +188,8 @@ export async function cmdDispatch(args: string[]) {
   // control target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = settings.ent.key;
   if (settings.model) await setAgentModel(key, settings.model, gov);
-  const result = await writeRpc("dispatch", { target: key, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), config.locked_commands) }, gov);
+  const headerContext = { lockedCommands: config.locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const result = await writeRpc("dispatch", { target: key, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), headerContext) }, gov);
   // A spawned agent is already registered under its key; only an unrecorded
   // bare pane needs a row, and it must carry the same key we just dispatched to.
   // Dispatching to a bare pane adopts it: the record carries the dispatcher's

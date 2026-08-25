@@ -8,7 +8,7 @@ import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/work
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
-import { workerHeaderFor } from "../worker-prompt.ts";
+import { workerHeaderFor, type WorkerHeaderContext } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendId } from "../backends/backend.ts";
 import { resolveBackend } from "../backends/registry.ts";
@@ -361,12 +361,12 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
         cwd,
         // The daemon launches the process, but the IDENTITY of the spawner is
         // this CLI's: orchd's own env knows nothing about the calling session.
-        env: { ...agentIdentityEnv(name, spawner, callerOwnerToken()), ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined) },
+        env: { ...agentIdentityEnv(name, spawner), ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined) },
         model: settings.model,
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(settings.prompt, false, adapter, config.locked_commands),
+        prompt: workerPrompt(settings.prompt, false, adapter, { lockedCommands: config.locked_commands, spawnerRepliable: spawner.key !== null }),
         tools: settings.tools,
         workers: settings.workers,
       }, {}, config.timeouts.adapter_command_ms);
@@ -443,7 +443,7 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   const spawner = spawnerIdentity();
   let handle: BackendHandle;
   try {
-    handle = backend.spawn(adapter, { key, env: { ...agentIdentityEnv(rootName, spawner, callerOwnerToken()), ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined) }, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
+    handle = backend.spawn(adapter, { key, env: { ...agentIdentityEnv(rootName, spawner), ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined) }, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
   } catch (error: unknown) {
     // A tab holding no agent is pure pollution: close it before failing the launch.
     try { backend.closeGroup?.(group.id); } catch { /* the failure below is the report */ }
@@ -486,7 +486,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   const spawner = spawnerIdentity();
   const handle = spec.backend.spawn(spec.adapter, {
     key,
-    env: { ...agentIdentityEnv(spec.name, spawner, callerOwnerToken()), ...worktreeEnv(spec.worktree, spec.branch) },
+    env: { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch) },
     cwd: spec.cwd,
     name: spec.name,
     workspace: spec.workspace,
@@ -707,8 +707,15 @@ export async function cmdTile(args: string[]) {
   await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);
 }
 
-export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, lockedCommands: readonly string[] = []): string {
-  return raw ? prompt : `${workerHeaderFor(adapter, lockedCommands)}\n\n${prompt}`;
+export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: WorkerHeaderContext = {}): string {
+  return raw ? prompt : `${workerHeaderFor(adapter, context)}\n\n${prompt}`;
+}
+
+/** This session's own reply address, live only when it writes presence of its own.
+ *  A worker is told to `orch_send target "spawner"` on the strength of this and
+ *  nothing else — never on its own harness's steer capability. */
+export function spawnerIsRepliable(): boolean {
+  return spawnerIdentity().key !== null;
 }
 
 function delay(ms: number): Promise<void> {

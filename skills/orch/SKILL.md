@@ -62,6 +62,14 @@ a dispatch id; `orch status --json` echoes that id as `.dispatchId` once the age
 actually running that prompt — which is how you prove the pane is running what *this*
 command sent, rather than trusting that the pane looks busy.
 
+Send the task and only the task. orch composes the worker contract itself — the pane is
+unattended, heavy commands are gated behind `orch lock run`, the worker does not fan out
+subagents or shell out to `orch` — and prepends it to every dispatch. That contract lives in
+exactly one file, `src/worker-prompt.ts`, and it is written per adapter from that adapter's
+declared capabilities. **Never hand-write any of it into your prompt:** a typed near-copy
+delivers the rule twice in two wordings, and the two drift. A rule the header is missing gets
+added to `src/worker-prompt.ts`, never pasted around it.
+
 - `--raw` sends the exact prompt with no worker header.
 - `--model` / `--agent` pin the model or route through a different harness for this one
   dispatch.

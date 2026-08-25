@@ -9,6 +9,8 @@ export interface DaemonRuntimeFiles {
   readonly socket: string;
   /** The TCP port orchd advertises where unix sockets are unavailable. */
   readonly port: string;
+  /** Owner-readable credential for loopback TCP hello. */
+  readonly token: string;
   /** Where a detached orchd's stdout and stderr land. */
   readonly log: string;
 }
@@ -18,6 +20,7 @@ export function daemonRuntimeFiles(orchDir: string): DaemonRuntimeFiles {
     lock: join(orchDir, "orchd.lock"),
     socket: join(orchDir, "orchd.sock"),
     port: join(orchDir, "orchd.port"),
+    token: join(orchDir, "orchd.token"),
     log: join(orchDir, "orchd.log"),
   };
 }
@@ -26,5 +29,5 @@ export function daemonRuntimeFiles(orchDir: string): DaemonRuntimeFiles {
  *  record of why the last daemon died. */
 export function daemonOwnershipFiles(orchDir: string): readonly string[] {
   const files = daemonRuntimeFiles(orchDir);
-  return [files.lock, files.socket, files.port];
+  return [files.lock, files.socket, files.port, files.token];
 }

@@ -1,4 +1,5 @@
 import type { AgentAdapter } from "./adapters/adapter.ts";
+import { truncate } from "./util.ts";
 
 /** Always-on worker header: the pane is unattended. */
 const WORKER_HEADER_BASE =
@@ -50,4 +51,9 @@ export function stripWorkerHeader(task: string): string {
   if (!task.startsWith(WORKER_HEADER_BASE)) return task;
   const separator = task.indexOf("\n\n");
   return separator === -1 ? "" : task.slice(separator + 2);
+}
+
+/** Normalize a dispatched task before storing it: strip the header, then truncate. */
+export function prepareWorkerTask(task: string, max: number): string {
+  return truncate(stripWorkerHeader(task), max);
 }

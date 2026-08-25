@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { deliverToSink } from "../src/notify/router.ts";
 import { notificationText, workspaceColor, type NotifyEvent } from "../src/notify/format.ts";
-import { workerHeaderFor } from "../src/worker-prompt.ts";
+import { TASK_MAX } from "../src/agent/presence.ts";
+import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
 
 const PALETTE = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"];
 
@@ -42,11 +43,17 @@ describe("notification and presence event formatting", () => {
     expect(after).toContain("[w6]");
   });
 
+  test("named events prefer the human name over the harness id", () => {
+    expect(notificationText(event({ agent: "pi", name: "ident-hello-1" }), { colorize: false }).title)
+      .toBe("DONE [w6] ident-hello-1: build the thing");
+  });
+
   test("notificationText pins the canonical done, error, and blocked golden vectors", () => {
-    expect(notificationText(event(), { colorize: false })).toEqual({
-      title: "DONE [w6] w-2: build the thing",
-      body: "DONE [w6] w-2: build the thing\nWorkspace: w6 (#2563eb)\nTask: build the thing",
+    expect(notificationText(event({ lastText: "reported result" }), { colorize: false })).toEqual({
+      title: "DONE [w6] w-2: reported result",
+      body: "DONE [w6] w-2: reported result\nWorkspace: w6 (#2563eb)\nTask: build the thing",
     });
+    expect(notificationText(event(), { colorize: false }).title).toBe("DONE [w6] w-2: build the thing");
     expect(notificationText(event({ newState: "error", task: "old task", lastError: "build exploded" }), { colorize: false })).toEqual({
       title: "ERROR [w6] w-2: build exploded",
       body: "ERROR [w6] w-2: build exploded\nWorkspace: w6 (#2563eb)\nTask: old task",
@@ -100,6 +107,9 @@ describe("notification and presence event formatting", () => {
 
     const longTask = "x".repeat(100);
     expect(transition("herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(77)}...`);
+    const longDispatched = `${workerHeaderFor(undefined)}\n\n${"x".repeat(TASK_MAX + 20)}`;
+    expect(prepareWorkerTask(longDispatched, TASK_MAX)).toBe(`${"x".repeat(TASK_MAX - 3)}...`);
+    expect(transition("herdr~w8~p3", { state: "done", task: longDispatched })?.task).toBe(`${"x".repeat(77)}...`);
     expect(transition("herdr~w8~p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
   });
 

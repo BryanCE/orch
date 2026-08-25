@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireDaemonLock } from "../src/daemon/lifecycle";
+import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
 import {
   DaemonAbsentError,
   DaemonUnreachableError,
@@ -41,6 +42,26 @@ async function waitForLine(lines: string[], index: number): Promise<void> {
   if (lines.length <= index) throw new Error("timed out waiting for RPC line");
 }
 
+async function tcpHello(server: RpcServer, params?: unknown): Promise<Record<string, unknown>> {
+  const endpoint = server.tcpEndpoint;
+  if (!endpoint) throw new Error("TCP endpoint was not bound");
+  const port = Number(endpoint.slice(endpoint.lastIndexOf(":") + 1));
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    let data = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      data += chunk;
+      const newline = data.indexOf("\n");
+      if (newline < 0) return;
+      socket.destroy();
+      resolve(JSON.parse(data.slice(0, newline)) as Record<string, unknown>);
+    });
+    socket.once("error", reject);
+    socket.once("connect", () => socket.write(`${JSON.stringify({ id: 1, method: "hello", params })}\n`));
+  });
+}
+
 async function start(dir: string): Promise<RpcServer> {
   const server = await startRpcServer(dir, {
     echo: (params) => params,
@@ -64,6 +85,50 @@ describe("daemon RPC", () => {
     const dir = tempOrchDir();
     await start(dir);
     expect(await rpcCall(dir, "echo", { ok: true })).toEqual({ ok: true });
+  });
+
+  test("issues one session identity to sequential connections from one ancestor", async () => {
+    const dir = tempOrchDir();
+    await start(dir);
+    const first = await rpcCall(dir, "hello");
+    const second = await rpcCall(dir, "hello");
+    expect(first).toMatchObject({ label: expect.any(String), kind: "session" });
+    expect(second).toEqual(first);
+    expect((first as { id: string }).id).not.toContain("~");
+  });
+
+  test("a TCP hello with the daemon token gets an identity", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
+    expect(await tcpHello(server, { token })).toMatchObject({
+      id: 1,
+      result: { kind: "session", label: "local TCP client", id: expect.any(String) },
+    });
+  });
+
+  test("refuses a TCP hello without a token", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    expect(await tcpHello(server)).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+  });
+
+  test("refuses a TCP hello with a wrong token", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    expect(await tcpHello(server, { token: "wrong-token" })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+  });
+
+  test("writes the TCP token with owner-only permissions", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    const tokenFile = daemonRuntimeFiles(dir).token;
+    expect(readFileSync(tokenFile, "utf8").trim()).toMatch(/^[0-9a-f]{64}$/);
+    expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
   });
 
   test("returns an error for an unknown method", async () => {

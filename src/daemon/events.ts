@@ -120,6 +120,7 @@ export function derivePresenceTransition(
   const spawnedByLabel = optionalString(property(value, "spawnedByLabel")) ?? metadata.spawnedByLabel;
   const cost = property(value, "cost");
   const lastError = optionalString(property(value, "lastError"));
+  const lastText = optionalString(property(value, "lastText"));
   const asking = property(value, "asking");
   const question = asking && typeof asking === "object" ? optionalString(property(asking, "question")) : undefined;
   const context = property(value, "context");
@@ -147,6 +148,7 @@ export function derivePresenceTransition(
     cost: typeof cost === "number" ? cost : undefined,
     ts: now.toISOString(),
     lastError: lastError === undefined ? undefined : collapse(lastError),
+    lastText: lastText === undefined ? undefined : collapse(lastText),
     reason: reason === undefined ? undefined : collapse(reason),
     ctxPercent: typeof contextPercent === "number" ? contextPercent : undefined,
     tokens: eventTokens(value),

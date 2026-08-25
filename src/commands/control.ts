@@ -210,7 +210,7 @@ export async function cmdDispatch(args: string[]) {
   // owner token, or the adopted pane stays open to every other orchestrator.
   if (!spawnedRecords().has(key)) {
     const spawner = spawnerIdentity();
-    recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? callerOwnerToken(), spawnedByLabel: spawner.label });
+    recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? undefined, spawnedByLabel: spawner.label });
   }
   const recipient = recipientFor(key);
   // The id names this dispatch in `orch status` (.dispatchId): matching the two

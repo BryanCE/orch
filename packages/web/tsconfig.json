@@ -21,7 +21,8 @@
     "noUncheckedSideEffectImports": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@shadcn/*": ["./src/components/ui/*"]
+      "@shadcn/*": ["./src/components/ui/*"],
+      "@orch/*": ["../../src/*"]
     }
   }
 }

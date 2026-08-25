@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite dev --port 3717",
+    "dev": "bun node_modules/vite/bin/vite.js dev --port 3717 --open",
     "build": "vite build",
     "serve": "vite preview",
     "start": "HOST=localhost bun .output/server/index.mjs",

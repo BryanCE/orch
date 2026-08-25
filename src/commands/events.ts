@@ -10,7 +10,7 @@ import { deliverToSink, loadSinks, type Sink } from "../notify/router.ts";
 import { notificationText, type NotifyEvent } from "../notify/format.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { ensureDaemon } from "./daemon.ts";
-import { callerOwnerToken, die } from "./target.ts";
+import { die } from "./target.ts";
 
 interface WatchItem {
   key: string;
@@ -47,7 +47,7 @@ export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
   const items = eventsItems(options);
-  const mineAddress = options.mine ? spawnerIdentity().key ?? callerOwnerToken() : undefined;
+  const mineAddress = options.mine ? spawnerIdentity().key ?? undefined : undefined;
   const accepts = (key: string, event?: NotifyEvent): boolean => {
     const inScope = options.targets.length
       ? items.has(key)

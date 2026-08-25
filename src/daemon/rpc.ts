@@ -1,13 +1,20 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortFile } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
+import { getOrCreateSessionIdentity, getOrCreateTcpSessionIdentity, type SessionIdentity } from "../store/sqlite.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
-export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter) => unknown;
+export interface RpcRequestContext {
+  readonly transport: "unix" | "tcp";
+  readonly identity?: SessionIdentity;
+}
+export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter, context: RpcRequestContext) => unknown;
 export type RpcHandlers = Record<string, RpcHandler>;
 
 /** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
@@ -123,9 +130,9 @@ const RECONNECT_BASE_MS = 250;
 const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
 
-function endpointPaths(orchDir: string): { socket: string; port: string } {
+function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {
   const files = daemonRuntimeFiles(orchDir);
-  return { socket: files.socket, port: files.port };
+  return { socket: files.socket, port: files.port, token: files.token };
 }
 
 function lineResponse(socket: Socket, response: RpcResponse): void {
@@ -153,16 +160,103 @@ function parseRequest(line: string): { id: unknown; method: string; params: unkn
   return { id: value.id ?? null, method: value.method, params: value.params };
 }
 
+interface ConnectionState {
+  identity?: SessionIdentity;
+}
+
+/** Resolve SO_PEERCRED's pid using the Linux socket table; node:net does not
+ * expose getsockopt, so the kernel-owned /proc descriptor and ss peer inode are
+ * joined before reading the caller's ancestry. */
+function peerPidOf(socket: Socket): number | undefined {
+  const fd = (socket as Socket & { _handle?: { fd?: number } })._handle?.fd;
+  if (typeof fd !== "number" || process.platform === "win32") return undefined;
+  try {
+    const descriptor = readFileSync(`/proc/self/fd/${fd}`, "utf8");
+    const inode = /socket:\[(\d+)\]/.exec(descriptor)?.[1];
+    if (!inode) return undefined;
+    const listing = execFileSync("ss", ["-xnp"], { encoding: "utf8", timeout: 1_000 });
+    const peer = new RegExp(`\\s${inode}\\s+\\*\\s+(\\d+)\\b`).exec(listing)?.[1];
+    if (!peer) return undefined;
+    const reverse = new RegExp(`\\*\\s+${peer}\\s+\\*\\s+${inode}\\b([^\\n]*)`).exec(listing)?.[1];
+    const pid = /pid=(\d+)/.exec(reverse ?? "")?.[1];
+    return pid ? Number(pid) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stableAncestorOf(pid: number): number | undefined {
+  let current = pid;
+  const seen = new Set<number>();
+  for (let step = 0; step < 64 && current > 1 && !seen.has(current); step++) {
+    seen.add(current);
+    let stat: string;
+    try { stat = readFileSync(`/proc/${current}/stat`, "utf8"); } catch { return undefined; }
+    const end = stat.lastIndexOf(")");
+    if (end < 0) return undefined;
+    const fields = stat.slice(end + 2).split(" ");
+    const parent = Number(fields[1]);
+    if (!Number.isInteger(parent) || parent <= 1) return current;
+    current = parent;
+  }
+  return seen.size ? current : undefined;
+}
+
+function sessionLabel(pid: number): string {
+  try {
+    const command = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
+    if (command) return `${command} session ${pid}`;
+  } catch {}
+  return `session ${pid}`;
+}
+
+function helloIdentity(
+  orchDir: string,
+  transport: "unix" | "tcp",
+  params: unknown,
+  socket: Socket,
+  tcpToken: string,
+  tcpIdentity: SessionIdentity | undefined,
+): SessionIdentity {
+  if (transport === "tcp") {
+    const token = isObject(params) && typeof params.token === "string" ? params.token : undefined;
+    if (token !== tcpToken) throw new RpcError("IDENTITY_REQUIRED", "TCP hello requires the daemon token");
+    return tcpIdentity ?? getOrCreateTcpSessionIdentity(orchDir, "local TCP client");
+  }
+  const pid = peerPidOf(socket);
+  const ancestor = pid === undefined ? undefined : stableAncestorOf(pid);
+  if (ancestor === undefined) throw new RpcError("IDENTITY_UNAVAILABLE", "Could not read unix peer credentials");
+  return getOrCreateSessionIdentity(orchDir, ancestor, sessionLabel(ancestor));
+}
+
 function handleLine(
   socket: Socket,
   line: string,
   handlers: RpcHandlers,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
+  orchDir: string,
+  transport: "unix" | "tcp",
+  state: ConnectionState,
+  tcpToken: string,
+  tcpIdentity: { current?: SessionIdentity },
 ): void {
   const request = parseRequest(line);
   if (!("method" in request)) {
     lineResponse(socket, request);
+    return;
+  }
+  if (request.method === "hello") {
+    Promise.resolve()
+      .then(() => helloIdentity(orchDir, transport, request.params, socket, tcpToken, tcpIdentity.current))
+      .then((identity) => {
+        state.identity = identity;
+        if (transport === "tcp") tcpIdentity.current = identity;
+        lineResponse(socket, { id: request.id, result: identity });
+      })
+      .catch((error: unknown) => {
+        lineResponse(socket, errorResponse(request.id, error instanceof RpcError ? String(error.code) : "HANDLER_ERROR", errorMessage(error)));
+      });
     return;
   }
   if (request.method === "subscribe-events") {
@@ -182,7 +276,7 @@ function handleLine(
     return;
   }
   Promise.resolve()
-    .then(() => handler(request.params, emit))
+    .then(() => handler(request.params, emit, { transport, identity: state.identity }))
     .then((result) => lineResponse(socket, { id: request.id, result }))
     .catch((error: unknown) => {
       lineResponse(socket, errorResponse(request.id, "HANDLER_ERROR", errorMessage(error)));
@@ -216,9 +310,14 @@ function attachConnection(
   handlers: RpcHandlers,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
+  orchDir: string,
+  transport: "unix" | "tcp",
+  tcpToken: string,
+  tcpIdentity: { current?: SessionIdentity },
 ): void {
+  const state: ConnectionState = {};
   framedLineReader(socket, (line) =>
-    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer),
+    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer, orchDir, transport, state, tcpToken, tcpIdentity),
   );
   socket.on("close", () => subscriptions.delete(socket));
   socket.on("error", () => subscriptions.delete(socket));
@@ -371,6 +470,15 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
   });
 }
 
+/** Mint the loopback credential for this daemon instance. Reapply mode because
+ *  chmod is not implied when writeFileSync truncates an existing file. */
+function writeTcpToken(path: string): string {
+  const token = randomBytes(32).toString("hex");
+  writeFileSync(path, `${token}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
+  return token;
+}
+
 /** Start the local RPC endpoint, preferring a unix socket and falling back to loopback TCP. */
 export async function startRpcServer(
   orchDir: string,
@@ -382,13 +490,17 @@ export async function startRpcServer(
   const subscriptions = new Set<Socket>();
   const sockets = new Set<Socket>();
   const replayBuffer = new ReplayBuffer();
-  const attach = (socket: Socket): void => {
+  const tcpToken = writeTcpToken(paths.token);
+  const tcpIdentity: { current?: SessionIdentity } = {};
+  let transport: "unix" | "tcp" = "tcp";
+  const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {
     sockets.add(socket);
-    attachConnection(socket, handlers, subscriptions, replayBuffer);
+    attachConnection(socket, handlers, subscriptions, replayBuffer, orchDir, transport, tcpToken, tcpIdentity);
     socket.once("close", () => sockets.delete(socket));
   };
-  const server = createServer(attach);
-  let transport: "unix" | "tcp";
+  const attachUnix = attachFor("unix");
+  const attachTcp = attachFor("tcp");
+  const server = createServer(attachUnix);
   let tcpServer: Server | undefined;
   let tcpEndpoint: string | undefined;
   try {
@@ -409,7 +521,7 @@ export async function startRpcServer(
         try {
           unlinkSync(paths.port);
         } catch {}
-        tcpServer = await startTcpServer(attach, options, paths);
+        tcpServer = await startTcpServer(attachTcp, options, paths);
         tcpEndpoint = tcpEndpointOf(tcpServer);
         return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
       } catch {
@@ -417,7 +529,7 @@ export async function startRpcServer(
       }
     }
     try { server.close(); } catch {}
-    tcpServer = createServer(attach);
+    tcpServer = createServer(attachTcp);
     await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
     const boundPort = (tcpServer.address() as { port: number }).port;
     writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
@@ -425,7 +537,7 @@ export async function startRpcServer(
     tcpEndpoint = `tcp://127.0.0.1:${boundPort}`;
     return makeRpcServer(tcpServer, undefined, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
   }
-  tcpServer = await startTcpServer(attach, options, paths);
+  tcpServer = await startTcpServer(attachTcp, options, paths);
   tcpEndpoint = tcpEndpointOf(tcpServer);
   return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
 }
@@ -433,7 +545,7 @@ export async function startRpcServer(
 async function startTcpServer(
   attach: (socket: Socket) => void,
   options: RpcServerOptions,
-  paths: { socket: string; port: string },
+  paths: { socket: string; port: string; token: string },
 ): Promise<Server | undefined> {
   const port = companionTcpPort(options);
   if (port === undefined) return undefined;
@@ -468,7 +580,7 @@ function makeRpcServer(
   sockets: Set<Socket>,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
-  paths: { socket: string; port: string },
+  paths: { socket: string; port: string; token: string },
   transport: "unix" | "tcp",
   tcpEndpoint?: string,
 ): RpcServer {
@@ -480,6 +592,7 @@ function makeRpcServer(
     })));
     try { unlinkSync(paths.socket); } catch {}
     try { unlinkSync(paths.port); } catch {}
+    try { unlinkSync(paths.token); } catch {}
     subscriptions.clear();
   };
   return {

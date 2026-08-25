@@ -116,7 +116,7 @@ export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
 
 /** Return the exact session address that spawned this caller. */
 export function selfSpawnAddress(): string | undefined {
-  return spawnerIdentity().key ?? callerOwnerToken();
+  return spawnerIdentity().key ?? undefined;
 }
 
 /** True when a record predates spawn-session stamping or belongs to this session. */

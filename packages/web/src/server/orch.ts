@@ -1,7 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createConnection, type Socket } from "node:net";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 
+// The daemon's endpoint names and $ORCH_DIR have exactly one definition site; the web
+// server reads them through the @orch/* seam rather than restating either one.
+import { daemonRuntimeFiles } from "@orch/daemon/runtime-files.ts";
+import { orchDir } from "@orch/presence/writer.ts";
 import type { Workspace } from "@/lib/fleet";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -35,10 +40,11 @@ function rpcError(message: RpcMessage): Error | undefined {
   return new Error(error);
 }
 
-function connectDaemon(timeoutMs = RPC_TIMEOUT_MS): Promise<Socket> {
-  const { host, port } = daemonTarget();
+function connectEndpoint(endpoint: string | { host: string; port: number }, timeoutMs: number): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const socket = createConnection({ host, port });
+    const socket = typeof endpoint === "string"
+      ? createConnection(endpoint)
+      : createConnection({ host: endpoint.host, port: endpoint.port });
     let settled = false;
     const fail = (error: Error) => {
       if (settled) return;
@@ -56,6 +62,22 @@ function connectDaemon(timeoutMs = RPC_TIMEOUT_MS): Promise<Socket> {
       socket.removeListener("error", fail);
       resolve(socket);
     });
+  });
+}
+
+function isAbsentOrRefused(error: unknown): boolean {
+  if (error === null || typeof error !== "object") return false;
+  const code = Reflect.get(error, "code");
+  return code === "ENOENT" || code === "ECONNREFUSED";
+}
+
+function connectDaemon(timeoutMs = RPC_TIMEOUT_MS): Promise<Socket> {
+  const unixSocket = daemonRuntimeFiles(orchDir()).socket;
+  const tcp = daemonTarget();
+  if (!existsSync(unixSocket)) return connectEndpoint(tcp, timeoutMs);
+  return connectEndpoint(unixSocket, timeoutMs).catch((error: unknown) => {
+    if (!isAbsentOrRefused(error)) throw error;
+    return connectEndpoint(tcp, timeoutMs);
   });
 }
 
@@ -81,7 +103,7 @@ function readLines(socket: Socket, onLine: (message: RpcMessage) => void): void 
   });
 }
 
-/** TCP-only RPC boundary. All connection failures stay values for server callers. */
+/** Local RPC boundary. All connection failures stay values for server callers. */
 async function daemonRpc<T>(method: string, params?: unknown): Promise<T> {
   const socket = await connectDaemon();
   const id = Date.now() + Math.random();
@@ -168,10 +190,10 @@ function fleetFromPresence(result: PresenceResult): Workspace[] {
   return [...workspaces.values()];
 }
 
-/** Read the merged pane + presence view from orchd. The web server never reads $ORCH_DIR. */
+/** Read the merged pane + presence view from orchd. */
 export const getFleet = createServerFn({ method: "GET" }).handler(async (): Promise<FleetResult> => {
   try {
-    const result = await daemonRpc<PresenceResult>("presence");
+    const result = await daemonRpc<PresenceResult>("status");
     return { daemon: "up", workspaces: fleetFromPresence(result) };
   } catch (error) {
     return down(error);

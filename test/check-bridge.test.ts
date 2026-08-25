@@ -3,13 +3,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   CORE_SCOPE_ALLOWLIST,
+  IDENTITY_CONSTRUCTION_ALLOWLIST,
   checkCommandsParserLine,
+  checkIdentityConstructionLine,
   checkCoreScopeLine,
   checkDispatcherCallLine,
   checkPackageImportLine,
+  checkSpawnerReplyFallbackLine,
 } from "../scripts/check-bridge.ts";
 
-// The four static-enforcement rules added for group 10 of fix-audit-findings.
+// The static-enforcement rules added for group 10 of fix-audit-findings.
 // check-bridge.ts guards its own scan behind `import.meta.main`, so importing it
 // here runs no filesystem scan — each rule is exercised as a pure line check.
 // Violation fixtures are inline strings; the "clean tree passes" half reads the
@@ -114,7 +117,76 @@ describe("10.3 string-form identity branches are forbidden in core (checkCoreSco
   });
 });
 
-describe("10.4 per-harness session parser banned from commands (checkCommandsParserLine)", () => {
+describe("10.4 spawner reply addresses cannot fall back to owner tokens (checkSpawnerReplyFallbackLine)", () => {
+  test("flags spawner key and spawnerIdentity key owner-token fallbacks", () => {
+    expect(checkSpawnerReplyFallbackLine("  spawnedBy: spawner.key ?? callerOwnerToken(),")).toContain("owner token");
+    expect(checkSpawnerReplyFallbackLine("  return spawnerIdentity().key || ORCH_OWNER;")).toContain("owner token");
+  });
+
+  test("allows a benign line", () => {
+    expect(checkSpawnerReplyFallbackLine("  spawnedBy: spawner.key ?? undefined;")).toBeUndefined();
+  });
+
+  test("passes the clean tree: reply addresses never use owner-token fallbacks", () => {
+    for (const relPath of ["src/commands/control.ts", "src/commands/target.ts", "src/commands/spawn.ts", "src/commands/events.ts"]) {
+      for (const line of readRepoLines(relPath)) expect(checkSpawnerReplyFallbackLine(line)).toBeUndefined();
+    }
+  });
+});
+
+describe("10.5 identity construction is issuer-only (checkIdentityConstructionLine)", () => {
+  const relPath = "src/commands/somewhere.ts";
+
+  test("flags object literals that synthesize an identity", () => {
+    expect(checkIdentityConstructionLine(
+      '  return serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" });',
+      relPath,
+    )).toContain("identity issuer");
+  });
+
+  test("flags concatenated and template identity keys", () => {
+    expect(checkIdentityConstructionLine('  const key = backend + "~" + workspace + "~" + id;', relPath)).toContain("identity issuer");
+    expect(checkIdentityConstructionLine("  const key = `${backend}~${workspace}~${id}`;", relPath)).toContain("identity issuer");
+  });
+
+  test("allows a fresh spawn mint and the issuer modules", () => {
+    expect(checkIdentityConstructionLine(
+      "  const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });",
+      relPath,
+    )).toBeUndefined();
+    expect(checkIdentityConstructionLine(
+      "  const key = serializeIdentity({ backend, workspace, id: \"operator\" });",
+      "src/backends/identity.ts",
+    )).toBeUndefined();
+    expect(checkIdentityConstructionLine(
+      "  const key = `${backend}~${workspace}~${id}`;",
+      "src/daemon/rpc.ts",
+    )).toBeUndefined();
+    expect(checkIdentityConstructionLine("  return serializeIdentity(identity);", relPath)).toBeUndefined();
+  });
+
+  test("the selfActor exemption is documented and load-bearing", () => {
+    const exemptLine =
+      'return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;';
+    expect(checkIdentityConstructionLine(exemptLine, "src/entities.ts")).toContain("identity issuer");
+    expect(IDENTITY_CONSTRUCTION_ALLOWLIST.get("src/entities.ts")?.has(exemptLine)).toBe(true);
+  });
+
+  test("passes the clean tree: every identity construction is allowed or registered", () => {
+    const unregistered: string[] = [];
+    for (const file of ["src/entities.ts", "src/commands/spawn.ts", "src/daemon/rpc.ts", "src/backends/identity.ts"]) {
+      const allowed = IDENTITY_CONSTRUCTION_ALLOWLIST.get(file) ?? new Set<string>();
+      for (const line of readRepoLines(file)) {
+        if (allowed.has(line.trim())) continue;
+        const reason = checkIdentityConstructionLine(line, file);
+        if (reason) unregistered.push(`${file}: ${line.trim()}`);
+      }
+    }
+    expect(unregistered).toEqual([]);
+  });
+});
+
+describe("10.6 per-harness session parser banned from commands (checkCommandsParserLine)", () => {
   test("flags a parseSession import or call", () => {
     expect(checkCommandsParserLine('import { parseSession } from "../session.ts";')).toContain("parseSession");
     expect(checkCommandsParserLine("  const data = parseSession(sessionPath);")).toContain("parseSession");

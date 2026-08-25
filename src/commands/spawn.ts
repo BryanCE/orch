@@ -381,7 +381,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
         worktree: settings.worktree ? cwd : undefined,
         branch: settings.worktree ? `orch/${name}` : undefined,
         owner: callerOwnerToken(),
-        spawnedBy: spawner.key ?? callerOwnerToken(),
+        spawnedBy: spawner.key ?? undefined,
         spawnedByLabel: spawner.label,
       });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
@@ -511,7 +511,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     worktree: spec.worktree,
     branch: spec.branch,
     owner: callerOwnerToken(),
-    spawnedBy: spawner.key ?? callerOwnerToken(),
+    spawnedBy: spawner.key ?? undefined,
     spawnedByLabel: spawner.label,
   });
   return { key, pane: String(handle), name: spec.name };
@@ -646,7 +646,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const root = createSpawnRoot(settings, workspace, backend, adapter, names[0]!);
   const created: CreatedAgent[] = [];
   const spawner = spawnerIdentity();
-  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? callerOwnerToken(), spawnedByLabel: spawner.label });
+  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? undefined, spawnedByLabel: spawner.label });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
   launchAdditionalAgents(settings, root, created, backend, names.slice(1));
   await reportSpawnResults(settings, root.tabId, root.tabLabel, created, backend);

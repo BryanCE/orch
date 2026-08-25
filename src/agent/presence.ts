@@ -32,6 +32,7 @@ import type { HarnessIdentity } from "./harness.ts";
 export const ORCH_DIR = process.env.ORCH_DIR ?? path.join(os.homedir(), ".orch");
 
 export const LAST_TEXT_MAX = 400;
+/** Maximum stored task length after the worker header is removed. */
 export const TASK_MAX = 200;
 export const HEARTBEAT_MS = 3000;
 export const INBOX_POLL_MS = 1000;

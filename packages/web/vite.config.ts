@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
@@ -11,6 +12,9 @@ import { nitroV2Plugin } from '@tanstack/nitro-v2-vite-plugin'
 export default defineConfig({
   // allow server fns to import orch's src/ from the repo root (../..)
   server: { fs: { allow: ["../.."] } },
+  // The @orch/* seam resolves here rather than through vite-tsconfig-paths: the target
+  // sits OUTSIDE this package's root, which the plugin is not obliged to resolve.
+  resolve: { alias: [{ find: /^@orch\/(.*)$/, replacement: fileURLToPath(new URL("../../src/$1", import.meta.url)) }] },
   // orch's store selects bun:sqlite at runtime — never bundle it
   optimizeDeps: { exclude: ["bun:sqlite"] },
   ssr: { external: ["bun:sqlite", "node:sqlite"] },

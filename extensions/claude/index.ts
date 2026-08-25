@@ -23,6 +23,7 @@ import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "..
 import { isRecord, parsePid, projectRoot, type JsonRecord } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
+import { prepareWorkerTask } from "../../src/worker-prompt.ts";
 
 const AGENT_ID = "claude";
 const MAX_TEXT = 400;
@@ -94,7 +95,8 @@ const now = new Date().toISOString();
 const previous = readStatus(directory);
 const model = modelValue(input) ?? previous.model;
 const rawTask = input.task ?? input.prompt ?? input.initial_prompt;
-const task = truncateOptional(typeof rawTask === "string" ? rawTask : undefined, MAX_TASK) ?? previous.task;
+const preparedTask = typeof rawTask === "string" ? prepareWorkerTask(rawTask, MAX_TASK) : undefined;
+const task = preparedTask || previous.task;
 const sessionId = textValue(input.session_id ?? input.sessionId) ?? previous.sessionId;
 const existingText = textValue(previous.lastText);
 const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath ?? textValue(previous.sessionPath)));

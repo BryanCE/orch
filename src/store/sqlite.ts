@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -10,9 +11,56 @@ import { isBackendId, type BackendId } from "../backends/backend.ts";
 // outbox, and spawn registry. jsonl remains the human-visible truth channel for
 // presence/results/transitions; only this internal state lives here.
 
-/** Stamped into `PRAGMA user_version`. Pre-publish this stays 1: a store
- *  carrying any other stamp is malformed and gets reaped and recreated empty. */
-const STORE_SCHEMA = 1;
+/** Stamped into `PRAGMA user_version`; a store carrying any other stamp is
+ * malformed and gets reaped and recreated empty. */
+const STORE_SCHEMA = 3;
+
+export interface SessionIdentity {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: "session";
+}
+
+interface SessionIdentityRow {
+  id: string;
+  label: string;
+  kind: string;
+}
+
+function rowToSessionIdentity(row: SessionIdentityRow): SessionIdentity {
+  if (row.kind !== "session") throw new Error(`malformed session identity kind: ${row.kind}`);
+  return { id: row.id, label: row.label, kind: "session" };
+}
+
+/** Return the identity for an ancestor, minting it once when first observed. */
+export function getOrCreateSessionIdentity(orchDir: string, ancestorPid: number, label: string): SessionIdentity {
+  const db = openStore(orchDir);
+  db.query(
+    `INSERT INTO session_identities (ancestor_pid, id, label, kind)
+     VALUES (?, ?, ?, 'session') ON CONFLICT(ancestor_pid) DO NOTHING`,
+  ).run(ancestorPid, randomUUID(), label);
+  const row = db.query("SELECT id, label, kind FROM session_identities WHERE ancestor_pid = ?").get(ancestorPid) as SessionIdentityRow | null;
+  if (!row) throw new Error(`session identity disappeared for ancestor ${ancestorPid}`);
+  return rowToSessionIdentity(row);
+}
+
+/** Return the one persisted identity used by authenticated loopback TCP callers. */
+export function getOrCreateTcpSessionIdentity(orchDir: string, label: string): SessionIdentity {
+  const db = openStore(orchDir);
+  db.query(
+    `INSERT INTO session_identities (tcp_anchor, id, label, kind)
+     VALUES ('local-tcp', ?, ?, 'session') ON CONFLICT(tcp_anchor) DO NOTHING`,
+  ).run(randomUUID(), label);
+  const row = db.query("SELECT id, label, kind FROM session_identities WHERE tcp_anchor = 'local-tcp'").get() as SessionIdentityRow | null;
+  if (!row) throw new Error("TCP session identity disappeared");
+  return rowToSessionIdentity(row);
+}
+
+/** Resolve a previously issued identity presented over TCP. */
+export function selectSessionIdentity(orchDir: string, id: string): SessionIdentity | undefined {
+  const row = openStore(orchDir).query("SELECT id, label, kind FROM session_identities WHERE id = ?").get(id) as SessionIdentityRow | null;
+  return row ? rowToSessionIdentity(row) : undefined;
+}
 
 export interface SpawnedRecord {
   /** Primary registry id: the agent's serialized identity key. */
@@ -153,6 +201,13 @@ function createTables(db: DatabaseLike): void {
       branch TEXT,
       spawned_by TEXT,
       spawned_by_label TEXT
+    );
+    CREATE TABLE IF NOT EXISTS session_identities (
+      ancestor_pid INTEGER PRIMARY KEY,
+      tcp_anchor TEXT UNIQUE,
+      id TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind = 'session')
     );
   `);
 }

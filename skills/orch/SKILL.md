@@ -150,6 +150,14 @@ Failed tasks retry up to `queue.max_retries` (default 1).
 
 ## Watch — push, never poll
 
+**Arm the monitor in the SAME message as your first dispatch. Not after it, not once the
+first agent goes quiet.** Dispatching with no watch armed is the single most expensive
+mistake in this skill: the fleet runs, finishes, and sits done while you believe it is still
+working, because nothing told you otherwise. `orch status` cannot save you — you only run it
+if you already suspect something, and the whole failure mode is that you do not. If you have
+sent `orch spawn` or `orch dispatch` and have not armed a watch, you are not orchestrating,
+you are guessing.
+
 **Never wrap `orch status` in a `while true` loop.** `orch events` is a daemon PUSH stream:
 transitions arrive the instant they happen — no sleep interval, no diffing, no wasted
 wake-ups. A poll loop is worse in every dimension. `orch status` is for one-shot inspection.

@@ -29,6 +29,7 @@ import {
   type AgentPresence,
 } from "./presence.ts";
 import { isRecord, isUnknownArray, optionalString, readJsonFile, truncate } from "../util.ts";
+import { prepareWorkerTask } from "../worker-prompt.ts";
 
 interface ModelSelectEventLike {
   model: unknown;
@@ -275,7 +276,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   harness.on("before_agent_start", (event: unknown, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
     if (isBeforeAgentStartEvent(event) && typeof event.prompt === "string" && event.prompt.trim()) {
-      state.task = truncate(event.prompt, TASK_MAX);
+      state.task = prepareWorkerTask(event.prompt, TASK_MAX);
       state.dispatchId = presence.dispatchIdFor(event.prompt);
     }
   });

@@ -300,6 +300,71 @@ export function checkDispatcherCallLine(line: string, relPath: string): string |
   return undefined;
 }
 
+/** A reply address is an issued spawner key, never the governance owner token. */
+const SPAWNER_REPLY_OWNER_FALLBACK = /\b(?:spawner(?:Identity\(\))?\s*\.\s*key|(?:spawner|reply)(?:Key|Address)?)\s*(?:\?\?|\|\|)\s*(?:callerOwnerToken\(\)|(?:process\.env\.)?ORCH_OWNER\b)/;
+
+export function checkSpawnerReplyFallbackLine(line: string): string | undefined {
+  if (SPAWNER_REPLY_OWNER_FALLBACK.test(line)) {
+    return "spawner reply address must not fall back to an owner token; use an issued spawner key or refuse the write";
+  }
+  return undefined;
+}
+
+const IDENTITY_ISSUER_MODULES = new Set(["src/backends/identity.ts", "src/daemon/rpc.ts"]);
+const IDENTITY_TEMPLATE_CONSTRUCTION = /`[^`\r\n]*~[^`\r\n]*~[^`\r\n]*`/;
+const IDENTITY_CONCAT_CONSTRUCTION = /(?:\+\s*["']~["']\s*\+).*(?:\+\s*["']~["']\s*\+)/;
+
+function constructsIdentityObject(line: string): boolean {
+  const match = /\bserializeIdentity\s*\(\s*\{([^}]*)\}\s*\)/.exec(line);
+  if (!match) return false;
+  const idExpression = /\bid\s*:\s*([^,}]+)/.exec(match[1]!)?.[1] ?? "";
+  return !/\bmintAgentId\s*\(\s*\)/.test(idExpression);
+}
+
+function identityStringUsesFreshMint(line: string): boolean {
+  const template = /`([^`\r\n]*)`/.exec(line)?.[1];
+  if (template !== undefined) return template.split("~").at(-1)?.includes("mintAgentId(") ?? false;
+  const concatenated = line.split(/["']~["']/);
+  return concatenated.length >= 3 && concatenated[2]!.includes("mintAgentId(");
+}
+
+function constructsIdentityString(line: string): boolean {
+  const template = /`([^`\r\n]*)`/.exec(line)?.[1];
+  const isTemplateConstruction = template !== undefined
+    && IDENTITY_TEMPLATE_CONSTRUCTION.test(line)
+    && template.includes("${");
+  if (!isTemplateConstruction && !IDENTITY_CONCAT_CONSTRUCTION.test(line)) return false;
+  return !identityStringUsesFreshMint(line);
+}
+
+/**
+ * Identity keys are issued, not assembled by callers. A fresh mintAgentId()
+ * is the one spawn-time construction permitted outside the issuer; all other
+ * object-literal and string assembly shapes are forbidden.
+ */
+export function checkIdentityConstructionLine(line: string, relPath: string): string | undefined {
+  if (IDENTITY_ISSUER_MODULES.has(relPath)) return undefined;
+  if (constructsIdentityObject(line) || constructsIdentityString(line)) {
+    return "agent identities must be constructed by the identity issuer; use an issued identity rather than assembling backend/workspace/id parts";
+  }
+  return undefined;
+}
+
+/**
+ * Registered identity-construction exemptions. Each entry is a known violation
+ * kept temporarily because its caller still depends on the old selfActor shape.
+ * It must remain visible here until that caller is removed; never add a broad
+ * path exemption for this invariant.
+ */
+export const IDENTITY_CONSTRUCTION_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "src/entities.ts",
+    new Set([
+      'return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;',
+    ]),
+  ],
+]);
+
 /**
  * D2.4 — `src/commands/**` reads sessions through the resolved adapter's
  * `readSessionView` port surface, never by importing a per-harness parser.
@@ -435,11 +500,17 @@ function runAllChecks(): void {
   const coreScopeFiles = scanCoreScope();
   const packageFiles = scanPackagesSrc(checkPackageImportLine);
   const dispatcherScopeFiles = scanDirectory("src", new Set(), checkDispatcherCallLine, true);
+  const spawnerReplyFiles = scanDirectory("src", new Set(), checkSpawnerReplyFallbackLine, true);
+  const identityConstructionFiles = scanDirectory("src", new Set(), (line, relPath) => {
+    if (IDENTITY_CONSTRUCTION_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
+    return checkIdentityConstructionLine(line, relPath);
+  }, true);
   const commandParserFiles = scanDirectory("src/commands", new Set(), checkCommandsParserLine, true);
 
   const scanned =
     bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles +
-    coreScopeFiles + packageFiles + dispatcherScopeFiles + commandParserFiles;
+    coreScopeFiles + packageFiles + dispatcherScopeFiles + spawnerReplyFiles +
+    identityConstructionFiles + commandParserFiles;
   console.log(`check:bridge OK (${scanned} files scanned)`);
 }
 

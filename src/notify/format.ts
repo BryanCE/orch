@@ -1,7 +1,7 @@
 // Leaf module: the canonical notification formatter. It imports no notify module,
 // so the sink builtins can format without re-entering the router that composes them.
 import { workspaceOf } from "../policy/workspace.ts";
-import { errorMessage } from "../util.ts";
+import { errorMessage, textValue } from "../util.ts";
 
 export interface NotifyEvent {
   host?: string;
@@ -32,6 +32,7 @@ export interface NotifyEvent {
   ts: string;
   lastError?: string;
   /** Final assistant text reported when the agent is done. */
+  lastText?: string;
   result?: string;
   /** Why the agent stopped, or the question blocking it. */
   reason?: string;
@@ -88,9 +89,10 @@ export function abstractAgentLabel(workspace: string, key: string): string {
 }
 
 function eventAgent(event: NotifyEvent, workspace: string): string {
+  const name = event.name?.trim();
   const agent = event.agent?.trim();
   const fallback = abstractAgentLabel(workspace, event.key);
-  return [agent, fallback].find((value) => value !== undefined && value.length > 0) ?? fallback;
+  return [name, agent, fallback].find((value) => value !== undefined && value.length > 0) ?? fallback;
 }
 
 /** Structured form of the canonical notification text and event metadata. */
@@ -149,9 +151,13 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
   const workspace = eventWorkspace(event);
   const agent = eventAgent(event, workspace);
   const color = workspaceColor(workspace);
-  const state = oneLine(event.newState || "unknown").toUpperCase();
+  const state = oneLine(textValue(event.newState) ?? "unknown").toUpperCase();
   let summary = event.task ?? "state changed";
-  if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
+  // A finished agent is summarized by what it REPORTED, not by what it was asked. An
+  // empty lastText is no report at all, so it falls through to the task rather than
+  // rendering a blank line — `textValue` says "absent or blank" where `||` only implied it.
+  if (event.newState === "done") summary = textValue(event.lastText) ?? textValue(event.task) ?? "state changed";
+  else if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
   else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
   summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
   const workspaceLabel = `[${workspace}]`;

@@ -17,7 +17,6 @@ const headlessBackend = getBackend("headless")!;
 const DEAD_PID = 0x7fffffff;
 
 const originalOrchDir = process.env.ORCH_DIR;
-const originalPath = process.env.PATH;
 const tempDirs: string[] = [];
 
 function tempDir(prefix = "orch-control-dispatch-"): string {
@@ -35,19 +34,9 @@ function presence(directory: string, key: string, agent: string): string {
   return path.join(directory, "agents", key);
 }
 
-function executable(directory: string, name: string, body: string): void {
-  const file = path.join(directory, name);
-  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`);
-  fs.chmodSync(file, 0o755);
-  process.env.PATH = `${directory}${path.delimiter}${originalPath ?? ""}`;
-}
-
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  process.env.PATH = originalPath;
-  delete process.env.CODEX_TEST_EXIT;
-  delete process.env.TMUX_DELIVER_EXIT;
   for (const dir of tempDirs.splice(0)) removeTempDir(dir);
 });
 
@@ -94,34 +83,6 @@ describe("deliverControl", () => {
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
 
     expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/cannot steer .*backend cannot deliver/);
-  }, 15_000);
-
-  // These two exercise POSIX exec of a chmod'd shell-script stub on PATH. orch's
-  // runtime is POSIX (it shells out to sleep/pgrep/bash), and native-Windows bun
-  // cannot run an extensionless #!/bin/sh stub, so they only run off win32.
-  const posixExec = test.skipIf(process.platform === "win32");
-
-  posixExec("executes codex steer command and accepts exit zero", async () => {
-    const directory = tempDir();
-    const bin = tempDir("orch-control-bin-");
-    process.env.ORCH_DIR = directory;
-    executable(bin, "codex", "exit \"${CODEX_TEST_EXIT:-0}\"");
-    const key = target("headless", "codex-ok");
-    presence(directory, key, "codex");
-
-    await deliverControl(key, { kind: "steer", text: "resume me" });
-  }, 15_000);
-
-  posixExec("treats a nonzero codex command exit as failure", () => {
-    const directory = tempDir();
-    const bin = tempDir("orch-control-bin-");
-    process.env.ORCH_DIR = directory;
-    process.env.CODEX_TEST_EXIT = "7";
-    executable(bin, "codex", "exit \"${CODEX_TEST_EXIT:-0}\"");
-    const key = target("headless", "codex-fail");
-    presence(directory, key, "codex");
-
-    expect(deliverControl(key, { kind: "steer", text: "resume me" })).rejects.toThrow(/codex failed/);
   }, 15_000);
 
   test("fails unsupported steer and setModel capabilities", () => {

@@ -56,8 +56,10 @@ afterEach(async () => {
   await Promise.all(spawned.map((child) => child.exitCode !== null
     ? Promise.resolve()
     : new Promise<void>((resolve) => {
-      child.once("close", () => resolve());
-      setTimeout(resolve, 2_000);
+      // The timer bounds a child that ignores SIGTERM; clearing it on close is what
+      // keeps a child that exited at once from holding the loop open for two seconds.
+      const bound = setTimeout(resolve, 2_000);
+      child.once("close", () => { clearTimeout(bound); resolve(); });
     })));
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;

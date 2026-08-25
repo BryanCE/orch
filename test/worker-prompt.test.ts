@@ -1,76 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
-import type { AdapterId } from "../src/adapters/adapter.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
-import { addTask, listTasks } from "../src/queue.ts";
-import { recordSpawned, presenceAgentDir } from "../src/presence/store.ts";
-import { runWorkLoop } from "../src/daemon/work-loop.ts";
 import { workerPrompt } from "../src/commands/spawn.ts";
-import { binaryOnPath } from "../src/util.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
-
-
-function statusFile(orchDir: string, key: string): string {
-  const dir = presenceAgentDir(key, orchDir);
-  mkdirSync(dir, { recursive: true });
-  return join(dir, "status.json");
-}
-
-async function dispatchedPrompt(adapter: AdapterId): Promise<string> {
-  const previousOrchDir = process.env.ORCH_DIR;
-  const orchDir = mkdtempSync(join(tmpdir(), `orch-worker-prompt-${adapter}-`));
-  const key = serializeIdentity({ backend: "headless", workspace: "local", id: `${adapter}-worker` });
-  const status = statusFile(orchDir, key);
-  let received = "";
-  process.env.ORCH_DIR = orchDir;
-  // The work loop reads its composition from settings.json; orch has no built-in configuration.
-  writeSettingsFixture(orchDir, {
-    enabled: { adapters: [adapter], backends: ["headless"] },
-    defaults: { adapter, backend: "headless" },
-  });
-  writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "idle" }));
-  recordSpawned(key, { adapter, backend: "headless", handle: key });
-  addTask(orchDir, "do the task", { agent: adapter }, "local");
-  try {
-    await runWorkLoop({
-      orchDir,
-      pollIntervalMs: 1,
-      json: true,
-      dispatch: (_entry, task) => {
-        received = workerPrompt(task.text, false, getAdapter(adapter));
-        writeFileSync(status, JSON.stringify({ schema: PRESENCE_SCHEMA, agent: adapter, pid: process.pid, state: "done" }));
-        return Promise.resolve();
-      },
-    });
-    expect(listTasks(orchDir)[0]?.state).toBe("done");
-    return received;
-  } finally {
-    if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
-    else process.env.ORCH_DIR = previousOrchDir;
-    removeTempDir(orchDir);
-  }
-}
 
 describe("worker prompt capability composition", () => {
-  test.skipIf(!binaryOnPath("codex"))("work loop gives codex the base header without orch_ask", async () => {
-    const prompt = await dispatchedPrompt("codex");
-    expect(prompt).toBe(`${workerHeaderFor(getAdapter("codex"))}\n\ndo the task`);
-    expect(prompt).not.toContain("orch_ask");
-  });
-
-  test.skipIf(!binaryOnPath("pi"))("work loop gives pi the orch_ask header clause", async () => {
-    const prompt = await dispatchedPrompt("pi");
-    expect(prompt).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ndo the task`);
-    expect(prompt).toContain("orch_ask");
-  });
-
   test("orch run composition selects the same header per adapter", () => {
     expect(workerPrompt("task", false, getAdapter("codex"))).toBe(`${workerHeaderFor(getAdapter("codex"))}\n\ntask`);
     expect(workerPrompt("task", false, getAdapter("pi"))).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ntask`);

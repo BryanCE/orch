@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "bun:test";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
@@ -23,23 +22,23 @@ function runSettings(orchDir: string, extraEnv: Record<string, string>, ...args:
   for (const name of ["ORCH_ADAPTER", "ORCH_BACKEND", "ORCH_MODEL", "ORCH_SPAWN_CAP", "ORCH_WORKTREE"]) {
     if (!(name in extraEnv)) delete env[name];
   }
-  return execFileSync("bun", [path.join(import.meta.dir, "../bin/orch.ts"), "settings", ...args], {
+  const ran = runSettingsCli(env, args);
+  if (!ran.success) throw new Error(`orch settings ${args.join(" ")} exited ${ran.exitCode}: ${ran.stderr.toString()}`);
+  return ran.stdout.toString();
+}
+
+function runSettingsCli(env: Record<string, string | undefined>, args: readonly string[]) {
+  return Bun.spawnSync([process.execPath, path.join(import.meta.dir, "../bin/orch.ts"), "settings", ...args], {
     env,
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
   });
 }
 
 function runSettingsExpectingFailure(orchDir: string, ...args: string[]): { status: number; stderr: string } {
-  try {
-    execFileSync("bun", [path.join(import.meta.dir, "../bin/orch.ts"), "settings", ...args], {
-      env: { ...process.env, ORCH_DIR: orchDir },
-      encoding: "utf8",
-    });
-  } catch (error) {
-    const failure = error as { status?: number; stderr?: string };
-    return { status: failure.status ?? -1, stderr: failure.stderr ?? "" };
-  }
-  throw new Error("orch settings exited 0, expected a failure");
+  const ran = runSettingsCli({ ...process.env, ORCH_DIR: orchDir }, args);
+  if (ran.success) throw new Error("orch settings exited 0, expected a failure");
+  return { status: ran.exitCode, stderr: ran.stderr.toString() };
 }
 
 describe("orch settings", () => {

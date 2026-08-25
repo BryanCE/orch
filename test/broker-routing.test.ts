@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,22 +26,29 @@ function makeOrchDir(): string {
   return directory;
 }
 
-function seedAgent(orchDir: string): void {
+/** Above every real pid on Linux and macOS, so the seeded bridge reads as gone. */
+const DEAD_PID = 0x7fffffff;
+
+/** A presence record whose bridge is no longer running. The lock in these tests names a LIVE
+ *  pid on purpose; the agent must not, or pi's inbox delivery succeeds and there is no
+ *  delivery verdict left to assert. */
+function seedAgent(orchDir: string, pid = DEAD_PID): void {
   const agentDir = join(orchDir, "agents", "agent-alpha");
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "status.json"),
-    JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "pi", paneId: "agent-alpha", pid: process.pid, state: "working" }),
+    JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "pi", paneId: "agent-alpha", pid, state: "working" }),
   );
 }
 
 function runCli(orchDir: string, args: string[]): CliResult {
-  const result = spawnSync(process.execPath, [binPath, ...args], {
+  const result = Bun.spawnSync([process.execPath, binPath, ...args], {
     env: { ...process.env, ORCH_DIR: orchDir, PATH: controlledPath },
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
     timeout: 15_000,
   });
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+  return { status: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
 afterEach(() => {
@@ -70,7 +76,8 @@ describe("broker CLI routing", () => {
 
   test("status --offline reads seeded presence files without a daemon", () => {
     const orchDir = makeOrchDir();
-    seedAgent(orchDir);
+    // A live pid here: a dead one renders as "exited", which is a different assertion.
+    seedAgent(orchDir, process.pid);
 
     const result = runCli(orchDir, ["status", "--offline", "--json", "--all", "--all-panes"]);
 

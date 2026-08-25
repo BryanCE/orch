@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { execFileSync } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
@@ -37,10 +36,13 @@ function readStatuses(): Record<string, PresenceStatus> {
     }
     console.log(JSON.stringify(statuses));
   `;
-  return JSON.parse(execFileSync(process.execPath, ["-e", script], {
+  const ran = Bun.spawnSync([process.execPath, "-e", script], {
     env: { ...process.env, ORCH_DIR: orchDir },
-    encoding: "utf8",
-  })) as Record<string, PresenceStatus>;
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (!ran.success) throw new Error(`presence read failed: ${ran.stderr.toString()}`);
+  return JSON.parse(ran.stdout.toString()) as Record<string, PresenceStatus>;
 }
 
 function writeStatus(key: string, status: object): void {

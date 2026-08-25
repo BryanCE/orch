@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,12 +28,13 @@ function makeDir(): string {
 }
 
 function runCli(dir: string, args: string[]): { status: number | null; output: string } {
-  const result = spawnSync(process.execPath, [binPath, ...args], {
+  const result = Bun.spawnSync([process.execPath, binPath, ...args], {
     env: { ...process.env, ORCH_DIR: dir, ORCH_OWNER: "caller" },
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
     timeout: 15_000,
   });
-  return { status: result.status, output: `${result.stdout}\n${result.stderr}` };
+  return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
 function writeStatus(dir: string, key: string, handle: string, pid: number, workspace: string): void {

@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,12 +40,13 @@ function runCli(dir: string, args: string[], owner?: string, extraEnv?: Record<s
   // The caller is an operator unless a test explicitly makes it a spawned agent.
   delete env.ORCH_AGENT_KEY;
   Object.assign(env, extraEnv);
-  const result = spawnSync(process.execPath, [binPath, ...args], {
+  const result = Bun.spawnSync([process.execPath, binPath, ...args], {
     env,
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
     timeout: 15_000,
   });
-  return { status: result.status, output: `${result.stdout}\n${result.stderr}` };
+  return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
 afterEach(async () => {

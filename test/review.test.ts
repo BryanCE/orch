@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import * as fs from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -13,6 +12,7 @@ import {
 } from "../src/worktree.ts";
 import { insertSpawnedRecord } from "../src/store/sqlite.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { fixtureRepo, git } from "./helpers/git-repo.ts";
 
 const directories: string[] = [];
 
@@ -25,19 +25,9 @@ function orchDirWithSettings(): string {
   return orchDir;
 }
 
-function git(repoRoot: string, args: string[]): string {
-  return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
-}
-
-function fixtureRepo(): string {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-"));
+function repo(): string {
+  const repoRoot = fixtureRepo("orch-review-");
   directories.push(repoRoot);
-  git(repoRoot, ["init"]);
-  git(repoRoot, ["config", "user.email", "test@example.com"]);
-  git(repoRoot, ["config", "user.name", "Orch Test"]);
-  fs.writeFileSync(path.join(repoRoot, "README.md"), "base\n");
-  git(repoRoot, ["add", "README.md"]);
-  git(repoRoot, ["commit", "-m", "initial"]);
   return repoRoot;
 }
 
@@ -58,13 +48,16 @@ function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, 
 }
 
 function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
-  return execFileSync("bun", [path.join(import.meta.dir, "../bin/orch.ts"), ...args], {
+  const ran = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "../bin/orch.ts"), ...args], {
     cwd: repoRoot,
     // The daemon must run today's source, not a possibly stale dist/ build —
     // write commands auto-start it and deliver through its code.
     env: { ...process.env, ORCH_DIR: orchDir, ORCHD_ENTRYPOINT: path.join(import.meta.dir, "../src/daemon/orchd.ts") },
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
   });
+  if (!ran.success) throw new Error(`orch ${args.join(" ")} exited ${ran.exitCode}: ${ran.stderr.toString()}`);
+  return ran.stdout.toString();
 }
 
 async function stopDaemon(orchDir: string): Promise<void> {
@@ -104,7 +97,7 @@ afterEach(async () => {
 
 describe("review plumbing", () => {
   test("lists only done worktree agents with commits ahead", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "feature-1");
     commit(worktreePath, "feature.txt", "feature\n", "add feature");
@@ -117,7 +110,7 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("reject re-dispatches feedback through the adapter inbox", async () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "iterate-1");
     commit(worktreePath, "feature.txt", "feature\n", "first pass");
@@ -133,7 +126,7 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("approve merges and removes the worktree and branch", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "approve-1");
     const branch = worktreeBranch(worktreePath);
@@ -147,7 +140,7 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("conflicting approval aborts without changing either branch", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const worktreePath = createAgentWorktree(repoRoot, "conflict-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "README.md", "branch\n", "branch change");
@@ -163,7 +156,7 @@ describe("review plumbing", () => {
   }, 30_000);
 
   test("non-fast-forward approval creates a merge commit", () => {
-    const repoRoot = fixtureRepo();
+    const repoRoot = repo();
     const worktreePath = createAgentWorktree(repoRoot, "merge-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "branch.txt", "branch\n", "branch change");

@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "bun:test";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { runDoctor } from "../src/doctor/runner.ts";
@@ -50,12 +49,13 @@ function seedDaemonLock(orchDir: string, codeHash: string): void {
 }
 
 function runCli(orchDir: string, args: string[]): CliResult {
-  const result = spawnSync(process.execPath, [binPath, ...args], {
+  const result = Bun.spawnSync([process.execPath, binPath, ...args], {
     env: { ...process.env, ORCH_DIR: orchDir },
-    encoding: "utf8",
+    stdout: "pipe",
+    stderr: "pipe",
     timeout: 15_000,
   });
-  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  return { status: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
 function output(result: CliResult): string {

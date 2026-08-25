@@ -2,7 +2,7 @@
 
 # GROUND-TRUTH FILES — READ THESE, NEVER RUN THE GATES YOURSELF
 These files ARE the state of the tree. The USER runs the commands (on Windows); I only READ the result files. Running `bun test`/`bun run check` myself = FIRED.
-- **`test-results.md`** — full `bun test` output. User regenerates with: `bun test *> .\test-results.md`
+- **`test-results.md`** — full `bun test` output. User regenerates with: `bun run test *> .\test-results.md`
 - **`current-errors.md`** — `bun run check` + `check:bridge` output. User regenerates with: `bun check > .\current-errors.md`
 - **`specview.md`** — openspec status snapshot.
 WORKFLOW: after ANY change that needs verifying, ASK the user to rerun the relevant command above, then RE-READ the file before claiming anything. Always re-open the file after a rerun — never rely on a prior read.
@@ -13,7 +13,7 @@ WORKFLOW: after ANY change that needs verifying, ASK the user to rerun the relev
 There are exactly TWO commands to ever hand the user, character for character:
 ```
 bun check > .\current-errors.md
-bun test *> .\test-results.md
+bun run test *> .\test-results.md
 ```
 **`orch` is NOT part of either command.** It is a directory/prompt name. Never prepend it, never prepend any `cd`, path, shell name, or `>`-chained prefix. Never "helpfully" expand `bun check` to `bun run check`, `bunx`, or a `&&` chain. Copy the line from this file verbatim into chat and stop.
 Getting this wrong wastes the user's time on a command that does not run, in the one place they cannot skip. Zero variants. Zero improvisation.

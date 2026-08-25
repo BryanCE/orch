@@ -258,8 +258,11 @@ describe("runDoctor", () => {
     expect(commandFailure.status).toBe("fail");
     expect(commandFailure.detail).toContain(`fix: install ${missingCommand}`);
 
+    // This test is about whether an adapter can DELIVER, so its healthy fixture names a
+    // complete `on` list. A bare entry would warn for a different reason entirely — that
+    // its filter can never report completion — which test/doctor-checks.test.ts covers.
     const command = tempDir();
-    writeSettingsFixture(command, { notify: [{ id: "command", command: [process.execPath] }] });
+    writeSettingsFixture(command, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error", "done"] }] });
     expect(check(await runDoctor(command), "notifiers")).toMatchObject({
       status: "ok",
       detail: "1 configured notifier are available",

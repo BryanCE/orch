@@ -154,8 +154,14 @@ Failed tasks retry up to `queue.max_retries` (default 1).
 transitions arrive the instant they happen — no sleep interval, no diffing, no wasted
 wake-ups. A poll loop is worse in every dimension. `orch status` is for one-shot inspection.
 
-**A piped background `orch events` is a watch that never fires** if your harness only wakes
-on task completion — the stream never exits. Arm a persistent monitor instead:
+**`orch events` as a backgrounded shell command is a watch that never fires.** A harness
+that wakes on task *completion* never wakes for a stream that never exits: the lines land in
+an output file nobody is awake to read, and it looks identical to "still working". Do not
+run it with Bash `run_in_background`, `&`, `nohup`, or any shell backgrounding.
+
+Arm it through your harness's own streaming-watch facility — the one whose contract is "one
+notification per output line" (in Claude Code that is the **Monitor tool**, `persistent:
+true`). Command:
 
 ```bash
 orch events --status done,error,blocked,asking

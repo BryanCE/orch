@@ -6,7 +6,7 @@ import {
   releaseDaemonLock,
 } from "./lifecycle.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "./rpc.ts";
-import { loadConfig, watchConfig, type ConfigWatch, type OrchConfig } from "../config.ts";
+import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type OrchConfig } from "../config.ts";
 import { loadSinks, type Sink } from "../notify/router.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
@@ -145,8 +145,9 @@ export function governWrite(directory: string, target: string, params: unknown):
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
   const steal = value.steal === true;
-  const crossWorkspace = value.crossWorkspace === true;
-  const wall = checkWall(actor, target, { crossWorkspace, orchDir: directory });
+  const configuredCrossWorkspace = loadConfigOrNull(directory)?.fleet.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace;
+  const crossWorkspace = value.crossWorkspace === true || configuredCrossWorkspace;
+  const wall = checkWall(actor, target, { crossWorkspace });
   if (!wall.allowed) throw new Error(wall.reason ?? "workspace wall denied the write");
   if (actor === null) {
     const owner = getOwner(directory, target);

@@ -271,8 +271,9 @@ function checkPresenceFilenameLine(line: string, relPath: string): string | unde
  * (`src/adapters/{pi,omp,claude,codex}`) import re-couples the package to a leaf,
  * which is exactly the breach `resolveBackend`/`resolveAdapter` exist to prevent.
  * `backends/registry.ts`, `backends/backend.ts`, `adapters/registry.ts`, and the
- * shared leaves (`adapters/adapter.ts`, `adapters/transcript.ts`) sit directly
- * under their dir (no `<id>/` subpath, not a harness id) and stay allowed.
+ * parser leaves (`adapters/adapter.ts`, `adapters/transcript.ts`,
+ * `adapters/codex-events.ts`) sit directly under their dir (no `<id>/` subpath,
+ * not a bare harness id) and stay allowed.
  */
 export function checkPackageImportLine(line: string): string | undefined {
   if (/backends\/[\w-]+\//.test(line)) {

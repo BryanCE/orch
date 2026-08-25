@@ -8,11 +8,12 @@
  * (node, deno, or bun; `codexAdapter.installShim()` probes their PATH), never
  * assumes one. Usage: `<runtime> <shim> <json>` (argv[2] is the JSON string).
  * Identity parsing stays in its one boundary module (src/backends/identity.ts);
- * the notify wire vocabulary stays in its one adapter module
- * (src/adapters/codex.ts); the presence write itself goes through the one
- * shared writer (src/presence/writer.ts) rather than being hand-rolled here.
+ * the notify wire vocabulary stays in its one leaf module
+ * (src/adapters/codex-events.ts, which the adapter itself delegates to — the
+ * adapter proper is setup-time code this shim must not carry); the presence
+ * write goes through the one shared writer (src/presence/writer.ts).
  */
-import { codexAdapter } from "../../src/adapters/codex.ts";
+import { detectCodexState, extractCodexResult } from "../../src/adapters/codex-events.ts";
 import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
@@ -60,8 +61,8 @@ const paneId = activePaneHud().paneHandle;
 // settled successful turn (design D1) — synthesizing exitCode: 0 here (never
 // inside detectState itself) is what makes that resolve to "done" rather than
 // the "idle" a bare completion record would otherwise produce.
-const state = codexAdapter.detectState({ output: raw, exitCode: 0 });
-const resultText = codexAdapter.extractResult({ output: raw });
+const state = detectCodexState({ output: raw, exitCode: 0 });
+const resultText = extractCodexResult({ output: raw });
 // The headless backend mirrors the log path it recorded at spawn (D3a) into
 // this env var so the notify write can stamp the same sessionPath the backend
 // registry knows about, without ever scanning a directory for it.

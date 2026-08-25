@@ -7,10 +7,9 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import {
   CODEX_STATE_FALLBACK_MARKER,
   CODEX_TURN_COMPLETE,
-  CodexAdapter,
-  codexAdapter,
   codexStateFallback,
-} from "../src/adapters/codex.ts";
+} from "../src/adapters/codex-events.ts";
+import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
 

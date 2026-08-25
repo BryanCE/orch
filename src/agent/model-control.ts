@@ -10,7 +10,7 @@
 // thinking effort ("provider/id:medium"); the registry keys on the bare id, so
 // the suffix is split off before lookup and applied through pi's own mechanism.
 import type { HarnessApi, HarnessContext } from "./harness.ts";
-import { isThinkingLevel, splitThinkingSuffix, type ThinkingLevel } from "../policy/model.ts";
+import { isThinkingLevel, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
 import { atomicWrite } from "../presence/writer.ts";
 import { isRecord, type JsonRecord } from "../util.ts";
 

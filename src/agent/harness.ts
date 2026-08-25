@@ -12,7 +12,7 @@
  * mirror a harness's full ExtensionAPI would re-couple every consumer to whichever
  * harness the extra members were copied from.
  */
-import type { ThinkingLevel } from "../policy/model.ts";
+import type { ThinkingLevel } from "../policy/thinking.ts";
 
 /** A model as the harness's own registry hands it back; orch reads two fields and never constructs one. */
 export interface HarnessResolvedModel {

@@ -1,35 +1,13 @@
 import { allowedModelPatterns } from "../config.ts";
+import { splitThinkingSuffix, THINKING_LEVELS } from "./thinking.ts";
 import type { AdapterId, AgentAdapter, HarnessModel } from "../adapters/adapter.ts";
 
 /**
- * Orch's model vocabulary and the allowlist gate, owned by orch and applied to
- * every harness. A harness resolves a token against its own registry; it never
- * decides whether the token was permitted — that ruling happens once, in the
- * control dispatcher, before any adapter sees the request.
+ * The allowlist gate, owned by orch and applied to every harness. A harness
+ * resolves a token against its own registry; it never decides whether the token
+ * was permitted — that ruling happens once, in the control dispatcher, before
+ * any adapter sees the request.
  */
-
-/** Thinking efforts orch's ladder token may name after the model id. */
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-
-export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
-
-export function isThinkingLevel(value: unknown): value is ThinkingLevel {
-  return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
-}
-
-/**
- * Split orch's ladder token ("provider/id:medium") into the bare model id and the
- * thinking effort. Only a trailing `:token` whose token is itself a valid thinking
- * level is treated as a suffix — a colon anywhere else stays part of the model id,
- * so a provider whose ids legitimately contain colons is never truncated.
- */
-export function splitThinkingSuffix(model: string): { bare: string; thinking?: ThinkingLevel } {
-  const colon = model.lastIndexOf(":");
-  if (colon <= 0) return { bare: model };
-  const suffix = model.slice(colon + 1);
-  if (!isThinkingLevel(suffix)) return { bare: model };
-  return { bare: model.slice(0, colon), thinking: suffix };
-}
 
 function globToRegex(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, (char) => `\\${char}`);

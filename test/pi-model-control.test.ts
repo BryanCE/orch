@@ -7,7 +7,7 @@ import {
   resolveRegistryModel,
   type ResolvedModel,
 } from "../src/agent/model-control.ts";
-import { splitThinkingSuffix } from "../src/policy/model.ts";
+import { splitThinkingSuffix } from "../src/policy/thinking.ts";
 
 const tempDirs: string[] = [];
 function tempDir(): string {

@@ -1,6 +1,6 @@
 import { loadConfigOrNull } from "../config.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import { splitThinkingSuffix } from "../policy/model.ts";
+import { splitThinkingSuffix } from "../policy/thinking.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
 import { repickCommand, signedOutFix } from "../adapters/prerequisites.ts";
 import type { CheckResult } from "../check-result.ts";

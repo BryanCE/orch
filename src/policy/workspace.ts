@@ -1,5 +1,4 @@
 import { tryParseIdentity } from "../backends/identity.ts";
-import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -36,11 +35,12 @@ export function operatorControls(actor: string | null | undefined, agentKey: str
   return identity?.id === "operator" && sameWorkspace(identity.workspace, workspaceOf(agentKey));
 }
 
-/** Decide whether a caller may cross the workspace wall. */
+/** Decide whether a caller may cross the workspace wall. The caller resolves
+ *  `crossWorkspace` from its own flag and settings — policy never reads config. */
 export function checkWall(
   ownKey: string | null | undefined,
   targetKey: string | null | undefined,
-  opts: { crossWorkspace: boolean; orchDir?: string },
+  opts: { crossWorkspace: boolean },
 ): WallDecision {
   const ownWorkspace = workspaceOf(ownKey);
   const targetWorkspace = workspaceOf(targetKey);
@@ -48,10 +48,7 @@ export function checkWall(
   // Unscoped actors and legacy/unscoped targets are eligible by policy.
   if (ownWorkspace === null || targetWorkspace === null) return { allowed: true };
   if (sameWorkspace(ownWorkspace, targetWorkspace)) return { allowed: true };
-  const configuredCrossWorkspace = opts.orchDir === undefined
-    ? SETTINGS_DEFAULTS.fleet.cross_workspace
-    : loadConfigOrNull(opts.orchDir)?.fleet.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace;
-  if (opts.crossWorkspace === true || configuredCrossWorkspace) return { allowed: true };
+  if (opts.crossWorkspace) return { allowed: true };
   return {
     allowed: false,
     reason: `workspace wall: actor workspace ${ownWorkspace} cannot write to target workspace ${targetWorkspace} (${targetKey ?? "unknown"})`,

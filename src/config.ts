@@ -11,13 +11,11 @@ import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errorMessage } from "./util.ts";
 
-/** The one settings.json schema version. This stays 1 until the project owner
- * says otherwise — DO NOT BUMP IT, ever, for any shape change. Pre-publish there
- * is no legacy support: exactly ONE live schema, no reader accepts two, a file
- * with any other version is invalid and recreated by `orch setup`. On a shape
- * change, alter the one live schema below and fix every writer/reader/test in
- * the same commit; the stamp itself does not move. */
-export const SETTINGS_SCHEMA = 2;
+/** The one settings.json schema version. Pre-publish there is no legacy support:
+ * exactly ONE live schema, no reader accepts two, and a file with any other version is
+ * invalid and recreated by `orch setup`. On a shape change, bump this stamp and fix
+ * every writer/reader/test in the same commit. */
+export const SETTINGS_SCHEMA = 4;
 
 const PositiveInt = z.number().int().positive();
 
@@ -62,6 +60,7 @@ export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 export const SETTINGS_DEFAULTS = {
   fleet: { spawn_cap: 8, worker_peer_tools: false, cross_workspace: false },
   queue: { max_retries: 1 },
+  retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, identities_days: 7, agent_dirs_days: 7, logs_days: 7 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
@@ -121,6 +120,24 @@ const SettingsFileSchema = z.strictObject({
   queue: z.strictObject({
     max_retries: z.number().int().nonnegative().optional(),
   }).optional(),
+  /** Retention windows in days for settled queue tasks, stored events, completed runs,
+   * delivered outbox messages, session identities, dead agent directories, and logs. */
+  retention: z.strictObject({
+    /** Settled queue tasks older than this many days. */
+    queue_days: PositiveInt.optional(),
+    /** Stored events older than this many days. */
+    events_days: PositiveInt.optional(),
+    /** Completed runs older than this many days. */
+    runs_days: PositiveInt.optional(),
+    /** Delivered outbox messages older than this many days. */
+    outbox_days: PositiveInt.optional(),
+    /** Session identities older than this many days. */
+    identities_days: PositiveInt.optional(),
+    /** Dead presence directories older than this many days. */
+    agent_dirs_days: PositiveInt.optional(),
+    /** Headless log files older than this many days. */
+    logs_days: PositiveInt.optional(),
+  }).optional(),
   timeouts: z.strictObject({
     dispatch_ack_ms: PositiveInt.optional(),
     wait_ms: PositiveInt.optional(),
@@ -162,6 +179,7 @@ export interface OrchConfig {
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
+  retention: { queue_days: number; events_days: number; runs_days: number; outbox_days: number; identities_days: number; agent_dirs_days: number; logs_days: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];
   locked_commands: string[];
@@ -296,26 +314,9 @@ function requireEnabledComposition(file: string, root: SettingsFile): void {
   }
 }
 
-/** Load and validate `$orchDir/settings.json`, or null when the file does not exist yet.
- *
- * ONLY for the callers that must genuinely distinguish a first run from a configured
- * install — setup's own gate. Every other caller uses `loadConfig`, which treats an
- * absent file as the loud error it is. A malformed file still throws here. */
-export function loadConfigOrNull(orchDir: string): OrchConfig | null {
-  const file = settingsPath(orchDir);
-  const root = readSettingsFile(file);
-  if (root === null) {
-    // Rule 8: a legacy config.toml is never read or migrated — its presence is an error.
-    const legacy = path.join(orchDir, "config.toml");
-    if (filesystem.existsSync(legacy)) {
-      throw new Error(`${legacy}: legacy config.toml detected - settings now live in ${file}; re-run orch setup (the old values are not read)`);
-    }
-    return null;
-  }
-  requireEnabledComposition(file, root);
+/** Fill every settings section that has a built-in value, preserving user entries. */
+function configValues(root: Partial<SettingsFile>): Omit<OrchConfig, "runtime" | "enabled"> {
   return {
-    runtime: root.runtime,
-    enabled: { adapters: root.enabled?.adapters ?? [], backends: root.enabled?.backends ?? [] },
     defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
     fleet: {
       spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
@@ -332,6 +333,15 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
       allow_tools: root.workers?.allow_tools ?? [],
     },
     queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
+    retention: {
+      queue_days: root.retention?.queue_days ?? SETTINGS_DEFAULTS.retention.queue_days,
+      events_days: root.retention?.events_days ?? SETTINGS_DEFAULTS.retention.events_days,
+      runs_days: root.retention?.runs_days ?? SETTINGS_DEFAULTS.retention.runs_days,
+      outbox_days: root.retention?.outbox_days ?? SETTINGS_DEFAULTS.retention.outbox_days,
+      identities_days: root.retention?.identities_days ?? SETTINGS_DEFAULTS.retention.identities_days,
+      agent_dirs_days: root.retention?.agent_dirs_days ?? SETTINGS_DEFAULTS.retention.agent_dirs_days,
+      logs_days: root.retention?.logs_days ?? SETTINGS_DEFAULTS.retention.logs_days,
+    },
     timeouts: {
       dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
       wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
@@ -354,9 +364,30 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
   };
 }
 
-/** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
- * settings.json is a loud error naming the file and `orch setup`, never a silent empty
- * config. Use `loadConfigOrNull` only where first-run really must be distinguished. */
+/** Load and validate `$orchDir/settings.json`, or null when the file does not exist yet.
+ *
+ * ONLY for the callers that must genuinely distinguish a first run from a configured
+ * install — setup's own gate. Every other caller uses `loadConfig`, which treats an
+ * absent file as the loud error it is. A malformed file still throws here. */
+export function loadConfigOrNull(orchDir: string): OrchConfig | null {
+  const file = settingsPath(orchDir);
+  const root = readSettingsFile(file);
+  if (root === null) {
+    // Rule 8: a legacy config.toml is never read or migrated — its presence is an error.
+    const legacy = path.join(orchDir, "config.toml");
+    if (filesystem.existsSync(legacy)) {
+      throw new Error(`${legacy}: legacy config.toml detected - settings now live in ${file}; re-run orch setup (the old values are not read)`);
+    }
+    return null;
+  }
+  requireEnabledComposition(file, root);
+  return {
+    runtime: root.runtime,
+    enabled: { adapters: root.enabled?.adapters ?? [], backends: root.enabled?.backends ?? [] },
+    ...configValues(root),
+  };
+}
+
 /** A non-throwing settings load used only by setup recovery. Missing is a clean null;
  * malformed data returns its validation error so setup can reap the whole file. */
 export function tryLoadSettings(orchDir: string): { config: OrchConfig | null; error: Error | null } {
@@ -367,6 +398,9 @@ export function tryLoadSettings(orchDir: string): { config: OrchConfig | null; e
   }
 }
 
+/** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
+ * settings.json is a loud error naming the file and `orch setup`, never a silent empty
+ * config. Use `loadConfigOrNull` only where first-run really must be distinguished. */
 export function loadConfig(orchDir: string): OrchConfig {
   const config = loadConfigOrNull(orchDir);
   if (config === null) {
@@ -619,45 +653,16 @@ export function writeSettingsEnabled(orchDir: string, enabled: { adapters: reado
 
 /** Seed the complete settings tree while preserving every value already present. */
 export function writeSettingsFullTree(orchDir: string): void {
-  updateSettingsFile(orchDir, (root) => ({
-    ...root,
-    enabled: root.enabled ?? { adapters: [], backends: [] },
-    defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
-    fleet: {
-      spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
-      ...(root.fleet?.max_agents === undefined ? {} : { max_agents: root.fleet.max_agents }),
-      workspace_caps: root.fleet?.workspace_caps ?? {},
-      worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
-      cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
-    },
-    models: { allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} },
-    workers: {
-      inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
-      exclude_extensions: root.workers?.exclude_extensions ?? [],
-      builtin_tools: root.workers?.builtin_tools ?? SETTINGS_DEFAULTS.workers.builtin_tools,
-      allow_tools: root.workers?.allow_tools ?? [],
-    },
-    queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
-    timeouts: {
-      dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
-      wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
-      adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
-      notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
-    },
-    notify: root.notify ?? [],
-    locked_commands: root.locked_commands ?? [],
-    hosts: root.hosts ?? {},
-    workspaces: root.workspaces ?? {},
-    daemon: {
-      tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
-      idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
-    },
-    tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
-    skills: {
-      install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
-      roots: root.skills?.roots ?? [...SETTINGS_DEFAULTS.skills.roots],
-    },
-  }));
+  updateSettingsFile(orchDir, (root) => {
+    const values = configValues(root);
+    const { max_agents: maxAgents, ...fleet } = values.fleet;
+    return {
+      ...root,
+      enabled: root.enabled ?? { adapters: [], backends: [] },
+      ...values,
+      fleet: { ...fleet, ...(maxAgents === undefined ? {} : { max_agents: maxAgents }) },
+    };
+  });
 }
 
 /** Upsert notifier entries into the settings.json `notify` array, keyed by sink id: an id

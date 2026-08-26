@@ -1,12 +1,12 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortFile } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
-import { getOrCreateSessionIdentity, getOrCreateTcpSessionIdentity, type SessionIdentity } from "../store/sqlite.ts";
+import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
+import { getOrCreateSessionIdentity, isSessionIdentity, type SessionIdentity } from "../store/identity-rows.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
@@ -70,24 +70,26 @@ export interface ReplayResult {
   oldestSeq?: number;
 }
 
+/** Maximum number of durable events returned by one replay request. Retention is configured
+ * separately; this bound prevents a subscriber from being flooded by an unbounded replay. */
 export const REPLAY_WINDOW = 1_000;
 
 export class ReplayBuffer {
-  private readonly events: BufferedEvent[] = [];
-  private nextSeq = 1;
+  constructor(private readonly orchDir: string) {}
 
   push(event: unknown): BufferedEvent {
-    const buffered: BufferedEvent = { event, seq: this.nextSeq++ };
-    this.events.push(buffered);
-    if (this.events.length > REPLAY_WINDOW) this.events.shift();
-    return buffered;
+    const stored = appendEvent(this.orchDir, new Date().toISOString(), event);
+    return { event: stored.event, seq: stored.seq };
   }
 
   since(seq: number): ReplayResult {
-    const oldestSeq = this.events[0]?.seq;
+    const oldestSeq = oldestEventSeq(this.orchDir);
+    // `seq` is the last sequence the subscriber has. The row immediately before
+    // the oldest retained row is still contiguous; only an earlier request has a gap.
+    const gap = oldestSeq !== undefined && seq < oldestSeq - 1;
     return {
-      events: this.events.filter((event) => event.seq > seq),
-      gap: oldestSeq !== undefined && oldestSeq > seq + 1,
+      events: selectEventsSince(this.orchDir, seq, REPLAY_WINDOW).map(({ event, seq: eventSeq }) => ({ event, seq: eventSeq })),
+      gap,
       ...(oldestSeq === undefined ? {} : { oldestSeq }),
     };
   }
@@ -129,6 +131,9 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
+// The process start instant must stay stable across hello calls so a session keeps
+// one identity for its lifetime, even when its parent pid remains unchanged.
+const clientStartedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
 
 function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {
   const files = daemonRuntimeFiles(orchDir);
@@ -180,8 +185,12 @@ function helloIdentity(orchDir: string, params: unknown, daemonToken: string): S
   if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "hello requires the daemon token");
   const pid = typeof claim.pid === "number" ? claim.pid : Number.NaN;
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's session pid");
+  const startedAt = typeof claim.startedAt === "string" ? claim.startedAt.trim() : "";
+  if (!startedAt || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(startedAt) || !Number.isFinite(Date.parse(startedAt))) {
+    throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's process start time");
+  }
   const claimed = typeof claim.label === "string" ? claim.label.trim() : "";
-  return getOrCreateSessionIdentity(orchDir, pid, claimed || `session ${pid}`);
+  return getOrCreateSessionIdentity(orchDir, pid, startedAt, claimed || `session ${pid}`);
 }
 
 function handleLine(
@@ -193,8 +202,7 @@ function handleLine(
   orchDir: string,
   transport: "unix" | "tcp",
   state: ConnectionState,
-  tcpToken: string,
-  tcpIdentity: { current?: SessionIdentity },
+  daemonToken: string,
 ): void {
   const request = parseRequest(line);
   if (!("method" in request)) {
@@ -266,12 +274,11 @@ function attachConnection(
   replayBuffer: ReplayBuffer,
   orchDir: string,
   transport: "unix" | "tcp",
-  tcpToken: string,
-  tcpIdentity: { current?: SessionIdentity },
+  daemonToken: string,
 ): void {
   const state: ConnectionState = {};
   framedLineReader(socket, (line) =>
-    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer, orchDir, transport, state, tcpToken, tcpIdentity),
+    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer, orchDir, transport, state, daemonToken),
   );
   socket.on("close", () => subscriptions.delete(socket));
   socket.on("error", () => subscriptions.delete(socket));
@@ -424,9 +431,9 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
   });
 }
 
-/** Mint the loopback credential for this daemon instance. Reapply mode because
- *  chmod is not implied when writeFileSync truncates an existing file. */
-function writeTcpToken(path: string): string {
+/** Mint this daemon instance's credential. Reapply mode because chmod is not
+ *  implied when writeFileSync truncates an existing file. */
+function writeDaemonToken(path: string): string {
   const token = randomBytes(32).toString("hex");
   writeFileSync(path, `${token}\n`, { mode: 0o600 });
   chmodSync(path, 0o600);
@@ -443,13 +450,12 @@ export async function startRpcServer(
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
   const sockets = new Set<Socket>();
-  const replayBuffer = new ReplayBuffer();
-  const tcpToken = writeTcpToken(paths.token);
-  const tcpIdentity: { current?: SessionIdentity } = {};
+  const replayBuffer = new ReplayBuffer(orchDir);
+  const daemonToken = writeDaemonToken(paths.token);
   let transport: "unix" | "tcp" = "tcp";
   const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {
     sockets.add(socket);
-    attachConnection(socket, handlers, subscriptions, replayBuffer, orchDir, transport, tcpToken, tcpIdentity);
+    attachConnection(socket, handlers, subscriptions, replayBuffer, orchDir, transport, daemonToken);
     socket.once("close", () => sockets.delete(socket));
   };
   const attachUnix = attachFor("unix");
@@ -583,6 +589,16 @@ export async function rpcCall(
   }
 }
 
+/** Register this process with the daemon and return the identity it issued. Reading the
+ *  `0600` token file IS the credential, so there is nothing else to enroll. The session
+ *  is this process's parent — the shell or harness that outlives one `orch` invocation. */
+export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<SessionIdentity> {
+  const token = readFileSync(daemonRuntimeFiles(orchDir).token, "utf8").trim();
+  const identity = await rpcCall(orchDir, "hello", { token, pid: process.ppid, startedAt: clientStartedAt, label }, timeoutMs);
+  if (!isSessionIdentity(identity)) throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
+  return identity;
+}
+
 export interface EventSubscription {
   close(): void;
   readonly lastSeq: () => number;
@@ -658,12 +674,10 @@ export function subscribeEvents(
         });
         connected.once("error", onDisconnect);
         connected.once("close", onDisconnect);
-        // First dial honours the caller's `since` (undefined = live only). A
-        // reconnect lands on a fresh daemon whose sequence numbers restarted
-        // from 1, so `last` from the previous instance no longer maps to its
-        // buffer — request `since: 0` to replay whatever the new daemon still
-        // holds rather than silently miss its early events.
-        const since = connectedBefore ? 0 : opts.since;
+        // The first dial honours the caller's `since` (undefined = live only).
+        // Durable sequence numbers survive daemon restarts, so reconnects resume
+        // from the last sequence delivered instead of replaying an unrelated window.
+        const since = connectedBefore ? last : opts.since;
         connectedBefore = true;
         connected.write(`${JSON.stringify({
           id: nextRequestId++,

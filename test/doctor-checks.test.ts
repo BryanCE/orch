@@ -107,7 +107,7 @@ describe("doctor notification-sink checks", () => {
     const result = notifierResult(await runDoctor(directory));
     expect(result).toMatchObject({
       status: "warn",
-      detail: 'command: effective "on" list omits "done"; fix: add "on": ["blocked","error","done"] to that notify entry in settings.json',
+      detail: 'command: effective "on" list omits "done"; fix: orch settings notify add command --on=blocked,error,done',
     });
   });
 

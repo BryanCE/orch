@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdSettingsNotify } from "../src/commands/settings.ts";
 import { loadConfig } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 // `orch settings notify` is the writer for the settings.json `notify` array. Sink ids and the
 // fields each takes come from the notifier registry, so nothing here is hardcoded per sink.
@@ -25,7 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousOrchDir;
-  rmSync(root, { recursive: true, force: true });
+  removeTempDir(root);
 });
 
 async function captureNotify(args: string[]): Promise<string> {

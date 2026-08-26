@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 const settingsFile = path.join(os.homedir(), ".claude", "settings.json");
@@ -48,7 +49,7 @@ const currentShim = claudeHookShimPath(process.cwd());
 afterEach(() => {
   fs.rmSync(settingsFile, { force: true });
   if (originalSettings !== undefined) fs.writeFileSync(settingsFile, originalSettings);
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("doctor Claude hooks shim check", () => {

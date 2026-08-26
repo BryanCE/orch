@@ -37,11 +37,11 @@ function runCli(dir: string, args: string[]): { status: number | null; output: s
   return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
-function writeStatus(dir: string, key: string, handle: string, pid: number, workspace: string): void {
+function writeStatus(dir: string, key: string, handle: string, pid: number): void {
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, backend: "headless", workspace, handle, paneId: handle,
+    schema: PRESENCE_SCHEMA, key, paneId: handle,
     pid, agent: "pi", state: "working",
   }));
 }
@@ -61,8 +61,8 @@ describe("close always works", () => {
       ["headless~foreign~pane-id", "pane-id", null],
     ] as const;
     for (const [key, handle] of records) {
-      recordSpawned(key, { backend: "headless", handle, owner: "caller" });
-      writeStatus(dir, key, handle, process.pid, "foreign-workspace");
+      recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle, owner: "caller" });
+      writeStatus(dir, key, handle, process.pid);
     }
 
     const backend = headlessBackend as typeof headlessBackend & {
@@ -93,12 +93,11 @@ describe("close always works", () => {
     const dir = makeDir();
     const key = "headless~foreign~dead-pane";
     const handle = "99999999";
-    recordSpawned(key, { backend: "headless", handle, owner: "caller" });
+    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle, owner: "caller" });
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-      schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "foreign-workspace",
-      handle, pid: 99999999, agent: "pi", state: "done",
+      schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "done",
     }));
 
     const result = runCli(dir, ["close", key, "--json"]);
@@ -109,7 +108,10 @@ describe("close always works", () => {
   }, 15_000);
 
   test("steer remains blocked by the workspace wall", () => {
-    const decision = checkWall("headless~workspace-a~operator", "headless~workspace-b~pane", { crossWorkspace: false });
+    const dir = makeDir();
+    recordSpawned("headless~workspace-a~operator", { backend: "headless", workspace: "workspace-a", handle: "operator" });
+    recordSpawned("headless~workspace-b~pane", { backend: "headless", workspace: "workspace-b", handle: "pane" });
+    const decision = checkWall(dir, "headless~workspace-a~operator", "headless~workspace-b~pane", { crossWorkspace: false });
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain("workspace wall");
   });

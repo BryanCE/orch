@@ -1,19 +1,19 @@
-import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir } from "../../presence/store.ts";
-import { pidAlive, projectRoot } from "../../util.ts";
+import { errorMessage, pidAlive, projectRoot } from "../../util.ts";
 import type {
   Backend,
   BackendCapabilities,
   BackendId,
-  BackendRegistryRecord,
   BackendSpawnOpts,
   DeliverPayload,
 } from "../backend.ts";
+import { insertSpawnedRecord, selectSpawnedRecords } from "../../store/spawned-rows.ts";
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {
@@ -23,16 +23,10 @@ export interface HeadlessHandle {
   readonly alive?: boolean;
 }
 
-type HeadlessRegistryRecord = BackendRegistryRecord<HeadlessHandle>;
-
 const HEADLESS_BACKEND: BackendId = "headless";
 
 function orchDirectory(override?: string): string {
   return override ?? process.env.ORCH_DIR ?? join(homedir(), ".orch");
-}
-
-function registryPath(directory: string): string {
-  return join(directory, "spawned.jsonl");
 }
 
 function logDirectory(directory: string): string {
@@ -48,46 +42,39 @@ function safeKey(key: unknown): key is string {
     && !key.includes("\\");
 }
 
-function logFileName(key: string, pid: number): string {
-  const printable = key.replace(/[^A-Za-z0-9_.:-]/g, "_");
-  return join(`${printable}-${pid}.log`);
+function headlessLogKey(key: string): string {
+  return key.replace(/[^A-Za-z0-9_.:-]/g, "_");
 }
 
-function isHeadlessRegistryRecord(value: unknown): value is HeadlessRegistryRecord {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<HeadlessRegistryRecord>;
-  const handle = candidate.handle;
-  return candidate.backend === HEADLESS_BACKEND
-    && typeof candidate.adapter === "string"
-    && !!handle
-    && typeof handle === "object"
-    && typeof (handle as Partial<HeadlessHandle>).pid === "number"
-    && typeof (handle as Partial<HeadlessHandle>).key === "string";
+function logFileName(key: string): string {
+  return join(`${headlessLogKey(key)}.log`);
 }
 
-/** Read valid headless records, ignoring corrupt or unrelated registry lines. */
-function readHeadlessRegistry(directory = orchDirectory()): HeadlessRegistryRecord[] {
+function parseHeadlessHandle(value: unknown): HeadlessHandle | undefined {
+  if (typeof value !== "string") return undefined;
+  let parsed: unknown;
   try {
-    return readFileSync(registryPath(directory), "utf8")
-      .split("\n")
-      .filter((line) => line.trim().length > 0)
-      .flatMap((line) => {
-        try {
-          const value: unknown = JSON.parse(line);
-          return isHeadlessRegistryRecord(value) ? [value] : [];
-        } catch {
-          return [];
-        }
+    parsed = JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const pid: unknown = Reflect.get(parsed, "pid");
+  const key: unknown = Reflect.get(parsed, "key");
+  return typeof pid === "number" && Number.isInteger(pid) && safeKey(key) ? { pid, key } : undefined;
+}
+
+function headlessHandles(directory: string): HeadlessHandle[] {
+  try {
+    return selectSpawnedRecords(directory)
+      .filter((record) => record.backend === HEADLESS_BACKEND)
+      .flatMap((record) => {
+        const handle = parseHeadlessHandle(record.handle);
+        return handle ? [handle] : [];
       });
   } catch {
     return [];
   }
-}
-
-function appendRegistry(record: HeadlessRegistryRecord, directory: string): void {
-  mkdirSync(directory, { recursive: true });
-  const line = JSON.stringify(record) + "\n";
-  writeFileSync(registryPath(directory), line, { flag: "a" });
 }
 
 function statusPid(directory: string, key: string): number | undefined {
@@ -108,13 +95,12 @@ function sameHandle(left: HeadlessHandle, right: HeadlessHandle): boolean {
 }
 
 function registeredHandle(handle: HeadlessHandle, directory: string): boolean {
-  return readHeadlessRegistry(directory).some((record) => sameHandle(record.handle, handle));
+  return headlessHandles(directory).some((record) => sameHandle(record, handle));
 }
 
 /**
- * Detached process backend. The registry is append-only; dead entries remain
- * observable, while close can only signal a registered process with matching
- * presence ownership.
+ * Detached process backend. Dead entries remain observable in the spawned table,
+ * while close can only signal a registered process with matching presence ownership.
  */
 export interface HeadlessBackendDeps {
   /** Injected process liveness check and signaler, primarily for hermetic tests. */
@@ -131,7 +117,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   // fallow-ignore-next-line unused-class-member
   readonly focusable = false;
   readonly canSendKeys = false;
-  readonly caps: BackendCapabilities = { panes: false, focusable: false, canSendKeys: false };
+  readonly caps: BackendCapabilities = { panes: false, focusable: false, canSendKeys: false, canPruneLogs: true };
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly killer: (pid: number, signal: "SIGTERM") => void;
 
@@ -183,7 +169,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     }
 
     mkdirSync(logDirectory(directory), { recursive: true });
-    const logPath = join(logDirectory(directory), logFileName(key, Date.now()));
+    const logPath = join(logDirectory(directory), logFileName(key));
     const logFd = openSync(logPath, "a");
     let child: ChildProcess;
     try {
@@ -192,7 +178,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         detached: true,
         // ORCH_AGENT_LOG mirrors the recorded log path (D3a) to the presence
         // writer running inside the child, so its own status.json can stamp
-        // the same sessionPath the backend registry records below.
+        // the same sessionPath as this backend's log.
         env: { ...process.env, ORCH_DIR: directory, ORCH_AGENT_KEY: key, ORCH_AGENT_LOG: logPath, ORCH_PROJECT: projectRoot(), ...(opts.env ?? {}) },
         // stdin MUST reach EOF: a pi-shaped harness reads its prompt from an open
         // stdin and blocks there before starting a session, so it never registers.
@@ -207,7 +193,16 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
     const handle: HeadlessHandle = { pid, key };
-    appendRegistry({ backend: HEADLESS_BACKEND, handle, adapter: adapter.id, cwd: opts.cwd, log: logPath }, directory);
+    insertSpawnedRecord(directory, {
+      pane: key,
+      backend: HEADLESS_BACKEND,
+      adapter: adapter.id,
+      model: opts.model,
+      workspace: opts.workspace,
+      handle: JSON.stringify(handle),
+      name: opts.name,
+      cwd: opts.cwd,
+    });
     return handle;
   }
 
@@ -217,12 +212,13 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
    */
   close(handle: HeadlessHandle): boolean {
     const directory = orchDirectory();
-    if (!handle || !Number.isInteger(handle.pid) || !safeKey(handle.key)) return false;
-    if (!registeredHandle(handle, directory)) return false;
-    if (statusPid(directory, handle.key) !== handle.pid) return false;
-    if (!this.isPidAlive(handle.pid)) return false;
+    const resolved = typeof handle === "string" ? parseHeadlessHandle(handle) : handle;
+    if (!resolved || !Number.isInteger(resolved.pid) || !safeKey(resolved.key)) return false;
+    if (!registeredHandle(resolved, directory)) return false;
+    if (statusPid(directory, resolved.key) !== resolved.pid) return false;
+    if (!this.isPidAlive(resolved.pid)) return false;
     try {
-      this.killer(handle.pid, "SIGTERM");
+      this.killer(resolved.pid, "SIGTERM");
       return true;
     } catch {
       return false;
@@ -230,7 +226,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   }
 
   /** The live handle for one agent key. A detached handle carries the OS pid, which
-   *  a relaunch replaces, so the registry is the only current source for it. */
+   *  a relaunch replaces, so the spawned table is the current source for it. */
   handleFor(key: string): HeadlessHandle | undefined {
     return this.list().find((handle) => handle.key === key && handle.alive);
   }
@@ -238,7 +234,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Return every registered headless handle with a fresh liveness result. */
   list(): HeadlessHandle[] {
     const directory = orchDirectory();
-    return readHeadlessRegistry(directory).map(({ handle }) => ({
+    return headlessHandles(directory).map((handle) => ({
       ...handle,
       alive: this.isPidAlive(handle.pid),
     }));
@@ -263,6 +259,37 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Headless has no workspace naming; ids stand in for names. */
   workspaceNames(): Map<string, string> {
     return new Map();
+  }
+
+  /** Remove old headless logs, retaining every log belonging to a live presence. */
+  pruneLogs(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number {
+    const logsDir = logDirectory(orchDirectory(orchDir));
+    let names: string[];
+    try {
+      names = readdirSync(logsDir);
+    } catch {
+      return 0;
+    }
+    const liveNames = new Set(liveKeys.map((key) => `${headlessLogKey(key)}.log`));
+    let removed = 0;
+    for (const name of names) {
+      if (!name.endsWith(".log")) continue;
+      const file = join(logsDir, name);
+      let stat;
+      try {
+        stat = statSync(file);
+      } catch {
+        continue;
+      }
+      if (!stat.isFile() || stat.mtimeMs >= cutoff.getTime() || liveNames.has(name)) continue;
+      try {
+        rmSync(file, { force: true });
+        removed++;
+      } catch (error: unknown) {
+        process.stderr.write(`Warning: retention sweep logs failed for ${file}: ${errorMessage(error)}\n`);
+      }
+    }
+    return removed;
   }
 }
 

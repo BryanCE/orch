@@ -8,7 +8,7 @@ import {
   writeTaskDone,
   writeTaskFailure,
   writeTaskRequeue,
-} from "./store/sqlite.ts";
+} from "./store/queue-rows.ts";
 
 export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled";
 

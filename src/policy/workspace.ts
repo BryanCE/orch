@@ -1,12 +1,13 @@
-import { tryParseIdentity } from "../backends/identity.ts";
+import { placementOf } from "../agent/registry.ts";
 
 export interface WallDecision {
   allowed: boolean;
   reason?: string;
 }
 
-export function workspaceOf(id: string | null | undefined): string | null {
-  return tryParseIdentity(id)?.workspace ?? null;
+export function workspaceOf(orchDir: string, id: string | null | undefined): string | null {
+  if (id === null || id === undefined) return null;
+  return placementOf(orchDir, id)?.workspace ?? null;
 }
 
 export type WorkspaceResolver =
@@ -27,25 +28,30 @@ export function sameWorkspace(a: string | null | undefined, b: string | null | u
   return a !== null && a !== undefined && b !== null && b !== undefined && a === b;
 }
 
-/** The human operator of a workspace controls every agent keyed into it. A
- *  spawned agent never carries the `operator` id — its actor token is its own
- *  minted key — so this grants an agent nothing beyond what it spawned. */
-export function operatorControls(actor: string | null | undefined, agentKey: string | null | undefined): boolean {
-  const identity = tryParseIdentity(actor);
-  return identity?.id === "operator" && sameWorkspace(identity.workspace, workspaceOf(agentKey));
+/** The human operator of a workspace controls every agent keyed into it. */
+export function operatorControls(
+  orchDir: string,
+  actor: string | null | undefined,
+  agentKey: string | null | undefined,
+  actorWorkspace: string | null | undefined,
+  actorIsOperator: boolean,
+): boolean {
+  return actor !== null && actor !== undefined
+    && actorIsOperator
+    && sameWorkspace(actorWorkspace, workspaceOf(orchDir, agentKey));
 }
 
-/** Decide whether a caller may cross the workspace wall. The caller resolves
- *  `crossWorkspace` from its own flag and settings — policy never reads config. */
+/** Decide whether a caller may cross the workspace wall. */
 export function checkWall(
+  orchDir: string,
   ownKey: string | null | undefined,
   targetKey: string | null | undefined,
   opts: { crossWorkspace: boolean },
 ): WallDecision {
-  const ownWorkspace = workspaceOf(ownKey);
-  const targetWorkspace = workspaceOf(targetKey);
+  const ownWorkspace = workspaceOf(orchDir, ownKey);
+  const targetWorkspace = workspaceOf(orchDir, targetKey);
 
-  // Unscoped actors and legacy/unscoped targets are eligible by policy.
+  // Unscoped actors and unplaced targets are eligible by policy.
   if (ownWorkspace === null || targetWorkspace === null) return { allowed: true };
   if (sameWorkspace(ownWorkspace, targetWorkspace)) return { allowed: true };
   if (opts.crossWorkspace) return { allowed: true };
@@ -57,11 +63,12 @@ export function checkWall(
 
 /** Scope items to the caller's workspace unless explicitly unscoped. */
 export function scopeToWorkspace<T>(
+  orchDir: string,
   items: T[],
   keyOf: (item: T) => string | null,
   currentWs: string | null,
   opts: { all: boolean },
 ): T[] {
   if (opts.all || currentWs === null) return items;
-  return items.filter((item) => sameWorkspace(workspaceOf(keyOf(item)), currentWs));
+  return items.filter((item) => sameWorkspace(workspaceOf(orchDir, keyOf(item)), currentWs));
 }

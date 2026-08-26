@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { selectRuns } from "../src/store/run-rows.ts";
+import { openStore } from "../src/store/connection.ts";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import {
   derivePresenceTransition,
   emitAndNotify,
@@ -12,6 +16,7 @@ import {
 import { rpcSubscribe, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
 import type { Sink } from "../src/notify/router.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
@@ -53,7 +58,7 @@ function eventState(value: unknown): string | undefined {
 afterEach(async () => {
   for (const watcher of presenceWatches.splice(0)) watcher.stop();
   for (const server of servers.splice(0)) await server.close();
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) removeTempDir(directory);
 });
 
 describe("daemon presence events", () => {
@@ -73,6 +78,109 @@ describe("daemon presence events", () => {
     await waitFor(() => received.some((event) => eventState(event) === "idle"));
     stop();
     expect(eventState(received[0])).toBe("idle");
+  });
+
+  test("a dispatched transition writes the full run row and preserves untruncated result", async () => {
+    const orchDir = tempOrchDir();
+    const key = "headless~runs~full";
+    const startedAt = "2026-01-01T00:00:00.000Z";
+    const finishedAt = "2026-01-01T00:01:00.000Z";
+    const resultText = "x".repeat(3_000);
+    insertSpawnedRecord(orchDir, { pane: key, adapter: "pi", workspace: "workspace-full" });
+    writeStatus(orchDir, key, "working", { dispatchId: "dispatch-full", startedAt });
+    const events: unknown[] = [];
+    const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
+    presenceWatches.push(watcher);
+
+    writeResult(presenceAgentDir(key, orchDir), { text: resultText });
+    writeStatus(orchDir, key, "done", {
+      dispatchId: "dispatch-full",
+      task: "the complete task",
+      model: { provider: "provider", id: "model-full" },
+      startedAt,
+      finishedAt,
+      tokens: { input: 11, output: 22, cacheRead: 33, cacheWrite: 44 },
+      cost: 1.25,
+      turns: 7,
+      lastError: "last problem",
+    });
+    await waitFor(() => events.some((event) => eventState(event) === "done"));
+
+    const [run] = selectRuns(orchDir);
+    expect(run).toMatchObject({
+      dispatchId: "dispatch-full",
+      agentKey: key,
+      adapter: "pi",
+      model: "model-full",
+      workspace: "workspace-full",
+      task: "the complete task",
+      state: "done",
+      startedAt,
+      finishedAt,
+      tokensIn: 11,
+      tokensOut: 22,
+      cacheRead: 33,
+      cacheWrite: 44,
+      cost: 1.25,
+      turns: 7,
+      result: resultText,
+      lastError: "last problem",
+    });
+    expect((events.find((event) => eventState(event) === "done") as { result?: string }).result).toHaveLength(2_000);
+  });
+
+  test("repeated transitions upsert one run and only terminal states set finishedAt", async () => {
+    const orchDir = tempOrchDir();
+    const key = "headless~runs~repeat";
+    const startedAt = "2026-01-02T00:00:00.000Z";
+    const events: unknown[] = [];
+    writeStatus(orchDir, key, "working", { dispatchId: "dispatch-repeat", startedAt, task: "first task" });
+    const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
+    presenceWatches.push(watcher);
+
+    writeStatus(orchDir, key, "blocked", {
+      dispatchId: "dispatch-repeat",
+      startedAt,
+      task: "updated task",
+      tokens: { input: 4, output: 5 },
+      cost: 0.5,
+      turns: 2,
+    });
+    await waitFor(() => events.some((event) => eventState(event) === "blocked"));
+    const blockedRun = selectRuns(orchDir)[0];
+    expect(blockedRun).toMatchObject({ state: "blocked", startedAt, task: "updated task", tokensIn: 4, turns: 2 });
+    expect(blockedRun?.finishedAt).toBeUndefined();
+
+    writeStatus(orchDir, key, "done", { dispatchId: "dispatch-repeat", startedAt, finishedAt: "2026-01-02T00:02:00.000Z" });
+    await waitFor(() => events.some((event) => eventState(event) === "done"));
+    const runs = selectRuns(orchDir);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ dispatchId: "dispatch-repeat", state: "done", startedAt, finishedAt: "2026-01-02T00:02:00.000Z" });
+  });
+
+  test("a status without a dispatch id does not write history", async () => {
+    const orchDir = tempOrchDir();
+    const key = "headless~runs~human";
+    const events: unknown[] = [];
+    writeStatus(orchDir, key, "working");
+    const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
+    presenceWatches.push(watcher);
+    writeStatus(orchDir, key, "done", { finishedAt: "2026-01-03T00:00:00.000Z" });
+    await waitFor(() => events.some((event) => eventState(event) === "done"));
+    expect(selectRuns(orchDir)).toEqual([]);
+  });
+
+  test("a throwing history write does not stop event delivery", async () => {
+    const orchDir = tempOrchDir();
+    const key = "headless~runs~broken-store";
+    openStore(orchDir).exec("CREATE TRIGGER fail_run_history BEFORE INSERT ON runs BEGIN SELECT RAISE(ABORT, 'history disabled'); END;");
+    const events: unknown[] = [];
+    writeStatus(orchDir, key, "working", { dispatchId: "dispatch-broken", startedAt: "2026-01-04T00:00:00.000Z" });
+    const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
+    presenceWatches.push(watcher);
+    writeStatus(orchDir, key, "done", { dispatchId: "dispatch-broken", finishedAt: "2026-01-04T00:01:00.000Z" });
+    await waitFor(() => events.some((event) => eventState(event) === "done"));
+    expect(events.some((event) => eventState(event) === "done")).toBe(true);
   });
 
   test("a flapping status file cannot storm the stream with repeat transitions", () => {
@@ -101,9 +209,12 @@ describe("daemon presence events", () => {
   });
 
   test("presence transitions resolve the human name before emission", () => {
+    const orchDir = tempOrchDir();
     const key = "w6:p-name";
+    insertSpawnedRecord(orchDir, { pane: key, workspace: "w6", name: "Ada" });
     const states = new Map([[key, "working"]]);
     const event = derivePresenceTransition(
+      orchDir,
       key,
       { pid: process.pid, state: "done", agent: "Ada" },
       { name: null, tab: null },

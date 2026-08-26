@@ -1,6 +1,6 @@
 import * as path from "node:path";
-import { loadPresence, removePresenceAgentDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/sqlite.ts";
+import { loadPresence, orchDir, reapDeadPresenceDirs, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { errorMessage } from "../util.ts";
 import {
   listAgentWorktrees,
@@ -70,18 +70,21 @@ function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean
   return { worktrees, force };
 }
 
-export function removeDeadAgentDirs(json = false): string[] {
-  const removed: string[] = [];
-  for (const e of loadPresence().values()) {
-    if (!e.alive) {
-      try {
-        removePresenceAgentDir(e.dir);
-        removed.push(`${e.key} (pid ${e.status?.pid ?? "?"})`);
-      } catch (err: unknown) {
-        process.stderr.write(`failed to remove ${e.dir}: ${errorMessage(err)}\n`);
-      }
-    }
+export interface DeadAgentSweepOptions {
+  /** Root to inspect; omitted for the operator's configured ORCH_DIR. */
+  root?: string;
+  /** Only reap directories whose mtime is before this cutoff. */
+  olderThan?: Date;
+}
+
+/** Reap dead presence through the same spawned/ownership cleanup path as orch clean.
+ * The presence store owns the directory and database cleanup; this command adds output. */
+export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions = {}): string[] {
+  const result = reapDeadPresenceDirs(options.root ?? orchDir(), options.olderThan);
+  for (const failure of result.failed) {
+    process.stderr.write(`failed to remove ${failure.entry.dir}: ${errorMessage(failure.error)}\n`);
   }
+  const removed = result.removed.map((entry) => `${entry.key} (pid ${entry.status?.pid ?? "?"})`);
   if (!json) {
     if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
     else process.stdout.write("Nothing to clean - all agent dirs have live pids (or none exist).\n");

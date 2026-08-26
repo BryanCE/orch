@@ -1,12 +1,11 @@
 // Leaf module: the canonical notification formatter. It imports no notify module,
 // so the sink builtins can format without re-entering the router that composes them.
-import { workspaceOf } from "../policy/workspace.ts";
 import { errorMessage, textValue } from "../util.ts";
 
 export interface NotifyEvent {
   host?: string;
   key: string;
-  /** Origin workspace; derived from key when omitted. */
+  /** Origin workspace, for display only; absent when the agent has no placement. */
   workspace?: string;
   /** Human-assigned agent name. */
   agent: string | null;
@@ -70,12 +69,8 @@ function workspaceAnsi(workspace: string): string {
   return `\u001b[${WORKSPACE_ANSI[(hash >>> 0) % WORKSPACE_ANSI.length]!}m`;
 }
 
-export function workspaceLabelForKey(key: string): string {
-  const keyWorkspace = key.includes(":") ? key.split(":", 1)[0] : undefined;
-  // A bare pane id is not a useful human-facing workspace label. Other
-  // unscoped keys (for example task-1) are already caller-provided labels.
-  const barePane = /^p[0-9A-Za-z]+$/.test(key);
-  return workspaceOf(key) ?? keyWorkspace ?? (barePane ? "workspace" : key || "workspace");
+export function workspaceLabelForKey(_key: string): string {
+  return "workspace";
 }
 
 function eventWorkspace(event: NotifyEvent): string {

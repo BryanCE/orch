@@ -23,6 +23,8 @@ export interface BackendCapabilities {
   readonly focusable: boolean;
   /** Whether the backend can deliver raw keystrokes to a handle. */
   readonly canSendKeys: boolean;
+  /** Whether the backend owns logs and can prune its stale log artifacts. */
+  readonly canPruneLogs: boolean;
 }
 
 /** Options common to backend launches. */
@@ -170,6 +172,8 @@ export interface Backend<Handle = BackendHandle> {
   readonly focusable: boolean;
   /** Whether raw keystroke delivery is supported (capability-gated by callers). */
   readonly canSendKeys: boolean;
+  /** Declared backend capabilities. */
+  readonly caps: BackendCapabilities;
   /** Whether the backend binary/runtime is present on this machine. */
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
@@ -207,6 +211,8 @@ export interface Backend<Handle = BackendHandle> {
   renameAgent?(handle: Handle, name: string): boolean;
   /** Rename the pane border label of a target. */
   renamePane?(handle: Handle, name: string): boolean;
+  /** Remove stale backend-owned logs, retaining logs for live presence keys. */
+  pruneLogs?(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number;
   /** Move a target into an existing group. */
   moveToGroup?(handle: Handle, group: string, split: BackendSplit, against?: Handle): boolean;
   /** Move a target into a freshly created group. */

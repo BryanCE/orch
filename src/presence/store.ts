@@ -7,15 +7,16 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
-import { deleteSpawnedRecord, insertSpawnedRecord, selectSpawnedRecords, setOwner, type SpawnedRecord } from "../store/sqlite.ts";
+import { deleteSpawnedRecord, insertSpawnedRecord, selectSpawnedRecords, type SpawnedRecord } from "../store/spawned-rows.ts";
+import { deleteOwner, setOwner } from "../store/ownership-rows.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
 import type { BackendId } from "../backends/backend.ts";
 
 export { orchDir, presenceAgentDir };
 
-export function presenceDir(): string {
-  return presenceRoot();
+export function presenceDir(root = orchDir()): string {
+  return presenceRoot(root);
 }
 
 /** Serialized identity keys are already a single filesystem-safe segment
@@ -34,12 +35,6 @@ export interface PresenceStatus {
   schema: number;
   agent?: string;
   key?: string;
-  /** Backend that minted this agent's identity (herdr/tmux/headless). */
-  backend?: string;
-  /** Backend-reported workspace for wall checks and display. */
-  workspace?: string;
-  /** Backend-native handle (herdr/tmux pane id, headless pid). */
-  handle?: string;
   paneId?: string | null;
   pid?: number;
   cwd?: string;
@@ -80,10 +75,24 @@ export interface PresenceStatus {
   blockedMessage?: string;
 }
 
+/** Safe, descriptive fields retained from every status.json, including records
+ * that fail the live schema gate. This is intentionally not PresenceStatus:
+ * callers can identify malformed dirs without ever treating them as live. */
+export interface PresenceDescription {
+  label?: string;
+  cwd?: string;
+  agent?: string;
+  updatedAt?: string;
+  finishedAt?: string;
+}
+
 export interface PresenceEntry {
   key: string;
   dir: string;
+  /** Current-schema status only. Malformed or unstamped records are null. */
   status: PresenceStatus | null;
+  /** Descriptive metadata from disk; never used to establish liveness. */
+  description?: PresenceDescription;
   result: unknown;
   alive: boolean;
 }
@@ -104,7 +113,30 @@ export function readJSON<T = unknown>(file: string): T | null {
  *  name them and `orch clean` can reap them — they just never surface as a
  *  live status, so one bad dir can never break the whole status view. */
 function isPresenceStatus(value: unknown): value is PresenceStatus {
-  return isRecord(value) && value.schema === PRESENCE_SCHEMA;
+  // Placement is orch's, never the agent's to report (docs/reference/agent-ownership.md).
+  // A record stamping the CURRENT schema that still carries it is a writer claiming to
+  // know where it runs, which the registry alone answers — so it is malformed, not old.
+  return isRecord(value)
+    && value.schema === PRESENCE_SCHEMA
+    && !("backend" in value)
+    && !("workspace" in value)
+    && !("handle" in value);
+}
+
+/** Keep only fields doctor may display when a status fails the schema gate. */
+function describePresenceStatus(value: unknown): PresenceDescription {
+  if (!isRecord(value)) return {};
+  const description: PresenceDescription = {};
+  if (typeof value.label === "string") description.label = value.label;
+  if (typeof value.cwd === "string") description.cwd = value.cwd;
+  if (typeof value.agent === "string") description.agent = value.agent;
+  if (typeof value.updatedAt === "string") description.updatedAt = value.updatedAt;
+  if (typeof value.finishedAt === "string") description.finishedAt = value.finishedAt;
+  return description;
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 export function readPresenceStatus(file: string): PresenceStatus | null {
@@ -147,30 +179,69 @@ export function spawnedRecords(): Map<string, SpawnedRecord> {
   return records;
 }
 
-export function reapSpawnedRecord(key: string): void {
-  try { deleteSpawnedRecord(orchDir(), key); } catch {}
-  removePresenceAgentDir(presenceAgentDir(key));
+export function reapSpawnedRecord(key: string, root = orchDir()): void {
+  try { deleteSpawnedRecord(root, key); } catch {}
+  try { deleteOwner(root, key); } catch {}
+  removePresenceAgentDir(presenceAgentDir(key, root));
 }
 
-export function loadPresence(): Map<string, PresenceEntry> {
+export interface DeadPresenceReapResult {
+  removed: PresenceEntry[];
+  failed: { entry: PresenceEntry; error: unknown }[];
+}
+
+/** Reap dead presence directories old enough for retention. This is the shared
+ * path for daemon retention and `orch clean`; it also removes spawned and owner rows. */
+export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPresenceReapResult {
+  const removed: PresenceEntry[] = [];
+  const failed: { entry: PresenceEntry; error: unknown }[] = [];
+  const cutoffMs = olderThan?.getTime();
+  for (const entry of loadPresence(root).values()) {
+    if (entry.alive) continue;
+    if (cutoffMs !== undefined) {
+      try {
+        if (statSync(entry.dir).mtimeMs >= cutoffMs) continue;
+      } catch {
+        continue;
+      }
+    }
+    try {
+      reapSpawnedRecord(entry.key, root);
+      removed.push(entry);
+    } catch (error: unknown) {
+      failed.push({ entry, error });
+    }
+  }
+  return { removed, failed };
+}
+
+export function loadPresence(root = orchDir()): Map<string, PresenceEntry> {
   const presence = new Map<string, PresenceEntry>();
   let keys: string[];
   try {
-    keys = readdirSync(presenceDir());
-  } catch {
-    return presence;
+    keys = readdirSync(presenceDir(root));
+  } catch (error: unknown) {
+    // An agents path that is missing, or is a file where a directory belongs,
+    // holds no presence either way. Doctor reports the malformed path — it can
+    // only do that if reading it returns empty instead of throwing.
+    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTDIR")) return presence;
+    throw error;
   }
   for (const storedKey of keys) {
     const key = presenceKeyFromDirectoryName(storedKey);
-    const dir = presenceAgentDir(key);
+    const dir = presenceAgentDir(key, root);
     try {
       if (!statSync(dir).isDirectory()) continue;
     } catch {
       continue;
     }
-    const status = readPresenceStatus(join(dir, STATUS_FILE));
+    const statusRecord = readJSON<unknown>(join(dir, STATUS_FILE));
+    const status = isPresenceStatus(statusRecord) ? statusRecord : null;
+    const description = describePresenceStatus(statusRecord);
     const result = readJSON(join(dir, RESULT_FILE));
-    presence.set(key, { key, dir, status, result, alive: pidAlive(status?.pid) });
+    // Liveness is derived only from the gated status. Descriptive metadata is
+    // deliberately separate, so malformed records can never enter live paths.
+    presence.set(key, { key, dir, status, description, result, alive: pidAlive(status?.pid) });
   }
   return presence;
 }

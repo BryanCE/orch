@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseTargetPrompt, resultText, splitOptionFlags, remoteCommandArgs, livePanePresenceEntries } from "../src/commands/target.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 describe("commands/target", () => {
   test("splits known flags and preserves positional args", () => {
@@ -24,6 +25,6 @@ describe("commands/target", () => {
         seedStatus(root, key, { key, pid });
       }
       expect(livePanePresenceEntries().map((entry) => entry.key)).toEqual(["headless~local~1"]);
-    } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; rmSync(root, { recursive: true, force: true }); }
+    } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 });

@@ -11,6 +11,7 @@ import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening-"));
 
@@ -27,7 +28,7 @@ describe("adapter and runtime hardening", () => {
     const directory = temp();
     writeSettingsFixture(directory, { defaults: { modle: "typo" } });
     expect(() => loadConfig(directory)).toThrow(/modle/);
-    fs.rmSync(directory, { recursive: true, force: true });
+    removeTempDir(directory);
   });
 
   test("doctor returns failures for malformed notifier config and broken agent directories", async () => {
@@ -37,7 +38,7 @@ describe("adapter and runtime hardening", () => {
     const agents = path.join(directory, "agents");
     fs.writeFileSync(agents, "not a directory");
     expect(await checkExtensionStaleness(directory, path.join(directory, "missing.js"))).toMatchObject({ status: "fail", id: "extension-staleness" });
-    fs.rmSync(directory, { recursive: true, force: true });
+    removeTempDir(directory);
   });
 
   test("headless refuses to spawn without a caller-minted presence key", () => {
@@ -63,7 +64,7 @@ describe("adapter and runtime hardening", () => {
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;
-      fs.rmSync(directory, { recursive: true, force: true });
+      removeTempDir(directory);
     }
   });
 });

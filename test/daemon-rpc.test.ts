@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireDaemonLock } from "../src/daemon/lifecycle";
@@ -10,12 +10,16 @@ import {
   DaemonUnreachableError,
   RpcError,
   rpcCall,
+  rpcHello,
   rpcSubscribe,
+  subscribeEvents,
+  ReplayBuffer,
   startRpcServer,
   type RpcServer,
 } from "../src/daemon/rpc";
-import { type SessionIdentity } from "../src/store/sqlite";
-import { isRecord } from "../src/util";
+import { isSessionIdentity } from "../src/store/identity-rows.ts";
+import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];
 const servers: RpcServer[] = [];
@@ -24,16 +28,6 @@ function tempOrchDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-rpc-"));
   dirs.push(dir);
   return dir;
-}
-
-/** Verifies what `hello` claims to return, so a test can read `.id` without a cast.
- *  `expect.any(String)` would assert the same thing as an `any`, which the lint rules
- *  reject and which narrows nothing for the lines that follow. */
-function isSessionIdentity(value: unknown): value is SessionIdentity {
-  return isRecord(value)
-    && typeof value.id === "string" && value.id.length > 0
-    && typeof value.label === "string"
-    && value.kind === "session";
 }
 
 /** A handler that never responds — the shape a starved daemon presents to the CLI. */
@@ -89,7 +83,7 @@ async function start(dir: string): Promise<RpcServer> {
 
 afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
-  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
 describe("daemon RPC", () => {
@@ -99,12 +93,11 @@ describe("daemon RPC", () => {
     expect(await rpcCall(dir, "echo", { ok: true })).toEqual({ ok: true });
   });
 
-  test("issues one session identity to sequential connections from one ancestor", async () => {
+  test("issues one session identity to sequential invocations from one session", async () => {
     const dir = tempOrchDir();
     await start(dir);
-    const first = await rpcCall(dir, "hello");
-    const second = await rpcCall(dir, "hello");
-    if (!isSessionIdentity(first)) throw new Error(`hello returned a non-identity: ${JSON.stringify(first)}`);
+    const first = await rpcHello(dir);
+    const second = await rpcHello(dir);
     expect(second).toEqual(first);
     // An issued id is opaque; a plexer coordinate would carry `~` separators.
     expect(first.id).not.toContain("~");
@@ -115,10 +108,38 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token });
+    const reply = await tcpHello(server, { token, pid: process.pid, startedAt: "2024-01-01T00:00:00.000Z", label: "web client" });
     expect(reply.id).toBe(1);
     if (!isSessionIdentity(reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
-    expect(reply.result.label).toBe("local TCP client");
+    expect(reply.result.label).toBe("web client");
+  });
+
+  test("refuses a hello that reports no session pid", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
+    expect(await tcpHello(server, { token })).toMatchObject({ id: 1, error: { code: "IDENTITY_UNAVAILABLE" } });
+  });
+
+  test("refuses a hello without a process start time", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
+    expect(await tcpHello(server, { token, pid: process.pid })).toMatchObject({ id: 1, error: { code: "IDENTITY_UNAVAILABLE" } });
+  });
+
+  test("issues a new identity when a pid is recycled", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
+    const first = await tcpHello(server, { token, pid: 424242, startedAt: "2024-01-01T00:00:00.000Z", label: "old session" });
+    const second = await tcpHello(server, { token, pid: 424242, startedAt: "2025-01-01T00:00:00.000Z", label: "new session" });
+    if (!isSessionIdentity(first.result) || !isSessionIdentity(second.result)) throw new Error("hello returned a non-identity");
+    expect(second.result.id).not.toBe(first.result.id);
+    expect(second.result.label).toBe("new session");
   });
 
   test("refuses a TCP hello without a token", async () => {
@@ -135,13 +156,15 @@ describe("daemon RPC", () => {
     expect(await tcpHello(server, { token: "wrong-token" })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
-  test("writes the TCP token with owner-only permissions", async () => {
+  test("writes the daemon token with owner-only permissions", async () => {
     const dir = tempOrchDir();
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const tokenFile = daemonRuntimeFiles(dir).token;
     expect(readFileSync(tokenFile, "utf8").trim()).toMatch(/^[0-9a-f]{64}$/);
-    expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
+    // Windows carries no POSIX mode bits: the token inherits the ACL of the
+    // per-user directory it lives in, which is the same-uid proof the mode gives here.
+    if (process.platform !== "win32") expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
   });
 
   test("returns an error for an unknown method", async () => {
@@ -181,6 +204,41 @@ describe("daemon RPC", () => {
     });
     expect(await event).toEqual({ kind: "pushed", value: 1 });
     server.emit({ kind: "broadcast", value: 2 });
+  });
+
+  test("replays durable events after a daemon restart without a gap", async () => {
+    const dir = tempOrchDir();
+    const first = await start(dir);
+    const received: unknown[] = [];
+    const gaps: number[] = [];
+    const subscription = subscribeEvents(dir, { since: 0 }, (event) => received.push(event), (oldest) => gaps.push(oldest));
+    const deadline = Date.now() + 2_000;
+    while (first.subscriberCount() === 0 && Date.now() < deadline) await Bun.sleep(5);
+    first.emit({ value: 1 });
+    while (received.length < 1 && Date.now() < deadline) await Bun.sleep(5);
+    expect(received).toEqual([{ value: 1 }]);
+    await first.close();
+    servers.splice(servers.indexOf(first), 1);
+    const second = await start(dir);
+    const secondDeadline = Date.now() + 3_000;
+    while (second.subscriberCount() === 0 && Date.now() < secondDeadline) await Bun.sleep(5);
+    second.emit({ value: 2 });
+    while (received.length < 2 && Date.now() < secondDeadline) await Bun.sleep(5);
+    expect(received).toEqual([{ value: 1 }, { value: 2 }]);
+    expect(gaps).toEqual([]);
+    subscription.close();
+  });
+
+  test("reports the oldest sequence when replay starts before the pruned window", () => {
+    const dir = tempOrchDir();
+    appendEvent(dir, "2024-01-01T00:00:00.000Z", { value: 1 });
+    appendEvent(dir, "2024-01-02T00:00:00.000Z", { value: 2 });
+    appendEvent(dir, "2024-01-03T00:00:00.000Z", { value: 3 });
+    deleteEventsBefore(dir, "2024-01-03T00:00:00.000Z");
+    const replay = new ReplayBuffer(dir).since(0);
+    expect(replay.gap).toBe(true);
+    expect(replay.oldestSeq).toBe(3);
+    expect(replay.events).toEqual([{ seq: 3, event: { value: 3 } }]);
   });
 
   test("removes a stale unix socket when the daemon owns the lock", async () => {

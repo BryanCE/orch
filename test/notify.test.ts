@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliverToSink, loadSinks, notify } from "../src/notify/router.ts";
 import { notificationText, type NotifyEvent } from "../src/notify/format.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 // Registers the herdr sink provider, as the real CLI does, so herdr entries parse deterministically.
 import "../src/backends/herdr/index.ts";
 
@@ -45,7 +46,7 @@ function captureStderr<T>(callback: () => T): { value: T; stderr: string } {
 }
 
 afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
 describe("notify", () => {
@@ -107,6 +108,7 @@ describe("notify", () => {
     const event: NotifyEvent = {
       host: "gpu1",
       key: "task-1",
+      workspace: "task-1",
       agent: "worker",
       tab: "workers",
       model: "terra:medium",
@@ -152,6 +154,7 @@ describe("notify", () => {
   test("titles lead with exactly one terminal state and agent", () => {
     expect(notificationText({
       key: "w6:p21",
+      workspace: "w6",
       agent: "w-2",
       tab: null,
       model: null,
@@ -162,6 +165,7 @@ describe("notify", () => {
     }).title).toBe("DONE [w6] w-2: ship it");
     expect(notificationText({
       key: "w6:p21",
+      workspace: "w6",
       agent: "w-2",
       tab: null,
       model: null,
@@ -172,6 +176,7 @@ describe("notify", () => {
     }).title).toBe("BLOCKED [w6] w-2: need approval");
     expect(notificationText({
       key: "w6:p21",
+      workspace: "w6",
       agent: "w-2",
       tab: null,
       model: null,

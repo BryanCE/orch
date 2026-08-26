@@ -100,7 +100,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly panes = true;
   readonly focusable = true;
   readonly canSendKeys = true;
-  readonly caps: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true };
+  readonly caps: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true, canPruneLogs: false };
 
   /** True when the herdr binary is resolvable on PATH. */
   isAvailable(): boolean {

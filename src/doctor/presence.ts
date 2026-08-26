@@ -1,13 +1,13 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { presenceDir, presenceKeyFromDirectoryName } from "../presence/store.ts";
-import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
+import { loadPresence, presenceDir, type PresenceEntry } from "../presence/store.ts";
+import { placementOf } from "../agent/registry.ts";
+import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import type { CheckResult, IgnoredPresenceRecord } from "../check-result.ts";
-import { selectQueueTasks } from "../store/sqlite.ts";
+import { selectQueueTasks } from "../store/queue-rows.ts";
 import type { TaskRec } from "../queue.ts";
-import { hasErrorCode, readAgentEntries, readJson } from "./shared.ts";
-import { isRecord, pidAlive, truncate } from "../util.ts";
+import { truncate } from "../util.ts";
 
 function humanAge(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "unknown";
@@ -20,23 +20,15 @@ function humanAge(ms: number): string {
   return `${Math.floor(hr / 24)}d ago`;
 }
 
-/** Recover the logical pane key from a presence dir name (Windows escapes ':' and '%'). */
-function keyFromDirName(name: string): string {
-  return presenceKeyFromDirectoryName(name);
-}
-
 /** One human-legible line identifying a presence dir — so nobody deletes a live session blind. */
-function describePresenceDir(agentsDir: string, name: string): string {
-  const key = keyFromDirName(name);
-  const status = readJson(path.join(agentsDir, name, STATUS_FILE));
-  const value = isRecord(status) ? status : {};
-  const label = typeof value.label === "string" && value.label.trim() ? value.label.trim() : null;
-  const cwd = typeof value.cwd === "string" ? value.cwd : null;
+function describePresenceDir(entry: PresenceEntry, orchDir?: string): string {
+  const { key, description = {} } = entry;
+  const label = description.label?.trim() ?? "";
+  const cwd = description.cwd ?? null;
   const project = cwd ? path.basename(cwd) : null;
-  const agent = typeof value.agent === "string" ? value.agent : null;
-  const workspace = key.includes(":") ? key.slice(0, key.indexOf(":")) : null;
-  const stamp = typeof value.updatedAt === "string" ? value.updatedAt
-    : typeof value.finishedAt === "string" ? value.finishedAt : null;
+  const agent = description.agent ?? null;
+  const workspace = orchDir ? placementOf(orchDir, key)?.workspace ?? null : null;
+  const stamp = description.updatedAt ?? description.finishedAt ?? null;
   const seen = stamp ? `last seen ${humanAge(Date.now() - Date.parse(stamp))}` : null;
   const head = label ? `${label} (${key})` : key;
   return [head, project ? `project ${project}` : null, workspace ? `ws ${workspace}` : null, agent, seen]
@@ -45,29 +37,17 @@ function describePresenceDir(agentsDir: string, name: string): string {
 }
 
 export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
-  const agentsDir = orchDir === undefined ? presenceDir() : path.join(orchDir, "agents");
-  let entries: filesystem.Dirent[];
-  try {
-    entries = filesystem.readdirSync(agentsDir, { withFileTypes: true });
-  } catch (error: unknown) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no presence records", ignoredRecords: [] };
-    }
-    throw error;
+  const entries = loadPresence(orchDir);
+  if (!entries.size && !filesystem.existsSync(presenceDir(orchDir))) {
+    return { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no presence records", ignoredRecords: [] };
   }
 
   const ignoredRecords: IgnoredPresenceRecord[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const recordPath = path.join(agentsDir, entry.name);
-    const key = presenceKeyFromDirectoryName(entry.name);
+  for (const entry of entries.values()) {
     const reasons: string[] = [];
-    if (!tryParseIdentity(key)) reasons.push("malformed identity key");
-    let status: unknown = null;
-    try { status = readJson(path.join(recordPath, STATUS_FILE)); } catch {}
-    if (!isRecord(status) || status.schema !== PRESENCE_SCHEMA)
-      reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
-    if (reasons.length) ignoredRecords.push({ path: recordPath, reason: reasons.join("; ") });
+    if (!tryParseIdentity(entry.key)) reasons.push("malformed identity key");
+    if (entry.status === null) reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
+    if (reasons.length) ignoredRecords.push({ path: entry.dir, reason: reasons.join("; ") });
   }
 
   return ignoredRecords.length
@@ -117,16 +97,11 @@ export function checkUnscopedTasks(orchDir: string): CheckResult {
 
 export async function checkStalePresence(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
-  const agentsDir = path.join(orchDir, "agents");
-  const entries = readAgentEntries(orchDir);
-  if (!entries) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
-  const stale: { name: string; description: string }[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    try {
-      const status = readJson(path.join(agentsDir, entry.name, STATUS_FILE)) as { pid?: unknown };
-      if (!pidAlive(status?.pid)) stale.push({ name: entry.name, description: describePresenceDir(agentsDir, entry.name) });
-    } catch {}
+  const entries = loadPresence(orchDir);
+  if (!entries.size) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
+  const stale: { entry: PresenceEntry; description: string }[] = [];
+  for (const entry of entries.values()) {
+    if (!entry.alive) stale.push({ entry, description: describePresenceDir(entry, orchDir) });
   }
   if (!stale.length) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
   return {
@@ -138,8 +113,8 @@ export async function checkStalePresence(orchDir: string): Promise<CheckResult> 
       description: `Delete ${stale.length} dead presence dir${stale.length === 1 ? "" : "s"}: ${stale.map((item) => item.description).join("; ")}`,
       destructive: true,
       apply() {
-        for (const { name } of stale) {
-          filesystem.rmSync(path.join(agentsDir, name), { recursive: true, force: true });
+        for (const { entry } of stale) {
+          filesystem.rmSync(entry.dir, { recursive: true, force: true });
         }
       },
     },

@@ -4,7 +4,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drainOutbox } from "../src/daemon/outbox.ts";
-import { insertOutboxMessage, selectPendingOutbox } from "../src/store/sqlite.ts";
+import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 
 const tempDirs: string[] = [];
 

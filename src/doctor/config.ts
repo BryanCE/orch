@@ -5,31 +5,6 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import type { CheckResult } from "../check-result.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
 
-export async function checkSpawnedRegistry(orchDir: string): Promise<CheckResult> {
-  await Promise.resolve();
-  const file = path.join(orchDir, "spawned.jsonl");
-  let text: string;
-  try {
-    text = filesystem.readFileSync(file, "utf8");
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { id: "spawned-registry", label: "Spawn registry", status: "ok", detail: "no spawn registry" };
-    throw error;
-  }
-  const corrupt: number[] = [];
-  for (const [index, line] of text.split(/\r?\n/).entries()) {
-    if (!line.trim()) continue;
-    try {
-      const entry: unknown = JSON.parse(line);
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("not an object");
-    } catch {
-      corrupt.push(index + 1);
-    }
-  }
-  return corrupt.length
-    ? { id: "spawned-registry", label: "Spawn registry", status: "warn", detail: `corrupt JSON on line${corrupt.length === 1 ? "" : "s"} ${corrupt.join(", ")}` }
-    : { id: "spawned-registry", label: "Spawn registry", status: "ok", detail: "all registry entries are valid JSON" };
-}
-
 export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const fleet: OrchConfig["fleet"] | undefined = loadConfigOrNull(orchDir)?.fleet;

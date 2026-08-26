@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtime.ts";
 import { binaryOnPath } from "../src/util.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const shim = claudeHookShimPath(process.cwd());
 const shimBuilt = fs.existsSync(shim);
@@ -23,7 +24,7 @@ function tempOrchDir(): string {
 }
 
 afterEach(() => {
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 interface ShimRun {

@@ -2,8 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import type { TaskRec } from "../src/queue.ts";
 import { addTask } from "../src/queue.ts";
+import { insertQueueTask } from "../src/store/queue-rows.ts";
 import { checkUnscopedTasks } from "../src/doctor/presence.ts";
 import { runDoctor } from "../src/doctor/runner.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -19,11 +20,16 @@ function tempDir(): string {
 /** Seed a queued row with a NULL origin workspace — addTask refuses to write one. */
 function seedUnscopedRow(orchDir: string, id: string): void {
   const ts = new Date().toISOString();
-  const db = new Database(path.join(orchDir, "orch.db"));
-  db.query(
-    "INSERT INTO queue (id, text, opts, origin_workspace, created_at, updated_at, state, retries) VALUES (?, ?, '{}', NULL, ?, ?, 'queued', 0)",
-  ).run(id, "orphaned task", ts, ts);
-  db.close();
+  const task: TaskRec = {
+    id,
+    text: "orphaned task",
+    opts: {},
+    createdAt: ts,
+    updatedAt: ts,
+    state: "queued",
+    retries: 0,
+  };
+  insertQueueTask(orchDir, task);
 }
 
 afterEach(() => {

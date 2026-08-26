@@ -52,7 +52,7 @@ export async function cmdEvents(args: string[]) {
     const inScope = options.targets.length
       ? items.has(key)
       : looksLikePaneKey(key)
-        && scopeToWorkspace([key], (item) => item, currentWorkspace(), { all: options.all }).length > 0;
+        && scopeToWorkspace(orchDir(), [key], (item) => item, currentWorkspace(), { all: options.all }).length > 0;
     if (!inScope) return false;
     if (!options.mine) return true;
     const eventSpawnedBy = isRecord(event) && typeof event.spawnedBy === "string" ? event.spawnedBy : undefined;
@@ -153,6 +153,7 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
   const items = new Map<string, WatchItem>();
   if (!options.targets.length) {
     const presences = scopeToWorkspace(
+      orchDir(),
       [...loadPresence().values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
       currentWorkspace(),
@@ -184,10 +185,14 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
   return items;
 }
 
+export function formatEventGap(oldestSeq: number): string {
+  return `warning: event history gap; events before sequence ${oldestSeq} were pruned (replay resumes at sequence ${oldestSeq})\n`;
+}
+
 function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"]): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
     if (options.statusFilter && !options.statusFilter.has(event.newState)) return false;
-    const id = event.workspace ?? workspaceOf(event.key);
+    const id = event.workspace ?? workspaceOf(orchDir(), event.key);
     const label = workspaceName(id, resolver);
     if (options.json) {
       process.stdout.write(`${JSON.stringify({ ...event, workspaceName: label, streamSeq })}\n`);
@@ -220,6 +225,7 @@ function startEventsTransport(context: EventsContext): () => void {
         process.exit(0);
       }
     },
+    (oldestSeq) => process.stderr.write(formatEventGap(oldestSeq)),
   );
   return () => subscription.close();
 }

@@ -7,7 +7,7 @@ import { buildEntities, recipientFor, recipientLabel, resolvePane } from "../ent
 import { STATUS_FILE } from "../presence/schema.ts";
 import { loadPresence, orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
-import { writeSpawnedName } from "../store/sqlite.ts";
+import { writeSpawnedName, type SpawnedRecord } from "../store/spawned-rows.ts";
 import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import type { LifecycleVerb } from "../adapters/adapter.ts";
@@ -73,8 +73,9 @@ function awaitIdleAfter(statusPath: string, beforeUpdated: number, sentAt: numbe
 /** Every orch-owned live agent, addressed by identity key. Keying on paneId instead
  *  silently skipped the entire detached fleet — a headless agent never has a pane. */
 export function ownedAgentKeys(): string[] {
+  const records = spawnedRecords();
   return buildEntities()
-    .filter((ent) => ent.presence && ownsAgent(spawnedRecords().get(ent.key) ?? {}))
+    .filter((ent) => ent.presence && ownsAgent(records.get(ent.key) ?? {}))
     .map((ent) => ent.key);
 }
 
@@ -322,8 +323,14 @@ export async function cmdRestart(args: string[]): Promise<void> {
 }
 
 /** Write the new label into orch's registry, then let the backend show it. */
-function renameAgent(backend: Backend, handle: BackendHandle, key: string, name: string): boolean {
-  const record = spawnedRecords().get(key);
+function renameAgent(
+  backend: Backend,
+  handle: BackendHandle,
+  key: string,
+  name: string,
+  records: ReadonlyMap<string, SpawnedRecord>,
+): boolean {
+  const record = records.get(key);
   if (!record) {
     process.stderr.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return false;
@@ -342,14 +349,15 @@ export function cmdRename(args: string[]) {
   const target = positional[0];
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
-  const { backend, handle, key } = backendTarget(target, "rename");
-  assertAgentOwned(target, { key }, force);
+  const records = spawnedRecords();
+  const { backend, handle, key } = backendTarget(target, "rename", records);
+  assertAgentOwned(target, { key }, force, records);
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.
   // --pane relabels the backend's pane chrome instead and leaves the name alone.
   let renamed: boolean | undefined;
   try {
-    renamed = paneLabel ? backend.renamePane?.(handle, name) : renameAgent(backend, handle, key, name);
+    renamed = paneLabel ? backend.renamePane?.(handle, name) : renameAgent(backend, handle, key, name, records);
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }
@@ -439,8 +447,9 @@ export function cmdAbort(args: string[]) {
   const force = args.includes("--force");
   const target = args.find((arg) => arg !== "--json" && arg !== "--force");
   if (!target) die("usage: orch abort <target> [--force] [--json]");
-  const { backend, handle, key } = backendTarget(target, "abort");
-  assertAgentOwned(target, { key }, force);
+  const records = spawnedRecords();
+  const { backend, handle, key } = backendTarget(target, "abort", records);
+  assertAgentOwned(target, { key }, force, records);
   if (!backend.canSendKeys) die(`backend ${backend.id} cannot send keys.`);
   if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${handle}.`);
   sleepMs(500);

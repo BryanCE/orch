@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TaskRec } from "../src/queue";
+import { insertQueueTask } from "../src/store/queue-rows.ts";
 import {
   addTask,
   cancelTask,
@@ -186,14 +186,19 @@ describe("queue", () => {
   test("a malformed null-workspace row is skipped at claim, never dispatched", () => {
     const orchDir = makeOrchDir();
     // A valid enqueue creates the store + schema; then seed a malformed row
-    // directly, since addTask now refuses to write one.
+    // through the queue store, since addTask now refuses to write one.
     const scoped = addTask(orchDir, "scoped", {}, "w1");
     const ts = new Date("2000-01-01T00:00:00.000Z").toISOString();
-    const db = new Database(join(orchDir, "orch.db"));
-    db.query(
-      "INSERT INTO queue (id, text, opts, origin_workspace, created_at, updated_at, state, retries) VALUES (?, ?, '{}', NULL, ?, ?, 'queued', 0)",
-    ).run("orphan-row", "orphan", ts, ts);
-    db.close();
+    const malformed: TaskRec = {
+      id: "orphan-row",
+      text: "orphan",
+      opts: {},
+      createdAt: ts,
+      updatedAt: ts,
+      state: "queued",
+      retries: 0,
+    };
+    insertQueueTask(orchDir, malformed);
 
     const tasks = listTasks(orchDir);
     expect(tasks.find((task) => task.id === "orphan-row")?.workspace).toBeUndefined();

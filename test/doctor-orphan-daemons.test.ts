@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkOrphanDaemons } from "../src/doctor/daemon.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const seeded: string[] = [];
 
@@ -15,7 +16,7 @@ function seedLockDir(pid: number): string {
 }
 
 afterEach(() => {
-  while (seeded.length) rmSync(seeded.pop()!, { recursive: true, force: true });
+  while (seeded.length) removeTempDir(seeded.pop()!);
 });
 
 describe("doctor orphaned-daemon check", () => {

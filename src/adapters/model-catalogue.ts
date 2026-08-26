@@ -2,7 +2,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { retryingAsync, retryingSync, type RetryPolicy } from "../retry.ts";
 import { orchDir } from "../presence/writer.ts";
-import { clearCatalogues, readCatalogues, writeCatalogues, type StoredCatalogue } from "./catalogue-store.ts";
+import { clearCatalogues, readCatalogues, writeCatalogue, type StoredCatalogue } from "../store/catalogue-rows.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 
 /** A cold registry on a slow machine takes far longer to print than a warm one, and giving up
@@ -36,7 +36,7 @@ let storedFrom: string | undefined;
 function catalogues(): Map<string, StoredCatalogue> {
   const directory = orchDir();
   if (storedFrom !== directory) {
-    stored = readCatalogues();
+    stored = readCatalogues(directory);
     storedFrom = directory;
   }
   return stored;
@@ -51,9 +51,9 @@ function isStale(entry: StoredCatalogue): boolean {
 }
 
 function record(command: string, stdout: string): void {
-  const store = catalogues();
-  store.set(command, { at: Date.now(), stdout });
-  writeCatalogues(store);
+  const entry = { at: Date.now(), stdout };
+  catalogues().set(command, entry);
+  writeCatalogue(orchDir(), command, entry);
 }
 
 /** An unanswerable harness lists nothing rather than failing the caller; the reason goes to stderr. */
@@ -120,5 +120,5 @@ export function warmModelCatalogue(bin: string, argv: readonly string[]): Promis
 export function forgetModelCatalogues(): void {
   stored = new Map();
   storedFrom = undefined;
-  clearCatalogues();
+  clearCatalogues(orchDir());
 }

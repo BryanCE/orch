@@ -1,19 +1,25 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { TaskRec } from "../src/queue";
 import { addTask, listTasks, nextQueuedTask } from "../src/queue";
+import { insertQueueTask } from "../src/store/queue-rows.ts";
 
 /** Seed a malformed queue row with a NULL origin workspace — addTask refuses to write one. */
 function seedUnscopedRow(orchDir: string, id: string): void {
   const ts = new Date("2000-01-01T00:00:00.000Z").toISOString();
-  const db = new Database(join(orchDir, "orch.db"));
-  db.query(
-    "INSERT INTO queue (id, text, opts, origin_workspace, created_at, updated_at, state, retries) VALUES (?, ?, '{}', NULL, ?, ?, 'queued', 0)",
-  ).run(id, "legacy task", ts, ts);
-  db.close();
+  const task: TaskRec = {
+    id,
+    text: "legacy task",
+    opts: {},
+    createdAt: ts,
+    updatedAt: ts,
+    state: "queued",
+    retries: 0,
+  };
+  insertQueueTask(orchDir, task);
 }
 
 const tempDirs: string[] = [];

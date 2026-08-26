@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 const originalConfigTest = process.env.ORCH_CONFIG_TEST;
@@ -16,7 +17,7 @@ function tempDir(): string {
 }
 
 afterEach(() => {
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
   if (originalConfigTest === undefined) delete process.env.ORCH_CONFIG_TEST;
   else process.env.ORCH_CONFIG_TEST = originalConfigTest;
   if (originalConfigPrecedence === undefined) delete process.env.ORCH_CONFIG_PRECEDENCE;
@@ -74,6 +75,7 @@ describe("loadConfig", () => {
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
+      retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, identities_days: 5, agent_dirs_days: 6, logs_days: 7 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
@@ -95,6 +97,7 @@ describe("loadConfig", () => {
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
+      retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, identities_days: 5, agent_dirs_days: 6, logs_days: 7 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       locked_commands: [],
@@ -163,12 +166,36 @@ describe("loadConfig", () => {
     }
   });
 
-  test("applies timeout defaults and disables cross-workspace writes by default", () => {
+  test("applies every settings default when sections are absent", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory);
-    const config = loadConfig(directory);
-    expect(config.timeouts).toEqual({ dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 });
-    expect(config.fleet.cross_workspace).toBe(false);
+    fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node" }));
+
+    expect(loadConfig(directory)).toEqual({
+      runtime: "node",
+      enabled: { adapters: [], backends: [] },
+      defaults: { models: {}, worktree: false },
+      fleet: { spawn_cap: 8, max_agents: undefined, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false },
+      models: { allowed: {}, preferred: {} },
+      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
+      queue: { max_retries: 1 },
+      retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, identities_days: 7, agent_dirs_days: 7, logs_days: 7 },
+      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
+      notify: [],
+      locked_commands: [],
+      hosts: {},
+      workspaces: {},
+      daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
+      tiling: { first_split: "rows" },
+      skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
+    });
+  });
+
+  test("rejects non-positive and non-integer retention windows", () => {
+    for (const [key, value] of [["queue_days", 0], ["events_days", 1.5]] as const) {
+      const directory = tempDir();
+      writeSettingsFixture(directory, { retention: { [key]: value } });
+      expect(() => loadConfig(directory)).toThrow(new RegExp(`retention\\.${key}`));
+    }
   });
 
   test("rejects a host without dest", () => {
@@ -332,6 +359,21 @@ describe("writeSettingsDefault", () => {
     writeSettingsDefault(directory, "adapter", "pi");
 
     expect(loadConfig(directory).defaults.adapter).toBe("pi");
+  });
+});
+
+describe("writeSettingsFullTree", () => {
+  test("round-trips defaults without inventing max_agents", () => {
+    const directory = tempDir();
+    writeSettingsRuntime(directory, "node");
+    writeSettingsFullTree(directory);
+
+    const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as {
+      fleet?: Record<string, unknown>;
+    };
+    expect(raw.fleet).toEqual({ spawn_cap: 8, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false });
+    expect(Object.hasOwn(raw.fleet ?? {}, "max_agents")).toBe(false);
+    expect(loadConfig(directory).fleet.max_agents).toBeUndefined();
   });
 });
 

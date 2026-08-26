@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { startRpcServer, subscribeEvents, type EventSubscription, type RpcServer } from "../src/daemon/rpc";
 
@@ -61,7 +62,7 @@ describe("orchd event subscription", () => {
       first?.close();
       second?.close();
       await server?.close();
-      rmSync(orchDir, { recursive: true, force: true });
+      removeTempDir(orchDir);
     }
   });
 });

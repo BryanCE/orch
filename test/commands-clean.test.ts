@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeDeadAgentDirs } from "../src/commands/clean.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 describe("commands/clean", () => {
   test("reaps dead agent dirs but preserves live pids", () => {
@@ -15,6 +16,6 @@ describe("commands/clean", () => {
       expect(removeDeadAgentDirs(true)).toEqual(["dead (pid 999999)"]);
       expect(existsSync(join(root, "agents", "dead"))).toBe(false);
       expect(existsSync(join(root, "agents", "live"))).toBe(true);
-    } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; rmSync(root, { recursive: true, force: true }); }
+    } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 });

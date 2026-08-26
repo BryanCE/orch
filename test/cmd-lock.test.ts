@@ -1,10 +1,11 @@
 import { describe, expect, test, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireCommandLock, matchesLockedCommand, readCommandLock, releaseCommandLock } from "../src/control/cmd-lock.ts";
 import { cmdLock } from "../src/commands/lock.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 function tempDirectory(): string {
@@ -14,7 +15,7 @@ function tempDirectory(): string {
 }
 
 afterEach(() => {
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) removeTempDir(directory);
 });
 
 describe("command lock", () => {

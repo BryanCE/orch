@@ -75,6 +75,7 @@ orch spawn 2 --name api --cwd "$(git rev-parse --show-toplevel)"
 orch dispatch api-1 "add the FooBar type to src/types.ts and export it"
 orch events                                   # push stream; do not poll
 orch result api-1
+orch runs -n 20                               # durable dispatch history
 orch reset api-1                              # fresh context, same pane, name and model kept
 ```
 
@@ -137,7 +138,7 @@ workers are never told to reply to an address that would refuse them.
 | --- | --- |
 | `status [--json] [--all] [--all-panes] [--offline]` | Fleet table; `--all-panes` includes panes orch did not spawn, `--offline` reads presence files only. |
 | `questions` | Pending agent questions from live agents. |
-| `events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s…]] [--json]` | Push stream of state transitions; needs a running daemon. Bare: one readable line per transition, scoped to the agents this session spawned. |
+| `events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s…]] [--json] [--since-seq <n>] [--once]` | Push stream of state transitions with durable replay; needs a running daemon. Bare: one readable line per transition, scoped to the agents this session spawned. |
 | `queue add \| list \| history \| cancel` | Durable task queue; `add` takes `--worktree`. |
 | `work [--once] [--json]` | Assign queued tasks to idle agents. |
 | `review [list \| approve \| reject]` | Review, merge, or re-dispatch worktree results. |
@@ -149,7 +150,8 @@ workers are never told to reply to an address that would refuse them.
 | `pipe <src> <dst> ["instruction"]` | Hand one agent's finished result to another. |
 | `model <target> <model[:thinking]>` | Change a target's model. |
 | `wait <target> [--status s] [--timeout ms]` | Block until a status (default `done`, `timeouts.wait_ms`). |
-| `result <target> [--force] [--json]` | Print a result, falling back to session text. |
+| `result <target> [--force] [--json]` | Print a result from presence, run history, or adapter session text. |
+| `runs [<target>] [-n <count>] [--json]` | Durable dispatch history, newest first; optionally filter by target. |
 | `tail <target> [-n N]` / `session <target>` | Recent session entries; resolved session path and stats. |
 | `reload <target>… \| --all` | Reload panes and signal watchers. |
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
@@ -204,9 +206,11 @@ push stream with monotonic sequence numbers; a subscriber that reconnects replay
 last sequence and is told explicitly if there was a gap.
 
 Agents publish presence under `$ORCH_DIR/agents/<key>/` — `status.json`, `result.json`,
-`question.json` out; `inbox.jsonl`, `answer.json`, `ack.jsonl` in. Every spawned agent
-receives its identity as `ORCH_AGENT_KEY` and nothing else; a harness shim never reads
-`HERDR_PANE_ID`, `TMUX_PANE`, or any other plexer variable.
+`question.json`, and `control.json` are agent records; `inbox.jsonl`, `answer.json`, and
+`ack.jsonl` carry control traffic. Every spawned agent receives its identity as
+`ORCH_AGENT_KEY` and nothing else; a harness shim never reads `HERDR_PANE_ID`, `TMUX_PANE`,
+or any other plexer variable. See [`docs/reference/files-and-data-layout.md`](docs/reference/files-and-data-layout.md)
+for the complete on-disk map.
 
 ### Workspaces
 
@@ -223,7 +227,7 @@ effective value with the source that won.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "runtime": "node",
   "enabled": {
     "adapters": ["pi", "claude"],
@@ -242,6 +246,7 @@ effective value with the source that won.
   },
   "workers": { "inherit_extensions": true, "builtin_tools": true, "allow_tools": [] },
   "queue": { "max_retries": 1 },
+  "retention": { "queue_days": 14, "events_days": 7, "runs_days": 30, "outbox_days": 7, "identities_days": 7 },
   "timeouts": { "dispatch_ack_ms": 10000, "wait_ms": 300000, "adapter_command_ms": 60000, "notify_ms": 3000 },
   "notify": [
     { "id": "desktop", "on": ["blocked", "error", "done"] },
@@ -298,10 +303,11 @@ nothing.
 
 Two different surfaces, often confused:
 
-- **`orch events`** is a live stream for whoever is watching the fleet — a human in a
-  terminal or an orchestrating agent. It is a subscriber, not a notifier. Bare `orch events`
-  is the normal use: one readable line per transition, scoped to the agents this session
-  spawned, with no flag or `jq` filter needed to make it legible.
+- **`orch events`** is a stream for whoever is watching the fleet — a human in a terminal or
+  an orchestrating agent. It is a subscriber, not a notifier. Events are stored durably so a
+  reconnect after a daemon restart can replay from `--since-seq` (subject to retention).
+  Bare `orch events` is the normal use: one readable line per transition, scoped to the agents
+  this session spawned, with no flag or `jq` filter needed to make it legible.
 - **Notifier sinks** are delivered by **orchd**, whether or not anyone has `orch events`
   open. Each entry in `notify` hands the event to something outside orch: `desktop` shells
   out to an OS notification daemon (`notify-send`, `wsl-notify-send`, or a bundled
@@ -338,10 +344,13 @@ The payload contract and per-adapter configuration are in
 
 ## Files and data layout
 
-All state lives under `$ORCH_DIR` (default `~/.orch`): the SQLite store `orch.db`, the
-daemon socket and lock, and one presence directory per agent. Ownership, the queue, and the
-outbox are in the database; presence files are disposable and regenerated by live agents.
-The full map is in
+All state lives under `$ORCH_DIR` (default `~/.orch`): the SQLite store `orch.db`, daemon
+runtime files, headless logs, and one presence directory per agent. The database holds the
+queue, ownership, outbox, spawned registry, catalogues, durable events, runs, and session
+identities; see [`docs/reference/store.md`](docs/reference/store.md) for table details.
+Presence files are disposable and regenerated by live agents. `orch result` can
+fall back to run history after a presence directory is reaped when addressed by its canonical
+key. The full map is in
 [`docs/reference/files-and-data-layout.md`](docs/reference/files-and-data-layout.md).
 
 ## License

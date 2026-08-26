@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkRuntime, runningRuntime, shebangRuntime, type RuntimeObservations } from "../src/doctor/runtime.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 
@@ -34,7 +35,7 @@ function observed(overrides: Partial<RuntimeObservations> = {}): RuntimeObservat
 }
 
 afterEach(() => {
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("shebangRuntime", () => {

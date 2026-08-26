@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { closeAllStores } from "../../src/store/sqlite.ts";
+import { closeAllStores } from "../../src/store/connection.ts";
 import { provenDaemonPid } from "../../src/daemon/lifecycle.ts";
 
 const undeleted: string[] = [];

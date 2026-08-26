@@ -1,15 +1,33 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { deliverToSink } from "../src/notify/router.ts";
 import { notificationText, workspaceColor, type NotifyEvent } from "../src/notify/format.ts";
 import { TASK_MAX } from "../src/agent/presence.ts";
 import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+
+const orchDirs: string[] = [];
+
+function tempOrchDir(): string {
+  const directory = mkdtempSync(join(tmpdir(), "orch-notify-events-"));
+  orchDirs.push(directory);
+  return directory;
+}
+
+afterEach(() => {
+  while (orchDirs.length > 0) removeTempDir(orchDirs.pop()!);
+});
 
 const PALETTE = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"];
 
 function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   return {
     key: "herdr~w6~p21",
+    workspace: "w6",
     agent: "w-2",
     tab: null,
     model: null,
@@ -21,9 +39,9 @@ function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   };
 }
 
-function transition(key: string, status: object, previous = "working") {
+function transition(orchDir: string, key: string, status: object, previous = "working") {
   const states = new Map([[key, previous]]);
-  return derivePresenceTransition(key, { pid: process.pid, ...status }, { name: "worker", tab: null }, states);
+  return derivePresenceTransition(orchDir, key, { pid: process.pid, ...status }, { name: "worker", tab: null }, states);
 }
 
 describe("notification and presence event formatting", () => {
@@ -102,21 +120,25 @@ describe("notification and presence event formatting", () => {
   });
 
   test("presence eventTask strips worker preamble, truncates plain tasks, and formats questions", () => {
+    const orchDir = tempOrchDir();
     const dispatched = `${workerHeaderFor(undefined)}\n\nbuild the real thing`;
-    expect(transition("herdr~w8~p3", { state: "done", task: dispatched })?.task).toBe("build the real thing");
+    expect(transition(orchDir, "herdr~w8~p3", { state: "done", task: dispatched })?.task).toBe("build the real thing");
 
     const longTask = "x".repeat(100);
-    expect(transition("herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(77)}...`);
+    expect(transition(orchDir, "herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(77)}...`);
     const longDispatched = `${workerHeaderFor(undefined)}\n\n${"x".repeat(TASK_MAX + 20)}`;
     expect(prepareWorkerTask(longDispatched, TASK_MAX)).toBe(`${"x".repeat(TASK_MAX - 3)}...`);
-    expect(transition("herdr~w8~p3", { state: "done", task: longDispatched })?.task).toBe(`${"x".repeat(77)}...`);
-    expect(transition("herdr~w8~p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
+    expect(transition(orchDir, "herdr~w8~p3", { state: "done", task: longDispatched })?.task).toBe(`${"x".repeat(77)}...`);
+    expect(transition(orchDir, "herdr~w8~p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
   });
 
-  test("derivePresenceTransition derives workspace from identity keys", () => {
-    const withWorkspace = transition("herdr~w8~p3", { state: "done" });
-    expect(withWorkspace?.workspace).toBe("w8");
-    const withoutWorkspace = transition("p3", { state: "done" });
+  test("derivePresenceTransition leaves workspace to the registry", () => {
+    const orchDir = tempOrchDir();
+    const registeredKey = "herdr~w8~p3";
+    insertSpawnedRecord(orchDir, { pane: registeredKey, workspace: "registry-workspace" });
+    const withWorkspace = transition(orchDir, registeredKey, { state: "done" });
+    expect(withWorkspace?.workspace).toBe("registry-workspace");
+    const withoutWorkspace = transition(orchDir, "p3", { state: "done" });
     expect(withoutWorkspace?.workspace).toBeUndefined();
   });
 });

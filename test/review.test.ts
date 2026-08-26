@@ -10,7 +10,7 @@ import {
   removeMergedWorktree,
   worktreeBranch,
 } from "../src/worktree.ts";
-import { insertSpawnedRecord } from "../src/store/sqlite.ts";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fixtureRepo, git } from "./helpers/git-repo.ts";
 

@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
+import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { packageRoot } from "../util.ts";
 import { daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 
@@ -64,48 +65,6 @@ function currentCodeHash(): string {
   return computeCodeHash(entrypoint);
 }
 
-function processIsAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { return process.kill(pid, 0), true; }
-  catch (error: unknown) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
-}
-
-/** Read one field from a process-reporting tool; undefined when it cannot answer. */
-function readProcessField(command: string, args: string[]): string | undefined {
-  try {
-    const output = execFileSync(command, args, { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] });
-    return output.trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Field 22 of /proc/<pid>/stat: the process's start time in clock ticks. */
-function linuxStartTicks(pid: number): string | undefined {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const closingParen = stat.lastIndexOf(")");
-    if (closingParen < 0) return undefined;
-    return stat.slice(closingParen + 2).trim().split(/\s+/)[19];
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * A token identifying one process INSTANCE, so a pid the OS has recycled can
- * never pass for the daemon that took the lock. Every platform orch runs on
- * reports one; undefined only when the OS refuses, and callers treat that as
- * "unproven", never as "matches".
- */
-function processStartToken(pid: number): string | undefined {
-  if (process.platform === "linux") return linuxStartTicks(pid);
-  if (process.platform === "win32") {
-    return readProcessField("powershell", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.Ticks`]);
-  }
-  return readProcessField("ps", ["-o", "lstart=", "-p", String(pid)]);
-}
-
 function processIdentityMatches(record: LockRecord): boolean {
   if (!processIsAlive(record.pid)) return false;
   if (!record.startToken) return true;
@@ -121,8 +80,8 @@ function processIdentityMatches(record: LockRecord): boolean {
  */
 export function provenDaemonPid(orchDir: string): number | undefined {
   const record = readLock(lockPath(orchDir));
-  if (!record?.startToken || !processIsAlive(record.pid)) return undefined;
-  return processStartToken(record.pid) === record.startToken ? record.pid : undefined;
+  if (!record?.startToken) return undefined;
+  return processInstanceMatches(record.pid, record.startToken) ? record.pid : undefined;
 }
 
 function readLock(file: string): LockRecord | undefined {

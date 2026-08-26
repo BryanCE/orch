@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor, type CheckResult } from "../src/doctor/runner.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
@@ -58,7 +59,7 @@ describe("doctor stale presence safety", () => {
 
   test("no dead agents leaves nothing to remove", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, "wD-p1B", { pid: process.pid, label: "alive", agent: "pi", cwd: "/x/orch" });
+    writeDeadAgent(directory, "wD-p1B", { schema: PRESENCE_SCHEMA, pid: process.pid, label: "alive", agent: "pi", cwd: "/x/orch" });
     const result = staleResult(await runDoctor(directory));
     expect(result.status).toBe("ok");
     expect(result.fix).toBeUndefined();

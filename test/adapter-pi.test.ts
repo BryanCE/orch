@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { seedStatus } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
@@ -46,7 +47,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(orchDir, { recursive: true, force: true });
+  removeTempDir(orchDir);
   restoreOrchDir();
 });
 

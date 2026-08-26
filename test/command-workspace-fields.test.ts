@@ -5,6 +5,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entityWorkspace, type Entity } from "../src/entities.ts";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 
 const directories: string[] = [];
@@ -22,12 +23,10 @@ function presenceFixture(): { orchDir: string; key: string } {
   const key = "headless~key-workspace~999999";
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
+  insertSpawnedRecord(orchDir, { pane: key, backend: "headless", workspace: "reported-workspace", handle: "999999" });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA,
     key,
-    backend: "headless",
-    workspace: "reported-workspace",
-    handle: "999999",
     paneId: "999999",
     pid: process.pid,
     agent: "pi",
@@ -39,8 +38,9 @@ function presenceFixture(): { orchDir: string; key: string } {
 function writePresence(orchDir: string, key: string, agent: string, workspace: string, handle: string): void {
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
+  insertSpawnedRecord(orchDir, { pane: key, backend: "headless", workspace, handle });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, backend: "headless", workspace, handle, paneId: handle,
+    schema: PRESENCE_SCHEMA, key, paneId: handle,
     pid: process.pid, agent, state: "idle",
   }));
 }

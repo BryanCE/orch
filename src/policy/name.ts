@@ -1,5 +1,5 @@
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/sqlite.ts";
+import type { SpawnedRecord } from "../store/spawned-rows.ts";
 
 /**
  * Names are labels, not identities — two agents can never collide on identity,

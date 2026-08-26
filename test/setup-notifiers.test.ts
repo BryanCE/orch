@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.ts";
@@ -11,6 +11,7 @@ import {
 } from "../src/setup/notifiers.ts";
 import { notifierPromptOptions } from "../src/setup/wizard.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 describe("notifier setup logic", () => {
   test("probes the built-in adapters", async () => {
@@ -70,7 +71,7 @@ describe("notifier setup logic", () => {
         command: ["sh", "-c", "echo ok"],
       }]);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeTempDir(directory);
     }
   });
 

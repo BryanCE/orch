@@ -20,6 +20,7 @@ import {
 import { AgentCard } from "@/components/AgentCard";
 import { NotFoundPage } from "@/components/common/NotFoundPage";
 import { useFleet } from "@/hooks/use-fleet";
+import { sendToAgent } from "@/server/orch";
 import { useDaemonEvents } from "@/lib/daemon-events";
 import { findWorkspace, stateColor, type FleetAgent } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
@@ -136,14 +137,22 @@ function WorkspaceDetail() {
   );
 }
 
-/** Agent focus panel — monitor now, steer/message wired as first-class control. */
+/** Agent focus panel — monitor plus first-class steer/message control. */
 function AgentFocus({ agent }: { agent: FleetAgent }) {
   const [msg, setMsg] = useState("");
-  const send = (kind: "steer" | "message") => {
-    if (!msg.trim()) return;
-    // TODO wire to rpcCall(orchDir, 'steer'|'dispatch', { target: agent.key, text }).
-    toast.success(`${kind} → ${agent.name}`, { description: "control not wired yet — daemon RPC comes next" });
-    setMsg("");
+  const [sending, setSending] = useState(false);
+  const send = async (kind: "steer" | "message") => {
+    const text = msg.trim();
+    if (!text || sending) return;
+    setSending(true);
+    const result = await sendToAgent({ data: { key: agent.key, text, kind } });
+    setSending(false);
+    if ("ok" in result) {
+      toast.success(`${kind} → ${agent.name}`);
+      setMsg("");
+      return;
+    }
+    toast.error(`${kind} → ${agent.name} failed`, { description: result.reason });
   };
 
   return (
@@ -157,6 +166,11 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
         <div className="space-y-3 p-4 text-sm">
           <Field label="State">
             <span className={cn("uppercase", stateColor(agent.state))}>{agent.state}</span>
+          </Field>
+          <Field label="Runtime">
+            {agent.capabilities.panes && agent.pane
+              ? <span className="font-mono text-xs">pane {agent.pane}</span>
+              : "detached — no pane"}
           </Field>
           {agent.model?.id && <Field label="Model">{agent.model.provider}/{agent.model.id}</Field>}
           <Field label="Cost">${(agent.cost ?? 0).toFixed(2)}</Field>
@@ -172,20 +186,29 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
       </ScrollArea>
 
       <SheetFooter className="border-t">
-        <Textarea
-          value={msg}
-          onChange={(e) => setMsg(e.target.value)}
-          placeholder={`message ${agent.name}…`}
-          className="min-h-16 resize-none text-sm"
-        />
-        <div className="flex gap-2">
-          <Button size="sm" className="flex-1" onClick={() => send("message")}>
-            <Send className="size-3.5" /> Send
-          </Button>
-          <Button size="sm" variant="secondary" className="flex-1" onClick={() => send("steer")}>
-            <Radio className="size-3.5" /> Steer
-          </Button>
-        </div>
+        {!agent.capabilities.canSendKeys ? (
+          <p className="text-xs text-muted-foreground">
+            This agent has no console — it runs one prompt and exits. Spawn a new agent instead of
+            steering this one.
+          </p>
+        ) : (
+          <>
+            <Textarea
+              value={msg}
+              onChange={(e) => setMsg(e.target.value)}
+              placeholder={`message ${agent.name}…`}
+              className="min-h-16 resize-none text-sm"
+            />
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1" disabled={sending} onClick={() => void send("message")}>
+                <Send className="size-3.5" /> Send
+              </Button>
+              <Button size="sm" variant="secondary" className="flex-1" disabled={sending} onClick={() => void send("steer")}>
+                <Radio className="size-3.5" /> Steer
+              </Button>
+            </div>
+          </>
+        )}
       </SheetFooter>
     </>
   );

@@ -199,16 +199,10 @@ export function createAgentPresence(options: AgentPresenceOptions) {
   function writeStatus() {
     if (!dir) return;
     state.updatedAt = new Date().toISOString();
-    const identity = tryParseIdentity(state.key);
     const out: JsonRecord = {
       ...state,
       extensionHash,
       key: state.key,
-      ...(identity ? {
-        backend: identity.backend,
-        workspace: identity.workspace,
-        id: identity.id,
-      } : {}),
     };
     if (blocked.count > 0) {
       out.state = "blocked";

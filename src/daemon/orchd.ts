@@ -15,7 +15,9 @@ import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox, checkOwnerWrite, getOwner } from "../store/sqlite.ts";
+import { withTransaction } from "../store/connection.ts";
+import { insertOutboxMessage, markOutboxDelivered, outboxMessagePending } from "../store/outbox-rows.ts";
+import { checkOwnerWrite, getOwner } from "../store/ownership-rows.ts";
 import { checkWall, operatorControls } from "../policy/workspace.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
@@ -57,7 +59,7 @@ function liveAgentCount(): number {
 function touchOnCall(handlers: RpcHandlers): RpcHandlers {
   return Object.fromEntries(Object.entries(handlers).map(([method, handler]): [string, RpcHandlers[string]] => [
     method,
-    (params, emit) => { lastActivityAt = Date.now(); return handler(params, emit); },
+    (params, emit, context) => { lastActivityAt = Date.now(); return handler(params, emit, context); },
   ]));
 }
 
@@ -145,9 +147,11 @@ export function governWrite(directory: string, target: string, params: unknown):
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
   const steal = value.steal === true;
+  const actorWorkspace = typeof value.actorWorkspace === "string" ? value.actorWorkspace : null;
+  const actorIsOperator = value.actorIsOperator === true;
   const configuredCrossWorkspace = loadConfigOrNull(directory)?.fleet.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace;
   const crossWorkspace = value.crossWorkspace === true || configuredCrossWorkspace;
-  const wall = checkWall(actor, target, { crossWorkspace });
+  const wall = checkWall(directory, actor, target, { crossWorkspace });
   if (!wall.allowed) throw new Error(wall.reason ?? "workspace wall denied the write");
   if (actor === null) {
     const owner = getOwner(directory, target);
@@ -157,19 +161,22 @@ export function governWrite(directory: string, target: string, params: unknown):
   // The workspace's human operator keeps control of every fleet keyed into it;
   // spawned agents carry their own key, never the operator id, so this grants
   // an agent nothing beyond what it spawned.
-  if (operatorControls(actor, target)) return;
+  if (operatorControls(directory, actor, target, actorWorkspace, actorIsOperator)) return;
   const owned = checkOwnerWrite(directory, target, actor, { steal });
   if (!owned.ok) throw new Error(owned.reason ?? "ownership denied the write");
 }
 
 async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
   const { target, text } = validateWriteParams(params);
-  governWrite(directory, target, params);
   const id = randomUUID();
-  insertOutboxMessage(directory, { id, target, payload: { action, text } });
+  withTransaction(directory, () => {
+    governWrite(directory, target, params);
+    insertOutboxMessage(directory, { id, target, payload: { action, text } });
+  });
   await drainOutbox(directory, outboxDeps());
-  const stillPending = selectPendingOutbox(directory, Number.MAX_SAFE_INTEGER).some((message) => message.id === id);
-  if (stillPending) throw new Error(`write ${id} was not applied or acknowledged for target ${target}`);
+  if (outboxMessagePending(directory, id)) {
+    throw new Error(`write ${id} was not applied or acknowledged for target ${target}`);
+  }
   return { accepted: true, id };
 }
 

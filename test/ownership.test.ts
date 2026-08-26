@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkOwnerWrite, getOwner, setOwner } from "../src/store/sqlite";
+import { checkOwnerWrite, getOwner, setOwner } from "../src/store/ownership-rows.ts";
 
 const tempDirs: string[] = [];
 

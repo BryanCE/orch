@@ -1,24 +1,22 @@
-import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { loadConfigOrNull } from "../config.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
-import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
 import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { checkBackendCapabilities } from "./backends.ts";
 import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
 import { checkHarnessModels } from "./models.ts";
-import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkSpawnedRegistry, checkWorktreeGitignore } from "./config.ts";
+import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./config.ts";
+import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
 import { checkDaemonLock, checkDaemonPresence, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons } from "./daemon.ts";
 import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion, type SshRunner } from "./remote.ts";
 import { checkRuntime } from "./runtime.ts";
-import { readJson } from "./shared.ts";
-import { isRecord, pidAlive } from "../util.ts";
+import { loadPresence } from "../presence/store.ts";
+import { placementOf } from "../agent/registry.ts";
 
 export type { CheckResult } from "../check-result.ts";
 
@@ -33,15 +31,10 @@ export async function isolated(id: string, label: string, check: () => Promise<C
 /** Validate every distinct live adapter/backend composition independently. */
 async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
   const pairs = new Set<string>();
-  const agentsDir = path.join(orchDir, "agents");
-  let entries: filesystem.Dirent[] = [];
-  try { entries = filesystem.readdirSync(agentsDir, { withFileTypes: true }); } catch {}
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const status = readJson(path.join(agentsDir, entry.name, STATUS_FILE));
-    if (!isRecord(status) || status.schema !== PRESENCE_SCHEMA || !pidAlive(status.pid)) continue;
-    const adapter = typeof status.agent === "string" ? status.agent : undefined;
-    const backend = typeof status.backend === "string" ? status.backend : undefined;
+  for (const entry of loadPresence(orchDir).values()) {
+    if (!entry.alive) continue;
+    const adapter = typeof entry.status?.agent === "string" ? entry.status.agent : undefined;
+    const backend = placementOf(orchDir, entry.key)?.backend;
     if (adapter && backend) pairs.add(`${adapter}\u0000${backend}`);
   }
   return Promise.all([...pairs].map(async (encoded) => {
@@ -85,7 +78,14 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     }),
     isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(orchDir, id)),
   ]).flat();
-  const livePairs = await checkLiveFleetPairs(orchDir);
+  let livePairs: CheckResult[];
+  try {
+    livePairs = await checkLiveFleetPairs(orchDir);
+  } catch {
+    // Pair discovery is supplemental; a broken presence root must not prevent
+    // the independent doctor checks from running and reporting their own result.
+    livePairs = [];
+  }
   return Promise.all([
     isolated("bins", "Required binaries", () => checkBins(bins, enabledAdapters)),
     ...providerChecks,
@@ -93,9 +93,9 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(enabledBackends, configuredBackend)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
+    isolated("store", "Store", () => checkStore(orchDir)),
     isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
-    isolated("spawned-registry", "Spawn registry", () => checkSpawnedRegistry(orchDir)),
     isolated("config", "Config validity", () => checkConfig(orchDir)),
     isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
     isolated("spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),

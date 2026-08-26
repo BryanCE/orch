@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/events.ts";
+import { formatEventGap, isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/events.ts";
+import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc.ts";
 
 describe("commands/events", () => {
@@ -10,6 +11,11 @@ describe("commands/events", () => {
   test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ statusFilter: null, all: false, json: false, sinceSeq: undefined, once: false, mine: true, targets: [] }));
   test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "--any-agent", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, sinceSeq: undefined, once: false, mine: false, targets: ["agent"] }));
   test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ statusFilter: null, all: false, json: true, sinceSeq: 42, once: true, mine: true, targets: [] }));
+  test("describes durable replay and reports pruned history gaps", () => {
+    expect(helpTopic("events")).toContain("survives daemon restarts");
+    expect(helpTopic("events")).toContain("events retention window");
+    expect(formatEventGap(12)).toContain("replay resumes at sequence 12");
+  });
   test("names one agent by name or by identity key", () => {
     expect(parseEventsOptions(["--agent=api-1"]).targets).toEqual(["api-1"]);
     expect(parseEventsOptions(["--agent-id=headless~local~abc"]).targets).toEqual(["headless~local~abc"]);

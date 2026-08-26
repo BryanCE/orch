@@ -15,6 +15,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { DaemonBadge } from "@/components/DaemonBadge";
 import { useFleet } from "@/hooks/use-fleet";
 import type { ColorSchemeId } from "@/lib/color-scheme";
 
@@ -98,6 +99,7 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
       </SidebarContent>
 
       <SidebarFooter>
+        <DaemonBadge />
         <div className="flex items-center px-1">
           <AnimatedThemeToggler initialScheme={initialScheme} />
         </div>

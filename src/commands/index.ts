@@ -9,6 +9,7 @@ import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } fro
 import { cmdAbort, cmdClose, cmdNew, cmdReload, cmdRename, cmdRestart, cmdRun, cmdWait } from "./lifecycle.ts";
 import { cmdFocus, cmdKeys, cmdMove, cmdPanes, cmdPeek, cmdTab, cmdTabs, cmdWs, cmdZoom } from "./panes.ts";
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
+import { cmdRuns } from "./runs.ts";
 import { cmdEvents, cmdNotify } from "./events.ts";
 import { cmdReview, cmdReviewInteractive } from "./review.ts";
 import { cmdQueue } from "./queue.ts";
@@ -32,6 +33,8 @@ OBSERVE
                                  Glanceable table of the fleet (default command); --all-panes also lists
                                  panes orch did not spawn; --offline reads agent files only.
   orch questions                 List pending agent questions from live agents.
+  orch runs [<target>] [-n <count>] [--json]
+                                 List durable dispatch history, newest first.
   orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
                                  Bare: one readable line per transition, scoped to the agents THIS
@@ -270,6 +273,7 @@ export function runCommand(argv: string[]): void {
     case "events": void cmdEvents(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "notify": void cmdNotify(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "questions": void cmdQuestions(rest).catch((error: unknown) => die(errorMessage(error))); break;
+    case "runs": cmdRuns(rest); break;
     case "queue": cmdQueue(rest); break;
     case "lock": void cmdLock(rest).then((code) => { process.exitCode = code; }).catch((error: unknown) => die(errorMessage(error))); break;
     case "daemon": void cmdDaemon(rest).catch((error: unknown) => die(errorMessage(error))); break;

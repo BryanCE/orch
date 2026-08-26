@@ -195,7 +195,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         presence.writeStatus();
         const notificationEvent: BridgeNotification = {
           key: state.key,
-          workspace: workspaceOf(state.key) ?? undefined,
+          workspace: workspaceOf(ORCH_DIR, state.key) ?? undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
@@ -517,7 +517,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const notificationSummary = label ?? "";
         notify({
           key: state.key,
-          workspace: workspaceOf(state.key) ?? undefined,
+          workspace: workspaceOf(ORCH_DIR, state.key) ?? undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,

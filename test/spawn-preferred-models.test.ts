@@ -6,7 +6,7 @@ import { adapterCommand, spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { optionalModelSpecs } from "../src/daemon/orchd.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
-import type { OrchConfig } from "../src/config.ts";
+import { SETTINGS_DEFAULTS, type OrchConfig } from "../src/config.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/adapters/adapter.ts";
 import type { Backend } from "../src/backends/backend.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -34,6 +34,7 @@ afterEach(() => {
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
 
 const config = (preferred: string[]): OrchConfig => ({
+  ...SETTINGS_DEFAULTS,
   runtime: "node",
   enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: [],

@@ -2,9 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
+import { openStore } from "../src/store/connection.ts";
+import { STORE_SCHEMA } from "../src/store/schema.ts";
 import { startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
+import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -52,6 +56,46 @@ describe("runDoctor", () => {
     for (const id of ["spawn-limits", "command-locks", "notifiers", "notify-sinks", "remote-ssh", "remote-orch-version", "remote-orch-dir"]) {
       expect(check(results, id).status).not.toBe("fail");
     }
+  });
+
+  test("checks a healthy store", async () => {
+    const directory = tempDir();
+    openStore(directory);
+    const result = check(await runDoctor(directory), "store");
+    expect(result).toMatchObject({ status: "ok", label: "Store" });
+    expect(result.detail).toContain(`schema ${STORE_SCHEMA}`);
+  });
+
+  test("warns when the store is absent", () => {
+    const directory = tempDir();
+    const result = checkStore(directory);
+    expect(result).toMatchObject({ status: "warn", label: "Store", detail: "orch.db is absent" });
+    expect(fs.existsSync(path.join(directory, "orch.db"))).toBe(false);
+  });
+
+  test("fails when the store schema stamp is wrong", () => {
+    const directory = tempDir();
+    openStore(directory);
+    const database = new Database(path.join(directory, "orch.db"));
+    database.exec(`PRAGMA user_version = ${STORE_SCHEMA - 1}`);
+    database.close();
+
+    const result = checkStore(directory);
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain(`stamp ${STORE_SCHEMA - 1}`);
+    expect(result.detail).toContain(`expected ${STORE_SCHEMA}`);
+  });
+
+  test("fails and names a missing store table", () => {
+    const directory = tempDir();
+    openStore(directory);
+    const database = new Database(path.join(directory, "orch.db"));
+    database.exec("DROP TABLE queue");
+    database.close();
+
+    const result = checkStore(directory);
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("queue");
   });
 
   test("reports a normal ORCH_DIR on the Linux filesystem", async () => {
@@ -173,13 +217,11 @@ describe("runDoctor", () => {
     });
   });
 
-  test("reports a dead presence pid and corrupt spawn registry lines", async () => {
+  test("reports a dead presence pid", async () => {
     const directory = tempDir();
     const agent = path.join(directory, "agents", "former-agent");
     fs.mkdirSync(agent, { recursive: true });
     seedStatusInDir(agent, { pid: 99999999 });
-    fs.writeFileSync(path.join(directory, "spawned.jsonl"), "{\"pane\":\"w1:p1\"}\nnot json\n");
-
     const results = await runDoctor(directory);
     const stale = check(results, "stale-presence");
 
@@ -188,9 +230,6 @@ describe("runDoctor", () => {
     expect(stale.fix).toBeDefined();
     expect(applyFixes([stale])).toEqual({ applied: [stale.fix!.description] });
     expect(fs.existsSync(agent)).toBe(false);
-    const registryResult = check(results, "spawned-registry");
-    expect(registryResult.status).toBe("warn");
-    expect(registryResult.detail).toContain("2");
   });
 
   test("bins check is driven by the enabled set and offers no fix", async () => {
@@ -283,8 +322,6 @@ describe("runDoctor", () => {
   test("never throws when individual checks encounter broken inputs", async () => {
     const directory = tempDir();
     fs.mkdirSync(path.join(directory, "agents"), { recursive: true });
-    fs.writeFileSync(path.join(directory, "spawned.jsonl"), "{broken\n");
-
     expect(runDoctor(directory)).resolves.toBeArray();
 
     const invalidAgents = tempDir();

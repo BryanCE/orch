@@ -1,6 +1,6 @@
 import { collapse } from "../entities.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/sqlite.ts";
+import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";

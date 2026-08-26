@@ -21,6 +21,7 @@ import { loadConfig, type OrchConfig } from "../config.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { spawnedRecords } from "../presence/store.ts";
+import { sweepExpiredRows } from "./retention.ts";
 
 export interface WorkOptions {
   orchDir: string;
@@ -109,11 +110,11 @@ async function waitForTaskState(entry: PresenceEntry, task: TaskRec, timeoutMs: 
   return "timeout";
 }
 
-function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newState: string, lastError?: string): NotifyEvent {
+function taskEvent(orchDir: string, entry: PresenceEntry, task: TaskRec, oldState: string, newState: string, lastError?: string): NotifyEvent {
   const status = statusForPresence(entry);
   return {
     key: entry.key,
-    workspace: task.workspace ?? workspaceOf(entry.key) ?? entry.key.split(":", 1)[0],
+    workspace: task.workspace ?? workspaceOf(orchDir, entry.key) ?? undefined,
     agent: status?.label ?? status?.agent ?? task.agentKey ?? null,
     tab: status?.tabLabel ?? null,
     model: null,
@@ -130,7 +131,7 @@ function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newSta
  *  pane happens to exist, running a prompt its orchestrator never sent it. */
 function failBoundTask(orchDir: string, task: TaskRec, reason: string, emit: (event: NotifyEvent) => void, entry?: PresenceEntry): void {
   const settled = recordTaskFailure(orchDir, task.id, reason);
-  if (entry) emit(taskEvent(entry, settled, task.state, settled.state, reason));
+  if (entry) emit(taskEvent(orchDir, entry, settled, task.state, settled.state, reason));
 }
 
 function settleClaimedTasks(orchDir: string, maxRetries: number, emit: (event: NotifyEvent) => void): void {
@@ -149,7 +150,7 @@ function settleClaimedTasks(orchDir: string, maxRetries: number, emit: (event: N
     if (!statusSpeaksForTask(status, task)) continue;
     if (status?.state === "done") {
       const settled = recordTaskDone(orchDir, task.id, agent.result);
-      emit(taskEvent(agent, settled, task.state, settled.state));
+      emit(taskEvent(orchDir, agent, settled, task.state, settled.state));
     }
     if (status?.state === "error") settleError(orchDir, task, maxRetries, typeof status?.lastError === "string" ? status.lastError : "agent reported error", agent, emit);
   }
@@ -159,7 +160,7 @@ function settleError(orchDir: string, task: TaskRec, maxRetries: number, error: 
   const settled = taskShouldRetry(task, maxRetries)
     ? requeueTask(orchDir, task.id, error)
     : recordTaskFailure(orchDir, task.id, error);
-  emit(taskEvent(entry, settled, task.state, settled.state, error));
+  emit(taskEvent(orchDir, entry, settled, task.state, settled.state, error));
 }
 
 async function assignTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec, maxRetries: number, emit: (event: NotifyEvent) => void): Promise<void> {
@@ -170,13 +171,13 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
     const current = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
     if (state === "timeout") {
       const requeued = requeueTask(options.orchDir, task.id, "agent did not acknowledge working");
-      emit(taskEvent(entry, requeued, current.state, requeued.state, requeued.lastError));
+      emit(taskEvent(options.orchDir, entry, requeued, current.state, requeued.state, requeued.lastError));
       return;
     }
     if (state === "error") return settleError(options.orchDir, current, maxRetries, "agent reported error", entry, emit);
     if (state === "done") {
       const done = recordTaskDone(options.orchDir, task.id, loadPresence().get(entry.key)?.result);
-      emit(taskEvent(entry, done, current.state, done.state));
+      emit(taskEvent(options.orchDir, entry, done, current.state, done.state));
     }
   } catch (error) {
     const current = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
@@ -191,8 +192,20 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
     emitAndNotify(() => { /* noop */ }, loadSinks(options.orchDir), event);
   });
+  const sweepIntervalMs = 60 * 60 * 1000;
+  let lastSweepAt = Number.NEGATIVE_INFINITY;
   while (!options.signal?.aborted) {
     const config = options.getConfig?.();
+    if (config !== undefined) {
+      const nowMs = Date.now();
+      if (nowMs - lastSweepAt >= sweepIntervalMs) {
+        lastSweepAt = nowMs;
+        const counts = sweepExpiredRows(options.orchDir, config, new Date(nowMs));
+        if (Object.values(counts).some((count) => count > 0)) {
+          process.stderr.write(`retention sweep: queue=${counts.queue} outbox=${counts.outbox} events=${counts.events} runs=${counts.runs} identities=${counts.identities} agent_dirs=${counts.agent_dirs} logs=${counts.logs}\n`);
+        }
+      }
+    }
     const maxRetries = config?.queue.max_retries ?? options.maxRetries ?? 1;
     const presence = loadPresence();
     settleClaimedTasks(options.orchDir, maxRetries, emit);
@@ -201,9 +214,12 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       // A worker claims only queued tasks stamped with its own workspace;
       // nextQueuedTask enforces that origin-workspace wall and skips
       // null-workspace rows as malformed (never claimable).
-      const workerWorkspace = workspaceOf(entry.key) ?? entry.key.split(":", 1)[0];
+      // No placement means orch has no registry row for this agent, and
+      // nextQueuedTask skips its workspace filter entirely on an absent one —
+      // so an unplaced worker would claim across every workspace. Fail closed.
+      const workerWorkspace = workspaceOf(options.orchDir, entry.key);
       const workerAgent = entry.status?.agent;
-      if (!workerAgent) continue;
+      if (!workerAgent || !workerWorkspace) continue;
       const task = nextQueuedTask(
         listTasks(options.orchDir),
         workerAgent,
@@ -214,7 +230,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       if (!task || !claimTask(options.orchDir, task.id, entry.key, dispatchId)) continue;
       assigned++;
       const claimed = listTasks(options.orchDir).find((item) => item.id === task.id) ?? { ...task, state: "claimed" as const, agentKey: entry.key, dispatchId };
-      emit(taskEvent(entry, claimed, task.state, claimed.state));
+      emit(taskEvent(options.orchDir, entry, claimed, task.state, claimed.state));
       await assignTask(options, entry, claimed, maxRetries, emit);
       if (options.once || options.signal?.aborted) break;
     }

@@ -3,11 +3,10 @@
 // and must not drag store.ts's sqlite graph into their bundles. Keep this file
 // constants-only — no imports, no I/O.
 
-/** The one presence status.json schema stamp. Pre-publish this stays 1: there
- * is exactly one current shape, every record stamps this value, and anything
- * else is malformed and gets reaped. On a shape change, fix every writer,
- * reader, and test in the same commit — the stamp does not move. */
-export const PRESENCE_SCHEMA = 1;
+/** The one presence status.json schema stamp. There is exactly one current
+ * shape, every record stamps this value, and anything else is malformed and
+ * gets reaped. On a shape change, fix every writer, reader, and test together. */
+export const PRESENCE_SCHEMA = 2;
 
 /* The presence protocol filenames. These are orch vocabulary, not any harness's
  * wire format — orch defines them and every harness conforms. This is their ONE

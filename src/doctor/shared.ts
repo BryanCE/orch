@@ -1,13 +1,6 @@
 import * as filesystem from "node:fs";
 import { execFile } from "node:child_process";
 import * as os from "node:os";
-import * as path from "node:path";
-
-
-export function hasErrorCode(error: unknown, code: string): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false;
-  return error.code === code;
-}
 
 export function readJson(file: string): unknown {
   return JSON.parse(filesystem.readFileSync(file, "utf8"));
@@ -30,13 +23,4 @@ export function commandOutput(command: string, args: string[]): Promise<{ ok: bo
 export function isWslRuntime(): boolean {
   if (process.env.WSL_DISTRO_NAME) return true;
   return /microsoft|wsl/i.test(os.release());
-}
-
-export function readAgentEntries(orchDir: string): filesystem.Dirent[] | undefined {
-  try {
-    return filesystem.readdirSync(path.join(orchDir, "agents"), { withFileTypes: true });
-  } catch (error: unknown) {
-    if (hasErrorCode(error, "ENOENT")) return undefined;
-    throw error;
-  }
 }

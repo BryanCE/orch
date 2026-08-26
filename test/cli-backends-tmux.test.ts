@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { parseIdentity, serializeIdentity } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
@@ -36,7 +41,7 @@ describe("tmux backend registry and capabilities", () => {
     expect(backend.panes).toBe(true);
     expect(backend.focusable).toBe(true);
     expect(backend.canSendKeys).toBe(true);
-    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true });
+    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
   });
 
   test("reflects the TMUX environment", () => {
@@ -109,7 +114,11 @@ describe("tmux backend registry and capabilities", () => {
 
   test("refuses cross-session tmux steer without --cross-workspace", async () => {
     const { checkWall } = await import("../src/policy/workspace.ts");
-    const decision = checkWall("tmux~main~operator", "tmux~side~%25foreign", { crossWorkspace: false });
+    const orchDir = mkdtempSync(join(tmpdir(), "orch-tmux-wall-"));
+    insertSpawnedRecord(orchDir, { pane: "tmux~main~operator", workspace: "main" });
+    insertSpawnedRecord(orchDir, { pane: "tmux~side~%25foreign", workspace: "side" });
+    const decision = checkWall(orchDir, "tmux~main~operator", "tmux~side~%25foreign", { crossWorkspace: false });
+    removeTempDir(orchDir);
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toBe("workspace wall: actor workspace main cannot write to target workspace side (tmux~side~%25foreign)");
   });

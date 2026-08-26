@@ -10,8 +10,10 @@ Organization rule (binding, applies to code too): **folders say the kind and sta
 
 ## reference/ — binding/standing references
 - `reference/design-patterns.md` — THE pattern-stack reference (L0 Hexagonal → L6 enforcement, N-axis rule, composition/settings). Binding per CLAUDE.md Rule 9 and `learnings/2026-07-16-harness-plexer-architecture.md`.
-- `reference/files-and-data-layout.md` — on-disk layout of $ORCH_DIR, presence records, key format.
+- `reference/files-and-data-layout.md` — on-disk layout of $ORCH_DIR, presence records, and key format.
+- `reference/identity-registration.md` — identity registration and ownership semantics.
 - `reference/notifier-adapters.md` — notifier sink providers reference.
+- `reference/store.md` — SQLite tables, presence files, owners, schema handling, and retention.
 
 ## reviews/ — point-in-time audits
 - `reviews/architecture-review-2026-07-16.md` — the full 2026-07-16 architecture audit: gap findings (§2), monolith breakdown plan (§3), pattern framework (§4), ordered fix list (§5). Drove the six open openspec changes.

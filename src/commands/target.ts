@@ -7,7 +7,7 @@ import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/workspace.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/sqlite.ts";
+import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 
 export function die(msg: string): never {
@@ -111,7 +111,8 @@ export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
   const token = callerOwnerToken();
   if (!token) return false;
   if (record.owner === token) return true;
-  return !callerIsSpawnedAgent() && operatorControls(token, record.pane ?? null);
+  return !callerIsSpawnedAgent()
+    && operatorControls(orchDir(), token, record.pane ?? null, callerWorkspace(), true);
 }
 
 /** Return the exact session address that spawned this caller. */
@@ -124,12 +125,17 @@ export function spawnedBySelf(record: { spawnedBy?: string }): boolean {
   return record.spawnedBy === undefined || record.spawnedBy === selfSpawnAddress();
 }
 
-export function assertAgentOwned(target: string, entity: Pick<Entity, "key">, force = false): void {
+export function assertAgentOwned(
+  target: string,
+  entity: Pick<Entity, "key">,
+  force = false,
+  records?: ReadonlyMap<string, SpawnedRecord>,
+): void {
   if (force) {
     forbidAgentOverride("--force");
     return;
   }
-  const record = spawnedRecords().get(entity.key);
+  const record = (records ?? spawnedRecords()).get(entity.key);
   if (record?.owner && !ownsAgent({ ...record, pane: entity.key })) {
     die(`Target "${target}" is owned by ${record.owner}. Use --force to override.`);
   }
@@ -140,14 +146,18 @@ export function callerWorkspace(): string | null {
   return backend.currentIdentity?.()?.workspace ?? null;
 }
 
-export function backendTarget(target: string, command: string): { backend: Backend; handle: string; key: string } {
+export function backendTarget(
+  target: string,
+  command: string,
+  records?: ReadonlyMap<string, SpawnedRecord>,
+): { backend: Backend; handle: string; key: string } {
   const ent = resolveTarget(target);
   const id = parseIdentity(ent.key);
   const backend = getBackend(id.backend);
   if (!backend) die(`orch ${command}: backend ${JSON.stringify(id.backend)} is not registered.`);
   // Resolve the user-facing target once, then pass the backend's real pane
   // handle. Names are display metadata; herdr pane commands require paneId.
-  const handle = ent.paneId ?? spawnedRecords().get(ent.key)?.handle;
+  const handle = ent.paneId ?? (records ?? spawnedRecords()).get(ent.key)?.handle;
   if (handle === undefined) die(`orch ${command}: no backend pane recorded for ${JSON.stringify(target)}.`);
   return { backend, handle, key: ent.key };
 }
@@ -204,10 +214,11 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
       agent: record.adapter ?? null,
       focused: false,
       backendStatus: null,
+      backend: record.backend ?? id.backend,
       presence: loadPresence().get(record.pane) ?? null,
       sessionPath: null,
       presenceOnly: true,
-      workspace: record.workspace ?? id.workspace,
+      workspace: record.workspace ?? null,
     };
   const pid = ent.presence?.status?.pid;
   const handle = record.handle ?? ent.paneId ?? (typeof pid === "number" ? { pid, key: record.pane } : id.id);

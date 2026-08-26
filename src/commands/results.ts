@@ -9,11 +9,23 @@ import { runRemoteAsync, runSSH } from "../remote.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../adapters/adapter.ts";
 import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
+import { latestRunForKey } from "./runs.ts";
 
 interface QuestionRow { key: string; name: string | null; age: string; question: string; workspace?: string; host?: string; warning?: string }
 
 interface QuestionPayload { ts?: unknown; question: string }
 
+function writeHistoricalResult(run: { result?: unknown }, json: boolean): boolean {
+  if (run.result === undefined) return false;
+  process.stderr.write("(result from run history)\n");
+  if (json) {
+    process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
+    return true;
+  }
+  const text = typeof run.result === "string" ? run.result : resultText(run.result) ?? JSON.stringify(run.result);
+  process.stdout.write((text ?? "") + "\n");
+  return true;
+}
 
 export function cmdResult(args: string[]) {
   const { enabled, positional } = splitOptionFlags(args, ["--json", "--force"]);
@@ -31,6 +43,13 @@ export function cmdResult(args: string[]) {
     process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
     return;
   }
+  // A reaped presence directory leaves no entity for resolveTarget. An exact
+  // canonical key still addresses its durable run history, so use that only
+  // when the live presence path is absent.
+  if (!loadPresence().has(target)) {
+    const historical = latestRunForKey(target);
+    if (historical && writeHistoricalResult(historical, json)) return;
+  }
   const ent = resolveTarget(target);
   // Names are a flat namespace across every orchestrator, so an unscoped read
   // hands one session's work product to another as if it were its own.
@@ -41,6 +60,8 @@ export function cmdResult(args: string[]) {
     else process.stdout.write((resultText(pres.result) ?? "") + "\n");
     return;
   }
+  const historical = latestRunForKey(ent.key);
+  if (historical && writeHistoricalResult(historical, json)) return;
   // fallback: adapter-extracted final text from the native session tail
   const adapter = entityAdapter(ent);
   const extractInput = { key: ent.key, sessionPath: ent.sessionPath ?? undefined };
@@ -159,18 +180,18 @@ function cmdQuestionsLocal(args: string[]) {
       name: names.get(pres.key) ?? null,
       age: formatAge(question.ts),
       question: questionText(question),
-      workspace: workspaceOf(pres.key) ?? "-",
+      workspace: workspaceOf(orchDir(), pres.key) ?? "-",
       host: "local",
     })), null, 2) + "\n");
     return;
   }
-  const workspaces = pending.map(({ pres }) => workspaceOf(pres.key) ?? "-");
+  const workspaces = pending.map(({ pres }) => workspaceOf(orchDir(), pres.key) ?? "-");
   const showWorkspace = all && new Set(workspaces).size > 1;
   process.stdout.write(
     pending
       .map(({ pres, question }) => {
         const label = names.get(pres.key) ?? "-";
-        const workspaceLabel = workspaceOf(pres.key) ?? "-";
+        const workspaceLabel = workspaceOf(orchDir(), pres.key) ?? "-";
         const name = showWorkspace ? `${workspaceLabel} / ${label}` : label;
         return `${pres.key}  ${name}  ${formatAge(question.ts)}\n${question.question}`;
       })
@@ -200,7 +221,7 @@ function localQuestionRows(args: string[]): QuestionRow[] {
   const { pending, names } = collectPendingQuestions(args);
   return pending.map(({ pres, question }) => ({
     key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
-    question: questionText(question), workspace: workspaceOf(pres.key) ?? "-", host: "local",
+    question: questionText(question), workspace: workspaceOf(orchDir(), pres.key) ?? "-", host: "local",
   }));
 }
 

@@ -1,35 +1,72 @@
 # Files and data layout
 
-This document describes orch's on-disk state layout.
+This document describes orch's on-disk state under `$ORCH_DIR` (default: `~/.orch`).
+SQLite table ownership, schema handling, and retention behavior are covered in
+[`store.md`](store.md); this page lists the paths and the boundary between durable rows and
+file-based protocols.
 
 ```
 $ORCH_DIR/                     # default: ~/.orch
-├── orch.db                    # SQLite (WAL): queue, ownership, outbox, spawn registry
-├── orch.db-wal                # SQLite write-ahead log  ─┐ transient; do not commit,
-├── orch.db-shm                # SQLite shared-memory     ─┘ do not copy while orchd runs
-├── settings.json              # your defaults, notify sinks, hosts (JSON, schemaVersion-stamped)
-├── orchd.sock                 # unix socket the daemon serves RPC on (writes + event push)
-├── orchd.lock                 # daemon single-instance lock (holds the live pid + code hash)
-├── orchd.log                  # daemon stderr/stdout when started detached
-└── agents/                    # one dir per agent, the file-based presence bus
-    └── <key>/                 # one flat key: <backend>~<workspace>~<handle>
-                               # e.g. herdr~wD~p2, tmux~main~%255, headless~local~1234
-        ├── status.json        # v1 record: identity + state, task, model, tokens, liveness
-        ├── result.json        # agent → world: final result of the last turn
-        ├── inbox.jsonl        # world → agent: steer/model instructions (append-only)
-        └── answer.json        # world → agent: answer to the agent's question
+├── orch.db                    # SQLite (WAL): all brokered tables
+├── orch.db-wal                # SQLite write-ahead log (transient)
+├── orch.db-shm                # SQLite shared memory (transient)
+├── settings.json              # user configuration, including retention (JSON)
+├── reload.signal              # touch signal for config/extension reload watchers
+├── cmd-lock.json              # command lock holder; present only while held
+├── orchd.sock                 # daemon Unix RPC endpoint (or marker)
+├── orchd.port                 # loopback TCP port when TCP transport is used
+├── orchd.token                # owner-readable loopback RPC credential
+├── orchd.lock                 # daemon single-instance lock
+├── orchd.log                  # detached daemon stdout/stderr and lifecycle log
+├── logs/                      # detached headless-agent output
+│   └── <key>-<timestamp>.log
+└── agents/                    # file-based presence and agent IPC
+    └── <key>/                 # one flat serialized identity key
+        ├── status.json        # agent identity, liveness, state and run facts
+        ├── result.json        # settled-turn result
+        ├── inbox.jsonl        # orchestrator-to-agent control lines
+        ├── answer.json        # reply to an agent question
+        ├── question.json      # agent-to-orchestrator blocking question
+        ├── ack.jsonl          # delivery markers for control lines
+        └── control.json       # outcome of a model/thinking control command
 ```
 
-Notes worth knowing:
+## Durable state
 
-- **The SQLite database is `$ORCH_DIR/orch.db`** and runs in WAL mode, so you will also see `orch.db-wal` and `orch.db-shm` beside it. Those two are transient — never copy or restore them by hand while `orchd` is running, and never check them in. To back up or move the store, stop the daemon (`orch daemon stop`) first, then copy `orch.db` alone. A locked or half-written WAL is the usual cause of `SQLITE_BUSY` on startup; `orch doctor` detects and clears a stale lock.
-- **Ownership and the workspace wall live in the database, not in files.** When an orchestrator spawns an agent it records itself as the owner in `orch.db`; the daemon then refuses a dispatch/steer/model from any other orchestrator (or across a workspace wall) unless you pass `--steal` or `--cross-workspace`. Delete `orch.db` and you reset ownership along with the queue and outbox.
-- **Writes are durable.** Every dispatch/steer is persisted to the `outbox` table before delivery and retried until acked, so a daemon restart never drops an in-flight instruction.
-- **Presence keys are flat and backend-owned.** Each key is exactly `<backend>~<workspace>~<handle>`, with each segment percent-escaping `~`, `%`, `:`, and `/`. Examples: `herdr~wD~p2`, `tmux~main~%255`, `headless~local~1234`. The key is one filesystem segment under `~/.orch/agents/<key>/`; nested paths such as `agents/tmux/main/%5/` are forbidden.
-- **Presence records are versioned.** Every record has `schemaVersion: 1`, the serialized `key`, `backend`, `workspace`, and `handle`, plus the existing process/status fields. Readers verify the key and identity fields. Malformed, unknown-version, and legacy records are ignored; `orch doctor` reports them, and `orch clean` may reap them after its safety checks.
-- **Presence files are disposable.** The `agents/<key>/` dirs are regenerated by live agents; `orch clean` removes dead ones. Losing them costs only the last observed state, not queued work (which is in `orch.db`).
-- **Old presence layout is abandoned.** Old nested directories and old flat `ws:pane`-era directories are not migrated or used as live records. `orch doctor` reports them; `orch clean` may reap them.
-- **Agent identity is opaque across the bridge.** Every spawned agent receives `ORCH_AGENT_KEY`. Bridges use it and never read `HERDR_PANE_ID`, `TMUX_PANE`, or another backend environment variable.
-- **Backend selection is runtime-configured.** Use `--backend <id>` for an explicit selection or `"backend": "<id>"` under `defaults` in `settings.json`. Backend capability probes report availability and session state; capability flags are `panes`, `focusable`, and `canSendKeys`. Headless uses workspace `local`.
+`orch.db` is the single SQLite store (schema stamp `STORE_SCHEMA = 5`). It contains the
+queue, ownership, outbox, spawned registry, session identities, catalogues, durable event
+stream, and dispatch runs. The spawn registry is the `spawned` table;
+`$ORCH_DIR/spawned.jsonl` is not used. Model catalogue cache entries are in the `catalogues`
+table; `$ORCH_DIR/model-catalogues.json` is not used. See [`store.md`](store.md) for the
+table map and row semantics.
 
-- **Agent-CLI extensions are symlinked outside `$ORCH_DIR`.** For the `pi` adapter, orch links its bridge into `~/.pi/agent/extensions/` (`orchestrator-bridge.js`, `herdr-agent-state.ts`). This is the one place setup differs per machine, so if a fleet was set up on another host the links may point elsewhere or be stale — run `orch doctor` (or `orch doctor -y` to auto-repair) to rebuild and re-link them.
+SQLite runs in WAL mode, so `orch.db-wal` and `orch.db-shm` may appear beside the database
+while it is open. They are transient: stop the daemon before copying or restoring the store,
+and copy `orch.db` alone.
+
+The `events` table makes the daemon event sequence durable across a daemon restart, subject
+to event retention. The `runs` table records one row per dispatch, including outcome and
+usage counters. `orch runs` reads that history. If an agent's presence directory has been
+reaped, `orch result` can read the latest matching run row instead when addressed by its
+canonical key.
+
+## Presence and daemon files
+
+Presence directories are disposable live-agent records. Every valid record has the current
+presence schema stamp and uses the flat `<backend>~<workspace>~<handle>` key (each segment
+percent-escapes reserved characters). Losing `agents/<key>/` loses the last observed
+presence/result files, not queued work, event history, or run history.
+
+The daemon owns `orchd.lock`, `orchd.sock`, `orchd.port`, and `orchd.token` while running;
+its detached output remains in `orchd.log`. Headless agents write their redirected output
+under `logs/`. `cmd-lock.json` is the separate machine-wide heavy-command lock and is removed
+when that command releases the lock.
+
+Retention is configured by the `retention` object in `settings.json`: settled queue
+`queue_days` (14), events `events_days` (7), completed runs `runs_days` (30), delivered
+outbox `outbox_days` (7), and session identities `identities_days` (7). The daemon sweeps
+those row classes hourly; ownership, spawned, and catalogue rows have no retention key
+and are removed only by their explicit operations. See [`store.md`](store.md) for details.
+
+Agent-CLI extensions and harness settings live outside `$ORCH_DIR` in the user harness
+configuration directories; setup records the selected roots in `settings.json`.

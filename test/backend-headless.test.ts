@@ -6,6 +6,8 @@ import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { codexAdapter } from "../src/adapters/codex.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { insertSpawnedRecord, selectSpawnedRecords } from "../src/store/spawned-rows.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
@@ -72,7 +74,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(testOrchDir, { recursive: true, force: true });
+  removeTempDir(testOrchDir);
   restoreOrchDir();
 });
 
@@ -90,18 +92,17 @@ describe("HeadlessBackend", () => {
   });
 
   test("spawns a detached process and records its handle", async () => {
-    expect(backend.caps).toEqual({ panes: false, focusable: false, canSendKeys: false });
+    expect(backend.caps).toEqual({ panes: false, focusable: false, canSendKeys: false, canPruneLogs: true });
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-1", prompt: "sleep" });
     handles.push(handle);
 
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-1", "status.json")));
-    const record = JSON.parse(fs.readFileSync(path.join(testOrchDir, "spawned.jsonl"), "utf8").trim()) as {
-      backend: string;
-      handle: { pid: number; key: string };
-      adapter: string;
-      log: string;
-    };
-    expect(record).toEqual({ backend: "headless", handle: { pid: handle.pid, key: "fake-1" }, adapter: "fake", log: expect.stringMatching(/logs[\\/]/) as string });
+    const record = selectSpawnedRecords(testOrchDir).find((entry) => entry.pane === "fake-1");
+    expect(record?.backend).toBe("headless");
+    expect(JSON.parse(record?.handle ?? "null")).toEqual({ pid: handle.pid, key: "fake-1" });
+    expect(record?.cwd).toBeUndefined();
+    expect(fs.existsSync(path.join(testOrchDir, "logs"))).toBe(true);
+    expect(fs.existsSync(path.join(testOrchDir, "logs", "fake-1.log"))).toBe(true);
     expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
     expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", "fake-1", "status.json"), "utf8")) as { key: string }).key).toBe("fake-1");
   }, 30000);
@@ -133,12 +134,11 @@ describe("HeadlessBackend", () => {
     handles.push(handle);
     const statusPath = path.join(testOrchDir, "agents", "codex-tail", "status.json");
     await waitFor(() => fs.existsSync(statusPath));
-    const record = JSON.parse(fs.readFileSync(path.join(testOrchDir, "spawned.jsonl"), "utf8").trim().split("\n").at(-1)!) as { log: string };
     const status = JSON.parse(fs.readFileSync(statusPath, "utf8")) as { sessionPath: string };
-    expect(record.log).toBe(status.sessionPath);
-    expect(fs.existsSync(record.log)).toBe(true);
-    await waitFor(() => fs.existsSync(record.log) && fs.readFileSync(record.log, "utf8").includes("headless tail"));
-    expect(codexAdapter.readSessionView({ sessionPath: record.log })).toEqual({ state: "idle", lastText: "headless tail" });
+    expect(status.sessionPath).toMatch(/logs[\\/]/);
+    expect(fs.existsSync(status.sessionPath)).toBe(true);
+    await waitFor(() => fs.existsSync(status.sessionPath) && fs.readFileSync(status.sessionPath, "utf8").includes("headless tail"));
+    expect(codexAdapter.readSessionView({ sessionPath: status.sessionPath })).toEqual({ state: "idle", lastText: "headless tail" });
     expect(codexAdapter.readSessionView({})).toBeUndefined();
   }, 30000);
 
@@ -164,7 +164,7 @@ describe("HeadlessBackend", () => {
     const handle = { pid: 41001, key: "hermetic-match" };
     fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
     seedStatus(testOrchDir, handle.key, { pid: handle.pid });
-    fs.writeFileSync(path.join(testOrchDir, "spawned.jsonl"), JSON.stringify({ backend: "headless", handle, adapter: "fake" }) + "\n", { flag: "a" });
+    insertSpawnedRecord(testOrchDir, { pane: handle.key, backend: "headless", handle: JSON.stringify(handle), adapter: "codex" });
 
     expect(hermetic.close(handle)).toBe(true);
     expect(calls).toEqual([{ pid: handle.pid, signal: "SIGTERM" }]);
@@ -174,7 +174,7 @@ describe("HeadlessBackend", () => {
     const calls: number[] = [];
     const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
     const recorded = { pid: 41002, key: "hermetic-recorded" };
-    fs.writeFileSync(path.join(testOrchDir, "spawned.jsonl"), JSON.stringify({ backend: "headless", handle: recorded, adapter: "fake" }) + "\n", { flag: "a" });
+    insertSpawnedRecord(testOrchDir, { pane: recorded.key, backend: "headless", handle: JSON.stringify(recorded), adapter: "codex" });
 
     fs.mkdirSync(path.join(testOrchDir, "agents", recorded.key), { recursive: true });
     expect(hermetic.close(recorded)).toBe(false);

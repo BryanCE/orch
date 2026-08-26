@@ -3,7 +3,7 @@
 
 import "../src/store/suppress-sqlite-warning.ts";
 import { runCommand } from "../src/commands/index.ts";
-import { closeAllStores } from "../src/store/sqlite.ts";
+import { closeAllStores } from "../src/store/connection.ts";
 
 // Release this process's cached SQLite (WAL) handles when it ends. A spawned
 // `orch work` child otherwise leaves its WAL -shm mapping held past exit, and on

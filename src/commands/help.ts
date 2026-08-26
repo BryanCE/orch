@@ -16,7 +16,7 @@ Glanceable table of the fleet (the default command when none is given).
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
 `,
-  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json]
+  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>]
 Continuous stream of pane state transitions; requires a running daemon.
 Bare 'orch events' is the normal use: one readable line per transition, scoped to the
 agents THIS session spawned. Every flag below is a deviation from that.
@@ -26,6 +26,9 @@ agents THIS session spawned. Every flag below is a deviation from that.
   --all         Every workspace's transitions, not just the caller's.
   --status      Only transitions into these states (comma-separated).
   --json        Raw event records, one per line, for a caller that parses them.
+  --since-seq <n> Resume after this durable sequence; it survives daemon restarts, but
+                history is bounded by the events retention window. A pruned range is
+                reported as a history gap before retained events are replayed.
 Notifications are delivered by orchd from settings.json sinks, not by this command.
 An attached events stream counts as daemon usage: orchd will not idle-shutdown while one is open.
 `,
@@ -35,6 +38,12 @@ Send a synthetic transition through each notification sink configured in setting
 `,
   questions: `orch questions
 List pending agent questions from live agents. Answer one with: orch answer <target> "<text>".
+`,
+  runs: `orch runs [<target>] [-n <count>] [--json]
+List durable dispatch history, newest first. Without a target, lists all agents.
+  <target>       Resolve an agent name, key, pane handle, or unique suffix.
+  -n <count>     Limit the number of rows.
+  --json         Print the RunRecord array for scripts.
 `,
   queue: `orch queue add "<task text>" [--worktree] [--json]
 orch queue list [--json]

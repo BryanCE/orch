@@ -1,8 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
 import { workerPrompt } from "../src/commands/spawn.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+
+const orchDirs: string[] = [];
+
+function tempOrchDir(): string {
+  const directory = mkdtempSync(join(tmpdir(), "orch-worker-prompt-"));
+  orchDirs.push(directory);
+  return directory;
+}
+
+afterEach(() => {
+  while (orchDirs.length > 0) removeTempDir(orchDirs.pop()!);
+});
 
 describe("worker prompt capability composition", () => {
   test("orch run composition selects the same header per adapter", () => {
@@ -35,10 +51,11 @@ describe("worker prompt capability composition", () => {
   });
 
   test("events strip both worker header variants", () => {
+    const orchDir = tempOrchDir();
     for (const adapter of ["codex", "pi"] as const) {
       const key = `${adapter}-events`;
       const states = new Map([[key, "working"]]);
-      const event = derivePresenceTransition(key, {
+      const event = derivePresenceTransition(orchDir, key, {
         pid: process.pid,
         state: "done",
         task: workerPrompt("real task", false, getAdapter(adapter)),

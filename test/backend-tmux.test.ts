@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 /** One synthetic tmux pane row served by the fake `list-panes -a` query. */
 interface FakePane {
@@ -166,7 +167,7 @@ afterEach(() => {
 
 afterAll(() => {
   mock.restore();
-  fs.rmSync(testOrchDir, { recursive: true, force: true });
+  removeTempDir(testOrchDir);
 });
 
 describe("TmuxBackend", () => {
@@ -175,7 +176,7 @@ describe("TmuxBackend", () => {
     expect(backend.panes).toBe(true);
     expect(backend.focusable).toBe(true);
     expect(backend.canSendKeys).toBe(true);
-    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true });
+    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
   });
 
   test("reports tmux availability", () => {

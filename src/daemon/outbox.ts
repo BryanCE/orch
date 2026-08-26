@@ -2,7 +2,7 @@ import {
   bumpOutboxAttempt,
   markOutboxDelivered,
   selectPendingOutbox,
-} from "../store/sqlite.ts";
+} from "../store/outbox-rows.ts";
 
 export interface OutboxDeps {
   deliver(target: string, payload: unknown, id: string): Promise<boolean>;

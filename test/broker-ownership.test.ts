@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { checkWall } from "../src/policy/workspace.ts";
-import { checkOwnerWrite, getOwner, setOwner } from "../src/store/sqlite.ts";
+import { checkOwnerWrite, getOwner, setOwner } from "../src/store/ownership-rows.ts";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 
 const tempDirs: string[] = [];
 
@@ -37,14 +38,18 @@ describe("broker ownership and workspace governance", () => {
   });
 
   test("refuses cross-workspace writes unless explicitly overridden", () => {
-    expect(checkWall("herdr~w1~p1", "herdr~w1~p3", { crossWorkspace: false })).toEqual({ allowed: true });
+    const orchDir = makeOrchDir();
+    insertSpawnedRecord(orchDir, { pane: "herdr~w1~p1", workspace: "w1" });
+    insertSpawnedRecord(orchDir, { pane: "herdr~w1~p3", workspace: "w1" });
+    insertSpawnedRecord(orchDir, { pane: "herdr~w2~p2", workspace: "w2" });
+    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w1~p3", { crossWorkspace: false })).toEqual({ allowed: true });
 
-    const refused = checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false });
+    const refused = checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false });
     expect(refused.allowed).toBe(false);
     expect(refused.reason).toContain("w1");
     expect(refused.reason).toContain("w2");
 
-    expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
+    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
   });
 
   test("work-loop selection stays within the origin workspace", () => {

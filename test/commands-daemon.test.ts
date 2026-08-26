@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { daemonLockPid, parseGovernance, validDaemonStatus } from "../src/commands/daemon.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 describe("commands/daemon", () => {
   test("parses governance and validates daemon status", () => {
@@ -23,7 +24,7 @@ describe("commands/daemon", () => {
       write({ pid: 321 });
       expect(daemonLockPid(dir)).toBeUndefined();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

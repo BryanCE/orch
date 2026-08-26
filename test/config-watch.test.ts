@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { settingsPath, watchConfig, type ConfigWatch, type OrchConfig } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 const watches: ConfigWatch[] = [];
@@ -25,7 +26,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<boo
 
 afterEach(() => {
   while (watches.length > 0) watches.pop()!.stop();
-  while (directories.length > 0) rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length > 0) removeTempDir(directories.pop()!);
 });
 
 describe("watchConfig", () => {

@@ -40,9 +40,9 @@ function isNotifyEvent(value: unknown): value is NotifyEvent {
     && typeof value.newState === "string";
 }
 
-/** Short display name for an agent, falling back to the tail of its identity key. */
+/** Short display name for an agent, falling back to its opaque key. */
 function agentLabel(event: NotifyEvent): string {
-  return event.agent ?? event.key.split("~").pop() ?? event.key;
+  return event.agent ?? event.key;
 }
 
 function fleetLines(agents: Map<string, FleetAgent>): string[] {

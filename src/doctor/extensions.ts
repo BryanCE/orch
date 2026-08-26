@@ -1,22 +1,8 @@
-import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { EXTENSION_NAMES, extensionBundlePath } from "../bridge-bundle.ts";
-import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
+import { loadPresence } from "../presence/store.ts";
 import type { CheckResult } from "../check-result.ts";
-import { readAgentEntries, readJson } from "./shared.ts";
-import { packageRoot, pidAlive } from "../util.ts";
-
-interface AgentStatus {
-  pid?: unknown;
-  extensionHash?: unknown;
-}
-
-/** Only a record stamped with the current PRESENCE_SCHEMA counts as a live agent. */
-function isAgentStatus(value: unknown): value is AgentStatus {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  return (value as { schema?: unknown }).schema === PRESENCE_SCHEMA;
-}
+import { packageRoot } from "../util.ts";
 
 /**
  * Hashes of the bridge bundles currently on disk — one per harness, since each
@@ -44,27 +30,18 @@ export async function checkExtensionStaleness(orchDir: string, bundlePath?: stri
   await Promise.resolve();
   const id = "extension-staleness";
   const label = "Extension staleness";
-  const agentsDir = path.join(orchDir, "agents");
-  let entries: filesystem.Dirent[] | undefined;
-  try {
-    entries = readAgentEntries(orchDir);
-  } catch (error: unknown) {
-    return { id, label, status: "fail", detail: error instanceof Error ? error.message : String(error) };
-  }
-  if (!entries) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
+  const entries = loadPresence(orchDir);
+  if (!entries.size) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
 
   const diskHashes = shippedBundleHashes(bundlePath);
   if (!diskHashes.length) return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext" };
   const stale: string[] = [];
   let liveWithHash = 0;
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    try {
-      const status = readJson(path.join(agentsDir, entry.name, STATUS_FILE));
-      if (!isAgentStatus(status) || !pidAlive(status.pid) || typeof status.extensionHash !== "string") continue;
-      liveWithHash += 1;
-      if (!diskHashes.includes(status.extensionHash)) stale.push(entry.name);
-    } catch {}
+  for (const entry of entries.values()) {
+    const extensionHash = entry.status?.extensionHash;
+    if (!entry.alive || typeof extensionHash !== "string") continue;
+    liveWithHash += 1;
+    if (!diskHashes.includes(extensionHash)) stale.push(entry.key);
   }
 
   if (stale.length) {

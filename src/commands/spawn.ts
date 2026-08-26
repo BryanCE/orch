@@ -1,5 +1,5 @@
 import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/sqlite.ts";
+import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree, liveNamedRecords, nextNameIndex } from "../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
@@ -11,7 +11,7 @@ import { repickCommand } from "../adapters/prerequisites.ts";
 import { workerHeaderFor, type WorkerHeaderContext } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendId } from "../backends/backend.ts";
-import { resolveBackend } from "../backends/registry.ts";
+import { detachedBackend, resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
@@ -307,7 +307,7 @@ export function liveSpawnCounts(records: Map<string, SpawnedRecord>, presence: M
   const counts = new Map<string, number>();
   for (const [key] of records) {
     const entry = presence.get(key);
-    const workspace = entry?.status?.workspace;
+    const workspace = records.get(key)?.workspace;
     if (!entry?.alive || typeof workspace !== "string") continue;
     counts.set(workspace, (counts.get(workspace) ?? 0) + 1);
   }
@@ -412,7 +412,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
 
 function resolveSpawnWorkspace(requested: string | null): string {
   const workspace = requested ?? callerWorkspace();
-  if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
+  if (!workspace) die("Could not determine workspace id. Pass --workspace <id>, or --backend headless with --prompt to launch detached.");
   return workspace;
 }
 
@@ -626,8 +626,26 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }
 
-async function executeSpawn(settings: SpawnSettings): Promise<void> {
+/**
+ * A pane backend answers `isInsideSession` whenever its socket is up, which says
+ * nothing about whether THIS process sits in one of its panes. When it cannot place
+ * the caller there is no workspace to open a tab in, so the launch goes detached
+ * rather than refusing: orch owns the agent either way and where it runs is placement
+ * (Rule 11). An explicit `--workspace` always wins.
+ */
+function spawnBackend(settings: SpawnSettings): Backend {
   const backend = resolveBackend({ configured: settings.backend });
+  if (!backend.createGroup || settings.workspace !== null) return backend;
+  if (backend.currentIdentity?.()?.workspace) return backend;
+  process.stderr.write(
+    `orch is not running inside a ${backend.id} pane, so there is no workspace to open a tab in - spawning detached. `
+    + `Pass --workspace <id> to place these agents in a ${backend.id} workspace instead.\n`,
+  );
+  return detachedBackend;
+}
+
+async function executeSpawn(settings: SpawnSettings): Promise<void> {
+  const backend = spawnBackend(settings);
   // A backend without group creation has no panes to tile into: spawn detached.
   if (!backend.createGroup) {
     await executeDetachedSpawn(settings, backend);

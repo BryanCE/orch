@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   insertOutboxMessage,
+  markOutboxDelivered,
+  outboxMessagePending,
   selectPendingOutbox,
-} from "../src/store/sqlite.ts";
+} from "../src/store/outbox-rows.ts";
 import { drainOutbox } from "../src/daemon/outbox.ts";
 
 const tempDirs: string[] = [];
@@ -33,6 +35,17 @@ describe("outbox delivery", () => {
     expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 2, retried: 0 });
     expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 0, retried: 0 });
     expect(delivered).toEqual(["agent:one", "agent:two"]);
+  });
+
+  test("checks one message's pending state without scanning the outbox", () => {
+    const orchDir = fixture();
+    insertOutboxMessage(orchDir, { id: "delivered", target: "agent:delivered", payload: "x" });
+    insertOutboxMessage(orchDir, { id: "pending", target: "agent:pending", payload: "y" });
+    markOutboxDelivered(orchDir, "delivered");
+
+    expect(outboxMessagePending(orchDir, "delivered")).toBe(false);
+    expect(outboxMessagePending(orchDir, "pending")).toBe(true);
+    expect(outboxMessagePending(orchDir, "missing")).toBe(false);
   });
 
   test("keeps failed messages pending until their backoff expires", async () => {

@@ -14,9 +14,6 @@ const storePath = path.join(import.meta.dir, "../src/presence/store.ts");
 interface PresenceStatus {
   schema?: number;
   key?: string;
-  backend?: string;
-  workspace?: string;
-  handle?: string;
   agent?: string;
   pid?: number;
   state?: string;
@@ -64,73 +61,54 @@ afterAll(() => {
 });
 
 describe("presence status schema", () => {
-  test("reads a spawned namespaced identity with backend, workspace, handle, and adapter", () => {
+  test("reads a spawned identity without placement fields in status", () => {
     const key = "tmux~workspace-a~%255";
-    writeStatus(key, {
-      schema: PRESENCE_SCHEMA, key, backend: "tmux", workspace: "workspace-a", handle: "%5",
-      agent: "pi", pid: process.pid, state: "working",
-    });
-
-    expect(readStatuses()[key]!).toMatchObject({
-      schema: PRESENCE_SCHEMA, key, backend: "tmux", workspace: "workspace-a", handle: "%5", agent: "pi", state: "working",
-    });
+    writeStatus(key, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "working" });
+    expect(readStatuses()[key]!).toMatchObject({ schema: PRESENCE_SCHEMA, key, agent: "pi", state: "working" });
   });
 
-  test("orch status JSON exposes the complete spawned identity fields", () => {
+  test("orch status JSON exposes the agent status fields", () => {
     const key = "headless~workspace-a~ag7k2m9x1p";
-    writeStatus(key, {
-      schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "workspace-a", handle: "1234",
-      agent: "pi", pid: process.pid, state: "idle",
-    });
+    writeStatus(key, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_DIR = orchDir;
 
     expect(readStatuses()).toEqual(expect.objectContaining({
-      [key]: expect.objectContaining({ key, backend: "headless", workspace: "workspace-a", handle: "1234", agent: "pi" }) as PresenceStatus,
+      [key]: expect.objectContaining({ key, agent: "pi" }) as PresenceStatus,
     }) as Record<string, PresenceStatus>);
     expect(parseIdentity(key)).toEqual({ backend: "headless", workspace: "workspace-a", id: "ag7k2m9x1p" });
   });
 
   test("status and list report the same agent identity", () => {
     const key = "headless~workspace-a~ag7k2m9x1p";
-    writeStatus(key, {
-      schema: PRESENCE_SCHEMA, key, backend: "headless", workspace: "workspace-a", handle: "1234",
-      agent: "pi", pid: process.pid, state: "idle",
-    });
+    writeStatus(key, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_DIR = orchDir;
 
     const status = readStatuses()[key]!;
     const listed = buildEntities().find((entity) => entity.key === key)!;
-    expect({ key: status.key, workspace: status.workspace, agent: status.agent }).toEqual({
-      key: listed.key, workspace: listed.workspace ?? undefined, agent: listed.agent ?? undefined,
+    expect({ key: status.key, agent: status.agent }).toEqual({
+      key: listed.key, agent: listed.agent ?? undefined,
     });
-    expect(parseIdentity(status.key!)).toMatchObject({ backend: "headless", workspace: status.workspace, id: "ag7k2m9x1p" });
+    expect(parseIdentity(status.key!)).toMatchObject({ backend: "headless", workspace: "workspace-a", id: "ag7k2m9x1p" });
   });
 
-  test("mixed pi and Claude status rows carry the same identity field set", () => {
+  test("mixed pi and Claude status rows carry the same status field set", () => {
     const piKey = "headless~workspace-a~ag7k2m9x1p";
     const claudeKey = "headless~workspace-b~zq4n8b3t7v";
-    writeStatus(piKey, {
-      schema: PRESENCE_SCHEMA, key: piKey, backend: "headless", workspace: "workspace-a", handle: "1234",
-      agent: "pi", pid: process.pid, state: "idle",
-    });
-    writeStatus(claudeKey, {
-      schema: PRESENCE_SCHEMA, key: claudeKey, backend: "headless", workspace: "workspace-b", handle: "5678",
-      agent: "claude", pid: process.pid, state: "idle",
-    });
+    writeStatus(piKey, { schema: PRESENCE_SCHEMA, key: piKey, agent: "pi", pid: process.pid, state: "idle" });
+    writeStatus(claudeKey, { schema: PRESENCE_SCHEMA, key: claudeKey, agent: "claude", pid: process.pid, state: "idle" });
     process.env.ORCH_DIR = orchDir;
 
     const rows = Object.values(readStatuses()).filter((row) => row.key === piKey || row.key === claudeKey);
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => Object.keys(row).sort())).toEqual([
-      ["agent", "backend", "handle", "key", "pid", "schema", "state", "workspace"],
-      ["agent", "backend", "handle", "key", "pid", "schema", "state", "workspace"],
+      ["agent", "key", "pid", "schema", "state"],
+      ["agent", "key", "pid", "schema", "state"],
     ]);
     expect(rows.map((row) => row.agent).sort()).toEqual(["claude", "pi"]);
     // The id is minted, so it matches neither the pane handle nor the name.
     for (const row of rows) {
       const identity = parseIdentity(row.key!);
-      expect(identity).toMatchObject({ backend: row.backend, workspace: row.workspace });
-      expect(identity.id).not.toBe(row.handle);
+      expect(identity.id).not.toBe(row.key);
     }
   });
 
@@ -144,6 +122,12 @@ describe("presence status schema", () => {
     writeStatus("wrong-stamp", { schema: PRESENCE_SCHEMA + 1, agent: "pi", pid: process.pid, state: "idle" });
 
     expect(readStatuses()["wrong-stamp"]).toBeUndefined();
+  });
+
+  test("rejects a current-schema record carrying placement fields", () => {
+    writeStatus("placement-copy", { schema: PRESENCE_SCHEMA, agent: "pi", workspace: "wrong", pid: process.pid, state: "idle" });
+
+    expect(readStatuses()["placement-copy"]).toBeUndefined();
   });
 
   test("a malformed record is skipped without hiding the valid records beside it", () => {

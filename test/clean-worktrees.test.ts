@@ -5,14 +5,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentWorktree, listAgentWorktrees, worktreeBranch } from "../src/worktree.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fixtureRepo, git } from "./helpers/git-repo.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
+const orchDirectories: string[] = [];
 
 /** orch has no built-in configuration, so a spawned CLI needs a recorded composition in its
  * ORCH_DIR exactly as a real install does. */
 function orchDirWithSettings(): string {
   const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-clean-dir-"));
-  directories.push(orchDir);
+  orchDirectories.push(orchDir);
   writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
   return orchDir;
 }
@@ -41,6 +43,7 @@ function commit(worktreePath: string, contents = "feature\n"): void {
 }
 
 afterEach(() => {
+  while (orchDirectories.length) removeTempDir(orchDirectories.pop()!);
   while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
 });
 

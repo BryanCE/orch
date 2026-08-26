@@ -14,6 +14,7 @@ import { checkWall, scopeToWorkspace, workspaceOf } from "../policy/workspace.ts
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
+import { orchDir } from "../presence/store.ts";
 import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate, type JsonRecord } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
@@ -77,7 +78,7 @@ function callerMayCrossFleets(): boolean {
  * session gives them all one workspace — the project is what separates fleets. */
 function scopeToFleet(peers: Peer[], ownKey: string, allRequested: boolean): Peer[] {
   const all = allRequested && callerMayCrossFleets();
-  const sameWorkspacePeers = scopeToWorkspace(peers, (peer) => peer.key, workspaceOf(ownKey), { all });
+  const sameWorkspacePeers = scopeToWorkspace(orchDir(), peers, (peer) => peer.key, workspaceOf(orchDir(), ownKey), { all });
   if (all) return sameWorkspacePeers;
   return sameWorkspacePeers.filter((peer) => optionalString(peer.status.project) === projectRoot());
 }
@@ -131,7 +132,7 @@ export function resolvePeer(target: string, ownKey: string, allRequested = false
     : peers.filter((peer) => peer.key.endsWith(target) || optionalString(peer.status.label) === target);
   const firstMatch = matches[0];
   if (matches.length === 1 && firstMatch) {
-    const wall = checkWall(ownKey, firstMatch.key, { crossWorkspace: allWorkspaces });
+    const wall = checkWall(orchDir(), ownKey, firstMatch.key, { crossWorkspace: allWorkspaces });
     if (!wall.allowed) return { error: `error: ${wall.reason}` };
   }
   const scopedMatches = scopeToFleet(matches, ownKey, allWorkspaces);
@@ -152,7 +153,7 @@ function summarizePeer(peer: Peer, spawnerKey: string | undefined): PeerSummary 
     key: peer.key,
     name: optionalString(peer.status.label),
     harness: optionalString(peer.status.agent),
-    workspace: workspaceOf(peer.key),
+    workspace: workspaceOf(orchDir(), peer.key),
     state: optionalString(peer.status.state) ?? "unknown",
     isSpawner: peer.key === spawnerKey ? true : undefined,
     spawnedBy: optionalString(peer.status.spawnedBy),
@@ -200,7 +201,7 @@ export function sendPeerMessage(target: string, text: string, ownKey: string, al
   const ownName = optionalString(readStatus(presenceAgentDir(ownKey)).label);
   appendPeerInbox(resolved.peer.dir, `[from ${ownName ? `${ownName} (${ownKey})` : ownKey}] ${text}`);
   // The sender knows a peer by its name and harness, not by the transport key that routed there.
-  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, workspaceOf(resolved.peer.key) ?? "workspace", resolved.peer.status))}`;
+  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, workspaceOf(orchDir(), resolved.peer.key) ?? "workspace", resolved.peer.status))}`;
 }
 
 export function formatPeerLines(peers: PeerSummary[]): string {
@@ -347,7 +348,7 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
           : typeof resolved.peer.status.lastText === "string" ? resolved.peer.status.lastText : "";
         return JSON.stringify({
           key: resolved.peer.key,
-          workspace: workspaceOf(resolved.peer.key),
+          workspace: workspaceOf(orchDir(), resolved.peer.key),
           state: optionalString(resolved.peer.status.state) ?? "unknown",
           model: peerModel(resolved.peer.status),
           text,

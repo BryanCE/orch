@@ -38,7 +38,7 @@ With no herdr binary present, the observe and control surface — `status`, `eve
 - **THEN** orch exits 1 with a message that the command requires the herdr backend
 
 ### Requirement: Spawn registry safety invariant across backends
-`spawned.jsonl` entries SHALL record the selected backend, its minted handle, the agent adapter, and cwd for every agent orch creates. Each presence key SHALL use the backend identity `{backend, workspace, handle}`. `orch close --all` SHALL only terminate handles recorded there — herdr panes by pane close, tmux panes by tmux close, and headless agents by signalling the recorded pid after verifying it still belongs to an orch-spawned agent (presence key match) — and SHALL never touch panes, tabs, or processes orch did not create.
+Rows in the SQLite `spawned` table SHALL record the selected backend, its minted handle, the agent adapter, and cwd for every agent orch creates. Each presence key SHALL use the backend identity `{backend, workspace, handle}`. `orch close --all` SHALL only terminate handles recorded there — herdr panes by pane close, tmux panes by tmux close, and headless agents by signalling the recorded pid after verifying it still belongs to an orch-spawned agent (presence key match) — and SHALL never touch panes, tabs, or processes orch did not create.
 
 #### Scenario: close --all spares user processes
 - **WHEN** the user has their own pi process running plus 2 orch-spawned headless agents, and runs `orch close --all`

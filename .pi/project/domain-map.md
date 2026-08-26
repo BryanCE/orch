@@ -14,7 +14,9 @@ Updated: 2026-07-15
 
 - `src/entities.ts`: builds and resolves local/remote agent, pane, tab, and workspace targets; applies workspace scoping and stable ordering.
 - `src/store.ts`: filesystem-facing orchestration state, presence records, spawned records, bridge registration, answers, steering, and default model settings.
-- `src/store/sqlite.ts`: SQLite persistence for queue tasks, ownership, spawned records, and notification outbox messages.
+- `src/store/{queue-rows.ts,ownership-rows.ts,outbox-rows.ts,spawned-rows.ts,identity-rows.ts,catalogue-rows.ts,event-rows.ts,run-rows.ts}`: SQLite persistence for each table's records.
+- `src/store/schema.ts`: SQLite table definitions and schema version.
+- `src/store/connection.ts`: SQLite connection lifecycle, WAL setup, and transactions.
 - `src/queue.ts`: task lifecycle (`queued`, `claimed`, `done`, `failed`, `cancelled`), retry/requeue rules, history, and workspace-aware claiming.
 - `src/work.ts`: worker loop; claims queued tasks, dispatches them through the selected backend/adapter, waits for state, settles success/failure, retries, and emits task events.
 - `src/policy/workspace.ts`: workspace identity/name resolution, same-workspace checks, scoped collections, and wall/ownership decisions.
@@ -43,7 +45,7 @@ Updated: 2026-07-15
 
 ## Ownership
 
-- `agent-teams-runtime`: `src/adapters/`, `src/backends/`, `src/daemon/`, `src/entities.ts`, `src/store.ts`, `src/store/sqlite.ts`, `src/queue.ts`, `src/work.ts`, and `src/policy/`.
+- `agent-teams-runtime`: `src/adapters/`, `src/backends/`, `src/daemon/`, `src/entities.ts`, `src/store.ts`, `src/store/{queue-rows.ts,ownership-rows.ts,outbox-rows.ts,spawned-rows.ts,identity-rows.ts,catalogue-rows.ts,event-rows.ts,run-rows.ts,schema.ts,connection.ts}`, `src/queue.ts`, `src/work.ts`, and `src/policy/`.
 - CLI/integration behavior: `src/commands.ts`, `src/config.ts`, `src/remote.ts`, `src/herdr.ts`, `src/notify.ts`, setup/doctor modules, session/worktree helpers.
 
 ## Shared paths

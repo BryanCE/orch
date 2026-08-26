@@ -1,142 +1,40 @@
 import { createServerFn } from "@tanstack/react-start";
-import { createConnection, type Socket } from "node:net";
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 
-// The daemon's endpoint names and $ORCH_DIR have exactly one definition site; the web
-// server reads them through the @orch/* seam rather than restating either one.
-import { daemonRuntimeFiles } from "@orch/daemon/runtime-files.ts";
-import { orchDir } from "@orch/presence/writer.ts";
-import type { Workspace } from "@/lib/fleet";
+import { daemonRpc, down, type DaemonDown, type DaemonEndpoint } from "./daemon";
+import { NO_CAPABILITIES, type AgentCapabilities, type Workspace } from "@/lib/fleet";
 
-const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PORT = 3716;
-const RPC_TIMEOUT_MS = 1_000;
+// Every export here is a server function, so the TanStack Start plugin strips this
+// module's body from the client bundle. Adding a plain exported function pulls
+// ./daemon — and node:net with it — into the browser chunk, which kills hydration.
 
-type RpcMessage = {
-  id?: number;
-  event?: unknown;
-  seq?: number;
-  result?: unknown;
-  error?: { code?: string | number; message?: string } | string;
-};
-
-export type DaemonDown = { daemon: "down"; reason?: string };
 export type DaemonUp = { daemon: "up" };
-export type DaemonStatus = DaemonDown | (DaemonUp & { running: true; startedAt?: string });
+export type DaemonHome = "local" | "wsl" | "remote";
+export interface DaemonWhere {
+  home: DaemonHome;
+  endpoint: DaemonEndpoint;
+}
+export type DaemonStatus = DaemonDown | (DaemonUp & { running: true; startedAt?: string; where: DaemonWhere });
 export type FleetResult = DaemonDown | { daemon: "up"; workspaces: Workspace[] };
 
-function daemonTarget(): { host: string; port: number } {
-  const rawPort = Number(process.env.ORCH_DAEMON_PORT ?? DEFAULT_PORT);
-  return {
-    host: process.env.ORCH_DAEMON_HOST ?? DEFAULT_HOST,
-    port: Number.isInteger(rawPort) && rawPort > 0 ? rawPort : DEFAULT_PORT,
-  };
-}
-
-function rpcError(message: RpcMessage): Error | undefined {
-  if (message.error === undefined) return undefined;
-  const error = typeof message.error === "string" ? message.error : message.error.message ?? "RPC request failed";
-  return new Error(error);
-}
-
-function connectEndpoint(endpoint: string | { host: string; port: number }, timeoutMs: number): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = typeof endpoint === "string"
-      ? createConnection(endpoint)
-      : createConnection({ host: endpoint.host, port: endpoint.port });
-    let settled = false;
-    const fail = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      socket.destroy();
-      reject(error);
-    };
-    const timer = setTimeout(() => fail(new Error("daemon connection timed out")), timeoutMs);
-    socket.once("error", fail);
-    socket.once("connect", () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      socket.removeListener("error", fail);
-      resolve(socket);
-    });
-  });
-}
-
-function isAbsentOrRefused(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const code = Reflect.get(error, "code");
-  return code === "ENOENT" || code === "ECONNREFUSED";
-}
-
-function connectDaemon(timeoutMs = RPC_TIMEOUT_MS): Promise<Socket> {
-  const unixSocket = daemonRuntimeFiles(orchDir()).socket;
-  const tcp = daemonTarget();
-  if (!existsSync(unixSocket)) return connectEndpoint(tcp, timeoutMs);
-  return connectEndpoint(unixSocket, timeoutMs).catch((error: unknown) => {
-    if (!isAbsentOrRefused(error)) throw error;
-    return connectEndpoint(tcp, timeoutMs);
-  });
-}
-
-function readLines(socket: Socket, onLine: (message: RpcMessage) => void): void {
-  let buffer = "";
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk: string) => {
-    buffer += chunk;
-    let end = buffer.indexOf("\n");
-    while (end >= 0) {
-      const line = buffer.slice(0, end).trim();
-      buffer = buffer.slice(end + 1);
-      if (line) {
-        try {
-          const message = JSON.parse(line) as RpcMessage;
-          if (message && typeof message === "object") onLine(message);
-        } catch {
-          // Ignore malformed daemon output.
-        }
-      }
-      end = buffer.indexOf("\n");
-    }
-  });
-}
-
-/** Local RPC boundary. All connection failures stay values for server callers. */
-async function daemonRpc<T>(method: string, params?: unknown): Promise<T> {
-  const socket = await connectDaemon();
-  const id = Date.now() + Math.random();
-  try {
-    const response = await new Promise<RpcMessage>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("daemon RPC timed out")), RPC_TIMEOUT_MS);
-      readLines(socket, (message) => {
-        if (message.id !== id) return;
-        clearTimeout(timer);
-        const error = rpcError(message);
-        if (error) reject(error);
-        else resolve(message);
-      });
-      socket.once("error", reject);
-      socket.write(`${JSON.stringify({ id, method, params })}\n`);
-    });
-    return response.result as T;
-  } finally {
-    socket.destroy();
-  }
-}
-
-function down(error: unknown): DaemonDown {
-  return { daemon: "down", reason: error instanceof Error ? error.message : "daemon unavailable" };
+/**
+ * Which machine orchd sits on, relative to this web server. A unix socket is one
+ * filesystem, so it is the same host. A Windows web server that reached a daemon
+ * holding a unix socket crossed loopback into WSL — the standing setup here.
+ */
+function daemonHome(endpoint: DaemonEndpoint, daemonTransport: unknown): DaemonHome {
+  if (endpoint.transport === "unix") return "local";
+  if (process.platform === "win32" && daemonTransport === "unix") return "wsl";
+  return "remote";
 }
 
 export const getDaemonStatus = createServerFn({ method: "GET" }).handler(async (): Promise<DaemonStatus> => {
   try {
-    const result = await daemonRpc<Record<string, unknown>>("daemon-status");
+    const { result, endpoint } = await daemonRpc<Record<string, unknown>>("daemon-status");
     return {
       daemon: "up",
       running: true,
       ...(typeof result?.startedAt === "string" ? { startedAt: result.startedAt } : {}),
+      where: { home: daemonHome(endpoint, result?.socket), endpoint },
     };
   } catch (error) {
     return down(error);
@@ -155,8 +53,25 @@ interface PresenceRow {
   cost: number;
   ctxPercent: number | null;
   tokens: unknown;
+  caps: Partial<AgentCapabilities> | null;
   workspace?: string | null;
   workspaceName?: string | null;
+}
+
+/**
+ * Read the daemon's capability report defensively. The backend port grows new
+ * capabilities over time, and a build that has not heard of one must read it as
+ * absent rather than crash or assume it. `caps` is the wire name; the UI reads
+ * `agent.capabilities` so its call sites say what they mean.
+ */
+function agentCapabilities(reported: Partial<AgentCapabilities> | null): AgentCapabilities {
+  if (!reported) return NO_CAPABILITIES;
+  return {
+    panes: reported.panes === true,
+    focusable: reported.focusable === true,
+    canSendKeys: reported.canSendKeys === true,
+    canPruneLogs: reported.canPruneLogs === true,
+  };
 }
 
 interface PresenceResult {
@@ -176,6 +91,8 @@ function fleetFromPresence(result: PresenceResult): Workspace[] {
     workspace.agents.push({
       key: row.key,
       handle: row.paneId ?? row.key,
+      pane: row.paneId,
+      capabilities: agentCapabilities(row.caps),
       name: row.name ?? row.agent ?? row.key,
       state: row.state,
       ...(row.model ? { model: { id: row.model } } : {}),
@@ -190,97 +107,28 @@ function fleetFromPresence(result: PresenceResult): Workspace[] {
   return [...workspaces.values()];
 }
 
+/**
+ * Send text to one agent. `steer` interrupts the current turn; `message` queues it
+ * for the agent's next input. Both are existing orchd methods — the web never
+ * reaches an agent by any route but the daemon.
+ */
+export const sendToAgent = createServerFn({ method: "POST" })
+  .inputValidator((input: { key: string; text: string; kind: "message" | "steer" }) => input)
+  .handler(async ({ data }): Promise<{ ok: true } | DaemonDown> => {
+    try {
+      await daemonRpc(data.kind === "steer" ? "steer" : "dispatch", { target: data.key, text: data.text });
+      return { ok: true };
+    } catch (error) {
+      return down(error);
+    }
+  });
+
 /** Read the merged pane + presence view from orchd. */
 export const getFleet = createServerFn({ method: "GET" }).handler(async (): Promise<FleetResult> => {
   try {
-    const result = await daemonRpc<PresenceResult>("status");
+    const { result } = await daemonRpc<PresenceResult>("status");
     return { daemon: "up", workspaces: fleetFromPresence(result) };
   } catch (error) {
     return down(error);
   }
 });
-
-export const startDaemon = createServerFn({ method: "POST" }).handler((): { ok: boolean } => {
-  try {
-    const child = spawn("orch", ["daemon", "start"], { detached: true, stdio: "ignore" });
-    child.unref();
-    return { ok: true };
-  } catch {
-    return { ok: false };
-  }
-});
-
-export interface DaemonEventStream {
-  stream: ReadableStream<Uint8Array>;
-  close: () => void;
-}
-
-/** Bridge the daemon's newline-framed subscribe-events stream to an SSE body. */
-export function daemonEventStream(since = 0): DaemonEventStream {
-  const encoder = new TextEncoder();
-  let closed = false;
-  let socket: Socket | undefined;
-  let retry: ReturnType<typeof setTimeout> | undefined;
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
-  let delay = 250;
-  let lastSeq = since;
-  let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
-
-  const send = (value: string) => {
-    try { controller?.enqueue(encoder.encode(value)); } catch { close(); }
-  };
-  const schedule = () => {
-    if (closed || retry) return;
-    retry = setTimeout(() => { retry = undefined; connect(); }, delay);
-    delay = Math.min(delay * 2, 5_000);
-  };
-  const disconnect = () => { socket = undefined; schedule(); };
-  const connect = () => {
-    if (closed) return;
-    void connectDaemon(5_000).then((connected) => {
-      if (closed) return connected.destroy();
-      socket = connected;
-      delay = 250;
-      readLines(connected, (message) => {
-        if (message.seq !== undefined && "event" in message) {
-          lastSeq = Math.max(lastSeq, message.seq);
-          send(`data: ${JSON.stringify(message.event)}\n\n`);
-        }
-      });
-      connected.once("error", disconnect);
-      connected.once("close", disconnect);
-      connected.write(`${JSON.stringify({ method: "subscribe-events", params: { since: lastSeq } })}\n`);
-    }).catch(schedule);
-  };
-  const stream = new ReadableStream<Uint8Array>({
-    start(next) {
-      controller = next;
-      heartbeat = setInterval(() => send(": heartbeat\\n\\n"), 15_000);
-      heartbeat.unref?.();
-      connect();
-    },
-    cancel() { close(); },
-  });
-  const close = () => {
-    closed = true;
-    if (retry) clearTimeout(retry);
-    if (heartbeat) clearInterval(heartbeat);
-    socket?.destroy();
-    socket = undefined;
-  };
-  return { stream, close };
-}
-
-/** Handler used by the web route for GET /api/events. */
-export function eventsResponse(request: Request): Response {
-  const rawSince = Number(new URL(request.url).searchParams.get("since") ?? 0);
-  const bridge = daemonEventStream(Number.isInteger(rawSince) && rawSince >= 0 ? rawSince : 0);
-  return new Response(bridge.stream, {
-    headers: {
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "Content-Type": "text/event-stream",
-      "X-Accel-Buffering": "no",
-    },
-  });
-}

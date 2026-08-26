@@ -6,7 +6,7 @@ import { loadConfig } from "../src/config.ts";
 import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
 import { liveSpawnCounts } from "../src/commands/spawn.ts";
 import { presenceAgentDir, type PresenceEntry } from "../src/presence/store.ts";
-import type { SpawnedRecord } from "../src/store/sqlite.ts";
+import type { SpawnedRecord } from "../src/store/spawned-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -24,8 +24,8 @@ function tempDir(): string {
 
 function presence(key: string, workspace: string, pid = process.pid): PresenceEntry {
   const dir = presenceAgentDir(key);
-  seedStatusInDir(dir, { key, workspace, pid });
-  return { key, dir, status: { schema: PRESENCE_SCHEMA, key, workspace, pid }, result: null, alive: pid === process.pid };
+  seedStatusInDir(dir, { key, pid });
+  return { key, dir, status: { schema: PRESENCE_SCHEMA, key, pid }, result: null, alive: pid === process.pid };
 }
 
 function records(entries: [string, string, number?][]): { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> } {

@@ -5,9 +5,11 @@ import { notify, type Sink } from "../notify/router.ts";
 import { abstractAgentLabel, workspaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
 import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
-import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus } from "../presence/store.ts";
+import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus, type PresenceStatus } from "../presence/store.ts";
+import { selectSpawnedRecord } from "../store/spawned-rows.ts";
+import { upsertRun, type RunRecord } from "../store/run-rows.ts";
 import { pidAlive, truncate } from "../util.ts";
-import { workspaceOf } from "../policy/workspace.ts";
+import { placementOf } from "../agent/registry.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
 import { optionalString } from "../util.ts";
 
@@ -98,6 +100,7 @@ function eventTask(status: object): string | undefined {
 
 /** Derive one transition from a status file. First observations only seed state. */
 export function derivePresenceTransition(
+  orchDir: string,
   key: string,
   status: unknown,
   metadata: PresenceMetadata,
@@ -111,7 +114,7 @@ export function derivePresenceTransition(
   states.set(key, state);
   if (previous === undefined) return null;
   const value = status && typeof status === "object" ? status : {};
-  const workspace = workspaceOf(key) ?? undefined;
+  const workspace = placementOf(orchDir, key)?.workspace;
   const assignedName = optionalString(property(value, "agent"));
   const label = optionalString(property(value, "label"));
   const tabLabel = optionalString(property(value, "tabLabel"));
@@ -133,8 +136,7 @@ export function derivePresenceTransition(
   return {
     key,
     workspace,
-    // Presence is authoritative; the abstract label keeps events usable when
-    // a legacy/future harness has not supplied a human name.
+    // Status supplies the agent's self-reported label; placement comes from orch's registry.
     agent: assignedName ?? label ?? metadata.name ?? abstractAgentLabel(workspace ?? "workspace", key),
     name: label ?? metadata.name ?? null,
     dispatchId,
@@ -170,6 +172,45 @@ function directoryNames(directory: string): string[] {
   }
 }
 
+const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited", "idle"]);
+
+/** Build the durable run row from the status that produced a transition. */
+function runRecordForTransition(
+  orchDir: string,
+  key: string,
+  status: PresenceStatus,
+  event: NotifyEvent,
+  result: string | undefined,
+): RunRecord | undefined {
+  const dispatchId = event.dispatchId;
+  if (!dispatchId) return undefined;
+
+  // startedAt is optional in the presence protocol. A dispatch still gets a row
+  // when it is absent; the transition timestamp is the daemon's observation of
+  // when this run was first seen. upsertRun preserves an earlier value on update.
+  const run: RunRecord = {
+    dispatchId,
+    agentKey: key,
+    state: event.newState,
+    startedAt: typeof status.startedAt === "string" ? status.startedAt : event.ts,
+  };
+  const spawned = selectSpawnedRecord(orchDir, key);
+  if (spawned?.adapter !== undefined) run.adapter = spawned.adapter;
+  if (spawned?.workspace !== undefined) run.workspace = spawned.workspace;
+  if (status.model && typeof status.model.id === "string") run.model = status.model.id;
+  if (typeof status.task === "string") run.task = status.task;
+  if (TERMINAL_STATES.has(event.newState) && typeof status.finishedAt === "string") run.finishedAt = status.finishedAt;
+  if (typeof status.tokens?.input === "number") run.tokensIn = status.tokens.input;
+  if (typeof status.tokens?.output === "number") run.tokensOut = status.tokens.output;
+  if (typeof status.tokens?.cacheRead === "number") run.cacheRead = status.tokens.cacheRead;
+  if (typeof status.tokens?.cacheWrite === "number") run.cacheWrite = status.tokens.cacheWrite;
+  if (typeof status.cost === "number") run.cost = status.cost;
+  if (typeof status.turns === "number") run.turns = status.turns;
+  if (result !== undefined) run.result = result;
+  if (typeof status.lastError === "string") run.lastError = status.lastError;
+  return run;
+}
+
 /** Continuously watch presence status files and derive transitions from them.
  *
  * DAEMON-ONLY. Presence files are the harness→orch ingress: shims write them and
@@ -188,15 +229,32 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   const check = (key: string): void => {
     if (stopped) return;
     const metadata = options.keys?.get(key) ?? options.metadataFor?.(key) ?? { name: null, tab: null };
-    const event = derivePresenceTransition(key, readPresenceStatus(join(presenceAgentDir(key, options.orchDir), STATUS_FILE)), metadata, states);
+    const status = readPresenceStatus(join(presenceAgentDir(key, options.orchDir), STATUS_FILE));
+    const event = derivePresenceTransition(options.orchDir, key, status, metadata, states);
+    let resultText: string | undefined;
     if (event?.newState === "done") {
       const result = readJSON(join(presenceAgentDir(key, options.orchDir), RESULT_FILE));
       if (result && typeof result === "object") {
         const text = property(result, "text");
-        if (typeof text === "string" && text.length > 0) event.result = truncate(text, 2000);
+        if (typeof text === "string" && text.length > 0) {
+          resultText = text;
+          event.result = truncate(text, 2000);
+        }
       }
     }
-    if (event) options.onEvent(event);
+    if (event) {
+      // History is a bystander: one broken store write must never stop the
+      // presence watch from publishing the transition.
+      try {
+        if (status) {
+          const run = runRecordForTransition(options.orchDir, key, status, event, resultText);
+          if (run) upsertRun(options.orchDir, run);
+        }
+      } catch {
+        // Keep watching even when the history store or its write is unavailable.
+      }
+      options.onEvent(event);
+    }
   };
   const attach = (key: string): void => {
     if (watchers.has(key)) return;

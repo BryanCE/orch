@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
-import { checkOwnerWrite, getOwner, setOwner, writeTaskClaim } from "../src/store/sqlite.ts";
+import { openStore } from "../src/store/connection.ts";
+import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
+import { checkOwnerWrite, getOwner, setOwner } from "../src/store/ownership-rows.ts";
+import { writeTaskClaim } from "../src/store/queue-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
@@ -39,12 +41,12 @@ describe("store hardening", () => {
   test("a fresh store creates the full current schema with WAL enabled", () => {
     const dir = tempDir("orch-routing-schema-");
     expect(() => listTasks(dir)).not.toThrow();
-    const opened = new Database(join(dir, "orch.db"), { readonly: true });
-    const journal = opened.query("PRAGMA journal_mode").get() as { journal_mode: string };
-    const columns = opened.query("PRAGMA table_info(outbox)").all() as { name: string }[];
-    opened.close();
+    const journal = openStore(dir).query("PRAGMA journal_mode").get() as { journal_mode: string };
+    insertOutboxMessage(dir, { id: "schema-probe", target: "test", payload: {}, createdAt: "2026-01-01T00:00:00.000Z" });
     expect(journal.journal_mode.toLowerCase()).toBe("wal");
-    expect(columns.some((column) => column.name === "next_attempt_at")).toBe(true);
+    expect(selectPendingOutbox(dir, Number.MAX_SAFE_INTEGER)).toMatchObject([
+      { id: "schema-probe", nextAttemptAt: 0 },
+    ]);
     expect(() => listTasks(dir)).not.toThrow();
   });
 

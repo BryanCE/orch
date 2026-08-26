@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { loadConfig, resolveSetting } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
 const envName = "ORCH_CONFIG_PRECEDENCE_HERMETIC";
@@ -16,7 +17,7 @@ function tempDir(): string {
 }
 
 afterEach(() => {
-  while (directories.length) fs.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
   if (originalEnv === undefined) delete process.env[envName];
   else process.env[envName] = originalEnv;
 });

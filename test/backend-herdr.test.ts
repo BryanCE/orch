@@ -63,7 +63,7 @@ describe("HerdrBackend", () => {
     expect(backend.id).toBe("herdr");
     expect(backend.panes).toBe(true);
     expect(backend.focusable).toBe(true);
-    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true });
+    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
 
     const handle = backend.spawn(fakeAdapter, { cwd: testDir });
 

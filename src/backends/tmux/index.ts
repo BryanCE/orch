@@ -86,7 +86,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly panes = true;
   readonly focusable = true;
   readonly canSendKeys = true;
-  readonly caps: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true };
+  readonly caps: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true, canPruneLogs: false };
 
   isAvailable(): boolean {
     return binaryOnPath("tmux");

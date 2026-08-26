@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/sqlite.ts";
+import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { drainOutbox } from "../src/daemon/outbox.ts";
 import { validateWriteParams } from "../src/daemon/orchd.ts";
 import { ReplayBuffer, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
@@ -73,7 +73,8 @@ describe("broker daemon hardening", () => {
   });
 
   test("replay after the newest sequence is empty without a gap", () => {
-    const buffer = new ReplayBuffer();
+    const dir = fixture();
+    const buffer = new ReplayBuffer(dir);
     buffer.push("event");
     expect(buffer.since(99)).toEqual({ events: [], gap: false, oldestSeq: 1 });
   });

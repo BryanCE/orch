@@ -4,7 +4,7 @@ import type { Entity } from "../src/entities.ts";
 
 const seededEntity = {
   key: "herdr~local~app:p1", paneId: "app:p1", name: "worker", tabLabel: "app", agent: "pi",
-  focused: true, backendStatus: null, sessionPath: null, presenceOnly: false, workspace: "local",
+  focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, workspace: "local",
   presence: {
     key: "herdr~local~app:p1", dir: "/tmp/pres", alive: true, result: { text: "done" },
     status: {
@@ -36,6 +36,23 @@ describe("commands/status", () => {
       turns: 4, workspace: "local",
     });
     expect(row.host).toBeUndefined();
+  });
+
+  // Renderers branch on caps, never on a backend id (Rule 9), so the row must carry
+  // what the backend DECLARES — a new plexer changes no renderer.
+  test("row carries the owning backend's declared capabilities", () => {
+    const paned = statusRowFromView(deriveView(seededEntity, new Map()), {});
+    expect(paned.caps).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
+
+    const detached = { ...seededEntity, key: "headless~local~1", backend: "headless" } as unknown as Entity;
+    expect(statusRowFromView(deriveView(detached, new Map()), {}).caps).toEqual({
+      panes: false, focusable: false, canSendKeys: false, canPruneLogs: true,
+    });
+  });
+
+  test("an agent whose backend orch cannot name reports no capabilities", () => {
+    const orphan = { ...seededEntity, backend: null } as unknown as Entity;
+    expect(statusRowFromView(deriveView(orphan, new Map()), {}).caps).toBeNull();
   });
   // Two orchestrators share one flat name namespace, so the owner has to be
   // readable from status or a collision is invisible until work lands wrong.

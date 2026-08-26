@@ -1,6 +1,8 @@
 import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
+import { processIsAlive } from "../process-identity.ts";
+
 export interface CommandLock {
   pid: number;
   holder: string;
@@ -37,16 +39,6 @@ function lockPath(orchDir: string): string {
 
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function processIsAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error: unknown) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
 }
 
 function loadLock(path: string): CommandLock | null {

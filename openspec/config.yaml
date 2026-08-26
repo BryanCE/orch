@@ -18,7 +18,7 @@ context: |
   Core contracts (preserve unless a spec explicitly changes them):
     - Presence-dir file protocol under ~/.orch/agents/<key>/ is the
       language-neutral truth channel between agents and the CLI.
-    - `orch close --all` only reaps panes recorded in ~/.orch/spawned.jsonl —
+    - `orch close --all` only reaps panes recorded in the SQLite `spawned` table —
       never touch panes/tabs the user created.
     - herdr is invoked strictly at the process boundary (CLI/JSON output);
       never vendor herdr source (it is AGPL-3.0; orch must stay MIT).

@@ -13,7 +13,7 @@ import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, rpcCall } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
-import { callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
+import { callerIsSpawnedAgent, callerOwnerToken, callerWorkspace, die, forbidAgentOverride } from "./target.ts";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -205,7 +205,11 @@ export async function callDaemon(method: string, params: Record<string, unknown>
   // selfActor); anything else and an orchestrator cannot steer its own fleet.
   const actor = callerOwnerToken() ?? null;
   const enriched: Record<string, unknown> = { ...params };
-  if (actor !== null) enriched.actor = actor;
+  if (actor !== null) {
+    enriched.actor = actor;
+    enriched.actorWorkspace = callerWorkspace();
+    enriched.actorIsOperator = !callerIsSpawnedAgent();
+  }
   if (gov.steal) enriched.steal = true;
   if (gov.crossWorkspace) enriched.crossWorkspace = true;
   try {

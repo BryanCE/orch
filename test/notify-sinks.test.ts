@@ -28,6 +28,7 @@ describe("notify sinks", () => {
     const output = join(directory, "payload.json");
     const event: NotifyEvent = {
       key: "w6:p21",
+      workspace: "w6",
       agent: "w-2",
       tab: null,
       model: null,

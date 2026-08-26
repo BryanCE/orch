@@ -12,6 +12,7 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { resolveAdapter } from "../src/adapters/registry.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { selectSpawnedRecords } from "../src/store/spawned-rows.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 
@@ -133,12 +134,11 @@ describe("headless common path: identity key -> presence", () => {
     const statusFile = path.join(dir, "agents", handle.key, "status.json");
     await waitFor(() => fs.existsSync(statusFile));
 
-    // spawned.jsonl records the backend, handle, adapter, and cwd.
-    const registry = fs.readFileSync(path.join(dir, "spawned.jsonl"), "utf8").trim();
-    const record = JSON.parse(registry) as { backend: string; adapter: string; cwd?: string };
-    expect(record.backend).toBe("headless");
-    expect(record.adapter).toBe("fake");
-    expect(record.cwd).toBe(dir);
+    // The spawned table records the backend, handle, adapter, and cwd.
+    const record = selectSpawnedRecords(dir).find((entry) => entry.pane === key);
+    expect(record?.backend).toBe("headless");
+    expect(record?.cwd).toBe(dir);
+    expect(JSON.parse(record?.handle ?? "null")).toEqual({ pid: handle.pid, key });
 
     try { process.kill(handle.pid, "SIGTERM"); } catch {}
   });

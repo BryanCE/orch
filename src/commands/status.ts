@@ -3,9 +3,11 @@ import { isBridgeExtensionStale } from "../doctor/extensions.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
 import { collapse, buildEntities, currentWorkspace, entityWorkspace, sortEntities, type Entity } from "../entities.ts";
+import type { BackendCapabilities } from "../backends/backend.ts";
+import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/sqlite.ts";
+import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { renderTable } from "../table.ts";
 import { sameWorkspace, workspaceName } from "../policy/workspace.ts";
 import { ensureDaemonOrWarn } from "./daemon.ts";
@@ -280,6 +282,9 @@ export interface StatusRow {
   /** What the MULTIPLEXER reports about the pane the agent runs in. It lags `state`
    *  and is a routing/diagnostic fact, never a completion signal — read `state`. */
   backendStatus: string | null;
+  /** What the owning backend can do with this agent. Every renderer branches on
+   *  these, never on the backend's id (Rule 9). Null when no backend owns it. */
+  caps: BackendCapabilities | null;
   sessionPath: string | null;
   presenceDir: string | null;
   presenceOnly: boolean;
@@ -331,6 +336,7 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
     dispatchId: v.dispatchId,
     lastText: viewLastText(v),
     backendStatus: v.entity.backendStatus,
+    caps: v.entity.backend === null ? null : getBackend(v.entity.backend)?.caps ?? null,
     sessionPath: v.entity.sessionPath,
     presenceDir: v.entity.presence?.dir ?? null,
     presenceOnly: v.entity.presenceOnly,
@@ -368,7 +374,7 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
-    backendStatus: null, sessionPath: null, presenceDir: null, presenceOnly: false,
+    backendStatus: null, caps: null, sessionPath: null, presenceDir: null, presenceOnly: false,
     tokens: null, turns: null, host, warning,
   };
 }

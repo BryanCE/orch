@@ -6,7 +6,8 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { governWrite } from "../src/daemon/orchd.ts";
-import { setOwner } from "../src/store/sqlite.ts";
+import { setOwner } from "../src/store/ownership-rows.ts";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "../src/daemon/rpc.ts";
 import { refusalOf } from "./helpers/refusal.ts";
@@ -111,10 +112,13 @@ describe("answer over the daemon control socket", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const foreign = key("wB", "foreign");
+    const actor = key("wA", "boss");
+    insertSpawnedRecord(directory, { pane: foreign, workspace: "wB" });
+    insertSpawnedRecord(directory, { pane: actor, workspace: "wA" });
     seedStatus(directory, foreign, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
-    expect(await refusalOf(rpcCall(directory, "answer", { target: foreign, text: "yes", actor: key("wA", "boss") })))
+    expect(await refusalOf(rpcCall(directory, "answer", { target: foreign, text: "yes", actor })))
       .toMatch(/workspace wall/);
     expect(fs.existsSync(answerFile(directory, foreign))).toBe(false);
   });

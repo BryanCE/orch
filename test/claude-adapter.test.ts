@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { serializeIdentity } from "../src/backends/identity.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
@@ -19,7 +20,8 @@ function agentDir(key: string): string {
   return directory;
 }
 
-function runHook(event: string, key: string, input: Record<string, unknown> = {}): Record<string, unknown> {
+/** The hook always runs under `fakeKey`; a test's own key only names its transcript file. */
+function runHook(event: string, input: Record<string, unknown> = {}): Record<string, unknown> {
   const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
   try {
     execFileSync(process.execPath, [hookScript, event], {
@@ -29,7 +31,7 @@ function runHook(event: string, key: string, input: Record<string, unknown> = {}
     });
     return JSON.parse(readFileSync(join(hookOrchDir, "agents", fakeKey, "status.json"), "utf8")) as Record<string, unknown>;
   } finally {
-    rmSync(hookOrchDir, { recursive: true, force: true });
+    removeTempDir(hookOrchDir);
   }
 }
 
@@ -48,7 +50,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  rmSync(orchDir, { recursive: true, force: true });
+  removeTempDir(orchDir);
   restoreOrchDir();
 });
 
@@ -111,19 +113,19 @@ describe("Claude adapter", () => {
     }) + "\n");
     const adapterText = claudeAdapter.readSessionView?.({ sessionPath: transcript })?.lastText;
     expect(adapterText).toBe("shared answer");
-    const status = runHook("Stop", key, { pid: process.pid, transcript_path: transcript });
+    const status = runHook("Stop", { pid: process.pid, transcript_path: transcript });
     expect(status.lastText).toBe(adapterText);
   }, 20_000);
 
   test("maps Claude hook events to presence states and schema", () => {
     const key = "claude-hooks";
-    expect(runHook("SessionStart", key, { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
-    expect(runHook("Notification", key, { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
-    expect(runHook("Stop", key, { pid: process.pid })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "idle" });
+    expect(runHook("SessionStart", { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
+    expect(runHook("Notification", { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
+    expect(runHook("Stop", { pid: process.pid })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "idle" });
 
     const transcript = join(agentDir(key), "session.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "Finished" })}\n`);
-    expect(runHook("Stop", key, { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "done" });
+    expect(runHook("Stop", { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "done" });
   }, 20_000);
 
   test("exits silently and writes no presence without ORCH_AGENT_KEY (a non-orch session)", () => {
@@ -139,7 +141,7 @@ describe("Claude adapter", () => {
       })).not.toThrow();
       expect(existsSync(join(hookOrchDir, "agents"))).toBe(false);
     } finally {
-      rmSync(hookOrchDir, { recursive: true, force: true });
+      removeTempDir(hookOrchDir);
     }
   });
 
@@ -155,7 +157,7 @@ describe("Claude adapter", () => {
       })).toThrow();
       expect(existsSync(join(hookOrchDir, "agents"))).toBe(false);
     } finally {
-      rmSync(hookOrchDir, { recursive: true, force: true });
+      removeTempDir(hookOrchDir);
     }
   });
 });

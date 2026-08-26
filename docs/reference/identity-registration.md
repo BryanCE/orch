@@ -33,7 +33,7 @@ One opaque, plexer-independent id per participant. Location becomes an attribute
 part of the name.
 
 ```
-id         01JD8F2K9XQZ3M7   ULID. Minted from nothing. Never changes.
+id         2f8c…-…-…         UUID. Minted from nothing. Never changes.
 kind       "agent" | "session"
 label      "payroll-2" | "claude session 5fd5793e"
 backend    "herdr" | null    where it runs, if anywhere
@@ -49,14 +49,15 @@ addressability — the empty plexer fields are honest, because a session is not 
 Identity is **issued by orchd, never derived by the caller.** A CLI process does not compute
 who it is; it asks.
 
-1. The process connects and calls `hello` before any other method.
-2. orchd attributes the connection: over the unix socket it reads peer credentials and walks
-   the process ancestry to the stable ancestor that owns the session.
-3. orchd returns the id recorded for that ancestor, minting and recording one on first sight.
+1. The process connects and calls `hello` before any other method, presenting the daemon
+   token it read from `$ORCH_DIR`, its session pid, and a display label.
+2. orchd verifies the token, which is the whole credential.
+3. orchd returns the id recorded for that session pid, minting and recording one on first
+   sight.
 
-The ancestor is the same across every `orch` invocation from one session, so continuity is
-the daemon's to keep rather than something each process re-derives. This is how dbus and
-polkit attribute callers.
+The session pid is the caller's parent process — the shell or harness that outlives any one
+`orch` invocation — so continuity is the daemon's to keep rather than something each process
+re-derives.
 
 `hello` is the only place a participant enters the system. `selfActor()` and the four-branch
 fallback in `spawnerIdentity()` are deleted, not adapted.
@@ -70,22 +71,22 @@ TCP while the socket is available. Every local client, the web server included, 
 socket.
 
 The trust rule is one sentence: **a caller is trusted when it is the same uid as the daemon.**
-Only the mechanism differs by transport.
+**One mechanism proves it on both transports**: a `0600` token file that orchd writes into
+`$ORCH_DIR` at startup. A caller that can read it is necessarily the same uid, which is
+exactly what kernel peer credentials establish — so nothing is weaker for arriving on TCP,
+and there is no enrollment step, because reading a file you already have permission to read
+is the whole handshake.
 
-| Transport | Mechanism | What it proves |
-| --- | --- | --- |
-| unix socket | peer credentials | same uid, attested by the kernel |
-| loopback TCP | a `0600` token file in `$ORCH_DIR`, read and presented by the caller | same uid, attested by the filesystem |
+Peer credentials are not used, and this is a portability fact rather than a preference: node
+exposes neither `SO_PEERCRED` nor a peer's process ancestry, so obtaining them means scraping
+`/proc` and `ss`, which works on Linux alone. orch ships to node on every platform (Rule 6),
+and an attribution path that exists on one OS is not an attribution path.
 
-orchd writes the token at startup with owner-only permissions. A caller that can read it is
-necessarily the same uid, which is exactly what peer credentials establish — so neither path
-is weaker, and neither needs an enrollment step, because reading a file you already have
-permission to read is the whole handshake.
-
-A caller that presents no token on TCP is refused. It is never assigned a synthetic identity,
-and it is never asked to supply an id it has no defined way to obtain: an attribution path
-that cannot be completed is not a path, and shipping one is how a self-declared actor gets
-back in through the door this design exists to close.
+The pid and label in `hello` are the caller's own report. They serve continuity and display,
+**never authorization** — a same-uid caller that misreports its session gains nothing it could
+not already do by dialing again. A caller that presents no token, or no session pid, is
+refused; it is never assigned a synthetic identity, and it is never asked to supply an id it
+has no defined way to obtain.
 
 ### Commands that run without a daemon
 

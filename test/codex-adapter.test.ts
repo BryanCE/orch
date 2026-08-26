@@ -10,11 +10,12 @@ import {
   codexStateFallback,
 } from "../src/adapters/codex-events.ts";
 import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
 
 afterAll(() => {
-  fs.rmSync(tempDir, { recursive: true, force: true });
+  removeTempDir(tempDir);
 });
 
 describe("CodexAdapter", () => {
@@ -110,7 +111,7 @@ describe("CodexAdapter", () => {
       expect(savedResult).toMatchObject({ schema: PRESENCE_SCHEMA, text: "finished" });
       expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-")).length).toBe(0);
 
-      fs.rmSync(orchDir, { recursive: true, force: true });
+      removeTempDir(orchDir);
       const silent = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
         cwd: path.join(import.meta.dir, ".."),
         env: { ...process.env, ORCH_DIR: orchDir, ORCH_AGENT_KEY: "" },
@@ -118,7 +119,7 @@ describe("CodexAdapter", () => {
       expect(silent.exitCode).toBe(0);
       expect(fs.existsSync(path.join(orchDir, "agents"))).toBe(false);
     } finally {
-      fs.rmSync(orchDir, { recursive: true, force: true });
+      removeTempDir(orchDir);
     }
   });
 });

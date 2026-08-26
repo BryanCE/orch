@@ -1,10 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { entityWorkspace, scopeEntitiesToWorkspace, workspaceOf, type Entity } from "../src/entities.ts";
 import { checkWall } from "../src/policy/workspace.ts";
 import { nextQueuedTask, type TaskRec } from "../src/queue.ts";
+import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+
+const orchDir = mkdtempSync(join(tmpdir(), "orch-workspace-walls-"));
+process.env.ORCH_DIR = orchDir;
+for (const [pane, workspace] of [
+  ["herdr~w6~p21", "w6"], ["herdr~w12~p3", "w12"], ["herdr~w1~p1", "w1"], ["herdr~w1~p2", "w1"], ["herdr~w2~p2", "w2"],
+  ["tmux~w1~%251", "w1"], ["tmux~w2~%252", "w2"], ["headless~w1~1001", "w1"], ["headless~w2~1002", "w2"],
+] as const) insertSpawnedRecord(orchDir, { pane, workspace });
+
+afterAll(() => removeTempDir(orchDir));
 
 function fakeEntity(key: string, paneId: string | null): Entity {
-  return { key, paneId, managed: true, workspace: null, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, presence: null, sessionPath: null, presenceOnly: true };
+  return { key, paneId, managed: true, workspace: null, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, backend: null, presence: null, sessionPath: null, presenceOnly: true };
 }
 
 function fakeTask(id: string, createdAt: string, workspace?: string, agent?: string): TaskRec {
@@ -21,15 +35,15 @@ function fakeTask(id: string, createdAt: string, workspace?: string, agent?: str
 }
 
 describe("workspace helpers", () => {
-  test("extracts workspace ids only from identity keys", () => {
-    expect(workspaceOf("herdr~w6~p21")).toBe("w6");
-    expect(workspaceOf("herdr~w12~p3")).toBe("w12");
-    expect(workspaceOf("session-123")).toBeNull();
-    expect(workspaceOf(null)).toBeNull();
-    expect(workspaceOf("nocolon")).toBeNull();
+  test("reads workspace ids from the spawned registry", () => {
+    expect(workspaceOf(orchDir, "herdr~w6~p21")).toBe("w6");
+    expect(workspaceOf(orchDir, "herdr~w12~p3")).toBe("w12");
+    expect(workspaceOf(orchDir, "session-123")).toBeNull();
+    expect(workspaceOf(orchDir, null)).toBeNull();
+    expect(workspaceOf(orchDir, "nocolon")).toBeNull();
   });
 
-  test("derives an entity workspace from the identity key", () => {
+  test("derives an entity workspace from the registry", () => {
     expect(entityWorkspace(fakeEntity("herdr~w6~p21", null))).toBe("w6");
     expect(entityWorkspace(fakeEntity("herdr~w12~p3", null))).toBe("w12");
   });
@@ -42,11 +56,11 @@ describe("workspace helpers", () => {
 
 describe("workspace wall writes", () => {
   test("allows a write within the same workspace", () => {
-    expect(checkWall("herdr~w1~p1", "herdr~w1~p2", { crossWorkspace: false })).toEqual({ allowed: true });
+    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w1~p2", { crossWorkspace: false })).toEqual({ allowed: true });
   });
 
   test("denies a cross-workspace write with both workspaces in the reason", () => {
-    const decision = checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false });
+    const decision = checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false });
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain("w1");
     expect(decision.reason).toContain("w2");
@@ -60,17 +74,17 @@ describe("workspace wall writes", () => {
     ] as const;
 
     for (const [actor, target] of identities) {
-      expect(checkWall(actor, target, { crossWorkspace: false })).toMatchObject({ allowed: false });
-      expect(checkWall(actor, target, { crossWorkspace: true })).toEqual({ allowed: true });
+      expect(checkWall(orchDir, actor, target, { crossWorkspace: false })).toMatchObject({ allowed: false });
+      expect(checkWall(orchDir, actor, target, { crossWorkspace: true })).toEqual({ allowed: true });
     }
   });
 
   test("allows a cross-workspace write with an explicit override", () => {
-    expect(checkWall("herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
+    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
   });
 
   test("allows legacy unscoped targets", () => {
-    expect(checkWall("herdr~w1~p1", "legacy-target", { crossWorkspace: false })).toEqual({ allowed: true });
+    expect(checkWall(orchDir, "herdr~w1~p1", "legacy-target", { crossWorkspace: false })).toEqual({ allowed: true });
   });
 });
 

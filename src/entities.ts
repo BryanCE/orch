@@ -21,10 +21,12 @@ export interface Entity {
   agent: string | null;
   focused: boolean;
   backendStatus: string | null;
+  /** Backend that owns this agent; what its capabilities are read from. */
+  backend: string | null;
   presence: PresenceEntry | null;
   sessionPath: string | null;
   presenceOnly: boolean;
-  /** Real workspace reported by the backend (or recovered from a spawned key). */
+  /** Workspace from the backend view or orch's spawned registry. */
   workspace: string | null;
   /** Set when this entity was addressed with a configured host prefix. */
   host?: string;
@@ -59,12 +61,11 @@ export function formatTarget(ref: TargetRef): string {
 export function recipientFor(key: string, spawned = spawnedRecords()): Recipient {
   const record = spawned.get(key);
   const status = loadPresence().get(key)?.status;
-  const identity = tryParseIdentity(key);
-  const workspace = record?.workspace ?? identity?.workspace ?? workspaceOf(key) ?? "workspace";
+  const workspace = record?.workspace ?? workspaceOf(orchDir(), key) ?? "workspace";
   return {
     name: record?.name ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key),
     harness: record?.adapter ?? status?.agent ?? null,
-    multiplexer: record?.backend ?? identity?.backend ?? null,
+    multiplexer: record?.backend ?? null,
     transportId: record?.handle ?? key,
   };
 }
@@ -79,7 +80,7 @@ function naturalPaneOrder(id: string): [string, number] {
 }
 
 export function entityWorkspace(e: Entity): string | null {
-  return e.workspace ?? workspaceOf(e.key);
+  return e.workspace ?? workspaceOf(orchDir(), e.key);
 }
 
 export function currentWorkspace(): string | null {
@@ -131,13 +132,14 @@ export function buildEntities(): Entity[] {
         agent: target.agent,
         focused: target.focused,
         backendStatus: target.status,
+        backend: backend.id,
         presence: pres,
         // Bridge-first: the adapter's own presence status tracks the LIVE session
         // and follows a `/new` reset; the backend's agent_session is launch-time
         // and goes stale, which is what makes mid-run `tail` read an empty session.
         sessionPath: pres?.status?.sessionPath ?? target.sessionPath ?? null,
         presenceOnly: false,
-        workspace: target.workspace ?? workspaceOf(key),
+        workspace: target.workspace ?? workspaceOf(orchDir(), key),
       });
     }
   }
@@ -153,10 +155,11 @@ export function buildEntities(): Entity[] {
       agent: entry.status?.agent ?? null,
       focused: false,
       backendStatus: null,
+      backend: records.get(entry.key)?.backend ?? null,
       presence: entry,
       sessionPath: entry.status?.sessionPath ?? null,
       presenceOnly: true,
-      workspace: entry.status?.workspace ?? workspaceOf(entry.key),
+      workspace: records.get(entry.key)?.workspace ?? workspaceOf(orchDir(), entry.key),
     });
   }
   return entities;
@@ -235,7 +238,7 @@ export function resolveTarget(target: string, opts?: { all?: boolean; crossWorks
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
       // The wall decision lives in policy/workspace.ts alone; this only relays it.
-      const decision = checkWall(selfActor(), foreign.key, { crossWorkspace: false });
+      const decision = checkWall(orchDir(), selfActor(), foreign.key, { crossWorkspace: false });
       if (!decision.allowed) die(decision.reason ?? "workspace-wall denied the write");
     }
   }

@@ -11,6 +11,11 @@ bun install          # pulls react19 + tanstack start v1 + shadcn deps
 bun run dev          # http://localhost:3717  (vite generates src/routeTree.gen.ts on first start)
 ```
 
+- **Run the dev server from Windows, not WSL.** `node_modules` lives on `/mnt/c` and
+  holds ONE set of platform binaries. A Windows install pulls
+  `@rollup/rollup-win32-x64-msvc`, so WSL dies with `Cannot find module
+  @rollup/rollup-linux-x64-gnu`; re-installing from WSL just breaks the Windows run
+  instead. Same for esbuild/oxlint/tsc. Pick one platform — Windows — and stay there.
 - First `bun run dev` GENERATES `src/routeTree.gen.ts` — it's gitignored and does
   not exist until then, so don't run `bun run tc` before the first `dev`.
 - If a dep version resolves oddly, `bun add <pkg>@latest` — versions here were
@@ -58,7 +63,22 @@ onboard, intake, print, sigs), domain hooks, `env.ts`, drizzle/db.
 
 ## 3. Daemon connection
 
-The web server connects to orchd over TCP:
+**Module split is load-bearing.** `src/server/daemon.ts` holds the socket client and
+the SSE bridge — it imports `node:net` and the `@orch/*` seam, and NOTHING a browser
+chunk imports may reach it. `src/server/orch.ts` exports only `createServerFn`s, which
+the Start plugin swaps for client proxies. Adding a plain export to `orch.ts` drags
+`node:net` into the browser chunk; in dev there is no tree-shaking to save it, the
+chunk throws on load, hydration never runs, and the app freezes on its SSR output.
+
+**The web server never starts a daemon.** orchd is one per host so every session shares
+one view; a second one launched from here would see none of the other sessions' agents.
+An unreachable daemon renders the down screen with the endpoints it tried.
+
+The web server prefers orchd's unix socket (`$ORCH_DIR/orchd.sock`) and falls back
+to TCP when that socket is absent or refuses. The standing setup is vite on **Windows**
+and orchd in **WSL**, so the TCP fallback is the normal path, not the exception —
+`getDaemonStatus` reports which side answered as `where.home` (`local` / `wsl` /
+`remote`) and the sidebar footer shows it:
 
 - `ORCH_DAEMON_HOST` — daemon host, default `127.0.0.1`.
 - `ORCH_DAEMON_PORT` — daemon TCP port, default `3716`.
@@ -68,11 +88,12 @@ escape a server function or kill Vite. `GET /api/events` bridges `subscribe-even
 to SSE, sends a comment heartbeat every 15 seconds, and reconnects with bounded
 backoff. Browser reconnect is handled by native `EventSource`.
 
-### Missing daemon RPC
+### Fleet RPC
 
-The daemon currently exposes no presence/topology read RPC. `getFleet` returns
-`{ daemon: "missing-rpc", rpc: "presence" }` rather than reading `$ORCH_DIR`.
-Add that daemon RPC before wiring live fleet cards.
+`getFleet` calls the daemon's `status` method, which serves `fleetStatusRows` — the
+same row shape the CLI renders. It groups rows by `workspace` into the god-view
+cards. A daemon that answers `down` surfaces as a react-query error, never an
+empty fleet.
 
 ## 4. LATER — monorepo extraction (the "move daemon and all that" step)
 

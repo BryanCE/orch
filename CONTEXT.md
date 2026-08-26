@@ -19,7 +19,7 @@ prefers must be a change in **one** map.
 | **orch** | the agent that spawns and directs others |
 | **slave** | a spawned agent doing one slice of work |
 | **pack** | an orch and the slaves it spawned |
-| **space** | a user-created container that groups packs *(proposed)* |
+| **space** | a user-created container that groups packs |
 
 ---
 
@@ -37,21 +37,29 @@ optionally a **space**.
 
 ### Orch
 
-**An agent that spawns and directs other agents.** It does the thinking, slices the work, and
-drives its slaves.
+**The root of a pack** — the agent nothing else spawned. It does the thinking, slices the work,
+and drives its slaves.
 
-Not a special kind of entity — an agent that happens to have spawned others.
+Not a special kind of entity, and not a thing you become by spawning: a harness session that
+registers with orch is already an orch, of a pack of one.
 
 ### Slave
 
-**An agent spawned by an orch**, to do one slice of work. A leaf of the tree.
+**Any non-root member of a pack**, doing one slice of work.
 
 ### Pack
 
-**An orch together with the slaves it spawned.** The unit of ownership and the boundary of
+**An agent and everything spawned beneath it.** The unit of ownership and the boundary of
 control.
 
-Not something the user creates; it exists because spawning created it.
+An agent's pack is the set of agents **sharing its provenance root**, so every agent is in
+exactly one pack at any depth. A pack begins at one member and grows by spawning — nobody
+creates one, and nobody has to.
+
+Because provenance never changes, a pack outlives its orch. An orphaned pack still has its
+members and still drains its queue.
+
+A pack has a **maximum size**, counted in live members and set in `settings.json`.
 
 ---
 
@@ -105,6 +113,15 @@ name, keeps its space, and keeps anything it holds — it has simply lost its dr
 
 Work and agents do not disappear when a holder dies. The limbs are still living.
 
+### Orphaned pack
+
+**A pack whose orch is dead.** Its slaves keep working, keep draining their pack queue, and
+keep anything they hold. What the pack has lost is a driver — nobody can dispatch or steer
+into it until it is adopted.
+
+An orch that a human started has no holder of its own, and that is normal. A pack is orphaned
+because its orch *died*, never because nobody holds the orch.
+
 ### Adoption
 
 **Claiming an unheld agent**, taking over as its holder.
@@ -126,8 +143,6 @@ came from. Live views group by holding; history groups by provenance.
 
 ### Space
 
-*(proposed)*
-
 **A user-created container that groups related work**, relating any number of packs into one
 effort. A website's server work and client work belong in one space.
 
@@ -137,6 +152,13 @@ it**.
 
 A space is also the **reachability boundary**: orchs in one space may coordinate; across
 spaces they may not. With no space set, the boundary is the repo root.
+
+Any orch may create, read or rename a space. An orch may **delete a space it is in**, provided
+no other pack is in it — so nobody moves the wall out from under someone else's agents. A
+totally empty space is the user's to delete, surfaced in the web.
+
+Membership is a property of the *agent*, so only an agent's holder may move it in or out.
+`created_by` records who made it and grants nothing.
 
 ### Placement
 
@@ -171,13 +193,39 @@ Harness and plexer are independent axes. Neither is ever inferred from the other
 Behaviour branches on capabilities, never on which plexer it is. A plexer with no
 capabilities is one orch has no *shortcut* for, not one orch cannot reach.
 
+### Daemon
+
+**The one process that holds the truth**, one per machine. Everything else — the CLI on any
+OS, the web, a harness bridge — is a client that dials it.
+
+Its store is private to it. A client that reads the store or the presence files is reading a
+second source of truth, and there is no second source of truth.
+
+### Executor
+
+**What starts, checks and stops a process on the far side of an OS boundary.** Start it,
+report whether it is alive, kill it — the same three questions the daemon asks anywhere.
+
+An OS side with no executor is one nothing can *run* on. It is a declared missing capability,
+never a reason for a second daemon.
+
 ---
 
 ## Verbs
 
 ### Dispatch
 
-**Give an agent a task.** Driving — only its holder may.
+**Push a task at a specific agent.** Driving — only its holder may.
+
+### Enqueue
+
+**Put a task into a scope** — one agent, a pack, or a space — for an agent to take later.
+Gated: an orch may enqueue to an agent it holds, to its own pack, or to a space it is in.
+
+### Claim
+
+**Take a task from a queue you belong to.** *Not* driving — the agent is acting on itself, so
+no holder need be present. A pack drains its queue whether or not its orch is alive.
 
 ### Steer
 

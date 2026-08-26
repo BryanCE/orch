@@ -18,8 +18,12 @@ The full inventory. Nothing discussed gets dropped because it was not written do
 | A5 | `PRAGMA foreign_keys = ON` in `openStore` — absent today, so every FK is decoration | `BROKEN` |
 | A6 | `processInstanceMatches(pid, start_token)` as the one liveness primitive | `BUILT` — `src/process-identity.ts`, replaced two divergent copies |
 | A7 | Workspace minted from repo root on first spawn; name defaults to the directory name | `DECIDED` |
-| A8 | Vocabulary (`orch` / `snaga` / `pod`) is a display map, never stored — roles are derived from the tree. User-configurable terms are later polish, but the one-map constraint holds from day one | `DECIDED` |
+| A8 | Vocabulary (`orch` / `slave` / `pack` / `space`) is a display map, never stored — roles are derived from the tree. User-configurable terms are later polish, but the one-map constraint holds from day one | `DECIDED` |
 | A9 | Depth-2 policy enforced at the spawn command; the model itself stays recursive | `DECIDED` |
+| A10 | A pack starts at **one** member — a registered session is an orch of a pack of one. Membership is the **provenance root**, so every agent is in exactly one pack at any depth | `DECIDED` |
+| A11 | Roles derive from tree position: **orch = pack root, slave = any non-root member** | `DECIDED` |
+| A12 | Pack size capped at **10 live members** (1 orch + 9 slaves), configurable in `settings.json`. Enforced at the spawn command, like A9 | `DECIDED` |
+| A13 | A spawn past the cap is **blocked** — never queued, never advisory. The block offers the two existing scopes: bind the task to a live slave, or put it on the pack | `DECIDED` |
 
 ## B. Identity and registration
 
@@ -52,6 +56,24 @@ outside `TASKS/`. **Needs restoring into this directory** — it is part of this
 | C6 | `orch events` scope follows ownership, not `spawnedBy` — an adopted fleet must be watchable | `DECIDED` |
 | C7 | Live views group by lease; history groups by provenance | `DECIDED` |
 
+## Cq. Queue
+
+| # | item | status |
+|---|---|---|
+| Cq1 | **Dispatch is push and is driving; claiming is pull and is not.** The gate is on enqueuing into a scope, never on claiming — a pack drains its queue whether or not its orch is alive | `DECIDED` |
+| Cq2 | Three scopes chosen at enqueue: **agent**, **pack**, **space** | `DECIDED` |
+| Cq3 | Space scope needs **two-sided consent** — publishing is an offer; a pack opts in to consume | `DECIDED` |
+| Cq4 | Results go to the enqueuer, not the runner — cross-pack delivery is orch↔orch messaging | `DECIDED` |
+| Cq5 | Agent scope requires holding at enqueue; the binding survives adoption | `DECIDED` |
+| Cq6 | Retry re-binding follows scope — pack-scoped retries anywhere in the pack, only agent-scoped re-pins | `DECIDED` |
+| Cq7 | `origin_workspace` deleted — scope replaces it | `DECIDED` |
+| Cq8 | **Today's bug:** `orch work` gives a queued task to any idle agent in the workspace, including another orch's slaves | `BROKEN` |
+| Cq9 | Queue CRUD: cancel by the enqueuer or the holder of the targeted agents (human always); edit only by the enqueuer while `queued`; read open | `DECIDED` |
+| Cq10 | **Unrunnable** (no live agent in scope) is reapable; **stale** (long-queued but claimable) is surfaced, never deleted on age | `DECIDED` |
+| Cq11 | Reaping an unrunnable task is **always deliberate** — never a timer. Unrunnable is a fact about who is alive now, and a new orch changes that | `DECIDED` |
+| Cq12 | An orphaned task has three deliberate resolutions: **take it on** (re-scope to the taker's pack), leave, reap | `DECIDED` |
+| Cq13 | Adoption carries the queue — pack-scoped tasks come with the agents, nothing to re-parent | `DECIDED` |
+
 ## D. Lifecycle
 
 | # | item | status |
@@ -67,7 +89,7 @@ outside `TASKS/`. **Needs restoring into this directory** — it is part of this
 | D9 | `orch detach` = release the lease. One meaning: it is nobody's, anyone may adopt | `DECIDED` |
 | D10 | Lock-delay cooldown after expiry so a flapping holder cannot thrash ownership | `DESIGN` |
 | D11 | Retention: how long an unheld idle agent lives before closing | `OPEN` |
-| D12 | Do a dead orchestrator's queued-but-unstarted tasks run, or die with it? | `OPEN` |
+| D12 | A dead orch's queued-but-unstarted tasks **run** — scope already decides it. Only work whose *runner* died is unrunnable; nothing dies because its enqueuer did | `DECIDED` |
 
 ## E. Placement and backends
 
@@ -112,7 +134,7 @@ outside `TASKS/`. **Needs restoring into this directory** — it is part of this
 | # | item | status |
 |---|---|---|
 | H1 | Nothing reaps `$ORCH_DIR/agents/` — no `agent_dirs_days` setting exists | `BROKEN` |
-| H2 | Seven stale presence dirs on disk right now (`headless~local~*`) | `BROKEN` |
+| H2 | Thirteen stale presence dirs on disk right now — seven `headless~local~*` plus six `herdr~wF~*` whose pi processes are all dead | `BROKEN` |
 | H3 | Reap must walk the provenance tree — refusing to delete an agent with descendants | `DECIDED` |
 | H4 | Retention settings: grace window, agent-dir age, history age | `DESIGN` |
 
@@ -150,12 +172,29 @@ Rule 8: bump the schema, reap, never accept two shapes.
 | K3 | Two leaked test daemons still alive: pids 366374, 366462 | `BROKEN` |
 | K4 | Leaking dispatch tests removed from `test/broker-routing.test.ts` | `BUILT` |
 
+## M. The daemon as the integration layer
+
+| # | item | status |
+|---|---|---|
+| M1 | **One orchd per machine.** Every client — CLI on either OS, web, harness bridge — dials it and reads nothing else | `DECIDED` |
+| M2 | `$ORCH_DIR` is orchd's private backing store, never an address. Discovery is a socket path plus the token file | `DECIDED` |
+| M3 | **Today's bug:** `$ORCH_DIR` follows the shell's home (`src/agent/presence.ts:32`) and the CLI renders straight from `$ORCH_DIR/agents/`, so two homes are two universes | `BROKEN` |
+| M4 | No OS is privileged. Windows-only and Linux-only machines host locally with no boundary and no executor | `DECIDED` |
+| M5 | On a machine running both, one side hosts; the store must be on a native filesystem (`src/doctor/config.ts:71` already refuses DrvFs) | `DECIDED` |
+| M6 | Never two daemons at once — machine-wide registration refuses the second start and names the live one; doctor verifies | `DESIGN` |
+| M7 | Cross-OS execution is a **backend**, not a peer daemon: start / is-alive / kill. An OS side with no executor is a declared missing capability, never a crash or a silent empty list | `DESIGN` |
+| M8 | `orch status --offline` is a second reader of a second source — demote to a doctor affordance or delete | `DESIGN` |
+| M9 | Default visibility scoped by plexer workspace (`src/commands/status.ts:187`) — a live fleet vanishes when you change herdr window. Reads are never gated | `BROKEN` |
+
 ## L. Outstanding defects
 
 | # | item | status |
 |---|---|---|
 | L1 | `src/daemon/work-loop.ts:117,223` — `string \| null` assigned to `string \| undefined` | `BROKEN` |
 | L2 | `test/close-always.test.ts:40` — unused `workspace` parameter | `BROKEN` |
+| L3 | `src/commands/status.ts:232,439` — the zero-rows message asserts "backend down and no agent dirs" without testing either. Printed while herdr was up and 13 agent dirs existed. It must report what it found: agents seen, how many alive, whether the backend answered | `BROKEN` |
+| L4 | Status renders dead agents as live work — state, cost and LAST come from `status.json`, which outlives the process. No liveness check against a recorded pid | `BROKEN` |
+| L5 | `orch close --all` is scoped by provenance (`spawnedBySelf`, `src/commands/lifecycle.ts:389`) and per-target close refuses on `spawnedBy` (`:402`). Ending is never gated (D7), and live scoping follows the lease, never provenance (C6) | `BROKEN` |
 
 ---
 

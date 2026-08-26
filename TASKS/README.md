@@ -25,8 +25,11 @@ These are settled. Work that violates one is wrong regardless of how well it wor
    is never shown as a name you chose.
 3. **An orchestrator is an agent.** Spawner and spawnee are the same entity, pointing at each
    other. There is no second id space and no second liveness mechanism.
-4. **One source of truth.** The web reads from orchd and the SQLite store, and from nothing
-   else — never herdr, never a multiplexer, never a harness, never the filesystem directly.
+4. **One source of truth, and it is the daemon.** One orchd per machine. Every client — the
+   CLI on either OS, the web, a harness bridge — dials it and reads nothing else: never herdr,
+   never a multiplexer, never a harness, never the store or the presence files directly.
+   `$ORCH_DIR` is orchd's private backing, not an address. Two homes must never mean two
+   daemons.
 5. **orch is decoupled from every harness and every plexer.** Branch on declared capabilities,
    never on an environment's id. Adding an environment edits zero renderers, commands, or
    policy.

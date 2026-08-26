@@ -106,10 +106,10 @@ rule is written down.
 ```sql
 PRAGMA foreign_keys = ON;   -- SQLite ignores every REFERENCES clause without this
 
-CREATE TABLE workspaces (                      -- a user's grouping label. Not a path.
+CREATE TABLE spaces (                          -- a user's grouping of work. Not a path.
   id          TEXT    PRIMARY KEY,
   name        TEXT    NOT NULL UNIQUE,
-  created_by  TEXT             REFERENCES agents(id),   -- provenance. Nobody OWNS a workspace.
+  created_by  TEXT             REFERENCES agents(id),   -- provenance. Nobody OWNS a space.
   created_at  INTEGER NOT NULL
 ) STRICT;
 
@@ -127,7 +127,7 @@ CREATE TABLE plexers (                         -- where an agent is placed. Data
 
 CREATE TABLE agents (                          -- identity, and what is genuinely 1:1 with it
   id           TEXT    PRIMARY KEY,
-  workspace_id TEXT    NOT NULL REFERENCES workspaces(id),
+  space_id     TEXT             REFERENCES spaces(id),   -- optional; an agent may have none
   spawned_by   TEXT             REFERENCES agents(id),   -- IMMUTABLE. NULL = nothing spawned it
   harness_id   TEXT    NOT NULL REFERENCES harnesses(id),
   name         TEXT    NOT NULL,
@@ -208,11 +208,11 @@ One object at the call site, five tables underneath.
 ```ts
 interface Agent {
   id: string;
-  workspace: Workspace;
-  spawnedBy: string | null;
   name: string;
+  space: Space | null;               // optional grouping
+  spawnedBy: string | null;          // provenance, immutable
   process: AgentProcess | null;      // ended_at IS NULL
-  placement: AgentPlacement | null;  // until IS NULL — null for a session
+  placement: AgentPlacement | null;  // until IS NULL — null when it runs nowhere
   lease: AgentLease | null;          // released_at IS NULL — null when unheld
 }
 ```
@@ -232,19 +232,23 @@ herdr, never a harness, never the filesystem directly.
 
 ## 8. The hierarchy
 
+Every box is an agent. Indentation is provenance; "held by" is ownership.
+
 ```
-workspace  /mnt/c/dev/personal/orch          name "orch"
-  ├── agent 3f2a  "claude — web work"        no spawner, no placement, holds two
-  │     ├── agent  api-1      herdr %255     owned, held by 3f2a
-  │     └── agent  api-2      herdr %256     owned, held by 3f2a
-  ├── agent 9c1b  "pi — refactor"            no spawner, no placement, holds one
-  │     └── agent  parser-1   headless       owned, held by 9c1b
-  └── agent nightly-1         headless       detached, unheld
+space "website"                                   ← optional grouping, nothing owns it
+  ├── agent 3f2a  "claude — client"               no spawner, no placement   ┐ pack
+  │     ├── agent  api-1      herdr %255          held by 3f2a               │
+  │     └── agent  api-2      herdr %256          held by 3f2a               ┘
+  ├── agent 9c1b  "pi — server"                   no spawner, no placement   ┐ pack
+  │     └── agent  parser-1   headless            held by 9c1b               ┘
+  └── agent nightly-1         headless            UNHELD — still working
 ```
 
-A workspace is repo-level and holds many orchestrators. **Minted on first spawn in a repo
-root, never created by hand** — `orch spawn` already requires `--cwd`, so it needs no new flag
-and no ceremony. Its name defaults to the repo directory name and is yours to change.
+A **space** groups packs. It is optional, it is not a path, and it is the reachability
+boundary: `3f2a` and `9c1b` may coordinate because they share a space. With no space set, the
+boundary is the repo root.
+
+A **pack** is an orch and the slaves it spawned. Nobody creates a pack — spawning creates it.
 
 ---
 
@@ -268,20 +272,18 @@ such accident.
 
 | | what it is | lifecycle meaning |
 |---|---|---|
-| **Containment** — workspace > orchestrator > agent | a scope | none. Static structure. |
-| **Ownership** — an orchestrator holds an agent | a lease | yes. One holder, transferable. |
+| **Containment** — space > pack > agent | a scope | none. Static structure. |
+| **Ownership** — one agent holds another | a lease | yes. One holder, transferable. |
 
-**Nobody owns a workspace.** Ownership means the owner's death affects the owned, and a repo
-does not die when a session does. A workspace carries `created_by` as provenance and nothing
-more.
+**Nobody owns a space.** Ownership means the owner's death affects the owned, and a space does
+not die when an agent does. A space carries `created_by` as provenance and nothing more.
 
-If an orchestrator owned its workspace, it would hold authority over every *other*
-orchestrator's agents in that repo — which is precisely what must never happen. Orchestrators
-in one workspace are peers.
+If an orch owned its space, it would hold authority over every *other* orch's agents in that
+space — precisely what must never happen. Orchs in one space are peers.
 
-Because containment is a tree, the UI gets both entry points for free: workspace-first (one
-repo, several sessions, unheld agents listed at repo level) and orchestrator-first (your
-sessions across repos). That is navigation, not modelling.
+Because containment is a tree, the UI gets both entry points for free: space-first (one
+grouping, several packs, unheld agents listed at space level) and orch-first (your packs
+across spaces). That is navigation, not modelling.
 
 ### Held or unheld
 
@@ -385,7 +387,7 @@ Stale presence dirs are the third verb having no owner and no trigger.
 | identity, ownership, addressing | starting a process somewhere |
 | delivery: presence inbox → bridge → ack | a screen *(capability)* |
 | reading output (captured) | focus, keystrokes *(capability)* |
-| history, ownership, state, workspaces | fast-path typing instead of inbox *(capability)* |
+| history, ownership, state, spaces | fast-path typing instead of inbox *(capability)* |
 
 **Delivery and read are orch's mechanism. A pane is an optimisation.** The tell that the seam
 is drawn wrong today is that `headless` returns false from `deliver` even though

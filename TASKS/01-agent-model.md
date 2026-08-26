@@ -25,7 +25,7 @@ scheme, and a join to answer the only question that matters: *who is responsible
 | **Identity** — the minted id, and nothing else in it | never | `agents.id` |
 | **Provenance** — who spawned it | never | `agents.spawned_by` |
 | **Ownership** — who holds it now | yes | `agent_leases` |
-| **Placement** — where it runs | yes | `agent_placements` |
+| **Environment** — where it is | yes | `agent_environments` |
 
 Anything encoded into an identity can never change without breaking every reference to it.
 That is precisely why identity holds nothing but the minted id.
@@ -37,7 +37,8 @@ headless~local~7x5hd4h610     "local" is a missing value wearing a name
 herdr~wF~0uh7scyzxh           "wF" is herdr's own id, displayed as if you chose it
 ```
 
-Three facts welded into one key, two of them lies. `backend` and `workspace` become columns.
+Three facts welded into one key, two of them lies. The plexer and whatever it groups by are
+**environment**, and become environment columns.
 
 ---
 
@@ -108,7 +109,7 @@ PRAGMA foreign_keys = ON;   -- SQLite ignores every REFERENCES clause without th
 
 CREATE TABLE spaces (                          -- a user's grouping of work. Not a path.
   id          TEXT    PRIMARY KEY,
-  name        TEXT    NOT NULL UNIQUE,
+  name        TEXT    NOT NULL,                -- NOT unique: a name is for humans (C4c)
   created_by  TEXT             REFERENCES agents(id),   -- provenance. Nobody OWNS a space.
   created_at  INTEGER NOT NULL
 ) STRICT;
@@ -125,75 +126,175 @@ CREATE TABLE plexers (                         -- where an agent is placed. Data
   enabled_at  INTEGER
 ) STRICT;
 
-CREATE TABLE agents (                          -- identity, and what is genuinely 1:1 with it
-  id           TEXT    PRIMARY KEY,
-  space_id     TEXT             REFERENCES spaces(id),   -- optional; an agent may have none
-  spawned_by   TEXT             REFERENCES agents(id),   -- IMMUTABLE. NULL = nothing spawned it
-  harness_id   TEXT    NOT NULL REFERENCES harnesses(id),
-  name         TEXT    NOT NULL,
-  label        TEXT,
-  model        TEXT,
-  thinking     TEXT,
-  created_at   INTEGER NOT NULL,
-  ended_at     INTEGER                                   -- set on close; row survives for history
+CREATE TABLE hosts (                           -- a machine an agent can run on. Data, not a CHECK list.
+  id          TEXT    PRIMARY KEY,
+  name        TEXT    NOT NULL,
+  os          TEXT    NOT NULL,                -- linux | windows | darwin
+  created_at  INTEGER NOT NULL
 ) STRICT;
+
+-- ── the hub: identity and what cannot vary ────────────────────────────────────
+
+CREATE TABLE agents (
+  id            TEXT    PRIMARY KEY,
+  spawned_by    TEXT             REFERENCES agents(id),   -- IMMUTABLE. NULL = nothing spawned it
+  root_agent_id TEXT    NOT NULL REFERENCES agents(id),   -- provenance root = the pack. See below.
+  harness_id    TEXT    NOT NULL REFERENCES harnesses(id),-- constitutive: an agent cannot change harness
+  name          TEXT    NOT NULL,              -- NOT unique (C4c)
+  label         TEXT,
+  created_at    INTEGER NOT NULL,
+  ended_at      INTEGER                        -- set on close; the row survives for history
+) STRICT;
+
+-- ── satellites: one per independently-varying fact ────────────────────────────
+-- Every satellite below obeys ONE temporal contract:
+--   * validity is the half-open interval [since, until); until IS NULL means open.
+--   * CHECK (until IS NULL OR until > since) — no zero-length or inverted intervals.
+--   * a partial unique index gives AT MOST ONE OPEN interval per agent.
+-- The partial index does not forbid overlapping CLOSED intervals. That is sound
+-- only because orchd is the single writer (M1); it is a constraint the
+-- architecture must keep, not an accident.
 
 CREATE TABLE agent_processes (                 -- one row per process INSTANCE; restart = new row
   id          INTEGER PRIMARY KEY,
   agent_id    TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  host_id     TEXT    NOT NULL REFERENCES hosts(id),   -- a process is bound to the machine it runs on
   pid         INTEGER NOT NULL,
   start_token TEXT,
-  started_at  INTEGER NOT NULL,
-  ended_at    INTEGER
+  since       INTEGER NOT NULL,
+  until       INTEGER,
+  CHECK (until IS NULL OR until > since)
 ) STRICT;
 
-CREATE TABLE agent_placements (                -- one row per placement; move = new row
+CREATE TABLE agent_directories (               -- where on disk it works
+  id        INTEGER PRIMARY KEY,
+  agent_id  TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  path      TEXT    NOT NULL,
+  worktree  TEXT,                              -- NULL = the repo itself, not a worktree
+  branch    TEXT,
+  since     INTEGER NOT NULL,
+  until     INTEGER,
+  CHECK (until IS NULL OR until > since)
+) STRICT;
+
+CREATE TABLE agent_plexers (                   -- where it sits in an interaction layer
   id        INTEGER PRIMARY KEY,
   agent_id  TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   plexer_id TEXT    NOT NULL REFERENCES plexers(id),
-  handle    TEXT,
+  handle    TEXT,                              -- the plexer's own coordinates
   tab_label TEXT,
-  cwd       TEXT    NOT NULL,
-  worktree  TEXT,
-  branch    TEXT,
   since     INTEGER NOT NULL,
-  until     INTEGER
+  until     INTEGER,
+  CHECK (until IS NULL OR until > since)
+) STRICT;
+
+CREATE TABLE agent_spaces (                    -- which grouping of work it belongs to
+  id        INTEGER PRIMARY KEY,
+  agent_id  TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  space_id  TEXT    NOT NULL REFERENCES spaces(id),
+  since     INTEGER NOT NULL,
+  until     INTEGER,
+  CHECK (until IS NULL OR until > since)
+) STRICT;
+
+CREATE TABLE agent_tunings (                   -- how it is configured; NOT where it is
+  id        INTEGER PRIMARY KEY,
+  agent_id  TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  model     TEXT    NOT NULL,
+  thinking  TEXT,
+  since     INTEGER NOT NULL,
+  until     INTEGER,
+  CHECK (until IS NULL OR until > since)
 ) STRICT;
 
 CREATE TABLE agent_leases (                    -- one row per holding
-  id             INTEGER PRIMARY KEY,
+  id             INTEGER PRIMARY KEY,          -- monotonic: this IS the fencing token
   agent_id       TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   holder_id      TEXT    NOT NULL REFERENCES agents(id),
-  acquired_at    INTEGER NOT NULL,
-  released_at    INTEGER,
-  release_reason TEXT CHECK (release_reason IN ('released','handoff','adopted','expired'))
+  since          INTEGER NOT NULL,
+  until          INTEGER,
+  release_reason TEXT CHECK (release_reason IN ('released','handoff','adopted','expired')),
+  CHECK (until IS NULL OR until > since),
+  CHECK ((until IS NULL) = (release_reason IS NULL)),   -- closed iff it says why
+  CHECK (holder_id <> agent_id)                         -- nothing holds itself
 ) STRICT;
 
 -- "At most one current X" is a database fact, not application logic.
-CREATE UNIQUE INDEX one_live_process ON agent_processes(agent_id)  WHERE ended_at IS NULL;
-CREATE UNIQUE INDEX one_placement    ON agent_placements(agent_id) WHERE until IS NULL;
-CREATE UNIQUE INDEX one_lease        ON agent_leases(agent_id)     WHERE released_at IS NULL;
+CREATE UNIQUE INDEX one_live_process ON agent_processes(agent_id)   WHERE until IS NULL;
+CREATE UNIQUE INDEX one_directory    ON agent_directories(agent_id) WHERE until IS NULL;
+CREATE UNIQUE INDEX one_plexer       ON agent_plexers(agent_id)     WHERE until IS NULL;
+CREATE UNIQUE INDEX one_space        ON agent_spaces(agent_id)      WHERE until IS NULL;
+CREATE UNIQUE INDEX one_tuning       ON agent_tunings(agent_id)     WHERE until IS NULL;
+CREATE UNIQUE INDEX one_lease        ON agent_leases(agent_id)      WHERE until IS NULL;
+
+-- The two access paths that are not by primary key.
+CREATE INDEX agents_by_pack    ON agents(root_agent_id) WHERE ended_at IS NULL;
+CREATE INDEX agents_by_spawner ON agents(spawned_by);
+CREATE INDEX leases_by_holder  ON agent_leases(holder_id) WHERE until IS NULL;
 ```
 
 `STRICT` makes declared types enforced instead of advisory — Rule 8 says one live shape, and
 this is the database enforcing it rather than trusting every writer.
 
-`ON DELETE CASCADE` reaches only the child tables. `agents.spawned_by` deliberately has no
+`ON DELETE CASCADE` reaches only the satellites. `agents.spawned_by` deliberately has no
 cascade: reaping an agent that still has descendants is **refused**, forcing a reap to walk
 the tree instead of silently destroying provenance.
 
+### Normal form, and where it stops
+
+Every satellite is in **5NF**. Each holds one multivalued fact about one agent over one
+interval, with no partial dependency (the key is the whole key) and no transitive dependency
+(nothing in a satellite determines anything else in it). `model` and `thinking` sit together
+because thinking-effort is meaningless without the model it qualifies — one fact, two columns —
+not because they happened to change at the same time.
+
+**`agents.root_agent_id` is the one materialized value, and it is provably safe.** A cached
+value can only drift if an input can change; `spawned_by` is immutable, so the provenance root
+is immutable, so the cache has no update path that could ever make it wrong. It is computed once
+at insert — the parent's root, or the agent's own id when it has no spawner — and never touched
+again. That turns every pack query into `WHERE root_agent_id = ?` instead of a recursive walk on
+each read. Deriving it instead with `WITH RECURSIVE` is correct and slower; storing a value whose
+inputs *could* change would be the mistake, and this one's cannot.
+
+**What is deliberately not modelled: a `subjects` supertype.** Satellites key on `agent_id`
+because an agent is the only owner today. The moment a second kind of owner needs an environment
+— a space, or a pack given a row of its own — the correct move is a `subjects(id, kind)`
+supertype that `agents.id` and `spaces.id` both reference, with satellites keying on
+`subject_id`. Building it before there is a second subject is speculative generality; the
+migration path is recorded here so it is a decision rather than a discovery.
+
+**What is deliberately not enforced: overlapping closed intervals.** The partial unique indexes
+guarantee one *open* interval per agent per satellite. Nothing forbids two closed intervals from
+overlapping in history, because SQLite has no exclusion constraint. That is sound only while
+**orchd is the sole writer** (M1) and every close-then-open pair happens in one transaction. It
+is therefore a standing architectural requirement, not a gap to be patched later.
+
 ## 5. Why each split exists
 
-- **Placement** — the columns go NULL *as a group*: a session has no placement at all, and
-  gets no row rather than seven NULLs. Agents also move, and a move is a new row.
+- **Environment is three tables, not one**, because none of its axes move together. Moving an
+  agent to another space leaves its directory and its pane untouched; moving its pane leaves the
+  other two untouched. One row would restate unchanged facts on every move, and its `since` /
+  `until` would conflate three separate histories into one lie.
+- **A missing axis is a missing row, not a NULL.** A session has no plexer, so it has no
+  `agent_plexers` row — not a row full of NULLs pretending to be a location.
+- **Tuning is not environment.** `model` and `thinking` are how an agent is configured, not what
+  surrounds it, and they churn far faster than anything that is. Filing them under "where it is"
+  would make that word mean "everything else", which is the failure that produced `workspace`.
+- **Harness is not environment either — it is constitutive.** No operation changes an agent's
+  harness; a different harness is a different agent. An immutable fact belongs on the hub beside
+  `spawned_by`, never in a satellite that invites the question "which one is it on *now*".
 - **Processes** — `orch restart` yields a new pid and start token while identity is unchanged.
   A different entity's lifecycle wearing the same id.
 - **Leases** — ownership is a relationship with its own attributes. **Handoff and adoption are
   inserts, not overwrites**, so *why is this mine now?* is answerable. A mutable `held_by`
   column cannot deliver that.
 
-`name`, `label`, `model`, `adapter` stay on `agents`: genuinely 1:1, no repeating group, no
-transitive dependency. Splitting those is over-normalizing.
+`name` and `label` stay on `agents`: genuinely 1:1, and no history is needed because nothing in
+the code reads a name (§6a) — an id is what logs and references carry.
+
+**Adding an axis later — a container, a remote host beyond the process's, a display — is one
+table plus one line in the composer.** Zero consumers change. That is the whole reason the seam
+is per-axis and not one wide row.
 
 **There is no `lifetime` column.** Owned-vs-detached answered one question — *does the work
 survive its spawner?* — and that answer is permanently yes. See `NOTES.md`.
@@ -203,22 +304,50 @@ survive its spawner?* — and that answer is permanently yes. See `NOTES.md`.
 
 ## 6. The composed object
 
-One object at the call site, five tables underneath.
+One object at the call site, eight tables underneath. **An agent HAS an environment; an
+environment HAS a directory, a harness, a plexer, a space.** Nothing here is a table with
+fifty columns — it is a composition of narrow ones.
 
 ```ts
 interface Agent {
   id: string;
   name: string;
-  space: Space | null;               // optional grouping
-  spawnedBy: string | null;          // provenance, immutable
-  process: AgentProcess | null;      // ended_at IS NULL
-  placement: AgentPlacement | null;  // until IS NULL — null when it runs nowhere
-  lease: AgentLease | null;          // released_at IS NULL — null when unheld
+  harness: Harness;              // constitutive, immutable
+  spawnedBy: string | null;      // provenance, immutable
+  pack: string;                  // root_agent_id — immutable, materialized
+  process: Process | null;       // until IS NULL — null when nothing is running
+  environment: Environment;      // where it is and what surrounds it
+  tuning: Tuning | null;         // model and thinking — configuration, not location
+  lease: Lease | null;           // until IS NULL — null when unheld
+}
+
+interface Environment {
+  directory: Directory | null;   // path, worktree, branch
+  plexer: Plexer | null;         // which plexer, and its own opaque handle
+  space: Space | null;           // the grouping, and the reachability boundary
 }
 ```
 
-`agent.placement === null` is honest. `agent.lease === null` means unheld. Neither is a
+`Environment` is never null — everything has one — but **each axis is independently null**,
+because a headless agent genuinely has no plexer and an ungrouped agent genuinely has no space.
+A null axis is a missing row, and it reads as "not applicable" rather than as a value.
+
+`agent.lease === null` means unheld. Neither that nor a null axis is a
 sentinel pretending to be data.
+
+## 6a. Names
+
+`agents.name` is `NOT NULL` and carries **no uniqueness**. Nothing in the code ever reads a
+name: it is accepted at the boundary, resolved to an id there, and never carried past it.
+Duplicates are a usability problem, not a correctness one — orch refuses to hand out a name
+already in use, flags a supplied one that collides, and treats an ambiguous name as a lookup
+that found several agents and asks which id you meant.
+
+- **Spawning requires a name.** No default, nothing auto-named.
+- **A self-registering session** has no spawner to name it and no way to ask, so orch mints
+  `<harness>-<first 8 of its id>`.
+- **An agent may rename itself with no holder** — acting on itself is not driving. Renaming
+  *another* agent is.
 
 ## 7. What stays out of the database
 
@@ -227,8 +356,13 @@ Telemetry — `state`, `task`, `dispatchId`, `lastText`, `currentFile`, `filesTo
 
 That is the agent's claim **about itself**, it churns every few seconds, and `status.json` is
 already its home and the basis of the whole bridge protocol. orchd merges the tables and the
-presence files and serves one view, so the web reads exactly one source: **orchd**. Never
-herdr, never a harness, never the filesystem directly.
+presence files and serves one view.
+
+**One orchd per machine, and every client reads only it** — the CLI on either OS, the web, a
+harness bridge. Never herdr, never a harness, never the store or the presence files directly.
+`$ORCH_DIR` is orchd's private backing, not an address, so two home directories can never mean
+two daemons. Where an OS boundary makes a process unreachable, the far side gets an **executor**
+behind the backend port — start, is-alive, kill — never a second daemon.
 
 ## 8. The hierarchy
 
@@ -236,10 +370,10 @@ Every box is an agent. Indentation is provenance; "held by" is ownership.
 
 ```
 space "website"                                   ← optional grouping, nothing owns it
-  ├── agent 3f2a  "claude — client"               no spawner, no placement   ┐ pack
+  ├── agent 3f2a  "claude — client"               no spawner, no environment ┐ pack
   │     ├── agent  api-1      herdr %255          held by 3f2a               │
   │     └── agent  api-2      herdr %256          held by 3f2a               ┘
-  ├── agent 9c1b  "pi — server"                   no spawner, no placement   ┐ pack
+  ├── agent 9c1b  "pi — server"                   no spawner, no environment ┐ pack
   │     └── agent  parser-1   headless            held by 9c1b               ┘
   └── agent nightly-1         headless            UNHELD — still working
 ```
@@ -248,7 +382,15 @@ A **space** groups packs. It is optional, it is not a path, and it is the reacha
 boundary: `3f2a` and `9c1b` may coordinate because they share a space. With no space set, the
 boundary is the repo root.
 
-A **pack** is an orch and the slaves it spawned. Nobody creates a pack — spawning creates it.
+A **pack** is the set of agents sharing a **provenance root**, so every agent is in exactly one
+pack at any depth. A registered session is a pack of one before it spawns anything; spawning
+grows a pack, it never creates one. The root is the **orch**, every other member a **slave**.
+
+Because provenance is immutable, an agent is in one pack for life and a pack outlives its orch.
+Adoption moves the lease, never the membership.
+
+A pack is capped at **10 live members** by default, configurable in `settings.json` and enforced
+at the spawn command — the same kind of policy as the depth limit, never a fact about the model.
 
 ---
 
@@ -324,7 +466,7 @@ Expiry is not a transfer. Nothing moves and nobody receives it.
 
 **A transfer must not disturb the agent** — it does not know, does not reset, does not
 re-attach, does not lose context. If a handoff requires touching the agent, ownership is still
-secretly welded to identity or placement.
+secretly welded to identity or environment.
 
 ### Provenance is not ownership
 
@@ -334,14 +476,11 @@ group by lease; history groups by provenance.**
 
 ## 11. Lifetime
 
-| | behaviour |
-|---|---|
-| `orch spawn` (default) | **owned** — fate-shares with the spawning agent |
-| `orch spawn --detached` | **survives** it. **Requires a name.** Ends only by command or retention. |
-| `orch detach <target>` | promote a live owned agent to detached |
-
 **Work survives its spawner. Always.** There is no flag, no mode, and no decision at spawn
 time. Spawn and walk away is not something you opt into; it is what happens.
+
+There is no `--detached`, because there is nothing to detach *from*. `orch detach <target>`
+means exactly one thing: **release the lease** — this is nobody's now, anyone may adopt it.
 
 ### When a holder dies
 
@@ -380,7 +519,18 @@ not the plexer.
 
 Stale presence dirs are the third verb having no owner and no trigger.
 
-## 12. Placement
+## 12. Environment
+
+**Where a thing is and what surrounds it** — its directory, repo, worktree and branch, the
+harness it runs inside, the plexer it sits in, the space it belongs to, and which OS side it is
+on.
+
+**Everything has an environment**, not only an agent: a pack has one, a space has one. Reaching
+for a new noun to say "this pack lives over there" means the environment was being treated as an
+agent-only property.
+
+**Space membership is part of the environment**, not a column beside it — it is one of the
+things that surrounds an agent. Moving between spaces is a move, and a move is a new row.
 
 | orch owns | the environment provides |
 |---|---|
@@ -389,9 +539,15 @@ Stale presence dirs are the third verb having no owner and no trigger.
 | reading output (captured) | focus, keystrokes *(capability)* |
 | history, ownership, state, spaces | fast-path typing instead of inbox *(capability)* |
 
-**Delivery and read are orch's mechanism. A pane is an optimisation.** The tell that the seam
-is drawn wrong today is that `headless` returns false from `deliver` even though
-`inbox.jsonl → bridge → ack.jsonl` works with no screen at all.
+**Delivery and read are orch's mechanism. A pane is an optimisation.** Confirmed against the
+code: the dispatch path is RPC → outbox → inbox → the agent's own poll, and `status.json` /
+`result.json` come back with no plexer involved at all. `headless` returns false from `deliver`
+because that process only ever takes its launch prompt and then exits — not because a screen is
+required.
+
+**A plexer's own grouping is environment and nothing more.** herdr calls it a workspace, tmux
+calls it a session; orch neither names it nor displays it as a name anyone chose. orch's own
+grouping is a **space**.
 
 **Branch on declared capabilities, never on an environment id.** `backend === "herdr"`,
 `handle === null`, and `key.startsWith("headless~")` are one mistake in three hats. Adding an
@@ -415,9 +571,9 @@ the next bug.
 | 3 | A reply address is not an owner token. | `checkSpawnerReplyFallbackLine` in `scripts/check-bridge.ts` |
 | 4 | `spawned_by` names an id orchd issued, never a governance actor. | same rule as #3 |
 | 5 | Liveness is discovered at send time, never encoded in an identity. | the identity type carries no liveness field |
-| 6 | At most one live process, placement, and lease per agent. | the three partial unique indexes |
+| 6 | At most one live process, environment, and lease per agent. | the three partial unique indexes |
 | 7 | An owner claim is honoured only while its holder is provably alive. | `NONE` — needs `processInstanceMatches` at the gate |
-| 8 | An agent's name is unique in a scope that outlives a session — never per-session. | `NONE` — needs a uniqueness constraint |
+| 8 | *Retired.* A name is for the human, an id is for the code. Duplicates are legal; ambiguity is a lookup that asks for the id. | n/a — nothing to enforce |
 | 9 | An unheld agent is actionable by anyone; a held agent only by its holder. | `NONE` — needs the lease check plus a test per command |
 | 10 | No `REFERENCES` clause is decoration. | `NONE` — needs `PRAGMA foreign_keys = ON` in `openStore` |
 

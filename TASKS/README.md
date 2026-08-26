@@ -19,7 +19,7 @@ foundations rather than patching around them.
 These are settled. Work that violates one is wrong regardless of how well it works.
 
 1. **orch owns every agent.** An environment — herdr, tmux, headless, whatever comes next — is
-   *where* an agent runs. It is placement: recorded, queryable, displayed. It is never
+   *where* an agent runs. It is **environment**: recorded, queryable, displayed. It is never
    identity.
 2. **orch owns naming.** Not herdr, not any plexer, not any harness. A plexer's generated id
    is never shown as a name you chose.
@@ -33,9 +33,10 @@ These are settled. Work that violates one is wrong regardless of how well it wor
 5. **orch is decoupled from every harness and every plexer.** Branch on declared capabilities,
    never on an environment's id. Adding an environment edits zero renderers, commands, or
    policy.
-6. **The spawner owns the life of what it spawns** — and if the spawner dies, the human can
-   still kill what it left behind, from the CLI or the web, always.
-7. **Spawn and walk away has to work.** Fate-sharing is the default, not the only option.
+6. **A holder drives what it holds; it never owns its life.** If the holder dies, the human
+   can still kill what it left behind, from the CLI or the web, always.
+7. **Spawn and walk away is not a mode — it is what happens.** Work survives its spawner,
+   always. Losing a holder costs a driver, never a life.
 8. **It has to be obvious what is going on.** A user should be able to tell live work from
    dead leftovers at a glance, and handle both without reading the source.
 9. **No back-compat.** Pre-publish, there is exactly one live shape for every record. Old data
@@ -47,7 +48,11 @@ These are settled. Work that violates one is wrong regardless of how well it wor
 
 | file | what it is |
 |---|---|
-| `01-agent-model.md` | The entity model and the schema. Identity, provenance, ownership, placement, lifetime — what an agent is and what keeps it alive. Data types are argued from purpose, not inherited. |
+| `00-glossary.md` | The index: one line per term, pointing at the detail. |
+| `03-vocabulary.md` | The long-form definitions. Definitions only, no decisions. |
+| `01-agent-model.md` | The entity model and the schema. Identity, provenance, ownership, environment — what an agent is and what keeps it alive. Data types are argued from purpose, not inherited. |
+| `NOTES.md` | The design log: what was decided, what was killed, and why. Newer than `01`. |
+| `adr/` | Decisions that were hard to reverse and had real alternatives. |
 | `02-scope.md` | Everything this rebuild covers, grouped and status-marked. The inventory that stops work being forgotten because nobody wrote it down. |
 
 ## How this proceeds

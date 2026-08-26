@@ -1,14 +1,16 @@
-# Context — orch glossary
+# Vocabulary — the long form
 
-The language of the domain. Definitions only: no implementation, no schema, no decisions.
-Decisions live in `TASKS/adr/`. Plans live in `TASKS/`.
+The full definitions. The one-line index is `00-glossary.md`.
+
+Definitions only: no implementation, no schema, no decisions. Decisions live in `adr/`,
+plans in this directory, reasoning in `NOTES.md`.
 
 ---
 
 ## Vocabulary is a display concern
 
-`orch` and `slave` are **role names**, and a role is *derived from the tree* — an agent that
-spawned others is an orch; a leaf is a slave. Nothing stores a role.
+`orch` and `slave` are **role names**, and a role is *derived from the tree* — the root of a
+pack is an orch, every other member a slave. Nothing stores a role.
 
 So the words live at the display boundary and nowhere else: never in a column, never in a
 stored value, never in a protocol message, never in an id. Swapping a term for one a user
@@ -18,7 +20,7 @@ prefers must be a change in **one** map.
 |---|---|
 | **orch** | the agent that spawns and directs others |
 | **slave** | a spawned agent doing one slice of work |
-| **pack** | an orch and the slaves it spawned |
+| **pack** | an agent and everything spawned beneath it |
 | **space** | a user-created container that groups packs |
 
 ---
@@ -32,7 +34,7 @@ prefers must be a change in **one** map.
 An orch is an agent. A slave is an agent. A harness session driving the CLI is an agent. They
 differ only in what spawned them and what they hold, never in kind.
 
-Every agent has an **id** that never changes, a **name** that can, a **placement**, and
+Every agent has an **id** that never changes, a **name** that can, an **environment**, and
 optionally a **space**.
 
 ### Orch
@@ -56,7 +58,8 @@ An agent's pack is the set of agents **sharing its provenance root**, so every a
 exactly one pack at any depth. A pack begins at one member and grows by spawning — nobody
 creates one, and nobody has to.
 
-Because provenance never changes, a pack outlives its orch. An orphaned pack still has its
+Because provenance never changes, an agent is in one pack for life and a pack outlives its
+orch. Adoption moves the **lease**, never the membership — an orphaned pack still has its
 members and still drains its queue.
 
 A pack has a **maximum size**, counted in live members and set in `settings.json`.
@@ -80,6 +83,20 @@ when the work changes.
 Names are for the human side. A name is accepted at the boundary — a typed command, a UI
 click — resolved to an id there, and never carried past it. **Nothing fundamental depends on
 a name**, so a rename costs nothing and breaks nothing.
+
+**Spawning an agent requires naming it.** There is no default and nothing is auto-named, because
+a name exists to be typed and a generated one never is.
+
+The one exception is an agent nobody spawned — a session that registers itself. It has no
+spawner to name it and no way to ask, so orch mints `<harness>-<first 8 of its id>`.
+
+**Any agent may rename itself.** That is the agent acting on itself, not driving, so it needs no
+holder — the same reason claiming needs none. Renaming *another* agent is driving.
+
+Names carry no uniqueness rule, because nothing in the code ever reads one. Duplicates are a
+**usability** problem, not a correctness one: orch refuses to hand out a name already in use and
+says so when you supply one that is. An ambiguous name is a lookup that found more than one
+agent and asks which id you meant.
 
 ---
 
@@ -160,20 +177,20 @@ totally empty space is the user's to delete, surfaced in the web.
 Membership is a property of the *agent*, so only an agent's holder may move it in or out.
 `created_by` records who made it and grants nothing.
 
-### Placement
+### Environment
 
-**Where an agent is currently running** — its harness, its plexer, its handle, its directory.
+**Where a thing is and what surrounds it** — its directory, its repo, its worktree and branch,
+the harness it runs inside, the plexer it sits in, the space it belongs to, and which OS side it
+is on.
 
-Recorded, queryable, and displayed. It **changes**, because agents move. It is never
-identity.
+**Everything has an environment** — an agent, a pack, a space. It is not a property only agents
+get.
 
-### Workspace
+Recorded, queryable, and displayed. It **changes**, because things move, and a move is a new
+record. It is never identity.
 
-**The physical working location on disk** — the directory, the worktree, or the plexer's own
-grouping of it. Part of placement.
-
-Never orch's name for anything, and never shown as a name the user chose. For grouping work,
-the word is **space**.
+A plexer's own coordinates are part of an environment and nothing more: orch stores what the
+plexer needs handed back, and neither names it nor shows it as a name anyone chose.
 
 ### Harness
 
@@ -181,8 +198,16 @@ the word is **space**.
 
 ### Plexer
 
-**What places an agent** — `herdr`, `tmux`, or `headless`. The terminal multiplexer, or the
-absence of one.
+**The interaction layer between the human and their agents** — `herdr`, `tmux`, or `headless`
+for its absence. A terminal multiplexer, and the terminal counterpart of the web view.
+
+Its job is navigability and visibility: switch to any agent, watch it, talk to it. It gives
+the human a real CLI or TUI onto the fleet, and it provides conveniences orch integrates with
+— pane tiling, notifications, focus.
+
+A plexer can also **hold orch's own structure**: a space or a pack can be given a home of its
+own inside the plexer. The grouping is orch's and the name is orch's; the plexer only renders
+it, using whatever it groups by internally.
 
 Harness and plexer are independent axes. Neither is ever inferred from the other.
 

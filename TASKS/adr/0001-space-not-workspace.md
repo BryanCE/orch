@@ -1,4 +1,4 @@
-# 0001 — "Space" for orch's grouping of work; "workspace" is placement
+# 0001 — "Space" for orch's grouping of work; where things are is "environment"
 
 ## Status
 
@@ -26,21 +26,26 @@ them constantly.
 
 ## Decision
 
-**Space** is orch's grouping of work. **Workspace** means the physical working location on
-disk, and nothing else.
+**Space** is orch's grouping of work. Where anything *is* — including a plexer's own grouping —
+is **environment**, and "workspace" is not one of orch's words at all.
 
 - **Space** — user-created, optional, identified by name. Not a path, covers no directories,
   says nothing about where anything runs. Nothing owns it. It is also the **reachability
   boundary**: orchs in one space may coordinate, across spaces they may not. With no space
   set, the boundary is the repo root.
-- **Workspace** — the directory, the worktree, or the plexer's own grouping of it. Recorded
-  as *placement*, never shown as a name the user chose.
+- **Environment** — where a thing is: its `cwd`, repo root, `worktree`, `branch`, harness,
+  plexer, whatever that plexer groups by, and its handle. **Everything has one** — an agent, a
+  pack, a space. Never shown as a name the user chose.
+
+The split that failed was "space vs workspace", because the second half had no content of its
+own: every physical fact it was carrying already had a precise name and its own column. Naming
+the whole side **environment** is what made the two concepts stop bleeding into each other.
 
 ## Consequences
 
 - The grouping is `spaces`, and agents carry `space_id`.
-- `workspace` survives only inside placement, alongside `handle`, where it is honestly the
-  plexer's fact.
+- "Workspace" is a **plexer's** word — herdr's grouping, tmux's session. It lives inside an
+  environment as the plexer's own coordinate and appears nowhere in orch's model, CLI, or UI.
 - Every existing use of "workspace" for orch's own grouping — the store column, the
   `--workspace` flag, `orch ws`, the workspace-wall policy, the event field — names the wrong
   concept and is renamed, not aliased.

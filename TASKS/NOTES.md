@@ -116,13 +116,16 @@ beside the point. Every conversation slid toward directories and roots, because 
 - **Space** — orch's grouping of work. User-created, optional, on every agent, mutable.
   Relates any number of packs into one effort; server work and client work are one space. Not
   a path. Nothing owns it.
-- **Workspace** — the physical working location on disk. Placement, never a name the user
-  chose.
+- **Environment** — where a thing *is*: `cwd`, repo root, `worktree`, `branch`, harness,
+  plexer, whatever that plexer groups by, its handle. Everything has one — an agent, a pack, a
+  space. Never a name the user chose.
+- **Workspace** — not orch's word. It is what herdr calls its grouping and tmux calls a
+  session: a plexer coordinate living inside an environment, never displayed as a name.
 
 **"Project" was considered and rejected**: users are working on *their* project using orch,
 and a second orch-owned meaning forces them to hold two ideas at once.
 
-Full reasoning in `adr/0001-space-not-workspace.md`. Glossary in `/CONTEXT.md`.
+Full reasoning in `adr/0001-space-not-workspace.md`. Glossary in `00-glossary.md`.
 
 ## A space is the reachability boundary
 
@@ -316,7 +319,7 @@ What genuinely differs across the boundary is **execution, not truth**: a WSL da
 `kill(pid, 0)` a Windows process, and `processInstanceMatches` is the single primitive the
 lease model stands on. That is not an argument for a second daemon — it is an argument that the
 far side needs an **executor**, which is precisely the backend port from Rule 9: start a
-process somewhere, report whether it is alive, kill it. The OS boundary is placement plus a
+process somewhere, report whether it is alive, kill it. The OS boundary is environment plus a
 capability, and per E3 adding it edits zero renderers, commands, or policy.
 
 ### The store pins which side hosts
@@ -351,7 +354,6 @@ here", never a crash and never a silently empty list.
 
 | # | question |
 |---|---|
-| 3 | Is an unheld agent eligible for queued work, and from whose queue? |
 | 4 | Where does a session's name come from when two sessions share a repo? |
 | 5 | Can any harness reliably signal a clean exit, or is every ending a crash? |
 | 6 | Retention: how long does an unheld idle agent live before closing? |
@@ -403,6 +405,45 @@ not a dead end though — it hands the orch the two scopes it already has:
 Spawning is how a pack gets **capacity**; the queue is how it gets **throughput**. The cap is
 what makes an orch choose the right one instead of growing without limit.
 
+## An orch outside the plexer must not spawn into someone else's view
+
+Spawning into a plexer you are not yourself inside is **allowed**, but it is not the standard
+shape, and doing it unmarked is the problem: the agents land beside the human's own panes and
+another orch's pack, with nothing on screen saying where they came from. They read as random
+agents nobody can account for.
+
+**So that spawn creates its own plexer workspace and puts the pack in it.** The separation is
+the whole point — one glance tells you which orch those agents belong to.
+
+This is the first hard requirement for orch *creating* plexer structure rather than borrowing
+it — and it is a **capability on the port**, not a herdr feature. orch is never coupled to one
+plexer: a plexer declares whether it can hold a grouping, and orch branches on that declaration
+and never on which plexer it is. herdr happens to implement it with workspaces and tmux would
+with sessions; orch must know neither word.
+
+It is not implementable today either way: `orch ws` is list and focus only.
+
+**Reproduced while designing this:** a Claude session outside the plexer spawned four agents
+into a plexer workspace belonging to **an unrelated project**, alongside the user's own work,
+where they were indistinguishable from it.
+
+Two independent facts were in play and only one was controlled. `--cwd` correctly confined the
+agents to this repo; the rest of the **environment** landed them in another project's view. A
+spawn that gets the working directory right and the rest of the environment wrong is not a
+partly-correct spawn — the user sees only where the panes appeared.
+
+The session also kept naming that workspace by the plexer's generated id, which is not the name
+the user sees for it. Both halves of the bug, in one incident: a plexer coordinate used as a
+name, and an environment chosen by inheritance instead of by intent.
+
+**And the name was never missing.** `workspaceNames()` builds its map from the first *tab's*
+label (`src/backends/herdr/index.ts:229-246`) while herdr's `workspace list` carries the real
+one, so the true label was one field away the entire time. Where the map comes back empty, the
+comment reads *"ids then stand in for names"* — the leak is written down as intended behaviour.
+
+That is the shape of this whole rebuild in miniature: not a missing value, but a correct value
+never asked for, and a fallback that quietly prints a coordinate where a name belongs.
+
 ## The model is recursive; the current policy is depth-2
 
 **Multi-level spawning is not allowed for now.** One orchestrator, its workers, and that is
@@ -431,4 +472,4 @@ cannot be stated that way, it is depth-dependent and it is wrong.
   never held it.
 - Reads are never gated.
 - A transfer must not disturb the agent: no reset, no re-attach, no context loss. If a handoff
-  requires touching the agent, ownership is still welded to identity or placement.
+  requires touching the agent, ownership is still welded to identity or environment.

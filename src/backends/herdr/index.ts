@@ -1,8 +1,9 @@
 import type { AgentAdapter } from "../../adapters/adapter.ts";
 import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
-import { binaryOnPath, errorMessage, isRecord, projectRoot } from "../../util.ts";
-import { herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
+import { binaryOnPath, errorMessage, isRecord, projectRoot, shellQuote } from "../../util.ts";
+import { NO_PANE_FOREGROUND, paneAtShellPrompt, paneRunsCommand, sleepMs, type PaneForeground } from "../pane-ready.ts";
+import { herdrAck, herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
   BackendCapabilities,
@@ -24,17 +25,41 @@ export type HerdrHandle = string;
 
 const HERDR_BACKEND: BackendId = "herdr";
 
-interface AgentStartResult {
-  readonly agent?: {
-    readonly pane_id?: string;
-  };
+/** A fresh pane's shell settles in well under a second; five seconds is the outer
+ *  bound before orch types anyway and lets the launch check rule on the result. */
+const SHELL_PROMPT_ATTEMPTS = 20;
+const SHELL_PROMPT_POLL_MS = 250;
+
+/** A harness takes a moment to claim the terminal, and a line typed into a shell
+ *  that was still starting runs late rather than never — so the window is wide
+ *  enough that a retype cannot land on top of a harness that just came up. */
+const LAUNCH_SETTLE_ATTEMPTS = 24;
+const LAUNCH_SETTLE_POLL_MS = 250;
+const LAUNCH_ATTEMPTS = 2;
+
+/** Workspace of the invoking pane, and ONLY of the invoking pane. A caller outside
+ *  herdr has no workspace: falling back to the first listed pane spawned orch's
+ *  agents into whichever workspace happened to be listed first — someone else's. */
+function callerPaneWorkspace(): string | undefined {
+  const caller = process.env.HERDR_PANE_ID;
+  if (!caller) return undefined;
+  return herdrPanes().find((pane) => pane.pane_id === caller)?.workspace_id;
 }
 
-/** Workspace of the invoking pane, falling back to the first listed pane. */
-function callerPaneWorkspace(): string | undefined {
-  const panes = herdrPanes();
-  const caller = process.env.HERDR_PANE_ID;
-  return (panes.find((pane) => pane.pane_id === caller) ?? panes[0])?.workspace_id;
+/** The launch line orch runs in the pane. An explicit --cmd is the caller's
+ *  verbatim; ignoring it made --cmd a no-op that still printed what it never ran. */
+function launchCommand(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
+  const command = opts.cmd ?? adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
+  if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
+  return command;
+}
+
+/** The pane's border label; empty ids are invalid at runtime even though
+ *  AdapterId is a closed union. */
+function paneName(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
+  // oxlint-disable-next-line typescript(prefer-nullish-coalescing)
+  const adapterName = adapter.id.trim() || "agent";
+  return opts.name ?? `${adapterName}-${opts.key?.trim() ?? "agent"}`;
 }
 
 function paneSessionPath(pane: HerdrPane): string | null {
@@ -73,6 +98,8 @@ interface HerdrForegroundProcess {
 interface HerdrProcessInfo {
   result?: {
     process_info?: {
+      shell_pid?: number;
+      foreground_process_group_id?: number;
       foreground_processes?: HerdrForegroundProcess[];
     };
   };
@@ -80,6 +107,10 @@ interface HerdrProcessInfo {
 
 function isHerdrForegroundProcess(value: unknown): value is HerdrForegroundProcess {
   return isRecord(value) && (value.name === undefined || typeof value.name === "string");
+}
+
+function optionalPid(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
 }
 
 function isHerdrProcessInfo(value: unknown): value is HerdrProcessInfo {
@@ -124,56 +155,100 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /**
-   * Start the adapter as a herdr-managed agent. The launch goes through
-   * herdr's native integration argv (never typed into the pane), with the
-   * adapter command preserved as one `bash -lc` value so quoting survives.
-   * The agent's name is set at start (no separate rename step).
+   * Open a pane and run the adapter's command line in it, preserved as one
+   * `bash -lc` value so quoting survives. orch launches, never herdr:
+   * `agent start --kind` would pick herdr's own executable and discard both the
+   * adapter's command and `--cmd`.
    */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
-    // An explicit --cmd is the caller's launch line verbatim; without one the
-    // adapter builds it. Ignoring opts.cmd made --cmd a no-op that still printed
-    // the command it never ran.
-    const command = opts.cmd ?? adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
-    if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
-
+    const command = launchCommand(adapter, opts);
     const workspace = opts.workspace ?? callerPaneWorkspace();
     if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
 
-    const trimmedAdapterName = adapter.id.trim();
-    // Empty ids are invalid at runtime even though AdapterId is a closed union.
-    // oxlint-disable-next-line typescript(prefer-nullish-coalescing)
-    const adapterName = trimmedAdapterName || "agent";
-    const name = opts.name ?? `${adapterName}-${opts.key?.trim() ?? "agent"}`;
-
-    const flags = ["agent", "start", name, "--workspace", workspace, "--cwd", opts.cwd ?? process.cwd(), "--no-focus"];
-    if (opts.group) flags.push("--tab", opts.group);
-    if (opts.split) flags.push("--split", opts.split);
-
-    const envArgs = Object.entries(opts.env ?? {}).map(([key, value]) => `${key}=${value}`);
-    if (opts.key?.trim()) envArgs.push(`ORCH_AGENT_KEY=${opts.key}`);
-    if (opts.orchDir) envArgs.push(`ORCH_DIR=${opts.orchDir}`);
-    // The fleet's project identity survives worktree/launch-dir differences.
-    envArgs.push(`ORCH_PROJECT=${projectRoot()}`);
-
-    const launcher = envArgs.length ? ["env", ...envArgs] : [];
-    const result = herdrJSON<AgentStartResult>([...flags, "--", ...launcher, "bash", "-lc", command]);
-    const handle = result.agent?.pane_id;
-    if (!handle) throw new Error("agent start returned no pane");
-    // `agent start --split` splits whatever herdr has focused, so a planned
-    // target is honoured by moving the fresh pane against it.
-    if (opts.group && typeof opts.targetPane === "string" && opts.targetPane !== handle) {
-      this.splitAgainst(handle, opts.group, opts.split ?? "right", opts.targetPane);
-    }
+    // A planned target puts the pane in its tab from birth; without one herdr
+    // splits the caller's own pane and the fresh pane must be re-seated after.
+    const planned = typeof opts.targetPane === "string" ? opts.targetPane : null;
+    const handle = this.openPane(workspace, opts, planned ?? process.env.HERDR_PANE_ID ?? null);
+    herdrBestEffort(["pane", "rename", handle, paneName(adapter, opts)]);
+    // ONE argument. herdr types what it is given into the pane's shell, joining
+    // separate argv words with plain spaces — `bash -lc <cmd>` split across words
+    // arrives unquoted, so the shell takes `pi` as the whole -c string and every
+    // flag after it as a positional arg, launching the harness with no arguments.
+    this.launchInPane(handle, `bash -lc ${shellQuote(command)}`);
+    if (opts.group && !planned) this.reseatIntoGroup(handle, opts.group, opts.split ?? "right");
     return handle;
   }
 
-  /** Re-seat a just-started pane against its planned neighbour; a refused move
-   *  leaves the agent where herdr put it rather than failing the spawn. */
-  private splitAgainst(handle: HerdrHandle, group: string, split: BackendSplit, target: HerdrHandle): void {
+  /**
+   * Type the launch line into a pane and prove it ran. `pane run` hands text to
+   * whatever the terminal is doing at that instant, and a shell still sourcing
+   * its rc files echoes the line and drops it — leaving a named, registered pane
+   * sitting at a bare prompt with no harness in it. Nothing outside the pane can
+   * tell "at a prompt" from "starting up", so the launch is verified rather than
+   * timed, and a swallowed line is retyped once before the pane is given up on.
+   */
+  private launchInPane(handle: HerdrHandle, line: string): void {
+    for (let attempt = 0; attempt < LAUNCH_ATTEMPTS; attempt++) {
+      this.awaitShellPrompt(handle);
+      herdrAck(["pane", "run", handle, line]);
+      if (this.awaitCommandRunning(handle)) return;
+    }
+    this.close(handle);
+    throw new Error(`${handle} swallowed the launch line: the pane never left its shell prompt`);
+  }
+
+  /** Wait out the pane's shell startup, so the launch line is typed at a terminal
+   *  that is at least no longer running something else. */
+  private awaitShellPrompt(handle: HerdrHandle): void {
+    for (let attempt = 0; attempt < SHELL_PROMPT_ATTEMPTS; attempt++) {
+      if (paneAtShellPrompt(this.paneForeground(handle))) return;
+      sleepMs(SHELL_PROMPT_POLL_MS);
+    }
+  }
+
+  /** True once the launched command owns the pane's terminal. */
+  private awaitCommandRunning(handle: HerdrHandle): boolean {
+    for (let attempt = 0; attempt < LAUNCH_SETTLE_ATTEMPTS; attempt++) {
+      sleepMs(LAUNCH_SETTLE_POLL_MS);
+      if (paneRunsCommand(this.paneForeground(handle))) return true;
+    }
+    return false;
+  }
+
+  /** herdr's env flags for a pane orch is about to launch an agent into. */
+  private paneEnvFlags(opts: BackendSpawnOpts): string[] {
+    const env = new Map(Object.entries(opts.env ?? {}));
+    if (opts.key?.trim()) env.set("ORCH_AGENT_KEY", opts.key);
+    if (opts.orchDir) env.set("ORCH_DIR", opts.orchDir);
+    // The fleet's project identity survives worktree/launch-dir differences.
+    env.set("ORCH_PROJECT", projectRoot());
+    return [...env].flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+  }
+
+  /**
+   * Give orch a pane to launch into. herdr 0.7.5+ `agent start` requires an
+   * existing pane and picks its own executable, so orch makes the pane and runs
+   * its own adapter command line in it.
+   */
+  private openPane(workspace: string, opts: BackendSpawnOpts, splitFrom: HerdrHandle | null): HerdrHandle {
+    const flags = ["--cwd", opts.cwd ?? process.cwd(), ...this.paneEnvFlags(opts), "--no-focus"];
+    // No pane to split from — a shell outside herdr — so the agent gets a tab.
+    const opened: { command: string; args: string[] } = splitFrom
+      ? { command: "pane split", args: ["pane", "split", splitFrom, "--direction", opts.split === "down" ? "down" : "right", ...flags] }
+      : { command: "tab create", args: ["tab", "create", "--workspace", workspace, ...flags] };
+    const result = herdrJSON<{ pane?: HerdrPane; root_pane?: HerdrPane }>(opened.args);
+    const handle = result.pane?.pane_id ?? result.root_pane?.pane_id;
+    if (!handle) throw new Error(`herdr ${opened.command} returned no pane: ${JSON.stringify(result)}`);
+    return handle;
+  }
+
+  /** Move a pane herdr opened in the caller's tab into the fleet's tab; a
+   *  refused move leaves the agent where herdr put it rather than failing the spawn. */
+  private reseatIntoGroup(handle: HerdrHandle, group: string, split: BackendSplit): void {
     try {
-      this.moveToGroup(handle, group, split, target);
+      this.moveToGroup(handle, group, split);
     } catch (error: unknown) {
-      process.stderr.write(`warning: could not place ${handle} against ${target}: ${errorMessage(error)}\n`);
+      process.stderr.write(`warning: could not move ${handle} into tab ${group}: ${errorMessage(error)}\n`);
     }
   }
 
@@ -212,8 +287,9 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   /** Submit text: "run" types + submits; "message" injects then submits. */
   deliver(handle: HerdrHandle, payload: DeliverPayload): boolean {
     if (payload.kind === "run") return herdrBestEffort(["pane", "run", handle, payload.text]);
-    return herdrBestEffort(["agent", "send", handle, payload.text])
-      && herdrBestEffort(["pane", "send-keys", handle, "Enter"]);
+    // `agent prompt` types AND submits in one call. herdr 0.7.5 removed
+    // `agent send`, which is why the follow-up Enter is gone too.
+    return herdrBestEffort(["agent", "prompt", handle, payload.text]);
   }
 
   /** Jump the view (tab + pane) to an agent's pane. */
@@ -227,17 +303,16 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /**
-   * Workspace id → tab label, first label wins. Empty when herdr is
-   * unreachable; ids then stand in for names.
+   * Workspace id → its own label, straight from `workspace list`. A tab's label
+   * is a tab's, and using one as the workspace's name printed `wF` where
+   * `t3reports` was one field away.
    */
   workspaceNames(): Map<string, string> {
     const names = new Map<string, string>();
     try {
       if (!herdrReachable()) return names;
-      for (const tab of herdrTabs().values()) {
-        if (tab.workspace_id && tab.label && !names.has(tab.workspace_id)) {
-          names.set(tab.workspace_id, tab.label);
-        }
+      for (const workspace of this.workspaces()) {
+        if (workspace.label) names.set(workspace.id, workspace.label);
       }
     } catch {
       // herdr not on PATH / socket down — ids stand in for names.
@@ -321,8 +396,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     };
   }
 
-  /** Names of foreground processes running in a pane; empty on failure. */
-  foregroundProcesses(handle: HerdrHandle): string[] {
+  /** What the pane is running right now; nothing known on failure. */
+  paneForeground(handle: HerdrHandle): PaneForeground {
     try {
       const out = herdrExec(["pane", "process-info", "--pane", handle], {
         timeout: 5000,
@@ -330,17 +405,22 @@ export class HerdrBackend implements Backend<HerdrHandle> {
         stdio: ["ignore", "pipe", "pipe"],
       }).toString();
       const parsed = JSON.parse(out) as unknown;
-      if (!isHerdrProcessInfo(parsed)) return [];
-      return parsed.result?.process_info?.foreground_processes?.map((process) => String(process.name)) ?? [];
+      if (!isHerdrProcessInfo(parsed)) return NO_PANE_FOREGROUND;
+      const info = parsed.result?.process_info;
+      return {
+        shellPid: optionalPid(info?.shell_pid),
+        foregroundPid: optionalPid(info?.foreground_process_group_id),
+        processes: info?.foreground_processes?.map((process) => String(process.name)) ?? [],
+      };
     } catch {
-      return [];
+      return NO_PANE_FOREGROUND;
     }
   }
 
   /** Block until herdr reports the agent status; false on failure/timeout. */
   waitAgentStatus(handle: HerdrHandle, status: string, timeoutMs: number): boolean {
     try {
-      herdrExec(["wait", "agent-status", handle, "--status", status, "--timeout", String(timeoutMs)], {
+      herdrExec(["agent", "wait", handle, "--until", status, "--timeout", String(timeoutMs)], {
         timeout: timeoutMs + 5000,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -349,6 +429,17 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     } catch {
       return false;
     }
+  }
+
+  /** Open a workspace of orch's own. Throws on failure. */
+  createWorkspace(opts: { cwd: string; label?: string | null }): { workspace: string; rootHandle: HerdrHandle } {
+    const args = ["workspace", "create", "--cwd", opts.cwd, "--no-focus"];
+    if (opts.label) args.push("--label", opts.label);
+    const result = herdrJSON<{ workspace?: HerdrWorkspace; root_pane?: HerdrPane }>(args);
+    const workspace = result?.workspace?.workspace_id;
+    const rootHandle = result?.root_pane?.pane_id;
+    if (!workspace || !rootHandle) throw new Error(`herdr workspace create returned no workspace/root pane: ${JSON.stringify(result)}`);
+    return { workspace, rootHandle };
   }
 
   /** Create a tab and report it with its root pane. Throws on failure. */

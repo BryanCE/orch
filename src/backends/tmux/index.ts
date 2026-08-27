@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import type { AgentAdapter } from "../../adapters/adapter.ts";
 import type {
@@ -15,6 +14,7 @@ import type {
 } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
+import { sleepMs } from "../pane-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
@@ -24,14 +24,6 @@ export type TmuxHandle = string;
 
 const TMUX_BACKEND: BackendId = "tmux";
 
-/** Pause the calling process; tmux has no native blocking wait primitive to poll against. */
-function sleepMs(ms: number): void {
-  try {
-    execFileSync("sleep", [String(ms / 1000)], { stdio: "ignore" });
-  } catch {
-    // best-effort pause; a failed sleep just tightens the poll loop
-  }
-}
 
 /** Agent status read from the presence protocol for one pane's stamped key. */
 function statusForAgentKey(key: string): string | null {

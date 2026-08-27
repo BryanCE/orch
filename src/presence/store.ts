@@ -19,6 +19,18 @@ export function presenceDir(root = orchDir()): string {
   return presenceRoot(root);
 }
 
+/** What is wrong with the presence root, or null when it is usable. A file
+ *  where the agents directory belongs holds no presence and can never receive
+ *  any, which reads as an empty fleet unless a check names it. */
+export function presenceRootFault(root = orchDir()): string | null {
+  const dir = presenceDir(root);
+  try {
+    return statSync(dir).isDirectory() ? null : `${dir} is a file where the agents directory belongs`;
+  } catch {
+    return null;
+  }
+}
+
 /** Serialized identity keys are already a single filesystem-safe segment
  *  (`<backend>~<workspace>~<handle>`, with `~ % : /` percent-escaped inside
  *  each part), so the presence directory name IS the key — no remapping. */

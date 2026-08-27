@@ -13,7 +13,7 @@ import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, rpcCall } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
-import { callerIsSpawnedAgent, callerOwnerToken, callerWorkspace, die, forbidAgentOverride } from "./target.ts";
+import { actorWorkspace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -207,7 +207,7 @@ export async function callDaemon(method: string, params: Record<string, unknown>
   const enriched: Record<string, unknown> = { ...params };
   if (actor !== null) {
     enriched.actor = actor;
-    enriched.actorWorkspace = callerWorkspace();
+    enriched.actorWorkspace = actorWorkspace(actor);
     enriched.actorIsOperator = !callerIsSpawnedAgent();
   }
   if (gov.steal) enriched.steal = true;

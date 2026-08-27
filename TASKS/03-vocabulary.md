@@ -2,8 +2,8 @@
 
 The full definitions. The one-line index is `00-glossary.md`.
 
-Definitions only: no implementation, no schema, no decisions. Decisions live in `adr/`,
-plans in this directory, reasoning in `NOTES.md`.
+Definitions only: no implementation, no schema, no decisions. Decisions live in `02-scope.md`
+and `adr/`; the schema lives in `06-schema.md`.
 
 ---
 
@@ -91,7 +91,7 @@ The one exception is an agent nobody spawned — a session that registers itself
 spawner to name it and no way to ask, so orch mints `<harness>-<first 8 of its id>`.
 
 **Any agent may rename itself.** That is the agent acting on itself, not driving, so it needs no
-holder — the same reason claiming needs none. Renaming *another* agent is driving.
+lease — the same reason claiming needs none. Renaming *another* agent is driving.
 
 Names carry no uniqueness rule, because nothing in the code ever reads one. Duplicates are a
 **usability** problem, not a correctness one: orch refuses to hand out a name already in use and
@@ -100,59 +100,58 @@ agent and asks which id you meant.
 
 ---
 
-## Ownership
+## Driving
 
-### Hold
+### Lease
 
-**The relationship that gives one agent the right to drive another.** One holder at a time,
-transferable, and it ends.
+**The record of which orch may drive an agent right now** — dispatch to it, steer it, set its
+model, reset it. One at a time, transferable, and it ends.
 
-Holding is *authority*, not parenthood. It answers "who may drive this right now?", never
-"where did this come from?"
+A lease is *authority*, not parenthood. It answers "who may drive this right now?", never
+"where did this come from?" Normally an orch leases its own slaves, because it spawned them.
 
-### Holder
+Leasing is **not transitive**: an orch's right to drive comes from being *alive*, not from
+being driven itself. If the orch above it dies, it keeps every lease it has.
 
-**The agent currently holding another.** Only the holder may drive it.
+### Unleased
 
-Holding is **not transitive**: an agent's right to hold comes from being *alive*, not from
-being *held*. If its own holder dies, it keeps everything it holds.
+**An agent no orch has a lease on.** A normal state, not a leak or an error.
 
-### Unheld
-
-**An agent with no holder.** A normal state, not a leak or an error.
-
-An agent becomes unheld when its holder releases it or dies. It keeps working, keeps its
-name, keeps its space, and keeps anything it holds — it has simply lost its driver.
+An agent becomes unleased when its orch releases it or dies. It keeps working, keeps its name,
+keeps its pack, keeps its space, and keeps every lease it holds on others — it has simply lost
+its driver.
 
 ### Orphan
 
-**An unheld agent whose holder died**, as opposed to one deliberately released.
+**An unleased slave whose orch died**, as opposed to one deliberately released.
 
-Work and agents do not disappear when a holder dies. The limbs are still living.
+Work and agents do not disappear when an orch dies. The limbs are still living.
 
 ### Orphaned pack
 
-**A pack whose orch is dead.** Its slaves keep working, keep draining their pack queue, and
-keep anything they hold. What the pack has lost is a driver — nobody can dispatch or steer
-into it until it is adopted.
+**A pack whose orch is dead.** Its slaves keep working, keep draining the pack queue, and keep
+their own leases. What the pack has lost is a driver — nobody can dispatch or steer into it
+until it is adopted.
 
-An orch that a human started has no holder of its own, and that is normal. A pack is orphaned
-because its orch *died*, never because nobody holds the orch.
+An orch a human started is under no lease at all, and that is normal. A pack is orphaned
+because its orch *died*, never because nothing leases the orch.
 
 ### Adoption
 
-**Claiming an unheld agent**, taking over as its holder.
+**Another orch taking the lease on an orphan**, so the work has a driver again.
 
-Always deliberate and always targeted. Adopting an agent brings whatever it holds, because it
-never stopped holding — there is nothing to re-parent.
+Always deliberate and always targeted, and it brings that agent's own leases with it, because
+they never lapsed. **Adoption never moves a pack.** A pack is an orch and everything it
+spawned; adopting is not spawning, so the adopted slaves stay in the pack they were born into
+and the adopting orch drives them from outside it.
 
 ### Provenance
 
 **Which agent spawned this one.** A permanent historical fact that never changes, even after
-the spawner is gone.
+the spawner is gone. It is what a pack is made of.
 
-Provenance is not ownership. Ownership says who may drive it now; provenance says where it
-came from. Live views group by holding; history groups by provenance.
+Provenance is not a lease. A lease says who may drive it now; provenance says where it came
+from. Live views group by lease; history groups by provenance.
 
 ---
 
@@ -174,7 +173,7 @@ Any orch may create, read or rename a space. An orch may **delete a space it is 
 no other pack is in it — so nobody moves the wall out from under someone else's agents. A
 totally empty space is the user's to delete, surfaced in the web.
 
-Membership is a property of the *agent*, so only an agent's holder may move it in or out.
+Membership is a property of the *agent*, so only the orch leasing it may move it in or out.
 `created_by` records who made it and grants nothing.
 
 ### Environment
@@ -186,8 +185,10 @@ is on.
 **Everything has an environment** — an agent, a pack, a space. It is not a property only agents
 get.
 
-Recorded, queryable, and displayed. It **changes**, because things move, and a move is a new
-record. It is never identity.
+Recorded, queryable, and displayed, and never identity. Parts of it **change** — a pane gets a
+new coordinate, an agent joins another space — and each change is a new record. Parts of it
+cannot: a running process cannot change its directory or its harness, so those are fixed at
+birth.
 
 A plexer's own coordinates are part of an environment and nothing more: orch stores what the
 plexer needs handed back, and neither names it nor shows it as a name anyone chose.
@@ -213,10 +214,19 @@ Harness and plexer are independent axes. Neither is ever inferred from the other
 
 ### Capability
 
-**Something a plexer declares it can do** — show a screen, take focus, accept keystrokes.
+**Something the environment provides** — a screen, focus, keystrokes. You cannot light a fire
+without oxygen: what is possible follows from what is there.
 
-Behaviour branches on capabilities, never on which plexer it is. A plexer with no
-capabilities is one orch has no *shortcut* for, not one orch cannot reach.
+So a capability is never a record and never a thing a plexer hands over. orch records the
+environment — which plexer, which harness, which directory, which space — and knows what a
+plexer of that kind and version provides. Nothing named "capability" is stored, and no plexer
+declares anything to orch, which would couple orch to it in the other direction.
+
+Behaviour branches on what the environment provides, never on which plexer it is. A plexer that
+provides none of it is one orch has no *shortcut* for, not one orch cannot reach.
+
+orch does not discover, test or negotiate at the moment of acting, and it never reaches for
+something the environment does not have, because there was no path to it in the first place.
 
 ### Daemon
 
@@ -231,35 +241,104 @@ second source of truth, and there is no second source of truth.
 **What starts, checks and stops a process on the far side of an OS boundary.** Start it,
 report whether it is alive, kill it — the same three questions the daemon asks anywhere.
 
-An OS side with no executor is one nothing can *run* on. It is a declared missing capability,
-never a reason for a second daemon.
+An OS side with no executor is one nothing can *run* on — a fact about that environment, never
+a reason for a second daemon.
+
+---
+
+## Work
+
+### Task
+
+**A piece of work put into a scope**, to be taken later by whoever belongs to that scope. It
+carries its text, its options, who enqueued it and its scope — and nothing about who ran it.
+
+Its enqueuer is where the result goes, which is what lets work cross a pack boundary and still
+report home.
+
+### Scope
+
+**Which agents may claim a task** — exactly one of: a named **agent**, a **pack**, or a
+**space**. Chosen when the task is enqueued and never inferred from where the enqueuer happened
+to be standing.
+
+Scope is also what survives an orch's death. A pack-scoped task stays claimable because the pack
+outlives its orch; only work bound to an agent that is gone becomes unrunnable.
+
+### Attempt
+
+**One claim of a task by one agent** — its agent, its dispatch, when it started, how it ended.
+
+A retry is the **next attempt**, never an edit to the last one. This is why a failed pack-scoped
+task retries anywhere in the pack: the binding was never on the task to begin with.
+
+### Intake
+
+**A pack's standing opt-in to consume a space's pool.** Publishing into a space is an offer;
+intake is the acceptance. Without both halves, "space" means work landing in packs that never
+agreed to it.
+
+### Home
+
+**A space's or a pack's place inside a plexer.** The grouping is orch's and so is its name; the
+plexer renders it using whatever it groups by internally, and hands back a coordinate orch
+stores and never displays.
+
+A plexer that cannot hold one is a plexer that does not provide it, not a plexer orch cannot
+use.
+
+### Idle
+
+**No lease and no open attempt.** Derived, never stored: the instant it went idle is the later
+of its last lease closing and its last attempt closing.
+
+Idle is a normal state, not a leak. It is adoptable, and nothing ends it on a timer.
 
 ---
 
 ## Verbs
 
+Every verb orch has is defined here. `02-scope.md` says which command surfaces it; it never
+redefines one.
+
+### Spawn
+
+**Create a new agent inside your pack.** The spawner names it — naming is required, there is no
+default — and the new agent's provenance points at the spawner forever, which is what puts it
+in the pack.
+
+### Adopt
+
+**Take the lease on an orphan**, so work whose orch died has a driver again. Deliberate and
+targeted. It moves a lease, never a pack.
+
+### Detach
+
+**Release the lease and walk away.** One meaning only: this is nobody's now, anyone may adopt
+it. There is no lifetime to change, because work always survives its spawner.
+
 ### Dispatch
 
-**Push a task at a specific agent.** Driving — only its holder may.
+**Push a task at a specific agent.** Driving — only the orch leasing it may.
 
 ### Enqueue
 
 **Put a task into a scope** — one agent, a pack, or a space — for an agent to take later.
-Gated: an orch may enqueue to an agent it holds, to its own pack, or to a space it is in.
+Gated: an orch may enqueue to an agent it leases, to its own pack, or to a space it is in.
 
 ### Claim
 
 **Take a task from a queue you belong to.** *Not* driving — the agent is acting on itself, so
-no holder need be present. A pack drains its queue whether or not its orch is alive.
+no lease need be in force. A pack drains its queue whether or not its orch is alive.
 
 ### Steer
 
-**Interrupt an agent mid-turn with a correction.** Driving — only its holder may.
+**Interrupt an agent mid-turn with a correction.** Driving — only the orch leasing it may.
 
 ### Release
 
-**Give up holding an agent**, deliberately. It becomes unheld and adoptable, and it keeps
-working.
+**Give up the lease on an agent**, deliberately. It becomes unleased and adoptable, and it
+keeps working.
 
 ### Abort
 
@@ -268,6 +347,9 @@ working.
 ### Close
 
 **End an agent's process.** Its record and history survive.
+
+orch records **who asked**. An ending nobody asked for is a death, and that distinction is
+orch's own — no harness is consulted about how it exited.
 
 ### Reap
 

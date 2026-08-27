@@ -273,7 +273,8 @@ describe("a spawned agent touches only what it spawned", () => {
     recordSpawned(key, { backend: "herdr", adapter: "pi", workspace: "wF", handle: key, owner: agentKey });
 
     const result = runCli(dir, ["close", key], "herdr~wF~operator");
-    expect(result.status).toBe(0);
+    // Assert on the pair so a non-zero exit prints what orch actually said.
+    expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
     expect(spawnedRecords().has(key)).toBe(false);
   }, 15_000);
 });

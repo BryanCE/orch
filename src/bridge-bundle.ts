@@ -15,12 +15,18 @@ import { binaryOnPath } from "./util.ts";
  * harness's loader and doctor's staleness check already know, so renaming a source
  * directory never renames a shipped artifact an installed tree knows about. */
 const EXTENSION_SOURCE_DIR = {
-  "orchestrator-bridge": "pi",
+  "pi-bridge": "pi",
   "omp-bridge": "omp",
 } as const;
 
 /** Basenames of the extensions shipped as prebuilt ESM bundles. */
 export const EXTENSION_NAMES = Object.keys(EXTENSION_SOURCE_DIR) as readonly ExtensionName[];
+
+/** Bundle names orch no longer ships. A leftover link is no longer recognized as
+ *  orch's, so the adapter hands it to the harness as one of the user's own
+ *  extensions — pointing at a path that no longer exists, which makes the harness
+ *  refuse to start. Every install reaps them. */
+export const RETIRED_EXTENSION_NAMES = ["orchestrator-bridge"] as const;
 
 export type ExtensionName = keyof typeof EXTENSION_SOURCE_DIR;
 

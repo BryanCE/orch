@@ -12,6 +12,7 @@ import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import type { LifecycleVerb } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
+import { NO_PANE_FOREGROUND, paneAtShellPrompt, sleepMs, type PaneForeground } from "../backends/pane-ready.ts";
 
 import { loadConfig } from "../config.ts";
 import { adapterCommand, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
@@ -129,8 +130,8 @@ export async function cmdNew(args: string[]): Promise<void> {
   else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${model}.\n`);
 }
 
-export function paneForeground(backend: Backend, handle: string): string[] {
-  return backend.foregroundProcesses?.(handle) ?? [];
+export function paneForeground(backend: Backend, handle: string): PaneForeground {
+  return backend.paneForeground?.(handle) ?? NO_PANE_FOREGROUND;
 }
 
 interface ReloadResult {
@@ -207,8 +208,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
   let shellSeen = false;
   for (let i = 0; i < 16; i++) {
     sleepMs(500);
-    const fg = paneForeground(backend, pane);
-    if (fg.length && fg.every((n) => /sh$|^bash$|^zsh$|^fish$/.test(n))) { shellSeen = true; break; }
+    if (paneAtShellPrompt(paneForeground(backend, pane))) { shellSeen = true; break; }
   }
   if (!shellSeen) {
     process.stderr.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
@@ -396,9 +396,6 @@ export function cmdClose(args: string[]) {
   for (const target of positional) {
     const resolved = resolveLifecycleTarget(target);
     assertAgentOwned(target, resolved.entity, force);
-    if (resolved.record.owner && !ownsAgent(resolved.record) && !force) {
-      die(`Target "${target}" is owned by ${resolved.record.owner}. Use --force to override.`);
-    }
     if (resolved.record.spawnedBy !== undefined && resolved.record.spawnedBy !== selfSpawnAddress() && !force) {
       const label = resolved.record.spawnedByLabel ?? "another session";
       die(`Target "${target}" was spawned by ${label} (${resolved.record.spawnedBy}). Use --force to override.`);
@@ -458,9 +455,4 @@ export function cmdAbort(args: string[]) {
   else process.stdout.write(`Aborted ${handle}.\n`);
 }
 
-function sleepMs(ms: number) {
-  try {
-    execFileSync("sleep", [String(ms / 1000)], { stdio: "ignore" });
-  } catch {}
-}
 

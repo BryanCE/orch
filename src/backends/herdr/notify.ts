@@ -1,7 +1,13 @@
-import { binaryOnPath } from "../../util.ts";
-import { herdrBestEffort } from "./cli.ts";
+import { loadConfigOrNull } from "../../config.ts";
+import { orchDir } from "../../presence/writer.ts";
+import { herdrBestEffort, herdrReachable } from "./cli.ts";
 import { HERDR_SINK_ID } from "../backend.ts";
 import type { SinkProvider } from "../../notify/sinks.ts";
+
+/** True when herdr is one of the plexers orch launches agents into. */
+function herdrRunsAgents(): boolean {
+  return loadConfigOrNull(orchDir())?.enabled.backends.includes("herdr") ?? false;
+}
 
 /** Herdr-owned native notification sink. */
 export const herdrNotificationProvider: SinkProvider = {
@@ -9,7 +15,11 @@ export const herdrNotificationProvider: SinkProvider = {
   onDefaults: ["blocked", "error"],
   label: "Herdr",
   description: "Herdr native notifications",
-  remediation: "fix: install herdr and ensure it is reachable on PATH",
-  available: () => process.env.HERDR_ENV === "1" && binaryOnPath("herdr"),
+  remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",
+  // Where orch SPAWNS decides whether herdr notifications mean anything; the shell
+  // that happens to be running setup, an install, or the daemon decides nothing.
+  // Gating on HERDR_ENV tied the sink to the caller's pane and hid it from every
+  // `orch setup` run outside one.
+  available: () => herdrRunsAgents() && herdrReachable(),
   send: (title, body) => herdrBestEffort(["notification", "show", title, "--body", body]),
 };

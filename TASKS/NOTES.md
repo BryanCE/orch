@@ -1,8 +1,13 @@
-# NOTES — the design log
+# NOTES — the working scratchpad
 
-Running record of what was decided, what was killed, and why. Newest reasoning at the bottom
-of each section. If something here contradicts `01-agent-model.md`, this file is the newer
-thinking and the model doc needs updating.
+**Nothing in this file is a decision.** It is a running record of Bryan's thinking as it was
+worked through — arguments, dead ends, things half-considered and things later reversed. It
+changes freely and it goes stale on purpose.
+
+The settled documents are `02-scope.md` (what is decided, with a status on every item),
+`06-schema.md` (the DDL), `03-vocabulary.md` (the definitions), and `adr/` (the hard calls).
+**Where this file disagrees with any of them, they are right and this file is out of date.**
+Never cite a line from here as settled, and never implement from it.
 
 ---
 
@@ -24,8 +29,8 @@ close the laptop — the moment you need "keep going" is after the spawn, not du
 2. Losing a holder means losing a **driver** — no new dispatch, no steer, no queue assignment.
    Nothing else changes.
 3. Unheld and idle, it stays alive and adoptable. It costs a pane and some memory, not tokens.
-4. It ages out on **retention**, measured from when it went idle — hours or days, not a
-   ten-minute panic timer.
+4. **Nothing ages it out.** Superseded: this line said retention closed it after hours or days.
+   It does not. A live agent is closed by a human. See D11.
 
 "Spawn and walk away" is not a mode. It is what happens.
 
@@ -35,9 +40,10 @@ The earlier model had a dead holder's agents go quiet, finish one turn, then clo
 timer. **That was wrong.** A parent spawns five orchs, the parent session dies, and their work
 must not be lost — they continue.
 
-So: **the grace window applies to idleness, not to the process.** Nothing actively working is
-ever closed on a timer. A five-orch fleet whose parent died finishes all five tasks and keeps
-all five results, and only then starts aging out.
+So there is no grace window at all. **Superseded:** this said the grace window applied to
+idleness rather than to the process. It applies to nothing. A five-orch fleet whose parent died
+finishes all five tasks, keeps all five results, and then sits there until a human closes it.
+See D11.
 
 **Open:** if the dead orchestrator had *queued* further tasks that never started, do those run?
 Current read is no — nobody is left to read the results or correct course — but work already in
@@ -265,6 +271,32 @@ Four rules it needs:
 
 `origin_workspace` disappears — scope replaces it, one concept instead of two.
 
+### A claim is an event, so it gets a row
+
+The rules above were all enforceable-in-principle against today's flat `queue` table, and Cq6
+proves what that is worth: `agent_key` is stamped at first claim and kept through every requeue
+(`src/queue.ts:33-38`), so a failed pack-scoped task is pinned to an agent that may be dead.
+Nothing is wrong with the rule; the shape makes the rule optional.
+
+The shape is wrong because **a claim is not a property of a task.** It happens more than once,
+and each one has its own agent, its own dispatch, its own ending, its own error. Storing the
+newest one on the task is storing an event as an attribute — and then `retries` counts events it
+has thrown away, and `last_error` keeps one of them.
+
+So: a `tasks` hub of what cannot vary — text, options, enqueuer, scope — and a `task_attempts`
+row per claim. Three columns die (`retries`, `last_error`, `agent_key`), a fourth becomes a view
+(`state`), and Cq6 stops being a rule anyone can forget: with the binding on the attempt, a
+pack-scoped retry lands anywhere in the pack because **there is nothing left to re-pin.**
+
+The claim itself gets better on the way past. Today it is a conditional `UPDATE` that reports
+how many rows it changed; it becomes an `INSERT` under a partial unique index — the same "one
+live X" primitive as every lease and every environment axis. Two racing claimants collide on the
+index. One gets a constraint violation. There is no arrangement in which both proceed.
+
+**Two-sided consent needed a table.** Cq3 says publishing into a space is an offer and a pack
+opts in to consume. An opt-in nobody stored is not an opt-in, so `pack_intakes` exists. Without
+it, "space scope" is Cq8 with better vocabulary — work landing in packs that never agreed to it.
+
 ## Communication rules
 
 | | allowed |
@@ -350,13 +382,49 @@ here", never a crash and never a silently empty list.
 
 ---
 
-## Still open
+## The last three questions, answered — and each one dissolved
 
-| # | question |
-|---|---|
-| 4 | Where does a session's name come from when two sessions share a repo? |
-| 5 | Can any harness reliably signal a clean exit, or is every ending a crash? |
-| 6 | Retention: how long does an unheld idle agent live before closing? |
+All three turned out to be already answered by rules settled earlier. That is worth recording,
+because in every case the question presupposed a thing the model does not have.
+
+**4 — a session's name when two sessions share a repo.** The question assumed names must be
+unique per repo. They must not: C4c says a name is for the human and the id is for the code, so
+duplicates are legal everywhere. A self-registering session has no spawner to name it and gets
+`<harness>-<first 8 of its id>` (C4e). Two sessions in one repo can never collide, because their
+ids differ. Nothing derives a name from the repo, which is the whole point — a name derived from
+a location is the `wF` bug wearing different clothes.
+
+**5 — can a harness signal a clean exit.** The question asked the wrong party. orch does not
+need the harness to be honest about its own death, because orch already knows whether *it*
+asked: `agents.closed_by` is set when a close was requested, and `ended_at` set with `closed_by`
+NULL means nobody asked and it died. Both are orch's own facts, observed by the single writer.
+A harness-reported exit code would be a *second* answer to a question already answered, which is
+the one thing this rebuild keeps deleting.
+
+**6 — how long an unheld idle agent lives.** As long as you leave it. The question assumed a
+number existed; there is none, because nothing closes a live agent except a human (D11).
+Retention only ever deletes the record of an agent that already ended.
+
+Idle is still derived and still shown, because telling a working fleet from an abandoned one at
+a glance is the point. It just never triggers anything.
+
+The test each of these passed is the same one: a new column would have meant the model was not
+recording when things happened. None of them needed one.
+
+## No orch word for what a plexer groups by
+
+E10 asked for a plexer-neutral name for the grouping, on the reasoning that herdr says workspace
+and tmux would say session, so orch needs a third word.
+
+**orch needs no word, and inventing one would reintroduce the bug ADR-0001 was written about.**
+The thing being grouped already has an orch name: it is a **space** or a **pack**. What the
+plexer groups by is a *coordinate* — stored so it can be handed back, opaque, never displayed.
+The moment that coordinate gets an orch noun, it becomes something a renderer can print, and
+printing it is exactly how `wF` reached the screen where `t3reports` belonged.
+
+So the port speaks of *a space's home* and *a pack's home* in a plexer; `space_plexers` and
+`pack_plexers` hold the handle. The capability a plexer declares is "can hold orch's structure",
+and orch never learns the word that plexer uses internally.
 
 ## Ownership is not transitive — the limbs are still living
 

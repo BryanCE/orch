@@ -15,6 +15,7 @@ import { detachedBackend, resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
+import * as path from "node:path";
 import { errorMessage } from "../util.ts";
 import { callDaemon, daemonOutage } from "./daemon.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
@@ -263,6 +264,9 @@ type SpawnSettings = AgentSettings & {
   label: string;
   /** True when --tab named a tab: an existing match is joined, not recreated. */
   tabExplicit: boolean;
+  /** True when the caller named the plexer. A configured default is not a request
+   *  to enter a plexer this process is not already in. */
+  backendExplicit: boolean;
   cwd: string;
   cmd: string;
   commandFlag: boolean;
@@ -296,7 +300,8 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   // one flag still produces a sensibly-labeled tab, but they are never conflated.
   const tabLabel = flags.tabLabel ?? flags.namePrefix ?? flags.label;
   const prefix = flags.namePrefix ?? flags.tabLabel ?? flags.label;
-  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, prompt: flags.promptFlag ?? "", fleet: config.fleet, tiling: config.tiling };
+  const backendExplicit = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? null) !== null;
+  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendExplicit, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, prompt: flags.promptFlag ?? "", fleet: config.fleet, tiling: config.tiling };
 }
 
 interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
@@ -410,10 +415,21 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
   }
 }
 
-function resolveSpawnWorkspace(requested: string | null): string {
-  const workspace = requested ?? callerWorkspace();
-  if (!workspace) die("Could not determine workspace id. Pass --workspace <id>, or --backend headless with --prompt to launch detached.");
-  return workspace;
+/** The workspace this fleet lives in: the one the caller is sitting in, else one
+ *  orch opens for itself, named for the project it was invoked from. A caller
+ *  outside the plexer owns no workspace, and helping itself to an existing one
+ *  puts orch's agents in another person's space. */
+function resolveSpawnWorkspace(settings: SpawnSettings, backend: Backend): string {
+  const existing = settings.workspace ?? callerWorkspace();
+  if (existing) return existing;
+  if (!backend.createWorkspace) {
+    die(`backend ${backend.id} cannot open a workspace of its own. Pass --workspace <id>, or --backend headless with --prompt to launch detached.`);
+  }
+  try {
+    return backend.createWorkspace({ cwd: settings.cwd, label: path.basename(settings.cwd) }).workspace;
+  } catch (error: unknown) {
+    die(`could not open a workspace for this fleet: ${errorMessage(error)}`);
+  }
 }
 
 function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter, rootName: string): SpawnRoot {
@@ -443,7 +459,9 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   const spawner = spawnerIdentity();
   let handle: BackendHandle;
   try {
-    handle = backend.spawn(adapter, { key, env: { ...agentIdentityEnv(rootName, spawner), ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined) }, cwd: rootCwd, name: rootName, workspace, group: group.id, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
+    // The fresh tab's shell pane is the split target: without one the backend
+    // falls back to the caller's pane and the agent lands on the human's tab.
+    handle = backend.spawn(adapter, { key, env: { ...agentIdentityEnv(rootName, spawner), ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined) }, cwd: rootCwd, name: rootName, workspace, group: group.id, targetPane: shellRoot, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
   } catch (error: unknown) {
     // A tab holding no agent is pure pollution: close it before failing the launch.
     try { backend.closeGroup?.(group.id); } catch { /* the failure below is the report */ }
@@ -517,10 +535,18 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   return { key, pane: String(handle), name: spec.name };
 }
 
-/** Spawn one named agent into a tab, at the spot the planner picked for it. */
-function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, placement: TilePlacement, backend: Backend): CreatedAgent {
+/** Add one agent to a group at the spot the planner picks for it against the
+ *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
+ *  is tiling one agent at a time — the balance only holds while every pane is
+ *  placed by the same planner reading the same layout. */
+export function tileAgentIntoGroup(spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit): CreatedAgent {
+  return spawnOneIntoTab({ ...spec, placement: nextTilePlacement(spec.backend, spec.group, firstSplit) });
+}
+
+/** Tile one of this launch's named agents, in its own worktree when asked. */
+function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, backend: Backend): CreatedAgent {
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-  return spawnOneIntoTab({
+  return tileAgentIntoGroup({
     backend,
     adapter: resolveAdapterOrDie(settings.adapter),
     adapterId: settings.adapter,
@@ -528,7 +554,6 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     cwd,
     workspace,
     group,
-    placement,
     model: settings.model,
     preferredModels: settings.preferredModels,
     tools: settings.tools,
@@ -536,17 +561,21 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     cmd: settings.commandFlag ? settings.cmd : undefined,
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
-  });
+  }, settings.tiling.first_split);
 }
 
-function launchAdditionalAgents(settings: SpawnSettings, root: SpawnRoot, created: CreatedAgent[], backend: Backend, names: readonly string[]): void {
+/** Fill a group with named agents. A pane that fails to come up is named and the
+ *  rest still launch — a fleet short one worker beats no fleet. */
+function growFleetIntoGroup(settings: SpawnSettings, workspace: string, group: string, backend: Backend, names: readonly string[]): CreatedAgent[] {
+  const created: CreatedAgent[] = [];
   for (const name of names) {
     try {
-      created.push(placeAgent(settings, name, root.workspace, root.tabId, nextTilePlacement(backend, root.tabId, settings.tiling.first_split), backend));
+      created.push(placeAgent(settings, name, workspace, group, backend));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent ${name}: ${errorMessage(error)}\n`);
     }
   }
+  return created;
 }
 
 /** Find a tab by id or label in the target workspace, for `spawn --tab <existing>`. */
@@ -627,18 +656,18 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
 }
 
 /**
- * A pane backend answers `isInsideSession` whenever its socket is up, which says
- * nothing about whether THIS process sits in one of its panes. When it cannot place
- * the caller there is no workspace to open a tab in, so the launch goes detached
- * rather than refusing: orch owns the agent either way and where it runs is placement
- * (Rule 11). An explicit `--workspace` always wins.
+ * Where the fleet runs is placement, never identity (Rule 11), so a caller outside
+ * the plexer is not a reason to go detached: it only means orch has no workspace
+ * yet, and a backend that can open one of its own opens one. Detached is the answer
+ * only for a backend that can neither be entered nor open a workspace.
  */
 function spawnBackend(settings: SpawnSettings): Backend {
   const backend = resolveBackend({ configured: settings.backend });
   if (!backend.createGroup || settings.workspace !== null) return backend;
   if (backend.currentIdentity?.()?.workspace) return backend;
+  if (backend.createWorkspace) return backend;
   process.stderr.write(
-    `orch is not running inside a ${backend.id} pane, so there is no workspace to open a tab in - spawning detached. `
+    `orch is not running inside a ${backend.id} pane and ${backend.id} cannot open a workspace of its own - spawning detached. `
     + `Pass --workspace <id> to place these agents in a ${backend.id} workspace instead.\n`,
   );
   return detachedBackend;
@@ -651,7 +680,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
     await executeDetachedSpawn(settings, backend);
     return;
   }
-  const workspace = resolveSpawnWorkspace(settings.workspace);
+  const workspace = resolveSpawnWorkspace(settings, backend);
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
   const names = claimSpawnNames(settings.prefix, workspace, settings.n);

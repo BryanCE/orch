@@ -23,7 +23,7 @@ pif -p --no-session --model "openai-codex/<exact-id>:<effort-from-model-matrix>"
 ```
 
 `pif` = pi run under bun with extension DISCOVERY off but the two control-plane
-extensions (`herdr-agent-state`, `orchestrator-bridge`) ALWAYS loaded: same CLI,
+extensions (`herdr-agent-state`, `pi-bridge`) ALWAYS loaded: same CLI,
 faster startup, and every run stays visible/steerable via `orch` (status, result,
 inbox steering). `PIF_BARE=1 pif ...` strips all extensions — rare fire-and-forget
 one-offs only, never the default. ALWAYS dispatch with `pif`; plain `pi` is only

@@ -87,20 +87,29 @@ function herdr(args: string[]): unknown {
   return value;
 }
 
-export function herdrJSON<T = unknown>(args: string[]): T {
+function herdrOutput(args: string[]): string {
   // Assume a mutation: listings must not serve pre-mutation state.
   listCache.clear();
-  let output: string;
   try {
-    output = execFileSync("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return execFileSync("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error: unknown) {
     throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
   }
+}
+
+export function herdrJSON<T = unknown>(args: string[]): T {
+  const output = herdrOutput(args);
   try {
     return parseHerdrOutput(output) as T;
   } catch {
     throw new Error(`herdr ${args.join(" ")} returned non-JSON: ${output.slice(0, 200)}`);
   }
+}
+
+/** A herdr command whose acknowledgement is its exit code: `pane run` answers
+ *  with an empty body, so demanding JSON from it fails an already-run command. */
+export function herdrAck(args: string[]): void {
+  herdrOutput(args);
 }
 
 /** True only when the herdr control socket responds. */

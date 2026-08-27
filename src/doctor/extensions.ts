@@ -1,6 +1,6 @@
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { EXTENSION_NAMES, extensionBundlePath } from "../bridge-bundle.ts";
-import { loadPresence } from "../presence/store.ts";
+import { loadPresence, presenceRootFault } from "../presence/store.ts";
 import type { CheckResult } from "../check-result.ts";
 import { packageRoot } from "../util.ts";
 
@@ -30,6 +30,8 @@ export async function checkExtensionStaleness(orchDir: string, bundlePath?: stri
   await Promise.resolve();
   const id = "extension-staleness";
   const label = "Extension staleness";
+  const fault = presenceRootFault(orchDir);
+  if (fault) return { id, label, status: "fail", detail: `${fault}; remove it so orch can create the agents directory` };
   const entries = loadPresence(orchDir);
   if (!entries.size) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
 

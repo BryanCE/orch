@@ -9,6 +9,36 @@ import { projectRoot } from "../src/util.ts";
 // ever starting a herdr process (and therefore cannot create a live pane).
 const herdrArgv: string[][] = [];
 const moveResults: { changed: boolean; reason?: string }[] = [];
+// Panes that have been typed into. A pane runs its shell until the launch line
+// lands and the harness takes the terminal — the transition spawn verifies.
+const launched = new Set<string>();
+const SHELL_PID = 100;
+
+function paneProcessInfo(pane: string): string {
+  const running = launched.has(pane);
+  return JSON.stringify({
+    result: {
+      process_info: {
+        shell_pid: SHELL_PID,
+        foreground_process_group_id: running ? 200 : SHELL_PID,
+        foreground_processes: [{ name: running ? "fake-agent" : "bash" }],
+      },
+    },
+  });
+}
+
+/** A newly opened pane runs nothing but its shell, whatever a pane of that id ran
+ *  before — the mock reuses ids that herdr would never hand out twice. */
+function freshPane(pane: string): string {
+  launched.delete(pane);
+  return pane;
+}
+
+/** The last call herdr received for one command, so an assertion names what it
+ *  means instead of counting backwards past the launch checks. */
+function lastCall(command: string, subcommand: string): string[] | undefined {
+  return herdrArgv.filter((args) => args[0] === command && args[1] === subcommand).at(-1);
+}
 void mock.module("../src/backends/herdr/cli.ts", () => ({
   herdrPanes: () => {
     herdrArgv.push(["pane", "list"]);
@@ -26,11 +56,35 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
   ]),
   herdrReachable: () => true,
   paneStatus: () => null,
-  herdrExec: () => "",
+  herdrExec: (args: string[]) => {
+    herdrArgv.push([...args]);
+    if (args[1] === "process-info") return paneProcessInfo(args[3] ?? "");
+    return "";
+  },
   herdrJSON: (args: string[]) => {
     herdrArgv.push([...args]);
+    // herdr answers `pane run` with an empty body: asking it for JSON is what
+    // aborted every spawn after the command had already started in the pane.
+    if (args[0] === "pane" && args[1] === "run") throw new Error(`herdr ${args.join(" ")} returned non-JSON: `);
     if (args[0] === "pane" && args[1] === "move") return { move_result: moveResults.shift() ?? { changed: true } };
-    return { agent: { pane_id: "w0:p3" } };
+    if (args[0] === "pane" && args[1] === "split") return { pane: { pane_id: freshPane("w0:p3") } };
+    if (args[0] === "tab" && args[1] === "create") {
+      return { tab: { tab_id: "t9", workspace_id: "ws-test" }, root_pane: { pane_id: freshPane("w0:p9") } };
+    }
+    if (args[0] === "workspace" && args[1] === "list") {
+      return {
+        workspaces: [
+          { workspace_id: "ws-test", label: "t3reports" },
+          { workspace_id: "ws-2", label: "dev" },
+          { workspace_id: "ws-3" },
+        ],
+      };
+    }
+    return {};
+  },
+  herdrAck: (args: string[]) => {
+    herdrArgv.push([...args]);
+    if (args[0] === "pane" && args[1] === "run") launched.add(args[2] ?? "");
   },
   herdrBestEffort: (args: string[]) => {
     herdrArgv.push([...args]);
@@ -53,8 +107,15 @@ const fakeAdapter: AgentAdapter = {
   extractResult: () => undefined,
 };
 
+// These tests decide the split-vs-new-tab path on whether a caller pane exists,
+// so the real one must not leak in when the suite is run from inside herdr.
+const callerPane = process.env.HERDR_PANE_ID;
+delete process.env.HERDR_PANE_ID;
+
 afterAll(() => {
   mock.restore();
+  if (callerPane === undefined) delete process.env.HERDR_PANE_ID;
+  else process.env.HERDR_PANE_ID = callerPane;
   fs.rmSync(testDir, { recursive: true, force: true });
 });
 
@@ -65,13 +126,58 @@ describe("HerdrBackend", () => {
     expect(backend.focusable).toBe(true);
     expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
 
-    const handle = backend.spawn(fakeAdapter, { cwd: testDir });
+    // No caller pane, so the agent gets its own tab in the workspace it was
+    // handed — never one this process went looking for.
+    const handle = backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test" });
 
-    expect(handle).toBe("w0:p3");
+    expect(handle).toBe("w0:p9");
+    // The launch line is typed once the shell owns the terminal, and the pane is
+    // read again afterwards to prove the harness — not the shell — now holds it.
     expect(herdrArgv).toEqual([
-      ["pane", "list"],
-      ["agent", "start", "pi-agent", "--workspace", "ws-test", "--cwd", testDir, "--no-focus", "--", "env", `ORCH_PROJECT=${projectRoot()}`, "bash", "-lc", "fake-agent"],
+      ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
+      ["pane", "rename", "w0:p9", "pi-agent"],
+      ["pane", "process-info", "--pane", "w0:p9"],
+      ["pane", "run", "w0:p9", "bash -lc 'fake-agent'"],
+      ["pane", "process-info", "--pane", "w0:p9"],
     ]);
+  });
+
+  test("orch launches its own command line; herdr never picks the executable", () => {
+    // `agent start --kind` would substitute herdr's canonical binary and drop
+    // both the adapter command and an explicit --cmd.
+    herdrArgv.length = 0;
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", cmd: "my-own-launcher --flag" });
+
+    expect(lastCall("pane", "run")).toEqual(["pane", "run", "w0:p9", "bash -lc 'my-own-launcher --flag'"]);
+    expect(herdrArgv.flat()).not.toContain("--kind");
+  });
+
+  test("a caller pane is split rather than given a new tab", () => {
+    herdrArgv.length = 0;
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "down", targetPane: "w0:p1" });
+
+    expect(herdrArgv[0]).toEqual(
+      ["pane", "split", "w0:p1", "--direction", "down", "--cwd", testDir, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
+    );
+  });
+
+  test("split direction clamps to herdr's right|down", () => {
+    herdrArgv.length = 0;
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "right", targetPane: "w0:p1" });
+
+    expect(herdrArgv[0]?.[4]).toBe("right");
+  });
+
+  test("env reaches the pane through herdr's --env, not an argv prefix", () => {
+    herdrArgv.length = 0;
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetPane: "w0:p1", key: "k1", orchDir: "/tmp/orchdir", env: { FOO: "bar" } });
+
+    const split = herdrArgv[0] ?? [];
+    expect(split).toContain("--env");
+    expect(split).toContain("FOO=bar");
+    expect(split).toContain("ORCH_AGENT_KEY=k1");
+    expect(split).toContain("ORCH_DIR=/tmp/orchdir");
+    expect(split).not.toContain("env");
   });
 
   test("maps close and list to herdr helpers", () => {
@@ -81,12 +187,30 @@ describe("HerdrBackend", () => {
     expect(herdrArgv.at(-1)).toEqual(["pane", "close", "w0:p2"]);
   });
 
-  test("a planned target pane is honoured by re-seating the fresh pane against it", () => {
-    // `herdr agent start` has no --target-pane, so placement would otherwise
-    // follow whatever herdr had focused.
-    backend.spawn(fakeAdapter, { cwd: testDir, group: "t1", split: "down", targetPane: "w0:p1" });
+  test("a planned target pane is split directly, never re-seated afterwards", () => {
+    // The pane is born in the planned neighbour's tab, so the same-tab move
+    // that used to follow only bounced it through a throwaway tab and back.
+    herdrArgv.length = 0;
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t1", split: "down", targetPane: "w0:p1" });
 
-    expect(herdrArgv.at(-1)).toEqual(["pane", "move", "w0:p3", "--tab", "t1", "--split", "down", "--no-focus", "--target-pane", "w0:p1"]);
+    expect(herdrArgv[0]?.slice(0, 5)).toEqual(["pane", "split", "w0:p1", "--direction", "down"]);
+    expect(lastCall("pane", "run")).toEqual(["pane", "run", "w0:p3", "bash -lc 'fake-agent'"]);
+    expect(herdrArgv.some((args) => args[1] === "move")).toBe(false);
+  });
+
+  test("a pane split off the caller's own pane is moved into the fleet's tab", () => {
+    // No planned target: herdr splits whatever pane orch is running in, which
+    // is the human's tab, so the fresh pane has to be re-seated into the group.
+    herdrArgv.length = 0;
+    process.env.HERDR_PANE_ID = "w0:p2";
+    try {
+      backend.spawn(fakeAdapter, { cwd: testDir, group: "t1", split: "down" });
+    } finally {
+      delete process.env.HERDR_PANE_ID;
+    }
+
+    expect(herdrArgv[1]?.slice(0, 3)).toEqual(["pane", "split", "w0:p2"]);
+    expect(herdrArgv.at(-1)).toEqual(["pane", "move", "w0:p3", "--tab", "t1", "--split", "down", "--no-focus"]);
   });
 
   test("a same-tab re-seat bounces through a throwaway tab so herdr executes it", () => {
@@ -117,12 +241,38 @@ describe("HerdrBackend", () => {
     expect(() => backend.groupLayout("t2")).toThrow("no panes on tab t2");
   });
 
-  test("workspaceNames maps tab labels by workspace, first label wins, unlabeled skipped", () => {
+  test("workspaceNames reads each workspace's OWN label, never a tab's", () => {
+    // The tab labels are Alpha/Beta/Gamma; taking those printed `wF` where the
+    // workspace's real label was one field away in `workspace list`.
     expect(backend.workspaceNames()).toEqual(
       new Map([
-        ["ws-test", "Alpha"],
-        ["ws-2", "Gamma"],
+        ["ws-test", "t3reports"],
+        ["ws-2", "dev"],
       ]),
     );
+  });
+
+  test("deliver submits with agent prompt, not the removed agent send", () => {
+    herdrArgv.length = 0;
+    expect(backend.deliver("w0:p1", { kind: "message", text: "hello" })).toBe(true);
+
+    expect(herdrArgv).toEqual([["agent", "prompt", "w0:p1", "hello"]]);
+    expect(herdrArgv.flat()).not.toContain("send");
+    // `agent prompt` types AND submits, so a trailing Enter would double-submit.
+    expect(herdrArgv.flat()).not.toContain("Enter");
+  });
+
+  test("a run payload still goes through pane run", () => {
+    herdrArgv.length = 0;
+    expect(backend.deliver("w0:p1", { kind: "run", text: "ls" })).toBe(true);
+
+    expect(herdrArgv).toEqual([["pane", "run", "w0:p1", "ls"]]);
+  });
+
+  test("waitAgentStatus uses agent wait --until, not the removed top-level wait", () => {
+    herdrArgv.length = 0;
+    expect(backend.waitAgentStatus("w0:p1", "idle", 1000)).toBe(true);
+
+    expect(herdrArgv).toEqual([["agent", "wait", "w0:p1", "--until", "idle", "--timeout", "1000"]]);
   });
 });

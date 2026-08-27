@@ -23,7 +23,7 @@ describe("pi worker launch obeys the worker policy", () => {
       const command = piAdapter.restrictedInteractiveCmd({ workers: policy });
       // --no-extensions disables discovery; the explicit -e paths still load.
       expect(command).toContain("--no-extensions");
-      expect(command).toContain("orchestrator-bridge.js");
+      expect(command).toContain("pi-bridge.js");
     }
   });
 
@@ -55,7 +55,7 @@ describe("pi worker launch obeys the worker policy", () => {
     expect(argv).toContain("--no-builtin-tools");
     expect(argv).toContain("read,bash,orch_ask");
     expect(argv).toContain("--no-extensions");
-    expect(argv.some((token) => token.endsWith("orchestrator-bridge.js"))).toBe(true);
+    expect(argv.some((token) => token.endsWith("pi-bridge.js"))).toBe(true);
     expect(argv.at(-1)).toBe("PROMPT");
   });
 
@@ -75,7 +75,7 @@ describe("omp worker launch obeys the worker policy through its own harness", ()
     expect(command).toContain("--no-extensions");
     expect(command).toContain("omp-bridge.js");
     expect(slashed).toContain(".omp/agent/extensions");
-    expect(command).not.toContain("orchestrator-bridge.js");
+    expect(command).not.toContain("pi-bridge.js");
     expect(slashed).not.toContain(".pi/agent");
   });
 

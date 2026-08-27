@@ -1,5 +1,6 @@
 import type { AgentAdapter } from "../adapters/adapter.ts";
 import type { Identity } from "./identity.ts";
+import type { PaneForeground } from "./pane-ready.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 
 /** The closed backend-id set, importable without pulling any provider code. */
@@ -219,8 +220,8 @@ export interface Backend<Handle = BackendHandle> {
   moveToNewGroup?(handle: Handle, label: string | null): boolean;
   /** Geometry of every pane in a group, orch-spawned or not. Throws when unresolvable. */
   groupLayout?(group: string): BackendGroupLayout<Handle>;
-  /** Names of foreground processes running in a target. */
-  foregroundProcesses?(handle: Handle): string[];
+  /** What a target is running right now, for launch and exit checks. */
+  paneForeground?(handle: Handle): PaneForeground;
   /** Block until the backend reports the agent status, or time out. */
   waitAgentStatus?(handle: Handle, status: string, timeoutMs: number): boolean;
   /** Create a group and report it with its root handle. Throws on failure. */
@@ -230,5 +231,9 @@ export interface Backend<Handle = BackendHandle> {
   closeGroup?(group: string): boolean;
   focusGroup?(group: string): boolean;
   workspaces?(): BackendWorkspace[];
+  /** Open a workspace of orch's own and report it with its root handle. Throws on
+   *  failure. A caller outside the plexer has no workspace to borrow, and taking
+   *  someone else's is what put orch's agents in another person's space. */
+  createWorkspace?(opts: { cwd: string; label?: string | null }): { workspace: string; rootHandle: Handle };
   focusWorkspace?(workspace: string): boolean;
 }

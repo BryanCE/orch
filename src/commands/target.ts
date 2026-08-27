@@ -107,12 +107,19 @@ export function forbidAgentOverride(flag: string): void {
   if (callerIsSpawnedAgent()) die(`${flag} is operator-only: a spawned agent may only touch agents it spawned.`);
 }
 
+/** Where the caller acts: the pane it is sitting in, else the workspace its own
+ *  owner token names. An operator driving orch from outside any pane still
+ *  operates a workspace, and losing that made its own fleet foreign to it. */
+export function actorWorkspace(token: string): string | null {
+  return callerWorkspace() ?? tryParseIdentity(token)?.workspace ?? null;
+}
+
 export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
   const token = callerOwnerToken();
   if (!token) return false;
   if (record.owner === token) return true;
   return !callerIsSpawnedAgent()
-    && operatorControls(orchDir(), token, record.pane ?? null, callerWorkspace(), true);
+    && operatorControls(orchDir(), token, record.pane ?? null, actorWorkspace(token), true);
 }
 
 /** Return the exact session address that spawned this caller. */

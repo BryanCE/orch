@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../control/dispatch.ts";
+import { sleepMs } from "../backends/pane-ready.ts";
 import { errorMessage, pidAlive } from "../util.ts";
 import {
   claimTask,
@@ -44,9 +44,6 @@ function agentIdle(entry: PresenceEntry): boolean {
   return entry.alive && (state === "idle" || state === "done");
 }
 
-function sleepMs(ms: number): void {
-  try { execFileSync("sleep", [String(ms / 1000)], { stdio: "ignore" }); } catch {}
-}
 
 /** True when the agent's reported status speaks for THIS task's dispatch: the ids
  *  match, or the bridge reports none at all (hook-based harnesses cannot attribute

@@ -10,7 +10,7 @@ import {
 } from "../presence/store.ts";
 import { isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
-import { buildExtensionBundle, extensionBundlePath, EXTENSION_NAMES, type ExtensionName } from "../bridge-bundle.ts";
+import { buildExtensionBundle, extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, type ExtensionName } from "../bridge-bundle.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { ANSWER_FILE, INBOX_FILE } from "../presence/schema.ts";
@@ -62,7 +62,7 @@ const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
 const PI_EXTENSION_DIR = path.join(PI_AGENT_DIR, "extensions");
 const PI_TRUST_FILE = path.join(PI_AGENT_DIR, "trust.json");
 /** pi's shipped bundle, built from extensions/pi/. */
-const PI_EXTENSION: ExtensionName = "orchestrator-bridge";
+const PI_EXTENSION: ExtensionName = "pi-bridge";
 /** Binaries that start pi: the CLI and orch's `pif` wrapper. */
 const PI_BINARIES = ["pi", "pif"];
 
@@ -378,6 +378,9 @@ export function installExtensionLink(
   // Raw .ts links from older installs resolve ../src against the symlink location
   // and break the harness at launch; only the bundle may be linked.
   fs.rmSync(path.join(extensionDir, `${extension}.ts`), { force: true });
+  for (const retired of RETIRED_EXTENSION_NAMES) {
+    for (const suffix of EXTENSION_SUFFIXES) fs.rmSync(path.join(extensionDir, `${retired}${suffix}`), { force: true });
+  }
   const destination = path.join(extensionDir, `${extension}.js`);
   fs.mkdirSync(extensionDir, { recursive: true });
   fs.rmSync(destination, { recursive: true, force: true });
@@ -416,7 +419,7 @@ export function piSessionView(input: SessionViewInput): SessionView | undefined 
   };
 }
 
-/** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's orchestrator-bridge extension. */
+/** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's pi-bridge extension. */
 export class PiAdapter implements AgentAdapter {
   readonly id = "pi" as const;
 

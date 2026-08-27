@@ -30,7 +30,7 @@
     "build:hooks": "bun build extensions/claude/index.ts --target=node --format=esm --outfile dist/scripts/claude-hooks.js",
     "build:notify": "bun build extensions/codex/index.ts --target=node --format=esm --outfile dist/scripts/codex-notify.js",
     "build:ext": "bun run build:ext:pi && bun run build:ext:omp",
-    "build:ext:pi": "bun build extensions/pi/index.ts --target=node --format=esm --outfile dist/extensions/orchestrator-bridge.js",
+    "build:ext:pi": "bun build extensions/pi/index.ts --target=node --format=esm --outfile dist/extensions/pi-bridge.js",
     "build:ext:omp": "bun build extensions/omp/index.ts --target=node --format=esm --outfile dist/extensions/omp-bridge.js",
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",

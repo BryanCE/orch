@@ -2,7 +2,7 @@ import { isAdapterId, type AgentAdapter } from "../../adapters/adapter.ts";
 import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
 import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
-import type { PaneForeground } from "../pane-ready.ts";
+import { paneAtShellPrompt, sleepMs, type PaneForeground } from "../pane-ready.ts";
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
@@ -130,6 +130,11 @@ function isHerdrProcessInfo(value: unknown): value is HerdrProcessInfo {
 
 const ZOOM_FLAGS: Record<BackendZoomMode, string> = { on: "--on", off: "--off", toggle: "--toggle" };
 
+/** A freshly created workspace's first pane takes noticeably longer to reach a
+ *  prompt than a split of a pane already running one. */
+const PANE_SHELL_TIMEOUT_MS = 15_000;
+const PANE_SHELL_POLL_MS = 100;
+
 /** Herdr pane backend: adapts the herdr CLI to the plexer Backend port. */
 export class HerdrBackend implements Backend<HerdrHandle> {
   readonly id = HERDR_BACKEND;
@@ -243,7 +248,32 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   private startAgentInPane(adapter: AgentAdapter, handle: HerdrHandle, opts: BackendSpawnOpts): void {
     const name = paneName(adapter, opts);
     herdrAck(["pane", "rename", handle, name]);
+    this.awaitPaneShell(handle);
     herdrStartAgent(["agent", "start", name, "--kind", herdrKind(adapter.id, name), "--pane", handle]);
+  }
+
+  /** herdr answers with a pane id before that pane's shell exists, so a launch sent
+   *  straight after is typed into a terminal that is not there to receive it — the
+   *  harness name lands as loose text and the agent never starts. A pane opened by
+   *  splitting an existing one is usually ready already; a pane in a workspace herdr
+   *  has just created is not. */
+  private awaitPaneShell(handle: HerdrHandle): void {
+    const deadline = Date.now() + PANE_SHELL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (this.paneReachedShell(handle)) return;
+      sleepMs(PANE_SHELL_POLL_MS);
+    }
+    throw new Error(`herdr pane ${handle} reported no shell within ${PANE_SHELL_TIMEOUT_MS}ms, so there was nothing to launch into`);
+  }
+
+  /** A pane herdr has not finished opening answers process-info with an error; that
+   *  is "not ready yet", not a failure worth ending the spawn on. */
+  private paneReachedShell(handle: HerdrHandle): boolean {
+    try {
+      return paneAtShellPrompt(this.paneForeground(handle));
+    } catch {
+      return false;
+    }
   }
 
   /** herdr's env flags for a pane orch is about to launch an agent into. */

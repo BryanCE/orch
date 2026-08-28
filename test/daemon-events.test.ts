@@ -15,6 +15,7 @@ import {
 } from "../src/daemon/events.ts";
 import { rpcSubscribe, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
 import type { Sink } from "../src/notify/router.ts";
+import type { NotifyEvent } from "../src/notify/format.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -35,6 +36,35 @@ function storageKey(key: string): string {
 
 function nodeCommand(script: string): string[] {
   return [process.execPath, "-e", script];
+}
+
+function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
+  return {
+    host: undefined,
+    key: "",
+    workspace: undefined,
+    agent: null,
+    name: undefined,
+    dispatchId: undefined,
+    spawnedBy: undefined,
+    spawnedByLabel: undefined,
+    tab: null,
+    model: null,
+    oldState: "",
+    newState: "",
+    seq: undefined,
+    task: undefined,
+    cost: undefined,
+    ts: "",
+    lastError: undefined,
+    lastText: undefined,
+    result: undefined,
+    reason: undefined,
+    ctxPercent: undefined,
+    tokens: undefined,
+    filesTouched: undefined,
+    ...overrides,
+  };
 }
 
 function writeStatus(orchDir: string, key: string, state: string, extra: object = {}): void {
@@ -262,7 +292,7 @@ describe("daemon presence events", () => {
       tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
       filesTouched: ["a.ts", "b.ts"],
     }, { name: "fallback", tab: "fallback-tab" }, states, now);
-    expect(event).toEqual(expect.objectContaining({
+    expect(event).toEqual(notifyEvent({
       key,
       agent: "Ada",
       name: "Ada's worker",

@@ -152,7 +152,7 @@ describe("lease commands", () => {
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
 
-    cmdReap([key, "--json"]);
+    void cmdReap([key, "--json"]);
 
     expect(openStore(dir).query("SELECT id FROM agents WHERE id = ?").get(key)).toBeNull();
   });

@@ -91,13 +91,13 @@ describe("deliverControl", () => {
     expect(line.text).toBe("next slice");
   });
 
-  test("does not fall back from a keys strategy to the orch channel", async () => {
+  test("does not fall back from a keys strategy to the orch channel", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target("headless", "claude-ok");
     presence(directory, key, "claude");
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
-    await expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/no pane input role/);
+    return expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/no pane input role/);
   }, 15_000);
 
   test("fails when claude keys fallback cannot deliver", () => {

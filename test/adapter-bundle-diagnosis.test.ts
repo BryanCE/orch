@@ -17,7 +17,8 @@ const { diagnoseExtensionLink, installExtensionLink } = await import("../src/ada
 describe("adapter bundle installation", () => {
   test("reports a missing shipped bundle as a structured diagnosis", () => {
     const diagnosis = diagnoseExtensionLink("pi", join(tempRoot, "pi", "extensions"), "pi-bridge");
-    expect(diagnosis).toMatchObject({ status: "warn", detail: expect.stringContaining("run the user's build: bun run build:dev") });
+    expect(diagnosis.status).toBe("warn");
+    expect(diagnosis.detail).toContain("run the user's build: bun run build:dev");
   });
 
   test("diagnoses a missing shipped bundle without writing", () => {

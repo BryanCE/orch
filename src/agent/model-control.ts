@@ -123,4 +123,3 @@ export function createModelControl(deps: ModelControlDeps) {
   return { applyControlCommand };
 }
 
-type ModelControl = ReturnType<typeof createModelControl>;

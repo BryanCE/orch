@@ -9,18 +9,6 @@
  */
 import { Data } from "effect";
 
-/** orch agent states as the daemon publishes them. */
-type PackAgentState =
-  | "spawning"
-  | "working"
-  | "blocked"
-  | "asking"
-  | "done"
-  | "idle"
-  | "error"
-  | "aborted"
-  | "exited";
-
 /** States that should pull the operator's attention the moment they are entered. */
 export const ALERT_STATES: ReadonlySet<string> = new Set(["blocked", "asking", "error", "aborted"]);
 

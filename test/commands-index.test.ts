@@ -22,16 +22,16 @@ describe("commands/index", () => {
   test("dispatches representative commands and reports unknown commands", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-command-seam-"));
     const oldDir = process.env.ORCH_DIR;
-    const oldStdout = process.stdout.write;
-    const oldStderr = process.stderr.write;
-    const oldExit = process.exit;
+    const oldStdout = process.stdout.write.bind(process.stdout);
+    const oldStderr = process.stderr.write.bind(process.stderr);
+    const oldExit = process.exit.bind(process);
     let stdout = "";
     let stderr = "";
     process.env.ORCH_DIR = directory;
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
-    process.stdout.write = ((chunk: string | Uint8Array) => { stdout += chunk.toString(); return true; }) as typeof process.stdout.write;
-    process.stderr.write = ((chunk: string | Uint8Array) => { stderr += chunk.toString(); return true; }) as typeof process.stderr.write;
-    process.exit = ((code?: number): never => { throw new Error(`exit ${code ?? 0}`); }) as typeof process.exit;
+    process.stdout.write = (chunk: string | Uint8Array) => { stdout += chunk.toString(); return true; };
+    process.stderr.write = (chunk: string | Uint8Array) => { stderr += chunk.toString(); return true; };
+    process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     try {
       runCommand(["version"]);
       runCommand(["help"]);

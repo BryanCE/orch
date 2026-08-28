@@ -70,7 +70,7 @@ function recipientHarness(record: SpawnedRecord | undefined, status: PresenceEnt
 
 export function recipientFor(key: string, spawned = spawnedRecords()): Recipient {
   const record = spawned.get(key);
-  const status = loadPresence().get(key)?.status;
+  const status = loadPresence().get(key)?.status ?? null;
   const workspace = record?.workspace ?? workspaceOf(orchDir(), key) ?? "workspace";
   return {
     name: recipientName(record, status, workspace, key),

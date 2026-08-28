@@ -11,7 +11,7 @@ interface FakeHarness extends HarnessApi {
 
 function fakeHarness(): FakeHarness {
   const handlers = new Map<string, HarnessEventHandler[]>();
-  const harness = {
+  const harness: FakeHarness = {
     on(name: string, handler: HarnessEventHandler): void {
       handlers.set(name, [...(handlers.get(name) ?? []), handler]);
     },
@@ -22,14 +22,14 @@ function fakeHarness(): FakeHarness {
     getThinkingLevel: () => undefined,
     setThinkingLevel: () => undefined,
     events: { on: () => undefined },
-    fire(name: string, event: unknown = {}, context?: HarnessContext): void {
-      for (const handler of handlers.get(name) ?? []) void handler(event, context as HarnessContext);
+    fire(name: string, event: unknown = {}, context: HarnessContext = harnessContext()): void {
+      for (const handler of handlers.get(name) ?? []) void handler(event, context);
     },
-  } as unknown as FakeHarness;
+  };
   return harness;
 }
 
-function context(): HarnessContext {
+function harnessContext(): HarnessContext {
   return {
     hasUI: false,
     sessionManager: {
@@ -67,11 +67,11 @@ describe("bridge terminal turn seam", () => {
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       paneId: null,
       extensionHash: "test",
-      ack: { messageIdOf: () => undefined, isAcked: () => false, markAcked: () => undefined, post: async () => true },
+      ack: { messageIdOf: () => undefined, isAcked: () => false, markAcked: () => undefined, post: () => Promise.resolve(true) },
       reportStatus: reporter,
     });
-    registerAgentTools(harness, { presence, identity: { agentId: "pi", settleEvent: "agent_settled" }, notify: () => undefined, refreshLabels: async () => undefined });
-    const ctx = context();
+    registerAgentTools(harness, { presence, identity: { agentId: "pi", settleEvent: "agent_settled" }, notify: () => undefined, refreshLabels: () => Promise.resolve() });
+    const ctx = harnessContext();
     harness.fire("session_start", {}, ctx);
     harness.fire("agent_start", {}, ctx);
     if (text !== undefined) harness.fire("message_end", { message: { role: "assistant", content: text } }, ctx);

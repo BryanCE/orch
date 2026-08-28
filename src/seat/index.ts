@@ -13,7 +13,6 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { ALERT_STATES, type PackSnapshot } from "./domain.ts";
 import { createPackRuntime, type PackRuntime } from "./runtime.ts";
 import { openPackDashboard } from "./ui/takeover.ts";
-import { stateColor } from "./ui/takeover.ts";
 
 const STATUS_ID = "orch";
 const SQUARE = "■";

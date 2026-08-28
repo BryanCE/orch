@@ -132,7 +132,14 @@ describe("command lock serialization", () => {
       expect(held.pid).not.toBe(process.pid);
       expect(processInstanceMatches(held.pid, held.start_token)).toBe(true);
       const started = Date.now();
-      await expect(acquireCommandLock(root, { holder: "waiter", timeoutMs: 150, pollMs: 100 })).rejects.toThrow(/timed out/);
+      let failure: unknown;
+      try {
+        await acquireCommandLock(root, { holder: "waiter", timeoutMs: 150, pollMs: 100 });
+      } catch (error: unknown) {
+        failure = error;
+      }
+      if (!(failure instanceof Error)) throw new Error("expected lock acquisition to time out");
+      expect(failure.message).toMatch(/timed out/);
       expect(Date.now() - started).toBeGreaterThanOrEqual(100);
       const stillHeld = readCommandLock(root);
       expect(stillHeld?.pid).toBe(held.pid);

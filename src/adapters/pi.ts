@@ -418,7 +418,7 @@ export function piSessionView(input: SessionViewInput): SessionView | undefined 
 /** Build one pi launch composition. Worker routes opt into orch's bridge, tools, and
  * inherited user extensions; the ordinary interactive form remains the bare harness. */
 function piLaunchArgv(opts: SpawnOpts, worker: boolean, binary: "pi" | "pif", prompt?: string): string[] {
-  const argv = [binary];
+  const argv: string[] = [binary];
   if (worker) argv.push(...piToolArgv(opts), ...piExtensionArgv(opts));
   argv.push(...piModelArgv(opts, binary === "pi" ? "shell" : "argv"));
   if (prompt !== undefined) argv.push(prompt);

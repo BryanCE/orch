@@ -49,7 +49,7 @@ describe("seat pure seams", () => {
   });
 
   test("reconcileDashboardSelection preserves id and guards missing snapshots", () => {
-    const selection: { id: string; index: number } = { id: "b", index: 0 };
+    const selection: { id?: string; index: number } = { id: "b", index: 0 };
     reconcileDashboardSelection(selection, [{ key: "a" }, { key: "b" }]);
     expect(selection).toEqual({ id: "b", index: 1 });
 

@@ -6,8 +6,14 @@ import { parseSession } from "../src/session.ts";
 
 describe("parseSession", () => {
   test("returns an empty view for null and missing paths", () => {
-    expect(parseSession(null)).toEqual(expect.objectContaining({ exists: false, path: "", entries: [] }));
-    expect(parseSession("/missing/session.jsonl")).toEqual(expect.objectContaining({ exists: false, path: "/missing/session.jsonl", entries: [] }));
+    const empty = parseSession(null);
+    expect(empty.exists).toBe(false);
+    expect(empty.path).toBe("");
+    expect(empty.entries).toEqual([]);
+    const missing = parseSession("/missing/session.jsonl");
+    expect(missing.exists).toBe(false);
+    expect(missing.path).toBe("/missing/session.jsonl");
+    expect(missing.entries).toEqual([]);
   });
 
   test("handles model, thinking, user, assistant, tool, and unknown entries", () => {

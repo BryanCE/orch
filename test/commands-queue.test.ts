@@ -11,10 +11,10 @@ describe("commands/queue", () => {
   test("cmdQueue list emits the selected JSON view", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-command-queue-seam-"));
     const oldDir = process.env.ORCH_DIR;
-    const oldWrite = process.stdout.write;
+    const oldWrite = process.stdout.write.bind(process.stdout);
     let output = "";
     process.env.ORCH_DIR = dir;
-    process.stdout.write = ((chunk: string | Uint8Array) => { output += chunk.toString(); return true; }) as typeof process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => { output += chunk.toString(); return true; });
     try {
       const db = openStore(dir);
       db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();

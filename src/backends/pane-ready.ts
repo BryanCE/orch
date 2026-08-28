@@ -36,12 +36,6 @@ export function paneAtShellPrompt(foreground: PaneForeground): boolean {
     && foreground.processes.every((name) => SHELL_PROCESS_NAMES.has(processName(name)));
 }
 
-/** True once a command owns the terminal instead of the shell — the only proof
- *  from outside that a line typed into a pane actually ran. */
-function paneRunsCommand(foreground: PaneForeground): boolean {
-  return foreground.processes.length > 0 && !paneAtShellPrompt(foreground);
-}
-
 /** Sleep on this thread without a runtime dependency: orch ships to node, and
  *  every caller here is synchronous. */
 export function sleepMs(ms: number): void {

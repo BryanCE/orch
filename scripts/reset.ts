@@ -83,7 +83,9 @@ function globalPackageRemoval(): WipeStep | null {
   if (!pathPresent(packagePath)) return null;
   return {
     describe: `npm uninstall -g ${PACKAGE_NAME}`,
-    execute: () => execFileSync("npm", ["uninstall", "-g", PACKAGE_NAME], { stdio: "inherit" }),
+    execute: () => {
+      execFileSync("npm", ["uninstall", "-g", PACKAGE_NAME], { stdio: "inherit" });
+    },
   };
 }
 
@@ -233,9 +235,9 @@ function storeRemoval(): WipeStep | null {
   if (!step) return null;
   return {
     describe: step.describe,
-    execute: () => {
+    execute: async () => {
       if (liveStorePresent()) throw new Error(`refusing to remove live orch store ${ORCH_DIR}; stop agents and retry`);
-      step.execute();
+      await step.execute();
     },
   };
 }

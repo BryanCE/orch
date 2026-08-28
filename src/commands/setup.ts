@@ -316,8 +316,8 @@ function recordComposition(
   );
 }
 
-type MissingPrerequisite = { bin: string; cmd: string };
-type ManualPrerequisite = { id: string; url: string };
+interface MissingPrerequisite { bin: string; cmd: string }
+interface ManualPrerequisite { id: string; url: string }
 
 function reportAdapterPrerequisites(
   adapters: readonly AdapterId[],

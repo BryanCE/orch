@@ -112,6 +112,12 @@ export async function cmdNew(args: string[]): Promise<void> {
   const force = args.includes("--force");
   const { targets, flags } = parseResetArgs(args);
   if (!targets.length) die("usage: orch reset <target>... | --all [--model <model[:thinking]>] [--json]");
+  // Check ownership before resolving model configuration: a driving verb must
+  // name a live foreign holder even when this caller has no model selected.
+  for (const target of targets) {
+    const { entity: ent } = resolveLifecycleTarget(target);
+    assertAgentOwned(target, ent, force);
+  }
   // A cleared session drops back to the harness's own default, so reset re-pins on
   // exactly the terms a spawn does: the model named here, else the configured default.
   const model = launchModel(flags, loadConfig(orchDir()), resolveAdapterOrDie(pickAdapter(flags, loadConfig(orchDir()))));
@@ -422,7 +428,7 @@ export function cmdClose(args: string[]) {
   if (positional.some((argument) => argument.startsWith("--"))) die(usage);
   if (!all && !positional.length) die(usage);
 
-  const targets: { backend: Backend | null; handle: BackendHandle; key: string; recorded: RecordedProcess | null }[] = [];
+  const targets: { backend: Backend | null; handle: BackendHandle; key: string; recorded: RecordedProcess | null; paneKnown: boolean }[] = [];
   if (all) {
     // --all sweeps every orch-managed record, regardless of owner or spawner.
     // Dead and headless records are cleanup targets too.
@@ -441,6 +447,9 @@ export function cmdClose(args: string[]) {
         handle: record.handle ?? record.pane,
         key: record.pane,
         recorded: recordedProcess(record.pane),
+        // A registry handle is not proof of a live pane. Bulk close may still
+        // ask the backend to verify because it enumerates every managed row.
+        paneKnown: true,
       });
     }
   }
@@ -452,6 +461,9 @@ export function cmdClose(args: string[]) {
       handle: resolved.handle,
       key: resolved.record.pane,
       recorded: recordedProcess(resolved.record.pane),
+      // A pane-capable backend's stale registry row may outlive its pane. Do
+      // not invoke a provider with an opaque identity handle in that case.
+      paneKnown: resolved.entity.paneId !== null || resolved.backend.paneInventory === null,
     });
   }
 
@@ -471,7 +483,8 @@ export function cmdClose(args: string[]) {
       && typeof recorded.startToken === "string"
       && processInstanceMatches(recorded.pid, recorded.startToken);
     const paneHost = target.backend?.paneHost;
-    const paneCapable = (paneHost !== null && paneHost !== undefined) || target.backend?.capabilities.panes === true;
+    const paneCapable = target.paneKnown
+      && ((paneHost !== null && paneHost !== undefined) || target.backend?.capabilities.panes === true);
 
     if (identityProven && recorded) {
       // Signal only the recorded process instance. Reaping waits until that
@@ -552,7 +565,10 @@ export function cmdAbort(args: string[]) {
     else process.stdout.write(text + "\n");
     return;
   }
-  const sendKeys = backend.paneInput?.sendKeys ?? ((pane: BackendHandle, keys: readonly string[]) => { if (!backend.sendKeys(pane, keys)) throw new Error(`Could not send keys to ${String(pane)}.`); });
+  const input = backend.paneInput;
+  const sendKeys = input
+    ? (pane: BackendHandle, keys: readonly string[]) => input.sendKeys(pane, keys)
+    : (pane: BackendHandle, keys: readonly string[]) => { if (!backend.sendKeys(pane, keys)) throw new Error(`Could not send keys to ${String(pane)}.`); };
   sendKeys(handle, ["Escape"]);
   sleepMs(500);
   sendKeys(handle, ["Escape"]);

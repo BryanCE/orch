@@ -196,7 +196,7 @@ function pickProvenance(record: SpawnedRecord | undefined, status: PresenceEntry
 }
 
 function viewProvenance(pres: PresenceEntry | null, spawnedRecord: SpawnedRecord | undefined): Pick<View, "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd"> {
-  const status = pres?.status;
+  const status = pres?.status ?? null;
   return {
     owner: spawnedRecord?.owner ?? null,
     spawnedBy: pickProvenance(spawnedRecord, status, "spawnedBy"),
@@ -322,7 +322,7 @@ interface TableFlags {
 }
 
 function localStatusOptions(args: readonly string[]): { json: boolean; all: boolean; allPanes: boolean; local: boolean; offline: boolean; workspace?: string } {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes", "--offline"]);
+  const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline"]);
   return {
     json: enabled.has("--json"),
     all: enabled.has("--all"),

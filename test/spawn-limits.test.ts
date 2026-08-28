@@ -50,7 +50,7 @@ function capacityRefusal(
   requested: number,
   data: { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> },
 ): string {
-  const originalExit = process.exit;
+  const originalExit = process.exit.bind(process);
   const originalWrite = process.stderr.write.bind(process.stderr);
   let stderr = "";
   function stderrWrite(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;

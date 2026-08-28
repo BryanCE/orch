@@ -54,7 +54,7 @@ function writePresenceResult(result: unknown, json: boolean): boolean {
 }
 
 function adapterResultText(ent: Entity, adapter: AgentAdapter): string | undefined {
-  return adapter.extractResult({ key: ent.key, sessionPath: ent.sessionPath ?? undefined });
+  return adapter.extractResult({ sessionPath: ent.sessionPath ?? undefined });
 }
 
 function adapterSessionView(ent: Entity, adapter: AgentAdapter): SessionView | undefined {

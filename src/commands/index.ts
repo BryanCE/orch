@@ -248,76 +248,76 @@ function requestedHelpTopic(cmd: string | undefined, rest: string[]): string | n
   return null;
 }
 
-type CommandHandler = (rest: string[]) => void;
+type Handler = (args: string[]) => void | Promise<void>;
 
 function dispatchAsync(task: Promise<unknown>): void {
   void task.catch((error: unknown) => die(errorMessage(error)));
 }
 
-const commandHandlers: ReadonlyMap<string, CommandHandler> = new Map([
-  ["status", (rest) => dispatchAsync(cmdStatus(rest))],
-  ["events", (rest) => dispatchAsync(cmdEvents(rest))],
-  ["notify", (rest) => dispatchAsync(cmdNotify(rest))],
-  ["questions", (rest) => dispatchAsync(cmdQuestions(rest))],
-  ["runs", (rest) => cmdRuns(rest)],
-  ["queue", (rest) => dispatchAsync(cmdQueue(rest))],
-  ["lock", (rest) => dispatchAsync(cmdLock(rest).then((code) => { process.exitCode = code; }))],
-  ["daemon", (rest) => dispatchAsync(cmdDaemon(rest))],
-  ["doctor", (rest) => dispatchAsync(cmdDoctor(rest))],
-  ["work", (rest) => dispatchAsync(cmdWork(rest))],
-  ["review", (rest) => {
-    if (rest.length === 0) dispatchAsync(cmdReviewInteractive());
-    else dispatchAsync(cmdReview(rest));
-  }],
-  ["answer", (rest) => dispatchAsync(cmdAnswer(rest))],
-  ["result", (rest) => cmdResult(rest)],
-  ["steer", (rest) => dispatchAsync(cmdSteer(rest))],
-  ["pipe", (rest) => dispatchAsync(cmdPipe(rest))],
-  ["broadcast", (rest) => dispatchAsync(cmdBroadcast(rest))],
-  ["tail", (rest) => cmdTail(rest)],
-  ["session", (rest) => cmdSession(rest)],
-  ["panes", (rest) => cmdPanes(rest)],
-  ["spawn", (rest) => dispatchAsync(cmdSpawn(rest))],
-  ["tile", (rest) => dispatchAsync(cmdTile(rest))],
-  ["run", (rest) => dispatchAsync(cmdRun(rest))],
-  ["model", (rest) => dispatchAsync(cmdModel(rest))],
-  ["models", (rest) => cmdModels(rest)],
-  ["wait", (rest) => cmdWait(rest)],
-  ["dispatch", (rest) => dispatchAsync(cmdDispatch(rest))],
-  ["reload", (rest) => dispatchAsync(cmdReload(rest))],
-  ["reset", (rest) => dispatchAsync(cmdNew(rest))],
-  ["new", (rest) => dispatchAsync(cmdNew(rest))],
-  ["restart", (rest) => dispatchAsync(cmdRestart(rest))],
-  ["rename", (rest) => cmdRename(rest)],
-  ["close", (rest) => cmdClose(rest)],
-  ["kill", (rest) => cmdClose(rest)],
-  ["detach", (rest) => dispatchAsync(cmdDetach(rest))],
-  ["adopt", (rest) => dispatchAsync(cmdAdopt(rest))],
-  ["reap", (rest) => dispatchAsync(cmdReap(rest))],
-  ["abort", (rest) => cmdAbort(rest)],
-  ["keys", (rest) => cmdKeys(rest)],
-  ["peek", (rest) => cmdPeek(rest)],
-  ["tabs", (rest) => cmdTabs(rest)],
-  ["tab", (rest) => cmdTab(rest)],
-  ["focus", (rest) => cmdFocus(rest)],
-  ["zoom", (rest) => cmdZoom(rest)],
-  ["move", (rest) => cmdMove(rest)],
-  ["ws", (rest) => cmdWs(rest)],
-  ["clean", (rest) => cmdClean(rest)],
-  ["settings", (rest) => {
-    if (rest[0] === "models") dispatchAsync(cmdSettingsModels(rest.slice(1)));
-    else if (rest[0] === "notify") dispatchAsync(cmdSettingsNotify(rest.slice(1)));
-    else if (rest[0] === "skills") cmdSettingsSkills(rest.slice(1));
-    else cmdSettings(rest);
-  }],
-  ["setup", (rest) => dispatchAsync(cmdSetup(rest))],
-  ["--version", () => process.stdout.write(`orch ${VERSION}\\n`)],
-  ["-V", () => process.stdout.write(`orch ${VERSION}\\n`)],
-  ["version", () => process.stdout.write(`orch ${VERSION}\\n`)],
-  ["help", () => usage()],
-  ["-h", () => usage()],
-  ["--help", () => usage()],
-]);
+const commandHandlers: Record<string, Handler> = {
+  status: (args) => dispatchAsync(cmdStatus(args)),
+  events: (args) => dispatchAsync(cmdEvents(args)),
+  notify: (args) => dispatchAsync(cmdNotify(args)),
+  questions: (args) => dispatchAsync(cmdQuestions(args)),
+  runs: (args) => cmdRuns(args),
+  queue: (args) => dispatchAsync(cmdQueue(args)),
+  lock: (args) => dispatchAsync(cmdLock(args).then((code) => { process.exitCode = code; })),
+  daemon: (args) => dispatchAsync(cmdDaemon(args)),
+  doctor: (args) => dispatchAsync(cmdDoctor(args)),
+  work: (args) => dispatchAsync(cmdWork(args)),
+  review: (args) => {
+    if (args.length === 0) dispatchAsync(cmdReviewInteractive());
+    else dispatchAsync(cmdReview(args));
+  },
+  answer: (args) => dispatchAsync(cmdAnswer(args)),
+  result: (args) => cmdResult(args),
+  steer: (args) => dispatchAsync(cmdSteer(args)),
+  pipe: (args) => dispatchAsync(cmdPipe(args)),
+  broadcast: (args) => dispatchAsync(cmdBroadcast(args)),
+  tail: (args) => cmdTail(args),
+  session: (args) => cmdSession(args),
+  panes: (args) => cmdPanes(args),
+  spawn: (args) => dispatchAsync(cmdSpawn(args)),
+  tile: (args) => dispatchAsync(cmdTile(args)),
+  run: (args) => dispatchAsync(cmdRun(args)),
+  model: (args) => dispatchAsync(cmdModel(args)),
+  models: (args) => cmdModels(args),
+  wait: (args) => cmdWait(args),
+  dispatch: (args) => dispatchAsync(cmdDispatch(args)),
+  reload: (args) => dispatchAsync(cmdReload(args)),
+  reset: (args) => dispatchAsync(cmdNew(args)),
+  new: (args) => dispatchAsync(cmdNew(args)),
+  restart: (args) => dispatchAsync(cmdRestart(args)),
+  rename: (args) => cmdRename(args),
+  close: (args) => cmdClose(args),
+  kill: (args) => cmdClose(args),
+  detach: (args) => dispatchAsync(cmdDetach(args)),
+  adopt: (args) => dispatchAsync(cmdAdopt(args)),
+  reap: (args) => dispatchAsync(cmdReap(args)),
+  abort: (args) => cmdAbort(args),
+  keys: (args) => cmdKeys(args),
+  peek: (args) => cmdPeek(args),
+  tabs: (args) => cmdTabs(args),
+  tab: (args) => cmdTab(args),
+  focus: (args) => cmdFocus(args),
+  zoom: (args) => cmdZoom(args),
+  move: (args) => cmdMove(args),
+  ws: (args) => cmdWs(args),
+  clean: (args) => cmdClean(args),
+  settings: (args) => {
+    if (args[0] === "models") dispatchAsync(cmdSettingsModels(args.slice(1)));
+    else if (args[0] === "notify") dispatchAsync(cmdSettingsNotify(args.slice(1)));
+    else if (args[0] === "skills") cmdSettingsSkills(args.slice(1));
+    else cmdSettings(args);
+  },
+  setup: (args) => dispatchAsync(cmdSetup(args)),
+  "--version": () => { void process.stdout.write(`orch ${VERSION}\n`); },
+  "-V": () => { void process.stdout.write(`orch ${VERSION}\n`); },
+  version: () => { void process.stdout.write(`orch ${VERSION}\n`); },
+  help: () => usage(),
+  "-h": () => usage(),
+  "--help": () => usage(),
+};
 
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
@@ -347,9 +347,9 @@ export function runCommand(argv: string[]): void {
     dispatchAsync(cmdStatus(argv));
     return;
   }
-  const handler = commandHandlers.get(cmd);
+  const handler = commandHandlers[cmd];
   if (handler !== undefined) {
-    handler(rest);
+    void handler(rest);
     return;
   }
   if (cmd.startsWith("--")) dispatchAsync(cmdStatus(argv));

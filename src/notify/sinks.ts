@@ -34,10 +34,6 @@ export function allSinkProviders(): SinkProvider[] {
   return [...sinkProviders.values()];
 }
 
-function getSinkProvider(id: string): SinkProvider | undefined {
-  return sinkProviders.get(id);
-}
-
 export function hasSinkProvider(id: string): boolean {
   return sinkProviders.has(id);
 }

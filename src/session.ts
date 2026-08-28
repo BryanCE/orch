@@ -152,12 +152,12 @@ function parseSessionLine(line: string): SessionEntry | null {
   }
 }
 
-type SessionState = {
+interface SessionState {
   lastModelChange: string | null;
   lastThinkChange: string | null;
   lastAsstModel: string | null;
   lastAsstProvider: string | null;
-};
+}
 
 function applyModelChange(entry: SessionEntry, state: SessionState): void {
   if (entry.modelId) state.lastModelChange = entry.modelId;

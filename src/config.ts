@@ -411,16 +411,6 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
   };
 }
 
-/** A non-throwing settings load used only by setup recovery. Missing is a clean null;
- * malformed data returns its validation error so setup can reap the whole file. */
-function tryLoadSettings(orchDir: string): { config: OrchConfig | null; error: Error | null } {
-  try {
-    return { config: loadConfigOrNull(orchDir), error: null };
-  } catch (error: unknown) {
-    return { config: null, error: error instanceof Error ? error : new Error(errorMessage(error)) };
-  }
-}
-
 /** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
  * settings.json is a loud error naming the file and `orch setup`, never a silent empty
  * config. Use `loadConfigOrNull` only where first-run really must be distinguished. */

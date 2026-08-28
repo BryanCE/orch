@@ -254,20 +254,6 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
 export type PlexerGroup = BackendGroup;
 export type GroupLayout<Handle = BackendHandle> = BackendGroupLayout<Handle>;
 
-/** Entry written to the spawn registry. */
-interface BackendRegistryRecord<Handle = BackendHandle> {
-  // Written by orch, but read back from disk: an id this build no longer ships
-  // must still yield a closable record, so the read guard is the boundary here
-  // and these stay plain strings.
-  readonly backend: string;
-  readonly handle: Handle;
-  readonly adapter: string;
-  /** Working directory the agent was launched in, when known. */
-  readonly cwd?: string;
-  /** Captured output log path recorded at spawn time (D3a), when the backend writes one. */
-  readonly log?: string;
-}
-
 /**
  * Lifecycle, identity, and control contract shared by pane and
  * detached-process backends.

@@ -75,7 +75,7 @@ export function cmdKeys(args: string[]) {
   const { backend, handle } = requireOwnedPaneTarget(target, "keys", force);
   const entity = resolveTarget(target);
   const plan = paneBoundary(target, "keys", backend.paneInput, !!entity.paneId);
-  if (!renderBoundaryAnswer(plan, json)) return;
+  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.sendKeys(handle, keys);
   if (json) process.stdout.write(JSON.stringify({ target: handle, keys, sent: true }) + "\n");
   else process.stdout.write(`Sent keys to ${handle}: ${keys.join(" ")}\n`);
@@ -95,7 +95,7 @@ export function cmdPeek(args: string[]) {
   const { backend, handle } = requirePaneTarget(target, "peek");
   const entity = resolveTarget(target);
   const plan = paneBoundary(target, "peek", backend.paneScreen, !!entity.paneId);
-  if (!renderBoundaryAnswer(plan, json)) return;
+  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   const screen = plan.role.read(handle, n);
   if (json) {
     process.stdout.write(JSON.stringify({ target, pane: handle, screen, lines: n }) + "\n");
@@ -247,7 +247,7 @@ export function cmdFocus(args: string[]) {
   const { backend, handle } = requireOwnedPaneTarget(target, "focus", force);
   const entity = resolveTarget(target);
   const plan = paneBoundary(target, "focus", backend.paneInput, !!entity.paneId);
-  if (!renderBoundaryAnswer(plan, json)) return;
+  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.focus(handle);
   if (json) process.stdout.write(JSON.stringify({ target: handle, focused: true }) + "\n");
   else process.stdout.write(`Focused ${handle}.\n`);
@@ -269,7 +269,7 @@ export function cmdZoom(args: string[]) {
   const { backend, handle } = requireOwnedPaneTarget(target, "zoom", force);
   const entity = resolveTarget(target);
   const plan = paneBoundary(target, "zoom", backend.paneZoom, !!entity.paneId);
-  if (!renderBoundaryAnswer(plan, json)) return;
+  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   const zoomMode = mode === "--on" ? "on" : mode === "--off" ? "off" : "toggle";
   plan.role.setZoom(handle, zoomMode);
   if (json) process.stdout.write(JSON.stringify({ target: handle, mode: zoomMode, zoomed: true }) + "\n");

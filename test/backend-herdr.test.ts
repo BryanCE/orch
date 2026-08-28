@@ -244,7 +244,7 @@ describe("HerdrBackend", () => {
 
   test("pane input submits through pane run", () => {
     herdrArgv.length = 0;
-    backend.paneInput!.submit("w0:p1", "ls");
+    backend.paneInput.submit("w0:p1", "ls");
 
     expect(herdrArgv).toEqual([["pane", "run", "w0:p1", "ls"]]);
   });

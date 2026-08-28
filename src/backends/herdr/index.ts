@@ -1,4 +1,4 @@
-import type { AgentAdapter, AdapterId } from "../../adapters/adapter.ts";
+import { isAdapterId, type AgentAdapter } from "../../adapters/adapter.ts";
 import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
 import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
@@ -38,24 +38,17 @@ export type HerdrHandle = string;
 
 const HERDR_BACKEND: BackendId = "herdr";
 
-/** Explicit mapping from orch adapter ids to herdr's closed harness-kind list. */
-type HerdrKind = "pi" | "omp" | "claude" | "codex";
-
-const HERDR_KINDS: Record<AdapterId, HerdrKind> = {
-  pi: "pi",
-  omp: "omp",
-  claude: "claude",
-  codex: "codex",
-};
-
-/** Resolve an adapter id at the runtime boundary, where malformed/blank ids may arrive. */
-function herdrKind(adapterId: string): HerdrKind {
+/** Resolve the caller's declared harness at the runtime boundary. A malformed
+ * blank id uses the caller-provided default rather than naming one harness here. */
+function herdrKind(adapterId: string, fallback: string): string {
   const normalized = adapterId.trim();
-  if (normalized === "") return HERDR_KINDS.pi;
-  if (normalized === "pi" || normalized === "omp" || normalized === "claude" || normalized === "codex") {
-    return HERDR_KINDS[normalized];
+  if (normalized) {
+    if (!isAdapterId(normalized)) throw new Error(`unsupported herdr harness kind: ${adapterId}`);
+    return normalized;
   }
-  throw new Error(`unsupported herdr harness kind: ${adapterId}`);
+  const defaultKind = fallback.trim();
+  if (!defaultKind) throw new Error("herdr harness kind is required");
+  return defaultKind;
 }
 
 /** Workspace of the invoking pane, and ONLY of the invoking pane. A caller outside
@@ -70,7 +63,7 @@ function callerPaneWorkspace(): string | undefined {
 /** The pane's border label; empty ids are invalid at runtime even though
  *  AdapterId is a closed union. */
 function paneName(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
-  const adapterName = adapter.id;
+  const adapterName = adapter.id.trim() || "agent";
   return opts.name ?? `${adapterName}-${opts.key?.trim() ?? "agent"}`;
 }
 
@@ -156,7 +149,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     open: (request: OpenPaneRequest) => {
       const workspace = request.workspace ?? callerPaneWorkspace();
       if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
-      return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env }, request.targetPane ? String(request.targetPane) : process.env.HERDR_PANE_ID ?? null) };
+      const targetPane = typeof request.targetPane === "string" ? request.targetPane : process.env.HERDR_PANE_ID ?? null;
+      return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env }, targetPane) };
     },
     close: (handle) => { herdrAck(["pane", "close", handle]); },
   };
@@ -222,8 +216,9 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     // splits the caller's own pane and the fresh pane must be re-seated after.
     const planned = typeof opts.targetPane === "string" ? opts.targetPane : null;
     const handle = this.openPane(workspace, opts, planned ?? process.env.HERDR_PANE_ID ?? null);
+    const name = paneName(adapter, opts);
     try {
-      herdrAck(["pane", "rename", handle, paneName(adapter, opts)]);
+      herdrAck(["pane", "rename", handle, name]);
     } catch (error: unknown) {
       try {
         herdrAck(["pane", "close", handle]);
@@ -234,8 +229,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       }
       throw error;
     }
-    const kind = herdrKind(adapter.id);
-    herdrAck(["agent", "start", paneName(adapter, opts), "--kind", kind, "--pane", handle]);
+    const kind = herdrKind(adapter.id, name);
+    herdrAck(["agent", "start", name, "--kind", kind, "--pane", handle]);
     if (opts.group && !planned) this.reseatIntoGroup(handle, opts.group, opts.split ?? "right");
     return handle;
   }

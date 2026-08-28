@@ -135,19 +135,22 @@ describe("close always works", () => {
     const oldPanes = backend.capabilities.panes;
     const oldInventory = backend.inventory?.bind(backend);
     const oldClose = backend.close.bind(backend);
-    const oldExit = process.exit;
+    const oldExit = process.exit.bind(process);
     const oldExitCode = process.exitCode;
     backend.capabilities.panes = true;
     backend.inventory = () => [{ handle: key }];
     backend.close = () => true;
-    process.exit = ((code?: number) => { process.exitCode = code ?? 0; }) as typeof process.exit;
+    const replacementExit: (code?: string | number | null) => void = (code) => {
+      process.exitCode = typeof code === "number" ? code : 0;
+    };
+    Object.defineProperty(process, "exit", { value: replacementExit });
     try {
       cmdClose([key, "--json"]);
       expect(process.exitCode).toBe(1);
       expect(spawnedRecords().has(key)).toBe(true);
       expect(existsSync(join(dir, "agents", key))).toBe(true);
     } finally {
-      process.exit = oldExit;
+      Object.defineProperty(process, "exit", { value: oldExit });
       process.exitCode = oldExitCode;
       backend.capabilities.panes = oldPanes;
       if (oldInventory) backend.inventory = oldInventory;
@@ -172,13 +175,16 @@ describe("close always works", () => {
     writeStatus(dir, key, key, pid);
 
     const originalKill = process.kill.bind(process);
-    const originalExit = process.exit;
+    const originalExit = process.exit.bind(process);
     const oldExitCode = process.exitCode;
-    process.kill = ((target: number, signal?: NodeJS.Signals | 0) => {
+    process.kill = (target: number, signal?: NodeJS.Signals | 0) => {
       if (target === pid && signal === "SIGTERM") throw new Error("signal denied");
-      return originalKill(target, signal as 0 | NodeJS.Signals | undefined);
-    }) as typeof process.kill;
-    process.exit = ((code?: number) => { process.exitCode = code ?? 0; }) as typeof process.exit;
+      return originalKill(target, signal);
+    };
+    const replacementExit: (code?: string | number | null) => void = (code) => {
+      process.exitCode = typeof code === "number" ? code : 0;
+    };
+    Object.defineProperty(process, "exit", { value: replacementExit });
     try {
       cmdClose([key, "--json"]);
       expect(process.exitCode).toBe(1);
@@ -186,7 +192,7 @@ describe("close always works", () => {
       expect(existsSync(join(dir, "agents", key))).toBe(true);
     } finally {
       process.kill = originalKill;
-      process.exit = originalExit;
+      Object.defineProperty(process, "exit", { value: originalExit });
       process.exitCode = oldExitCode;
     }
   });
@@ -252,18 +258,21 @@ describe("close always works", () => {
   });
 
   test("duplicate close targets count once", () => {
-    const dir = makeDir();
+    makeDir();
     const key = "headless~foreign~duplicate";
     recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "caller" });
     const oldExitCode = process.exitCode;
-    const originalExit = process.exit;
-    process.exit = ((code?: number) => { process.exitCode = code ?? 0; }) as typeof process.exit;
+    const originalExit = process.exit.bind(process);
+    const replacementExit: (code?: string | number | null) => void = (code) => {
+      process.exitCode = typeof code === "number" ? code : 0;
+    };
+    Object.defineProperty(process, "exit", { value: replacementExit });
     try {
       cmdClose([key, key, "--json"]);
       expect(process.exitCode).toBe(oldExitCode);
       expect(spawnedRecords().has(key)).toBe(false);
     } finally {
-      process.exit = originalExit;
+      Object.defineProperty(process, "exit", { value: originalExit });
       process.exitCode = oldExitCode;
     }
   });

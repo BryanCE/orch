@@ -1267,3 +1267,161 @@ test/commands-results.test.ts:
 (pass) commands/results > validates and extracts question payloads [0.18ms]
 (pass) commands/results > formats invalid and recent timestamps [0.18ms]
 (pass) commands/results > routes a seeded result.json through the command module [135.99ms]
+(no result.json - falling back to adapter-extracted session text)
+(pass) commands/results > falls back to adapter session text when result.json is absent [137.87ms]
+(pass) commands/results > uses result.json even when the presence status has no agent [130.22ms]
+(pass) commands/results > orch tail resolves a non-pi target through that adapter's session view [136.39ms]
+(pass) commands/results > orch tail renders pi's per-turn entries with role rows and a tool-call summary [133.15ms]
+(pass) commands/results > orch tail -n keeps last-N rendered entries for a pi session [129.86ms]
+(pass) commands/results > orch session reports the pi entry count [129.79ms]
+(pass) commands/results > orch session shows zero entries for an adapter view without them [169.41ms]
+
+test/workspace-walls.test.ts:
+(pass) workspace helpers > reads workspace ids from the spawned registry [0.20ms]
+(pass) workspace helpers > derives an entity workspace from the registry [0.16ms]
+(pass) workspace helpers > returns the same entities when all workspaces are requested [0.09ms]
+(pass) workspace wall writes > allows a write within the same workspace [0.07ms]
+(pass) workspace wall writes > denies a cross-workspace write with both workspaces in the reason [0.08ms]
+(pass) workspace wall writes > applies the same wall rule to herdr, tmux, and headless identities [0.24ms]
+(pass) workspace wall writes > allows a cross-workspace write with an explicit override [0.06ms]
+(pass) workspace wall writes > allows legacy unscoped targets [0.05ms]
+
+test/control-dispatch.test.ts:
+(pass) deliverControl > steers pi through its presence inbox [135.14ms]
+(pass) deliverControl > refuses to steer a pane awaiting an answer, naming the primitive that lands [1.10ms]
+(pass) deliverControl > still answers a pane awaiting an answer [0.86ms]
+(pass) deliverControl > a run dispatch is not blocked by an asking pane [210.94ms]
+error: 
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+(fail) deliverControl > does not fall back from a keys strategy to the orch channel [208.98ms]
+105 |     process.env.ORCH_DIR = directory;
+106 |     const key = target("headless", "claude-fail");
+107 |     presence(directory, key, "claude");
+108 |     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
+109 | 
+110 |     expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/no pane input role/);
+                                                                                       ^
+error: 
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/bryan/orch/test/control-dispatch.test.ts:110:82)
+(fail) deliverControl > fails when claude keys fallback cannot deliver [201.74ms]
+(pass) deliverControl > fails unsupported steer and setModel capabilities [1.93ms]
+(pass) deliverControl > requires presence for inbox delivery [218.24ms]
+(pass) deliverControl > refuses inbox delivery to an agent whose bridge never registered [196.65ms]
+(pass) deliverControl > refuses inbox delivery to an agent whose process is gone [203.52ms]
+
+test/backend-herdr.test.ts:
+(pass) HerdrBackend > starts an authority-bearing herdr agent with the adapter command [0.30ms]
+(pass) HerdrBackend > starts the mapped herdr harness kind in the pane it created [0.10ms]
+(pass) HerdrBackend > a caller pane is split rather than given a new tab [0.05ms]
+(pass) HerdrBackend > split direction clamps to herdr's right|down [0.04ms]
+(pass) HerdrBackend > env reaches the pane through herdr's --env, not an argv prefix [0.08ms]
+(pass) HerdrBackend > maps close and list to herdr helpers [0.13ms]
+(pass) HerdrBackend > a planned target pane is split directly, never re-seated afterwards [0.08ms]
+(pass) HerdrBackend > a pane split off the caller's own pane is moved into the fleet's tab [0.18ms]
+(pass) HerdrBackend > a same-tab re-seat bounces through a throwaway tab so herdr executes it [0.07ms]
+(pass) HerdrBackend > a refused move surfaces herdr's reason instead of claiming success [0.07ms]
+(pass) HerdrBackend > groupLayout reads tab geometry straight off the pane listing [0.13ms]
+(pass) HerdrBackend > workspaceNames reads each workspace's OWN label, never a tab's [0.10ms]
+(pass) HerdrBackend > pane input submits through pane run [0.04ms]
+(pass) HerdrBackend > waitAgentStatus uses agent wait --until, not the removed top-level wait [0.07ms]
+
+test/broker-daemon-hardening.test.ts:
+(pass) broker daemon hardening > dispatch/steer validation rejects null, arrays, and non-string fields [0.28ms]
+(pass) broker daemon hardening > ack is idempotent when the same id is acknowledged twice [171.72ms]
+(pass) broker daemon hardening > a throwing delivery is retried and does not poison later messages [124.11ms]
+(pass) broker daemon hardening > concurrent drains do not redeliver one message id [138.61ms]
+(pass) broker daemon hardening > replay after the newest sequence is empty without a gap [125.48ms]
+(pass) broker daemon hardening > malformed request gets an error and the connection remains usable [8.39ms]
+
+test/peer-project-scope.test.ts:
+(pass) peer discovery walls on the project > a same-workspace peer from another project is invisible by default [207.58ms]
+(pass) peer discovery walls on the project > all_workspaces deliberately lifts the project wall [203.06ms]
+(pass) peer discovery walls on the project > a cross-project target does not resolve for sends without the explicit flag [172.06ms]
+(pass) peer discovery walls on the project > a record with no project stamp is malformed and never listed [170.94ms]
+(pass) peer discovery walls on the project > a spawned agent's all_workspaces flag is ignored [194.72ms]
+
+test/pid-liveness.test.ts:
+(pass) pidAlive liveness contract (shared by pi peers) > EPERM means the process exists under another user — alive [0.15ms]
+(pass) pidAlive liveness contract (shared by pi peers) > ESRCH means no such process — dead [0.04ms]
+(pass) pidAlive liveness contract (shared by pi peers) > the current process is alive [0.03ms]
+(pass) pidAlive liveness contract (shared by pi peers) > non-positive and non-numeric pids are rejected without signalling [0.05ms]
+
+test/notifier-adapters.test.ts:
+(pass) notifier registry and built-in adapters > skips an unavailable adapter without affecting available adapters [0.43ms]
+notify: webhook notifier has invalid configuration
+(pass) notifier registry and built-in adapters > reports malformed required configuration instead of throwing [0.20ms]
+(pass) notifier registry and built-in adapters > webhook POST contains the canonical payload [0.36ms]
+(pass) notifier registry and built-in adapters > command adapter passes canonical JSON on stdin [16.36ms]
+(pass) notifier registry and built-in adapters > desktop fallback selects notify-send, then WSL notify when it fails [0.78ms]
+notify: bad sink failed
+(pass) notifier registry and built-in adapters > isolates delivery failures and still delivers to other adapters [0.56ms]
+
+test/settings-command.test.ts:
+(pass) orch settings > --json reports value + source per setting, settings.json winning over defaults [100.30ms]
+(pass) orch settings > --json reports env as the winning source over settings.json [109.76ms]
+(pass) orch settings > --harness switches defaults.adapter between enabled ids and rejects a non-enabled id [318.97ms]
+(pass) orch settings > reports each harness's picker quicklist and launch gate as separate rows [106.63ms]
+(pass) orch settings > a load error surfaces loudly with no partial table [122.35ms]
+
+test/orchd-rpc-replay.test.ts:
+(pass) orchd RPC replay buffer > assigns monotonic sequence numbers and replays after a sequence [209.82ms]
+(pass) orchd RPC replay buffer > replays from inside the surviving range without a gap [145.51ms]
+(pass) orchd RPC replay buffer > reports a gap when the requested sequence predates retained history [126.42ms]
+(pass) orchd RPC replay buffer > empty history has no gap or oldest sequence [119.01ms]
+(pass) orchd RPC replay buffer > limits replay size without pruning durable events [1539.99ms]
+
+test/commands-index.test.ts:
+(pass) commands/index > does not gate help or noninteractive commands [0.09ms]
+(pass) commands/index > reads a package version string [0.16ms]
+(pass) commands/index > announces unleased agents once per session [0.12ms]
+(pass) commands/index > dispatches representative commands and reports unknown commands [1.04ms]
+
+test/store-outbox.test.ts:
+(pass) outbox store rows > inserts pending messages and orders them by creation time [131.62ms]
+(pass) outbox store rows > reports one message's pending state [136.99ms]
+(pass) outbox store rows > bumps attempts and hides a message until its next attempt time [141.67ms]
+(pass) outbox store rows > deletes delivered messages older than the cutoff [132.35ms]
+
+test/adapter-model-flag.test.ts:
+(pass) interactive launches carry the resolved model (12.6) > pi.interactiveCmd includes --model when set and omits it cleanly when not [0.06ms]
+(pass) interactive launches carry the resolved model (12.6) > pi.restrictedInteractiveCmd includes --model when set and omits it cleanly when not [0.13ms]
+(pass) interactive launches carry the resolved model (12.6) > claude.interactiveCmd includes --model when set and omits it cleanly when not [0.05ms]
+(pass) interactive launches carry the resolved model (12.6) > codex.interactiveCmd includes a quoted --model when set and omits it cleanly when not [0.04ms]
+(pass) preferred models fill the harness's native picker quicklist > pi interactive builders pass the quicklist as one quoted --models argument [0.15ms]
+(pass) preferred models fill the harness's native picker quicklist > pi headless builders pass the quicklist as one verbatim argv entry [0.07ms]
+(pass) preferred models fill the harness's native picker quicklist > pi omits --models cleanly for an absent or empty quicklist [0.15ms]
+(pass) preferred models fill the harness's native picker quicklist > pi keeps quicklist order and provider punctuation intact [0.06ms]
+(pass) preferred models fill the harness's native picker quicklist > omp interactive builders pass the quicklist as one quoted --models argument [0.03ms]
+(pass) preferred models fill the harness's native picker quicklist > omp headless builders pass the quicklist as one verbatim argv entry [0.01ms]
+(pass) preferred models fill the harness's native picker quicklist > omp omits --models cleanly for an absent or empty quicklist [0.07ms]
+(pass) preferred models fill the harness's native picker quicklist > omp keeps quicklist order and provider punctuation intact
+(pass) preferred models fill the harness's native picker quicklist > a model outside the quicklist is still what the launch runs on [0.06ms]
+
+test/doctor-orphan-daemons.test.ts:
+(pass) doctor orphaned-daemon check > a live foreign lock is reported, and an unproven owner is never killable [5.02ms]
+(pass) doctor orphaned-daemon check > a dead pid's lock is not an orphan [1.90ms]
+(pass) doctor orphaned-daemon check > the caller's own orch dir is never reported against itself [1.67ms]
+
+1 tests skipped:
+(skip) claude-hooks shim tests need the dist bundle
+
+
+5 tests failed:
+(fail) pi-bridge command-lock interception > wraps a matching locked command in acquire→release around the tool call [1.73ms]
+(fail) pi-bridge command-lock interception > blocks a concurrent orch lock run while the bridge holds the shared lock [0.60ms]
+(fail) pi-bridge command-lock interception > surfaces a present but broken settings load instead of silently disabling locks [0.96ms]
+(fail) deliverControl > does not fall back from a keys strategy to the orch channel [208.98ms]
+(fail) deliverControl > fails when claude keys fallback cannot deliver [201.74ms]
+
+ 938 pass
+ 1 skip
+ 5 fail
+ 4606 expect() calls
+Ran 944 tests across 143 files. [91.24s]

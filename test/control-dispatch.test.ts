@@ -91,23 +91,28 @@ describe("deliverControl", () => {
     expect(line.text).toBe("next slice");
   });
 
-  test("does not fall back from a keys strategy to the orch channel", () => {
+  test("does not fall back from a keys strategy to the orch channel", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target("headless", "claude-ok");
-    presence(directory, key, "claude");
+    const dir = presence(directory, key, "claude");
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
-    return expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/no pane input role/);
+
+    const outcome = await deliverControl(key, { kind: "steer", text: "hello claude" });
+    expect(outcome).toEqual({ outcome: "answer", reason: "no-pane", text: `${key} has no pane; steer does not apply.` });
+    expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
   }, 15_000);
 
-  test("fails when claude keys fallback cannot deliver", () => {
+  test("a run to a keys-strategy agent with no pane is answered, never queued on the channel", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target("headless", "claude-fail");
-    presence(directory, key, "claude");
+    const dir = presence(directory, key, "claude");
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
 
-    expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/no pane input role/);
+    const outcome = await deliverControl(key, { kind: "run", text: "hello claude" });
+    expect(outcome).toEqual({ outcome: "answer", reason: "no-pane", text: `${key} has no pane; run does not apply.` });
+    expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
   }, 15_000);
 
   test("fails unsupported steer and setModel capabilities", () => {

@@ -11,7 +11,8 @@ import { createHash } from "node:crypto";
 import { activePaneHud } from "../backends/hud.ts";
 import { createDaemonAck } from "./daemon-ack.ts";
 import { registerFleetMonitor, type FleetReadModel, type FleetStatusRenderer } from "./monitor.ts";
-import { ORCH_DIR, createAgentPresence } from "./presence.ts";
+import { createAgentPresence } from "./presence.ts";
+import { orchDir } from "../presence/writer.ts";
 import { registerAgentTools } from "./tools.ts";
 import type { HarnessApi, HarnessIdentity } from "./harness.ts";
 
@@ -55,7 +56,7 @@ export function registerHarnessBridge(
     identity,
     paneId,
     extensionHash,
-    ack: createDaemonAck(ORCH_DIR),
+    ack: createDaemonAck(orchDir()),
     reportStatus: hud.statusReporter(paneId),
   });
 
@@ -85,7 +86,7 @@ export function registerHarnessBridge(
   // generic status line so exactly one writer owns the fleet surface.
   const fleet = ui?.fleet === false
     ? undefined
-    : registerFleetMonitor(harness, ORCH_DIR, {
+    : registerFleetMonitor(harness, orchDir(), {
         ownKey: (context) => presence.ownPresenceKey(context) || undefined,
         renderStatus: ui?.renderFleetStatus,
       });

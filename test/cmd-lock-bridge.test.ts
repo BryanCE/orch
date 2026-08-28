@@ -11,10 +11,9 @@ import { readCommandLock, releaseCommandLock } from "../src/control/cmd-lock.ts"
 //   a bash tool call whose command matches a configured `locked_commands` entry,
 //   keyed by the tool-call id; pi.on("tool_execution_end", ...) releases it.
 //
-// The bridge captures ORCH_DIR from process.env at *import* time (a module-level
-// const), and `lockedCommandPatterns()` / acquire / release all target it. So the
-// temp ORCH_DIR must exist and be published into the env BEFORE the extension is
-// first imported — hence the top-level dynamic import below.
+// The bridge resolves $ORCH_DIR per call (orchDir()), so the temp directory only
+// has to be in the env before the handlers fire; the top-level import keeps the
+// settings file in place before the bridge registers anything.
 const orchDir = mkdtempSync(join(tmpdir(), "orch-cmd-lock-bridge-"));
 const previousOrchDir = process.env.ORCH_DIR;
 process.env.ORCH_DIR = orchDir;

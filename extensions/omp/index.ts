@@ -13,7 +13,7 @@
 //             switch lands one tick later rather than not at all.
 import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
-import { ORCH_DIR } from "../../src/agent/presence.ts";
+import { orchDir } from "../../src/presence/writer.ts";
 import { registerOrchSeat } from "../../src/seat/index.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HarnessApi, HarnessIdentity } from "../../src/agent/harness.ts";
@@ -29,7 +29,7 @@ function ompExtension(harness: HarnessApi): void {
   // line, /orch-view dashboard, per-agent views) ships here too — enabling omp
   // as a harness in setup/settings is the consent for this integration.
   registerOrchSeat(harness as unknown as ExtensionAPI, {
-    orchDir: ORCH_DIR,
+    orchDir: orchDir(),
     ownKey: bridge.ownKey,
   });
 }

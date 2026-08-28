@@ -6,7 +6,7 @@
 // appearing in src/agent/**, is the pair code CLAUDE.md Rule 9 forbids.
 import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
-import { ORCH_DIR } from "../../src/agent/presence.ts";
+import { orchDir } from "../../src/presence/writer.ts";
 import { registerOrchSeat } from "../../src/seat/index.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HarnessApi, HarnessIdentity } from "../../src/agent/harness.ts";
@@ -22,7 +22,7 @@ function piExtension(harness: HarnessApi): void {
   // seat (status line, /orch dashboard, per-agent views) needs pi's richer UI,
   // which is available in this harness-specific composition root.
   registerOrchSeat(harness as unknown as ExtensionAPI, {
-    orchDir: ORCH_DIR,
+    orchDir: orchDir(),
     ownKey: bridge.ownKey,
   });
 }

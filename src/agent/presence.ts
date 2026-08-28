@@ -30,7 +30,6 @@ import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { DaemonAck } from "./daemon-ack.ts";
 import type { HarnessIdentity } from "./harness.ts";
 
-export const ORCH_DIR = process.env.ORCH_DIR ?? path.join(os.homedir(), ".orch");
 
 export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */

@@ -12,6 +12,7 @@ import type { HarnessApi, HarnessContext, HarnessIdentity } from "./harness.ts";
 import { Type } from "typebox";
 import { workspaceOf } from "../policy/workspace.ts";
 import { loadConfigOrNull } from "../config.ts";
+import { orchDir } from "../presence/writer.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
 import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
 import { atomicWrite, presenceFile } from "../presence/writer.ts";
@@ -21,7 +22,6 @@ import {
   isAssistantMessageLike,
   HEARTBEAT_MS,
   LAST_TEXT_MAX,
-  ORCH_DIR,
   TASK_MAX,
   type AssistantMessageLike,
   type BridgeNotification,
@@ -195,7 +195,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         presence.writeStatus();
         const notificationEvent: BridgeNotification = {
           key: state.key,
-          workspace: workspaceOf(ORCH_DIR, state.key) ?? undefined,
+          workspace: workspaceOf(orchDir(), state.key) ?? undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
@@ -372,7 +372,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   }>();
 
   function lockedCommandPatterns(): string[] {
-    return loadConfigOrNull(ORCH_DIR)?.locked_commands ?? [];
+    return loadConfigOrNull(orchDir())?.locked_commands ?? [];
   }
 
   function bashCommand(args: unknown): string | undefined {
@@ -393,7 +393,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     presence.writeStatus();
     try {
       const holder = presence.ownPresenceKey(ctx) || `session-${process.pid}`;
-      const lock = await acquireCommandLock(ORCH_DIR, {
+      const lock = await acquireCommandLock(orchDir(), {
         holder,
         note: command,
         timeoutMs: 15 * 60 * 1000,
@@ -423,7 +423,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     if (!held) return;
     commandLocks.delete(toolCallId);
     try {
-      releaseCommandLock(ORCH_DIR, held.lock.pid, held.lock.start_token);
+      releaseCommandLock(orchDir(), held.lock.pid, held.lock.start_token);
     } catch {
       // best-effort; the lock implementation also reaps dead holders
     }
@@ -436,7 +436,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     for (const [toolCallId, held] of commandLocks) {
       commandLocks.delete(toolCallId);
       try {
-        releaseCommandLock(ORCH_DIR, held.lock.pid, held.lock.start_token);
+        releaseCommandLock(orchDir(), held.lock.pid, held.lock.start_token);
       } catch {
         // best-effort; dead-holder eviction is the backstop
       }
@@ -542,7 +542,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const notificationSummary = label ?? "";
         notify({
           key: state.key,
-          workspace: workspaceOf(ORCH_DIR, state.key) ?? undefined,
+          workspace: workspaceOf(orchDir(), state.key) ?? undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
@@ -568,7 +568,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   harness.on("session_shutdown", () => {
     for (const held of commandLocks.values()) {
       try {
-        releaseCommandLock(ORCH_DIR, held.lock.pid, held.lock.start_token);
+        releaseCommandLock(orchDir(), held.lock.pid, held.lock.start_token);
       } catch {
         // best-effort
       }

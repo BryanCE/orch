@@ -22,7 +22,7 @@ export const getColorSchemeCookie = createServerFn({ method: 'GET' }).handler(()
   return isValidScheme(cookie) ? cookie : DEFAULT_SCHEME
 })
 
-export const setColorSchemeCookie = createServerFn({ method: 'POST' })
+const setColorSchemeCookie = createServerFn({ method: 'POST' })
   .validator(z.object({ colorScheme: z.string() }))
   .handler(({ data }) => {
     setCookie(COOKIE_NAME, data.colorScheme, {
@@ -33,7 +33,7 @@ export const setColorSchemeCookie = createServerFn({ method: 'POST' })
   })
 
 // Client functions
-export function getColorScheme(): ColorSchemeId {
+function getColorScheme(): ColorSchemeId {
   if (typeof window === 'undefined') return DEFAULT_SCHEME
   const stored = localStorage.getItem(STORAGE_KEY)
   return isValidScheme(stored) ? stored : DEFAULT_SCHEME

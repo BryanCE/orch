@@ -11,10 +11,21 @@ export function processIsAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error: unknown) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const closingParen = stat.lastIndexOf(")");
+      const state = closingParen >= 0 ? stat.slice(closingParen + 2).trim().split(/\s+/, 1)[0] : undefined;
+      if (state === "Z") return false;
+    } catch {
+      // Keep the conservative answer if /proc raced or refused the read.
+      return true;
+    }
+  }
+  return true;
 }
 
 /** Read one field from a process-reporting tool; undefined when it cannot answer. */

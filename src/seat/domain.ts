@@ -10,7 +10,7 @@
 import { Data } from "effect";
 
 /** orch agent states as the daemon publishes them. */
-export type PackAgentState =
+type PackAgentState =
   | "spawning"
   | "working"
   | "blocked"

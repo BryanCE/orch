@@ -2,6 +2,7 @@ import { closeSync, openSync, readSync, statSync } from "node:fs";
 import {
   clearDaemonRuntime,
   daemonEntrypoint,
+  liveDaemonRegistration,
   daemonize,
   provenDaemonPid,
   readDaemonLock,
@@ -31,7 +32,7 @@ export interface DaemonStatus {
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
  *  A pid alone is never authority to signal — see {@link provenDaemonPid}. */
 export function daemonLockPid(directory = orchDir()): number | undefined {
-  return readDaemonLock(directory)?.pid;
+  return readDaemonLock(directory)?.pid ?? liveDaemonRegistration()?.pid;
 }
 
 export function validDaemonStatus(value: unknown): value is DaemonStatus {
@@ -271,6 +272,10 @@ async function awaitDaemonProbe(directory: string, deadline: number): Promise<Da
 
 async function startDaemon(foreground: boolean, json = false): Promise<void> {
   const directory = orchDir();
+  const global = liveDaemonRegistration();
+  if (global && global.socket !== daemonRuntimeFiles(directory).socket) {
+    die(`orchd is already running; start refused. Live daemon socket: ${global.socket}; token: ${global.token}`);
+  }
   const livePid = liveDaemonPid(directory);
   // A live lock pid might be a daemon still binding its socket; grace-poll it
   // before judging. No live lock = nothing to wait on.

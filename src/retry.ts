@@ -15,7 +15,7 @@ export interface RetryPolicy {
   backoff: number;
 }
 
-export const DEFAULT_RETRY: RetryPolicy = { attempts: 3, delayMs: 250, backoff: 3 };
+const DEFAULT_RETRY: RetryPolicy = { attempts: 3, delayMs: 250, backoff: 3 };
 
 function waitMs(policy: RetryPolicy, attempt: number): number {
   return policy.delayMs * policy.backoff ** attempt;

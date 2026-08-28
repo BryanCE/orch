@@ -11,10 +11,10 @@ import type {
   BackendCapabilities,
   BackendId,
   BackendSpawnOpts,
-  DeliverPayload,
 } from "../backend.ts";
 import { insertSpawnedRecord, selectSpawnedRecords } from "../../store/spawned-rows.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
+import { agentChannel, capture } from "../../presence/roles.ts";
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {
@@ -119,6 +119,18 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly focusable = false;
   readonly canSendKeys = false;
   readonly capabilities: BackendCapabilities = { panes: false, focusable: false, canSendKeys: false, canPruneLogs: true };
+  readonly channel = agentChannel;
+  readonly capture = capture;
+  readonly paneHost = null;
+  readonly paneInventory = null;
+  readonly paneInput = null;
+  readonly paneScreen = null;
+  readonly paneZoom = null;
+  readonly paneNaming = null;
+  readonly agentNaming = null;
+  readonly agentStatus = null;
+  readonly groupHome = null;
+  readonly groupLayout = null;
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly killer: (pid: number, signal: "SIGTERM") => void;
 
@@ -252,11 +264,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       ...handle,
       alive: this.isPidAlive(handle.pid),
     }));
-  }
-
-  /** Headless has no console UI, so it cannot deliver text. */
-  deliver(_handle: HeadlessHandle, _payload: DeliverPayload): boolean {
-    return false;
   }
 
   /** Headless has no console UI, so it cannot focus a target. */

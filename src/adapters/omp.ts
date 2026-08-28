@@ -20,7 +20,7 @@ import {
   type PiStateDetectionInput,
   type QuicklistForm,
 } from "./pi.ts";
-import type { ExtensionName } from "../bridge-bundle.ts";
+import type { ExtensionName } from "../extensions/bundles.ts";
 import type { CheckResult } from "../check-result.ts";
 import type {
   AdapterCommand,
@@ -100,7 +100,7 @@ function ompModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
 }
 
 /** Adapter for omp (@oh-my-pi/pi-coding-agent), driven through orch's omp-bridge extension. */
-export class OmpAdapter implements AgentAdapter {
+class OmpAdapter implements AgentAdapter {
   readonly id = "omp" as const;
 
   /** omp supports every D4 capability through its bridge and session files. */
@@ -171,7 +171,6 @@ export class OmpAdapter implements AgentAdapter {
   }
 
   /** Verify the extension link and bundle written by installShim. */
-  // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
     return diagnoseExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION);
   }
@@ -192,7 +191,6 @@ export class OmpAdapter implements AgentAdapter {
   }
 
   /** Link the prebuilt omp-bridge bundle into omp's extension directory. */
-  // fallow-ignore-next-line unused-class-member
   installShim(opts?: ShimInstallOpts): void {
     installExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION, opts);
   }

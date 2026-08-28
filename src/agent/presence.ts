@@ -25,6 +25,7 @@ import {
 } from "../presence/inbox.ts";
 import { isRecord, isUnknownArray, optionalString, projectRoot, type JsonRecord } from "../util.ts";
 import { createModelControl, isControlCommand } from "./model-control.ts";
+import type { AgentState } from "../adapters/adapter.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { DaemonAck } from "./daemon-ack.ts";
 import type { HarnessIdentity } from "./harness.ts";
@@ -35,7 +36,7 @@ export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */
 export const TASK_MAX = 200;
 export const HEARTBEAT_MS = 3000;
-export const INBOX_POLL_MS = 1000;
+const INBOX_POLL_MS = 1000;
 
 interface TextBlockLike {
   type: unknown;
@@ -103,7 +104,7 @@ export function isAssistantMessageLike(value: unknown): value is AssistantMessag
 
 // Orch-spawned agents use their opaque identity key. The owner's interactive
 // pane has a local pid key when no orch key is present; otherwise skip presence.
-export function computeKey(hasUI: boolean): string | undefined {
+function computeKey(hasUI: boolean): string | undefined {
   const rawKey = process.env.ORCH_AGENT_KEY;
   if (rawKey) {
     const identity = tryParseIdentity(rawKey);
@@ -161,7 +162,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     // for an agent sharing the fleet's working tree.
     worktree: optionalString(process.env.ORCH_AGENT_WORKTREE),
     branch: optionalString(process.env.ORCH_AGENT_BRANCH),
-    state: "idle" as "idle" | "working" | "blocked" | "done" | "exited" | "error" | "aborted",
+    state: "idle" as AgentState,
     lastError: undefined as string | undefined,
     model: undefined as { provider: string; id: string } | undefined,
     thinking: undefined as string | undefined,
@@ -209,7 +210,13 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       out.blockedMessage = blocked.message;
     }
     writePresenceStatus(dir, out);
-    reportStatus({ state: state.state, task: state.task, cost: state.cost });
+    // A pane HUD is best-effort and must never prevent the durable status from
+    // landing (especially on the terminal turn where the daemon needs it).
+    try {
+      reportStatus({ state: state.state, task: state.task, cost: state.cost });
+    } catch {
+      // Keep the harness alive when a plexer/status reporter is unavailable.
+    }
   }
 
   function writeResult(text: string, details: JsonRecord = {}): void {
@@ -276,11 +283,9 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       let cost = 0;
       let hasUsage = false;
       let latestText = "";
-      let hasAssistant = false;
 
       for (const entry of branch) {
         if (!isRecord(entry) || entry.type !== "message" || !isAssistantMessageLike(entry.message)) continue;
-        hasAssistant = true;
         const message = entry.message;
         const messageText = extractText(message.content);
         if (messageText.trim()) latestText = messageText;
@@ -312,7 +317,9 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       }
       // The settle event is the normal transition, but make the status resilient
       // when it is delayed: idle means the visible turn is finished.
-      if (state.state === "working" && ctx.isIdle() && hasAssistant) {
+      // An idle context is the harness's durable turn boundary even when the
+      // final turn only contained tools and has no assistant message.
+      if (state.state === "working" && ctx.isIdle()) {
         state.state = latestText.trim() ? "done" : "idle";
         state.finishedAt = new Date().toISOString();
       }

@@ -5,12 +5,7 @@ export const SUPPORTED_RANGES = {
   herdr: ">=0.8.0 <0.9.0",
 } as const;
 
-/** Short name retained for callers that treat this as the support matrix. */
-export const SUPPORTED = SUPPORTED_RANGES;
-export const SUPPORTED_PLEXER_RANGES = SUPPORTED_RANGES;
-export const SUPPORTED_VERSIONS = SUPPORTED_RANGES;
-
-export type SupportedPlexer = keyof typeof SUPPORTED_RANGES;
+type SupportedPlexer = keyof typeof SUPPORTED_RANGES;
 
 interface Semver {
   major: number;
@@ -80,9 +75,6 @@ export function supportedPlexerVersion(plexerId: string, installed: string): boo
   const range = SUPPORTED_RANGES[plexerId as SupportedPlexer];
   return range !== undefined && versionInRange(installed, range);
 }
-
-export const compareSemver = compareVersions;
-export const isSupportedVersion = supportedPlexerVersion;
 
 export function supportedRange(plexerId: string): string | undefined {
   return SUPPORTED_RANGES[plexerId as SupportedPlexer];

@@ -123,4 +123,4 @@ export function createModelControl(deps: ModelControlDeps) {
   return { applyControlCommand };
 }
 
-export type ModelControl = ReturnType<typeof createModelControl>;
+type ModelControl = ReturnType<typeof createModelControl>;

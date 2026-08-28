@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { packageRoot } from "../util.ts";
-import { daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
+import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 
 const HASH_LENGTH = 12;
 
@@ -25,6 +25,21 @@ interface LockRecord {
 }
 
 export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
+
+/** The machine-wide rendezvous record. Its endpoint paths are the only address
+ *  clients discover; the daemon's private ORCH_DIR is intentionally absent. */
+export interface DaemonRegistration {
+  readonly pid: number;
+  readonly startToken: string;
+  readonly socket: string;
+  readonly token: string;
+  readonly port: string;
+}
+
+export interface DaemonRegistrationResult {
+  readonly acquired: boolean;
+  readonly registration?: DaemonRegistration;
+}
 
 export interface DaemonCodeSkew {
   daemonHash: string;
@@ -49,6 +64,87 @@ export type SocketProbe = (socketPath: string) => boolean;
 
 function lockPath(orchDir: string): string {
   return daemonRuntimeFiles(orchDir).lock;
+}
+
+function registrationPath(): string {
+  return daemonDiscoveryFiles().registration;
+}
+
+function parseRegistration(value: unknown): DaemonRegistration | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Partial<DaemonRegistration>;
+  if (typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0
+    || typeof record.startToken !== "string" || record.startToken.length === 0
+    || typeof record.socket !== "string" || record.socket.length === 0
+    || typeof record.token !== "string" || record.token.length === 0
+    || typeof record.port !== "string" || record.port.length === 0) return undefined;
+  const pid = record.pid;
+  const startToken = record.startToken;
+  const socket = record.socket;
+  const token = record.token;
+  const port = record.port;
+  if (pid === undefined || startToken === undefined || socket === undefined || token === undefined || port === undefined) return undefined;
+  return { pid, startToken, socket, token, port };
+}
+
+/** Read registration without interpreting liveness; doctor needs to distinguish
+ *  a declared-but-dead daemon from one that is both declared and live. */
+export function readDaemonRegistration(): DaemonRegistration | null {
+  try {
+    return parseRegistration(JSON.parse(readFileSync(registrationPath(), "utf8"))) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function liveDaemonRegistration(): DaemonRegistration | null {
+  const registration = readDaemonRegistration();
+  return registration && processInstanceMatches(registration.pid, registration.startToken) ? registration : null;
+}
+
+/** Atomically claim the machine rendezvous. A recycled or dead (pid,startToken)
+ *  is evicted; a live owner always refuses and exposes its socket/token paths. */
+export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationResult {
+  const runtime = daemonRuntimeFiles(orchDir);
+  const startToken = processStartToken(process.pid);
+  if (!startToken) throw new Error("cannot register orchd without a process start token");
+  const registration: DaemonRegistration = {
+    pid: process.pid,
+    startToken,
+    socket: runtime.socket,
+    token: runtime.token,
+    port: runtime.port,
+  };
+  const file = registrationPath();
+  mkdirSync(path.dirname(file), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(file, `${JSON.stringify(registration)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      return { acquired: true, registration };
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const existing = readDaemonRegistration();
+      if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
+        return { acquired: false, registration: existing };
+      }
+      try {
+        unlinkSync(file);
+      } catch (unlinkError: unknown) {
+        if ((unlinkError as NodeJS.ErrnoException).code !== "ENOENT") return { acquired: false };
+      }
+    }
+  }
+  return { acquired: false };
+}
+
+export function releaseDaemonRegistration(): void {
+  const existing = readDaemonRegistration();
+  if (!existing || existing.pid !== process.pid || !processInstanceMatches(existing.pid, existing.startToken)) return;
+  try {
+    unlinkSync(registrationPath());
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 function socketPath(orchDir: string): string {
@@ -80,8 +176,9 @@ function processIdentityMatches(record: LockRecord): boolean {
  */
 export function provenDaemonPid(orchDir: string): number | undefined {
   const record = readLock(lockPath(orchDir));
-  if (!record?.startToken) return undefined;
-  return processInstanceMatches(record.pid, record.startToken) ? record.pid : undefined;
+  if (record) return record.startToken && processInstanceMatches(record.pid, record.startToken) ? record.pid : undefined;
+  const registration = readDaemonRegistration();
+  return registration && processInstanceMatches(registration.pid, registration.startToken) ? registration.pid : undefined;
 }
 
 function readLock(file: string): LockRecord | undefined {
@@ -245,6 +342,7 @@ export function reexecSelf(
   orchDir = resolveOrchDir(),
 ): never {
   releaseDaemonLock(orchDir);
+  releaseDaemonRegistration();
   const replacement = spawn(process.execPath, process.argv.slice(1), {
     detached: true,
     env: process.env,

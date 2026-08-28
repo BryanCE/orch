@@ -6,13 +6,13 @@ import type { AdapterId } from "../adapters/adapter.ts";
 import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { checkBackendCapabilities, checkBackendVersions } from "./backends.ts";
-import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
+import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks, checkUnrunnableTasks } from "./presence.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
 import { checkHarnessModels } from "./models.ts";
 import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./config.ts";
 import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
-import { checkDaemonLock, checkDaemonPresence, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons } from "./daemon.ts";
+import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons } from "./daemon.ts";
 import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion, type SshRunner } from "./remote.ts";
 import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
@@ -20,7 +20,7 @@ import { placementOf } from "../agent/registry.ts";
 
 export type { CheckResult } from "../check-result.ts";
 
-export async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
+async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   try {
     return await check();
   } catch (error: unknown) {
@@ -96,6 +96,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("store", "Store", () => checkStore(orchDir)),
     isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
+    isolated("unrunnable-tasks", "Unrunnable queue tasks", () => checkUnrunnableTasks(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("config", "Config validity", () => checkConfig(orchDir)),
     isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
@@ -105,6 +106,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
     isolated("notifiers", "Notifiers", () => checkNotifiers(orchDir)),
     isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
+    isolated("orchd-registration", "orchd registration", checkDaemonRegistration),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
     isolated("orchd-staleness", "orchd code", () => checkDaemonStaleness(orchDir)),
     isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),

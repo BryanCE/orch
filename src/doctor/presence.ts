@@ -92,6 +92,27 @@ export function checkUnscopedTasks(orchDir: string): CheckResult {
   };
 }
 
+/** Report tasks whose scope currently contains no live agent. This is report-only:
+ * the operator deliberately takes on, leaves, or reaps each task. */
+export function checkUnrunnableTasks(orchDir: string): CheckResult {
+  let tasks: TaskRec[];
+  try {
+    tasks = listTasks(orchDir);
+  } catch {
+    return { id: "unrunnable-tasks", label: "Unrunnable queue tasks", status: "ok", detail: "no queue" };
+  }
+  const unrunnable = tasks.filter((task) => task.state === "unrunnable");
+  if (!unrunnable.length) {
+    return { id: "unrunnable-tasks", label: "Unrunnable queue tasks", status: "ok", detail: "no unrunnable tasks" };
+  }
+  return {
+    id: "unrunnable-tasks",
+    label: "Unrunnable queue tasks",
+    status: "warn",
+    detail: `${unrunnable.length} unrunnable task${unrunnable.length === 1 ? "" : "s"} (deliberate resolution: take it on, leave it, or reap it):\n    ${unrunnable.map(describeUnscopedTask).join("\n    ")}`,
+  };
+}
+
 export async function checkStalePresence(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const entries = loadPresence(orchDir);

@@ -35,7 +35,7 @@ export interface AttemptRow {
   error: string | null;
 }
 
-export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled";
+export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled" | "unrunnable";
 
 interface RawTaskRow {
   id: string;

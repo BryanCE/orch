@@ -11,7 +11,7 @@ import * as path from "node:path";
 import type { HarnessApi, HarnessContext, HarnessIdentity } from "./harness.ts";
 import { Type } from "typebox";
 import { workspaceOf } from "../policy/workspace.ts";
-import { loadConfig } from "../config.ts";
+import { loadConfigOrNull } from "../config.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
 import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
 import { atomicWrite, presenceFile } from "../presence/writer.ts";
@@ -191,7 +191,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         atomicWrite(questionFile, { question: params.question, ts, id });
         askingPreviousState = state.state;
         state.asking = { question: truncate(params.question, 200), id, ts };
-        state.state = "blocked";
+        state.state = "asking";
         presence.writeStatus();
         const notificationEvent: BridgeNotification = {
           key: state.key,
@@ -200,7 +200,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
           oldState: askingPreviousState ?? "working",
-          newState: "blocked",
+          newState: "asking",
           task: `Q: ${params.question}`,
           ts,
         };
@@ -372,11 +372,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   }>();
 
   function lockedCommandPatterns(): string[] {
-    try {
-      return loadConfig(ORCH_DIR).locked_commands;
-    } catch {
-      return [];
-    }
+    return loadConfigOrNull(ORCH_DIR)?.locked_commands ?? [];
   }
 
   function bashCommand(args: unknown): string | undefined {
@@ -498,28 +494,41 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
 
   harness.on("agent_end", recordAgentEnd);
 
-  function completeSettledAgentRun(ctx: HarnessContext): void {
-    state.state = runText.lastFull ? "done" : "idle";
+  function completeSettledAgentRun(ctx: HarnessContext | undefined): void {
+    // A settled turn is terminal even when its assistant content is empty (for
+    // example a tool-only turn). Keep the existing done/idle vocabulary while
+    // ensuring neither shape can remain working; result extraction separately
+    // falls back to the last assistant text in the native session file.
+    const finalText = runText.runFull;
+    state.state = finalText ? "done" : "idle";
     state.finishedAt = new Date().toISOString();
-    presence.updateContextUsage(ctx);
-    if (runText.lastFull && presence.dir()) {
-      presence.writeResult(runText.lastFull);
+    try {
+      if (ctx) presence.updateContextUsage(ctx);
+      if (finalText && presence.dir()) presence.writeResult(finalText);
+      if (presence.hasPendingHandoff() && finalText) {
+        presence.deliverPendingHandoff(finalText, presence.keyOrCompute(ctx?.hasUI ?? false));
+      }
+    } catch (error: unknown) {
+      // A failing end-hook operation must not strand the agent as working. Keep
+      // the terminal state and retain a useful error for the daemon/event row.
+      state.lastError = error instanceof Error ? error.message : "settle hook failed";
+      state.state = "error";
+    } finally {
+      // writeStatus is itself best-effort, but always gets one terminal attempt
+      // in the same callback tick, including empty/error-shaped settle events.
+      presence.writeStatus();
     }
-    if (presence.hasPendingHandoff() && runText.runFull) {
-      presence.deliverPendingHandoff(runText.runFull, presence.keyOrCompute(ctx.hasUI));
-    }
-    presence.writeStatus();
   }
 
   // The settle signal fires only when the run will not auto-continue (no retry
   // or compaction continuation pending) — the real "done", unlike agent_end.
-  function settleAgentRun(_event: unknown, ctx: HarnessContext): void {
-    presence.setLastCtx(ctx);
+  function settleAgentRun(_event: unknown, ctx?: HarnessContext): void {
+    if (ctx) presence.setLastCtx(ctx);
     // agent_end already recorded an error/abort for this run — do not clobber it
-    // with a synthetic done/idle from a previous successful lastFull text.
+    // with a synthetic done from a previous successful run. Refresh
+    // context when available, but still publish the existing terminal status.
     if (state.state === "error" || state.state === "aborted") {
-      presence.updateContextUsage(ctx);
-      presence.writeStatus();
+      try { if (ctx) presence.updateContextUsage(ctx); } finally { presence.writeStatus(); }
       return;
     }
     completeSettledAgentRun(ctx);

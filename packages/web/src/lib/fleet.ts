@@ -10,7 +10,7 @@ export interface AgentCapabilities {
   canPruneLogs: boolean;
 }
 
-export const NO_CAPABILITIES: AgentCapabilities = {
+const NO_CAPABILITIES: AgentCapabilities = {
   panes: false,
   focusable: false,
   canSendKeys: false,
@@ -23,8 +23,36 @@ export interface FleetLease {
   holderAlive: boolean;
 }
 
+export interface FleetProjectionRow {
+  key: string;
+  /** Orch-minted agent id, distinct from any plexer handle in the key. */
+  agentId?: string | null;
+  paneId: string | null;
+  name: string | null;
+  agent: string | null;
+  state: string;
+  exited: boolean;
+  model: string;
+  lastText: string | null;
+  cost: number;
+  ctxPercent: number | null;
+  tokens: unknown;
+  capabilities: Partial<AgentCapabilities> | null;
+  lease: FleetLease | null;
+  leaseKnown: boolean;
+  /** Legacy plexer coordinate; retained on the wire only for routing. */
+  workspace?: string | null;
+  workspaceName?: string | null;
+  /** Orch space identity/name. These are the only values suitable for display. */
+  spaceId?: string | null;
+  spaceName?: string | null;
+  /** Immutable provenance root (pack) identity/name. */
+  rootAgentId?: string | null;
+  rootAgentName?: string | null;
+}
+
 export interface FleetAgent {
-  /** full presence key `<backend>~<workspace>~<handle>` */
+  /** Full orch identity key; never used as the agent's display name. */
   key: string;
   /** backend-native handle (herdr pane id) */
   handle: string;
@@ -51,13 +79,85 @@ export interface FleetAgent {
 }
 
 export interface Workspace {
-  /** herdr workspace id embedded in the presence key (e.g. "wD") */
+  /** Orch space id used for routing; never rendered as a plexer coordinate. */
   id: string;
-  /** human name from herdr if reachable, else the id */
+  /** Orch-owned space name, or "unscoped" when no space is assigned. */
   name: string;
-  /** url slug — the workspace id */
+  /** URL slug for the orch space id. */
   slug: string;
   agents: FleetAgent[];
+}
+
+/** Normalize daemon capabilities defensively; absent declarations mean no capability. */
+function agentCapabilities(reported: Partial<AgentCapabilities> | null): AgentCapabilities {
+  if (!reported) return NO_CAPABILITIES;
+  return {
+    panes: reported.panes === true,
+    focusable: reported.focusable === true,
+    canSendKeys: reported.canSendKeys === true,
+    canPruneLogs: reported.canPruneLogs === true,
+  };
+}
+
+/** Project one daemon row into the display-safe agent shape. Plexer coordinates are
+ * routing facts only: names come from orch's name columns, with the minted agent id
+ * as the sole agent fallback. */
+function projectAgent(row: FleetProjectionRow): FleetAgent {
+  const name = row.name?.trim() || row.agentId || "unnamed";
+  return {
+    key: row.key,
+    handle: row.paneId ?? row.key,
+    pane: row.paneId,
+    capabilities: agentCapabilities(row.capabilities),
+    name,
+    state: row.state,
+    ...(row.model ? { model: { id: row.model } } : {}),
+    ...(row.lastText ? { lastText: row.lastText } : {}),
+    cost: row.cost,
+    ...(row.tokens && typeof row.tokens === "object" ? { tokens: row.tokens as FleetAgent["tokens"] } : {}),
+    ...(row.ctxPercent !== null ? { context: { percent: row.ctxPercent } } : {}),
+    alive: !row.exited,
+    lease: row.lease && typeof row.lease === "object" ? row.lease : null,
+    leaseKnown: row.leaseKnown === true,
+  };
+}
+
+/** Build the live web fleet payload from daemon rows. Ended rows belong only to
+ * history; lease state still controls the live view's orphan bucket. */
+export function projectFleet(rows: readonly FleetProjectionRow[]): Workspace[] {
+  const spaces = new Map<string, Workspace>();
+  for (const row of rows) {
+    if (row.exited) continue;
+    const id = row.spaceId ?? "unscoped";
+    const space = spaces.get(id) ?? {
+      id,
+      name: row.spaceName?.trim() || (row.spaceId ?? "unscoped"),
+      slug: id,
+      agents: [],
+    };
+    space.agents.push(projectAgent(row));
+    spaces.set(id, space);
+  }
+  return [...spaces.values()];
+}
+
+/** Build the separate history view. Historical agents are grouped by their
+ * immutable provenance root (the pack), never by whichever lease they held. */
+export function projectHistory(rows: readonly FleetProjectionRow[]): Workspace[] {
+  const packs = new Map<string, Workspace>();
+  for (const row of rows) {
+    if (!row.exited) continue;
+    const id = row.rootAgentId ?? row.agentId ?? "unknown";
+    const pack = packs.get(id) ?? {
+      id,
+      name: row.rootAgentName?.trim() || (row.rootAgentId ? row.rootAgentId : "unknown"),
+      slug: id,
+      agents: [],
+    };
+    pack.agents.push(projectAgent(row));
+    packs.set(id, pack);
+  }
+  return [...packs.values()];
 }
 
 export function findWorkspace(list: Workspace[], slug: string): Workspace | undefined {

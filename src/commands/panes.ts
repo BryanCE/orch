@@ -10,6 +10,23 @@ import { assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent } fro
 import { openingPlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { displayWorkspace } from "./status.ts";
 import { workspaceName } from "../policy/workspace.ts";
+
+type BoundaryPlan<T> =
+  | { readonly outcome: "invoke"; readonly role: T }
+  | { readonly outcome: "answer"; readonly text: string; readonly reason: "no-pane" | "no-environment-role" };
+
+export function paneBoundary<T>(target: string, command: string, role: T | null, hasPane: boolean): BoundaryPlan<T> {
+  if (!hasPane) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${command} does not apply.` };
+  if (role === null || role === undefined) return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${command}` };
+  return { outcome: "invoke", role };
+}
+
+function renderBoundaryAnswer<T>(plan: BoundaryPlan<T>, json: boolean): boolean {
+  if (plan.outcome === "invoke") return true;
+  if (json) process.stdout.write(JSON.stringify(plan) + "\n");
+  else process.stdout.write(plan.text + "\n");
+  return false;
+}
 export function cmdPanes(args: string[]) {
   const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
@@ -38,16 +55,13 @@ export function cmdPanes(args: string[]) {
 }
 
 function requirePaneTarget(target: string, command: string): { backend: Backend; handle: string; key: string } {
-  const resolved = backendTarget(target, command);
-  if (!resolved.backend.panes) die(`orch ${command}: backend ${resolved.backend.id} lacks pane control.`);
-  return resolved;
+  return backendTarget(target, command);
 }
 
 /** Resolve a pane a command is about to mutate: a foreign-owned agent refuses without --force. */
 function requireOwnedPaneTarget(target: string, command: string, force: boolean): { backend: Backend; handle: string; key: string } {
   const resolved = backendTarget(target, command);
   assertAgentOwned(target, { key: resolved.key }, force);
-  if (!resolved.backend.panes) die(`orch ${command}: backend ${resolved.backend.id} lacks pane control.`);
   return resolved;
 }
 
@@ -59,12 +73,12 @@ export function cmdKeys(args: string[]) {
   const keys = cleanArgs.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...] [--force]");
   const { backend, handle } = requireOwnedPaneTarget(target, "keys", force);
-  if (!backend.canSendKeys) die(`backend ${backend.id} cannot send keys.`);
-  if (backend.sendKeys(handle, keys)) {
-    if (json) process.stdout.write(JSON.stringify({ target: handle, keys, sent: true }) + "\n");
-    else process.stdout.write(`Sent keys to ${handle}: ${keys.join(" ")}\n`);
-  }
-  else die(`Could not send keys to ${handle}.`);
+  const entity = resolveTarget(target);
+  const plan = paneBoundary(target, "keys", backend.paneInput, !!entity.paneId);
+  if (!renderBoundaryAnswer(plan, json)) return;
+  plan.role.sendKeys(handle, keys);
+  if (json) process.stdout.write(JSON.stringify({ target: handle, keys, sent: true }) + "\n");
+  else process.stdout.write(`Sent keys to ${handle}: ${keys.join(" ")}\n`);
 }
 
 export function cmdPeek(args: string[]) {
@@ -79,13 +93,10 @@ export function cmdPeek(args: string[]) {
   const target = positional[0];
   if (!target) die("usage: orch peek <target> [-n N] [--json]");
   const { backend, handle } = requirePaneTarget(target, "peek");
-  if (!backend.read) die(`backend ${backend.id} lacks screen reading.`);
-  let screen: string;
-  try {
-    screen = backend.read(handle, n);
-  } catch (e: unknown) {
-    die(`Could not read ${handle}: ${errorMessage(e)}`);
-  }
+  const entity = resolveTarget(target);
+  const plan = paneBoundary(target, "peek", backend.paneScreen, !!entity.paneId);
+  if (!renderBoundaryAnswer(plan, json)) return;
+  const screen = plan.role.read(handle, n);
   if (json) {
     process.stdout.write(JSON.stringify({ target, pane: handle, screen, lines: n }) + "\n");
     return;
@@ -96,7 +107,7 @@ export function cmdPeek(args: string[]) {
 
 function selectedGroups(): { backend: Backend; groups: BackendGroup[] } {
   const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
-  return { backend, groups: backend.groups?.() ?? [] };
+  return { backend, groups: [...(backend.groupHome?.list() ?? [])] };
 }
 
 export function resolveTab(target: string): BackendGroup {
@@ -116,7 +127,7 @@ export function resolveTab(target: string): BackendGroup {
   if (id.backend !== backend.id) die(`Target "${target}" belongs to backend ${id.backend}.`);
   // The identity id names the agent and carries no pane; the resolved entity's
   // paneId is the only backend handle for it.
-  const pane = backend.inventory?.().find((item) => String(item.handle) === ent.paneId);
+  const pane = backend.paneInventory?.list().find((item) => String(item.handle) === ent.paneId);
   const found = groups.find((group) => group.id === (pane?.group ?? null));
   if (!found) die(`No group found for target "${target}".`);
   return found;
@@ -156,12 +167,60 @@ export function cmdTabs(args: string[]) {
 /** Refuse a group-wide mutation while any pane in the group belongs to another orchestrator. */
 function assertGroupAgentsOwned(backend: Backend, group: string, force: boolean): void {
   if (force) return;
-  const handles = new Set((backend.inventory?.() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
+  const handles = new Set((backend.paneInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
   for (const record of spawnedRecords().values()) {
     if (record.owner && record.handle !== undefined && handles.has(String(record.handle)) && !ownsAgent(record)) {
       die(`Group ${group} holds agent ${record.name ?? record.pane} owned by ${record.owner}. Use --force to override.`);
     }
   }
+}
+
+function parseTabNewArgs(args: string[]): { label: string | null; workspace: string | null; cwd: string } {
+  let label: string | null = null;
+  let workspace: string | null = null;
+  let cwd = process.cwd();
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--label") label = args[++index] ?? null;
+    else if (args[index] === "--workspace") workspace = args[++index] ?? null;
+    else if (args[index] === "--cwd") cwd = args[++index] ?? cwd;
+  }
+  return { label, workspace, cwd };
+}
+
+function cmdTabNew(rest: string[], json: boolean, backend: Backend): void {
+  const parsed = parseTabNewArgs(rest);
+  const { label, cwd } = parsed;
+  const workspace = parsed.workspace ?? backend.currentIdentity?.()?.workspace ?? null;
+  if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
+  const created = backend.groupHome!.create({ workspace, cwd, label });
+  if (json) process.stdout.write(JSON.stringify(created) + "\n");
+  else process.stdout.write(`Created group ${created.group.id} "${created.group.label}" - root handle ${String(created.rootHandle)}\n`);
+  backend.close(created.rootHandle);
+}
+
+function cmdTabRename(target: string | undefined, label: string | undefined, json: boolean, backend: Backend): void {
+  if (!target || !label) die("usage: orch tab rename <tab_id|label> <new-label>");
+  const tab = resolveTab(target);
+  backend.groupHome!.rename(tab.id, label);
+  if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
+  else process.stdout.write(`${tab.id}: "${tab.label}" -> "${label}"\n`);
+}
+
+function cmdTabClose(target: string | undefined, force: boolean, json: boolean, backend: Backend): void {
+  if (!target) die("usage: orch tab close <tab_id|label> [--force]");
+  const tab = resolveTab(target);
+  assertGroupAgentsOwned(backend, tab.id, force);
+  backend.groupHome!.close(tab.id);
+  if (json) process.stdout.write(JSON.stringify({ tab: tab.id, closed: true }) + "\n");
+  else process.stdout.write(`Closed group ${tab.id} "${tab.label}".\n`);
+}
+
+function cmdTabFocus(target: string | undefined, json: boolean, backend: Backend): void {
+  if (!target) die("usage: orch tab focus <tab_id|label>");
+  const tab = resolveTab(target);
+  backend.groupHome!.focus(tab.id);
+  if (json) process.stdout.write(JSON.stringify({ tab: tab.id, focused: true }) + "\n");
+  else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
 }
 
 export function cmdTab(args: string[]) {
@@ -170,58 +229,14 @@ export function cmdTab(args: string[]) {
   const cleanArgs = args.filter((arg) => arg !== "--json" && arg !== "--force");
   const sub = cleanArgs[0];
   const rest = cleanArgs.slice(1);
-  if (sub === "new") {
-    let label: string | null = null;
-    let workspace: string | null = null;
-    let cwd = process.cwd();
-    for (let i = 0; i < rest.length; i++) {
-      if (rest[i] === "--label") label = rest[++i]!;
-      else if (rest[i] === "--workspace") workspace = rest[++i]!;
-      else if (rest[i] === "--cwd") cwd = rest[++i]!;
-    }
-    const { backend } = selectedGroups();
-    workspace ??= backend.currentIdentity?.()?.workspace ?? null;
-    if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
-    if (!backend.createGroup) die(`backend ${backend.id} lacks group creation.`);
-    try {
-      const r = backend.createGroup({ workspace, cwd, label });
-      if (json) process.stdout.write(JSON.stringify(r) + "\n");
-      else process.stdout.write(`Created group ${r.group.id} "${r.group.label}" - root handle ${String(r.rootHandle)}\n`);
-      backend.close(r.rootHandle);
-    } catch (e: unknown) {
-      die(`group new failed: ${errorMessage(e)}`);
-    }
-  } else if (sub === "rename") {
-    const [t, label] = rest;
-    if (!t || !label) die("usage: orch tab rename <tab_id|label> <new-label>");
-    const tab = resolveTab(t);
-    const { backend } = selectedGroups();
-    if (backend.renameGroup?.(tab.id, label)) {
-      if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
-      else process.stdout.write(`${tab.id}: "${tab.label}" -> "${label}"\n`);
-    } else die(`Could not rename group ${tab.id}.`);
-  } else if (sub === "close") {
-    const t = rest[0];
-    if (!t) die("usage: orch tab close <tab_id|label> [--force]");
-    const tab = resolveTab(t);
-    const { backend } = selectedGroups();
-    assertGroupAgentsOwned(backend, tab.id, force);
-    if (backend.closeGroup?.(tab.id)) {
-      if (json) process.stdout.write(JSON.stringify({ tab: tab.id, closed: true }) + "\n");
-      else process.stdout.write(`Closed group ${tab.id} "${tab.label}".\n`);
-    } else die(`Could not close group ${tab.id}.`);
-  } else if (sub === "focus") {
-    const t = rest[0];
-    if (!t) die("usage: orch tab focus <tab_id|label>");
-    const tab = resolveTab(t);
-    const { backend } = selectedGroups();
-    if (backend.focusGroup?.(tab.id)) {
-      if (json) process.stdout.write(JSON.stringify({ tab: tab.id, focused: true }) + "\n");
-      else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
-    } else die(`Could not focus group ${tab.id}.`);
-  } else {
-    die("usage: orch tab new|rename|close|focus ...  (orch tabs to list)");
-  }
+  const { backend } = selectedGroups();
+  const role = backend.groupHome;
+  if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" }, json); return; }
+  if (sub === "new") cmdTabNew(rest, json, backend);
+  else if (sub === "rename") cmdTabRename(rest[0], rest[1], json, backend);
+  else if (sub === "close") cmdTabClose(rest[0], force, json, backend);
+  else if (sub === "focus") cmdTabFocus(rest[0], json, backend);
+  else die("usage: orch tab new|rename|close|focus ...  (orch tabs to list)");
 }
 
 export function cmdFocus(args: string[]) {
@@ -230,10 +245,12 @@ export function cmdFocus(args: string[]) {
   const target = args.find((arg) => arg !== "--json" && arg !== "--force");
   if (!target) die("usage: orch focus <target> [--force] [--json]");
   const { backend, handle } = requireOwnedPaneTarget(target, "focus", force);
-  if (backend.focus(handle)) {
-    if (json) process.stdout.write(JSON.stringify({ target: handle, focused: true }) + "\n");
-    else process.stdout.write(`Focused ${handle}.\n`);
-  } else die(`Could not focus ${handle}.`);
+  const entity = resolveTarget(target);
+  const plan = paneBoundary(target, "focus", backend.paneInput, !!entity.paneId);
+  if (!renderBoundaryAnswer(plan, json)) return;
+  plan.role.focus(handle);
+  if (json) process.stdout.write(JSON.stringify({ target: handle, focused: true }) + "\n");
+  else process.stdout.write(`Focused ${handle}.\n`);
 }
 
 export function cmdZoom(args: string[]) {
@@ -250,12 +267,13 @@ export function cmdZoom(args: string[]) {
   const target = positional[0];
   if (!target) die("usage: orch zoom <target> [--on|--off] [--force]  (default: toggle)");
   const { backend, handle } = requireOwnedPaneTarget(target, "zoom", force);
-  if (!backend.zoom) die(`backend ${backend.id} lacks zoom.`);
+  const entity = resolveTarget(target);
+  const plan = paneBoundary(target, "zoom", backend.paneZoom, !!entity.paneId);
+  if (!renderBoundaryAnswer(plan, json)) return;
   const zoomMode = mode === "--on" ? "on" : mode === "--off" ? "off" : "toggle";
-  if (backend.zoom(handle, zoomMode)) {
-    if (json) process.stdout.write(JSON.stringify({ target: handle, mode: zoomMode, zoomed: true }) + "\n");
-    else process.stdout.write(`Zoom ${zoomMode} on ${handle}.\n`);
-  } else die(`Could not zoom ${handle}.`);
+  plan.role.setZoom(handle, zoomMode);
+  if (json) process.stdout.write(JSON.stringify({ target: handle, mode: zoomMode, zoomed: true }) + "\n");
+  else process.stdout.write(`Zoom ${zoomMode} on ${handle}.\n`);
 }
 
 /** Where a pane should land in a group, ignoring the pane itself — a pane
@@ -288,6 +306,8 @@ export function cmdMove(args: string[]) {
   if (!target || (!tab && !newTab))
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
   const { backend, handle } = requireOwnedPaneTarget(target, "move", force);
+  const role = backend.groupHome;
+  if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group move" }, json); return; }
   try {
     // Default: land on the destination tab's biggest pane so it stays balanced
     // instead of stacking off one edge. An explicit --split still wins.
@@ -298,8 +318,7 @@ export function cmdMove(args: string[]) {
       split = placement.split;
       against = placement.targetPane;
     }
-    const moved = newTab ? backend.moveToNewGroup?.(handle, label) : backend.moveToGroup?.(handle, groupId!, split as "down" | "right", against);
-    if (!moved) die(`move failed: backend ${backend.id} rejected the move.`);
+    role.move({ handle, group: newTab ? null : groupId!, split: split as "down" | "right", against, label });
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
     else process.stdout.write(`Moved ${handle} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {

@@ -30,6 +30,11 @@ export function resetInbox(directory: string): void {
   } catch { /* best-effort */ }
 }
 
+/** Append one orch control message to the inbox. Delivery roles own failure semantics. */
+export function appendInbox(directory: string, message: Record<string, unknown>): void {
+  appendFileSync(inboxPath(directory), `${JSON.stringify(message)}\n`);
+}
+
 /**
  * Atomically claim the inbox and return its lines.
  *

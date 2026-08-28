@@ -2,9 +2,9 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { readDaemonLock } from "./lifecycle.ts";
+import { liveDaemonRegistration, readDaemonLock } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
-import { readPortFile } from "../presence/socket-client.ts";
+import { readPortPath } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
 import { getOrCreateSessionAgent, isLiveAgentIdentity, type HostOs, type SessionAgentIdentity } from "../store/agent-rows.ts";
@@ -161,6 +161,8 @@ export function announceUnleasedAgents(
 }
 
 function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {
+  const registration = liveDaemonRegistration();
+  if (registration) return { socket: registration.socket, port: registration.port, token: registration.token };
   const files = daemonRuntimeFiles(orchDir);
   return { socket: files.socket, port: files.port, token: files.token };
 }
@@ -445,7 +447,7 @@ function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket
  *  liveness unknown, and callers must not act as if the daemon were dead. */
 const NOT_LISTENING_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
 
-export type DialSilence = "not-listening" | "unreachable";
+type DialSilence = "not-listening" | "unreachable";
 
 function silenceOf(error: unknown): DialSilence {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
@@ -478,7 +480,7 @@ async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket
   const paths = endpointPaths(orchDir);
   const unix = await dialEndpoint(paths.socket, timeoutMs);
   if (!stayedSilent(unix)) return unix;
-  const loopback = await dialEndpoint(readPortFile(orchDir), timeoutMs);
+  const loopback = await dialEndpoint(readPortPath(paths.port), timeoutMs);
   if (!stayedSilent(loopback)) return loopback;
   if (unix === "not-listening" && loopback === "not-listening") throw new DaemonAbsentError(orchDir);
   throw new DaemonUnreachableError("connect");
@@ -684,7 +686,7 @@ export async function rpcCall(
  *  `0600` token file IS the credential, so there is nothing else to enroll. The session
  *  is this process's parent — the shell or harness that outlives one `orch` invocation. */
 export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<HelloResponse> {
-  const token = readFileSync(daemonRuntimeFiles(orchDir).token, "utf8").trim();
+  const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
   const harness = configuredHarness
     ?? (process.env.PI_CODING_AGENT ? "pi" : undefined)

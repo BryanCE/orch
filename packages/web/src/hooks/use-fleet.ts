@@ -4,7 +4,7 @@ import { useLiveQueryInvalidation } from "@/hooks/use-live-query-invalidation";
 import type { Workspace } from "@/lib/fleet";
 import { getFleet } from "@/server/orch";
 
-export const FLEET_QUERY_KEY = ["fleet"] as const;
+const FLEET_QUERY_KEY = ["fleet"] as const;
 
 /**
  * Fleet snapshots are refreshed only when the daemon SSE stream changes. A daemon

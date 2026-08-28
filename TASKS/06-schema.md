@@ -341,6 +341,33 @@ END;
 
 ---
 
+## Current sqlite_master inventory
+
+A fresh store contains exactly these current objects. The operational tables are
+still used by the row owners under `src/store/`; they are part of this one
+schema (not a second legacy schema) until their callers are replaced.
+
+**Tables:** `ownership`, `outbox`, `spawned`, `catalogues`, `events`, `runs`,
+`harnesses`, `plexers`, `hosts`, `host_plexers`, `spaces`, `agents`,
+`agent_worktrees`, `agent_endings`, `agent_processes`, `agent_plexers`,
+`agent_handles`, `agent_spaces`, `agent_tunings`, `agent_leases`,
+`space_plexers`, `pack_plexers`, `tasks`, `task_cancellations`,
+`task_attempts`, `pack_intakes`.
+
+**Indexes:** `outbox_pending`, `runs_agent_started`, `one_install`,
+`one_live_process`, `one_handle`, `one_space`, `one_tuning`, `one_lease`,
+`one_space_home`, `one_pack_home`, `one_intake`, `one_open_attempt`,
+`agents_by_pack`, `agents_by_spawner`, `leases_by_orch`, `tasks_by_agent`,
+`tasks_by_pack`, `tasks_by_space`, `tasks_by_enqueuer`, `attempts_running`.
+
+**View:** `task_states`.
+
+**Triggers:** `agent_handles_no_overlap`, `agent_processes_no_overlap`,
+`agent_spaces_no_overlap`, `agent_tunings_no_overlap`,
+`agent_leases_no_overlap`, `space_plexers_no_overlap`,
+`pack_plexers_no_overlap`, `host_plexers_no_overlap`,
+`task_attempts_no_overlap`, `pack_intakes_no_overlap`.
+
 ## Why each table is where it is
 
 **`agents` holds only what cannot vary.** `id`, `spawned_by`, `root_agent_id`, `harness_id`,
@@ -510,5 +537,5 @@ Nothing in the schema. Two items sit outside it:
 
 - **`queue.max_retries` is policy, not model** — the view reports `failed`; how many attempts
   a task gets before it stays that way belongs in `settings.json` next to the pack cap.
-- **`D10` lock-delay** — the cooldown after lease expiry is designed as a rule but has no
-  number and no home yet.
+- **`D10` lock-delay** — dropped: C4a's monotonic lease id already fences a woken zombie, and
+  expiry transfers nothing (C1). No cooldown exists.

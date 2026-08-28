@@ -59,6 +59,15 @@ describe("command workspace fields", () => {
     expect(entityWorkspace(current)).not.toBe("key-workspace");
   }, 30_000);
 
+  test("skipBackends keeps the authoritative presence entity shape", () => {
+    const { orchDir, key } = presenceFixture();
+    process.env.ORCH_DIR = orchDir;
+
+    expect(buildEntities({ skipBackends: true })).toEqual([
+      expect.objectContaining({ key, paneId: "999999", presenceOnly: true, backend: "headless", workspace: "reported-workspace" }),
+    ]);
+  });
+
   test("status reports a mixed pi and Claude fleet with the same identity fields", () => {
     const { orchDir } = presenceFixture();
     const claudeKey = "headless~other-key~1000000";

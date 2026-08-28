@@ -54,6 +54,12 @@ describe("commands/status", () => {
     // The shared row is consumed by both table and JSON renderers.
     expect(statusRowFromView(view, {})).toMatchObject({ state: "exited", alive: false });
   });
+  test("asking presence is surfaced as a question while still reporting live state", () => {
+    const entity = { ...seededEntity, presence: { ...seededEntity.presence, status: { ...seededEntity.presence?.status, state: "working", asking: { question: "Need approval" }, task: "ignored task" } } } as unknown as Entity;
+    const view = deriveView(entity, new Map());
+    expect(view).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval" });
+    expect(statusRowFromView(view, {})).toMatchObject({ state: "asking", task: "Q: Need approval", alive: true });
+  });
   test("shared status row carries presence-derived fields", () => {
     const view = deriveView(seededEntity, new Map());
     const row = statusRowFromView(view, {});

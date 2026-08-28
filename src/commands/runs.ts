@@ -8,14 +8,14 @@ import { die } from "./target.ts";
 const USAGE = "usage: orch runs [<target>] [-n <count>] [--json]";
 
 /** Format an ISO timestamp for a compact, deterministic human-readable table cell. */
-export function formatRunStarted(timestamp: string): string {
+function formatRunStarted(timestamp: string): string {
   const when = new Date(timestamp);
   if (!Number.isFinite(when.getTime())) return "?";
   return when.toISOString().replace("T", " ").slice(0, 19);
 }
 
 /** A running row has no duration yet; never turn that into a misleading zero. */
-export function formatRunDuration(run: Pick<RunRecord, "startedAt" | "finishedAt">): string {
+function formatRunDuration(run: Pick<RunRecord, "startedAt" | "finishedAt">): string {
   if (!run.finishedAt) return "running";
   const started = new Date(run.startedAt).getTime();
   const finished = new Date(run.finishedAt).getTime();

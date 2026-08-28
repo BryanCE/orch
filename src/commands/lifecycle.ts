@@ -1,15 +1,14 @@
 import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as path from "node:path";
-import { buildExtensionBundle, EXTENSION_NAMES } from "../bridge-bundle.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
-import { buildEntities, recipientFor, recipientLabel, resolvePane } from "../entities.ts";
+import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { loadPresence, orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
 import { writeSpawnedName, type SpawnedRecord } from "../store/spawned-rows.ts";
 import { openStore } from "../store/connection.ts";
-import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
+import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import type { LifecycleVerb } from "../adapters/adapter.ts";
@@ -51,8 +50,19 @@ export function cmdWait(args: string[]) {
   const target = positional[0];
   if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");
   const { backend, handle } = backendTarget(target, "wait");
-  if (!backend.waitAgentStatus) die(`backend ${backend.id} lacks agent status waiting.`);
-  if (!backend.waitAgentStatus(handle, status, timeout)) die(`wait for ${handle} -> "${status}" failed/timed out.`);
+  const entity = resolveTarget(target);
+  if (!entity.paneId) {
+    if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason: "no-pane", text: `${target} has no pane; wait does not apply.` }) + "\n");
+    else process.stdout.write(`${target} has no pane; wait does not apply.\n`);
+    return;
+  }
+  const role = backend.agentStatus;
+  if (!role) {
+    if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason: "no-environment-role", text: "this pane environment does not provide wait" }) + "\n");
+    else process.stdout.write("this pane environment does not provide wait\n");
+    return;
+  }
+  role.wait(handle, status, timeout);
   if (json) process.stdout.write(JSON.stringify({ target: handle, status, reached: true }) + "\n");
   else process.stdout.write(`${handle} reached "${status}".\n`);
 }
@@ -133,7 +143,7 @@ export async function cmdNew(args: string[]): Promise<void> {
 }
 
 export function paneForeground(backend: Backend, handle: string): PaneForeground {
-  return backend.paneForeground?.(handle) ?? NO_PANE_FOREGROUND;
+  return backend.paneInput?.foreground(handle) ?? NO_PANE_FOREGROUND;
 }
 
 interface ReloadResult {
@@ -178,11 +188,10 @@ export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenc
     if (typeof old?.pid !== "number") {
       return { pane, ok: false, reason: errorMessage("no bridge status.json pid to verify reload") };
     }
-    if (!backend.sendKeys(pane, ["Escape"])) return { pane, ok: false, reason: errorMessage("escape failed") };
+    backend.paneInput?.sendKeys(pane, ["Escape"]);
     sleepMs(500);
-    if (!backend.deliver(pane, { kind: "run", text: reloadText })) {
-      return { pane, ok: false, reason: errorMessage(`${reloadText} failed`) };
-    }
+    if (!backend.paneInput) throw new Error("target environment has no pane input role");
+    backend.paneInput.submit(pane, reloadText);
     for (let i = 0; i < 60; i++) {
       sleepMs(500);
       const st = readPresenceStatus(statusPath);
@@ -204,9 +213,10 @@ function touchReloadSignal(): void {
 function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
   const statusPath = path.join(presenceAgentDir(presenceKey), STATUS_FILE);
   const oldPid = readPresenceStatus(statusPath)?.pid ?? null;
-  backend.sendKeys(pane, ["Escape"]);
+  backend.paneInput?.sendKeys(pane, ["Escape"]);
   sleepMs(500);
-  backend.deliver(pane, { kind: "run", text: quitText });
+  if (!backend.paneInput) throw new Error("target environment has no pane input role");
+  backend.paneInput.submit(pane, quitText);
   let shellSeen = false;
   for (let i = 0; i < 16; i++) {
     sleepMs(500);
@@ -216,7 +226,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
     process.stderr.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
-  backend.deliver(pane, { kind: "run", text: cmd });
+  backend.paneInput.submit(pane, cmd);
   for (let i = 0; i < 40; i++) {
     sleepMs(500);
     const st = readPresenceStatus(statusPath);
@@ -241,11 +251,6 @@ export async function cmdReload(args: string[]): Promise<void> {
   // reload.signal (SIGNALED) for config/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
-  try {
-    for (const name of EXTENSION_NAMES) buildExtensionBundle(packageRoot(), name);
-  } catch (error: unknown) {
-    process.stderr.write(`warning: could not rebuild extension bundles: ${errorMessage(error)}\n`);
-  }
   // A reload exists to pick up new code, so stale deployments redeploy first.
   await refreshStaleShims(orchDir());
   const results: ReloadResult[] = [];
@@ -260,7 +265,7 @@ export async function cmdReload(args: string[]): Promise<void> {
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
       // No console to type `/reload` into leaves only the daemon, which owns
       // every lifecycle mechanism a backend does or does not have.
-      results.push(backend.canSendKeys
+      results.push(backend.paneInput
         ? reloadPaneAndAwaitBridge(backend, String(handle), ent.key, reloadCmd.text)
         : await lifecycleThroughDaemon("reload", ent.key, String(handle)));
     } catch (error: unknown) {
@@ -309,7 +314,7 @@ export async function cmdRestart(args: string[]): Promise<void> {
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
     // A pane is quit and relaunched by typing into its shell; a detached agent
     // has no shell, so the daemon rules on what restart means for it.
-    if (!backend.canSendKeys) {
+    if (!backend.paneInput) {
       const restarted = await lifecycleThroughDaemon("restart", ent.key, String(handle));
       if (restarted.ok) { ok++; if (!json) process.stdout.write(`${restarted.pane}: bridge live.\n`); }
       else process.stderr.write(`${restarted.pane}: ${restarted.reason ?? "restart failed"}\n`);
@@ -339,7 +344,9 @@ function renameAgent(
   }
   assertNameFree(name, record.workspace ?? "");
   if (!writeSpawnedName(orchDir(), key, name)) return false;
-  backend.renameAgent?.(handle, name);
+  const role = backend.agentNaming;
+  if (!role) throw new Error("target environment has no agent naming role");
+  role.renameAgent(handle, name);
   return true;
 }
 
@@ -359,7 +366,11 @@ export function cmdRename(args: string[]) {
   // --pane relabels the backend's pane chrome instead and leaves the name alone.
   let renamed: boolean | undefined;
   try {
-    renamed = paneLabel ? backend.renamePane?.(handle, name) : renameAgent(backend, handle, key, name, records);
+    if (paneLabel) {
+      if (!backend.paneNaming) throw new Error("target environment has no pane naming role");
+      backend.paneNaming.renamePane(handle, name);
+      renamed = true;
+    } else renamed = renameAgent(backend, handle, key, name, records);
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }
@@ -387,6 +398,13 @@ function recordedProcess(key: string): RecordedProcess | null {
   }
 }
 
+/** Whether the recorded process instance is still present after a close attempt. */
+function recordedProcessRemains(recorded: RecordedProcess): boolean {
+  if (typeof recorded.startToken !== "string") return processIsAlive(recorded.pid);
+  for (let attempt = 0; attempt < 40 && processInstanceMatches(recorded.pid, recorded.startToken); attempt++) sleepMs(50);
+  return processInstanceMatches(recorded.pid, recorded.startToken);
+}
+
 export function cmdClose(args: string[]) {
   const usage = "usage: orch close <target>... | --all [--stream] [--json]";
   const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
@@ -397,7 +415,7 @@ export function cmdClose(args: string[]) {
   if (positional.some((argument) => argument.startsWith("--"))) die(usage);
   if (!all && !positional.length) die(usage);
 
-  const targets: { backend: Backend | null; handle: BackendHandle; key: string; presencePid?: number; recorded: RecordedProcess | null }[] = [];
+  const targets: { backend: Backend | null; handle: BackendHandle; key: string; recorded: RecordedProcess | null }[] = [];
   if (all) {
     // --all sweeps every orch-managed record, regardless of owner or spawner.
     // Dead and headless records are cleanup targets too.
@@ -411,12 +429,10 @@ export function cmdClose(args: string[]) {
       // Ending is never gated by ownership or provenance; unmanaged panes have no row.
       const backend = getBackend(record.backend ?? "") ?? null;
       if (!backend) process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
-      const presence = loadPresence().get(record.pane);
       targets.push({
         backend,
         handle: record.handle ?? record.pane,
         key: record.pane,
-        presencePid: presence?.status?.pid,
         recorded: recordedProcess(record.pane),
       });
     }
@@ -424,12 +440,10 @@ export function cmdClose(args: string[]) {
   for (const target of positional) {
     const resolved = resolveLifecycleTarget(target);
     // Close is an unconditional ending operation: ownership and provenance never gate it.
-    const status = resolved.entity.presence?.status;
     targets.push({
       backend: resolved.backend,
       handle: resolved.handle,
       key: resolved.record.pane,
-      presencePid: status?.pid,
       recorded: recordedProcess(resolved.record.pane),
     });
   }
@@ -441,49 +455,66 @@ export function cmdClose(args: string[]) {
     if (seen.has(target.key)) continue;
     seen.add(target.key);
     let signalled = false;
+    let closeFailed = false;
     let closedByBackend = false;
     const recorded = target.recorded;
     const recordedLive = recorded !== null && processIsAlive(recorded.pid);
-    const identityProven = recordedLive
+    const identityProven = recorded !== null
+      && recordedLive
       && typeof recorded.startToken === "string"
       && processInstanceMatches(recorded.pid, recorded.startToken);
+    const paneHost = target.backend?.paneHost;
+    const paneCapable = (paneHost !== null && paneHost !== undefined) || target.backend?.capabilities.panes === true;
 
-    if (identityProven) {
-      try { process.kill(recorded.pid, "SIGTERM"); signalled = true; } catch {}
-    } else if (target.backend?.capabilities.panes) {
-      // Closing a plexer pane ends its own PTY. Unlike a PID signal, that cannot
-      // accidentally target an unrelated process instance after PID recycling.
-      try { closedByBackend = target.backend.close(target.handle); } catch {}
-    }
-
-    const watchedPids = new Set<number>();
-    if (target.recorded && processIsAlive(target.recorded.pid)) watchedPids.add(target.recorded.pid);
-    if (target.presencePid !== undefined && processIsAlive(target.presencePid)) watchedPids.add(target.presencePid);
-    if (signalled) {
-      for (let attempt = 0; attempt < 10 && [...watchedPids].some(processIsAlive); attempt++) sleepMs(50);
-    }
-    const stillAlive = [...watchedPids].some(processIsAlive);
-    if (stillAlive) {
-      if (!json) {
-        const reason = recordedLive && !identityProven
-          ? "recorded process identity could not be proven"
-          : identityProven ? "process is still running" : "live process identity could not be proven";
-        process.stderr.write(`Could not close ${String(target.handle)}: ${reason}.\n`);
+    if (identityProven && recorded) {
+      // Signal only the recorded process instance. Reaping waits until that
+      // same (pid,start_token) instance is gone, never merely until kill(2)
+      // accepts the request.
+      try { process.kill(recorded.pid, "SIGTERM"); signalled = true; } catch { closeFailed = true; }
+      if (signalled && recordedProcessRemains(recorded)) closeFailed = true;
+    } else if (paneCapable) {
+      // A pane host owns closure when process identity is unavailable. Its
+      // close throws on failure; the legacy backend boolean is checked too.
+      try {
+        if (paneHost) {
+          paneHost.close(target.handle);
+          closedByBackend = true;
+        } else if (target.backend?.close(target.handle)) {
+          closedByBackend = true;
+        } else {
+          closeFailed = true;
+        }
+      } catch {
+        closeFailed = true;
       }
-      continue;
+    } else if (recordedLive && typeof recorded?.startToken !== "string") {
+      // A live process without a launch token cannot be safely signalled or
+      // reaped: losing the row would make that process unreachable.
+      closeFailed = true;
     }
 
-    // A plexer pane is safe to clean after process death. A pane-less backend's
-    // close mechanism may itself signal a presence PID, so core never calls it.
-    if (!closedByBackend && target.backend?.capabilities.panes) {
-      try { closedByBackend = target.backend.close(target.handle); } catch {}
+    // A backend's successful close is not proof when the plexer still lists
+    // the handle. Verify after every close attempt, including a process kill.
+    if (!closeFailed && paneCapable) {
+      try {
+        const inventory = target.backend?.paneInventory;
+        const list = inventory ? inventory.list() : target.backend?.inventory?.();
+        if (list?.some((entry) => entry.handle === target.handle)) closeFailed = true;
+      } catch {
+        closeFailed = true;
+      }
+    }
+
+    if (closeFailed) {
+      process.stderr.write(`Could not close ${String(target.handle)}; process or pane remains registered.\n`);
+      continue;
     }
     reapSpawnedRecord(target.key);
     ok++;
     closed.push(String(target.handle));
     if (!json) process.stdout.write(`Closed ${String(target.handle)}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
   }
-  const targetCount = targets.length;
+  const targetCount = seen.size;
   if (all && !targetCount && !json) process.stdout.write("No fleet agents to close.\n");
   if (stream) {
     let pids: number[] = [];
@@ -505,11 +536,19 @@ export function cmdAbort(args: string[]) {
   if (!target) die("usage: orch abort <target> [--force] [--json]");
   // Abort is an unconditional ending operation: resolve from orch's registry so
   // a foreign-workspace target is still reachable, and never apply owner gates.
-  const { backend, handle } = resolveLifecycleTarget(target);
-  if (!backend.canSendKeys) die(`backend ${backend.id} cannot send keys.`);
-  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${String(handle)}.`);
+  const { backend, handle, entity } = resolveLifecycleTarget(target);
+  const noPane = (!entity.paneId || !backend.paneInventory) && !backend.canSendKeys;
+  if (noPane || (!backend.paneInput && !backend.canSendKeys)) {
+    const reason = noPane ? "no-pane" : "no-environment-role";
+    const text = noPane ? `${target} has no pane; abort does not apply.` : "this pane environment does not provide abort";
+    if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason, text }) + "\n");
+    else process.stdout.write(text + "\n");
+    return;
+  }
+  const sendKeys = backend.paneInput?.sendKeys ?? ((pane: BackendHandle, keys: readonly string[]) => { if (!backend.sendKeys(pane, keys)) throw new Error(`Could not send keys to ${String(pane)}.`); });
+  sendKeys(handle, ["Escape"]);
   sleepMs(500);
-  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${String(handle)}.`);
+  sendKeys(handle, ["Escape"]);
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
   else process.stdout.write(`Aborted ${String(handle)}.\n`);
 }

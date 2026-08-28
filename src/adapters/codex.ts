@@ -138,7 +138,6 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Codex has no proven blocking answer protocol. */
-  // fallow-ignore-next-line unused-class-member
   answer(_request: AnswerRequest): AdapterCommand | undefined {
     return undefined;
   }
@@ -182,7 +181,6 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Register the orch notify shim as codex's completion writer (D2/D2a). */
-  // fallow-ignore-next-line unused-class-member
   installShim(): void {
     installCodexNotifyShim(packageRoot());
   }

@@ -50,7 +50,7 @@ export interface FleetReadModel {
 /** How the status line spells the fleet; a harness with a themed UI substitutes its own. */
 export type FleetStatusRenderer = (context: HarnessContext, agents: readonly FleetAgentRow[]) => string;
 
-export function countFleetStates(agents: readonly FleetAgentRow[]): { working: number; blocked: number; done: number; failed: number } {
+function countFleetStates(agents: readonly FleetAgentRow[]): { working: number; blocked: number; done: number; failed: number } {
   let working = 0, blocked = 0, done = 0, failed = 0;
   for (const agent of agents) {
     if (agent.state === "working") working += 1;
@@ -167,7 +167,9 @@ export function createFleetMonitor(orchDir: string, options: FleetMonitorOptions
     context.ui.notify(`${agentLabel(event)}: ${truncate(detail, TASK_WIDTH)}`, event.newState === "blocked" ? "warning" : "error");
   }
 
-  subscription = subscribeEvents(orchDir, { since: 0 }, (value) => {
+  // Live-only on initial connection: a plain pi session must not replay durable history.
+  // Reconnects still resume from the last delivered sequence inside subscribeEvents.
+  subscription = subscribeEvents(orchDir, {}, (value) => {
     if (!isNotifyEvent(value)) return;
     record(value);
     announce(value);

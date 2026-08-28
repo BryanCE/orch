@@ -3,6 +3,8 @@ import { isBridgeExtensionStale } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { agentById } from "../store/agent-rows.ts";
+import { currentSpace } from "../store/interval-rows.ts";
+import { openStore } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
@@ -115,18 +117,31 @@ function ownerCell(row: Pick<StatusRow, "owner">): string {
   return row.owner === "unleased" ? dim(row.owner) : row.owner ?? "-";
 }
 
+/** Format a provider/model pair with its optional thinking suffix. */
+function formatModel(provider: string | null | undefined, model: string, thinking: string | null | undefined): string {
+  const suffix = thinking ? `:${thinking}` : "";
+  return `${provider ?? ""}/${model}${suffix}`;
+}
+
+/** Build a model string from a presence status when one is reported. */
+function presenceModelString(pres: PresenceEntry | null): string | null {
+  const model = pres?.status?.model;
+  if (!model?.id) return null;
+  return formatModel(model.provider, model.id, pres?.status?.thinking);
+}
+
+/** Build a model string from a session tail when one is reported. */
+function sessionModelString(sview: SessionView | null): string | null {
+  if (!sview?.model) return null;
+  return formatModel(sview.provider, sview.model, sview.thinking);
+}
+
 /** Build the "provider/model:thinking" display string from presence, session, then adapter default. */
 function deriveModelString(pres: PresenceEntry | null, sview: SessionView | null, adapter: AgentAdapter | undefined): string {
-  if (pres?.status?.model && pres.status.model.id) {
-    const m = pres.status.model;
-    const think = pres.status.thinking ?? "";
-    return `${m.provider ?? ""}/${m.id}${think ? ":" + think : ""}`;
-  }
-  if (sview?.model) {
-    const prov = sview.provider ?? "";
-    const think = sview.thinking ?? "";
-    return `${prov}/${sview.model}${think ? ":" + think : ""}`;
-  }
+  const presenceModel = presenceModelString(pres);
+  if (presenceModel) return presenceModel;
+  const sessionModel = sessionModelString(sview);
+  if (sessionModel) return sessionModel;
   const adapterDefault = adapter?.defaultModelString?.();
   return adapterDefault ? `${adapterDefault} (default)` : "-";
 }
@@ -155,50 +170,68 @@ function deriveContextPercent(pres: PresenceEntry | null): number | null {
   return null;
 }
 
+/** Read a session tail only when the adapter declares that capability. */
+function sessionViewFor(ent: Entity, adapter: AgentAdapter | undefined): SessionView | null {
+  if (!adapter?.capabilities.sessionTail || !ent.sessionPath) return null;
+  return adapter.readSessionView?.({ sessionPath: ent.sessionPath }) ?? null;
+}
+
+function deriveViewTask(pres: PresenceEntry | null, sview: SessionView | null): string {
+  const question = pres?.status?.asking?.question;
+  return firstNonEmptyText(question ? `Q: ${question}` : undefined, pres?.status?.task, sview?.task);
+}
+
+function deriveViewLast(pres: PresenceEntry | null, sview: SessionView | null): string {
+  return firstNonEmptyText(pres?.status?.lastText, resultText(pres?.result), sview?.lastText);
+}
+
+function viewAgent(ent: Entity, pres: PresenceEntry | null, spawned: Map<string, SpawnedRecord>): string {
+  return pres?.status?.agent ?? spawned.get(ent.key)?.adapter ?? ent.agent ?? "-";
+}
+
+type ProvenanceKey = "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd";
+
+function pickProvenance(record: SpawnedRecord | undefined, status: PresenceEntry["status"], key: ProvenanceKey): string | null {
+  return record?.[key] ?? status?.[key] ?? null;
+}
+
+function viewProvenance(pres: PresenceEntry | null, spawnedRecord: SpawnedRecord | undefined): Pick<View, "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd"> {
+  const status = pres?.status;
+  return {
+    owner: spawnedRecord?.owner ?? null,
+    spawnedBy: pickProvenance(spawnedRecord, status, "spawnedBy"),
+    spawnedByLabel: pickProvenance(spawnedRecord, status, "spawnedByLabel"),
+    worktree: pickProvenance(spawnedRecord, status, "worktree"),
+    branch: pickProvenance(spawnedRecord, status, "branch"),
+    cwd: pickProvenance(spawnedRecord, status, "cwd"),
+  };
+}
+
 export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
   const pres = ent.presence;
   const adapter = entityAdapter(ent, spawned);
-  const sview = (adapter?.capabilities.sessionTail && ent.sessionPath ? adapter.readSessionView?.({ sessionPath: ent.sessionPath }) : undefined) ?? null;
-
+  const sview = sessionViewFor(ent, adapter);
   const spawnedRecord = spawned.get(ent.key);
   const modelFull = deriveModelString(pres, sview, adapter);
-  const model = modelFull.replace(/^openai-codex\//, "");
   const { state, stateFallback, exited } = deriveState(pres, ent, sview);
-
-  const task = firstNonEmptyText(
-    pres?.status?.asking?.question ? `Q: ${pres.status.asking.question}` : undefined,
-    pres?.status?.task,
-    sview?.task,
-  );
-  const last = firstNonEmptyText(
-    pres?.status?.lastText,
-    resultText(pres?.result),
-    sview?.lastText,
-  );
-
-  const paneLabel = (ent.paneId ?? ent.key) + (ent.focused ? "*" : "");
+  const provenance = viewProvenance(pres, spawnedRecord);
   return {
     entity: ent,
-    paneLabel,
+    paneLabel: (ent.paneId ?? ent.key) + (ent.focused ? "*" : ""),
     name: ent.name ?? "",
     tab: ent.tabLabel ?? "-",
-    agent: pres?.status?.agent ?? (spawned.get(ent.key)?.adapter) ?? ent.agent ?? "-",
-    owner: spawnedRecord?.owner ?? null,
-    spawnedBy: spawnedRecord?.spawnedBy ?? pres?.status?.spawnedBy ?? null,
-    spawnedByLabel: spawnedRecord?.spawnedByLabel ?? pres?.status?.spawnedByLabel ?? null,
-    worktree: spawnedRecord?.worktree ?? pres?.status?.worktree ?? null,
-    branch: spawnedRecord?.branch ?? pres?.status?.branch ?? null,
-    cwd: spawnedRecord?.cwd ?? pres?.status?.cwd ?? null,
-    model,
+    agent: viewAgent(ent, pres, spawned),
+    ...provenance,
+    model: modelFull.replace(/^openai-codex\//, ""),
     modelFull,
     state,
     stateFallback,
     staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash),
     cost: deriveCost(pres, sview),
     ctxPercent: deriveContextPercent(pres),
-    task: collapse(task),
+    task: collapse(deriveViewTask(pres, sview)),
     dispatchId: pres?.status?.dispatchId ?? null,
-    last: collapse(last),
+    last: collapse(deriveViewLast(pres, sview)),
     exited,
     sview,
   };
@@ -235,7 +268,7 @@ function snapshot(rows: StatusRow[], backendAnswered: boolean): FleetSnapshot {
 
 async function readFleetRows(workspaces: OrchConfig["workspaces"], offline: boolean): Promise<FleetSnapshot> {
   if (offline) {
-    const rows = fleetStatusRows(workspaces);
+    const rows = fleetStatusRows(workspaces, { offline: true });
     return snapshot(rows, rows.some((row) => row.backend != null));
   }
   try {
@@ -282,64 +315,169 @@ function parseWorkspace(args: readonly string[]): string | undefined {
   return undefined;
 }
 
-async function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]) {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes", "--offline"]);
-  const workspace = parseWorkspace(args);
-  const json = enabled.has("--json");
-  const all = enabled.has("--all");
-  const allPanes = enabled.has("--all-panes");
-  const snapshot = await readFleetRows(workspaces, enabled.has("--offline"));
-  const visible = scopeFleetRows(snapshot.rows, { all, allPanes, workspace });
+interface TableFlags {
+  showWorkspace: boolean;
+  showOwner: boolean;
+  showBranch: boolean;
+}
 
-  if (json) {
+function localStatusOptions(args: readonly string[]): { json: boolean; all: boolean; allPanes: boolean; local: boolean; offline: boolean; workspace?: string } {
+  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes", "--offline"]);
+  return {
+    json: enabled.has("--json"),
+    all: enabled.has("--all"),
+    allPanes: enabled.has("--all-panes"),
+    local: enabled.has("--local"),
+    offline: enabled.has("--offline"),
+    workspace: parseWorkspace(args),
+  };
+}
+
+function tableFlags(rows: readonly StatusRow[], all: boolean): TableFlags {
+  return {
+    showWorkspace: all && new Set(rows.map((row) => row.workspace ?? "-")).size > 1,
+    showOwner: new Set(rows.map((row) => row.owner ?? "-")).size > 1,
+    showBranch: rows.some((row) => row.branch),
+  };
+}
+
+function tableOptionalCells(row: StatusRow, flags: TableFlags): string[] {
+  const cells: string[] = [];
+  if (flags.showOwner) cells.push(ownerCell(row));
+  if (flags.showBranch) cells.push(row.branch ?? "-");
+  return cells;
+}
+
+function localPaneCell(row: StatusRow): string {
+  return (row.paneId ?? row.key) + (row.focused ? "*" : "");
+}
+
+function localNameCell(row: StatusRow, flags: TableFlags): string {
+  const name = row.name ?? "";
+  return flags.showWorkspace ? `${formatWorkspace(row.workspace, row.workspaceName)} / ${name}` : name;
+}
+
+function tableStateCell(row: StatusRow, includeFallback: boolean): string {
+  return displayStatusState(row) + (includeFallback && row.stateFallback ? "?" : "") + (row.staleExtension ? " (stale)" : "");
+}
+
+function tableCostCell(row: StatusRow): string {
+  return row.cost > 0 ? "$" + row.cost.toFixed(2) : "";
+}
+
+function tableContextCell(row: StatusRow): string {
+  return row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "";
+}
+
+function localTableRow(row: StatusRow, flags: TableFlags): string[] {
+  return [
+    localPaneCell(row), localNameCell(row, flags), ...tableOptionalCells(row, flags),
+    row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", tableStateCell(row, true),
+    tableCostCell(row), tableContextCell(row), truncate(collapse(row.task ?? ""), 40), truncate(collapse(row.lastText ?? ""), 50),
+  ];
+}
+
+function ownerBranchHeaders(flags: TableFlags): string[] {
+  const columns: string[] = [];
+  if (flags.showOwner) columns.push("OWNER");
+  if (flags.showBranch) columns.push("BRANCH");
+  return columns;
+}
+
+function ownerBranchCaps(flags: TableFlags): number[] {
+  const caps: number[] = [];
+  if (flags.showOwner) caps.push(20);
+  if (flags.showBranch) caps.push(24);
+  return caps;
+}
+
+function localTableColumns(flags: TableFlags): { headers: string[]; caps: number[] } {
+  return {
+    headers: ["PANE", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
+    caps: [12, 14, ...ownerBranchCaps(flags), 10, 6, 30, 12, 8, 5, 40, 50],
+  };
+}
+
+function renderLocalTable(visible: readonly StatusRow[], flags: TableFlags): void {
+  const rows = visible.map((row) => localTableRow(row, flags));
+  const rawExited = visible.map((row) => row.exited);
+  if (!rows.length) return;
+  const { headers, caps } = localTableColumns(flags);
+  const lines = renderTable(headers, rows, caps).split("\n");
+  const out: string[] = [lines[0] ?? "", lines[1] ?? ""];
+  for (let i = 0; i < rows.length; i++) out.push(rawExited[i] ? dim(lines[i + 2] ?? "") : lines[i + 2] ?? "");
+  process.stdout.write(out.join("\n") + "\n");
+}
+
+async function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]): Promise<void> {
+  const options = localStatusOptions(args);
+  const fleet = await readFleetRows(workspaces, options.offline);
+  const visible = scopeFleetRows(fleet.rows, options);
+  if (options.json) {
     process.stdout.write(JSON.stringify(visible, null, 2) + "\n");
     return;
   }
-
-  const rows: string[][] = [];
-  const rawExited: boolean[] = [];
-  const showWorkspace = all && new Set(visible.map((row) => row.workspace ?? "-")).size > 1;
-  // Two orchestrators sharing a fleet is the only time the owner matters, and it
-  // is exactly when a name collision silently hands one session another's pane.
-  const showOwner = new Set(visible.map((row) => row.owner ?? "-")).size > 1;
-  const showBranch = visible.some((row) => row.branch);
-  const headers = ["PANE", "NAME", ...(showOwner ? ["OWNER"] : []), ...(showBranch ? ["BRANCH"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
-  const caps = [12, 14, ...(showOwner ? [20] : []), ...(showBranch ? [24] : []), 10, 6, 30, 12, 8, 5, 40, 50];
-  for (const row of visible) {
-    const name = row.name ?? "";
-    rows.push([
-      (row.paneId ?? row.key) + (row.focused ? "*" : ""),
-      showWorkspace ? `${formatWorkspace(row.workspace, row.workspaceName)} / ${name}` : name,
-      ...(showOwner ? [ownerCell(row)] : []),
-      ...(showBranch ? [row.branch ?? "-"] : []),
-      row.tab ?? "-",
-      row.agent ?? "-",
-      row.modelShort || row.model || "-",
-      displayStatusState(row) + (row.stateFallback ? "?" : "") + (row.staleExtension ? " (stale)" : ""),
-      row.cost > 0 ? "$" + row.cost.toFixed(2) : "",
-      row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "",
-      truncate(collapse(row.task ?? ""), 40),
-      truncate(collapse(row.lastText ?? ""), 50),
-    ]);
-    rawExited.push(row.exited);
-  }
-  if (rows.length === 0) {
-    process.stdout.write(formatNoRowsMessage({ agentsSeen: snapshot.agentsSeen, alive: snapshot.alive, backendAnswered: snapshot.backendAnswered }));
+  if (!visible.length) {
+    process.stdout.write(formatNoRowsMessage(fleet));
     return;
   }
-  // render with dim for exited rows
-  const table = renderTable(headers, rows, caps);
-  const lines = table.split("\n");
-  const out: string[] = [lines[0] ?? "", lines[1] ?? ""];
-  for (let i = 0; i < rows.length; i++) {
-    const line = lines[i + 2] ?? "";
-    out.push(rawExited[i] ? dim(line) : line);
+  renderLocalTable(visible, tableFlags(visible, options.all));
+}
+
+interface OrchNames {
+  agentId: string | null;
+  agentName: string | null;
+  rootAgentId: string | null;
+  rootAgentName: string | null;
+  spaceId: string | null;
+  spaceName: string | null;
+}
+
+/** Read display names from orch's normalized rows. Plexer coordinates are never names. */
+function emptyOrchNames(agentId: string | null): OrchNames {
+  return { agentId, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
+}
+
+function agentOrchNames(agentId: string, agent: ReturnType<typeof agentById>, root: ReturnType<typeof agentById>): OrchNames {
+  return {
+    agentId,
+    agentName: agent?.name ?? null,
+    rootAgentId: root?.id ?? agent?.rootAgentId ?? null,
+    rootAgentName: root?.name ?? null,
+    spaceId: null,
+    spaceName: null,
+  };
+}
+
+function readSpaceInfo(directory: string, spaceId: string): { id: string | null; name: string | null } {
+  const space = openStore(directory).query("SELECT id, name FROM spaces WHERE id = ?").get(spaceId) as { id?: string; name?: string } | undefined;
+  return {
+    id: typeof space?.id === "string" ? space.id : null,
+    name: typeof space?.name === "string" ? space.name : null,
+  };
+}
+
+function orchNames(key: string): OrchNames {
+  const identity = tryParseIdentity(key);
+  if (!identity) return emptyOrchNames(null);
+  try {
+    const directory = orchDir();
+    const agent = agentById(directory, identity.id);
+    const root = agent ? agentById(directory, agent.rootAgentId) : null;
+    const names = agentOrchNames(identity.id, agent, root);
+    const current = currentSpace(directory, identity.id);
+    if (!current || typeof current.space_id !== "string") return names;
+    const space = readSpaceInfo(directory, current.space_id);
+    return { ...names, spaceId: space.id, spaceName: space.name };
+  } catch {
+    return emptyOrchNames(identity.id);
   }
-  process.stdout.write(out.join("\n") + "\n");
 }
 
 export interface StatusRow {
   key: string;
+  /** Orch-minted id; distinct from every plexer coordinate. */
+  agentId?: string | null;
   paneId: string | null;
   /** False for panes orch did not spawn (the orchestrator's own, the user's). */
   managed: boolean;
@@ -389,6 +527,12 @@ export interface StatusRow {
   turns: unknown;
   workspace?: string | null;
   workspaceName?: string | null;
+  /** Orch-owned space identity and display name. */
+  spaceId?: string | null;
+  spaceName?: string | null;
+  /** Immutable provenance root (pack) identity and display name. */
+  rootAgentId?: string | null;
+  rootAgentName?: string | null;
   host?: string;
   warning?: string;
 }
@@ -405,14 +549,15 @@ function viewLastText(v: View): string | null {
   return v.entity.presence?.status?.lastText ?? resultText(v.entity.presence?.result) ?? v.sview?.lastText ?? null;
 }
 
-/** The one status-row shape shared by the local json branch and the merged table rows. */
-export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"]): StatusRow {
-  const drive = deriveDriveState(v.entity.key, v.owner, { currentOrchId: currentOrchId() });
+function rowIdentity(v: View, drive: DriveState, names: OrchNames): Pick<StatusRow, "key" | "agentId" | "rootAgentId" | "rootAgentName" | "paneId" | "managed" | "name" | "tab" | "agent" | "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd" | "focused"> {
   return {
     key: v.entity.key,
+    agentId: names.agentId,
+    rootAgentId: names.rootAgentId,
+    rootAgentName: names.rootAgentName,
     paneId: v.entity.paneId,
     managed: v.entity.managed,
-    name: v.entity.name,
+    name: names.agentName ?? (v.entity.managed === false ? null : v.entity.name),
     tab: v.entity.tabLabel,
     agent: v.entity.agent,
     owner: drive.owner,
@@ -422,29 +567,61 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
     branch: v.branch ?? null,
     cwd: v.cwd ?? null,
     focused: v.entity.focused,
-    model: v.modelFull,
-    modelShort: v.model,
-    state: displayStatusState({ state: v.state, alive: v.entity.presence?.alive ?? false, exited: v.exited }),
+  };
+}
+
+function rowRuntime(v: View): Pick<StatusRow, "state" | "stateFallback" | "exited" | "alive" | "cost" | "ctxPercent" | "task" | "dispatchId" | "lastText"> {
+  const alive = v.entity.presence?.alive ?? false;
+  return {
+    state: displayStatusState({ state: v.state, alive, exited: v.exited }),
     stateFallback: v.stateFallback,
     exited: v.exited,
-    alive: v.entity.presence?.alive ?? false,
+    alive,
     cost: v.cost,
     ctxPercent: v.ctxPercent,
     task: viewTask(v),
     dispatchId: v.dispatchId,
     lastText: viewLastText(v),
+  };
+}
+
+function backendCapabilities(v: View): BackendCapabilities | null {
+  if (v.entity.backend === null) return null;
+  return getBackend(v.entity.backend)?.capabilities ?? null;
+}
+
+function rowTokens(v: View): unknown {
+  return v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null;
+}
+
+function rowTurns(v: View): unknown {
+  return v.entity.presence?.status?.turns ?? v.sview?.turns ?? null;
+}
+
+function rowBackend(v: View, workspaces: OrchConfig["workspaces"], names: OrchNames): Pick<StatusRow, "backendStatus" | "backend" | "capabilities" | "sessionPath" | "presenceDir" | "presenceOnly" | "tokens" | "turns" | "workspace" | "workspaceName" | "spaceId" | "spaceName" | "staleExtension"> {
+  const workspace = entityWorkspace(v.entity);
+  return {
     backendStatus: v.entity.backendStatus,
     backend: v.entity.backend,
-    capabilities: v.entity.backend === null ? null : getBackend(v.entity.backend)?.capabilities ?? null,
+    capabilities: backendCapabilities(v),
     sessionPath: v.entity.sessionPath,
     presenceDir: v.entity.presence?.dir ?? null,
     presenceOnly: v.entity.presenceOnly,
-    tokens: v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null,
-    turns: v.entity.presence?.status?.turns ?? v.sview?.turns ?? null,
-    workspace: entityWorkspace(v.entity),
-    workspaceName: workspaceName(entityWorkspace(v.entity), workspaces),
+    tokens: rowTokens(v),
+    turns: rowTurns(v),
+    workspace,
+    workspaceName: workspaceName(workspace, workspaces),
+    spaceId: names.spaceId,
+    spaceName: names.spaceName,
     staleExtension: v.staleExtension,
   };
+}
+
+/** The one status-row shape shared by the local json branch and the merged table rows. */
+export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"]): StatusRow {
+  const drive = deriveDriveState(v.entity.key, v.owner, { currentOrchId: currentOrchId() });
+  const names = orchNames(v.entity.key);
+  return { ...rowIdentity(v, drive, names), model: v.modelFull, modelShort: v.model, ...rowRuntime(v), ...rowBackend(v, workspaces, names) };
 }
 
 /**
@@ -452,9 +629,9 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
  * renderer consumes. Unscoped and unfiltered on purpose: the daemon cannot know the
  * caller's workspace, so scoping and visibility belong to the command that renders.
  */
-export function fleetStatusRows(workspaces: OrchConfig["workspaces"]): StatusRow[] {
+export function fleetStatusRows(workspaces: OrchConfig["workspaces"], options: { offline?: boolean } = {}): StatusRow[] {
   const spawned = spawnedRecords();
-  return sortEntities(buildEntities()).map((entity) => statusRowFromView(deriveView(entity, spawned), workspaces));
+  return sortEntities(buildEntities({ skipBackends: options.offline === true })).map((entity) => statusRowFromView(deriveView(entity, spawned), workspaces));
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
@@ -480,77 +657,91 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
   };
 }
 
+type RemoteStatusResult = Awaited<ReturnType<typeof runRemoteAsync>>;
+
+async function remoteStatusResults(hosts: OrchConfig["hosts"], offline: boolean): Promise<{ name: string; result: RemoteStatusResult }[]> {
+  return Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
+    name,
+    result: await runRemoteAsync(name, host, ["status", ...(offline ? ["--offline"] : [])], { timeoutMs: host.timeout_ms }),
+  })));
+}
+
+function validRemoteValues(result: RemoteStatusResult): StatusRow[] {
+  if (!result.ok || !Array.isArray(result.value)) return [];
+  return result.value.filter((value) => Boolean(value) && typeof value === "object") as StatusRow[];
+}
+
+function remoteRowsFromResult(name: string, result: RemoteStatusResult, workspace?: string): StatusRow[] {
+  if (!result.ok) return [warningStatusRow(name, result.failure.message)];
+  if (!Array.isArray(result.value)) return [warningStatusRow(name, `Host "${name}" returned an invalid status payload.`)];
+  return validRemoteValues(result).map((value) => normalizeStatusRow(value))
+    .filter((row) => workspace === undefined || row.workspace === workspace)
+    .map((row) => ({ ...row, host: name }));
+}
+
+function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], workspace?: string): StatusRow[] {
+  return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, workspace))];
+}
+
+function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { rows: StatusRow[]; alive: number; backendAnswered: boolean } {
+  const rows = remoteResults.flatMap(({ result }) => validRemoteValues(result));
+  return { rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
+}
+
+
+function remotePaneCell(row: StatusRow): string {
+  return row.warning ? "-" : row.paneId ?? row.key;
+}
+
+function remoteNameCell(row: StatusRow): string {
+  return row.name ?? (row.warning ? "WARNING" : "");
+}
+
+function remoteTableRow(row: StatusRow, flags: TableFlags): string[] {
+  return [
+    row.host ?? "local", remotePaneCell(row), ...(flags.showWorkspace ? [formatWorkspace(row.workspace, row.workspaceName)] : []), remoteNameCell(row), ...tableOptionalCells(row, flags),
+    row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", tableStateCell(row, false),
+    tableCostCell(row), tableContextCell(row), truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),
+  ];
+}
+
+function remoteTableColumns(flags: TableFlags): { headers: string[]; caps: number[] } {
+  return {
+    headers: ["HOST", "PANE", ...(flags.showWorkspace ? ["WORKSPACE"] : []), "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
+    caps: [10, 14, ...(flags.showWorkspace ? [20] : []), 14, ...ownerBranchCaps(flags), 10, 8, 30, 12, 8, 5, 40, 50],
+  };
+}
+
+function renderRemoteTable(rows: readonly StatusRow[], flags: TableFlags): void {
+  const { headers, caps } = remoteTableColumns(flags);
+  process.stdout.write(renderTable(headers, rows.map((row) => remoteTableRow(row, flags)), caps) + "\n");
+}
+
 export async function cmdStatus(args: string[]): Promise<void> {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--offline"]);
-  const workspace = parseWorkspace(args);
-  const offline = enabled.has("--offline");
-  // status is specified to work with orchd absent, so a control plane that will not
-  // come up costs its rows and warns, never the command: dying here is what made a
-  // `--json` caller parse a bare timeout line instead of a fleet.
-  if (!offline) await ensureDaemonOrWarn(orchDir());
-  const json = enabled.has("--json");
-  const all = enabled.has("--all");
-  const localOnly = enabled.has("--local");
-  // status reads presence dirs, which exist independently of settings.json. An unconfigured
-  // install simply has no remote hosts and no workspace labels, so it renders the local fleet
-  // rather than refusing — status is exempt from the setup gate and must actually stay usable.
+  const options = localStatusOptions(args);
+  if (!options.offline) await ensureDaemonOrWarn(orchDir());
   const config = loadConfigOrNull(orchDir());
   const hosts = config?.hosts ?? {};
   const workspaces = config?.workspaces ?? {};
-  if (localOnly || Object.keys(hosts).length === 0) {
+  if (options.local || Object.keys(hosts).length === 0) {
     await cmdStatusLocal(args, workspaces);
     return;
   }
   const localSnapshot = await localStatusRows(args, workspaces);
-  const local = localSnapshot.rows;
-  const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
-    name,
-    result: await runRemoteAsync(name, host, ["status", ...(offline ? ["--offline"] : [])], { timeoutMs: host.timeout_ms }),
-  })));
-  const rows: StatusRow[] = [...local];
-  for (const { name, result } of remoteResults) {
-    if (!result.ok) {
-      rows.push(warningStatusRow(name, result.failure.message));
-      continue;
-    }
-    if (!Array.isArray(result.value)) {
-      rows.push(warningStatusRow(name, `Host "${name}" returned an invalid status payload.`));
-      continue;
-    }
-    for (const value of result.value) {
-      if (!value || typeof value !== "object") continue;
-      const row = normalizeStatusRow(value as StatusRow);
-      if (workspace !== undefined && row.workspace !== workspace) continue;
-      rows.push({ ...row, host: name });
-    }
-  }
-  if (json) {
+  const remoteResults = await remoteStatusResults(hosts, options.offline);
+  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, options.workspace);
+  if (options.json) {
     process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
     return;
   }
-  const showWorkspace = all && new Set(rows.map((row) => row.workspace ?? "-")).size > 1;
-  const showOwner = new Set(rows.map((row) => row.owner ?? "-")).size > 1;
-  const showBranch = rows.some((row) => row.branch);
-  const headers = ["HOST", "PANE", ...(showWorkspace ? ["WORKSPACE"] : []), "NAME", ...(showOwner ? ["OWNER"] : []), ...(showBranch ? ["BRANCH"] : []), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"];
-  const caps = [10, 14, ...(showWorkspace ? [20] : []), 14, ...(showOwner ? [20] : []), ...(showBranch ? [24] : []), 10, 8, 30, 12, 8, 5, 40, 50];
-  const tableRows = rows.map((row) => [
-    row.host ?? "local", row.warning ? "-" : row.paneId ?? row.key,
-    ...(showWorkspace ? [formatWorkspace(row.workspace, row.workspaceName)] : []),
-    row.name ?? (row.warning ? "WARNING" : ""),
-    ...(showOwner ? [ownerCell(row)] : []),
-    ...(showBranch ? [row.branch ?? "-"] : []),
-    row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", displayStatusState(row) + (row.staleExtension ? " (stale)" : ""),
-    row.cost > 0 ? "$" + row.cost.toFixed(2) : "", row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "",
-    truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),
-  ]);
-  if (!tableRows.length) {
-    const remoteRows = remoteResults.flatMap(({ result }) => result.ok && Array.isArray(result.value) ? result.value.filter((value) => Boolean(value) && typeof value === "object") as StatusRow[] : []);
+  if (!rows.length) {
+    const remote = remoteSummary(remoteResults);
     process.stdout.write(formatNoRowsMessage({
-      agentsSeen: localSnapshot.agentsSeen + remoteRows.length,
-      alive: localSnapshot.alive + remoteRows.filter((row) => row.alive).length,
-      backendAnswered: localSnapshot.backendAnswered || remoteRows.some((row) => row.backend != null),
+      agentsSeen: localSnapshot.agentsSeen + remote.rows.length,
+      alive: localSnapshot.alive + remote.alive,
+      backendAnswered: localSnapshot.backendAnswered || remote.backendAnswered,
     }));
     return;
   }
-  process.stdout.write(renderTable(headers, tableRows, caps) + "\n");
+  renderRemoteTable(rows, tableFlags(rows, options.all));
 }

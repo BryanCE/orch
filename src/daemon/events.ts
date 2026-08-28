@@ -10,6 +10,7 @@ import { selectSpawnedRecord } from "../store/spawned-rows.ts";
 import { upsertRun, type RunRecord } from "../store/run-rows.ts";
 import { pidAlive, truncate } from "../util.ts";
 import { placementOf } from "../agent/registry.ts";
+import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
 import { optionalString } from "../util.ts";
 
@@ -71,16 +72,19 @@ function eventTokens(status: object): NotifyEvent["tokens"] | undefined {
   return normalized;
 }
 
-function statusState(status: unknown, fallbackPid?: number): string | null {
+function statusState(status: unknown, fallbackPid?: number): AgentState | null {
   if (!status || typeof status !== "object") {
     if (fallbackPid === undefined) return null;
     return pidAlive(fallbackPid) ? null : "exited";
   }
   const pidValue = property(status, "pid");
   const pid = typeof pidValue === "number" ? pidValue : fallbackPid;
-  let state: string | null = null;
-  if (property(status, "asking")) state = "blocked";
-  else if (property(status, "state")) state = String(property(status, "state"));
+  let state: AgentState | null = null;
+  if (property(status, "asking")) state = "asking";
+  else if (property(status, "state")) {
+    const candidate = String(property(status, "state"));
+    state = AGENT_STATES.includes(candidate as AgentState) ? candidate as AgentState : "unknown";
+  }
   if (!pidAlive(pid)) state = "exited";
   return state;
 }
@@ -98,22 +102,47 @@ function eventTask(status: object): string | undefined {
   return truncate(collapse(realTask), 80);
 }
 
-/** Derive one transition from a status file. First observations only seed state. */
-export function derivePresenceTransition(
-  orchDir: string,
+interface PresenceTransition {
+  state: AgentState;
+  previous: string;
+}
+
+/** Advance the observed state, suppressing initial and duplicate observations. */
+function nextPresenceTransition(
   key: string,
   status: unknown,
-  metadata: PresenceMetadata,
+  pid: number | undefined,
   states: Map<string, string>,
-  now = new Date(),
-): NotifyEvent | null {
-  const state = statusState(status, metadata.pid);
+): PresenceTransition | null {
+  const state = statusState(status, pid);
   if (!state) return null;
   const previous = states.get(key);
   if (previous === state) return null;
   states.set(key, state);
-  if (previous === undefined) return null;
-  const value = status && typeof status === "object" ? status : {};
+  return previous === undefined ? null : { state, previous };
+}
+
+function statusObject(status: unknown): object {
+  return status && typeof status === "object" ? status : {};
+}
+
+interface PresenceIdentityFields {
+  workspace: string | undefined;
+  agent: string;
+  name: string | null;
+  dispatchId: string | undefined;
+  spawnedBy: string | undefined;
+  spawnedByLabel: string | undefined;
+  tab: string | null;
+  model: string | null;
+}
+
+function identityFields(
+  orchDir: string,
+  key: string,
+  value: object,
+  metadata: PresenceMetadata,
+): PresenceIdentityFields {
   const workspace = placementOf(orchDir, key)?.workspace;
   const assignedName = optionalString(property(value, "agent"));
   const label = optionalString(property(value, "label"));
@@ -121,20 +150,7 @@ export function derivePresenceTransition(
   const dispatchId = optionalString(property(value, "dispatchId"));
   const spawnedBy = optionalString(property(value, "spawnedBy")) ?? metadata.spawnedBy;
   const spawnedByLabel = optionalString(property(value, "spawnedByLabel")) ?? metadata.spawnedByLabel;
-  const cost = property(value, "cost");
-  const lastError = optionalString(property(value, "lastError"));
-  const lastText = optionalString(property(value, "lastText"));
-  const asking = property(value, "asking");
-  const question = asking && typeof asking === "object" ? optionalString(property(asking, "question")) : undefined;
-  const context = property(value, "context");
-  const contextPercent = context && typeof context === "object" ? property(context, "percent") : undefined;
-  const filesValue = property(value, "filesTouched");
-  const filesTouched = Array.isArray(filesValue) && filesValue.every((file) => typeof file === "string")
-    ? filesValue
-    : undefined;
-  const reason = state === "error" || state === "aborted" ? lastError : state === "blocked" ? question : undefined;
   return {
-    key,
     workspace,
     // Status supplies the agent's self-reported label; placement comes from orch's registry.
     agent: assignedName ?? label ?? metadata.name ?? abstractAgentLabel(workspace ?? "workspace", key),
@@ -144,17 +160,89 @@ export function derivePresenceTransition(
     spawnedByLabel,
     tab: tabLabel ?? metadata.tab,
     model: eventModel(value),
-    oldState: previous,
-    newState: state,
+  };
+}
+
+interface PresenceActivityFields {
+  task: string | undefined;
+  cost: number | undefined;
+  lastError: string | undefined;
+  lastText: string | undefined;
+  reason: string | undefined;
+  ctxPercent: number | undefined;
+  tokens: NotifyEvent["tokens"];
+  filesTouched: string[] | undefined;
+}
+
+function activityCore(value: object, state: AgentState): Pick<PresenceActivityFields, "task" | "cost" | "lastError" | "lastText" | "reason"> {
+  const costValue = property(value, "cost");
+  const lastError = optionalString(property(value, "lastError"));
+  const lastText = optionalString(property(value, "lastText"));
+  const asking = property(value, "asking");
+  const question = asking && typeof asking === "object" ? optionalString(property(asking, "question")) : undefined;
+  const reason = state === "error" || state === "aborted" ? lastError : state === "blocked" ? question : undefined;
+  return {
     task: eventTask(value),
-    cost: typeof cost === "number" ? cost : undefined,
-    ts: now.toISOString(),
+    cost: typeof costValue === "number" ? costValue : undefined,
     lastError: lastError === undefined ? undefined : collapse(lastError),
     lastText: lastText === undefined ? undefined : collapse(lastText),
     reason: reason === undefined ? undefined : collapse(reason),
-    ctxPercent: typeof contextPercent === "number" ? contextPercent : undefined,
+  };
+}
+
+function activityContext(value: object): Pick<PresenceActivityFields, "ctxPercent" | "tokens" | "filesTouched"> {
+  const context = property(value, "context");
+  const contextValue = context && typeof context === "object" ? property(context, "percent") : undefined;
+  const filesValue = property(value, "filesTouched");
+  const filesTouched = Array.isArray(filesValue) && filesValue.every((file) => typeof file === "string")
+    ? filesValue
+    : undefined;
+  return {
+    ctxPercent: typeof contextValue === "number" ? contextValue : undefined,
     tokens: eventTokens(value),
     filesTouched,
+  };
+}
+
+function activityFields(value: object, state: AgentState): PresenceActivityFields {
+  return { ...activityCore(value, state), ...activityContext(value) };
+}
+
+/** Derive one transition from a status file. First observations only seed state. */
+export function derivePresenceTransition(
+  orchDir: string,
+  key: string,
+  status: unknown,
+  metadata: PresenceMetadata,
+  states: Map<string, string>,
+  now = new Date(),
+): NotifyEvent | null {
+  const transition = nextPresenceTransition(key, status, metadata.pid, states);
+  if (!transition) return null;
+  const value = statusObject(status);
+  const identity = identityFields(orchDir, key, value, metadata);
+  const activity = activityFields(value, transition.state);
+  return {
+    key,
+    workspace: identity.workspace,
+    agent: identity.agent,
+    name: identity.name,
+    dispatchId: identity.dispatchId,
+    spawnedBy: identity.spawnedBy,
+    spawnedByLabel: identity.spawnedByLabel,
+    tab: identity.tab,
+    model: identity.model,
+    oldState: transition.previous,
+    newState: transition.state,
+    task: activity.task,
+    cost: activity.cost,
+    ts: now.toISOString(),
+    lastError: activity.lastError,
+    lastText: activity.lastText,
+    reason: activity.reason,
+    ctxPercent: activity.ctxPercent,
+    tokens: activity.tokens,
+    filesTouched: activity.filesTouched,
   };
 }
 
@@ -314,23 +402,24 @@ const REPEAT_WINDOW_MS = 120_000;
 /** When each (agent, transition-signature) pair was last published. */
 const recentTransitions = new Map<string, number>();
 
-/** True when this exact transition for this agent published inside the window.
- *  The timestamp slides on every sighting, so an ongoing flap stays suppressed
- *  while a genuine repeat after a quiet spell publishes again. */
+/** True when this exact transition for this agent was already published inside
+ *  the fixed suppression window. The window starts at the published event, so
+ *  repeated observations cannot indefinitely hide a genuine later transition. */
 export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolean {
   const signature = `${event.key}|${event.oldState}>${event.newState}|${event.dispatchId ?? ""}|${event.task ?? ""}`;
-  const lastSeen = recentTransitions.get(signature);
-  recentTransitions.set(signature, now);
+  const lastPublished = recentTransitions.get(signature);
+  const repeated = lastPublished !== undefined && now - lastPublished < REPEAT_WINDOW_MS;
+  if (!repeated) recentTransitions.set(signature, now);
   if (recentTransitions.size > 1_000) {
     for (const [key, at] of recentTransitions) if (now - at > REPEAT_WINDOW_MS) recentTransitions.delete(key);
   }
-  return lastSeen !== undefined && now - lastSeen < REPEAT_WINDOW_MS;
+  return repeated;
 }
 
 /** Publish one event to the RPC stream and every configured sink, stamped with the
  *  agent name and transition ordinal that make it identifiable downstream. */
-export function emitAndNotify(emit: (event: unknown) => void, sinks: Sink[], event: NotifyEvent): void {
-  if (isRepeatTransition(event)) return;
+export function emitAndNotify(emit: (event: unknown) => void, sinks: Sink[], event: NotifyEvent, now = Date.now()): void {
+  if (isRepeatTransition(event, now)) return;
   const workspace = event.workspace ?? workspaceLabelForKey(event.key);
   const seq = (published.get(event.key) ?? 0) + 1;
   published.set(event.key, seq);

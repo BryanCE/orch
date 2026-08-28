@@ -4,6 +4,8 @@ import {
   computeCodeHash,
   reexecSelf,
   releaseDaemonLock,
+  acquireDaemonRegistration,
+  releaseDaemonRegistration,
 } from "./lifecycle.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "./rpc.ts";
 import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type OrchConfig } from "../config.ts";
@@ -16,13 +18,14 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { openStore, withTransaction } from "../store/connection.ts";
+import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessagePending } from "../store/outbox-rows.ts";
 import { checkOwnerWrite, getOwner } from "../store/ownership-rows.ts";
 import { checkWall, operatorControls } from "../policy/workspace.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
 import { normalizeControlTarget, tryParseIdentity } from "../backends/identity.ts";
-import { deliverControl, KEYSTROKE_KIND, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
+import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
@@ -162,7 +165,9 @@ async function deliverWrite(target: string, payload: unknown, id: string): Promi
   const kind = value.action === "dispatch" ? "run" : "steer";
   if (!resolveTargetAdapter(canonicalTarget)) {
     const route = resolveTargetRoute(canonicalTarget);
-    return route?.backend.deliver(route.handle, { kind: KEYSTROKE_KIND[kind], text }) ?? false;
+    if (!route?.backend.paneInput) return false;
+    route.backend.paneInput.submit(String(route.handle), text);
+    return true;
   }
   try {
     await deliverControl(canonicalTarget, { kind, text, id });
@@ -188,9 +193,9 @@ export function validateWriteParams(params: unknown): { target: string; text: st
   };
 }
 
-/** Enforce the workspace wall, then ownership, before a write is accepted.
- *  An unscoped actor cannot own anything, so an owned target refuses it outright;
- *  only unowned targets accept anonymous writes. Throws to reject the write. */
+/** Enforce the workspace wall, then lease authority and ownership, before a write is
+ * accepted. An open lease is mutual exclusion for every driving verb: only its holder
+ * may write, whether or not the holder's process is currently live. */
 export function governWrite(directory: string, target: string, params: unknown): void {
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
@@ -201,6 +206,13 @@ export function governWrite(directory: string, target: string, params: unknown):
   const crossWorkspace = value.crossWorkspace === true || configuredCrossWorkspace;
   const wall = checkWall(directory, actor, target, { crossWorkspace });
   if (!wall.allowed) throw new Error(wall.reason ?? "workspace wall denied the write");
+  const targetId = tryParseIdentity(target)?.id ?? target;
+  const lease = currentLease(directory, targetId);
+  const actorId = actor === null ? null : (tryParseIdentity(actor)?.id ?? actor);
+  const holderId = lease && (tryParseIdentity(lease.orchId)?.id ?? lease.orchId);
+  if (lease && holderId !== actorId) {
+    throw new Error(`agent is leased by ${lease.orchId}; only its lease holder may drive it`);
+  }
   if (actor === null) {
     const owner = getOwner(directory, target);
     if (owner !== undefined) throw new Error(`agent is owned by ${owner}; anonymous writes are refused - set ORCH_OWNER to identify this caller`);
@@ -343,6 +355,7 @@ async function shutDown(directory: string, reason: string): Promise<void> {
   await workLoop;
   await server?.stop();
   releaseDaemonLock(directory);
+  releaseDaemonRegistration();
   logLifecycle(`stopped pid ${process.pid}`);
   process.exit(0);
 }
@@ -350,8 +363,15 @@ async function shutDown(directory: string, reason: string): Promise<void> {
 async function main(): Promise<void> {
   const directory = orchDir();
   const answers = await socketAnswers(directory);
+  const registration = acquireDaemonRegistration(directory);
+  if (!registration.acquired) {
+    const live = registration.registration;
+    logLifecycle(`refused: another orchd is registered at ${live?.socket ?? "an undiscoverable endpoint"}`);
+    return;
+  }
   if (!acquireDaemonLock(directory, () => answers)) {
-    logLifecycle(`exiting: another orchd owns ${directory}`);
+    releaseDaemonRegistration();
+    logLifecycle("exiting: another orchd owns the backing store");
     return;
   }
 
@@ -398,6 +418,7 @@ async function main(): Promise<void> {
     });
   } catch (error) {
     releaseDaemonLock(directory);
+    releaseDaemonRegistration();
     throw error;
   }
 

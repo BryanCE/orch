@@ -1,6 +1,6 @@
 import type { DaemonEvent } from "@/lib/daemon-events";
 
-export function DaemonEventRow({ event }: { event: DaemonEvent }) {
+function DaemonEventRow({ event }: { event: DaemonEvent }) {
   return (
     <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 font-mono text-xs">
       {JSON.stringify(event, null, 2)}

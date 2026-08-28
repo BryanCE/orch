@@ -1,11 +1,13 @@
 import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
+import type { Backend, BackendTarget } from "./backends/backend.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./presence/store.ts";
 import { serializeIdentity, tryParseIdentity } from "./backends/identity.ts";
 import { checkWall, sameWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import type { Recipient } from "./recipient.ts";
+import type { SpawnedRecord } from "./store/spawned-rows.ts";
 
 export { workspaceOf } from "./policy/workspace.ts";
 export { recipientLabel, type Recipient } from "./recipient.ts";
@@ -58,13 +60,21 @@ export function formatTarget(ref: TargetRef): string {
 
 /** Resolve an identity key to the agent an operator knows, enriched with the routing
  *  facts only orch's spawn registry holds. */
+function recipientName(record: SpawnedRecord | undefined, status: PresenceEntry["status"], workspace: string, key: string): string {
+  return record?.name ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key);
+}
+
+function recipientHarness(record: SpawnedRecord | undefined, status: PresenceEntry["status"]): string | null {
+  return record?.adapter ?? status?.agent ?? null;
+}
+
 export function recipientFor(key: string, spawned = spawnedRecords()): Recipient {
   const record = spawned.get(key);
   const status = loadPresence().get(key)?.status;
   const workspace = record?.workspace ?? workspaceOf(orchDir(), key) ?? "workspace";
   return {
-    name: record?.name ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key),
-    harness: record?.adapter ?? status?.agent ?? null,
+    name: recipientName(record, status, workspace, key),
+    harness: recipientHarness(record, status),
     multiplexer: record?.backend ?? null,
     transportId: record?.handle ?? key,
   };
@@ -104,65 +114,137 @@ export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: bool
   return entities.filter((entity) => sameWorkspace(entityWorkspace(entity), currentWs));
 }
 
-export function buildEntities(): Entity[] {
+function handlesByKey(records: Map<string, SpawnedRecord>, backend: Backend): Map<string, string> {
+  const keyByHandle = new Map<string, string>();
+  for (const [key, record] of records) {
+    if (record.backend === backend.id && record.handle) keyByHandle.set(record.handle, key);
+  }
+  return keyByHandle;
+}
+
+function entityFromBackendTarget(
+  backend: Backend,
+  target: BackendTarget,
+  keyByHandle: Map<string, string>,
+  presence: Map<string, PresenceEntry>,
+  records: Map<string, SpawnedRecord>,
+  usedPresence: Set<string>,
+): Entity {
+  const paneId = String(target.handle);
+  const key = keyByHandle.get(paneId) ?? paneId;
+  const pres: PresenceEntry | null = presence.get(key) ?? null;
+  if (pres) usedPresence.add(pres.key);
+  return {
+    key,
+    paneId,
+    managed: records.has(key),
+    // Orch's registry owns the name; the backend's own pane label is only a
+    // fallback for panes orch never spawned.
+    name: records.get(key)?.name ?? target.name,
+    tabLabel: target.groupLabel,
+    agent: target.agent,
+    focused: target.focused,
+    // Captured orch presence is authoritative; plexer-reported status is
+    // inventory metadata only and never becomes agent truth.
+    backendStatus: pres?.status?.state ?? null,
+    backend: backend.id,
+    presence: pres,
+    // Bridge-first: the adapter's own presence status tracks the LIVE session
+    // and follows a `/new` reset; the backend's agent_session is launch-time
+    // and goes stale, which is what makes mid-run `tail` read an empty session.
+    sessionPath: pres?.status?.sessionPath ?? null,
+    presenceOnly: false,
+    workspace: target.workspace ?? workspaceOf(orchDir(), key),
+  };
+}
+
+function entitiesFromBackend(
+  backend: Backend,
+  presence: Map<string, PresenceEntry>,
+  records: Map<string, SpawnedRecord>,
+  usedPresence: Set<string>,
+): Entity[] {
+  if ((!backend.paneInventory && !backend.inventory) || !backend.isInsideSession()) return [];
+  const keyByHandle = handlesByKey(records, backend);
+  return (backend.paneInventory?.list() ?? backend.inventory?.() ?? [])
+    .map((target) => entityFromBackendTarget(backend, target, keyByHandle, presence, records, usedPresence));
+}
+
+function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "paneId" | "agent" | "sessionPath"> {
+  const status = entry.status;
+  return {
+    paneId: status?.paneId ?? null,
+    agent: status?.agent ?? null,
+    sessionPath: status?.sessionPath ?? null,
+  };
+}
+
+function presenceOnlyEntity(
+  entry: PresenceEntry,
+  records: Map<string, SpawnedRecord>,
+): Entity {
+  const record = records.get(entry.key);
+  const statusFields = presenceStatusFields(entry);
+  return {
+    key: entry.key,
+    ...statusFields,
+    managed: records.has(entry.key),
+    name: record?.name ?? null,
+    tabLabel: null,
+    focused: false,
+    backendStatus: null,
+    backend: record?.backend ?? null,
+    presence: entry,
+    presenceOnly: true,
+    workspace: record?.workspace ?? workspaceOf(orchDir(), entry.key),
+  };
+}
+
+function entitiesFromPresence(
+  presence: Map<string, PresenceEntry>,
+  records: Map<string, SpawnedRecord>,
+  usedPresence: Set<string>,
+): Entity[] {
+  return [...presence.values()]
+    .filter((entry) => !usedPresence.has(entry.key))
+    .map((entry) => presenceOnlyEntity(entry, records));
+}
+
+function entitiesFromRecords(
+  records: Map<string, SpawnedRecord>,
+  entities: Entity[],
+): Entity[] {
+  return [...records.entries()]
+    .filter(([key]) => !entities.some((entity) => entity.key === key))
+    .map(([key, record]) => {
+      const backend = record.backend ? allBackends().find((candidate) => candidate.id === record.backend) : undefined;
+      return {
+        key,
+        paneId: backend?.paneInventory ? record.handle ?? null : null,
+        managed: true,
+        name: record.name ?? null,
+        tabLabel: null,
+        agent: null,
+        focused: false,
+        backendStatus: null,
+        backend: record.backend ?? null,
+        presence: null,
+        sessionPath: null,
+        presenceOnly: true,
+        workspace: record.workspace ?? null,
+      };
+    });
+}
+
+export function buildEntities(options: { skipBackends?: boolean } = {}): Entity[] {
   const presence = loadPresence();
   const records = spawnedRecords();
   const usedPresence = new Set<string>();
-  const entities: Entity[] = [];
-
-  for (const backend of allBackends()) {
-    if (!backend.inventory || !backend.isInsideSession()) continue;
-    const keyByHandle = new Map<string, string>();
-    for (const [key, record] of records) {
-      if (record.backend === backend.id && record.handle) keyByHandle.set(record.handle, key);
-    }
-    for (const target of backend.inventory()) {
-      const paneId = String(target.handle);
-      const key = keyByHandle.get(paneId) ?? paneId;
-      const pres: PresenceEntry | null = presence.get(key) ?? null;
-      if (pres) usedPresence.add(pres.key);
-      entities.push({
-        key,
-        paneId,
-        managed: records.has(key),
-        // Orch's registry owns the name; the backend's own pane label is only a
-        // fallback for panes orch never spawned.
-        name: records.get(key)?.name ?? target.name,
-        tabLabel: target.groupLabel,
-        agent: target.agent,
-        focused: target.focused,
-        backendStatus: target.status,
-        backend: backend.id,
-        presence: pres,
-        // Bridge-first: the adapter's own presence status tracks the LIVE session
-        // and follows a `/new` reset; the backend's agent_session is launch-time
-        // and goes stale, which is what makes mid-run `tail` read an empty session.
-        sessionPath: pres?.status?.sessionPath ?? target.sessionPath ?? null,
-        presenceOnly: false,
-        workspace: target.workspace ?? workspaceOf(orchDir(), key),
-      });
-    }
-  }
-
-  for (const entry of presence.values()) {
-    if (usedPresence.has(entry.key)) continue;
-    entities.push({
-      key: entry.key,
-      paneId: entry.status?.paneId ?? null,
-      managed: records.has(entry.key),
-      name: records.get(entry.key)?.name ?? null,
-      tabLabel: null,
-      agent: entry.status?.agent ?? null,
-      focused: false,
-      backendStatus: null,
-      backend: records.get(entry.key)?.backend ?? null,
-      presence: entry,
-      sessionPath: entry.status?.sessionPath ?? null,
-      presenceOnly: true,
-      workspace: records.get(entry.key)?.workspace ?? workspaceOf(orchDir(), entry.key),
-    });
-  }
-  return entities;
+  const backendEntities = options.skipBackends
+    ? []
+    : allBackends().flatMap((backend) => entitiesFromBackend(backend, presence, records, usedPresence));
+  const entities = [...backendEntities, ...entitiesFromPresence(presence, records, usedPresence)];
+  return [...entities, ...entitiesFromRecords(records, entities)];
 }
 
 export function sortEntities(entities: Entity[]): Entity[] {

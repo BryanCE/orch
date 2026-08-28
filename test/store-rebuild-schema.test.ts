@@ -17,10 +17,15 @@ function base(d: ReturnType<typeof openStore>) {
   d.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)").run("a", "a", "pi", "/", "A", 1);
 }
 
-const rebuildTables = ["harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes"];
-const uniqueIndexes = ["one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt"];
-const plainIndexes = ["agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running"];
-const overlapTriggers = ["agent_handles", "agent_processes", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "host_plexers", "task_attempts", "pack_intakes"].map(n => `${n}_no_overlap`);
+// This is the complete current sqlite_master inventory from TASKS/06-schema.md.
+// Keep it independent of src/store/schema.ts: a missing or superseded object must
+// make this test fail rather than being silently excluded as a legacy name.
+const expectedInventory = new Set([
+  ...["ownership", "outbox", "spawned", "catalogues", "events", "runs", "harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes"].map(name => `table:${name}`),
+  ...["outbox_pending", "runs_agent_started", "one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running"].map(name => `index:${name}`),
+  `view:task_states`,
+  ...["agent_handles", "agent_processes", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "host_plexers", "task_attempts", "pack_intakes"].map(name => `trigger:${name}_no_overlap`),
+]);
 
 function addDeps(d: ReturnType<typeof openStore>) {
   d.query("INSERT INTO plexers(id,name) VALUES (?,?)").run("px", "Plexer");
@@ -31,13 +36,8 @@ function addDeps(d: ReturnType<typeof openStore>) {
 describe("rebuild schema", () => {
   test("rebuild DDL inventory is exact", () => {
     const d = db();
-    const legacy = new Set(["queue", "ownership", "outbox", "spawned", "catalogues", "events", "runs"]);
-    const legacyIndexes = new Set(["queue_state_created", "queue_agent_key", "outbox_pending", "runs_agent_started"]);
     const rows = d.query("SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as {type:string,name:string}[];
-    expect(new Set(rows.filter(r => r.type === "table" && !legacy.has(r.name)).map(r => r.name))).toEqual(new Set(rebuildTables));
-    expect(new Set(rows.filter(r => r.type === "index" && !legacyIndexes.has(r.name)).map(r => r.name))).toEqual(new Set([...uniqueIndexes, ...plainIndexes]));
-    expect(new Set(rows.filter(r => r.type === "trigger").map(r => r.name))).toEqual(new Set(overlapTriggers));
-    expect(rows.some(r => r.type === "view" && r.name === "task_states")).toBe(true);
+    expect(new Set(rows.map(r => `${r.type}:${r.name}`))).toEqual(expectedInventory);
   });
 
   test("schema stamp and foreign keys are enabled", () => {

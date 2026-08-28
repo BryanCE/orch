@@ -27,8 +27,7 @@ const cockpitNav = [
 /**
  * Primary application navigation — a full-height sidebar that collapses to an
  * icon rail (the LMS sub-tool pattern, promoted to app-level chrome). Top group
- * is the global cockpit; second group lists workspaces BY NAME with the herdr
- * workspace id as a muted secondary.
+ * is the global cockpit; second group lists orch spaces by their own names.
  */
 export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) {
   const pathname = useLocation({ select: (l) => l.pathname });
@@ -68,7 +67,7 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Workspaces</SidebarGroupLabel>
+          <SidebarGroupLabel>Spaces</SidebarGroupLabel>
           <SidebarMenu>
             {workspaces.length === 0 && (
               <p className="px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
@@ -80,16 +79,12 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
                 <SidebarMenuButton
                   asChild
                   isActive={pathname.startsWith(`/ws/${ws.slug}`)}
-                  tooltip={ws.name === ws.id ? ws.name : `${ws.name} (${ws.id})`}
+                  tooltip={ws.name}
                 >
                   <Link to="/ws/$slug" params={{ slug: ws.slug }}>
                     <FolderGit2 />
                     <span className="flex-1 truncate">{ws.name}</span>
-                    {ws.name !== ws.id && (
-                      <span className="font-mono text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
-                        {ws.id}
-                      </span>
-                    )}
+
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

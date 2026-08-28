@@ -5,17 +5,24 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";
 import { SETTINGS_DEFAULTS } from "../src/config.ts";
-import { provenDaemonPid } from "../src/daemon/lifecycle.ts";
+import { provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle.ts";
+import { loadPresence } from "../src/presence/store.ts";
+import { pidAlive } from "../src/util.ts";
 import { packagedSkillNames, resolveSkillRoot } from "../src/setup/skills.ts";
 
 // `bun reset` erases every artifact an orch install writes, so the next
 // build + install runs the first-time-user flow instead of half-adopting a
-// stale tree. Node-safe: no Bun.* APIs. Dry-run convention — no flag wipes for
-// real, `--dry-run` only previews.
+// stale tree. `--build` removes only build/install artifacts and preserves the
+// configured store so doctor can re-link shims. Node-safe: no Bun.* APIs.
+// Dry-run convention — no flag wipes for real, `--dry-run` only previews.
 //
 // Only orch's OWN artifacts go: the user's other pi extensions, Claude skills,
 // hooks and codex settings are left exactly as they are.
 const isDryRun = process.argv.includes("--dry-run");
+/** Build cleanup preserves settings/store so doctor can re-link configured shims. */
+const isBuildCleanup = process.argv.includes("--build");
+const PACKAGE_NAME = "@bryance/orch";
+const PACKAGE_TARBALL_PREFIX = "bryance-orch-";
 
 const HOME = homedir();
 const ORCH_DIR = process.env.ORCH_DIR ?? join(HOME, ".orch");
@@ -25,7 +32,7 @@ const CLAUDE_HOOK_SHIM = "claude-hooks";
 /** One reversible-by-reinstall wipe. `describe` is imperative: "remove <path>". */
 interface WipeStep {
   readonly describe: string;
-  readonly execute: () => void;
+  readonly execute: () => void | Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,13 +68,7 @@ function daemonStop(): WipeStep | null {
   if (pid === undefined) return null;
   return {
     describe: `stop orchd (pid ${pid})`,
-    execute: () => {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // Already gone: the lock outlived the process, and the dir goes next.
-      }
-    },
+    execute: () => terminateDaemon(pid, 5_000),
   };
 }
 
@@ -78,11 +79,19 @@ function globalPackageRemoval(): WipeStep | null {
   } catch {
     return null;
   }
-  if (!pathPresent(join(root, "orch"))) return null;
+  const packagePath = join(root, ...PACKAGE_NAME.split("/"));
+  if (!pathPresent(packagePath)) return null;
   return {
-    describe: "npm uninstall -g orch",
-    execute: () => execFileSync("npm", ["uninstall", "-g", "orch"], { stdio: "inherit" }),
+    describe: `npm uninstall -g ${PACKAGE_NAME}`,
+    execute: () => execFileSync("npm", ["uninstall", "-g", PACKAGE_NAME], { stdio: "inherit" }),
   };
+}
+
+function packageTarballRemovals(): WipeStep[] {
+  return readdirSafe(REPO)
+    .filter((entry) => entry.startsWith(PACKAGE_TARBALL_PREFIX) && entry.endsWith(".tgz"))
+    .map((entry) => deletion(join(REPO, entry)))
+    .filter(nonNull);
 }
 
 function binShimRemovals(): WipeStep[] {
@@ -208,10 +217,34 @@ function nonNull<T>(step: T | null): step is T {
   return step !== null;
 }
 
+function liveStorePresent(): boolean {
+  const lock = readJsonFile(join(ORCH_DIR, "orchd.lock"));
+  if (lock && typeof lock.pid === "number" && Number.isInteger(lock.pid) && pidAlive(lock.pid)) return true;
+  try {
+    return [...loadPresence(ORCH_DIR).values()].some((entry) => entry.alive);
+  } catch {
+    return false;
+  }
+}
+
+function storeRemoval(): WipeStep | null {
+  if (isBuildCleanup) return null;
+  const step = deletion(ORCH_DIR);
+  if (!step) return null;
+  return {
+    describe: step.describe,
+    execute: () => {
+      if (liveStorePresent()) throw new Error(`refusing to remove live orch store ${ORCH_DIR}; stop agents and retry`);
+      step.execute();
+    },
+  };
+}
+
 const steps: WipeStep[] = [
   daemonStop(),
-  deletion(ORCH_DIR),
+  storeRemoval(),
   globalPackageRemoval(),
+  ...packageTarballRemovals(),
   ...binShimRemovals(),
   ...harnessExtensionRemovals(),
   ...skillRemovals(),
@@ -228,12 +261,14 @@ if (steps.length === 0) {
 
 if (isDryRun) {
   for (const step of steps) process.stdout.write(`[dry-run] would ${step.describe}\n`);
-  process.stdout.write(`[dry-run] ${steps.length} steps. Re-run without --dry-run to wipe, then: bun run build:dev\n`);
+  process.stdout.write(`[dry-run] ${steps.length} steps. Re-run without --dry-run to ${isBuildCleanup ? "rebuild and reinstall" : "wipe, then run bun run build:dev"}.\n`);
   process.exit(0);
 }
 
 for (const step of steps) {
-  step.execute();
+  await step.execute();
   process.stdout.write(`done: ${step.describe}\n`);
 }
-process.stdout.write("wipe complete — run 'bun run build:dev', then 'orch setup' as a first-time user.\n");
+process.stdout.write(isBuildCleanup
+  ? "build cleanup complete — rebuild and reinstall now.\n"
+  : "wipe complete — run 'bun run build:dev', then 'orch setup' as a first-time user.\n");

@@ -55,6 +55,13 @@ describe("orch settings notify", () => {
     ]);
   });
 
+  test("accepts asking as a first-class sink state", async () => {
+    await captureNotify(["add", "command", "--command=logger -t orch", "--on=asking"]);
+    expect(loadConfig(root).notify).toEqual([
+      { id: "command", command: "logger -t orch", on: ["asking"] },
+    ]);
+  });
+
   test("remove drops only the named sink", async () => {
     await captureNotify(["add", "desktop"]);
     await captureNotify(["add", "webhook", "--url=https://example.test/hook"]);

@@ -15,6 +15,7 @@ import { presenceAgentDir, readPresenceStatus } from "../presence/store.ts";
 import { sendPeerMessage } from "../agent/peers.ts";
 import { isRecord } from "../util.ts";
 import * as path from "node:path";
+import { STATUS_FILE } from "../presence/schema.ts";
 import { PackAbortError, PackSendError, type PackEnrichment, type PackTransition } from "./domain.ts";
 
 export interface PackSourceShape {
@@ -49,7 +50,7 @@ export interface PackSourceConfig {
   readonly ownKey: () => string | undefined;
 }
 
-export function makePackSource(config: PackSourceConfig): PackSourceShape {
+function makePackSource(config: PackSourceConfig): PackSourceShape {
   const transitions = Stream.async<PackTransition>((emit) => {
     const subscription = subscribeEvents(config.orchDir, { since: 0 }, (event) => {
       if (!isTransition(event)) return;
@@ -63,7 +64,7 @@ export function makePackSource(config: PackSourceConfig): PackSourceShape {
     ownKey: config.ownKey,
     enrich(key: string): PackEnrichment {
       const dir = presenceAgentDir(key);
-      const status = readPresenceStatus(path.join(dir, "status.json"));
+      const status = readPresenceStatus(path.join(dir, STATUS_FILE));
       if (!status) return {};
       return {
         sessionPath: status.sessionPath,

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatAge, isQuestionPayload, questionText, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
+import { currentWorkspace } from "../src/entities.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
@@ -18,6 +19,11 @@ function seedSettings(root: string): void {
   });
 }
 
+function testTarget(handle: string): { key: string; workspace: string } {
+  const workspace = currentWorkspace() ?? "test";
+  return { key: `headless~${workspace}~${handle}`, workspace };
+}
+
 function captureStdout(run: () => void): string {
   const output: string[] = [];
   // eslint-disable-next-line typescript/unbound-method
@@ -28,25 +34,25 @@ function captureStdout(run: () => void): string {
 }
 
 describe("commands/results", () => {
-  test("validates and extracts question payloads", () => {
+  test.serial("validates and extracts question payloads", () => {
     expect(isQuestionPayload({ question: "why?" })).toBe(true);
     expect(questionText({ question: "why?" })).toBe("why?");
     expect(isQuestionPayload({ question: 1 })).toBe(false);
     expect(questionText(null)).toBe("");
   });
-  test("formats invalid and recent timestamps", () => {
+  test.serial("formats invalid and recent timestamps", () => {
     expect(formatAge("not-a-date")).toBe("?");
     expect(formatAge(new Date().toISOString())).toBe("0s");
   });
-  test("routes a seeded result.json through the command module", () => {
+  test.serial("routes a seeded result.json through the command module", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-result-"));
     const old = process.env.ORCH_DIR;
-    const key = "headless~wD~4242";
+    const { key, workspace } = testTarget("4242");
     process.env.ORCH_DIR = root;
     seedSettings(root);
     const dir = presenceAgentDir(key, root);
     mkdirSync(dir, { recursive: true });
-    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace: "wD", handle: "4242" });
+    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace, handle: "4242" });
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
     writeFileSync(join(dir, "result.json"), JSON.stringify({ text: "finished" }));
     const output: string[] = [];
@@ -56,10 +62,48 @@ describe("commands/results", () => {
     try { cmdResult([key]); } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(output.join("")).toBe("finished\n");
   });
-  test("orch tail resolves a non-pi target through that adapter's session view", () => {
+  test.serial("falls back to adapter session text when result.json is absent", () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-command-result-fallback-"));
+    const old = process.env.ORCH_DIR;
+    const { key, workspace } = testTarget("4243");
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    const dir = presenceAgentDir(key, root);
+    mkdirSync(dir, { recursive: true });
+    const session = join(dir, "session.jsonl");
+    writeFileSync(session, JSON.stringify({ type: "message", message: { role: "assistant", content: "session final" } }) + "\n");
+    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace, handle: "4243", adapter: "pi" });
+    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done", sessionPath: session }));
+    try {
+      expect(captureStdout(() => cmdResult([key]))).toBe("session final\n");
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+  test.serial("uses result.json even when the presence status has no agent", () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-command-result-no-agent-"));
+    const old = process.env.ORCH_DIR;
+    const { key, workspace } = testTarget("4244");
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    const dir = presenceAgentDir(key, root);
+    mkdirSync(dir, { recursive: true });
+    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace, handle: "4244" });
+    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done" }));
+    writeFileSync(join(dir, "result.json"), JSON.stringify({ text: "finished without agent" }));
+    try {
+      expect(captureStdout(() => cmdResult([key]))).toBe("finished without agent\n");
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+
+  test.serial("orch tail resolves a non-pi target through that adapter's session view", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-tail-"));
     const old = process.env.ORCH_DIR;
-    const key = "headless~wT~5150";
+    const { key, workspace } = testTarget("5150");
     process.env.ORCH_DIR = root;
     seedSettings(root);
     const dir = presenceAgentDir(key, root);
@@ -70,7 +114,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "earlier turn" }] } }),
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "" }, { type: "text", text: "claude final" }] } }),
     ].join("\n") + "\n");
-    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace: "wT", handle: "5150" });
+    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace, handle: "5150" });
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
     try { joined = captureStdout(() => cmdTail([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
@@ -81,7 +125,7 @@ describe("commands/results", () => {
   function seedPiSession(): { root: string; key: string; restore: () => void } {
     const root = mkdtempSync(join(tmpdir(), "orch-command-pitail-"));
     const old = process.env.ORCH_DIR;
-    const key = "headless~wP~7000";
+    const { key, workspace } = testTarget("7000");
     process.env.ORCH_DIR = root;
     seedSettings(root);
     const dir = presenceAgentDir(key, root);
@@ -95,12 +139,12 @@ describe("commands/results", () => {
       JSON.stringify({ type: "message", timestamp: "2026-07-20T10:00:03Z", message: { role: "toolResult", toolName: "bash", content: "file listing", isError: false } }),
       JSON.stringify({ type: "message", timestamp: "2026-07-20T10:00:04Z", message: { role: "assistant", content: [{ type: "text", text: "final answer" }] } }),
     ].join("\n") + "\n");
-    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace: "wP", handle: "7000" });
+    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace, handle: "7000" });
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done", sessionPath: session }));
     return { root, key, restore: () => { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); } };
   }
 
-  test("orch tail renders pi's per-turn entries with role rows and a tool-call summary", () => {
+  test.serial("orch tail renders pi's per-turn entries with role rows and a tool-call summary", () => {
     const { key, restore } = seedPiSession();
     let joined = "";
     try { joined = captureStdout(() => cmdTail([key])); } finally { restore(); }
@@ -111,7 +155,7 @@ describe("commands/results", () => {
     expect(joined).toContain("assistant | final answer");
   });
 
-  test("orch tail -n keeps last-N rendered entries for a pi session", () => {
+  test.serial("orch tail -n keeps last-N rendered entries for a pi session", () => {
     const { key, restore } = seedPiSession();
     let joined = "";
     try { joined = captureStdout(() => cmdTail([key, "-n", "1"])); } finally { restore(); }
@@ -120,24 +164,24 @@ describe("commands/results", () => {
     expect(joined).not.toContain("working on it");
   });
 
-  test("orch session reports the pi entry count", () => {
+  test.serial("orch session reports the pi entry count", () => {
     const { key, restore } = seedPiSession();
     let joined = "";
     try { joined = captureStdout(() => cmdSession([key])); } finally { restore(); }
     expect(joined).toContain("entries: 5");
   });
 
-  test("orch session shows zero entries for an adapter view without them", () => {
+  test.serial("orch session shows zero entries for an adapter view without them", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-session-"));
     const old = process.env.ORCH_DIR;
-    const key = "headless~wS~8000";
+    const { key, workspace } = testTarget("8000");
     process.env.ORCH_DIR = root;
     seedSettings(root);
     const dir = presenceAgentDir(key, root);
     mkdirSync(dir, { recursive: true });
     const transcript = join(dir, "session.jsonl");
     writeFileSync(transcript, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "claude only" }] } }) + "\n");
-    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace: "wS", handle: "8000" });
+    insertSpawnedRecord(root, { pane: key, backend: "headless", workspace, handle: "8000" });
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
     try { joined = captureStdout(() => cmdSession([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }

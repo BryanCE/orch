@@ -63,17 +63,25 @@ describe("queue facade on tasks and attempts", () => {
     expect(nextQueuedTask(dir, "b1", 1)?.id).toBe(spaceTask.id);
   });
 
-  test("a failed pack attempt retries on another member and attempts enforce the cap", () => {
+  test("a failed pack attempt retries on another member, never outside the pack", () => {
     const dir = fixture();
     const task = addTask(dir, "flaky", {}, "a1");
     expect(claimTask(dir, task.id, "a1", "d1")).toBe(true);
     const failed = recordTaskFailure(dir, task.id, "boom");
     expect(failed.state).toBe("failed");
     expect(failed.attempts).toHaveLength(1);
-    expect(failed.attempts[0]).toMatchObject({ agentId: "a1", outcome: "failed", error: "boom" });
+    expect(failed.attempts[0]).toMatchObject({ agentId: "a1", dispatchId: "d1", outcome: "failed", error: "boom" });
     expect(taskShouldRetry(failed, 1)).toBe(true);
+
+    // Cq6: the failed attempt is history, not a pin. Another member of the
+    // same pack can claim the retry, while an unrelated pack cannot.
     expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(task.id);
+    expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
     expect(claimTask(dir, task.id, "a2", "d2")).toBe(true);
+    expect(listTasks(dir).find((entry) => entry.id === task.id)?.attempts).toEqual([
+      expect.objectContaining({ agentId: "a1", dispatchId: "d1", outcome: "failed" }),
+      expect.objectContaining({ agentId: "a2", dispatchId: "d2", outcome: null, until: null }),
+    ]);
     expect(recordTaskFailure(dir, task.id, "again").attempts).toHaveLength(2);
     expect(nextQueuedTask(dir, "a1", 1)).toBeUndefined();
   });

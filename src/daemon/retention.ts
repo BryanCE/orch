@@ -1,5 +1,6 @@
 import type { OrchConfig } from "../config.ts";
-import { loadPresence, reapDeadPresenceDirs } from "../presence/store.ts";
+import { loadPresence, reapDeadPresenceDirs, reapSpawnedRecord } from "../presence/store.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { allBackends } from "../backends/registry.ts";
 import { errorMessage } from "../util.ts";
 import { deleteEventsBefore } from "../store/event-rows.ts";
@@ -7,14 +8,26 @@ import { deleteDeliveredBefore } from "../store/outbox-rows.ts";
 import { deleteSettledTasksBefore } from "../store/task-rows.ts";
 import { deleteRunsBefore } from "../store/run-rows.ts";
 import { openStore } from "../store/connection.ts";
+import { selectSpawnedRecords } from "../store/spawned-rows.ts";
 
 /** Delete ended agent records only when no descendants remain. */
-function removeExpiredAgentRecords(orchDir: string, cutoff: Date): number {
+function removeExpiredAgentRecords(orchDir: string, cutoff: Date): { count: number; ids: Set<string> } {
   const db = openStore(orchDir);
   const rows = db.query(`SELECT e.agent_id FROM agent_endings e
     WHERE e.ended_at < ? AND NOT EXISTS (SELECT 1 FROM agents child WHERE child.spawned_by = e.agent_id)`).all(cutoff.getTime()) as { agent_id: string }[];
-  for (const row of rows) db.query("DELETE FROM agents WHERE id = ?").run(row.agent_id);
-  return rows.length;
+  const spawned = selectSpawnedRecords(orchDir);
+  for (const row of rows) {
+    // Normalized agent ids are the third segment of the serialized registry key;
+    // clean every matching key so an ended agent cannot retain a name/owner row
+    // merely because its presence directory was never created.
+    const keys = spawned.filter((record) =>
+      record.pane === row.agent_id || tryParseIdentity(record.pane)?.id === row.agent_id,
+    ).map((record) => record.pane);
+    for (const key of keys.length > 0 ? keys : [row.agent_id]) {
+      reapSpawnedRecord(key, orchDir, { agentId: row.agent_id });
+    }
+  }
+  return { count: rows.length, ids: new Set(rows.map((row) => row.agent_id)) };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -42,7 +55,13 @@ function removeExpiredAgentDirs(orchDir: string, cutoff: Date): number {
   for (const failure of result.failed) {
     process.stderr.write(`Warning: retention sweep ended_agents failed for ${failure.entry.dir}: ${errorMessage(failure.error)}\n`);
   }
-  return recordsRemoved + result.removed.length;
+  // The registry row and presence directory represent one logical agent. Count
+  // their union so removing both does not inflate the retention metric.
+  const dirsRemovedOnly = result.removed.filter((entry) => {
+    const agentId = tryParseIdentity(entry.key)?.id ?? entry.key;
+    return !recordsRemoved.ids.has(agentId);
+  }).length;
+  return recordsRemoved.count + dirsRemovedOnly;
 }
 
 /** Ask each backend that owns logs to prune its stale artifacts. */

@@ -130,4 +130,27 @@ describe("pi-bridge command-lock interception", () => {
 
     expect(readCommandLock(orchDir)).toBeNull();
   });
+
+  test("surfaces a present but broken settings load instead of silently disabling locks", async () => {
+    writeFileSync(join(orchDir, "settings.json"), "{\"schemaVersion\":");
+    try {
+      const { emit } = driveBridge();
+      try {
+        await emit("tool_execution_start", {
+          toolName: "bash",
+          toolCallId: "tc-broken-settings-1",
+          args: { command: LOCKED_COMMAND },
+        });
+        throw new Error("expected broken settings to reject");
+      } catch (error: unknown) {
+        if (!(error instanceof Error)) throw error;
+        expect(error.message).toContain(join(orchDir, "settings.json"));
+      }
+    } finally {
+      writeFileSync(
+        join(orchDir, "settings.json"),
+        JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", locked_commands: [LOCKED_COMMAND] }),
+      );
+    }
+  });
 });

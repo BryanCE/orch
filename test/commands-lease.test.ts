@@ -5,13 +5,14 @@ import { tmpdir } from "node:os";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { openStore } from "../src/store/connection.ts";
+import { governWrite } from "../src/daemon/orchd.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { reapAgent, adoptAgent, detachAgent } from "../src/commands/lease.ts";
+import { reapAgent, adoptAgent, detachAgent, cmdReap } from "../src/commands/lease.ts";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { recordSpawned } from "../src/presence/store.ts";
+import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];
@@ -30,6 +31,14 @@ function fixture(): string {
 }
 function agent(dir: string, id: string, name = id, spawnedBy: string | null = null): void {
   insertAgent(dir, { id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
+}
+
+function liveHolder(dir: string, id = "foreign-orch"): void {
+  agent(dir, id);
+  const token = processStartToken(process.pid);
+  if (!token) throw new Error("test process has no start token");
+  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
+    .run(id, 1, "host", process.pid, token);
 }
 
 // Command tests exercise the pure command operations so they do not need to boot a daemon.
@@ -60,7 +69,7 @@ describe("lease commands", () => {
     openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
       .run("old-orch", 1, "host", process.pid, processStartToken(process.pid));
     acquireLease(dir, "worker", "old-orch", 2);
-    expect(() => adoptAgent(dir, "worker", "new-orch", 3)).toThrow(/worker is leased by live orch old-orch/);
+    expect(() => adoptAgent(dir, "worker", "new-orch", 3)).toThrow("worker is leased by live orch old-orch.");
   });
 
   test("reap refuses when a live descendant exists, regardless of lease", () => {
@@ -88,40 +97,74 @@ describe("lease commands", () => {
     expect(openStore(dir).query("SELECT id FROM agents WHERE id = ?").get("worker")).toBeNull();
   });
 
-  test("abort and close proceed with a foreign normalized lease", () => {
+  test("abort proceeds with a foreign live-holder lease", () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
-    const abortKey = "headless~workspace~abort-worker";
-    const closeKey = "headless~workspace~close-worker";
-    agent(dir, abortKey, "abort-worker"); agent(dir, closeKey, "close-worker"); agent(dir, "foreign-orch");
-    acquireLease(dir, abortKey, "foreign-orch", 2);
-    acquireLease(dir, closeKey, "foreign-orch", 2);
-    for (const [key, handle] of [[abortKey, "abort-handle"], [closeKey, "close-handle"]] as const) {
-      recordSpawned(key, { backend: "headless", workspace: "workspace", handle, name: handle });
-      const dirPath = presenceAgentDir(key, dir);
-      mkdirSync(dirPath, { recursive: true });
-      writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
-    }
-    const backend = headlessBackend as Omit<typeof headlessBackend, "canSendKeys"> & { canSendKeys: boolean };
+    const key = "headless~workspace~abort-worker";
+    agent(dir, key, "abort-worker");
+    liveHolder(dir);
+    acquireLease(dir, key, "foreign-orch", 2);
+    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "abort-handle", name: "abort-worker" });
+    const dirPath = presenceAgentDir(key, dir);
+    mkdirSync(dirPath, { recursive: true });
+    writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
+
+    const backend = headlessBackend as unknown as { canSendKeys: boolean; sendKeys: typeof headlessBackend.sendKeys };
     const oldCanSendKeys = backend.canSendKeys;
     const oldSendKeys = backend.sendKeys.bind(backend);
-    const oldClose = backend.close.bind(backend);
     let sends = 0;
-    let closes = 0;
     backend.canSendKeys = true;
     backend.sendKeys = () => { sends++; return true; };
-    backend.close = () => { closes++; return true; };
     try {
-      cmdAbort([abortKey, "--json"]);
-      cmdClose([closeKey, "--json"]);
+      cmdAbort([key, "--json"]);
     } finally {
       backend.canSendKeys = oldCanSendKeys;
       backend.sendKeys = oldSendKeys;
-      backend.close = oldClose;
     }
     expect(sends).toBe(2);
-    expect(closes).toBe(1);
-    expect(currentLease(dir, abortKey)?.orchId).toBe("foreign-orch");
-    expect(currentLease(dir, closeKey)?.orchId).toBe("foreign-orch");
+    expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
+  });
+
+  test("close proceeds with a foreign live-holder lease", () => {
+    const dir = fixture();
+    process.env.ORCH_DIR = dir;
+    const key = "headless~workspace~close-worker";
+    agent(dir, key, "close-worker");
+    liveHolder(dir);
+    acquireLease(dir, key, "foreign-orch", 2);
+    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "close-handle", name: "close-worker" });
+    const dirPath = presenceAgentDir(key, dir);
+    mkdirSync(dirPath, { recursive: true });
+    writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
+
+    cmdClose([key, "--json"]);
+
+    expect(spawnedRecords().has(key)).toBe(false);
+    expect(openStore(dir).query("SELECT id FROM agents WHERE id = ?").get(key)).toBeDefined();
+    expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
+  });
+
+  test("reap proceeds with a foreign live-holder lease", () => {
+    const dir = fixture();
+    process.env.ORCH_DIR = dir;
+    const key = "headless~workspace~reap-worker";
+    agent(dir, key, "reap-worker");
+    liveHolder(dir);
+    acquireLease(dir, key, "foreign-orch", 2);
+
+    cmdReap([key, "--json"]);
+
+    expect(openStore(dir).query("SELECT id FROM agents WHERE id = ?").get(key)).toBeNull();
+  });
+
+  test("reset driving verb refuses a foreign live-holder lease", () => {
+    const dir = fixture();
+    const key = "reset-worker";
+    agent(dir, key);
+    liveHolder(dir);
+    acquireLease(dir, key, "foreign-orch", 2);
+
+    // governWrite is the daemon gate used by reset (and dispatch/steer/model).
+    expect(() => governWrite(dir, key, { target: key, actor: "caller-orch", text: "reset" })).toThrow(/foreign-orch/);
   });
 });

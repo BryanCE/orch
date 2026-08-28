@@ -55,12 +55,27 @@ describe("task and attempt rows", () => {
     expect(() => editTask(d, "q", "b", { text: "nope" })).toThrow();
   });
 
-  test("two separate connections cannot insert two open attempts", () => {
+  test("two concurrent claims have one winner and one index violation", async () => {
     const d = fixture(); seed(d); addTask(d, "t", { scopePackId: "a" });
-    claimTask(d, "t", "a", "d1", 10);
+    // The interval trigger also rejects overlapping open rows. Remove it for
+    // this probe so the expected loser must come from one_open_attempt.
+    openStore(d).exec("DROP TRIGGER task_attempts_no_overlap");
+    const first = new Database(join(d, "orch.db"));
     const second = new Database(join(d, "orch.db"));
-    expect(() => second.query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run("t", 11, "b", "d2")).toThrow();
-    second.close();
+    try {
+      const outcomes = await Promise.allSettled([
+        Promise.resolve().then(() => first.query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run("t", 10, "a", "d1")),
+        Promise.resolve().then(() => second.query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run("t", 11, "b", "d2")),
+      ]);
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      const rejected = outcomes.find((outcome) => outcome.status === "rejected");
+      if (rejected?.status !== "rejected") throw new Error("expected one rejected claim");
+      expect(String(rejected.reason)).toMatch(/UNIQUE constraint failed: task_attempts\.task_id/i);
+      expect(attemptsOf(d, "t")).toHaveLength(1);
+    } finally {
+      first.close();
+      second.close();
+    }
   });
 
   test("failed attempts remain in history and retries are new attempts", () => {

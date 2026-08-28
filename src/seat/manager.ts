@@ -9,7 +9,7 @@
  * never kills an agent — work survives its spawner, always. The manager's
  * scope owns only the subscription and fibers, never a pane.
  */
-import { Context, Effect, Fiber, Layer, Stream } from "effect";
+import { Context, Effect, Fiber, Layer, Runtime, Stream } from "effect";
 import {
   SETTLED_STATES,
   type PackEnrichment,
@@ -19,7 +19,7 @@ import {
 } from "./domain.ts";
 import { PackSource, type PackSourceShape } from "./source.ts";
 
-export const MAX_TRACKED = 128;
+const MAX_TRACKED = 128;
 const TASK_MAX_LENGTH = 4_096;
 
 // --- Internal state -----------------------------------------------------------
@@ -51,7 +51,7 @@ const ENRICH_TTL_MS = 1_000;
 
 /** Synchronous bridge for the TUI. Snapshots are live objects; do not mutate. */
 export interface PackReadView {
-  list(): ReadonlyArray<PackSnapshot>;
+  list(): readonly PackSnapshot[];
   get(key: string): PackSnapshot | undefined;
   size(): number;
   /** Any-change notification (status line, dashboard). */
@@ -80,7 +80,8 @@ export class PackManager extends Context.Tag("orch/seat/PackManager")<PackManage
 
 const makeManager = Effect.gen(function* () {
   const source: PackSourceShape = yield* PackSource;
-  const runDetached = Effect.runForkWith(yield* Effect.context<never>());
+  const runtime = yield* Effect.runtime<never>();
+  const runDetached = Runtime.runFork(runtime);
 
   const entries = new Map<string, Entry>();
   const listeners = new Set<() => void>();

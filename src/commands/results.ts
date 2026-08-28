@@ -27,70 +27,89 @@ function writeHistoricalResult(run: { result?: unknown }, json: boolean): boolea
   return true;
 }
 
-export function cmdResult(args: string[]) {
+interface ResultOptions { json: boolean; force: boolean; target?: string }
+
+function parseResultArgs(args: string[]): ResultOptions {
   const { enabled, positional } = splitOptionFlags(args, ["--json", "--force"]);
-  const json = enabled.has("--json");
-  const force = enabled.has("--force");
-  const target = positional[0];
-  if (!target) die("usage: orch result <target> [--force] [--json]");
+  return { json: enabled.has("--json"), force: enabled.has("--force"), target: positional[0] };
+}
+
+function writeRemoteResult(target: string, options: ResultOptions): boolean {
   const remote = targetHost(target);
-  if (remote) {
-    const host = loadConfig(orchDir()).hosts[remote.host];
-    const destination = host?.dest;
-    if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
-    const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(force ? ["--force"] : []), ...(json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
-    if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
-    process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
-    return;
-  }
+  if (!remote) return false;
+  const host = loadConfig(orchDir()).hosts[remote.host];
+  const destination = host?.dest;
+  if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
+  const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(options.force ? ["--force"] : []), ...(options.json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
+  if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
+  process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
+  return true;
+}
+
+function writePresenceResult(result: unknown, json: boolean): boolean {
+  if (!result) return false;
+  if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  else process.stdout.write((resultText(result) ?? "") + "\n");
+  return true;
+}
+
+function adapterResultText(ent: Entity, adapter: AgentAdapter): string | undefined {
+  return adapter.extractResult({ key: ent.key, sessionPath: ent.sessionPath ?? undefined });
+}
+
+function adapterSessionView(ent: Entity, adapter: AgentAdapter): SessionView | undefined {
+  if (!adapter.capabilities.sessionTail) return undefined;
+  return adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined });
+}
+
+function sessionViewValue(view: SessionView | undefined, key: keyof SessionView): unknown {
+  return view?.[key] ?? null;
+}
+
+function writeAdapterJson(ent: Entity, adapter: AgentAdapter, text: string): void {
+  const view = adapterSessionView(ent, adapter);
+  process.stdout.write(JSON.stringify({
+    text, task: sessionViewValue(view, "task"), model: sessionViewValue(view, "model"),
+    thinking: sessionViewValue(view, "thinking"), tokens: sessionViewValue(view, "tokens"),
+    cost: sessionViewValue(view, "cost"), turns: sessionViewValue(view, "turns"),
+    sessionPath: ent.sessionPath,
+  }, null, 2) + "\n");
+}
+
+function writeAdapterResult(ent: Entity, json: boolean): boolean {
+  const adapter = entityAdapter(ent);
+  if (!adapter) return false;
+  const text = adapterResultText(ent, adapter);
+  if (!text) return false;
+  process.stderr.write("(no result.json - falling back to adapter-extracted session text)\n");
+  if (json) writeAdapterJson(ent, adapter, text);
+  else process.stdout.write(text + "\n");
+  return true;
+}
+
+function tryHistoricalTarget(target: string, json: boolean): boolean {
+  if (loadPresence().has(target)) return false;
+  const historical = latestRunForKey(target);
+  return historical ? writeHistoricalResult(historical, json) : false;
+}
+
+export function cmdResult(args: string[]) {
+  const options = parseResultArgs(args);
+  const target = options.target;
+  if (!target) die("usage: orch result <target> [--force] [--json]");
+  if (writeRemoteResult(target, options)) return;
   // A reaped presence directory leaves no entity for resolveTarget. An exact
   // canonical key still addresses its durable run history, so use that only
   // when the live presence path is absent.
-  if (!loadPresence().has(target)) {
-    const historical = latestRunForKey(target);
-    if (historical && writeHistoricalResult(historical, json)) return;
-  }
+  if (tryHistoricalTarget(target, options.json)) return;
   const ent = resolveTarget(target);
   // Names are a flat namespace across every orchestrator, so an unscoped read
   // hands one session's work product to another as if it were its own.
-  assertAgentOwned(target, ent, force);
-  const pres = ent.presence;
-  if (pres?.result) {
-    if (json) process.stdout.write(JSON.stringify(pres.result, null, 2) + "\n");
-    else process.stdout.write((resultText(pres.result) ?? "") + "\n");
-    return;
-  }
+  assertAgentOwned(target, ent, options.force);
+  if (writePresenceResult(ent.presence?.result, options.json)) return;
   const historical = latestRunForKey(ent.key);
-  if (historical && writeHistoricalResult(historical, json)) return;
-  // fallback: adapter-extracted final text from the native session tail
-  const adapter = entityAdapter(ent);
-  const extractInput = { key: ent.key, sessionPath: ent.sessionPath ?? undefined };
-  const text = adapter?.extractResult(extractInput);
-  if (text) {
-    process.stderr.write("(no result.json - falling back to adapter-extracted session text)\n");
-    if (json) {
-      const sview = adapter?.capabilities.sessionTail
-        ? adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined })
-        : undefined;
-      process.stdout.write(
-        JSON.stringify(
-          {
-            text,
-            task: sview?.task ?? null,
-            model: sview?.model ?? null,
-            thinking: sview?.thinking ?? null,
-            tokens: sview?.tokens ?? null,
-            cost: sview?.cost ?? null,
-            turns: sview?.turns ?? null,
-            sessionPath: ent.sessionPath,
-          },
-          null,
-          2
-        ) + "\n"
-      );
-    } else process.stdout.write(text + "\n");
-    return;
-  }
+  if (historical && writeHistoricalResult(historical, options.json)) return;
+  if (writeAdapterResult(ent, options.json)) return;
   die(`No result available for "${target}" (no result.json and no adapter-extractable session text).`);
 }
 
@@ -291,8 +310,10 @@ function tailEntries(entries: readonly SessionViewEntry[], count: number): strin
   return rows.length ? rows.join("\n") : "(no entries)";
 }
 
-export function cmdTail(args: string[]) {
-  let n = 20;
+interface TailOptions { target?: string; lines: number; json: boolean }
+
+function parseTailArgs(args: string[]): TailOptions {
+  let lines = 20;
   let json = false;
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -300,56 +321,81 @@ export function cmdTail(args: string[]) {
     if (arg === undefined) continue;
     if (arg === "-n") {
       const value = args[++i];
-      n = parseInt(value ?? "", 10) || 20;
+      lines = parseInt(value ?? "", 10) || 20;
     } else if (arg === "--json") json = true;
     else rest.push(arg);
   }
-  const target = rest[0];
+  return { target: rest[0], lines, json };
+}
+
+function viewEntriesTail(view: SessionView, lines: number): SessionViewEntry[] | null {
+  return view.entries ? view.entries.slice(-lines) : null;
+}
+
+function writeTailJson(target: string, ent: Entity, view: SessionView, lines: number): void {
+  process.stdout.write(JSON.stringify({
+    target, sessionPath: ent.sessionPath, model: sessionViewValue(view, "model"),
+    provider: sessionViewValue(view, "provider"), thinking: sessionViewValue(view, "thinking"),
+    cost: sessionViewValue(view, "cost"), tokens: sessionViewValue(view, "tokens"),
+    turns: sessionViewValue(view, "turns"), task: sessionViewValue(view, "task"),
+    lastText: sessionViewValue(view, "lastText"), entries: viewEntriesTail(view, lines),
+  }, null, 2) + "\n");
+}
+
+function writeTailText(ent: Entity, view: SessionView, lines: number): void {
+  process.stdout.write(`session: ${ent.sessionPath}\nmodel: ${formatViewModel(view, "-")}   cost: $${(view.cost ?? 0).toFixed(4)}   turns: ${view.turns ?? 0}\n\n`);
+  process.stdout.write((view.entries ? tailEntries(view.entries, lines) : tailLastText(view, lines)) + "\n");
+}
+
+export function cmdTail(args: string[]) {
+  const options = parseTailArgs(args);
+  const target = options.target;
   if (!target) die("usage: orch tail <target> [-n N] [--json]");
   const ent = resolveTarget(target);
   const adapter = resolveSessionTailAdapter(target, ent);
   const view = adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined });
   if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
-  if (json) {
-    process.stdout.write(JSON.stringify({ target, sessionPath: ent.sessionPath, model: view.model ?? null,
-      provider: view.provider ?? null, thinking: view.thinking ?? null, cost: view.cost ?? null,
-      tokens: view.tokens ?? null, turns: view.turns ?? null, task: view.task ?? null, lastText: view.lastText ?? null,
-      entries: view.entries ? view.entries.slice(-n) : null }, null, 2) + "\n");
-    return;
-  }
-  process.stdout.write(
-    `session: ${ent.sessionPath}\nmodel: ${formatViewModel(view, "-")}   cost: $${(view.cost ?? 0).toFixed(4)}   turns: ${view.turns ?? 0}\n\n`
-  );
-  // Adapters whose parser yields per-turn entries get the rich last-N tail; the
-  // rest fall back to the last assistant text tailed to its final N lines.
-  process.stdout.write((view.entries ? tailEntries(view.entries, n) : tailLastText(view, n)) + "\n");
+  if (options.json) writeTailJson(target, ent, view, options.lines);
+  else writeTailText(ent, view, options.lines);
+}
+
+interface SessionOptions { target?: string; json: boolean }
+
+function parseSessionArgs(args: string[]): SessionOptions {
+  return { json: args.includes("--json"), target: args.find((arg) => arg !== "--json") };
+}
+
+function writeSessionJson(ent: Entity, view: SessionView | undefined): void {
+  const entries = view?.entries?.length ?? 0;
+  process.stdout.write(JSON.stringify({
+    path: ent.sessionPath, exists: view !== undefined, entries,
+    turns: view?.turns ?? 0, cost: view?.cost ?? 0,
+    tokens: sessionViewValue(view, "tokens"), model: sessionViewValue(view, "model"),
+    provider: sessionViewValue(view, "provider"), thinking: sessionViewValue(view, "thinking"),
+  }, null, 2) + "\n");
+}
+
+function writeSessionText(ent: Entity, view: SessionView | undefined): void {
+  const entries = view?.entries?.length ?? 0;
+  const lines = [
+    `path:    ${ent.sessionPath}`, `exists:  ${view !== undefined}`, `entries: ${entries}`,
+    `turns:   ${view?.turns ?? 0}`,
+    `cost:    $${(view?.cost ?? 0).toFixed(4)}`,
+    `tokens:  ${formatViewTokens(view?.tokens)}`,
+    `model:   ${view ? formatViewModel(view, "(none)") : "(none)"}`,
+  ];
+  process.stdout.write(lines.join("\n") + "\n");
 }
 
 export function cmdSession(args: string[]) {
-  const json = args.includes("--json");
-  const target = args.find((arg) => arg !== "--json");
+  const options = parseSessionArgs(args);
+  const target = options.target;
   if (!target) die("usage: orch session <target> [--json]");
   const ent = resolveTarget(target);
   if (!ent.sessionPath) die(`No session path known for "${target}".`);
   const adapter = resolveSessionTailAdapter(target, ent);
   const view = adapter.readSessionView?.({ sessionPath: ent.sessionPath });
-  const entryCount = view?.entries?.length ?? 0;
-  if (json) {
-    process.stdout.write(JSON.stringify({ path: ent.sessionPath, exists: view !== undefined,
-      entries: entryCount, turns: view?.turns ?? 0, cost: view?.cost ?? 0, tokens: view?.tokens ?? null,
-      model: view?.model ?? null, provider: view?.provider ?? null, thinking: view?.thinking ?? null }, null, 2) + "\n");
-    return;
-  }
-  process.stdout.write(
-    [
-      `path:    ${ent.sessionPath}`,
-      `exists:  ${view !== undefined}`,
-      `entries: ${entryCount}`,
-      `turns:   ${view?.turns ?? 0}`,
-      `cost:    $${(view?.cost ?? 0).toFixed(4)}`,
-      `tokens:  ${formatViewTokens(view?.tokens)}`,
-      `model:   ${view ? formatViewModel(view, "(none)") : "(none)"}`,
-    ].join("\n") + "\n"
-  );
+  if (options.json) writeSessionJson(ent, view);
+  else writeSessionText(ent, view);
 }
 

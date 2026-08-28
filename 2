@@ -1,77 +1,122 @@
-[35mcheck:bridge[0m | check:bridge OK (769 files scanned)
-[33mtc          [0m | test/commands-lease.test.ts(111,5): error TS2322: Type 'true' is not assignable to type 'false'.
-[33mtc          [0m | test/spawn-policy.test.ts(96,5): error TS2322: Type '(str: string | Uint8Array<ArrayBufferLike>, encoding?: BufferEncoding | undefined, cb?: ((err?: Error | null) => void) | undefined) => true' is not assignable to type '{ (buffer: string | Uint8Array<ArrayBufferLike>, cb?: ((err?: Error | null | undefined) => void) | undefined): boolean; (str: string | Uint8Array<ArrayBufferLike>, encoding?: BufferEncoding | undefined, cb?: ((err?: Error | ... 1 more ... | undefined) => void) | undefined): boolean; }'.
-[33mtc          [0m |   Types of parameters 'encoding' and 'cb' are incompatible.
-[33mtc          [0m |     Type '((err?: Error | null | undefined) => void) | undefined' is not assignable to type 'BufferEncoding | undefined'.
-[33mtc          [0m |       Type '(err?: Error | null | undefined) => void' is not assignable to type 'BufferEncoding | undefined'.
+[35mcheck:bridge[0m | check:bridge FAIL src/seat/source.ts:66 presence filename "status.json" is forbidden outside src/presence/; import the constant from src/presence/schema.ts
+[33mtc          [0m | src/seat/manager.ts(83,30): error TS2339: Property 'runForkWith' does not exist on type 'typeof import("/home/bryan/orch/node_modules/.bun/effect@3.22.1/node_modules/effect/dist/dts/Effect")'.
+[33mtc          [0m | src/seat/ui/takeover.ts(28,19): error TS2345: Argument of type 'string' is not assignable to parameter of type 'ThemeColor'.
+[33mtc          [0m | src/seat/ui/takeover.ts(32,19): error TS2345: Argument of type 'string' is not assignable to parameter of type 'ThemeColor'.
+[33mtc          [0m | src/seat/ui/takeover.ts(45,54): error TS2739: Type 'import("/home/bryan/orch/node_modules/.bun/@earendil-works+pi-tui@0.80.6/node_modules/@earendil-works/pi-tui/dist/tui").TUI' is missing the following properties from type 'import("/home/bryan/orch/node_modules/.bun/@earendil-works+pi-tui@0.84.3/node_modules/@earendil-works/pi-tui/dist/tui").TUI': mode, renderNow
+[33mtc          [0m | src/seat/ui/takeover.ts(63,60): error TS2739: Type 'import("/home/bryan/orch/node_modules/.bun/@earendil-works+pi-tui@0.80.6/node_modules/@earendil-works/pi-tui/dist/tui").TUI' is missing the following properties from type 'import("/home/bryan/orch/node_modules/.bun/@earendil-works+pi-tui@0.84.3/node_modules/@earendil-works/pi-tui/dist/tui").TUI': mode, renderNow
+[33mtc          [0m | src/seat/ui/takeover.ts(251,52): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(251,86): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(252,45): error TS2345: Argument of type 'PackSnapshot | undefined' is not assignable to parameter of type 'PackSnapshot'.
+[33mtc          [0m |   Type 'undefined' is not assignable to type 'PackSnapshot'.
+[33mtc          [0m | src/seat/ui/takeover.ts(252,72): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(252,108): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(254,23): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(257,13): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(257,49): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(259,13): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(259,66): error TS18048: 'snapshot' is possibly 'undefined'.
+[33mtc          [0m | src/seat/ui/takeover.ts(260,41): error TS2345: Argument of type 'PackSnapshot | undefined' is not assignable to parameter of type 'PackSnapshot'.
+[33mtc          [0m |   Type 'undefined' is not assignable to type 'PackSnapshot'.
+[33mtc          [0m | src/seat/ui/takeover.ts(261,19): error TS2345: Argument of type 'PackSnapshot | undefined' is not assignable to parameter of type 'PackSnapshot'.
+[33mtc          [0m |   Type 'undefined' is not assignable to type 'PackSnapshot'.
+[33mtc          [0m | src/seat/ui/transcript.ts(34,75): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+[33mtc          [0m |   Type 'undefined' is not assignable to type 'string'.
+[33mtc          [0m | src/seat/ui/transcript.ts(60,42): error TS2352: Conversion of type 'OtherContentBlock' to type '{ thinking: string; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+[33mtc          [0m |   Property 'thinking' is missing in type 'OtherContentBlock' but required in type '{ thinking: string; }'.
 [36mlint        [0m | 
-[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
-[36mlint        [0m |      ,-[src/store/task-rows.ts:180:40]
-[36mlint        [0m |  179 | 
-[36mlint        [0m |  180 | export function allTasks(dir: string): Array<TaskRow & { state: TaskState }> {
-[36mlint        [0m |      :                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[36mlint        [0m |  181 |   const rows = openStore(dir).query(`
-[36mlint        [0m |      `----
-[36mlint        [0m |   help: Replace `Array<TaskRow & { state: TaskState }>` with `(TaskRow & { state: TaskState })[]`.
-[36mlint        [0m | 
-[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
-[36mlint        [0m |      ,-[src/store/task-rows.ts:201:21]
-[36mlint        [0m |  200 |       )) < ?
-[36mlint        [0m |  201 |   `).all(cutoff) as Array<{ id: string }>;
-[36mlint        [0m |      :                     ^^^^^^^^^^^^^^^^^^^^^
-[36mlint        [0m |  202 |   const remove = db.query("DELETE FROM tasks WHERE id=?");
-[36mlint        [0m |      `----
-[36mlint        [0m |   help: Replace `Array<{ id: string }>` with `{ id: string }[]`.
-[36mlint        [0m | 
-[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
-[36mlint        [0m |      ,-[src/store/task-rows.ts:257:57]
-[36mlint        [0m |  256 | 
-[36mlint        [0m |  257 | export function intakesOf(dir: string, packId: string): Array<{ packId: string; spaceId: string; since: number; until: number | null }> {
-[36mlint        [0m |      :                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[36mlint        [0m |  258 |   const rows = openStore(dir).query("SELECT pack_id,space_id,since,until FROM pack_intakes WHERE pack_id=? ORDER BY since").all(packId) as RawIntakeRow[];
-[36mlint        [0m |      `----
-[36mlint        [0m |   help: Replace `Array<{ packId: string; spaceId: string; since: number; until: number | null }>` with `{ packId: string; spaceId: string; since: number; until: number | null }[]`.
-[36mlint        [0m | 
-[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
-[36mlint        [0m |     ,-[src/commands/queue.ts:42:108]
-[36mlint        [0m |  41 |   if (agentById(directory, target)) return target;
-[36mlint        [0m |  42 |   const rows = openStore(directory).query("SELECT id FROM agents WHERE name=? ORDER BY id").all(target) as Array<{ id: string }>;
-[36mlint        [0m |     :                                                                                                            ^^^^^^^^^^^^^^^^^^^^^
-[36mlint        [0m |  43 |   if (rows.length === 0) die(`Unknown agent: ${target}`);
+[36mlint        [0m |   x typescript(array-type): Array type using 'ReadonlyArray<PackSnapshot>' is forbidden. Use 'readonly PackSnapshot[]' instead.
+[36mlint        [0m |     ,-[src/seat/index.ts:28:37]
+[36mlint        [0m |  27 | 
+[36mlint        [0m |  28 | export function countStates(agents: ReadonlyArray<PackSnapshot>): PackCounts {
+[36mlint        [0m |     :                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  29 |   const counts: PackCounts = { working: 0, blocked: 0, failed: 0, done: 0 };
 [36mlint        [0m |     `----
-[36mlint        [0m |   help: Replace `Array<{ id: string }>` with `{ id: string }[]`.
+[36mlint        [0m |   help: Replace `ReadonlyArray<PackSnapshot>` with `readonly PackSnapshot[]`.
 [36mlint        [0m | 
-[36mlint        [0m |   x typescript(prefer-regexp-exec): Use the `RegExp#exec()` method instead.
-[36mlint        [0m |      ,-[src/queue.ts:169:23]
-[36mlint        [0m |  168 |   } catch (error) {
-[36mlint        [0m |  169 |     if (String(error).match(/one_open_attempt|UNIQUE constraint failed: task_attempts\.task_id/i)) return false;
-[36mlint        [0m |      :                       ^^^^^
-[36mlint        [0m |  170 |     throw error;
+[36mlint        [0m |   x typescript(array-type): Array type using 'ReadonlyArray<PackSnapshot>' is forbidden. Use 'readonly PackSnapshot[]' instead.
+[36mlint        [0m |     ,-[src/seat/index.ts:40:56]
+[36mlint        [0m |  39 | /** `orch: ■ 2 working · ■ 1 blocked · ■ 3 done · /orch-view to view`, themed. */
+[36mlint        [0m |  40 | export function formatSeatStatus(theme: Theme, agents: ReadonlyArray<PackSnapshot>): string {
+[36mlint        [0m |     :                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  41 |   const counts = countStates(agents);
+[36mlint        [0m |     `----
+[36mlint        [0m |   help: Replace `ReadonlyArray<PackSnapshot>` with `readonly PackSnapshot[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'ReadonlyArray<T>' is forbidden. Use 'readonly T[]' instead.
+[36mlint        [0m |     ,-[src/seat/ui/takeover.ts:85:84]
+[36mlint        [0m |  84 | 
+[36mlint        [0m |  85 | export function reconcileDashboardSelection(selection: DashboardSelection, agents: ReadonlyArray<Pick<PackSnapshot, "key">>): void {
+[36mlint        [0m |     :                                                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  86 |   const stableIndex = selection.id ? agents.findIndex((snapshot) => snapshot.key === selection.id) : -1;
+[36mlint        [0m |     `----
+[36mlint        [0m |   help: Replace `ReadonlyArray<Pick<PackSnapshot, "key">>` with `readonly Pick<PackSnapshot, "key">[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'ReadonlyArray<PackSnapshot>' is forbidden. Use 'readonly PackSnapshot[]' instead.
+[36mlint        [0m |      ,-[src/seat/ui/takeover.ts:124:21]
+[36mlint        [0m |  123 | 
+[36mlint        [0m |  124 |   private agents(): ReadonlyArray<PackSnapshot> {
+[36mlint        [0m |      :                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  125 |     return this.view.list();
+[36mlint        [0m |      `----
+[36mlint        [0m |   help: Replace `ReadonlyArray<PackSnapshot>` with `readonly PackSnapshot[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'ReadonlyArray<PackSnapshot>' is forbidden. Use 'readonly PackSnapshot[]' instead.
+[36mlint        [0m |      ,-[src/seat/ui/takeover.ts:232:30]
+[36mlint        [0m |  231 | 
+[36mlint        [0m |  232 |   private renderRows(agents: ReadonlyArray<PackSnapshot>, width: number, height: number): string[] {
+[36mlint        [0m |      :                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  233 |     const theme = this.theme;
+[36mlint        [0m |      `----
+[36mlint        [0m |   help: Replace `ReadonlyArray<PackSnapshot>` with `readonly PackSnapshot[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'ReadonlyArray<PackSnapshot>' is forbidden. Use 'readonly PackSnapshot[]' instead.
+[36mlint        [0m |     ,-[src/seat/manager.ts:54:11]
+[36mlint        [0m |  53 | export interface PackReadView {
+[36mlint        [0m |  54 |   list(): ReadonlyArray<PackSnapshot>;
+[36mlint        [0m |     :           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  55 |   get(key: string): PackSnapshot | undefined;
+[36mlint        [0m |     `----
+[36mlint        [0m |   help: Replace `ReadonlyArray<PackSnapshot>` with `readonly PackSnapshot[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(no-unsafe-assignment): Unsafe assignment of an error typed value.
+[36mlint        [0m |     ,-[src/seat/manager.ts:83:9]
+[36mlint        [0m |  82 |   const source: PackSourceShape = yield* PackSource;
+[36mlint        [0m |  83 |   const runDetached = Effect.runForkWith(yield* Effect.context<never>());
+[36mlint        [0m |     :         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  84 | 
+[36mlint        [0m |     `----
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+[36mlint        [0m |     ,-[src/seat/manager.ts:83:23]
+[36mlint        [0m |  82 |   const source: PackSourceShape = yield* PackSource;
+[36mlint        [0m |  83 |   const runDetached = Effect.runForkWith(yield* Effect.context<never>());
+[36mlint        [0m |     :                       ^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  84 | 
+[36mlint        [0m |     `----
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+[36mlint        [0m |      ,-[src/seat/manager.ts:217:7]
+[36mlint        [0m |  216 |     requestSend: (key, text) => {
+[36mlint        [0m |  217 |       runDetached(send(key, text).pipe(Effect.ignore));
+[36mlint        [0m |      :       ^^^^^^^^^^^
+[36mlint        [0m |  218 |     },
+[36mlint        [0m |      `----
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(no-unsafe-call): Unsafe call of a(n) `error` type typed value.
+[36mlint        [0m |      ,-[src/seat/manager.ts:220:7]
+[36mlint        [0m |  219 |     requestAbort: (key) => {
+[36mlint        [0m |  220 |       runDetached(source.abort(key).pipe(Effect.ignore));
+[36mlint        [0m |      :       ^^^^^^^^^^^
+[36mlint        [0m |  221 |     },
 [36mlint        [0m |      `----
 [36mlint        [0m | 
 [36mlint        [0m |   x typescript(prefer-optional-chain): Prefer using an optional chain expression instead, as it's more concise and easier to read.
-[36mlint        [0m |      ,-[src/queue.ts:199:7]
-[36mlint        [0m |  198 |   const attempt = task.attempts.at(-1);
-[36mlint        [0m |  199 |   if (!attempt || attempt.until !== null) throw new Error(`Task ${task.id} has no open attempt`);
-[36mlint        [0m |      :       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[36mlint        [0m |  200 |   return attempt;
+[36mlint        [0m |      ,-[src/seat/ui/takeover.ts:175:11]
+[36mlint        [0m |  174 |       const snapshot = agents[this.selection.index];
+[36mlint        [0m |  175 |       if (snapshot && snapshot.state === "working") this.view.requestAbort(snapshot.key);
+[36mlint        [0m |      :           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  176 |     }
 [36mlint        [0m |      `----
 [36mlint        [0m | 
-[36mlint        [0m |   x typescript(no-unnecessary-type-assertion): This assertion is unnecessary since the receiver accepts the original type of the expression.
-[36mlint        [0m |     ,-[test/queue.test.ts:44:48]
-[36mlint        [0m |  43 |     expect(() => addTask(dir, "none", {}, "missing")).toThrow(/enqueuer/i);
-[36mlint        [0m |  44 |     expect(() => addTask(dir, "many", {}, "a1", { agentId: "a2", spaceId: "space-1" } as never)).toThrow(/exactly one/i);
-[36mlint        [0m |     :                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[36mlint        [0m |  45 |   });
-[36mlint        [0m |     `----
-[36mlint        [0m | 
-[36mlint        [0m |   x typescript(no-unsafe-assignment): Unsafe assignment of an any value.
-[36mlint        [0m |     ,-[test/queue.test.ts:93:80]
-[36mlint        [0m |  92 |     const own = addTask(dir, "own", {}, "a1");
-[36mlint        [0m |  93 |     expect(cancelTask(dir, own.id, "orch-b")).toMatchObject({ state: "queued", error: expect.stringContaining("permitted") });
-[36mlint        [0m |     :                                                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[36mlint        [0m |  94 |     expect(cancelTask(dir, own.id, "a1")).toMatchObject({ state: "cancelled" });
-[36mlint        [0m |     `----
-[36mlint        [0m | 
-[36mlint        [0m | Found 0 warnings and 8 errors.
-[36mlint        [0m | Finished in 1.1s on 276 files with 65 rules using 8 threads.
+[36mlint        [0m | Found 0 warnings and 11 errors.
+[36mlint        [0m | Finished in 1.1s on 281 files with 65 rules using 8 threads.

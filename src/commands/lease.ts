@@ -17,7 +17,7 @@ export interface LeaseCommandResult {
 
 /** Transitional seam: the daemon hello identity is the caller's orch identity.
  * The agent hello rework should only need to replace this one function. */
-export async function resolveSelfOrchId(): Promise<string> {
+async function resolveSelfOrchId(): Promise<string> {
   return (await rpcHello(orchDir())).id;
 }
 

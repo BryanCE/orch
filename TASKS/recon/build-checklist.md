@@ -170,7 +170,7 @@ Legend: **SAT** satisfied; **PART** partially built; **NO** not started. Evidenc
 
 ## Needs design / ruling
 - D10, E2, E9, F5, G8, I4, I8, M6, M7, M8 — status DESIGN; target files are noted above.
-- Open ruling: whether `docs/reference/identity-registration.md` moves into `TASKS/` (scope open-ruling section).
+- Open ruling: whether `TASKS/08-identity-registration.md` moves into `TASKS/` (scope open-ruling section).
 
 ## L. Known defects (reference only)
 - L1–L7, L9–L12 — known broken; evidence and target files are recorded in `TASKS/02-scope.md` and `TASKS/recon/wave1-review.md`.

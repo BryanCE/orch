@@ -44,14 +44,27 @@ function parseHerdrOutput(output: string): unknown {
   return isRecord(value) && value.result !== undefined ? value.result : value;
 }
 
-function errorDetail(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (isRecord(error)) {
-    const detail = error.stderr ?? error.stdout ?? error.message;
-    if (detail !== undefined) return JSON.stringify(detail) ?? "";
-  }
-  return String(error);
+function outputText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
+  if (value === undefined) return "";
+  const json = JSON.stringify(value);
+  return json ?? "";
 }
+
+function errorDetail(error: unknown): string {
+  if (isRecord(error)) {
+    const status = typeof error.status === "number" ? `exit status ${error.status}` : undefined;
+    const stderr = error.stderr === undefined ? "" : outputText(error.stderr).trim();
+    const stdout = error.stdout === undefined ? "" : outputText(error.stdout).trim();
+    const message = error.message === undefined ? outputText(error) : outputText(error.message);
+    return [status, stderr && `stderr: ${stderr}`, stdout && `stdout: ${stdout}`, message].filter(Boolean).join("; ");
+  }
+  return error instanceof Error ? error.message : outputText(error);
+}
+
+type HerdrExecutor = (command: string, args: string[], options?: ExecFileSyncOptionsWithStringEncoding) => string;
+let executeHerdr: HerdrExecutor = (command, args, options) => execFileSync(command, args, options) as string;
 
 function isHerdrPane(value: unknown): value is HerdrPane {
   return isRecord(value) && typeof value.pane_id === "string";
@@ -73,26 +86,36 @@ function isHerdrAgent(value: unknown): value is HerdrAgent {
 const LIST_CACHE_TTL_MS = 1500;
 const listCache = new Map<string, { at: number; value: unknown }>();
 
+/** Inject the process runner for a scoped seam test; the returned function restores it. */
+export function setHerdrExecutor(executor: HerdrExecutor): () => void {
+  const previous = executeHerdr;
+  listCache.clear();
+  executeHerdr = executor;
+  return () => {
+    executeHerdr = previous;
+    listCache.clear();
+  };
+}
+
 function herdr(args: string[]): unknown {
   const cacheKey = args.join(" ");
   const cached = listCache.get(cacheKey);
   if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.value;
-  let value: unknown;
   try {
-    const output: string = execFileSync("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    value = parseHerdrOutput(output);
-  } catch {
-    value = null;
+    const output = executeHerdr("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const value = parseHerdrOutput(output);
+    listCache.set(cacheKey, { at: Date.now(), value });
+    return value;
+  } catch (error: unknown) {
+    throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
   }
-  listCache.set(cacheKey, { at: Date.now(), value });
-  return value;
 }
 
 function herdrOutput(args: string[]): string {
   // Assume a mutation: listings must not serve pre-mutation state.
   listCache.clear();
   try {
-    return execFileSync("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return executeHerdr("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error: unknown) {
     throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
   }
@@ -123,51 +146,40 @@ export function version(): string | null {
   }
 }
 
-/** Alias named for callers that make the backend explicit. */
-export const herdrVersion = version;
-
 /** True only when the herdr control socket responds. */
 export function herdrReachable(): boolean {
-  return herdr(["pane", "list"]) !== null;
+  herdrPanes();
+  return true;
 }
 
 export function herdrPanes(): HerdrPane[] {
   const result = herdr(["pane", "list"]);
-  return isRecord(result) && Array.isArray(result.panes) ? result.panes.filter(isHerdrPane) : [];
+  if (!isRecord(result) || !Array.isArray(result.panes)) throw new Error("herdr pane list returned invalid response");
+  return result.panes.filter(isHerdrPane);
 }
 
 export function herdrNames(): Map<string, string> {
   const result = herdr(["agent", "list"]);
+  if (!isRecord(result) || !Array.isArray(result.agents)) throw new Error("herdr agent list returned invalid response");
   const names = new Map<string, string>();
-  if (isRecord(result) && Array.isArray(result.agents)) {
-    for (const agent of result.agents.filter(isHerdrAgent)) {
-      if (agent.pane_id && agent.name) names.set(agent.pane_id, agent.name);
-    }
+  for (const agent of result.agents.filter(isHerdrAgent)) {
+    if (agent.pane_id && agent.name) names.set(agent.pane_id, agent.name);
   }
   return names;
 }
 
 export function herdrTabs(): Map<string, HerdrTab> {
   const result = herdr(["tab", "list"]);
+  if (!isRecord(result) || !Array.isArray(result.tabs)) throw new Error("herdr tab list returned invalid response");
   const tabs = new Map<string, HerdrTab>();
-  if (isRecord(result) && Array.isArray(result.tabs)) {
-    for (const tab of result.tabs.filter(isHerdrTab)) tabs.set(tab.tab_id, tab);
-  }
+  for (const tab of result.tabs.filter(isHerdrTab)) tabs.set(tab.tab_id, tab);
   return tabs;
 }
 
-export function herdrBestEffort(args: string[]): boolean {
-  // Assume a mutation: listings must not serve pre-mutation state.
-  listCache.clear();
-  try {
-    execFileSync("herdr", args, { timeout: 8000, stdio: ["ignore", "pipe", "pipe"] });
-    return true;
-  } catch (error: unknown) {
-    process.stderr.write(`warning: herdr ${args.join(" ")} failed: ${errorDetail(error)}\n`);
-    return false;
-  }
-}
-
 export function herdrExec(args: string[], options: ExecFileSyncOptionsWithStringEncoding = { encoding: "utf8" }): string {
-  return execFileSync("herdr", args, options);
+  try {
+    return executeHerdr("herdr", args, options);
+  } catch (error: unknown) {
+    throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
+  }
 }

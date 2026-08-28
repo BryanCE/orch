@@ -7,12 +7,9 @@ import { deliverControl } from "../src/control/dispatch.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { recordSpawned } from "../src/presence/store.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
-import { getBackend } from "../src/backends/registry.ts";
 import type { BackendId } from "../src/backends/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { refusalOf } from "./helpers/refusal.ts";
-
-const headlessBackend = getBackend("headless")!;
 
 /** Above every real pid on Linux and macOS, so pidAlive is deterministically false. */
 const DEAD_PID = 0x7fffffff;
@@ -94,26 +91,13 @@ describe("deliverControl", () => {
     expect(line.text).toBe("next slice");
   });
 
-  test("warns and succeeds when claude keys fallback delivers", async () => {
+  test("does not fall back from a keys strategy to the orch channel", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target("headless", "claude-ok");
     presence(directory, key, "claude");
-    // The keys fallback needs a pane to press keys into, and only the registry
-    // records one — the identity id names the agent, never its backend handle.
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
-    const deliver = headlessBackend.deliver.bind(headlessBackend);
-    headlessBackend.deliver = () => true;
-    const writes: string[] = [];
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = (chunk: string | Uint8Array) => { writes.push(String(chunk)); return true; };
-    try {
-      await deliverControl(key, { kind: "steer", text: "hello claude" });
-    } finally {
-      process.stderr.write = originalWrite;
-      headlessBackend.deliver = deliver;
-    }
-    expect(writes.join("")).toContain("degraded delivery");
+    await expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/no pane input role/);
   }, 15_000);
 
   test("fails when claude keys fallback cannot deliver", () => {
@@ -123,7 +107,7 @@ describe("deliverControl", () => {
     presence(directory, key, "claude");
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
 
-    expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/cannot steer .*backend cannot deliver/);
+    expect(deliverControl(key, { kind: "steer", text: "hello claude" })).rejects.toThrow(/no pane input role/);
   }, 15_000);
 
   test("fails unsupported steer and setModel capabilities", () => {

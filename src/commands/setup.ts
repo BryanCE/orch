@@ -316,6 +316,53 @@ function recordComposition(
   );
 }
 
+type MissingPrerequisite = { bin: string; cmd: string };
+type ManualPrerequisite = { id: string; url: string };
+
+function reportAdapterPrerequisites(
+  adapters: readonly AdapterId[],
+  bins: Record<string, boolean>,
+  queueInstall: (id: string) => void,
+): void {
+  for (const id of adapters) {
+    const binPath = bins[id] ? binaryPath(id) ?? "" : "";
+    process.stdout.write(`  ${binPath ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}\n`);
+    if (!bins[id]) queueInstall(id);
+  }
+}
+
+function reportBackendPrerequisites(
+  backends: readonly BackendId[],
+  bins: Record<string, boolean>,
+  queueInstall: (id: string) => void,
+): void {
+  for (const id of backends) {
+    const available = getBackend(id)!.isAvailable();
+    const binPath = available && bins[id] ? binaryPath(id) ?? "" : "";
+    process.stdout.write(`  ${available ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}\n`);
+    if (!available) queueInstall(id);
+  }
+}
+
+async function installSelectedPrerequisites(
+  missing: readonly MissingPrerequisite[],
+  interactive: boolean,
+  yes: boolean,
+  noInstall: boolean,
+): Promise<boolean> {
+  const toInstall = await resolveInstallTargets(missing, interactive, yes, noInstall);
+  if (toInstall === null) return false;
+  // Install in the queued order so a provider's `needs` (e.g. bun before pi) land first.
+  for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
+    runInstall(bin, cmd, interactive);
+    // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
+    process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
+    const now = binaryPath(bin);
+    process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH - open a new shell and re-run orch setup\n`);
+  }
+  return true;
+}
+
 /** Probe each selected provider's prerequisite binaries, then install the chosen missing ones.
  * Returns false only when an interactive install multiselect is cancelled, so the caller can abort. */
 async function installPrerequisites(
@@ -330,8 +377,8 @@ async function installPrerequisites(
   // the provider's declared needs and are never probed as an unconditional requirement.
   process.stdout.write("Prerequisites:\n");
   const bins = binaryStatus([...adapters, ...backends]);
-  const missing: { bin: string; cmd: string }[] = [];
-  const manual: { id: string; url: string }[] = [];
+  const missing: MissingPrerequisite[] = [];
+  const manual: ManualPrerequisite[] = [];
   const queueInstall = (id: string): void => {
     const entry = PREREQUISITES[id];
     if (entry?.install) {
@@ -347,30 +394,10 @@ async function installPrerequisites(
       manual.push({ id, url: "(no installer known - install manually)" });
     }
   };
-  for (const id of adapters) {
-    const binPath = bins[id] ? binaryPath(id) ?? "" : "";
-    process.stdout.write(`  ${binPath ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}\n`);
-    if (!bins[id]) queueInstall(id);
-  }
-  for (const id of backends) {
-    const available = getBackend(id)!.isAvailable();
-    const binPath = available && bins[id] ? binaryPath(id) ?? "" : "";
-    process.stdout.write(`  ${available ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}\n`);
-    if (!available) queueInstall(id);
-  }
+  reportAdapterPrerequisites(adapters, bins, queueInstall);
+  reportBackendPrerequisites(backends, bins, queueInstall);
   for (const { id, url } of manual) process.stdout.write(`  install ${id} manually: ${url}\n`);
-
-  const toInstall = await resolveInstallTargets(missing, interactive, yes, noInstall);
-  if (toInstall === null) return false;
-  // Install in the queued order so a provider's `needs` (e.g. bun before pi) land first.
-  for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
-    runInstall(bin, cmd, interactive);
-    // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
-    process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
-    const now = binaryPath(bin);
-    process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH - open a new shell and re-run orch setup\n`);
-  }
-  return true;
+  return installSelectedPrerequisites(missing, interactive, yes, noInstall);
 }
 
 /** Install every selected adapter's integration through its own provider port (L4 Builder —
@@ -586,62 +613,91 @@ function smokeBlocker(): string | null {
   return null;
 }
 
-/** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
- * then run a closing doctor pass. Each step is a single-purpose helper; this orchestrates them. */
-export async function cmdSetup(args: string[]) {
-  const copy = args.includes("--copy");
-  const yes = args.includes("--yes") || args.includes("-y");
-  const noInstall = args.includes("--no-install");
+interface SetupOptions {
+  copy: boolean;
+  yes: boolean;
+  noInstall: boolean;
+  interactive: boolean;
+  runtimeFlag: string | undefined;
+  adapterFlag: string | undefined;
+  backendFlag: string | undefined;
+  modelFlag: string | undefined;
+  refresh: boolean;
+  noSmoke: boolean;
+}
 
-  const runtimeFlag = readAssignFlag(args, "--runtime");
-  const adapterFlag = readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--adapter") ?? readAssignFlag(args, "--harness");
-  const backendFlag = readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer");
-  const modelFlag = readAssignFlag(args, "--model");
+interface SetupComposition {
+  runtime: OrchRuntime;
+  adapters: AdapterId[];
+  defaultAdapter: AdapterId;
+  backends: BackendId[];
+  defaultBackend: BackendId;
+  models: HarnessModelChoices;
+}
+
+function parseSetupOptions(args: string[]): SetupOptions {
+  const yes = args.includes("--yes") || args.includes("-y");
+  return {
+    copy: args.includes("--copy"),
+    yes,
+    noInstall: args.includes("--no-install"),
+    interactive: process.stdin.isTTY && !yes,
+    runtimeFlag: readAssignFlag(args, "--runtime"),
+    adapterFlag: readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--adapter") ?? readAssignFlag(args, "--harness"),
+    backendFlag: readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer"),
+    modelFlag: readAssignFlag(args, "--model"),
+    refresh: args.includes("--refresh"),
+    noSmoke: args.includes("--no-smoke"),
+  };
+}
+
+async function resolveSetupComposition(options: SetupOptions): Promise<SetupComposition | null> {
   const adapterIds = allAdapters().map((adapter) => adapter.id);
   const backendIds = allBackends().map((entry) => entry.id);
-  const interactive = process.stdin.isTTY && !yes;
+  const runtime = await resolveRuntime(options.runtimeFlag, options.interactive);
+  if (runtime === null) return null;
+  const adapters = await resolveProviderSet("adapter", "--agent", options.adapterFlag, adapterIds, options.interactive, selectAdapters);
+  if (adapters === null) return null;
+  const defaultAdapter = await resolveActiveDefault(adapters, options.adapterFlag !== undefined, options.interactive, selectDefaultAdapter);
+  if (defaultAdapter === null) return null;
+  const backends = await resolveProviderSet("backend", "--backend", options.backendFlag, backendIds, options.interactive, selectBackends);
+  if (backends === null) return null;
+  const defaultBackend = await resolveActiveDefault(backends, options.backendFlag !== undefined, options.interactive, selectDefaultBackend);
+  if (defaultBackend === null) return null;
+  const models = await resolveHarnessModels(options.modelFlag, adapters, options.interactive);
+  return models === null ? null : { runtime, adapters, defaultAdapter, backends, defaultBackend, models };
+}
+
+async function initializeSetup(options: SetupOptions): Promise<void> {
   // Before the first prompt, and for every harness rather than the ones about to be picked:
   // the registry queries then run under the whole wizard instead of stalling the model step.
-  if (args.includes("--refresh")) await refreshAdapterCatalogues();
+  if (options.refresh) await refreshAdapterCatalogues();
   else warmAdapterCatalogues();
-  if (interactive) setupIntro();
+  if (options.interactive) setupIntro();
 
   // setup is the ONE recovery path: a settings.json from an older schema (or otherwise invalid)
   // is malformed data, not something to migrate — reap it so re-recording can proceed.
   const reaped = reapUnreadableSettings(orchDir());
   if (reaped) process.stdout.write(`  previous settings.json was unreadable (older schema or invalid values) - moved aside to ${reaped}, re-recording from scratch\n`);
+}
 
-  const selectedRuntime = await resolveRuntime(runtimeFlag, interactive);
-  if (selectedRuntime === null) return;
-  const adapters = await resolveProviderSet("adapter", "--agent", adapterFlag, adapterIds, interactive, selectAdapters);
-  if (adapters === null) return;
-  const defaultAdapter = await resolveActiveDefault(adapters, adapterFlag !== undefined, interactive, selectDefaultAdapter);
-  if (defaultAdapter === null) return;
-  const backends = await resolveProviderSet("backend", "--backend", backendFlag, backendIds, interactive, selectBackends);
-  if (backends === null) return;
-  const defaultBackend = await resolveActiveDefault(backends, backendFlag !== undefined, interactive, selectDefaultBackend);
-  if (defaultBackend === null) return;
-  const harnessModels = await resolveHarnessModels(modelFlag, adapters, interactive);
-  if (harnessModels === null) return;
-
-  recordComposition(selectedRuntime, adapters, defaultAdapter, backends, defaultBackend, harnessModels);
-
-  if (!(await installPrerequisites(adapters, backends, interactive, yes, noInstall))) return;
-
+async function installSetupComposition(composition: SetupComposition, options: SetupOptions, args: string[]): Promise<string[] | null> {
+  recordComposition(composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
+  if (!(await installPrerequisites(composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
   process.stdout.write("Presence dir:\n");
   files.mkdirSync(presenceDir(), { recursive: true });
   process.stdout.write(`  ${presenceDir()}\n`);
-
-  const gaps = await installAdapterShims(adapters, copy);
-
-  await offerSkills(args, interactive);
-
+  const gaps = await installAdapterShims(composition.adapters, options.copy);
+  await offerSkills(args, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
-  if (interactive) await configureNotifiers();
+  if (options.interactive) await configureNotifiers();
+  wireBinaries(options.copy);
+  alignEntrypointToRuntime(composition.runtime);
+  await diagnoseAdapters(composition.adapters);
+  return gaps;
+}
 
-  wireBinaries(copy);
-  alignEntrypointToRuntime(selectedRuntime);
-
+async function diagnoseAdapters(adapters: readonly AdapterId[]): Promise<void> {
   // Validate each selected (installed) adapter through its own provider port.
   for (const id of adapters) {
     const adapter = resolveAdapter(id);
@@ -649,42 +705,54 @@ export async function cmdSetup(args: string[]) {
     const result = await adapter.diagnoseShim();
     process.stdout.write(`  ${result.status.toUpperCase()} ${result.label}: ${result.detail}\n`);
   }
+}
 
+async function runDoctorPass(interactive: boolean): Promise<CheckResult[]> {
   process.stdout.write("Running doctor checks...\n");
   let doctorResults = await runDoctor(orchDir());
   // Re-run after a reap so the passed/total count reflects the reaped records, not the pre-reap state.
   if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(orchDir());
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
+  return doctorResults;
+}
+
+async function finishSetup(options: SetupOptions, gaps: readonly string[]): Promise<void> {
   if (gaps.length) {
     process.stdout.write("Setup incomplete:\n" + gaps.map((gap) => `  - ${gap}`).join("\n") + "\n");
     process.exitCode = 1;
     return;
   }
-
-  // Closing smoke round-trip (12.5): the default interactive path proves orch can actually deliver
-  // work before claiming "Done". A real spawn is skipped without a TTY (unattended runs must not
-  // spend a model turn) and can be turned off with --no-smoke.
-  //
-  // It REPORTS; it does not gate. The install is already complete and correct by this point, so a
-  // failed round-trip must not fail setup's exit code — doing so aborted the `&&` chain that runs
-  // `orch doctor` and `orch daemon start` after it, turning one broken agent into a broken install.
-  if (interactive && !args.includes("--no-smoke")) {
+  // Closing smoke round-trip reports its verdict but never gates setup's exit code.
+  if (options.interactive && !options.noSmoke) {
     const blocker = smokeBlocker();
-    if (blocker) {
-      process.stdout.write(`Smoke test skipped - ${blocker}.\n`);
-    } else {
-      process.stdout.write("Smoke test - verifying orch can deliver work (headless spawn on a prompt + result)...\n");
+    if (blocker) process.stdout.write(`Smoke test skipped - ${blocker}.\n`);
+    else {
+      process.stdout.write("Smoke test - verifying orch can deliver work (headless spawn on a prompt + result)...");
       await runSetupSmoke(process.cwd());
     }
-  } else if (!interactive) {
+  } else if (!options.interactive) {
     process.stdout.write("Smoke test skipped (non-interactive) - run `orch setup` on a TTY to verify orch can deliver work.\n");
   } else {
     process.stdout.write("Smoke test skipped (--no-smoke).\n");
   }
-
   const doneMessage = "Done. Open a backend workspace and try: orch spawn 2 --tab Team1";
-  if (interactive) setupOutro(doneMessage);
+  if (options.interactive) setupOutro(doneMessage);
   else process.stdout.write(`${doneMessage}\n`);
+}
+
+/** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
+ * then run a closing doctor pass. Each step is a single-purpose helper; this orchestrates them. */
+export async function cmdSetup(args: string[]) {
+  const options = parseSetupOptions(args);
+  await initializeSetup(options);
+
+  const composition = await resolveSetupComposition(options);
+  if (composition === null) return;
+  const gaps = await installSetupComposition(composition, options, args);
+  if (gaps === null) return;
+
+  await runDoctorPass(options.interactive);
+  await finishSetup(options, gaps);
 }
 
 /** Interactive notifier onboarding: probe all notifiers, pick a set, collect each one's

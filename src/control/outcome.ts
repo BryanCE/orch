@@ -15,7 +15,7 @@ import { isRecord } from "../util.ts";
  */
 
 /** One harness-written control outcome, matched to a dispatcher request by id. */
-export interface ControlOutcome {
+interface ControlOutcome {
   readonly id: string;
   readonly success: boolean;
   readonly error?: string;

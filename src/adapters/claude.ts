@@ -6,6 +6,7 @@ import type { OrchRuntime } from "../runtime.ts";
 import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "../presence/store.ts";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
+import { AGENT_STATES } from "./adapter.ts";
 import type {
   HarnessModel,
   AdapterCommand,
@@ -33,17 +34,6 @@ interface ClaudeResultExtractionInput extends ResultExtractionInput {
   readonly key: string;
 }
 
-const AGENT_STATES = new Set<AgentState>([
-  "idle",
-  "working",
-  "blocked",
-  "done",
-  "error",
-  "aborted",
-  "exited",
-  "unknown",
-]);
-
 function readTextFile(file: string | undefined): string | undefined {
   if (!file) return undefined;
   try {
@@ -54,7 +44,7 @@ function readTextFile(file: string | undefined): string | undefined {
 }
 
 function stateFrom(value: unknown): AgentState {
-  return typeof value === "string" && AGENT_STATES.has(value as AgentState)
+  return typeof value === "string" && AGENT_STATES.includes(value as AgentState)
     ? value as AgentState
     : "unknown";
 }

@@ -7,7 +7,8 @@ import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../adapters/adapter.ts";
-import type { Backend, BackendHandle, DeliverPayload } from "../backends/backend.ts";
+import type { Backend, BackendHandle } from "../backends/backend.ts";
+import { agentChannel } from "../presence/roles.ts";
 
 /**
  * Control-plane dispatcher (L5 facade). Runs inside the daemon only; the CLI
@@ -26,12 +27,6 @@ export type ControlAction =
 
 /** Prompt text bound for a live agent: new work to submit, or a mid-run interjection. */
 type PromptAction = Extract<ControlAction, { kind: "run" | "steer" }>;
-
-/** How each prompt action reaches a console when keystrokes are the only channel. */
-export const KEYSTROKE_KIND: Record<PromptAction["kind"], DeliverPayload["kind"]> = {
-  run: "run",
-  steer: "message",
-};
 
 function isPromptAction(action: ControlAction): action is PromptAction {
   return action.kind === "run" || action.kind === "steer";
@@ -108,35 +103,48 @@ function refuseSteerWhileAsking(target: string, action: PromptAction): void {
  * happens to be running in. The keystroke path is the sole point where a backend
  * is touched, and only an adapter declaring `steer: "keys"` ever reaches it.
  */
-async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<void> {
+export type ControlBoundaryOutcome =
+  | { readonly outcome: "invoke" }
+  | { readonly outcome: "answer"; readonly text: string; readonly reason: "no-pane" | "no-environment-role" };
+
+function paneAnswer(target: string, command: string, route: { backend: Backend; handle: BackendHandle } | undefined): ControlBoundaryOutcome {
+  if (!route?.backend.paneInventory) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${command} does not apply.` };
+  return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${command}` };
+}
+
+async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   const mechanism = adapter.capabilities.steer;
   if (mechanism === "none") throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} declares steer "none"`);
+  const route = mechanism === "keys" ? resolveTargetRoute(target) : undefined;
+  if (mechanism === "keys" && !route?.backend.paneInput) return paneAnswer(target, action.kind, route);
   if (mechanism === "inbox") requireLiveAgent(target, adapter, action.kind);
   refuseSteerWhileAsking(target, action);
+  if (mechanism === "inbox") {
+    const route = resolveTargetRoute(target);
+    (route?.backend.channel ?? agentChannel).deliver(target, { id: action.id, text: action.text, action: action.kind === "run" ? "dispatch" : "steer" });
+    return { outcome: "invoke" };
+  }
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
   if (command) {
     await runAdapterCommand(command, timeoutMs);
-    return;
+    return { outcome: "invoke" };
   }
-  if (mechanism === "inbox") return;
   if (mechanism === "keys") {
     process.stderr.write(`${action.kind} ${target} via ${adapter.id} keys fallback (degraded delivery)\n`);
-    const route = resolveTargetRoute(target);
-    if (!route?.backend.deliver(route.handle, { kind: KEYSTROKE_KIND[action.kind], text: action.text })) {
-      throw new Error(`cannot ${action.kind} ${target}: backend cannot deliver keys for adapter ${adapter.id}`);
-    }
-    return;
+    route!.backend.paneInput!.submit(route!.handle, action.text);
+    return { outcome: "invoke" };
   }
   throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} returned no ${mechanism} command`);
 }
 
-async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<void> {
+async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   if (!adapter.capabilities.ask) {
     throw new Error(`cannot answer ${target}: adapter ${adapter.id} declares ask false`);
   }
   requireLiveAgent(target, adapter, "answer");
   const command = adapter.answer({ key: target, text });
   if (command) await runAdapterCommand(command, timeoutMs);
+  return { outcome: "invoke" };
 }
 
 /**
@@ -185,24 +193,23 @@ function deliverLifecycle(target: string, adapter: AgentAdapter, verb: Lifecycle
   }
   const route = resolveBackendHandle(target);
   if (!route) throw new Error(`cannot ${verb} ${target}: no live backend handle`);
-  if (!route.backend.canSendKeys) {
-    throw new Error(`cannot ${verb} ${target}: backend ${route.backend.id} has no console, and a detached agent runs one prompt and exits - spawn a new one with 'orch spawn --backend ${route.backend.id} --prompt ...'`);
+  if (!route.backend.paneInput) {
+    throw new Error(`cannot ${verb} ${target}: target environment has no pane input role`);
   }
   const command = adapter.lifecycleCmd?.(verb);
   if (!command) throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} returned no ${verb} command`);
-  if (!route.backend.deliver(route.handle, { kind: "run", text: command.text })) {
-    throw new Error(`cannot ${verb} ${target}: backend ${route.backend.id} refused the delivery`);
-  }
+  route.backend.paneInput.submit(route.handle, command.text);
 }
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
-export async function deliverControl(target: string, action: ControlAction): Promise<void> {
+export async function deliverControl(target: string, action: ControlAction): Promise<ControlBoundaryOutcome> {
   const timeoutMs = loadConfigOrNull(orchDir())?.timeouts.adapter_command_ms ?? ADAPTER_COMMAND_TIMEOUT_MS;
   const canonicalTarget = normalizeControlTarget(target);
   const adapter = resolveTargetAdapter(canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
-  if (isPromptAction(action)) await deliverPrompt(canonicalTarget, adapter, action, timeoutMs);
-  else if (action.kind === "answer") await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
-  else if (action.kind === "lifecycle") deliverLifecycle(canonicalTarget, adapter, action.verb);
-  else await deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
+  if (isPromptAction(action)) return deliverPrompt(canonicalTarget, adapter, action, timeoutMs);
+  if (action.kind === "answer") { await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs); return { outcome: "invoke" }; }
+  if (action.kind === "lifecycle") { deliverLifecycle(canonicalTarget, adapter, action.verb); return { outcome: "invoke" }; }
+  await deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
+  return { outcome: "invoke" };
 }

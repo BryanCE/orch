@@ -164,8 +164,9 @@ export function backendTarget(
   if (!backend) die(`orch ${command}: backend ${JSON.stringify(id.backend)} is not registered.`);
   // Resolve the user-facing target once, then pass the backend's real pane
   // handle. Names are display metadata; herdr pane commands require paneId.
-  const handle = ent.paneId ?? (records ?? spawnedRecords()).get(ent.key)?.handle;
-  if (handle === undefined) die(`orch ${command}: no backend pane recorded for ${JSON.stringify(target)}.`);
+  // A headless target has no pane handle; retain its identity so the command
+  // boundary can return a successful no-pane answer without touching a provider.
+  const handle = ent.paneId ?? (records ?? spawnedRecords()).get(ent.key)?.handle ?? ent.key;
   return { backend, handle, key: ent.key };
 }
 
@@ -179,7 +180,7 @@ export interface LifecycleTarget {
 
 /** Every spelling that addresses one agent: its key, its minted id, its mutable
  *  name, or its backend pane handle. Only the key is identity; the rest are lookups. */
-function registryTargetMatches(record: SpawnedRecord, target: string): boolean {
+export function registryTargetMatches(record: SpawnedRecord, target: string): boolean {
   if (record.pane === target || record.handle === target || record.name === target) return true;
   return tryParseIdentity(record.pane)?.id === target;
 }
@@ -192,42 +193,49 @@ function registryTargetMatches(record: SpawnedRecord, target: string): boolean {
 export function resolveLifecycleTarget(target: string): LifecycleTarget {
   const currentRecords = spawnedRecords();
   const entities = buildEntities();
-  const records = [...currentRecords.values()].filter((record) => registryTargetMatches(record, target)
-    || entities.some((entity) => entity.key === record.pane && entity.name === target));
-  if (records.length > 1) die(`Ambiguous target "${target}".`);
-  const record = records[0];
-  if (!record) {
-    const ent = resolveTarget(target, { all: true });
-    const id = parseIdentity(ent.key);
-    const backend = getBackend(id.backend);
-    if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(id.backend)}.`);
-    const paneHandle = ent.paneId ?? id.id;
-    // The resolved backend, not the key's raw segment: this is the id the
-    // registry stores, and it is only a BackendId once getBackend has accepted it.
-    return { entity: ent, record: { pane: ent.key, backend: backend.id, handle: paneHandle }, backend, handle: paneHandle };
+  // Prefer the live backend inventory. A registry row can retain an old pane
+  // key after a store wipe; its handle/name must not become a malformed identity.
+  const direct = entities.filter((entity) => entity.key === target || entity.paneId === target || entity.name === target);
+  if (direct.length > 1) die(`Ambiguous target "${target}".`);
+  let ent = direct[0];
+  let record = ent ? currentRecords.get(ent.key) : undefined;
+  // A stale registry handle can make buildEntities temporarily expose the pane
+  // id as its key. Prefer the bridge's canonical presence identity when one is
+  // available for that pane, rather than carrying the malformed key onward.
+  const stalePaneId = ent?.paneId;
+  if (ent && !tryParseIdentity(ent.key) && stalePaneId) {
+    const canonical = entities.find((candidate) => tryParseIdentity(candidate.key)
+      && candidate.presence?.status?.paneId === stalePaneId);
+    if (canonical) {
+      record = record ?? [...currentRecords.values()].find((row) => row.handle === stalePaneId || row.name === target);
+      ent = canonical;
+    }
   }
-
-  const id = parseIdentity(record.pane);
-  const backend = getBackend(record.backend ?? id.backend);
-  if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(record.backend ?? id.backend)}.`);
-  const ent = buildEntities().find((candidate) => candidate.key === record.pane)
-    ?? {
-      key: record.pane,
-      paneId: record.handle ?? null,
-      // Reached only from the spawn registry, so this agent is orch's by construction.
-      managed: true,
-      name: record.name ?? null,
-      tabLabel: null,
-      agent: record.adapter ?? null,
-      focused: false,
-      backendStatus: null,
-      backend: record.backend ?? id.backend,
-      presence: loadPresence().get(record.pane) ?? null,
-      sessionPath: null,
-      presenceOnly: true,
-      workspace: record.workspace ?? null,
-    };
+  if (!ent) {
+    const candidates = [...currentRecords.values()].filter((row) => registryTargetMatches(row, target));
+    if (candidates.length > 1) die(`Ambiguous target "${target}".`);
+    record = candidates[0];
+    if (record) {
+      const linked = entities.filter((candidate) => candidate.key === record!.pane
+        || (!!record!.handle && candidate.paneId === record!.handle)
+        || (!!record!.name && candidate.name === record!.name));
+      if (linked.length === 1) ent = linked[0];
+    }
+  }
+  if (!ent && !record) ent = resolveTarget(target, { all: true });
+  // A stale row addressed by name may still have no inventory entry; retain
+  // its metadata and let the backend-native handle perform cleanup.
+  ent ??= { key: record!.pane, paneId: record!.handle ?? null, managed: true, name: record!.name ?? null,
+    tabLabel: null, agent: record!.adapter ?? null, focused: false, backendStatus: null,
+    backend: record!.backend ?? null, presence: loadPresence().get(record!.pane) ?? null,
+    sessionPath: null, presenceOnly: true, workspace: record!.workspace ?? null };
+  record = record ?? currentRecords.get(ent.key);
+  const parsed = tryParseIdentity(ent.key) ?? (record ? tryParseIdentity(record.pane) : null);
+  const backendId = record?.backend ?? ent.backend ?? parsed?.backend;
+  const backend = backendId ? getBackend(backendId) : undefined;
+  if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(backendId)}.`);
+  const effectiveRecord = record ?? { pane: ent.key, backend: backend.id, handle: ent.paneId ?? parsed?.id };
   const pid = ent.presence?.status?.pid;
-  const handle = record.handle ?? ent.paneId ?? (typeof pid === "number" ? { pid, key: record.pane } : id.id);
-  return { entity: ent, record, backend, handle };
+  const handle = effectiveRecord.handle ?? ent.paneId ?? (typeof pid === "number" ? { pid, key: ent.key } : (parsed?.id ?? ent.key));
+  return { entity: ent, record: effectiveRecord, backend, handle };
 }

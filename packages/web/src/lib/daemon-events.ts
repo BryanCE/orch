@@ -8,7 +8,7 @@ type Listener = () => void;
 
 /** Whether ORCHD is connected, as reported by the bridge — not whether this browser
  *  reached the web server. The two are independent, and only the first means live data. */
-export interface DaemonLink {
+interface DaemonLink {
   connected: boolean;
   endpoint: string;
   reason?: string;
@@ -16,7 +16,7 @@ export interface DaemonLink {
 
 /** One agent's latest transition. `count` only ever rises, so a card can pulse on a
  *  repeat of the same state — two `working` events are two transitions, not one. */
-export interface AgentTransition {
+interface AgentTransition {
   count: number;
   state: string;
 }

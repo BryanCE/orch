@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -134,16 +134,21 @@ describe("fleet ownership scoping", () => {
     recordSpawned("headless~local~foreign", { backend: "headless", workspace: "local", handle: "foreign", owner: "other" });
 
     const closed: string[] = [];
-    const backend = headlessBackend as Backend;
-    // inventory is an OPTIONAL port capability headless does not implement — bind only if present.
+    const backend = headlessBackend as Backend & { capabilities: { panes: boolean } };
+    // Exercise the in-process backend seam explicitly; headless normally has no pane capability.
+    const originalPanes = backend.capabilities.panes;
     const originalInventory = backend.inventory?.bind(backend);
     const originalClose = backend.close.bind(backend);
     // The inventory also contains an unmanaged user pane; --all must ignore it.
-    backend.inventory = () => [{ handle: "mine" }, { handle: "foreign" }, { handle: "user-pane" }] as BackendTarget[];
+    backend.capabilities.panes = true;
+    backend.inventory = () => ["mine", "foreign", "user-pane"]
+      .filter((handle) => !closed.includes(handle))
+      .map((handle) => ({ handle })) as BackendTarget[];
     backend.close = (handle) => { closed.push(String(handle)); return true; };
     try {
       cmdClose(["--all", "--json"]);
     } finally {
+      backend.capabilities.panes = originalPanes;
       if (originalInventory) backend.inventory = originalInventory;
       else delete backend.inventory;
       backend.close = originalClose;
@@ -155,7 +160,8 @@ describe("fleet ownership scoping", () => {
   test("explicit foreign target closes successfully", () => {
     const dir = makeDir();
     const key = "headless~local~foreign";
-    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
+    const signalPath = join(dir, "sigterm.txt");
+    const child = spawn(process.execPath, ["-e", `process.on(\"SIGTERM\", () => { require(\"node:fs\").writeFileSync(${JSON.stringify(signalPath)}, \"term\"); process.exit(0); }); setTimeout(() => {}, 60000)`], { detached: true });
     children.push(child);
     const pid = child.pid!;
     const startToken = processStartToken(pid)!;
@@ -166,8 +172,10 @@ describe("fleet ownership scoping", () => {
     recordSpawned(key, { backend: "headless", adapter: "pi", workspace: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
 
     const result = runCli(dir, ["close", key], "caller-orchestrator");
-    expect(result.status).toBe(0);
+    expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
+    expect(existsSync(signalPath)).toBe(true);
     expect(spawnedRecords().has(key)).toBe(false);
+    expect(existsSync(join(dir, "agents", key))).toBe(false);
   }, 15_000);
 
   test("driving verbs remain gated against a live foreign holder", () => {
@@ -256,7 +264,7 @@ describe("fleet ownership scoping", () => {
     expect(spawnedRecords().has(key)).toBe(false);
   }, 15_000);
 
-  test("close refuses a mismatched recorded process without signalling or reaping", () => {
+  test("close cleans up a mismatched recorded process without signalling", () => {
     const dir = makeDir();
     const key = "headless~local~mismatched";
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
@@ -267,11 +275,23 @@ describe("fleet ownership scoping", () => {
     recordProcess(dir, key, pid, "not-this-process-instance");
     recordSpawned(key, { backend: "headless", adapter: "pi", workspace: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
 
-    const result = runCli(dir, ["close", key], "caller-orchestrator");
-    expect(result.status).not.toBe(0);
-    expect(result.output).toContain("recorded process identity could not be proven");
+    const backend = headlessBackend as typeof headlessBackend & { capabilities: { panes: boolean } };
+    const oldPanes = backend.capabilities.panes;
+    const oldClose = backend.close.bind(backend);
+    let paneClosed = false;
+    backend.capabilities.panes = true;
+    backend.close = () => { paneClosed = true; return true; };
+    try {
+      cmdClose([key, "--json"]);
+    } finally {
+      backend.capabilities.panes = oldPanes;
+      backend.close = oldClose;
+    }
+
+    expect(paneClosed).toBe(true);
     expect(child.exitCode).toBeNull();
-    expect(spawnedRecords().has(key)).toBe(true);
+    expect(spawnedRecords().has(key)).toBe(false);
+    expect(existsSync(join(dir, "agents", key))).toBe(false);
   }, 15_000);
 });
 

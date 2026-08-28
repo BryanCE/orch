@@ -15,7 +15,7 @@ function globToRegex(pattern: string): RegExp {
 }
 
 /** True when the bare model passes that harness's configured allowlist; no patterns means no restriction. */
-export function isAllowedModel(orchDir: string, harness: AdapterId, bareModel: string): boolean {
+function isAllowedModel(orchDir: string, harness: AdapterId, bareModel: string): boolean {
   const patterns = allowedModelPatterns(orchDir, harness);
   if (patterns.length === 0) return true;
   return patterns.some((pattern) => globToRegex(pattern).test(bareModel));

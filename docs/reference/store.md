@@ -48,13 +48,15 @@ For the category map and owning modules, see [Choosing a home for new state](#ch
 
 `openStore()` creates `$ORCH_DIR/orch.db`, enables WAL and a busy timeout, creates the table/index DDL, and caches one connection per database path. Callers do not open SQLite directly. The store uses `node:sqlite` when available and a guarded `bun:sqlite` fallback.
 
-### Queue (`queue`)
+### Tasks and attempts (`tasks`, `task_attempts`)
 
-Holds task text and options, origin workspace, timestamps, state (`queued`, `claimed`, `done`, `failed`, or `cancelled`), retry/error data, the bound agent and dispatch id, and the JSON result. `src/store/queue-rows.ts` owns every row operation. `src/queue.ts` is the domain wrapper used by `orch queue add`, `list`, `history`, and `cancel`; `src/daemon/work-loop.ts` reads queued tasks, atomically claims them for an idle agent, and writes done, failure, and requeue transitions. Doctor also reads the queue when checking presence/task consistency.
+`tasks` holds task text, options, enqueuer, scope, and creation time. Each claim is a `task_attempts` row with its agent, dispatch id, interval, outcome, result, or error; `task_states` derives queued, claimed, settled, and cancelled state. `src/store/task-rows.ts` owns both tables. `src/queue.ts` is the domain wrapper used by `orch queue add`, `list`, `history`, and `cancel`; `src/daemon/work-loop.ts` reads claimable tasks and writes attempt transitions.
 
-### Agent leases (`agent_leases`)
+### Agent/session registration and leases (`agents`, `agent_processes`, `agent_leases`)
 
-Maps an agent to its current holder. `src/store/lease-rows.ts` owns acquisition, release, handoff, adoption, and expiry; the lease id is the fencing token. Lifecycle ending and reaping are deliberately not lease-gated.
+Every orch session is registered as an ordinary row in `agents`; there is no separate session-identity table. The daemon RPC `hello` handler (`src/daemon/rpc.ts`) gets or creates that agent row and records the running process in `agent_processes`. Each process interval stores `(pid, start_token)` so PID reuse cannot make a different process appear to be the same session; the minted agent id remains immutable while the interval ends when that process does. `src/store/agent-rows.ts` owns these rows.
+
+`agent_leases` records the current holder of an agent, with a fencing-token lease id. `src/store/lease-rows.ts` owns acquisition, release, handoff, adoption, and expiry. Lease ownership gates control writes, but lifecycle ending and reaping (`abort`, `close`, and `reap`) are deliberately never lease-gated.
 
 ### Outbox (`outbox`)
 
@@ -63,10 +65,6 @@ Stores durable control messages: id, target, JSON payload, pending/delivered sta
 ### Spawn registry (`spawned`)
 
 Stores the per-pane/agent registry: serialized pane key, spawn timestamp, adapter/model/backend, workspace and backend handle, display name, cwd, worktree/branch, and spawning session metadata. `src/store/spawned-rows.ts` owns it. Spawn paths call `src/presence/store.ts` (`recordSpawned()`). Status, target resolution, review, work-loop routing, and backends read it; lifecycle and clean/reap paths delete or relabel rows.
-
-### Agents and session processes (`agents`, `agent_processes`)
-
-A session is an ordinary row in `agents`. The daemon RPC `hello` handler (`src/daemon/rpc.ts`) gets or creates that row and records the live process instance in `agent_processes` using `(pid, start_token)` continuity; the pair detects PID reuse. The minted agent id is immutable, while process intervals end when the process does.
 
 ### Events (`events`)
 
@@ -86,7 +84,7 @@ Every table has exactly one owning row module under `src/store/`:
 
 | Table | Owning module |
 |---|---|
-| `queue` | `src/store/queue-rows.ts` |
+| `tasks`, `task_attempts`, `task_cancellations` | `src/store/task-rows.ts` |
 | `agent_leases` | `src/store/lease-rows.ts` |
 | `outbox` | `src/store/outbox-rows.ts` |
 | `spawned` | `src/store/spawned-rows.ts` |
@@ -99,7 +97,7 @@ Callers use those module functions. They must not open the database, issue table
 
 ## Schema handling
 
-`STORE_SCHEMA` in `src/store/schema.ts` (currently `5`) is stamped into SQLite `PRAGMA user_version`. A populated file carrying any other stamp is malformed: `src/store/connection.ts` closes it, removes the database and WAL/SHM sidecars, and recreates an empty store. It does not migrate rows.
+`STORE_SCHEMA` in `src/store/schema.ts` (currently `6`) is stamped into SQLite `PRAGMA user_version`. A populated file carrying any other stamp is malformed: `src/store/connection.ts` closes it, removes the database and WAL/SHM sidecars, and recreates an empty store. It does not migrate rows.
 
 That behavior is deliberate pre-publish policy under repository Rule 8. There is one current store shape; an older or otherwise differently stamped file is old data to reap, not a second schema to accept. A newly created empty file is initialized normally.
 
@@ -109,7 +107,7 @@ Retention settings live under `retention` in `settings.json` and are normalized 
 
 | Data | Setting | Current default | Store operation / current wiring |
 |---|---|---:|---|
-| Settled queue tasks | `queue_days` | 14 days | No queue-prune operation is present in `src/store/`; queue rows therefore grow without bound in the current wiring. |
+| Settled tasks | `queue_days` | 14 days | No task-prune operation is present in `src/store/`; settled task rows therefore grow without bound in the current wiring. |
 | Stored events | `events_days` | 7 days | `deleteEventsBefore()` exists, but no production caller was found; appended rows grow without bound in the current wiring. |
 | Completed runs | `runs_days` | 30 days | `deleteRunsBefore()` exists, but no production caller was found; rows grow without bound in the current wiring. |
 | Delivered outbox messages | `outbox_days` | 7 days | `deleteDeliveredBefore()` exists; no production caller was found, so delivered rows are not automatically pruned. Pending rows are not covered by this window. |

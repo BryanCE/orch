@@ -3,6 +3,97 @@ import type { Identity } from "./identity.ts";
 import type { PaneForeground } from "./pane-ready.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 
+/** A pane coordinate returned by a pane inventory. */
+export interface PaneCoordinate {
+  readonly handle: BackendHandle;
+  readonly workspace: string | null;
+  readonly group: string | null;
+}
+
+export type PaneTarget<Handle = BackendHandle> = BackendTarget<Handle>;
+export interface OpenPaneRequest {
+  readonly cwd: string;
+  readonly workspace?: string;
+  readonly group?: string;
+  readonly split?: BackendSplit;
+  readonly targetPane?: BackendHandle;
+  readonly env?: Readonly<Record<string, string>>;
+}
+export interface CreatedPane<Handle = BackendHandle> { readonly handle: Handle; }
+
+export interface PaneHostRole<Handle = BackendHandle> {
+  open(request: OpenPaneRequest): CreatedPane<Handle>;
+  close(handle: Handle): void;
+}
+export interface PaneInventoryRole<Handle = BackendHandle> {
+  current(): PaneCoordinate | null;
+  list(): readonly PaneTarget<Handle>[];
+}
+export interface PaneInputRole<Handle = BackendHandle> {
+  submit(handle: Handle, text: string): void;
+  sendKeys(handle: Handle, keys: readonly string[]): void;
+  focus(handle: Handle): void;
+  foreground(handle: Handle): PaneForeground;
+}
+export interface PaneScreenRole<Handle = BackendHandle> { read(handle: Handle, lines: number): string; }
+export interface PaneZoomRole<Handle = BackendHandle> { setZoom(handle: Handle, mode: BackendZoomMode): void; }
+export interface PaneNamingRole<Handle = BackendHandle> { renamePane(handle: Handle, name: string): void; }
+export interface AgentNamingRole<Handle = BackendHandle> { renameAgent(handle: Handle, name: string): void; }
+export interface AgentStatusRole<Handle = BackendHandle> { wait(handle: Handle, status: string, timeoutMs: number): void; }
+
+/** Request to create one plexer group (herdr tab, tmux window). */
+export interface CreateGroupRequest {
+  readonly workspace: string;
+  readonly cwd: string;
+  readonly label?: string | null;
+}
+
+/** Result of creating a group, including its initial shell pane. */
+export interface CreatedGroup<Handle = BackendHandle> {
+  readonly group: BackendGroup;
+  readonly rootHandle: Handle;
+}
+
+/** Group placement request. A null group creates a fresh group. */
+export interface MovePaneRequest<Handle = BackendHandle> {
+  readonly handle: Handle;
+  readonly group: string | null;
+  readonly split: BackendSplit;
+  readonly against?: Handle;
+  /** Alias used by placement callers for the pane to split. */
+  readonly targetPane?: Handle;
+  readonly label?: string | null;
+}
+
+/** Group inventory and mutation role. Every method is implemented by a paned provider. */
+export interface GroupHomeRole<Handle = BackendHandle> {
+  list(): readonly BackendGroup[];
+  create(request: CreateGroupRequest): CreatedGroup<Handle>;
+  rename(coordinate: string, label: string): void;
+  close(coordinate: string): void;
+  focus(coordinate: string): void;
+  move(request: MovePaneRequest<Handle>): void;
+}
+
+/** Group geometry role used by the tiling planner. */
+export interface GroupLayoutRole<Handle = BackendHandle> {
+  (coordinate: string): BackendGroupLayout<Handle>;
+  read(coordinate: string): BackendGroupLayout<Handle>;
+}
+
+export interface EnvironmentServices<Handle = BackendHandle> {
+  readonly paneHost: PaneHostRole<Handle> | null;
+  readonly paneInventory: PaneInventoryRole<Handle> | null;
+  readonly paneInput: PaneInputRole<Handle> | null;
+  readonly paneScreen: PaneScreenRole<Handle> | null;
+  readonly paneZoom: PaneZoomRole<Handle> | null;
+  readonly paneNaming: PaneNamingRole<Handle> | null;
+  readonly agentNaming: AgentNamingRole<Handle> | null;
+  readonly agentStatus: AgentStatusRole<Handle> | null;
+  readonly groupHome: GroupHomeRole<Handle> | null;
+  readonly groupLayout: GroupLayoutRole<Handle> | null;
+}
+
 /** The closed backend-id set, importable without pulling any provider code. */
 export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;
 
@@ -15,6 +106,40 @@ export function isBackendId(value: unknown): value is BackendId {
 
 /** Herdr's backend-owned notification sink id — the one spelling core may import. */
 export const HERDR_SINK_ID = "herdr";
+
+/** One orch message delivered through an agent's presence inbox. */
+export interface AgentMessage {
+  readonly id?: string;
+  readonly text: string;
+  readonly action?: "dispatch" | "steer";
+}
+
+/** Receipt for a message appended to the orch inbox. */
+export interface DeliveryReceipt {
+  readonly id: string;
+  readonly accepted: true;
+}
+
+/** Request selecting captured orch-owned output. */
+export interface CaptureRequest {
+  readonly source?: "status" | "result" | "all";
+}
+
+/** Captured output from the orch presence/result protocol. */
+export interface CapturedOutput {
+  readonly status: unknown;
+  readonly result: unknown;
+}
+
+/** The lossless orch inbox channel. This is never a plexer operation. */
+export interface AgentChannelRole {
+  deliver(agentId: string, message: AgentMessage): DeliveryReceipt;
+}
+
+/** The orch-owned captured status/result channel. */
+export interface CaptureRole {
+  read(agentId: string, request: CaptureRequest): CapturedOutput;
+}
 
 /** Capabilities exposed by a backend. */
 export interface BackendCapabilities {
@@ -79,16 +204,6 @@ export interface BackendRect {
   readonly y: number;
 }
 
-/** Text delivered to an agent's input line. */
-export interface DeliverPayload {
-  /**
-   * "run" types the text into the target and submits it as a command/prompt;
-   * "message" injects the text into the agent's input, then submits it.
-   */
-  readonly kind: "run" | "message";
-  readonly text: string;
-}
-
 /** One live target visible to a backend, with display metadata. */
 export interface BackendTarget<Handle = BackendHandle> {
   readonly handle: Handle;
@@ -136,8 +251,12 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
   readonly panes: readonly { readonly handle: Handle; readonly rect: BackendRect }[];
 }
 
+/** Port vocabulary aliases; coordinates remain opaque provider values. */
+export type PlexerGroup = BackendGroup;
+export type GroupLayout<Handle = BackendHandle> = BackendGroupLayout<Handle>;
+
 /** Entry written to the spawn registry. */
-export interface BackendRegistryRecord<Handle = BackendHandle> {
+interface BackendRegistryRecord<Handle = BackendHandle> {
   // Written by orch, but read back from disk: an id this build no longer ships
   // must still yield a closable record, so the read guard is the boundary here
   // and these stay plain strings.
@@ -167,7 +286,7 @@ export interface BackendRegistryRecord<Handle = BackendHandle> {
  * perform it; optional methods are absent when a backend has no such concept
  * (callers gate on presence, never on the backend id).
  */
-export interface Backend<Handle = BackendHandle> {
+export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Handle> {
   readonly id: BackendId;
   readonly panes: boolean;
   readonly focusable: boolean;
@@ -175,6 +294,11 @@ export interface Backend<Handle = BackendHandle> {
   readonly canSendKeys: boolean;
   /** Declared backend capabilities. */
   readonly capabilities: BackendCapabilities;
+  /** Orch-owned channels composed for this environment. */
+  readonly channel: AgentChannelRole;
+  readonly capture: CaptureRole;
+  /** Explicit plexer fast path; normal dispatch never uses this channel. */
+  readonly paneInput: PaneInputRole<Handle> | null;
   /** Whether the backend binary/runtime is present on this machine. */
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
@@ -184,8 +308,6 @@ export interface Backend<Handle = BackendHandle> {
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   close(handle: Handle): boolean;
   list(): Handle[];
-  /** Submit text to the agent in a target (design D2 dispatch/steer surface). */
-  deliver(handle: Handle, payload: DeliverPayload): boolean;
   /** Bring a target into view. */
   focus(handle: Handle): boolean;
   /** Send raw keystrokes (backend key names, e.g. "Escape", "Enter"). */
@@ -216,22 +338,10 @@ export interface Backend<Handle = BackendHandle> {
   renamePane?(handle: Handle, name: string): boolean;
   /** Remove stale backend-owned logs, retaining logs for live presence keys. */
   pruneLogs?(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number;
-  /** Move a target into an existing group. */
-  moveToGroup?(handle: Handle, group: string, split: BackendSplit, against?: Handle): boolean;
-  /** Move a target into a freshly created group. */
-  moveToNewGroup?(handle: Handle, label: string | null): boolean;
-  /** Geometry of every pane in a group, orch-spawned or not. Throws when unresolvable. */
-  groupLayout?(group: string): BackendGroupLayout<Handle>;
   /** What a target is running right now, for launch and exit checks. */
   paneForeground?(handle: Handle): PaneForeground;
   /** Block until the backend reports the agent status, or time out. */
   waitAgentStatus?(handle: Handle, status: string, timeoutMs: number): boolean;
-  /** Create a group and report it with its root handle. Throws on failure. */
-  createGroup?(opts: { workspace: string; cwd: string; label?: string | null }): { group: BackendGroup; rootHandle: Handle };
-  groups?(): BackendGroup[];
-  renameGroup?(group: string, label: string): boolean;
-  closeGroup?(group: string): boolean;
-  focusGroup?(group: string): boolean;
   workspaces?(): BackendWorkspace[];
   /** Open a workspace of orch's own and report it with its root handle. Throws on
    *  failure. A caller outside the plexer has no workspace to borrow, and taking

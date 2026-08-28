@@ -25,7 +25,7 @@ interface PackCounts {
   done: number;
 }
 
-export function countStates(agents: ReadonlyArray<PackSnapshot>): PackCounts {
+export function countStates(agents: readonly PackSnapshot[]): PackCounts {
   const counts: PackCounts = { working: 0, blocked: 0, failed: 0, done: 0 };
   for (const agent of agents) {
     if (agent.state === "working" || agent.state === "spawning") counts.working += 1;
@@ -37,7 +37,7 @@ export function countStates(agents: ReadonlyArray<PackSnapshot>): PackCounts {
 }
 
 /** `orch: ■ 2 working · ■ 1 blocked · ■ 3 done · /orch-view to view`, themed. */
-export function formatSeatStatus(theme: Theme, agents: ReadonlyArray<PackSnapshot>): string {
+export function formatSeatStatus(theme: Theme, agents: readonly PackSnapshot[]): string {
   const counts = countStates(agents);
   const parts: string[] = [];
   if (counts.working > 0) parts.push(theme.fg("warning", `${SQUARE} ${counts.working} working`));
@@ -108,4 +108,4 @@ export function registerOrchSeat(pi: ExtensionAPI, options: OrchSeatOptions): vo
   });
 }
 
-export { stateColor };
+

@@ -1,15 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   CORE_SCOPE_ALLOWLIST,
   IDENTITY_CONSTRUCTION_ALLOWLIST,
   checkCommandsParserLine,
+  checkBridgeBundleImportLine,
   checkIdentityConstructionLine,
   checkCoreScopeLine,
   checkDispatcherCallLine,
   checkPackageImportLine,
   checkSpawnerReplyFallbackLine,
+  checkLeaseProvenanceLine,
 } from "../scripts/check-bridge.ts";
 
 // The static-enforcement rules added for group 10 of fix-audit-findings.
@@ -22,6 +24,17 @@ import {
 const repoRoot = join(import.meta.dir, "..");
 function readRepoLines(relPath: string): string[] {
   return readFileSync(join(repoRoot, relPath), "utf8").split(/\r?\n/);
+}
+
+function sourceFiles(relDir: string): string[] {
+  const directory = join(repoRoot, relDir);
+  const files: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(relDir, entry.name);
+    if (entry.isDirectory()) files.push(...sourceFiles(path));
+    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(path);
+  }
+  return files;
 }
 
 describe("10.1 packages must not import concrete backends/adapters (checkPackageImportLine)", () => {
@@ -79,7 +92,27 @@ describe("10.2 adapter control strategies are dispatcher-only (checkDispatcherCa
   });
 });
 
-describe("10.3 string-form identity branches are forbidden in core (checkCoreScopeLine)", () => {
+describe("10.3 bridge bundles stay in build tooling (checkBridgeBundleImportLine)", () => {
+  test("flags a runtime adapter importing bridge-bundle.ts", () => {
+    expect(checkBridgeBundleImportLine(
+      'import { buildExtensionBundle } from "../bridge-bundle.ts";',
+      "src/adapters/pi.ts",
+    )).toContain("build tooling");
+  });
+
+  test("allows scripts and the build-tool module itself", () => {
+    expect(checkBridgeBundleImportLine(
+      'import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";',
+      "scripts/reset.ts",
+    )).toBeUndefined();
+    expect(checkBridgeBundleImportLine(
+      'import { extensionBundlePath } from "./extensions/bundles.ts";',
+      "src/bridge-bundle.ts",
+    )).toBeUndefined();
+  });
+});
+
+describe("10.4 string-form identity branches are forbidden in core (checkCoreScopeLine)", () => {
   const relPath = "src/commands/somewhere.ts";
 
   test("flags === / !== against a quoted provider or backend id", () => {
@@ -200,5 +233,40 @@ describe("10.6 per-harness session parser banned from commands (checkCommandsPar
     for (const line of readRepoLines("src/commands/results.ts")) {
       expect(checkCommandsParserLine(line)).toBeUndefined();
     }
+  });
+});
+
+describe("10.7 leases and provenance stay in separate columns (checkLeaseProvenanceLine)", () => {
+  test("flags INSERT and UPDATE SQL that welds a lease holder into spawned_by", () => {
+    const bad = [
+      'db.query("INSERT INTO agents (id, spawned_by, root_agent_id) SELECT agent_id, orch_id, agent_id FROM agent_leases").run();',
+      'db.query("UPDATE agents SET spawned_by = orchId WHERE id = ?").run(id);',
+      'db.query("INSERT INTO agent_leases (agent_id, spawner, since) VALUES (?, ?, ?)").run(agentId, spawner, since);',
+    ];
+    for (const line of bad) expect(checkLeaseProvenanceLine(line, "src/store/lease-rows.ts")).toContain("lease and provenance");
+  });
+
+  test("flags lease row types carrying a provenance field", () => {
+    const line = "interface LeaseRow { agent_id: string; spawner: string; since: number; }";
+    expect(checkLeaseProvenanceLine(line, "src/store/lease-rows.ts")).toContain("lease row");
+  });
+
+  test("allows separate lease and provenance rows", () => {
+    const clean = [
+      'db.query("INSERT INTO agent_leases (agent_id, orch_id, since) VALUES (?, ?, ?)").run(agentId, orchId, since);',
+      "interface LeaseRow { agent_id: string; orch_id: string; since: number; }",
+      'db.query("INSERT INTO agents (id, spawned_by, root_agent_id) VALUES (?, ?, ?)").run(id, spawnedBy, root);',
+    ];
+    for (const line of clean) expect(checkLeaseProvenanceLine(line, "src/store/lease-rows.ts")).toBeUndefined();
+  });
+
+  test("passes the clean tree: no source line crosses lease and provenance columns", () => {
+    const offenders: string[] = [];
+    for (const relPath of sourceFiles("src")) {
+      readRepoLines(relPath).forEach((line, index) => {
+        if (checkLeaseProvenanceLine(line, relPath)) offenders.push(`${relPath}:${index + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

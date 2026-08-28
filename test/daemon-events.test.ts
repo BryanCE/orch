@@ -208,6 +208,21 @@ describe("daemon presence events", () => {
     expect(isRepeatTransition(event, 2_000 + 121_000)).toBe(false);
   });
 
+  test("repeated observations cannot slide the suppression window forever", () => {
+    const event = { key: "w9:fixed-window", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", task: "t", ts: "t" };
+    expect(isRepeatTransition(event, 1_000)).toBe(false);
+    expect(isRepeatTransition(event, 100_000)).toBe(true);
+    expect(isRepeatTransition(event, 121_001)).toBe(false);
+  });
+
+  test("a working-to-done repeat after the dedupe window is emitted", () => {
+    const event = { key: "w9:window-flip", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
+    const emitted: unknown[] = [];
+    emitAndNotify((value) => emitted.push(value), [], event, 1_000);
+    emitAndNotify((value) => emitted.push(value), [], event, 1_000 + 120_001);
+    expect(emitted).toHaveLength(2);
+  });
+
   test("presence transitions resolve the human name before emission", () => {
     const orchDir = tempOrchDir();
     const key = "w6:p-name";
@@ -224,13 +239,57 @@ describe("daemon presence events", () => {
     expect(event?.agent).not.toContain(key);
   });
 
-  test("a blocked transition drives command sink delivery", async () => {
+  test("derivePresenceTransition preserves the complete asking transition payload", () => {
+    const orchDir = tempOrchDir();
+    const key = "headless~asking~payload";
+    const states = new Map([[key, "working"]]);
+    const now = new Date("2026-02-03T04:05:06.000Z");
+    const event = derivePresenceTransition(orchDir, key, {
+      pid: process.pid,
+      state: "asking",
+      agent: "Ada",
+      label: "Ada's worker",
+      tabLabel: "tab-a",
+      dispatchId: "dispatch-asking",
+      model: { id: "model-a" },
+      thinking: "deep",
+      task: "real task",
+      asking: { question: "Need input", id: "q1", ts: "now" },
+      cost: 1.5,
+      lastError: "ignored for asking",
+      lastText: "latest answer",
+      context: { percent: 42 },
+      tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+      filesTouched: ["a.ts", "b.ts"],
+    }, { name: "fallback", tab: "fallback-tab" }, states, now);
+    expect(event).toEqual(expect.objectContaining({
+      key,
+      agent: "Ada",
+      name: "Ada's worker",
+      dispatchId: "dispatch-asking",
+      tab: "tab-a",
+      model: "model-a:\"deep\"",
+      oldState: "working",
+      newState: "asking",
+      cost: 1.5,
+      ts: now.toISOString(),
+      lastError: "ignored for asking",
+      lastText: "latest answer",
+      task: "Q: Need input",
+      ctxPercent: 42,
+      tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+      filesTouched: ["a.ts", "b.ts"],
+    }));
+    expect(event?.task).toBe("Q: Need input");
+  });
+
+  test("an asking transition drives command sink delivery", async () => {
     const orchDir = tempOrchDir();
     const output = join(orchDir, "notification.json");
     writeStatus(orchDir, "workspace:p2", "working");
     const sink: Sink = {
       type: "command",
-      on: ["blocked"],
+      on: ["asking"],
       command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`),
     };
     const watcher = startPresenceWatch({
@@ -243,13 +302,13 @@ describe("daemon presence events", () => {
     await waitFor(() => {
       try {
         const payload = JSON.parse(readFileSync(output, "utf8")) as { newState?: string };
-        return payload.newState === "blocked";
+        return payload.newState === "asking";
       } catch {
         return false;
       }
     });
     const payload = JSON.parse(readFileSync(output, "utf8")) as { title?: string };
-    expect(payload.title).toStartWith("BLOCKED");
+    expect(payload.title).toStartWith("ASKING");
   });
 
   test("a dead daemon closes the subscription instead of falling back to files", async () => {

@@ -319,6 +319,42 @@ export function checkSpawnerReplyFallbackLine(line: string): string | undefined 
   return undefined;
 }
 
+/**
+ * I1 — provenance and leases are separate facts. SQL must not put a lease
+ * holder (`orch_id`) in an agent's provenance (`spawned_by`), and a lease row
+ * must not grow a provenance/spawner field. Keep this deliberately lexical: the
+ * checker is a line rule, so an explicit table/column or row-type crossing is
+ * the actionable shape it can prove without pretending to parse TypeScript.
+ */
+const PROVENANCE_FIELD = /\b(?:spawned_by|spawnedBy|spawner|spawnerId)\b/;
+const LEASE_FIELD = /\b(?:agent_leases|orch_id|orchId|leaseHolder|lease_holder|holderId)\b/;
+const LEASE_ROW_TYPE = /\b(?:interface|type|class)\s+\w*Lease\w*\b/;
+
+export function checkLeaseProvenanceLine(line: string, relPath: string): string | undefined {
+  const normalizedPath = relPath.replace(/\\/g, "/");
+  const hasProvenance = PROVENANCE_FIELD.test(line);
+  if (!hasProvenance) return undefined;
+
+  // A lease table statement carrying a provenance column welds the two facts.
+  if (/\bagent_leases\b/.test(line) && /(?:INSERT|UPDATE|SELECT|SET|\bCREATE TABLE\b)/i.test(line)) {
+    return "lease and provenance columns must remain separate; agent_leases must not carry spawned_by or spawner";
+  }
+
+  // Any INSERT/UPDATE that mentions both a provenance field and a lease
+  // holder is a direct crossing, including writes to the older spawned table.
+  if (/\b(?:INSERT\s+INTO|UPDATE)\b/i.test(line) && LEASE_FIELD.test(line)) {
+    return "lease and provenance columns must remain separate; do not write a lease holder into spawned_by";
+  }
+
+  // Row-module declarations are the other crossing shape: a Lease/LeaseRow
+  // may only expose lease facts (agent, holder, and its validity interval).
+  if (LEASE_ROW_TYPE.test(line) || (normalizedPath.endsWith("/lease-rows.ts") && /\b(?:spawned_by|spawnedBy|spawner|spawnerId)\s*[?:]/.test(line))) {
+    return "lease row types must not carry provenance/spawner fields";
+  }
+
+  return undefined;
+}
+
 const IDENTITY_ISSUER_MODULES = new Set(["src/backends/identity.ts", "src/daemon/rpc.ts"]);
 const IDENTITY_TEMPLATE_CONSTRUCTION = /`[^`\r\n]*~[^`\r\n]*~[^`\r\n]*`/;
 const IDENTITY_CONCAT_CONSTRUCTION = /(?:\+\s*["']~["']\s*\+).*(?:\+\s*["']~["']\s*\+)/;
@@ -387,6 +423,15 @@ export function checkCommandsParserLine(line: string): string | undefined {
   return undefined;
 }
 
+/** Build-only bridge bundle code must never be imported by runtime source. */
+export function checkBridgeBundleImportLine(line: string, relPath: string): string | undefined {
+  if (!relPath.startsWith("src/") || relPath === "src/bridge-bundle.ts") return undefined;
+  if (/(?:from\s+|import\s*\()\s*["'][^"']*bridge-bundle\.ts["']/.test(line)) {
+    return "bridge-bundle.ts is build tooling; runtime src/** must use shipped bundle metadata without importing it";
+  }
+  return undefined;
+}
+
 export function checkCoreScopeLine(line: string, relPath: string): string | undefined {
   const backendEnvViolation = checkBackendEnvLine(line, relPath);
   if (backendEnvViolation) return backendEnvViolation;
@@ -450,6 +495,8 @@ function runAllChecks(): void {
    * definition and fails this check.
    */
   const bridgeSourceFiles = scanSrcOutsideBackends((line, relPath) => {
+    const bridgeBundleViolation = checkBridgeBundleImportLine(line, relPath);
+    if (bridgeBundleViolation) return bridgeBundleViolation;
     const backendEnvViolation = checkBackendEnvLine(line, relPath);
     if (backendEnvViolation) return backendEnvViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden outside backends (boundary modules live directly under backends/)";
@@ -516,11 +563,12 @@ function runAllChecks(): void {
     return checkIdentityConstructionLine(line, relPath);
   }, true);
   const commandParserFiles = scanDirectory("src/commands", new Set(), checkCommandsParserLine, true);
+  const leaseProvenanceFiles = scanDirectory("src/store", new Set(), checkLeaseProvenanceLine, true);
 
   const scanned =
     bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles +
     coreScopeFiles + packageFiles + dispatcherScopeFiles + spawnerReplyFiles +
-    identityConstructionFiles + commandParserFiles;
+    identityConstructionFiles + commandParserFiles + leaseProvenanceFiles;
   console.log(`check:bridge OK (${scanned} files scanned)`);
 }
 

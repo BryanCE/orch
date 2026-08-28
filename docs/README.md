@@ -11,7 +11,7 @@ Organization rule (binding, applies to code too): **folders say the kind and sta
 ## reference/ — binding/standing references
 - `reference/design-patterns.md` — THE pattern-stack reference (L0 Hexagonal → L6 enforcement, N-axis rule, composition/settings). Binding per CLAUDE.md Rule 9 and `learnings/2026-07-16-harness-plexer-architecture.md`.
 - `reference/files-and-data-layout.md` — on-disk layout of $ORCH_DIR, presence records, and key format.
-- `reference/identity-registration.md` — identity registration and ownership semantics.
+- `../TASKS/08-identity-registration.md` — identity registration and ownership semantics.
 - `reference/notifier-adapters.md` — notifier sink providers reference.
 - `reference/store.md` — SQLite tables, presence files, owners, schema handling, and retention.
 

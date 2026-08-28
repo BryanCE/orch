@@ -1,6 +1,6 @@
 import { loadConfigOrNull } from "../../config.ts";
 import { orchDir } from "../../presence/writer.ts";
-import { herdrBestEffort, herdrReachable } from "./cli.ts";
+import { herdrAck, herdrReachable } from "./cli.ts";
 import { HERDR_SINK_ID } from "../backend.ts";
 import type { SinkProvider } from "../../notify/sinks.ts";
 
@@ -21,5 +21,8 @@ export const herdrNotificationProvider: SinkProvider = {
   // Gating on HERDR_ENV tied the sink to the caller's pane and hid it from every
   // `orch setup` run outside one.
   available: () => herdrRunsAgents() && herdrReachable(),
-  send: (title, body) => herdrBestEffort(["notification", "show", title, "--body", body]),
+  send: (title, body) => {
+    herdrAck(["notification", "show", title, "--body", body]);
+    return true;
+  },
 };

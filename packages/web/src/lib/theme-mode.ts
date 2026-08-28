@@ -28,7 +28,7 @@ export const setThemeModeCookie = createServerFn({ method: 'POST' })
     })
   })
 
-export function getThemeMode(): ThemeMode {
+function getThemeMode(): ThemeMode {
   if (typeof window === 'undefined') return DEFAULT_MODE
   const stored = localStorage.getItem(STORAGE_KEY)
   return isValidMode(stored) ? stored : DEFAULT_MODE

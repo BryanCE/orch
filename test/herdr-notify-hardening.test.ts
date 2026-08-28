@@ -19,13 +19,10 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
     herdrArgv.push([...args]);
     if (args[0] === "pane" && args[1] === "run") launched.add(args[2] ?? "");
   },
-  herdrBestEffort: (args: string[]) => {
-    herdrArgv.push([...args]);
-    return true;
-  },
   herdrNames: () => new Map(),
   herdrTabs: () => new Map(),
   herdrReachable: () => true,
+  herdrVersion: () => null,
   paneStatus: () => null,
   // A pane runs its shell until the launch line lands, then the harness owns the
   // terminal — the transition spawn verifies before calling a launch done.
@@ -91,10 +88,10 @@ describe("herdr and notification hardening", () => {
 
     expect(handle).toBe("w6:p10");
     expect(lastCall("pane", "rename")).toEqual(["pane", "rename", "w6:p10", "pi-"]);
-    // ONE argv value, shell-quoted: herdr joins separate words with plain spaces,
-    // which strips the quoting and launches the harness with no arguments.
-    expect(lastCall("pane", "run")).toEqual([
-      "pane", "run", "w6:p10", `bash -lc 'printf '\\''quoted "value" spaces $HOME'\\'''`,
+    // Canonical herdr launch: the harness kind is selected by herdr, and the
+    // pane handle is passed as one argv value.
+    expect(lastCall("agent", "start")).toEqual([
+      "agent", "start", "pi-", "--kind", "pi", "--pane", "w6:p10",
     ]);
     expect(lastCall("tab", "create")).toContain("/tmp/work dir");
     expect(lastCall("tab", "create")).toContain(`ORCH_PROJECT=${projectRoot()}`);

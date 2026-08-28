@@ -7,6 +7,7 @@ import { codexAdapter } from "../src/adapters/codex.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { insertSpawnedRecord, selectSpawnedRecords } from "../src/store/spawned-rows.ts";
+import { serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
@@ -92,22 +93,24 @@ describe("HeadlessBackend", () => {
   });
 
   test("spawns a detached process and records its handle", async () => {
+    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "fake-1" });
     expect(backend.capabilities).toEqual({ panes: false, focusable: false, canSendKeys: false, canPruneLogs: true });
-    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-1", prompt: "sleep" });
+    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key, prompt: "sleep" });
     handles.push(handle);
 
-    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-1", "status.json")));
-    const record = selectSpawnedRecords(testOrchDir).find((entry) => entry.pane === "fake-1");
+    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
+    const record = selectSpawnedRecords(testOrchDir).find((entry) => entry.pane === key);
     expect(record?.backend).toBe("headless");
-    expect(JSON.parse(record?.handle ?? "null")).toEqual({ pid: handle.pid, key: "fake-1" });
+    expect(JSON.parse(record?.handle ?? "null")).toEqual({ pid: handle.pid, key });
     expect(record?.cwd).toBeUndefined();
     expect(fs.existsSync(path.join(testOrchDir, "logs"))).toBe(true);
-    expect(fs.existsSync(path.join(testOrchDir, "logs", "fake-1.log"))).toBe(true);
-    expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-1", alive: true });
-    expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", "fake-1", "status.json"), "utf8")) as { key: string }).key).toBe("fake-1");
+    expect(fs.existsSync(path.join(testOrchDir, "logs", "headless_test_fake-1.log"))).toBe(true);
+    expect(backend.list()).toContainEqual({ pid: handle.pid, key, alive: true });
+    expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", key, "status.json"), "utf8")) as { key: string }).key).toBe(key);
   }, 30000);
 
   test("completes a headless dispatch round-trip and leaves a readable result", async () => {
+    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "round-trip" });
     const adapter = {
       ...fakeAdapter,
       headlessCmd: (_prompt: string, opts: { key?: string; orchDir?: string }) => {
@@ -121,18 +124,19 @@ describe("HeadlessBackend", () => {
         ].join(" ")];
       },
     };
-    const handle = backend.spawn(adapter as unknown as AgentAdapter, { key: "round-trip", prompt: "dispatch" });
+    const handle = backend.spawn(adapter as unknown as AgentAdapter, { key, prompt: "dispatch" });
     handles.push(handle);
-    const dir = path.join(testOrchDir, "agents", "round-trip");
+    const dir = path.join(testOrchDir, "agents", key);
     await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
     await waitFor(() => (JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")) as { state: string }).state === "done");
     expect(JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"))).toEqual({ text: "headless result" });
   }, 30000);
 
   test("records and mirrors the headless log for Codex session-tail parsing", async () => {
-    const handle = backend.spawn(codexLogAdapter as unknown as AgentAdapter, { key: "codex-tail", prompt: "tail" });
+    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "codex-tail" });
+    const handle = backend.spawn(codexLogAdapter as unknown as AgentAdapter, { key, prompt: "tail" });
     handles.push(handle);
-    const statusPath = path.join(testOrchDir, "agents", "codex-tail", "status.json");
+    const statusPath = path.join(testOrchDir, "agents", key, "status.json");
     await waitFor(() => fs.existsSync(statusPath));
     const status = JSON.parse(fs.readFileSync(statusPath, "utf8")) as { sessionPath: string };
     expect(status.sessionPath).toMatch(/logs[\\/]/);
@@ -143,13 +147,15 @@ describe("HeadlessBackend", () => {
   }, 30000);
 
   test("closes only when registry and presence pid/key both match", async () => {
-    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-2", prompt: "sleep" });
+    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "fake-2" });
+    const wrongKey = serializeIdentity({ backend: "headless", workspace: "test", id: "wrong-key" });
+    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key, prompt: "sleep" });
     handles.push(handle);
-    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", "fake-2", "status.json")));
+    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
 
-    expect(backend.close({ pid: handle.pid, key: "wrong-key" })).toBe(false);
-    expect(backend.close({ pid: process.pid, key: "fake-2" })).toBe(false);
-    expect(backend.list()).toContainEqual({ pid: handle.pid, key: "fake-2", alive: true });
+    expect(backend.close({ pid: handle.pid, key: wrongKey })).toBe(false);
+    expect(backend.close({ pid: process.pid, key })).toBe(false);
+    expect(backend.list()).toContainEqual({ pid: handle.pid, key, alive: true });
 
     expect(backend.close(handle)).toBe(true);
     await waitFor(() => !backend.list().some((entry) => entry.pid === handle.pid && entry.alive));

@@ -161,13 +161,13 @@ export async function daemonRpc<T>(method: string, params?: unknown): Promise<{ 
   }
 }
 
-export interface DaemonEventStream {
+interface DaemonEventStream {
   stream: ReadableStream<Uint8Array>;
   close: () => void;
 }
 
 /** Bridge the daemon's newline-framed subscribe-events stream to an SSE body. */
-export function daemonEventStream(since = 0): DaemonEventStream {
+function daemonEventStream(since = 0): DaemonEventStream {
   const encoder = new TextEncoder();
   let closed = false;
   let socket: Socket | undefined;

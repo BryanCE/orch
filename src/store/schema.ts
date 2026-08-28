@@ -1,60 +1,28 @@
-// Every DDL orch runs lives here and nowhere else: queue, ownership, outbox,
-// spawn registry, model catalogues, the durable event log,
-// and run history. The per-agent json and jsonl files stay the human-visible
-// truth channel for presence and results; only this internal state lives here.
+// Every DDL orch runs lives here and nowhere else. The per-agent json and jsonl
+// files stay the human-visible truth channel for presence and results; only this
+// internal state lives in SQLite.
 
 /** Stamped into `PRAGMA user_version`; a store carrying any other stamp is
  *  malformed and gets reaped and recreated empty. */
 export const STORE_SCHEMA = 6;
-
-export const OWNERSHIP_DDL = `
-    CREATE TABLE IF NOT EXISTS ownership (
-      agent_key TEXT PRIMARY KEY,
-      owner TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );`;
-
-export const OUTBOX_DDL = `
-    CREATE TABLE IF NOT EXISTS outbox (
-      id TEXT PRIMARY KEY,
-      target TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      state TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      next_attempt_at INTEGER NOT NULL DEFAULT 0
-    );`;
-
-export const SPAWNED_DDL = `
-    CREATE TABLE IF NOT EXISTS spawned (
-      pane TEXT PRIMARY KEY,
-      ts TEXT,
-      adapter TEXT,
-      model TEXT,
-      backend TEXT,
-      workspace TEXT,
-      handle TEXT,
-      name TEXT,
-      cwd TEXT,
-      worktree TEXT,
-      branch TEXT,
-      spawned_by TEXT,
-      spawned_by_label TEXT
-    );`;
-
-export const CATALOGUES_DDL = `CREATE TABLE IF NOT EXISTS catalogues (command TEXT PRIMARY KEY, at INTEGER NOT NULL, stdout TEXT NOT NULL);`;
-
-export const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, payload TEXT NOT NULL);`;
-
-export const RUNS_DDL = `CREATE TABLE IF NOT EXISTS runs (dispatch_id TEXT PRIMARY KEY, agent_key TEXT NOT NULL, adapter TEXT, model TEXT, workspace TEXT, task TEXT, state TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, tokens_in INTEGER, tokens_out INTEGER, cache_read INTEGER, cache_write INTEGER, cost REAL, turns INTEGER, result TEXT, last_error TEXT);`;
 
 const overlap = (table: string, keys: string) => { const where = keys.split(', ').map(k => `${k} = NEW.${k}`).join(' AND '); return `CREATE TRIGGER ${table}_no_overlap BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'overlapping interval') WHERE EXISTS (SELECT 1 FROM ${table} WHERE ${where} AND NEW.since < COALESCE(until, 9223372036854775807) AND COALESCE(NEW.until, 9223372036854775807) > since); END;`; };
 const NO_OVERLAP_TRIGGERS = [
   overlap('agent_handles','agent_id'), overlap('agent_processes','agent_id'), overlap('agent_spaces','agent_id'), overlap('agent_tunings','agent_id'), overlap('agent_leases','agent_id'), overlap('space_plexers','space_id'), overlap('pack_plexers','pack_id'), overlap('host_plexers','host_id, plexer_id'), overlap('task_attempts','task_id'), overlap('pack_intakes','pack_id, space_id'),
 ];
 export const REBUILD_DDL: readonly string[] = [
-`CREATE TABLE harnesses (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, enabled_at INTEGER NULL) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE plexers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, enabled_at INTEGER NULL) STRICT, WITHOUT ROWID;`,
+// Runtime operational tables retained by current row owners. They are part of
+// the one current schema, not a second legacy DDL block.
+`CREATE TABLE ownership (agent_key TEXT PRIMARY KEY, owner TEXT NOT NULL, updated_at TEXT NOT NULL);`,
+`CREATE TABLE outbox (id TEXT PRIMARY KEY, target TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, next_attempt_at INTEGER NOT NULL DEFAULT 0);`,
+`CREATE TABLE spawned (pane TEXT PRIMARY KEY, ts TEXT, adapter TEXT, model TEXT, backend TEXT, workspace TEXT, handle TEXT, name TEXT, cwd TEXT, worktree TEXT, branch TEXT, spawned_by TEXT, spawned_by_label TEXT);`,
+`CREATE TABLE catalogues (command TEXT PRIMARY KEY, at INTEGER NOT NULL, stdout TEXT NOT NULL);`,
+`CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, payload TEXT NOT NULL);`,
+`CREATE TABLE runs (dispatch_id TEXT PRIMARY KEY, agent_key TEXT NOT NULL, adapter TEXT, model TEXT, workspace TEXT, task TEXT, state TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, tokens_in INTEGER, tokens_out INTEGER, cache_read INTEGER, cache_write INTEGER, cost REAL, turns INTEGER, result TEXT, last_error TEXT);`,
+"CREATE INDEX outbox_pending ON outbox(state, next_attempt_at);",
+"CREATE INDEX runs_agent_started ON runs(agent_key, started_at);",
+"CREATE TABLE harnesses (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, enabled_at INTEGER NULL) STRICT, WITHOUT ROWID;",
+"CREATE TABLE plexers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, enabled_at INTEGER NULL) STRICT, WITHOUT ROWID;",
 `CREATE TABLE hosts (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, os TEXT NOT NULL CHECK (os IN ('linux','windows','darwin')), created_at INTEGER NOT NULL) STRICT, WITHOUT ROWID;`,
 `CREATE TABLE host_plexers (host_id TEXT NOT NULL REFERENCES hosts(id) ON DELETE CASCADE, plexer_id TEXT NOT NULL REFERENCES plexers(id), since INTEGER NOT NULL, until INTEGER NULL, version TEXT NOT NULL, PRIMARY KEY (host_id, plexer_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
 `CREATE TABLE spaces (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NULL REFERENCES agents(id), created_at INTEGER NOT NULL) STRICT, WITHOUT ROWID;`,
@@ -75,18 +43,8 @@ export const REBUILD_DDL: readonly string[] = [
 `CREATE TABLE pack_intakes (pack_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, PRIMARY KEY (pack_id, space_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
 `CREATE UNIQUE INDEX one_install ON host_plexers(host_id, plexer_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_live_process ON agent_processes(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_handle ON agent_handles(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_space ON agent_spaces(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_tuning ON agent_tunings(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_lease ON agent_leases(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_space_home ON space_plexers(space_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_pack_home ON pack_plexers(pack_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_intake ON pack_intakes(pack_id, space_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_open_attempt ON task_attempts(task_id) WHERE until IS NULL;`,
 `CREATE INDEX agents_by_pack ON agents(root_agent_id);`,`CREATE INDEX agents_by_spawner ON agents(spawned_by);`,`CREATE INDEX leases_by_orch ON agent_leases(orch_id) WHERE until IS NULL;`,`CREATE INDEX tasks_by_agent ON tasks(scope_agent_id);`,`CREATE INDEX tasks_by_pack ON tasks(scope_pack_id);`,`CREATE INDEX tasks_by_space ON tasks(scope_space_id);`,`CREATE INDEX tasks_by_enqueuer ON tasks(enqueued_by);`,`CREATE INDEX attempts_running ON task_attempts(agent_id) WHERE until IS NULL;`,
-`CREATE VIEW task_states AS SELECT t.id AS task_id, CASE WHEN c.task_id IS NOT NULL THEN 'cancelled' WHEN a.task_id IS NULL THEN 'queued' WHEN a.until IS NULL THEN 'claimed' ELSE a.outcome END AS state FROM tasks t LEFT JOIN task_cancellations c ON c.task_id = t.id LEFT JOIN task_attempts a ON a.task_id = t.id AND a.since = (SELECT MAX(since) FROM task_attempts WHERE task_id = t.id);`,
+`CREATE VIEW task_states AS SELECT t.id AS task_id, CASE WHEN c.task_id IS NOT NULL THEN 'cancelled' WHEN (a.task_id IS NULL OR a.until IS NULL OR a.outcome = 'failed') AND ((t.scope_agent_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_endings e WHERE e.agent_id = t.scope_agent_id)) OR (t.scope_pack_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a_live WHERE a_live.root_agent_id = t.scope_pack_id AND NOT EXISTS (SELECT 1 FROM agent_endings e_live WHERE e_live.agent_id = a_live.id)))) THEN 'unrunnable' WHEN a.task_id IS NULL THEN 'queued' WHEN a.until IS NULL THEN 'claimed' ELSE a.outcome END AS state FROM tasks t LEFT JOIN task_cancellations c ON c.task_id = t.id LEFT JOIN task_attempts a ON a.task_id = t.id AND a.since = (SELECT MAX(since) FROM task_attempts WHERE task_id = t.id);`,
 ...NO_OVERLAP_TRIGGERS,
 ];
 
-export const CORE_TABLE_DDL: readonly string[] = [
-  OWNERSHIP_DDL,
-  OUTBOX_DDL,
-  SPAWNED_DDL,
-  CATALOGUES_DDL,
-  EVENTS_DDL,
-  RUNS_DDL,
-  "CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(state, next_attempt_at);",
-  "CREATE INDEX IF NOT EXISTS runs_agent_started ON runs(agent_key, started_at);",
-  ...REBUILD_DDL,
-];
+export const CORE_TABLE_DDL: readonly string[] = REBUILD_DDL;

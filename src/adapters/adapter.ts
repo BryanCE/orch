@@ -15,7 +15,7 @@ export function isAdapterId(value: unknown): value is AdapterId {
 export type SteerMechanism = "inbox" | "keys" | "resume" | "none";
 
 /** Session-lifecycle verbs an adapter may declare a native mechanism for. */
-export const LIFECYCLE_VERBS = ["reset", "reload", "restart"] as const;
+const LIFECYCLE_VERBS = ["reset", "reload", "restart"] as const;
 
 export type LifecycleVerb = (typeof LIFECYCLE_VERBS)[number];
 
@@ -24,7 +24,8 @@ export function isLifecycleVerb(value: unknown): value is LifecycleVerb {
 }
 
 /** States an adapter may expose through orch's presence protocol. */
-export type AgentState = "idle" | "working" | "blocked" | "done" | "error" | "aborted" | "exited" | "unknown";
+export const AGENT_STATES = ["idle", "working", "blocked", "asking", "done", "error", "aborted", "exited", "unknown"] as const;
+export type AgentState = (typeof AGENT_STATES)[number];
 
 /** Inputs shared by interactive and detached spawn commands. */
 export interface SpawnOpts {

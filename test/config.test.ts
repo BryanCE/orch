@@ -93,7 +93,7 @@ describe("loadConfig", () => {
         models: { claude: "sonnet" },
         worktree: true,
       },
-      fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
+      fleet: { spawn_cap: 4, max_agents: 12, pack_cap: 10, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
@@ -174,7 +174,7 @@ describe("loadConfig", () => {
       runtime: "node",
       enabled: { adapters: [], backends: [] },
       defaults: { models: {}, worktree: false },
-      fleet: { spawn_cap: 8, max_agents: undefined, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false },
+      fleet: { spawn_cap: 8, max_agents: undefined, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false },
       models: { allowed: {}, preferred: {} },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 1 },
@@ -187,6 +187,31 @@ describe("loadConfig", () => {
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
       tiling: { first_split: "rows" },
       skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
+    });
+  });
+
+  test("preserves configured values while defaulting each missing section value", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, {
+      defaults: { worktree: true },
+      fleet: { spawn_cap: 3 },
+      workers: { allow_tools: ["read"] },
+      retention: { logs_days: 2 },
+      timeouts: { wait_ms: 1234 },
+      daemon: { idle_shutdown_minutes: 0 },
+      tiling: { first_split: "columns" },
+      skills: { install: false },
+    });
+
+    expect(loadConfig(directory)).toMatchObject({
+      defaults: { models: {}, worktree: true },
+      fleet: { spawn_cap: 3, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false },
+      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: ["read"] },
+      retention: { logs_days: 2, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, ended_agents_days: 90 },
+      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000 },
+      daemon: { tcp_port: 3716, idle_shutdown_minutes: 0 },
+      tiling: { first_split: "columns" },
+      skills: { install: false, roots: ["~/.claude/skills", "~/.agents/skills"] },
     });
   });
 
@@ -371,7 +396,7 @@ describe("writeSettingsFullTree", () => {
     const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as {
       fleet?: Record<string, unknown>;
     };
-    expect(raw.fleet).toEqual({ spawn_cap: 8, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false });
+    expect(raw.fleet).toEqual({ spawn_cap: 8, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false });
     expect(Object.hasOwn(raw.fleet ?? {}, "max_agents")).toBe(false);
     expect(loadConfig(directory).fleet.max_agents).toBeUndefined();
   });

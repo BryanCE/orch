@@ -55,6 +55,7 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
     ["t4", { tab_id: "t4", workspace_id: "ws-3" }],
   ]),
   herdrReachable: () => true,
+  version: () => null,
   paneStatus: () => null,
   herdrExec: (args: string[]) => {
     herdrArgv.push([...args]);
@@ -83,10 +84,6 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
   herdrAck: (args: string[]) => {
     herdrArgv.push([...args]);
     if (args[0] === "agent" && args[1] === "start") launched.add(args[args.indexOf("--pane") + 1] ?? "");
-  },
-  herdrBestEffort: (args: string[]) => {
-    herdrArgv.push([...args]);
-    return true;
   },
 }));
 
@@ -245,19 +242,9 @@ describe("HerdrBackend", () => {
     );
   });
 
-  test("deliver submits with agent prompt, not the removed agent send", () => {
+  test("pane input submits through pane run", () => {
     herdrArgv.length = 0;
-    expect(backend.deliver("w0:p1", { kind: "message", text: "hello" })).toBe(true);
-
-    expect(herdrArgv).toEqual([["agent", "prompt", "w0:p1", "hello"]]);
-    expect(herdrArgv.flat()).not.toContain("send");
-    // `agent prompt` types AND submits, so a trailing Enter would double-submit.
-    expect(herdrArgv.flat()).not.toContain("Enter");
-  });
-
-  test("a run payload still goes through pane run", () => {
-    herdrArgv.length = 0;
-    expect(backend.deliver("w0:p1", { kind: "run", text: "ls" })).toBe(true);
+    backend.paneInput!.submit("w0:p1", "ls");
 
     expect(herdrArgv).toEqual([["pane", "run", "w0:p1", "ls"]]);
   });

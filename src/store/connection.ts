@@ -1,8 +1,11 @@
 import { createRequire } from "node:module";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { STORE_SCHEMA, CORE_TABLE_DDL } from "./schema.ts";
+import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
+import { presenceRoot } from "../presence/writer.ts";
+import { pidAlive } from "../util.ts";
 
 interface StatementLike {
   run(...params: unknown[]): { changes: number };
@@ -87,6 +90,27 @@ function storeSchemaOf(db: DatabaseLike): number {
   return row?.user_version ?? 0;
 }
 
+/** A current-schema status record with a live pid means an agent is still
+ * running. Recreating the store while one exists would erase its identity. */
+function hasLivePresence(orchDir: string): boolean {
+  let entries: { name: string; isDirectory(): boolean }[];
+  try {
+    entries = readdirSync(presenceRoot(orchDir), { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const status = JSON.parse(readFileSync(join(presenceRoot(orchDir), entry.name, STATUS_FILE), "utf8")) as { schema?: unknown; pid?: unknown };
+      if (status?.schema === PRESENCE_SCHEMA && pidAlive(status.pid)) return true;
+    } catch {
+      // A malformed status is not a live presence record.
+    }
+  }
+  return false;
+}
+
 /**
  * Reap a store written against a different shape and hand back an empty one.
  *
@@ -112,10 +136,23 @@ export function openStore(orchDir: string): DatabaseLike {
   let db = createDatabase(path);
   db.exec("PRAGMA foreign_keys = ON;");
   let fresh = !storeIsPopulated(db);
-  if (!fresh && storeSchemaOf(db) !== STORE_SCHEMA) {
-    db = recreateStore(db, path);
-    db.exec("PRAGMA foreign_keys = ON;");
-    fresh = true;
+  if (!fresh) {
+    const foundSchema = storeSchemaOf(db);
+    if (foundSchema !== STORE_SCHEMA) {
+      const livePresence = hasLivePresence(orchDir);
+      const slave = process.env.ORCH_AGENT_KEY !== undefined;
+      if (livePresence) {
+        db.close();
+        throw new Error(`orch: refusing schema mismatch (schema skew: stamp ${foundSchema}, expected ${STORE_SCHEMA}) while live presence exists; stop agents before rebuild/reinstall`);
+      }
+      if (slave) {
+        db.close();
+        throw new Error(`orch: slave cannot recreate schema mismatch (schema skew: stamp ${foundSchema}, expected ${STORE_SCHEMA}); rebuild/reinstall orch from the pack orch or user`);
+      }
+      db = recreateStore(db, path);
+      db.exec("PRAGMA foreign_keys = ON;");
+      fresh = true;
+    }
   }
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");

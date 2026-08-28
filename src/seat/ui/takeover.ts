@@ -8,16 +8,17 @@
  * The agents live in their own panes and never die with this seat; both views
  * are windows into orch, not hosts of anything.
  */
-import type { ExtensionCommandContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
+import type { ExtensionCommandContext, ExtensionUIContext, KeybindingsManager, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { Component, Focusable } from "@earendil-works/pi-tui";
 import { Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { ALERT_STATES, formatElapsed, type PackSnapshot } from "../domain.ts";
 import type { PackReadView } from "../manager.ts";
 import { transcriptLines, type TranscriptCache } from "./transcript.ts";
 
 const SQUARE = "■";
+type TUI = Parameters<Parameters<ExtensionUIContext["custom"]>[0]>[0];
 
-export function stateColor(state: string): string {
+function stateColor(state: string): ThemeColor {
   if (state === "working" || state === "spawning") return "warning";
   if (ALERT_STATES.has(state)) return "error";
   if (state === "done") return "success";
@@ -38,7 +39,7 @@ function configuredKeys(keybindings: KeybindingsManager, binding: Parameters<Key
 
 // --- Entry points --------------------------------------------------------------
 
-export async function openAgentView(ctx: ExtensionCommandContext, view: PackReadView, key: string): Promise<void> {
+async function openAgentView(ctx: ExtensionCommandContext, view: PackReadView, key: string): Promise<void> {
   if (!view.get(key)) return;
   view.refresh(key);
   await ctx.ui.custom<null>(
@@ -82,7 +83,7 @@ interface DashboardSelection {
   index: number;
 }
 
-export function reconcileDashboardSelection(selection: DashboardSelection, agents: ReadonlyArray<Pick<PackSnapshot, "key">>): void {
+export function reconcileDashboardSelection(selection: DashboardSelection, agents: readonly Pick<PackSnapshot, "key">[]): void {
   const stableIndex = selection.id ? agents.findIndex((snapshot) => snapshot.key === selection.id) : -1;
   selection.index = stableIndex >= 0
     ? stableIndex
@@ -121,7 +122,7 @@ class PackDashboard implements Component {
     this.unsubChange = view.subscribe(() => this.tui.requestRender());
   }
 
-  private agents(): ReadonlyArray<PackSnapshot> {
+  private agents(): readonly PackSnapshot[] {
     return this.view.list();
   }
 
@@ -172,7 +173,7 @@ class PackDashboard implements Component {
     }
     if (data === "x") {
       const snapshot = agents[this.selection.index];
-      if (snapshot && snapshot.state === "working") this.view.requestAbort(snapshot.key);
+      if (snapshot?.state === "working") this.view.requestAbort(snapshot.key);
     }
   }
 
@@ -229,7 +230,7 @@ class PackDashboard implements Component {
     return lines;
   }
 
-  private renderRows(agents: ReadonlyArray<PackSnapshot>, width: number, height: number): string[] {
+  private renderRows(agents: readonly PackSnapshot[], width: number, height: number): string[] {
     const theme = this.theme;
     const out: string[] = [];
 
@@ -244,6 +245,7 @@ class PackDashboard implements Component {
 
     for (let i = 0; i < visible.length; i++) {
       const snapshot = visible[i];
+      if (!snapshot) continue;
       const index = start + i;
       const isSelected = index === this.selection.index;
 

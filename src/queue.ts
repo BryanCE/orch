@@ -15,7 +15,7 @@ import {
   type TaskRow,
 } from "./store/task-rows.ts";
 
-export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled";
+export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled" | "unrunnable";
 
 export interface TaskOptions {
   agent?: string;

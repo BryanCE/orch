@@ -94,15 +94,21 @@ function isSessionUsage(value: unknown): value is SessionUsage {
   return true;
 }
 
+function isOptionalStringField(value: Record<string, unknown>, key: string): boolean {
+  return value[key] === undefined || typeof value[key] === "string";
+}
+
+function isOptionalBooleanField(value: Record<string, unknown>, key: string): boolean {
+  return value[key] === undefined || typeof value[key] === "boolean";
+}
+
 function isSessionMessage(value: unknown): value is SessionMessage {
   if (!isRecord(value) || typeof value.role !== "string") return false;
-  if (value.timestamp !== undefined && typeof value.timestamp !== "string") return false;
+  const strings = ["timestamp", "model", "provider", "toolName"];
+  if (!strings.every((key) => isOptionalStringField(value, key))) return false;
   if (value.content !== undefined && !isSessionContent(value.content)) return false;
-  if (value.model !== undefined && typeof value.model !== "string") return false;
-  if (value.provider !== undefined && typeof value.provider !== "string") return false;
   if (value.usage !== undefined && !isSessionUsage(value.usage)) return false;
-  if (value.toolName !== undefined && typeof value.toolName !== "string") return false;
-  return value.isError === undefined || typeof value.isError === "boolean";
+  return isOptionalBooleanField(value, "isError");
 }
 
 function isSessionEntry(value: unknown): value is SessionEntry {
@@ -120,68 +126,101 @@ export function blockText(content: SessionContent | undefined): string {
   return "";
 }
 
-export function parseSession(sessionPath: string | null): SessionData {
-  const empty: SessionData = {
-    exists: false, path: sessionPath ?? "", model: null, provider: null, thinking: null,
+function emptySession(path: string | null): SessionData {
+  return {
+    exists: false, path: path ?? "", model: null, provider: null, thinking: null,
     task: null, lastAssistant: null, cost: 0,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, turns: 0, entries: [],
   };
-  if (!sessionPath) return empty;
-  let raw: string;
+}
+
+function readSessionFile(path: string): string | null {
   try {
-    raw = readFileSync(sessionPath, "utf8");
+    return readFileSync(path, "utf8");
   } catch {
-    return empty;
+    return null;
   }
+}
+
+function parseSessionLine(line: string): SessionEntry | null {
+  if (!line.trim()) return null;
+  try {
+    const parsed: unknown = JSON.parse(line);
+    return isSessionEntry(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+type SessionState = {
+  lastModelChange: string | null;
+  lastThinkChange: string | null;
+  lastAsstModel: string | null;
+  lastAsstProvider: string | null;
+};
+
+function applyModelChange(entry: SessionEntry, state: SessionState): void {
+  if (entry.modelId) state.lastModelChange = entry.modelId;
+  if (entry.provider) state.lastAsstProvider = entry.provider;
+}
+
+function applyThinkingChange(entry: SessionEntry, state: SessionState): void {
+  if (entry.thinkingLevel) state.lastThinkChange = entry.thinkingLevel;
+}
+
+function applyAssistantUsage(data: SessionData, usage: SessionUsage): void {
+  data.tokens.input += usage.input ?? 0;
+  data.tokens.output += usage.output ?? 0;
+  data.tokens.cacheRead += usage.cacheRead ?? 0;
+  data.tokens.cacheWrite += usage.cacheWrite ?? 0;
+  const cost = usage.cost && typeof usage.cost === "object" ? usage.cost.total : usage.cost;
+  if (typeof cost === "number") data.cost += cost;
+}
+
+function applyAssistantMessage(data: SessionData, message: SessionMessage, state: SessionState): void {
+  data.turns++;
+  if (message.model) state.lastAsstModel = message.model;
+  if (message.provider) state.lastAsstProvider = message.provider;
+  const text = blockText(message.content);
+  if (text.trim()) data.lastAssistant = text;
+  if (message.usage) applyAssistantUsage(data, message.usage);
+}
+
+function applyMessage(data: SessionData, message: SessionMessage, state: SessionState): void {
+  if (message.role === "user") {
+    const text = blockText(message.content);
+    if (text.trim()) data.task = text;
+    return;
+  }
+  if (message.role === "assistant") applyAssistantMessage(data, message, state);
+}
+
+function applySessionEntry(data: SessionData, entry: SessionEntry, state: SessionState): void {
+  data.entries.push(entry);
+  if (entry.type === "model_change") {
+    applyModelChange(entry, state);
+    return;
+  }
+  if (entry.type === "thinking_level_change") {
+    applyThinkingChange(entry, state);
+    return;
+  }
+  if (entry.type === "message" && entry.message) applyMessage(data, entry.message, state);
+}
+
+export function parseSession(sessionPath: string | null): SessionData {
+  const empty = emptySession(sessionPath);
+  if (!sessionPath) return empty;
+  const raw = readSessionFile(sessionPath);
+  if (raw === null) return empty;
   const data: SessionData = { ...empty, exists: true, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, entries: [] };
-  let lastModelChange: string | null = null;
-  let lastThinkChange: string | null = null;
-  let lastAsstModel: string | null = null;
-  let lastAsstProvider: string | null = null;
+  const state: SessionState = { lastModelChange: null, lastThinkChange: null, lastAsstModel: null, lastAsstProvider: null };
   for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line) as unknown;
-    } catch {
-      continue;
-    }
-    if (!isSessionEntry(parsed)) continue;
-    const entry = parsed;
-    data.entries.push(entry);
-    if (entry.type === "model_change") {
-      if (entry.modelId) lastModelChange = entry.modelId;
-      if (entry.provider) lastAsstProvider = entry.provider;
-      continue;
-    }
-    if (entry.type === "thinking_level_change") {
-      if (entry.thinkingLevel) lastThinkChange = entry.thinkingLevel;
-      continue;
-    }
-    if (entry.type !== "message" || !entry.message) continue;
-    const message = entry.message;
-    if (message.role === "user") {
-      const text = blockText(message.content);
-      if (text.trim()) data.task = text;
-    } else if (message.role === "assistant") {
-      data.turns++;
-      if (message.model) lastAsstModel = message.model;
-      if (message.provider) lastAsstProvider = message.provider;
-      const text = blockText(message.content);
-      if (text.trim()) data.lastAssistant = text;
-      const usage = message.usage;
-      if (usage) {
-        data.tokens.input += usage.input ?? 0;
-        data.tokens.output += usage.output ?? 0;
-        data.tokens.cacheRead += usage.cacheRead ?? 0;
-        data.tokens.cacheWrite += usage.cacheWrite ?? 0;
-        const cost = usage.cost && typeof usage.cost === "object" ? usage.cost.total : usage.cost;
-        if (typeof cost === "number") data.cost += cost;
-      }
-    }
+    const entry = parseSessionLine(line);
+    if (entry) applySessionEntry(data, entry, state);
   }
-  data.model = lastModelChange ?? lastAsstModel;
-  data.provider = lastAsstProvider;
-  data.thinking = lastThinkChange;
+  data.model = state.lastModelChange ?? state.lastAsstModel;
+  data.provider = state.lastAsstProvider;
+  data.thinking = state.lastThinkChange;
   return data;
 }

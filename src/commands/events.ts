@@ -1,6 +1,6 @@
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { buildEntities, currentWorkspace, resolveTarget, workspaceOf } from "../entities.ts";
-import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
+import { loadPresence, orchDir } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { scopeToWorkspace, workspaceName } from "../policy/workspace.ts";
@@ -9,7 +9,7 @@ import { subscribeEvents } from "../daemon/rpc.ts";
 import { deliverToSink, loadSinks, type Sink } from "../notify/router.ts";
 import { notificationText, type NotifyEvent } from "../notify/format.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
-import { currentLease, leasesByOrch } from "../store/lease-rows.ts";
+import { currentLease } from "../store/lease-rows.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { die } from "./target.ts";
 
@@ -39,43 +39,38 @@ interface EventsContext {
   options: EventsOptions;
   items: Map<string, WatchItem>;
   metadata: (key: string) => PresenceMetadata;
-  accepts: (key: string, event?: NotifyEvent) => boolean;
+  accepts: (key: string) => boolean;
   emit: (event: NotifyEvent, streamSeq: number) => boolean;
 }
 
 
+/** Return whether an event's agent is currently leased by this session. Both values
+ * are normalized agents.id values; provenance is deliberately not part of this decision. */
 export function eventInMineScope(input: {
   mineAddress: string | undefined;
   leaseOwner: string | null;
-  eventSpawnedBy?: string;
-  recordSpawnedBy?: string;
 }): boolean {
-  if (!input.mineAddress) return false;
-  // An open lease is authoritative. Provenance is only the transitional
-  // fallback while spawn has not written a lease row yet.
-  if (input.leaseOwner !== null) return input.leaseOwner === input.mineAddress;
-  return input.eventSpawnedBy === input.mineAddress || input.recordSpawnedBy === input.mineAddress;
+  return input.mineAddress !== undefined
+    && input.mineAddress.length > 0
+    && input.leaseOwner === input.mineAddress;
 }
 
 export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
   const items = eventsItems(options);
-  const mineAddress = options.mine ? spawnerIdentity().key ?? undefined : undefined;
-  const mineLeaseIds = mineAddress
-    ? new Set(leasesByOrch(orchDir(), mineAddress).map((lease) => lease.agentId))
-    : new Set<string>();
-  const accepts = (key: string, event?: NotifyEvent): boolean => {
+  const mineKey = options.mine ? spawnerIdentity().key : null;
+  const mineAddress = tryParseIdentity(mineKey)?.id ?? mineKey ?? undefined;
+  const accepts = (key: string): boolean => {
     const inScope = options.targets.length
       ? items.has(key)
       : looksLikePaneKey(key)
         && scopeToWorkspace(orchDir(), [key], (item) => item, currentWorkspace(), { all: options.all }).length > 0;
     if (!inScope) return false;
     if (!options.mine) return true;
-    const eventSpawnedBy = isRecord(event) && typeof event.spawnedBy === "string" ? event.spawnedBy : undefined;
-    const recordSpawnedBy = spawnedRecords().get(key)?.spawnedBy;
-    const leaseOwner = mineLeaseIds.has(key) ? mineAddress! : currentLease(orchDir(), key)?.orchId ?? null;
-    return eventInMineScope({ mineAddress, leaseOwner, eventSpawnedBy, recordSpawnedBy });
+    const agentId = tryParseIdentity(key)?.id ?? key;
+    const leaseOwner = currentLease(orchDir(), agentId)?.orchId ?? null;
+    return eventInMineScope({ mineAddress, leaseOwner });
   };
   const context: EventsContext = {
     options,
@@ -139,8 +134,8 @@ export function parseEventsOptions(args: string[]): EventsOptions {
   let json = false;
   let sinceSeq: number | undefined;
   let once = false;
-  // An orchestrator watches the fleet it spawned. Every other session's agents are noise it
-  // has no business acting on, so the spawner filter is the default and --any-agent lifts it.
+  // An orchestrator watches the agents it currently drives. Every other session's agents are
+  // noise it has no business acting on, so the lease filter is the default and --any-agent lifts it.
   let mine = true;
   const targets: string[] = [];
   const usage = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
@@ -238,7 +233,7 @@ function startEventsTransport(context: EventsContext): () => void {
     orchDir(),
     context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
     (value, streamSeq) => {
-      if (!isNotifyEvent(value) || !context.accepts(value.key, value)) return;
+      if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
       if (context.emit(value, streamSeq) && context.options.once) {
         subscription.close();
         process.exit(0);

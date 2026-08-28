@@ -20,7 +20,7 @@ import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate
 // presence.ts (which imports this module's peer operations).
 import type { AgentPresence } from "./presence.ts";
 
-export interface Peer {
+interface Peer {
   key: string;
   dir: string;
   status: JsonRecord;
@@ -58,7 +58,7 @@ interface PeerResolutionPeer {
 
 export type PeerResolution = PeerResolutionError | PeerResolutionPeer;
 
-export function peerModel(status: unknown): string | undefined {
+function peerModel(status: unknown): string | undefined {
   if (!isRecord(status) || !isRecord(status.model)) return undefined;
   const provider = optionalString(status.model.provider);
   const id = optionalString(status.model.id);
@@ -204,7 +204,7 @@ export function sendPeerMessage(target: string, text: string, ownKey: string, al
   return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, workspaceOf(orchDir(), resolved.peer.key) ?? "workspace", resolved.peer.status))}`;
 }
 
-export function formatPeerLines(peers: PeerSummary[]): string {
+function formatPeerLines(peers: PeerSummary[]): string {
   return peers
     .map((peer) => `${peer.name ?? peer.key}${peer.branch ? ` [${peer.branch}]` : ""} ${peer.state} ${peer.model ?? "-"} ${truncate(String(peer.task ?? ""), 40)}`)
     .join("\n");
@@ -219,7 +219,7 @@ export function toolResult(text: string): BridgeToolResult {
   return { content: [{ type: "text", text }], details: undefined };
 }
 
-export async function executeTool(action: () => string | Promise<string>, error: string): Promise<BridgeToolResult> {
+async function executeTool(action: () => string | Promise<string>, error: string): Promise<BridgeToolResult> {
   try {
     return toolResult(await action());
   } catch {

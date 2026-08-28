@@ -9,6 +9,7 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
 import { deleteSpawnedRecord, insertSpawnedRecord, selectSpawnedRecords, type SpawnedRecord } from "../store/spawned-rows.ts";
 import { deleteOwner, setOwner } from "../store/ownership-rows.ts";
+import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
 import type { BackendId } from "../backends/backend.ts";
@@ -191,7 +192,13 @@ export function spawnedRecords(): Map<string, SpawnedRecord> {
   return records;
 }
 
-export function reapSpawnedRecord(key: string, root = orchDir()): void {
+export function reapSpawnedRecord(key: string, root = orchDir(), options: { agentId?: string } = {}): void {
+  if (options.agentId !== undefined) {
+    // Retention uses this same owning reap path for the normalized agent hub;
+    // deleting it cascades every satellite while the registry and presence
+    // cleanup below handles the legacy-keyed records.
+    openStore(root).query("DELETE FROM agents WHERE id = ?").run(options.agentId);
+  }
   try { deleteSpawnedRecord(root, key); } catch {}
   try { deleteOwner(root, key); } catch {}
   removePresenceAgentDir(presenceAgentDir(key, root));

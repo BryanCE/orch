@@ -36,7 +36,7 @@
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
     "build:web": "bun --filter orch-web build",
     "install:global": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
-    "build:dev": "bun run install:global && orch doctor -y && orch daemon start",
+    "build:dev": "bun scripts/reset.ts --build && bun run install:global && orch doctor -y && orch daemon start",
     "prepublishOnly": "bun run build",
     "tc": "bunx tsc --noEmit",
     "lint": "bun node_modules/oxlint/bin/oxlint bin src test extensions scripts",
@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
-    "@earendil-works/pi-tui": "^0.84.3",
+    "@earendil-works/pi-tui": "^0.80.6",
     "effect": "^3.22.1",
     "typebox": "^1.1.38",
     "zod": "^4.4.3"

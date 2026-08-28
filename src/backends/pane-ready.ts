@@ -38,7 +38,7 @@ export function paneAtShellPrompt(foreground: PaneForeground): boolean {
 
 /** True once a command owns the terminal instead of the shell — the only proof
  *  from outside that a line typed into a pane actually ran. */
-export function paneRunsCommand(foreground: PaneForeground): boolean {
+function paneRunsCommand(foreground: PaneForeground): boolean {
   return foreground.processes.length > 0 && !paneAtShellPrompt(foreground);
 }
 

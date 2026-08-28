@@ -75,11 +75,7 @@ export function openingPlacement(policy: TileFirstSplit): TilePlacement {
 
 /** Group geometry, or null when the backend cannot report it. */
 export function readGroupLayout(backend: Backend, group: string): BackendGroupLayout | null {
-  try {
-    return backend.groupLayout?.(group) ?? null;
-  } catch {
-    return null;
-  }
+  return backend.groupLayout?.read(group) ?? null;
 }
 
 /** Placement for the next agent in a group; a backend with no geometry to read

@@ -5,6 +5,7 @@ import { ThemeProvider } from "next-themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { Toaster } from "@/components/ui/sonner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { DaemonGate } from "@/components/DaemonGate";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -75,11 +76,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             <div className="pointer-events-none fixed bottom-0 right-0 h-64 w-64 bg-chart-2/10 blur-[100px]" />
 
             <DaemonGate>
-              <SidebarProvider>
+              <SidebarProvider className="h-full min-h-0">
                 <AppSidebar initialScheme={colorScheme} />
                 <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <AppBreadcrumbs />
-                  <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
+                  <ScrollArea className="min-h-0 flex-1">
+                    <main className="flex h-full min-h-0 flex-1 flex-col">{children}</main>
+                  </ScrollArea>
                 </SidebarInset>
               </SidebarProvider>
             </DaemonGate>

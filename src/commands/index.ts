@@ -248,6 +248,77 @@ function requestedHelpTopic(cmd: string | undefined, rest: string[]): string | n
   return null;
 }
 
+type CommandHandler = (rest: string[]) => void;
+
+function dispatchAsync(task: Promise<unknown>): void {
+  void task.catch((error: unknown) => die(errorMessage(error)));
+}
+
+const commandHandlers: ReadonlyMap<string, CommandHandler> = new Map([
+  ["status", (rest) => dispatchAsync(cmdStatus(rest))],
+  ["events", (rest) => dispatchAsync(cmdEvents(rest))],
+  ["notify", (rest) => dispatchAsync(cmdNotify(rest))],
+  ["questions", (rest) => dispatchAsync(cmdQuestions(rest))],
+  ["runs", (rest) => cmdRuns(rest)],
+  ["queue", (rest) => dispatchAsync(cmdQueue(rest))],
+  ["lock", (rest) => dispatchAsync(cmdLock(rest).then((code) => { process.exitCode = code; }))],
+  ["daemon", (rest) => dispatchAsync(cmdDaemon(rest))],
+  ["doctor", (rest) => dispatchAsync(cmdDoctor(rest))],
+  ["work", (rest) => dispatchAsync(cmdWork(rest))],
+  ["review", (rest) => {
+    if (rest.length === 0) dispatchAsync(cmdReviewInteractive());
+    else dispatchAsync(cmdReview(rest));
+  }],
+  ["answer", (rest) => dispatchAsync(cmdAnswer(rest))],
+  ["result", (rest) => cmdResult(rest)],
+  ["steer", (rest) => dispatchAsync(cmdSteer(rest))],
+  ["pipe", (rest) => dispatchAsync(cmdPipe(rest))],
+  ["broadcast", (rest) => dispatchAsync(cmdBroadcast(rest))],
+  ["tail", (rest) => cmdTail(rest)],
+  ["session", (rest) => cmdSession(rest)],
+  ["panes", (rest) => cmdPanes(rest)],
+  ["spawn", (rest) => dispatchAsync(cmdSpawn(rest))],
+  ["tile", (rest) => dispatchAsync(cmdTile(rest))],
+  ["run", (rest) => dispatchAsync(cmdRun(rest))],
+  ["model", (rest) => dispatchAsync(cmdModel(rest))],
+  ["models", (rest) => cmdModels(rest)],
+  ["wait", (rest) => cmdWait(rest)],
+  ["dispatch", (rest) => dispatchAsync(cmdDispatch(rest))],
+  ["reload", (rest) => dispatchAsync(cmdReload(rest))],
+  ["reset", (rest) => dispatchAsync(cmdNew(rest))],
+  ["new", (rest) => dispatchAsync(cmdNew(rest))],
+  ["restart", (rest) => dispatchAsync(cmdRestart(rest))],
+  ["rename", (rest) => cmdRename(rest)],
+  ["close", (rest) => cmdClose(rest)],
+  ["kill", (rest) => cmdClose(rest)],
+  ["detach", (rest) => dispatchAsync(cmdDetach(rest))],
+  ["adopt", (rest) => dispatchAsync(cmdAdopt(rest))],
+  ["reap", (rest) => dispatchAsync(cmdReap(rest))],
+  ["abort", (rest) => cmdAbort(rest)],
+  ["keys", (rest) => cmdKeys(rest)],
+  ["peek", (rest) => cmdPeek(rest)],
+  ["tabs", (rest) => cmdTabs(rest)],
+  ["tab", (rest) => cmdTab(rest)],
+  ["focus", (rest) => cmdFocus(rest)],
+  ["zoom", (rest) => cmdZoom(rest)],
+  ["move", (rest) => cmdMove(rest)],
+  ["ws", (rest) => cmdWs(rest)],
+  ["clean", (rest) => cmdClean(rest)],
+  ["settings", (rest) => {
+    if (rest[0] === "models") dispatchAsync(cmdSettingsModels(rest.slice(1)));
+    else if (rest[0] === "notify") dispatchAsync(cmdSettingsNotify(rest.slice(1)));
+    else if (rest[0] === "skills") cmdSettingsSkills(rest.slice(1));
+    else cmdSettings(rest);
+  }],
+  ["setup", (rest) => dispatchAsync(cmdSetup(rest))],
+  ["--version", () => process.stdout.write(`orch ${VERSION}\\n`)],
+  ["-V", () => process.stdout.write(`orch ${VERSION}\\n`)],
+  ["version", () => process.stdout.write(`orch ${VERSION}\\n`)],
+  ["help", () => usage()],
+  ["-h", () => usage()],
+  ["--help", () => usage()],
+]);
+
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
   let rest = argv.slice(1);
@@ -272,65 +343,19 @@ export function runCommand(argv: string[]): void {
     // config layer already phrased these as plain guidance naming `orch setup`.
     die(errorMessage(error));
   }
-  switch (cmd) {
-    case undefined: case "status": void cmdStatus(cmd === undefined ? argv : rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "events": void cmdEvents(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "notify": void cmdNotify(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "questions": void cmdQuestions(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "runs": cmdRuns(rest); break;
-    case "queue": void cmdQueue(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "lock": void cmdLock(rest).then((code) => { process.exitCode = code; }).catch((error: unknown) => die(errorMessage(error))); break;
-    case "daemon": void cmdDaemon(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "doctor": void cmdDoctor(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "work": void cmdWork(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "review":
-      if (rest.length === 0) void cmdReviewInteractive().catch((error: unknown) => die(errorMessage(error)));
-      else void cmdReview(rest).catch((error: unknown) => die(errorMessage(error)));
-      break;
-    case "answer": void cmdAnswer(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "result": cmdResult(rest); break;
-    case "steer": void cmdSteer(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "pipe": void cmdPipe(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "broadcast": void cmdBroadcast(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "tail": cmdTail(rest); break;
-    case "session": cmdSession(rest); break;
-    case "panes": cmdPanes(rest); break;
-    case "spawn": void cmdSpawn(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "tile": void cmdTile(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "run": void cmdRun(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "model": void cmdModel(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "models": cmdModels(rest); break;
-    case "wait": cmdWait(rest); break;
-    case "dispatch": void cmdDispatch(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "reload": void cmdReload(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "reset": case "new": void cmdNew(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "restart": void cmdRestart(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "rename": cmdRename(rest); break;
-    case "close": case "kill": cmdClose(rest); break;
-    case "detach": void cmdDetach(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "adopt": void cmdAdopt(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "reap": void cmdReap(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "abort": cmdAbort(rest); break;
-    case "keys": cmdKeys(rest); break;
-    case "peek": cmdPeek(rest); break;
-    case "tabs": cmdTabs(rest); break;
-    case "tab": cmdTab(rest); break;
-    case "focus": cmdFocus(rest); break;
-    case "zoom": cmdZoom(rest); break;
-    case "move": cmdMove(rest); break;
-    case "ws": cmdWs(rest); break;
-    case "clean": cmdClean(rest); break;
-    case "settings":
-      if (rest[0] === "models") void cmdSettingsModels(rest.slice(1)).catch((error: unknown) => die(errorMessage(error)));
-      else if (rest[0] === "notify") void cmdSettingsNotify(rest.slice(1)).catch((error: unknown) => die(errorMessage(error)));
-      else if (rest[0] === "skills") cmdSettingsSkills(rest.slice(1));
-      else cmdSettings(rest);
-      break;
-    case "setup": void cmdSetup(rest).catch((error: unknown) => die(errorMessage(error))); break;
-    case "--version": case "-V": case "version": process.stdout.write(`orch ${VERSION}\n`); break;
-    case "help": case "-h": case "--help": usage(); break;
-    default:
-      if (cmd.startsWith("--")) void cmdStatus(argv).catch((error: unknown) => die(errorMessage(error)));
-      else { process.stderr.write(`Unknown command: ${cmd}\n\n`); usage(); process.exit(1); }
+  if (cmd === undefined) {
+    dispatchAsync(cmdStatus(argv));
+    return;
+  }
+  const handler = commandHandlers.get(cmd);
+  if (handler !== undefined) {
+    handler(rest);
+    return;
+  }
+  if (cmd.startsWith("--")) dispatchAsync(cmdStatus(argv));
+  else {
+    process.stderr.write(`Unknown command: ${cmd}\n\n`);
+    usage();
+    process.exit(1);
   }
 }

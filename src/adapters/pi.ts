@@ -10,12 +10,13 @@ import {
 } from "../presence/store.ts";
 import { isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
-import { buildExtensionBundle, extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, type ExtensionName } from "../bridge-bundle.ts";
+import { extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, type ExtensionName } from "../extensions/bundles.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { ANSWER_FILE, INBOX_FILE } from "../presence/schema.ts";
 import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
+import { AGENT_STATES } from "./adapter.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -45,17 +46,6 @@ export interface PiResultExtractionInput extends ResultExtractionInput {
   /** Presence key whose result.json is authoritative. */
   readonly key: string;
 }
-
-const AGENT_STATES = new Set<AgentState>([
-  "idle",
-  "working",
-  "blocked",
-  "done",
-  "error",
-  "aborted",
-  "exited",
-  "unknown",
-]);
 
 /** pi's own config root, and the files under it orch reads or writes. */
 const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
@@ -232,13 +222,13 @@ function queryPiModels(): readonly HarnessModel[] {
 }
 
 /** True when a launch command starts one of the named binaries. */
-export function launchesBinary(binaries: readonly string[], cmd: string): boolean {
+function launchesBinary(binaries: readonly string[], cmd: string): boolean {
   const executable = cmd.trim().split(/\s+/)[0];
   return executable !== undefined && binaries.includes(executable);
 }
 
 /** Pre-approve a workspace in a harness's trust store so its first launch does not block. */
-export function writeTrustEntry(trustFile: string, cwd: string) {
+function writeTrustEntry(trustFile: string, cwd: string) {
   const resolved = path.resolve(cwd);
   const map = readJSON<Record<string, unknown>>(trustFile) ?? {};
   if (map[resolved] === true) return;
@@ -266,7 +256,7 @@ export const PI_LIFECYCLE_TEXT: Record<LifecycleVerb, string> = {
 };
 
 function stateFrom(value: unknown): AgentState {
-  return typeof value === "string" && AGENT_STATES.has(value as AgentState)
+  return typeof value === "string" && AGENT_STATES.includes(value as AgentState)
     ? value as AgentState
     : "unknown";
 }
@@ -331,7 +321,12 @@ export function diagnoseExtensionLink(harness: string, extensionDir: string, ext
       : `Redeploy: ${file}`,
     apply: () => installExtensionLink(harness, extensionDir, extension, { copy: deployedAsCopy(destination) }),
   };
-  if (bundleMissing) return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext", ...(fixable ? { fix: apply } : {}) };
+  if (bundleMissing) return {
+    id,
+    label,
+    status: "warn",
+    detail: `missing/stale shipped extension bundle: ${source}; fix: run the user's build: bun run build:dev`,
+  };
   if (!stale) return { id, label, status: "ok", detail: `bundled ${extension} extension is current` };
   return { id, label, status: "fail", detail: `missing or stale: ${file}`, ...(fixable ? { fix: apply } : {}) };
 }
@@ -361,7 +356,7 @@ function deployedAsCopy(destination: string): boolean {
   catch { return false; }
 }
 
-/** Link one shipped bundle into a harness's extension directory, building it from a checkout when absent. */
+/** Link one prebuilt bundle into a harness's extension directory; never build at runtime. */
 export function installExtensionLink(
   harness: string,
   extensionDir: string,
@@ -370,10 +365,9 @@ export function installExtensionLink(
 ): void {
   const root = packageRoot();
   process.stdout.write(`${harness} extensions:\n`);
-  let bundle = extensionBundlePath(root, extension);
+  const bundle = extensionBundlePath(root, extension);
   if (!fs.existsSync(bundle)) {
-    process.stdout.write(`  building ${extension} bundle...\n`);
-    bundle = buildExtensionBundle(root, extension);
+    throw new Error(`missing/stale shipped extension bundle: ${bundle}; fix: run the user's build: bun run build:dev`);
   }
   // Raw .ts links from older installs resolve ../src against the symlink location
   // and break the harness at launch; only the bundle may be linked.

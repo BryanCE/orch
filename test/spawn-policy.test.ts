@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SETTINGS_DEFAULTS, loadConfig, type OrchConfig } from "../src/config.ts";
 import { cmdSpawn, spawnPolicyError } from "../src/commands/spawn.ts";
+import { headlessBackend } from "../src/backends/headless/index.ts";
 import { presenceAgentDir, recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { openStore } from "../src/store/connection.ts";
@@ -90,10 +91,24 @@ describe("spawn policy caps", () => {
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));
     const beforeRegistry = [...spawnedRecords().entries()];
     const beforeTasks = (openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count;
+    // Inject a backend claimant: policy refusal must happen before allocation.
+    const backend = headlessBackend as unknown as { spawn: typeof headlessBackend.spawn };
+    const originalSpawn = backend.spawn;
+    let backendAllocations = 0;
+    backend.spawn = (..._args: Parameters<typeof backend.spawn>): ReturnType<typeof backend.spawn> => {
+      backendAllocations++;
+      throw new Error("backend allocation should not occur after policy refusal");
+    };
     const originalExit = process.exit.bind(process);
     const originalWrite = process.stderr.write.bind(process.stderr);
     let stderr = "";
-    process.stderr.write = (...args: unknown[]) => { stderr += String(args[0]); return true; };
+    function stderrWrite(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;
+    function stderrWrite(chunk: string | Uint8Array, _encoding: BufferEncoding, _callback?: (error: Error | null | undefined) => void): boolean;
+    function stderrWrite(chunk: string | Uint8Array): boolean {
+      stderr += String(chunk);
+      return true;
+    }
+    process.stderr.write = stderrWrite;
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
@@ -103,10 +118,13 @@ describe("spawn policy caps", () => {
     } finally {
       process.exit = originalExit;
       process.stderr.write = originalWrite;
+      backend.spawn = originalSpawn;
     }
     expect(refusal).toBeInstanceOf(Error);
     expect((refusal as Error).message).toBe("exit 1");
     expect(stderr).toMatch(/spawn refused:.*pack cap 1/);
+    expect(backendAllocations).toBe(0);
+    // The live registry row above is the injected name claimant; it must remain the sole claim.
     expect([...spawnedRecords().entries()]).toEqual(beforeRegistry);
     expect((openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(beforeTasks);
     expect(existsSync(join(dir, "agents", key))).toBe(true);

@@ -15,10 +15,10 @@ function isValidPort(port: unknown): port is number {
  * The TCP port orchd advertised in `orchd.port` (JSON number or `{port}`), or
  * undefined when the file is absent, unparseable, or holds an out-of-range port.
  */
-export function readPortFile(orchDir: string): number | undefined {
+export function readPortPath(file: string): number | undefined {
   let text: string;
   try {
-    text = readFileSync(daemonRuntimeFiles(orchDir).port, "utf8").trim();
+    text = readFileSync(file, "utf8").trim();
   } catch {
     return undefined;
   }
@@ -31,6 +31,10 @@ export function readPortFile(orchDir: string): number | undefined {
     if (isValidPort(port)) return port;
   }
   return undefined;
+}
+
+export function readPortFile(orchDir: string): number | undefined {
+  return readPortPath(daemonRuntimeFiles(orchDir).port);
 }
 
 /**

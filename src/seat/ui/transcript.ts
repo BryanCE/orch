@@ -21,7 +21,7 @@ const ANSI_PATTERN =
  * tabs (and stray escapes) make lines wider than the width declared to the
  * TUI, which desyncs the renderer and smears the overlay.
  */
-export function sanitizeText(text: string): string {
+function sanitizeText(text: string): string {
   return text
     .replace(ANSI_PATTERN, "")
     .replaceAll("\t", "  ")
@@ -31,7 +31,9 @@ export function sanitizeText(text: string): string {
 function pushWrapped(out: string[], text: string, width: number, firstPrefix: string, restPrefix: string, style: (line: string) => string): void {
   const wrapped = wrapTextWithAnsi(text, Math.max(10, width - 2));
   for (let i = 0; i < wrapped.length; i++) {
-    out.push(truncateToWidth((i === 0 ? firstPrefix : restPrefix) + style(wrapped[i]), width));
+    const line = wrapped[i];
+    if (line === undefined) continue;
+    out.push(truncateToWidth((i === 0 ? firstPrefix : restPrefix) + style(line), width));
   }
 }
 
@@ -56,8 +58,11 @@ function renderEntry(theme: Theme, entry: SessionEntry, width: number, out: stri
             + theme.fg("toolTitle", block.name ?? "tool")
             + (preview && preview !== "{}" ? theme.fg("dim", ` ${preview}`) : "");
           out.push(truncateToWidth(line, width));
-        } else if (block.type === "thinking" && typeof (block as { thinking?: unknown }).thinking === "string") {
-          pushWrapped(out, sanitizeText((block as { thinking: string }).thinking).trim(), width, theme.fg("dim", "~ "), "  ", (line) => theme.fg("muted", theme.italic(line)));
+        } else if (block.type === "thinking") {
+          const thinking = (block as { thinking?: unknown }).thinking;
+          if (typeof thinking === "string") {
+            pushWrapped(out, sanitizeText(thinking).trim(), width, theme.fg("dim", "~ "), "  ", (line) => theme.fg("muted", theme.italic(line)));
+          }
         }
       }
     }

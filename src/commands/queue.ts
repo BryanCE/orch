@@ -45,64 +45,107 @@ function resolveAgent(directory: string, target: string): string {
   return rows[0]!.id;
 }
 
-export async function cmdQueue(args: string[]): Promise<void> {
+interface QueueInvocation {
+  subcommand: string | undefined;
+  host: string | undefined;
+  agent: string | undefined;
+  space: string | undefined;
+  positional: string[];
+  json: boolean;
+  worktree: boolean;
+}
+
+function parseQueueInvocation(args: string[]): QueueInvocation {
   const subcommand = args[0];
   const host = takeValue(args.slice(1), "--host");
   const agent = takeValue(host.rest, "--agent");
   const space = takeValue(agent.rest, "--space");
   const { enabled, positional } = splitOptionFlags(space.rest, ["--json", "--worktree"]);
-  const json = enabled.has("--json");
-  const worktree = enabled.has("--worktree");
   if (host.value && subcommand !== "add") die("--host is only supported for orch queue add");
+  return {
+    subcommand,
+    host: host.value,
+    agent: agent.value,
+    space: space.value,
+    positional,
+    json: enabled.has("--json"),
+    worktree: enabled.has("--worktree"),
+  };
+}
 
-  switch (subcommand) {
-    case "add": {
-      const text = positional.join(" ");
-      if (!text) die('usage: orch queue add "<task text>" [--agent <target>|--space <id>] [--worktree] [--json]');
-      if (agent.value && space.value) die("Choose exactly one of --agent or --space");
-      if (host.value) {
-        remoteWrite(host.value, "queue", ["add", ...args.slice(1).filter((part) => part !== "--host" && part !== host.value)]);
-        return;
-      }
-      const directory = orchDir();
-      await ensureDaemon(directory);
-      const identity = await rpcHello(directory);
-      let options = {};
-      if (worktree) {
-        const name = `queue-${randomUUID()}`;
-        const worktreePath = createAgentWorktree(process.cwd(), name);
-        options = { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
-      }
-      const scope: TaskScopeSelection = agent.value
-        ? { agentId: resolveAgent(directory, agent.value) }
-        : space.value ? { spaceId: space.value } : {};
-      const task = addTask(directory, text, options, identity.id, scope);
-      writeQueueTask(task, json, task.id);
+function validateAdd(invocation: QueueInvocation): string {
+  const text = invocation.positional.join(" ");
+  if (!text) die('usage: orch queue add "<task text>" [--agent <target>|--space <id>] [--worktree] [--json]');
+  if (invocation.agent && invocation.space) die("Choose exactly one of --agent or --space");
+  return text;
+}
+
+async function queueAdd(invocation: QueueInvocation, args: string[]): Promise<void> {
+  const text = validateAdd(invocation);
+  if (invocation.host) {
+    remoteWrite(invocation.host, "queue", ["add", ...args.slice(1).filter((part) => part !== "--host" && part !== invocation.host)]);
+    return;
+  }
+  const directory = orchDir();
+  await ensureDaemon(directory);
+  const identity = await rpcHello(directory);
+  let options = {};
+  if (invocation.worktree) {
+    const name = `queue-${randomUUID()}`;
+    const worktreePath = createAgentWorktree(process.cwd(), name);
+    options = { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
+  }
+  const scope: TaskScopeSelection = invocation.agent
+    ? { agentId: resolveAgent(directory, invocation.agent) }
+    : invocation.space ? { spaceId: invocation.space } : {};
+  const task = addTask(directory, text, options, identity.id, scope);
+  writeQueueTask(task, invocation.json, task.id);
+}
+
+function validateCollection(invocation: QueueInvocation): void {
+  if (invocation.positional.length > 0 || invocation.worktree || invocation.agent || invocation.space) {
+    die(`usage: orch queue ${invocation.subcommand} [--json]`);
+  }
+}
+
+function queueCollection(invocation: QueueInvocation): void {
+  validateCollection(invocation);
+  const directory = orchDir();
+  const tasks = invocation.subcommand === "history" ? queueHistory(directory) : listTasks(directory);
+  if (invocation.json) process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
+  else renderQueueTasks(tasks);
+}
+
+async function queueCancel(invocation: QueueInvocation): Promise<void> {
+  const id = invocation.positional[0];
+  if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.space) {
+    die("usage: orch queue cancel <id> [--json]");
+  }
+  try {
+    const directory = orchDir();
+    await ensureDaemon(directory);
+    const identity = await rpcHello(directory);
+    const task = cancelTask(directory, id, identity.id, { human: true });
+    if (task.error) die(task.error);
+    writeQueueTask(task, invocation.json, `Cancelled ${task.id}`);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
+export async function cmdQueue(args: string[]): Promise<void> {
+  const invocation = parseQueueInvocation(args);
+  switch (invocation.subcommand) {
+    case "add":
+      await queueAdd(invocation, args);
       return;
-    }
     case "list":
-    case "history": {
-      if (positional.length > 0 || worktree || agent.value || space.value) die(`usage: orch queue ${subcommand} [--json]`);
-      const tasks = subcommand === "history" ? queueHistory(orchDir()) : listTasks(orchDir());
-      if (json) process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
-      else renderQueueTasks(tasks);
+    case "history":
+      queueCollection(invocation);
       return;
-    }
-    case "cancel": {
-      const id = positional[0];
-      if (!id || positional.length !== 1 || worktree || agent.value || space.value) die("usage: orch queue cancel <id> [--json]");
-      try {
-        const directory = orchDir();
-        await ensureDaemon(directory);
-        const identity = await rpcHello(directory);
-        const task = cancelTask(directory, id, identity.id, { human: true });
-        if (task.error) die(task.error);
-        writeQueueTask(task, json, `Cancelled ${task.id}`);
-      } catch (error: unknown) {
-        die(errorMessage(error));
-      }
+    case "cancel":
+      await queueCancel(invocation);
       return;
-    }
     default:
       die("usage: orch queue <add|list|history|cancel> ...");
   }

@@ -29,7 +29,7 @@ export const Route = createFileRoute("/ws/$slug")({
   staticData: {
     crumbs: (params) => [
       { label: "God-view", to: "/" },
-      { label: params.slug },
+      { label: "Space" },
     ],
   },
   component: WorkspaceDetail,
@@ -63,7 +63,6 @@ function WorkspaceDetail() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-baseline gap-2 px-6 pt-4">
         <h1 className="text-xl font-semibold">{ws.name}</h1>
-        {ws.name !== ws.id && <span className="font-mono text-sm text-muted-foreground">{ws.id}</span>}
         <Badge variant="outline" className="ml-2">{ws.agents.length} agents</Badge>
       </div>
 
@@ -75,18 +74,34 @@ function WorkspaceDetail() {
         </TabsList>
 
         <TabsContent value="fleet" className="min-h-0 flex-1">
-          <ScrollArea className="h-full">
-            <div className="p-6">
-              {ws.agents.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
-                  <Inbox className="size-10" />
-                  <p className="text-sm">No agents in this workspace.</p>
-                </div>
-              ) : (
-                <>
-                  {liveFleet.length > 0 && (
+          <div className="p-6">
+            {ws.agents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
+                <Inbox className="size-10" />
+                <p className="text-sm">No agents in this space.</p>
+              </div>
+            ) : (
+              <>
+                {liveFleet.length > 0 && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {liveFleet.map((a) => (
+                      <AgentCard
+                        key={a.key}
+                        agent={a}
+                        active={selected?.key === a.key}
+                        onClick={() => setSelected(a)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {unleased.length > 0 && (
+                  <section className={cn("mt-8 space-y-3", "opacity-60")}>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Unleased</h2>
+                      <Badge variant="outline" className="font-mono text-[10px]">{unleased.length}</Badge>
+                    </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {liveFleet.map((a) => (
+                      {unleased.map((a) => (
                         <AgentCard
                           key={a.key}
                           agent={a}
@@ -95,51 +110,31 @@ function WorkspaceDetail() {
                         />
                       ))}
                     </div>
-                  )}
-                  {unleased.length > 0 && (
-                    <section className={cn("mt-8 space-y-3", "opacity-60")}>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Unleased</h2>
-                        <Badge variant="outline" className="font-mono text-[10px]">{unleased.length}</Badge>
-                      </div>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {unleased.map((a) => (
-                          <AgentCard
-                            key={a.key}
-                            agent={a}
-                            active={selected?.key === a.key}
-                            onClick={() => setSelected(a)}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                </>
-              )}
-            </div>
-          </ScrollArea>
+                  </section>
+                )}
+              </>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="events" className="min-h-0 flex-1">
-          <ScrollArea className="h-full">
-            <div className="p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <Activity className="size-5 text-primary" />
-                <h2 className="text-xl font-semibold">Activity</h2>
-                <Badge variant="outline" className="gap-1.5 font-mono text-[10px] uppercase">
-                  <Radio className="size-3" /> {status}
-                </Badge>
-              </div>
-              {workspaceEvents.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
-                  <Activity className="size-10" />
-                  <p className="text-sm">No transitions for this workspace yet.</p>
-                </div>
-              ) : (
-                <DaemonEventList events={workspaceEvents} />
-              )}
+          <div className="p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <Activity className="size-5 text-primary" />
+              <h2 className="text-xl font-semibold">Activity</h2>
+              <Badge variant="outline" className="gap-1.5 font-mono text-[10px] uppercase">
+                <Radio className="size-3" /> {status}
+              </Badge>
             </div>
-          </ScrollArea>
+            {workspaceEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
+                <Activity className="size-10" />
+                <p className="text-sm">No transitions for this space yet.</p>
+              </div>
+            ) : (
+              <DaemonEventList events={workspaceEvents} />
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="overview" className="min-h-0 flex-1 p-6">

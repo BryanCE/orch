@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { addTask } from "../src/queue.ts";
-import { checkUnscopedTasks } from "../src/doctor/presence.ts";
+import { checkUnscopedTasks, checkUnrunnableTasks } from "../src/doctor/presence.ts";
 import { openStore, closeAllStores } from "../src/store/connection.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -30,5 +30,18 @@ describe("doctor task scopes", () => {
       "INSERT INTO tasks(id,text,opts,enqueued_by,created_at) VALUES ('bad','x','{}','a',1)",
     ).run()).toThrow();
     expect(checkUnscopedTasks(dir).status).toBe("ok");
+  });
+
+  test("doctor lists unrunnable tasks and deliberate resolutions without deleting", () => {
+    const dir = fixture();
+    addTask(dir, "orphan", {}, "a", { agentId: "a" });
+    openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('a',2,NULL)").run();
+    const result = checkUnrunnableTasks(dir);
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("unrunnable");
+    expect(result.detail).toContain("take it on");
+    expect(result.detail).toContain("leave it");
+    expect(result.detail).toContain("reap it");
+    expect(openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get()).toEqual({ count: 1 });
   });
 });

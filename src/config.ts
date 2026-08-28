@@ -5,7 +5,7 @@ import { z } from "zod";
 // (notify.ts → config.ts among others). It must never import the provider
 // registries — they evaluate every concrete adapter/backend, re-entering this
 // graph mid-initialization. The closed id sets live in the pure port modules.
-import { ADAPTER_IDS, type AdapterId } from "./adapters/adapter.ts";
+import { ADAPTER_IDS, AGENT_STATES, type AdapterId } from "./adapters/adapter.ts";
 import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.ts";
 import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
@@ -26,7 +26,8 @@ const HostSchema = z.strictObject({
   timeout_ms: z.number().int().positive().optional(),
 });
 
-export const NOTIFY_STATES = ["idle", "working", "blocked", "done", "error", "aborted", "exited", "unknown"] as const;
+/** The shared agent-state vocabulary used by presence, events, and notify sinks. */
+export const NOTIFY_STATES = AGENT_STATES;
 export type NotifyState = (typeof NOTIFY_STATES)[number];
 /** The states a notify entry delivers on when it declares no `on` list of its own. */
 export const NOTIFY_DEFAULT_ON: readonly NotifyState[] = ["blocked", "error"];
@@ -166,7 +167,7 @@ const SettingsFileSchema = z.strictObject({
   }).optional(),
 });
 
-export type SettingsFile = z.infer<typeof SettingsFileSchema>;
+type SettingsFile = z.infer<typeof SettingsFileSchema>;
 export type HostConfig = z.infer<typeof HostSchema>;
 
 /** Settings normalized for consumers: every section present and defaults applied. */
@@ -313,53 +314,76 @@ function requireEnabledComposition(file: string, root: SettingsFile): void {
   }
 }
 
+/** Keep section extractors declarative; each field follows the same absent-value rule. */
+function configuredOr<T>(value: T | undefined, fallback: T): T {
+  return value ?? fallback;
+}
+
+/** Extract each settings section independently so adding a field cannot grow one branch ladder. */
+const configValueExtractors = {
+  defaults: (root: Partial<SettingsFile>) => ({ ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree }),
+  fleet: (root: Partial<SettingsFile>) => ({
+    spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
+    pack_cap: root.fleet?.pack_cap ?? SETTINGS_DEFAULTS.fleet.pack_cap,
+    max_agents: root.fleet?.max_agents,
+    workspace_caps: root.fleet?.workspace_caps ?? {},
+    worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
+    cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
+  }),
+  models: (root: Partial<SettingsFile>) => ({ allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} }),
+  workers: (root: Partial<SettingsFile>) => ({
+    inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
+    exclude_extensions: root.workers?.exclude_extensions ?? [],
+    builtin_tools: root.workers?.builtin_tools ?? SETTINGS_DEFAULTS.workers.builtin_tools,
+    allow_tools: root.workers?.allow_tools ?? [],
+  }),
+  queue: (root: Partial<SettingsFile>) => ({ max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries }),
+  retention: (root: Partial<SettingsFile>) => ({
+    ended_agents_days: configuredOr(root.retention?.ended_agents_days, SETTINGS_DEFAULTS.retention.ended_agents_days),
+    queue_days: configuredOr(root.retention?.queue_days, SETTINGS_DEFAULTS.retention.queue_days),
+    events_days: configuredOr(root.retention?.events_days, SETTINGS_DEFAULTS.retention.events_days),
+    runs_days: configuredOr(root.retention?.runs_days, SETTINGS_DEFAULTS.retention.runs_days),
+    outbox_days: configuredOr(root.retention?.outbox_days, SETTINGS_DEFAULTS.retention.outbox_days),
+    logs_days: configuredOr(root.retention?.logs_days, SETTINGS_DEFAULTS.retention.logs_days),
+  }),
+  timeouts: (root: Partial<SettingsFile>) => ({
+    dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
+    wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
+    adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
+    notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
+  }),
+  notify: (root: Partial<SettingsFile>) => root.notify ?? [],
+  locked_commands: (root: Partial<SettingsFile>) => root.locked_commands ?? [],
+  hosts: (root: Partial<SettingsFile>) => root.hosts ?? {},
+  workspaces: (root: Partial<SettingsFile>) => root.workspaces ?? {},
+  daemon: (root: Partial<SettingsFile>) => ({
+    tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
+    idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
+  }),
+  tiling: (root: Partial<SettingsFile>) => ({ first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split }),
+  skills: (root: Partial<SettingsFile>) => ({
+    install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
+    roots: root.skills?.roots ?? [...SETTINGS_DEFAULTS.skills.roots],
+  }),
+};
+
 /** Fill every settings section that has a built-in value, preserving user entries. */
 function configValues(root: Partial<SettingsFile>): Omit<OrchConfig, "runtime" | "enabled"> {
   return {
-    defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
-    fleet: {
-      spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
-      pack_cap: root.fleet?.pack_cap ?? SETTINGS_DEFAULTS.fleet.pack_cap,
-      max_agents: root.fleet?.max_agents,
-      workspace_caps: root.fleet?.workspace_caps ?? {},
-      worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
-      cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
-    },
-    models: { allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} },
-    workers: {
-      inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
-      exclude_extensions: root.workers?.exclude_extensions ?? [],
-      builtin_tools: root.workers?.builtin_tools ?? SETTINGS_DEFAULTS.workers.builtin_tools,
-      allow_tools: root.workers?.allow_tools ?? [],
-    },
-    queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
-    retention: {
-      ended_agents_days: root.retention?.ended_agents_days ?? SETTINGS_DEFAULTS.retention.ended_agents_days,
-      queue_days: root.retention?.queue_days ?? SETTINGS_DEFAULTS.retention.queue_days,
-      events_days: root.retention?.events_days ?? SETTINGS_DEFAULTS.retention.events_days,
-      runs_days: root.retention?.runs_days ?? SETTINGS_DEFAULTS.retention.runs_days,
-      outbox_days: root.retention?.outbox_days ?? SETTINGS_DEFAULTS.retention.outbox_days,
-      logs_days: root.retention?.logs_days ?? SETTINGS_DEFAULTS.retention.logs_days,
-    },
-    timeouts: {
-      dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
-      wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
-      adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
-      notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
-    },
-    notify: root.notify ?? [],
-    locked_commands: root.locked_commands ?? [],
-    hosts: root.hosts ?? {},
-    workspaces: root.workspaces ?? {},
-    daemon: {
-      tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
-      idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
-    },
-    tiling: { first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split },
-    skills: {
-      install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
-      roots: root.skills?.roots ?? [...SETTINGS_DEFAULTS.skills.roots],
-    },
+    defaults: configValueExtractors.defaults(root),
+    fleet: configValueExtractors.fleet(root),
+    models: configValueExtractors.models(root),
+    workers: configValueExtractors.workers(root),
+    queue: configValueExtractors.queue(root),
+    retention: configValueExtractors.retention(root),
+    timeouts: configValueExtractors.timeouts(root),
+    notify: configValueExtractors.notify(root),
+    locked_commands: configValueExtractors.locked_commands(root),
+    hosts: configValueExtractors.hosts(root),
+    workspaces: configValueExtractors.workspaces(root),
+    daemon: configValueExtractors.daemon(root),
+    tiling: configValueExtractors.tiling(root),
+    skills: configValueExtractors.skills(root),
   };
 }
 
@@ -389,7 +413,7 @@ export function loadConfigOrNull(orchDir: string): OrchConfig | null {
 
 /** A non-throwing settings load used only by setup recovery. Missing is a clean null;
  * malformed data returns its validation error so setup can reap the whole file. */
-export function tryLoadSettings(orchDir: string): { config: OrchConfig | null; error: Error | null } {
+function tryLoadSettings(orchDir: string): { config: OrchConfig | null; error: Error | null } {
   try {
     return { config: loadConfigOrNull(orchDir), error: null };
   } catch (error: unknown) {

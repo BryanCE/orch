@@ -1,11 +1,40 @@
 import * as filesystem from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { daemonEntrypoint, provenDaemonPid, readDaemonCodeSkew, readDaemonLock } from "../daemon/lifecycle.ts";
-import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
+import { daemonEntrypoint, liveDaemonRegistration, provenDaemonPid, readDaemonCodeSkew, readDaemonLock, readDaemonRegistration } from "../daemon/lifecycle.ts";
+import { daemonDiscoveryFiles, daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import type { CheckResult } from "../check-result.ts";
 import { pidAlive } from "../util.ts";
+
+/** Verify the machine declaration independently from any project's ORCH_DIR. */
+export function checkDaemonRegistration(): CheckResult {
+  const registration = readDaemonRegistration();
+  if (!registration) {
+    return { id: "orchd-registration", label: "orchd registration", status: "ok", detail: "no daemon is registered on this machine" };
+  }
+  if (liveDaemonRegistration()) {
+    return {
+      id: "orchd-registration",
+      label: "orchd registration",
+      status: "ok",
+      detail: `live-and-registered daemon (pid ${registration.pid}) at socket ${registration.socket}; token ${registration.token}`,
+    };
+  }
+  return {
+    id: "orchd-registration",
+    label: "orchd registration",
+    status: "warn",
+    detail: `registered-but-dead daemon (pid ${registration.pid}) at socket ${registration.socket}; token ${registration.token}`,
+    fix: {
+      description: "Remove the dead orchd machine registration",
+      destructive: true,
+      apply() {
+        filesystem.rmSync(daemonDiscoveryFiles().registration, { force: true });
+      },
+    },
+  };
+}
 
 export async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();

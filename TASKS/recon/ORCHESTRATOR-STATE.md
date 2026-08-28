@@ -1,85 +1,55 @@
-# Orchestrator state — 2026-08-27 ~23:40 (compaction/restart insurance)
+# Orchestrator state — 2026-08-28 ~03:30 (session end)
 
 ## Where we are
-Stopping point reached: the pi fleet is DOWN on the OpenAI team-plan usage limit
-(every worker errors "usage limit has been reached" until the window resets).
-The store-wipe incident + recovery is logged in bug-report.md (~23:30 entry).
+Gate burn-down is one user gate run from rebuild. Last user gates (00:53): check-bridge OK,
+4 tc, 24 lint, 2 test-fail pairs — every item has since been fixed in tree (gate-sweep,
+schema hotfix, launch/complexity slices). NOTHING has been rebuilt or published: the installed
+package still carries last night's hand-built seat bundle (`Effect.runForkWith` crash in every
+pi session) and a `bun` shebang on dist/bin/orch.js. Only the user publishes (CLAUDE.md Rule 12).
 
-## Checkpoint sequence from here (IN ORDER)
-1. USER runs, in the orch bash prompt:
-   `bun check > current-errors.md 2>&1`  then  `bun run test > test-results.md 2>&1`
-2. Orchestrator READS both files (ground truth), fixes/dispatches every item.
-3. When gates are acceptable: `bun run build:dev` (rebuilds + reinstalls orch,
-   schema 6 aligned - ends the 5/6 stamp ping-pong that wiped the store),
-   then `orch daemon reload` (or stop/start), which DEAFENS all bridges.
-4. `orch close --all` the old panes, respawn a fresh fleet (gets: worker-park
-   no-relay contract, pi footer, lock turn-end release + max-age eviction,
-   spawn-side agents registration).
-5. Resume the wave loop below.
+## Checkpoint sequence (IN ORDER)
+1. USER runs: `bun check > current-errors.md 2>&1` then `bun run test > test-results.md 2>&1`
+2. Orchestrator READS both files; dispatch every item to the pack (never fix by hand).
+3. Green → USER runs `bun run build:dev` (now cleans stale dist/tarballs/global/symlinks first,
+   node shebang, live store protected — see TASKS/recon/build-audit.md), then `orch daemon
+   reload` — which DEAFENS every live bridge → `orch close --all`, respawn the pack.
+4. Resume the wave loop below.
 
-## Landed today (verified by checker or diff unless noted)
-Schema 6 (5NF DDL, FK ON, STRICT, triggers) + inventory tests; store row modules
-agent-rows/interval-rows/lease-rows/task-rows; hello registers sessions as agents
-rows (session_identities DELETED); QUEUE REWIRE onto tasks/task_attempts (old
-queue table + queue-rows deleted, Cq8 fixed, state derived); spawn registers
-agents+satellites+lease at spawn; lease verbs detach/adopt/reap (H3, I3);
-adoption announcements at hello (D8); events scoped by lease (C6); close ungated
-+ strict pid+start_token kill (round 2 partially - see wave4-review item 3);
-retention windows H4-H9 + J8; presence retention clock (recorded instants);
-status truth L3/L4 + M9 cross-workspace reads + F6 unleased display; worker-park
-L6; caps->capabilities (E6) incl web wire; herdr 0.8.2 CLI fixes (L9-L11);
-spawn policy caps A9/A12/A13; pi-footer left-aligned model+thinking; ack-reader
-(L7); plexer version ranges E17-E19 (landed? verify); G9 web orphan bucket +
-daemon lease facts; port-seam design contract TASKS/07-port-seam.md (approved);
-scope-hygiene status pass (partial - worker died mid-run?).
-Orchestrator self-fixes: spawn.ts half-commit bugs (growFleetIntoGroup,
-placeAgent, TileFirstSplit import); check-bridge BACKEND_KIND_MAP_ALLOWLIST;
-config.test/work-loop retired retention keys; lifecycle `process` shadowing;
-spawn-policy fixture; openStore reopen idempotence; cmd-lock max-age eviction +
-tools.ts turn-end release. Settings: default model luna:high; locked_commands
-["bun test","bun run test"].
+## Live pack at session end (w7; all luna:high; reuse via reset, never spawn while idle exists)
+tabs: fixes (pQ adapter-no-build+J9 — DIED on WebSocket error, redispatch first, pR close-verifies [orch bug #3], pS lock-serialize
+[user ruling: true machine-wide lock]), followup (pV terminal-state [orch bug #2, redispatched
+once after WebSocket death], pW port-seam-4, pX launch-parity [orch bugs #4/#5], pY
+tasks-unrunnable I8), review (p12 daemon-singleton M6, p14 web-layout G8).
+Pack cap is 10 (A12) — spawn refuses past it. Events watch: arm with
+`orch events --status done,error,blocked,asking --any-agent` (C6 lease scope landed in tree but
+the INSTALLED CLI still filters by spawnedBy until rebuild).
 
-## Died to the quota mid-task (redispatch after respawn, check git status for partials)
-- close-strict (wave4-review section 3: strict kill contract + --force removal +
-  owner-scoping test rewrite) - my ruling: close NEVER refuses; no-proof targets
-  get pane-close cleanup, never bare-pid SIGTERM.
-- lease-hardening (wave4-review items 1.2/1.3/2-caveat/4: live-holder adoption
-  refusal test, lease-layer I3 tests, spawn-refusal zero-mutation test,
-  docs/reference/store.md rewrite).
-- plexer-versions (E17/E18/E19) - may have partially landed, verify.
-- scope-hygiene (TASKS/02-scope.md status updates) - verify/redo.
-- store-connection fix dispatch (I DID IT MYSELF - verify only).
-- retention-fixes dispatch: test/retention.test.ts fixture until<=since CHECK
-  violations + retention.ts ended-agent double-count (STILL TODO).
-- herdr-tests dispatch: test/herdr-notify-hardening.test.ts stale pane-run argv
-  + HERDR_KINDS[""] blank-adapter crash (STILL TODO).
-- bridge-lock dispatch (I DID THE CORE MYSELF; still TODO: don't swallow
-  settings-load failures in lockedCommandPatterns; make
-  test/cmd-lock-bridge.test.ts green).
+## Landed this session (all TDD, scoped test runs green; checker wave5 review in TASKS/recon/)
+H10 store guard; schema one-shape + hotfix; reopen verified; retention orphan fix + dedupe;
+I6/I7 queue tests; port-seam slices 1-3 (herdrBestEffort deleted, channel/capture roles, pane
+roles, Backend booleans gone); herdr version seam; close kill-path contract + close fixes;
+lease hardening + I3 per command; F4 spawn naming; F7 target resolution (names/pane ids);
+no-publish lifecycle; C6 lease-scoped events; asking as first-class notify state; monitor
+tests + history-leak fix; G10 history projection; G11 orch-only names; I1 check-bridge rule;
+build:dev audit + fixes; fallow dead-code cleanup (versions.ts aliases, 3 web files);
+complexity decomposition: configValues, runCommand, status.ts, cmdResult, parseSession,
+derivePresenceTransition, cmdQueue, buildEntities, cmdSetup; seat tc/lint clean +
+test/seat-index; bridge-lock settings surface; design reconciliation
+(TASKS/recon/design-rulings.md — all DESIGN tags resolved; D10 dropped, G8 BUILD).
 
-## Key reports (read before dispatching)
-TASKS/recon/failures-2254.md (27-fail triage; store-connection rows now fixed by
-me), wave1-4 reviews, consumer-map.md, key-change-map.md, 2462a62-audit.md,
-build-checklist.md, TASKS/07-port-seam.md (9 ordered migration slices - the
-next big wave after gates are green).
+## Remaining waves (order) — all specs live in TASKS/, dispatch from the rows
+1. Gate green + rebuild (above).
+2. Port-seam slices 5-9 (07-port-seam.md; 4 in flight).
+3. J1/J2/J3 key change (recon/key-change-map.md) — after port-seam.
+4. E9 plexer homes, F5 `orch space`, I4 doctor diagnoses, M7 cross-OS executor, M8 delete
+   `status --offline` (specs: recon/design-rulings.md). I2 check-bridge rule after slice 9.
+5. Orch bug #6 (spawn --tab placement/focus) — bug-report.md "Open orch bugs".
+6. fallow debt: 135 functions > 12 cyclomatic (fallow health), 17% duplication — one file per
+   slice, characterization tests first. Baselines committed; `bun run fallow:*`.
 
-## Remaining big waves (order)
-1. Gate burn-down to green.
-2. Port seam slices 1-9 per TASKS/07-port-seam.md (slice 1 = error contract /
-   herdrBestEffort deletion).
-3. J1/J2/J3 key change per TASKS/recon/key-change-map.md (bare minted ids).
-4. Enforcement: I1/I2 check-bridge rules, I4/I8 doctor; H3 reap tree already in.
-5. Web G8 (needs design), G10/G11; M-section daemon singletons (M6/M7 DESIGN).
-6. Open ruling for Bryan: does docs/reference/identity-registration.md move into
-   TASKS/ (scope "Open rulings" #1)? D10 lock-delay design; E9 workspace port surface.
-
-## Fleet doctrine (standing)
-Luna:high first for implementation; sol only after a luna failure (user OK'd
-judgment calls for genuinely complex slices) - checker runs sol:medium. TDD:
-tests first, workers run ONLY their own test files via
-`orch lock run -- bun test <files>`; full gates are USER-run on demand
-(currently via bash: `bun check > current-errors.md 2>&1`). Batch
-reset+rename+dispatch per wave; checker reviews every wave to TASKS/recon/;
-every dispatch ends "END YOUR TURN - never message another agent".
-Known orch bugs live in bug-report.md (status false-blocked; WebSocket deaths
-2x on pane w7:p8; registry-wipe cascade; lock leak - fixed in tree).
+## Standing doctrine (from the user, this session)
+Never write into the installed tree (Rule 12). Never spawn while an idle pane exists; never spawn
+into the user's tab. Answer `asking` within seconds. Lint rules are gate rules — every dispatch
+carries the LINT block + "run fallow dupes before adding a helper". Luna:high default, no sol
+unless told. TDD every slice, workers run only their own test files via `orch lock run`.
+Delegate — the orchestrator never fixes code by hand. Read TASKS, follow TASKS.

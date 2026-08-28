@@ -183,7 +183,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       else this.moveToGroup(request.handle, request.group, request.split, request.against ?? request.targetPane);
     },
   };
-  readonly groupLayout: GroupLayoutRole<HerdrHandle> = Object.assign(
+  readonly groupLayout: GroupLayoutRole<HerdrHandle> & ((coordinate: string) => BackendGroupLayout<HerdrHandle>) = Object.assign(
     (coordinate: string) => this.groupLayoutFor(coordinate),
     { read: (coordinate: string) => this.groupLayoutFor(coordinate) },
   );

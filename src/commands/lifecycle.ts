@@ -320,7 +320,14 @@ export async function cmdRestart(args: string[]): Promise<void> {
       else process.stderr.write(`${restarted.pane}: ${restarted.reason ?? "restart failed"}\n`);
       continue;
     }
-    const launch = cmd ?? adapterCommand(agentId, config);
+    // Restart is a fresh harness launch, so resolve its model exactly like spawn
+    // and reset instead of letting the harness fall back to its own default.
+    let launch = cmd;
+    if (launch === null) {
+      const model = launchModel({}, config, adapter);
+      const preferredModels = config.models.preferred[adapter.id] ?? [];
+      launch = adapterCommand(agentId, config, { model, preferredModels });
+    }
     if (!json) process.stdout.write(`Restarting ${String(handle)} (${launch})...\n`);
     if (restartPaneAndAwaitBridge(backend, String(handle), launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${String(handle)}: bridge live.\n`); }
   }

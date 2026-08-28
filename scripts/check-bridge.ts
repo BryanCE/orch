@@ -425,7 +425,8 @@ export function checkCommandsParserLine(line: string): string | undefined {
 
 /** Build-only bridge bundle code must never be imported by runtime source. */
 export function checkBridgeBundleImportLine(line: string, relPath: string): string | undefined {
-  if (!relPath.startsWith("src/") || relPath === "src/bridge-bundle.ts") return undefined;
+  const normalizedPath = relPath.replace(/\\/g, "/");
+  if (!normalizedPath.startsWith("src/") || normalizedPath === "src/bridge-bundle.ts") return undefined;
   if (/(?:from\s+|import\s*\()\s*["'][^"']*bridge-bundle\.ts["']/.test(line)) {
     return "bridge-bundle.ts is build tooling; runtime src/** must use shipped bundle metadata without importing it";
   }

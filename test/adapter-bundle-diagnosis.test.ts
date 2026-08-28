@@ -25,7 +25,7 @@ describe("adapter bundle installation", () => {
     expect(() => installExtensionLink("pi", extensionDir, "pi-bridge")).toThrow(
       "fix: run the user's build: bun run build:dev",
     );
-    expect(() => readdirSync(tempRoot, { withFileTypes: true })).not.toThrow();
+    expect(readdirSync(tempRoot, { recursive: true })).toEqual([]);
     expect(() => readdirSync(extensionDir)).toThrow();
   });
 });

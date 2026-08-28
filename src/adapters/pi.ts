@@ -366,7 +366,9 @@ export function installExtensionLink(
   const root = packageRoot();
   process.stdout.write(`${harness} extensions:\n`);
   const bundle = extensionBundlePath(root, extension);
-  if (!fs.existsSync(bundle)) {
+  let bundleAvailable = false;
+  try { bundleAvailable = fs.statSync(bundle).isFile(); } catch { /* diagnosis below names the user build fix */ }
+  if (!bundleAvailable) {
     throw new Error(`missing/stale shipped extension bundle: ${bundle}; fix: run the user's build: bun run build:dev`);
   }
   // Raw .ts links from older installs resolve ../src against the symlink location
@@ -413,6 +415,16 @@ export function piSessionView(input: SessionViewInput): SessionView | undefined 
   };
 }
 
+/** Build one pi launch composition. Worker routes opt into orch's bridge, tools, and
+ * inherited user extensions; the ordinary interactive form remains the bare harness. */
+function piLaunchArgv(opts: SpawnOpts, worker: boolean, binary: "pi" | "pif", prompt?: string): string[] {
+  const argv = [binary];
+  if (worker) argv.push(...piToolArgv(opts), ...piExtensionArgv(opts));
+  argv.push(...piModelArgv(opts, binary === "pi" ? "shell" : "argv"));
+  if (prompt !== undefined) argv.push(prompt);
+  return argv;
+}
+
 /** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's pi-bridge extension. */
 export class PiAdapter implements AgentAdapter {
   readonly id = "pi" as const;
@@ -428,25 +440,26 @@ export class PiAdapter implements AgentAdapter {
     enforcesCommandLocks: true,
   };
 
-  /** Start pi directly in an interactive backend session. */
+  /** Start pi directly in an interactive backend session. Worker options use the same
+   * composition as restricted launches, so tile/spawn cannot silently drop extensions. */
   interactiveCmd(opts: SpawnOpts): string {
-    return ["pi", ...piModelArgv(opts, "shell")].join(" ");
+    return piLaunchArgv(opts, opts.workers !== undefined, "pi").join(" ");
   }
 
   /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    return ["pi", ...piToolArgv(opts), ...piExtensionArgv(opts), ...piModelArgv(opts, "shell")].join(" ");
+    return piLaunchArgv(opts, true, "pi").join(" ");
   }
 
   /** Start the pif wrapper with the initial prompt for headless runs. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["pif", ...piModelArgv(opts, "argv"), prompt];
+    return piLaunchArgv(opts, opts.workers !== undefined, "pif", prompt);
   }
 
   /** Start pif under the same worker policy as an interactive pi worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["pif", ...piToolArgv(opts), ...piExtensionArgv(opts), ...piModelArgv(opts, "argv"), prompt];
+    return piLaunchArgv(opts, true, "pif", prompt);
   }
 
   /** Read pi's authoritative status.json through the shared presence helpers. */

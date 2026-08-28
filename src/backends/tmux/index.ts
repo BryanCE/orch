@@ -127,7 +127,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     focus: (coordinate) => { this.focusGroup(coordinate); },
     move: (request: MovePaneRequest<TmuxHandle>) => { this.movePane(request); },
   };
-  readonly groupLayout: GroupLayoutRole<TmuxHandle> = Object.assign(
+  readonly groupLayout: GroupLayoutRole<TmuxHandle> & ((coordinate: string) => BackendGroupLayout<TmuxHandle>) = Object.assign(
     (coordinate: string) => this.groupLayoutFor(coordinate),
     { read: (coordinate: string) => this.groupLayoutFor(coordinate) },
   );
@@ -338,7 +338,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       return;
     }
     const orientation = request.split === "right" ? "-h" : "-v";
-    execTmux(["join-pane", orientation, "-s", request.handle, "-t", request.group]);
+    const target = request.against ?? request.targetPane ?? request.group;
+    execTmux(["join-pane", orientation, "-s", request.handle, "-t", target]);
   }
 
   renameGroup(group: string, label: string): boolean {

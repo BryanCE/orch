@@ -423,7 +423,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     if (!held) return;
     commandLocks.delete(toolCallId);
     try {
-      releaseCommandLock(ORCH_DIR, held.lock.pid);
+      releaseCommandLock(ORCH_DIR, held.lock.pid, held.lock.start_token);
     } catch {
       // best-effort; the lock implementation also reaps dead holders
     }
@@ -436,9 +436,9 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     for (const [toolCallId, held] of commandLocks) {
       commandLocks.delete(toolCallId);
       try {
-        releaseCommandLock(ORCH_DIR, held.lock.pid);
+        releaseCommandLock(ORCH_DIR, held.lock.pid, held.lock.start_token);
       } catch {
-        // best-effort; max-age eviction is the backstop
+        // best-effort; dead-holder eviction is the backstop
       }
     }
   }
@@ -568,7 +568,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   harness.on("session_shutdown", () => {
     for (const held of commandLocks.values()) {
       try {
-        releaseCommandLock(ORCH_DIR, held.lock.pid);
+        releaseCommandLock(ORCH_DIR, held.lock.pid, held.lock.start_token);
       } catch {
         // best-effort
       }

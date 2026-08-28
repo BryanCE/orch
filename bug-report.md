@@ -147,3 +147,4 @@ have made the old rows recoverable from /proc).
 - 2026-08-28 ~03:0x: pane w7:pV (pi) died mid-slice with "WebSocket error" (harness-side); redispatched once. Third occurrence of this family this week.
 - 2026-08-28 ~03:4x: pane w7:p14 (web-layout, G8) died mid-slice with "WebSocket error" — fourth of this family; not redispatched (session ending). Partial G8 work may exist under packages/web — check git status before redispatch.
 - 2026-08-28 ~03:5x: pane w7:pQ (adapter-no-build + J9) died mid-slice with "WebSocket error" — fifth this session, three within ~20 min: the harness-side socket is failing systemically now, not per-pane. Not redispatched (session ending); check git status for partial adapter/J9 work before redispatch.
+  (correction: w7:p14 recovered from the WebSocket error and finished G8 — the socket error is transient, the pane kept working.)

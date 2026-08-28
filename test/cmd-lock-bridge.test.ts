@@ -23,7 +23,13 @@ const LOCKED_COMMAND = "bun run check";
 mkdirSync(orchDir, { recursive: true });
 writeFileSync(
   join(orchDir, "settings.json"),
-  JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", locked_commands: [LOCKED_COMMAND] }),
+  JSON.stringify({
+    schemaVersion: SETTINGS_SCHEMA,
+    runtime: "node",
+    enabled: { adapters: ["pi"], backends: ["headless"] },
+    defaults: { adapter: "pi", backend: "headless" },
+    locked_commands: [LOCKED_COMMAND],
+  }),
 );
 
 const orchestratorBridgeExtension = (await import("../extensions/pi/index.ts")).default;
@@ -131,6 +137,37 @@ describe("pi-bridge command-lock interception", () => {
     expect(readCommandLock(orchDir)).toBeNull();
   });
 
+  test("blocks a concurrent orch lock run while the bridge holds the shared lock", async () => {
+    const { emit } = driveBridge();
+    await emit("tool_execution_start", {
+      toolName: "bash",
+      toolCallId: "tc-concurrent-1",
+      args: { command: LOCKED_COMMAND },
+    });
+    const held = readCommandLock(orchDir);
+    expect(held?.pid).toBe(process.pid);
+
+    const waiter = Bun.spawn([
+      process.execPath,
+      join(import.meta.dir, "../bin/orch.ts"),
+      "lock",
+      "run",
+      "--timeout",
+      "150",
+      "--",
+      process.execPath,
+      "-e",
+      "process.exit(0)",
+    ], { env: { ...process.env, ORCH_DIR: orchDir }, stdout: "pipe", stderr: "pipe" });
+    const [exit, stderr] = await Promise.all([waiter.exited, new Response(waiter.stderr).text()]);
+    expect(exit).not.toBe(0);
+    expect(stderr).toContain("timed out");
+    expect(readCommandLock(orchDir)?.pid).toBe(process.pid);
+
+    await emit("tool_execution_end", { toolName: "bash", toolCallId: "tc-concurrent-1" });
+    expect(readCommandLock(orchDir)).toBeNull();
+  });
+
   test("surfaces a present but broken settings load instead of silently disabling locks", async () => {
     writeFileSync(join(orchDir, "settings.json"), "{\"schemaVersion\":");
     try {
@@ -149,7 +186,13 @@ describe("pi-bridge command-lock interception", () => {
     } finally {
       writeFileSync(
         join(orchDir, "settings.json"),
-        JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", locked_commands: [LOCKED_COMMAND] }),
+        JSON.stringify({
+          schemaVersion: SETTINGS_SCHEMA,
+          runtime: "node",
+          enabled: { adapters: ["pi"], backends: ["headless"] },
+          defaults: { adapter: "pi", backend: "headless" },
+          locked_commands: [LOCKED_COMMAND],
+        }),
       );
     }
   });

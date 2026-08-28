@@ -16,7 +16,7 @@ function numberOption(args: string[], name: string, index: number): number | und
 }
 
 function age(lock: CommandLock): number {
-  return Math.max(0, Date.now() - lock.ts);
+  return Math.max(0, Date.now() - lock.acquired_at);
 }
 
 function printStatus(json: boolean, directory: string): void {
@@ -92,7 +92,7 @@ async function runLocked(args: string[], directory: string): Promise<number> {
   } finally {
     process.off("SIGINT", stopChild);
     process.off("SIGTERM", stopChild);
-    releaseCommandLock(directory, lock.pid);
+    releaseCommandLock(directory, lock.pid, lock.start_token);
   }
 }
 

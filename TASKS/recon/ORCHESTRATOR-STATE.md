@@ -15,14 +15,12 @@ pi session) and a `bun` shebang on dist/bin/orch.js. Only the user publishes (CL
    reload` — which DEAFENS every live bridge → `orch close --all`, respawn the pack.
 4. Resume the wave loop below.
 
-## Live pack at session end (w7; all luna:high; reuse via reset, never spawn while idle exists)
-tabs: fixes (pQ adapter-no-build+J9 — DIED on WebSocket error, redispatch first, pR close-verifies [orch bug #3], pS lock-serialize
-[user ruling: true machine-wide lock]), followup (pV terminal-state [orch bug #2, redispatched
-once after WebSocket death], pW port-seam-4, pX launch-parity [orch bugs #4/#5], pY
-tasks-unrunnable I8), review (p12 daemon-singleton M6, p14 web-layout G8).
-Pack cap is 10 (A12) — spawn refuses past it. Events watch: arm with
-`orch events --status done,error,blocked,asking --any-agent` (C6 lease scope landed in tree but
-the INSTALLED CLI still filters by spawnedBy until rebuild).
+## Live pack at session end (w7; all idle, all slices LANDED; reuse via reset, never spawn while idle exists)
+tabs: fixes (pQ, pR, pS), followup (pV, pW, pX, pY), review (p12, p14). Pack cap is 10 (A12).
+Events watch: `orch events --status done,error,blocked,asking --any-agent` (C6 lease scope is in
+tree but the INSTALLED CLI still filters by spawnedBy until rebuild). Every pane loads the broken
+installed bridge on reset (runForkWith) — most still work through the herdr path, but a bridge that
+fails to load can silently drop a dispatch (pS did): after rebuild, restart the whole pack.
 
 ## Landed this session (all TDD, scoped test runs green; checker wave5 review in TASKS/recon/)
 H10 store guard; schema one-shape + hotfix; reopen verified; retention orphan fix + dedupe;
@@ -32,6 +30,7 @@ lease hardening + I3 per command; F4 spawn naming; F7 target resolution (names/p
 no-publish lifecycle; C6 lease-scoped events; asking as first-class notify state; monitor
 tests + history-leak fix; G10 history projection; G11 orch-only names; I1 check-bridge rule;
 build:dev audit + fixes; fallow dead-code cleanup (versions.ts aliases, 3 web files);
+port-seam slice 4 (group roles); M6 daemon singleton; I8 unrunnable tasks; G8 layout shell; adapter runtime bundle builder deleted + check-bridge rule + J9 docs move; close verifies pane gone (bug #3); terminal-state hardening (bug #2); launch parity (bugs #4/#5); true machine-wide lock with 5 concurrency tests;
 complexity decomposition: configValues, runCommand, status.ts, cmdResult, parseSession,
 derivePresenceTransition, cmdQueue, buildEntities, cmdSetup; seat tc/lint clean +
 test/seat-index; bridge-lock settings surface; design reconciliation
@@ -39,7 +38,7 @@ test/seat-index; bridge-lock settings surface; design reconciliation
 
 ## Remaining waves (order) — all specs live in TASKS/, dispatch from the rows
 1. Gate green + rebuild (above).
-2. Port-seam slices 5-9 (07-port-seam.md; 4 in flight).
+2. Port-seam slices 5-9 (07-port-seam.md; 1-4 landed).
 3. J1/J2/J3 key change (recon/key-change-map.md) — after port-seam.
 4. E9 plexer homes, F5 `orch space`, I4 doctor diagnoses, M7 cross-OS executor, M8 delete
    `status --offline` (specs: recon/design-rulings.md). I2 check-bridge rule after slice 9.

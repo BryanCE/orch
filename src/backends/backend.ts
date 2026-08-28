@@ -50,7 +50,7 @@ export interface CreateGroupRequest {
 
 /** Result of creating a group, including its initial shell pane. */
 export interface CreatedGroup<Handle = BackendHandle> {
-  readonly group: BackendGroup;
+  readonly group: PlexerGroup;
   readonly rootHandle: Handle;
 }
 
@@ -67,7 +67,7 @@ export interface MovePaneRequest<Handle = BackendHandle> {
 
 /** Group inventory and mutation role. Every method is implemented by a paned provider. */
 export interface GroupHomeRole<Handle = BackendHandle> {
-  list(): readonly BackendGroup[];
+  list(): readonly PlexerGroup[];
   create(request: CreateGroupRequest): CreatedGroup<Handle>;
   rename(coordinate: string, label: string): void;
   close(coordinate: string): void;
@@ -77,8 +77,7 @@ export interface GroupHomeRole<Handle = BackendHandle> {
 
 /** Group geometry role used by the tiling planner. */
 export interface GroupLayoutRole<Handle = BackendHandle> {
-  (coordinate: string): BackendGroupLayout<Handle>;
-  read(coordinate: string): BackendGroupLayout<Handle>;
+  read(coordinate: string): GroupLayout<Handle>;
 }
 
 export interface EnvironmentServices<Handle = BackendHandle> {

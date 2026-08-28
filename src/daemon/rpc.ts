@@ -7,7 +7,7 @@ import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortPath } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
-import { getOrCreateSessionAgent, isLiveAgentIdentity, type HostOs, type SessionAgentIdentity } from "../store/agent-rows.ts";
+import { currentHostOs, getOrCreateSessionAgent, isLiveAgentIdentity, type HostOs, type SessionAgentIdentity } from "../store/agent-rows.ts";
 import { processStartToken } from "../process-identity.ts";
 import { openStore } from "../store/connection.ts";
 import { allBackends } from "../backends/registry.ts";
@@ -213,10 +213,11 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 function hostOs(): HostOs {
-  if (process.platform === "win32") return "windows";
-  if (process.platform === "darwin") return "darwin";
-  if (process.platform === "linux") return "linux";
-  throw new RpcError("IDENTITY_UNAVAILABLE", `hello cannot register unsupported host OS ${process.platform}`);
+  try {
+    return currentHostOs();
+  } catch (error: unknown) {
+    throw new RpcError("IDENTITY_UNAVAILABLE", `hello cannot register this host: ${errorMessage(error)}`);
+  }
 }
 
 function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {

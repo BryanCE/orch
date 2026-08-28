@@ -84,6 +84,14 @@ function isHerdrAgent(value: unknown): value is HerdrAgent {
  *  never pay twice for the same listing. Long-lived processes (orchd) stay
  *  fresh because entries expire after a short TTL. */
 const LIST_CACHE_TTL_MS = 1500;
+/** How long a herdr mutation may take before orch stops waiting. Enough for a
+ *  command that only edits herdr's own state, never for one that starts a process. */
+const MUTATION_TIMEOUT_MS = 5000;
+/** `agent start` blocks while the harness boots: herdr enforces a 3s settle and
+ *  defaults to a 30s ceiling. orch hands herdr this budget and outwaits it, so the
+ *  two sides can never disagree about who gave up first. */
+export const AGENT_START_TIMEOUT_MS = 30_000;
+const AGENT_START_EXEC_TIMEOUT_MS = AGENT_START_TIMEOUT_MS + MUTATION_TIMEOUT_MS;
 const listCache = new Map<string, { at: number; value: unknown }>();
 
 /** Inject the process runner for a scoped seam test; the returned function restores it. */
@@ -111,11 +119,11 @@ function herdr(args: string[]): unknown {
   }
 }
 
-function herdrOutput(args: string[]): string {
+function herdrOutput(args: string[], timeoutMs = MUTATION_TIMEOUT_MS): string {
   // Assume a mutation: listings must not serve pre-mutation state.
   listCache.clear();
   try {
-    return executeHerdr("herdr", args, { timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return executeHerdr("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error: unknown) {
     throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
   }
@@ -132,8 +140,14 @@ export function herdrJSON<T = unknown>(args: string[]): T {
 
 /** A herdr command whose acknowledgement is its exit code: `pane run` answers
  *  with an empty body, so demanding JSON from it fails an already-run command. */
-export function herdrAck(args: string[]): void {
-  herdrOutput(args);
+export function herdrAck(args: string[], timeoutMs?: number): void {
+  herdrOutput(args, timeoutMs);
+}
+
+/** Start a harness in an existing pane. Blocking on both sides by nature: herdr
+ *  settles the process before answering, and orch waits out the budget it set. */
+export function herdrStartAgent(args: string[]): void {
+  herdrOutput([...args, "--timeout", String(AGENT_START_TIMEOUT_MS)], AGENT_START_EXEC_TIMEOUT_MS);
 }
 
 /** Read herdr's installed semantic version from its CLI. A missing binary or

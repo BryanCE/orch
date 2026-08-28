@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessApi, HarnessContext } from "../src/agent/harness.ts";
+import { createFleetMonitor, registerFleetMonitor, type FleetMonitorOptions } from "../src/agent/monitor.ts";
 
 interface Subscription {
   callback: (event: unknown, seq: number) => void;
@@ -12,18 +13,19 @@ const subscriptions: Subscription[] = [];
 const subscribeOptions: { since?: number }[] = [];
 const tempDirs: string[] = [];
 
-// Keep this unit test at monitor's public seam. The daemon transport is tested separately;
-// this lets us deterministically push transitions and inspect the initial replay cursor.
-void mock.module("../src/daemon/rpc.ts", () => ({
-  subscribeEvents: (_dir: string, options: { since?: number }, callback: Subscription["callback"]) => {
-    subscribeOptions.push(options);
-    const subscription: Subscription = { callback, closed: false };
-    subscriptions.push(subscription);
-    return { close: () => { subscription.closed = true; }, lastSeq: () => 0 };
-  },
-}));
+// Keep this unit test at monitor's public seam: the monitor takes its event source
+// as an option, so transitions push deterministically and the initial replay cursor
+// is observable without a daemon. The transport itself is tested separately.
+const subscribe: FleetMonitorOptions["subscribe"] = (_dir, options, callback) => {
+  subscribeOptions.push(options);
+  const subscription: Subscription = { callback, closed: false };
+  subscriptions.push(subscription);
+  return { close: () => { subscription.closed = true; }, lastSeq: () => 0 };
+};
 
-const { createFleetMonitor, registerFleetMonitor } = await import("../src/agent/monitor.ts");
+function options(ownKey: string): FleetMonitorOptions {
+  return { ownKey: () => ownKey, subscribe };
+}
 
 afterEach(() => {
   for (const subscription of subscriptions) subscription.closed = true;
@@ -64,7 +66,7 @@ function dir(): string {
 
 describe("agent fleet monitor", () => {
   test("surfaces only agents spawned by this session", () => {
-    const monitor = createFleetMonitor(dir(), { ownKey: () => "session-me" });
+    const monitor = createFleetMonitor(dir(), options("session-me"));
     monitor.attach(context());
     push(event("mine", "session-me", "mine"));
     push(event("theirs", "other-session", "theirs"));
@@ -75,7 +77,7 @@ describe("agent fleet monitor", () => {
   test("empty model renders no status line or widget", () => {
     const status: (string | undefined)[] = [];
     const widgets: unknown[] = [];
-    const monitor = createFleetMonitor(dir(), { ownKey: () => "session-me" });
+    const monitor = createFleetMonitor(dir(), options("session-me"));
     monitor.attach(context(status, widgets));
     expect(status.at(-1)).toBeUndefined();
     expect(widgets).toEqual([]);
@@ -86,12 +88,12 @@ describe("agent fleet monitor", () => {
     process.env.ORCH_AGENT_KEY = "worker-key";
     const noop = (): void => { void 0; };
     const harness = { on: noop, registerTool: noop, registerCommand: noop, sendUserMessage: noop, setModel: noop, getThinkingLevel: () => undefined, setThinkingLevel: noop, events: { on: noop } } as unknown as HarnessApi;
-    expect(registerFleetMonitor(harness, dir(), { ownKey: () => "worker-key" })).toBeUndefined();
+    expect(registerFleetMonitor(harness, dir(), options("worker-key"))).toBeUndefined();
     expect(subscriptions).toHaveLength(0);
   });
 
   test("does not replay history into a plain pi session", () => {
-    const monitor = createFleetMonitor(dir(), { ownKey: () => "session-me" });
+    const monitor = createFleetMonitor(dir(), options("session-me"));
     monitor.attach(context());
     expect(subscribeOptions[0]).toEqual({});
     expect(monitor.model.size()).toBe(0);

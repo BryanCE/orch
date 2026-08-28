@@ -75,7 +75,7 @@ describe("orch settings notify", () => {
     await captureNotify(["add", "webhook", "--url=https://example.test/hook", "--on=done"]);
 
     const listed = await captureNotify([]);
-    expect(listed).toContain("desktop   blocked,error");
+    expect(listed).toContain("desktop   blocked,error,done");
     expect(listed).toContain("webhook   done");
     expect(listed).toContain("https://example.test/hook");
     expect(await captureNotify(["--json"])).toContain("\"id\": \"webhook\"");

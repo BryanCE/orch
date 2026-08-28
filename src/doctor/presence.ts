@@ -42,22 +42,38 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
   }
 
   const ignoredRecords: IgnoredPresenceRecord[] = [];
+  const held: IgnoredPresenceRecord[] = [];
   for (const entry of entries.values()) {
     const reasons: string[] = [];
     if (!tryParseIdentity(entry.key)) reasons.push("malformed identity key");
     if (entry.status === null) reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
-    if (reasons.length) ignoredRecords.push({ path: entry.dir, reason: reasons.join("; ") });
+    if (!reasons.length) continue;
+    // A record whose process is still running is a live session on older bridge
+    // code — it clears itself the moment that session reloads, and `orch clean`
+    // reaps by dead pid so nothing can act on it meanwhile. Naming it is useful;
+    // raising it is not, so it stays out of the verdict.
+    (entry.alive ? held : ignoredRecords).push({ path: entry.dir, reason: reasons.join("; ") });
   }
 
-  return ignoredRecords.length
-    ? {
-        id: "malformed-presence",
-        label: "Malformed presence records",
-        status: "fail",
-        detail: `${ignoredRecords.length} malformed presence record${ignoredRecords.length === 1 ? "" : "s"}; orch clean can reap them\n    ${ignoredRecords.map((record) => `${record.path}: ${record.reason}`).join("\n    ")}`,
-        ignoredRecords,
-      }
-    : { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no malformed presence records", ignoredRecords };
+  if (ignoredRecords.length) {
+    return {
+      id: "malformed-presence",
+      label: "Malformed presence records",
+      status: "fail",
+      detail: `${ignoredRecords.length} malformed presence record${ignoredRecords.length === 1 ? "" : "s"}; orch clean can reap them\n    ${ignoredRecords.map((record) => `${record.path}: ${record.reason}`).join("\n    ")}`,
+      ignoredRecords,
+    };
+  }
+  if (held.length) {
+    return {
+      id: "malformed-presence",
+      label: "Malformed presence records",
+      status: "ok",
+      detail: `no malformed presence records; ${held.length} live session${held.length === 1 ? "" : "s"} still writing an older record, each clearing when that session reloads\n    ${held.map((record) => `${record.path}: ${record.reason}`).join("\n    ")}`,
+      ignoredRecords: held,
+    };
+  }
+  return { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no malformed presence records", ignoredRecords };
 }
 
 /** One human-legible line for a malformed-scope task — id, state, age, task snippet. */

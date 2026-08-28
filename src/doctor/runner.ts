@@ -91,7 +91,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     ...providerChecks,
     ...livePairs.map((pair) => Promise.resolve(pair)),
     isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(enabledBackends, configuredBackend)),
-    isolated("backend-versions", "Backend versions", () => checkBackendVersions(orchDir)),
+    isolated("backend-versions", "Backend versions", checkBackendVersions),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("store", "Store", () => checkStore(orchDir)),

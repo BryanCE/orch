@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
 
 // Replace the CLI boundary before loading HerdrBackend. This records argv without
@@ -39,53 +40,52 @@ function freshPane(pane: string): string {
 function lastCall(command: string, subcommand: string): string[] | undefined {
   return herdrArgv.filter((args) => args[0] === command && args[1] === subcommand).at(-1);
 }
-void mock.module("../src/backends/herdr/cli.ts", () => ({
-  herdrPanes: () => {
-    herdrArgv.push(["pane", "list"]);
-    return [
+
+/** The launch line orch sends herdr. It carries the same start budget orch then
+ *  outwaits, so neither side can decide alone who gave up first. */
+function agentStart(name: string, pane: string): string[] {
+  return ["agent", "start", name, "--kind", "pi", "--pane", pane, "--timeout", String(AGENT_START_TIMEOUT_MS)];
+}
+// The fake goes at the process runner, not over the module. Stubbing the cli
+// module replaces it for every test file in the process, so these fixtures were
+// being served to unrelated suites that had asked for the real thing. Injecting
+// the runner scopes the fake to this file and keeps the real argv building,
+// parsing and error wrapping under test.
+const restoreExecutor = setHerdrExecutor((_command, args) => {
+  herdrArgv.push([...args]);
+  const [command, subcommand] = args;
+  if (command === "pane" && subcommand === "process-info") return paneProcessInfo(args[3] ?? "");
+  if (command === "pane" && subcommand === "list") {
+    return JSON.stringify({ panes: [
       { pane_id: "w0:p1", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 0, y: 0 } },
       { pane_id: "w0:p2", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 100, y: 0 } },
-    ];
-  },
-  herdrNames: () => new Map(),
-  herdrTabs: () => new Map([
-    ["t1", { tab_id: "t1", workspace_id: "ws-test", label: "Alpha" }],
-    ["t2", { tab_id: "t2", workspace_id: "ws-test", label: "Beta" }],
-    ["t3", { tab_id: "t3", workspace_id: "ws-2", label: "Gamma" }],
-    ["t4", { tab_id: "t4", workspace_id: "ws-3" }],
-  ]),
-  herdrReachable: () => true,
-  version: () => null,
-  paneStatus: () => null,
-  herdrExec: (args: string[]) => {
-    herdrArgv.push([...args]);
-    if (args[1] === "process-info") return paneProcessInfo(args[3] ?? "");
-    return "";
-  },
-  herdrJSON: (args: string[]) => {
-    herdrArgv.push([...args]);
-    if (args[0] === "pane" && args[1] === "run") throw new Error(`herdr ${args.join(" ")} returned non-JSON: `);
-    if (args[0] === "pane" && args[1] === "move") return { move_result: moveResults.shift() ?? { changed: true } };
-    if (args[0] === "pane" && args[1] === "split") return { pane: { pane_id: freshPane("w0:p3") } };
-    if (args[0] === "tab" && args[1] === "create") {
-      return { tab: { tab_id: "t9", workspace_id: "ws-test" }, root_pane: { pane_id: freshPane("w0:p9") } };
-    }
-    if (args[0] === "workspace" && args[1] === "list") {
-      return {
-        workspaces: [
-          { workspace_id: "ws-test", label: "t3reports" },
-          { workspace_id: "ws-2", label: "dev" },
-          { workspace_id: "ws-3" },
-        ],
-      };
-    }
-    return {};
-  },
-  herdrAck: (args: string[]) => {
-    herdrArgv.push([...args]);
-    if (args[0] === "agent" && args[1] === "start") launched.add(args[args.indexOf("--pane") + 1] ?? "");
-  },
-}));
+    ] });
+  }
+  if (command === "agent" && subcommand === "list") return JSON.stringify({ agents: [] });
+  if (command === "tab" && subcommand === "list") {
+    return JSON.stringify({ tabs: [
+      { tab_id: "t1", workspace_id: "ws-test", label: "Alpha" },
+      { tab_id: "t2", workspace_id: "ws-test", label: "Beta" },
+      { tab_id: "t3", workspace_id: "ws-2", label: "Gamma" },
+      { tab_id: "t4", workspace_id: "ws-3" },
+    ] });
+  }
+  if (command === "pane" && subcommand === "move") return JSON.stringify({ move_result: moveResults.shift() ?? { changed: true } });
+  if (command === "pane" && subcommand === "split") return JSON.stringify({ pane: { pane_id: freshPane("w0:p3") } });
+  if (command === "tab" && subcommand === "create") {
+    return JSON.stringify({ tab: { tab_id: "t9", workspace_id: "ws-test" }, root_pane: { pane_id: freshPane("w0:p9") } });
+  }
+  if (command === "workspace" && subcommand === "list") {
+    return JSON.stringify({ workspaces: [
+      { workspace_id: "ws-test", label: "t3reports" },
+      { workspace_id: "ws-2", label: "dev" },
+      { workspace_id: "ws-3" },
+    ] });
+  }
+  if (command === "agent" && subcommand === "start") launched.add(args[args.indexOf("--pane") + 1] ?? "");
+  // Every mutation answers with an empty body, never JSON.
+  return "";
+});
 
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-herdr-"));
 const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
@@ -108,7 +108,7 @@ const callerPane = process.env.HERDR_PANE_ID;
 delete process.env.HERDR_PANE_ID;
 
 afterAll(() => {
-  mock.restore();
+  restoreExecutor();
   if (callerPane === undefined) delete process.env.HERDR_PANE_ID;
   else process.env.HERDR_PANE_ID = callerPane;
   fs.rmSync(testDir, { recursive: true, force: true });
@@ -131,7 +131,7 @@ describe("HerdrBackend", () => {
     expect(herdrArgv).toEqual([
       ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
       ["pane", "rename", "w0:p9", "pi-agent"],
-      ["agent", "start", "pi-agent", "--kind", "pi", "--pane", "w0:p9"],
+      agentStart("pi-agent", "w0:p9"),
     ]);
   });
 
@@ -139,7 +139,7 @@ describe("HerdrBackend", () => {
     herdrArgv.length = 0;
     backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", cmd: "ignored-by-herdr-start" });
 
-    expect(lastCall("agent", "start")).toEqual(["agent", "start", "pi-agent", "--kind", "pi", "--pane", "w0:p9"]);
+    expect(lastCall("agent", "start")).toEqual(agentStart("pi-agent", "w0:p9"));
   });
 
   test("a caller pane is split rather than given a new tab", () => {
@@ -170,6 +170,31 @@ describe("HerdrBackend", () => {
     expect(split).not.toContain("env");
   });
 
+  test("a handed-over pane is launched into directly, never split or closed", () => {
+    // A tab is born with a shell pane and the root agent runs IN it. Splitting
+    // off it and closing it instead left an orphan whenever herdr declined the
+    // close, and every later tiling decision balanced against that phantom.
+    herdrArgv.length = 0;
+    const handle = backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t9", intoPane: "w0:p9" });
+
+    expect(handle).toBe("w0:p9");
+    expect(herdrArgv).toEqual([
+      ["pane", "rename", "w0:p9", "pi-agent"],
+      agentStart("pi-agent", "w0:p9"),
+    ]);
+  });
+
+  test("a group is created with the environment its own pane will launch under", () => {
+    herdrArgv.length = 0;
+    const created = backend.createGroup({ workspace: "ws-test", cwd: testDir, label: "fleet", env: { ORCH_AGENT_KEY: "k9" } });
+
+    expect(created.rootHandle).toBe("w0:p9");
+    expect(herdrArgv[0]).toEqual([
+      "tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--no-focus",
+      "--label", "fleet", "--env", "ORCH_AGENT_KEY=k9", "--env", `ORCH_PROJECT=${projectRoot()}`,
+    ]);
+  });
+
   test("maps close and list to herdr helpers", () => {
     expect(backend.list()).toEqual(["w0:p1", "w0:p2"]);
     expect(backend.close("")).toBe(false);
@@ -184,7 +209,7 @@ describe("HerdrBackend", () => {
     backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t1", split: "down", targetPane: "w0:p1" });
 
     expect(herdrArgv[0]?.slice(0, 5)).toEqual(["pane", "split", "w0:p1", "--direction", "down"]);
-    expect(lastCall("agent", "start")).toEqual(["agent", "start", "pi-agent", "--kind", "pi", "--pane", "w0:p3"]);
+    expect(lastCall("agent", "start")).toEqual(agentStart("pi-agent", "w0:p3"));
     expect(herdrArgv.some((args) => args[1] === "move")).toBe(false);
   });
 

@@ -418,7 +418,7 @@ export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolea
 
 /** Publish one event to the RPC stream and every configured sink, stamped with the
  *  agent name and transition ordinal that make it identifiable downstream. */
-export function emitAndNotify(emit: (event: unknown) => void, sinks: Sink[], event: NotifyEvent, now = Date.now()): void {
+export function emitAndNotify(emit: (event: NotifyEvent) => void, sinks: Sink[], event: NotifyEvent, now = Date.now()): void {
   if (isRepeatTransition(event, now)) return;
   const workspace = event.workspace ?? workspaceLabelForKey(event.key);
   const seq = (published.get(event.key) ?? 0) + 1;

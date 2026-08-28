@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { piAdapter, bridgeExtensionArgv } from "../src/adapters/pi.ts";
 import type { WorkerPolicy } from "../src/policy/workers.ts";
@@ -25,6 +26,8 @@ describe("orch bugs 4 and 5 launch contracts", () => {
 
   test("inherited extension policy emits every discovered extension", () => {
     const argv = bridgeExtensionArgv("/tmp/pi-extensions", "pi-bridge", inherited);
-    expect(argv.slice(0, 3)).toEqual(["--no-extensions", "-e", "/tmp/pi-extensions/pi-bridge.js"]);
+    // The bundle path is built for the host that will run the harness, so the
+    // separator is the host's. Asserting a literal only describes one OS.
+    expect(argv.slice(0, 3)).toEqual(["--no-extensions", "-e", join("/tmp/pi-extensions", "pi-bridge.js")]);
   });
 });

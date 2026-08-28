@@ -82,28 +82,21 @@ describe("doctor runtime verdict table", () => {
     expect(result).toMatchObject({ id: "runtime", status: "ok" });
   });
 
-  test("declared node but executing under bun fails", () => {
+  // orch runs under whichever runtime the user launches it with, so the interpreter
+  // that started this process is never a defect on its own.
+  test.each([
+    { declared: "node", running: "bun" },
+    { declared: "bun", running: "node" },
+  ] as const)("launching under $running while declaring $declared is fine", ({ declared, running }) => {
     const orchDir = tempDir();
-    writeSettingsFixture(orchDir, { runtime: "node" });
-
-    const result = checkRuntime(orchDir, observed({ running: "bun" }));
-
-    expect(result).toMatchObject({ id: "runtime", status: "fail" });
-    expect(result.detail).toContain("orch is running under bun");
-    expect(result.detail).toContain("declares node");
-  });
-
-  test("declared bun but executing under node fails just as loudly", () => {
-    const orchDir = tempDir();
-    writeSettingsFixture(orchDir, { runtime: "bun" });
+    writeSettingsFixture(orchDir, { runtime: declared });
 
     const result = checkRuntime(orchDir, observed({
-      running: "node",
-      entrypoint: () => ({ path: "/usr/bin/orch", runtime: "bun" }),
+      running,
+      entrypoint: () => ({ path: "/usr/bin/orch", runtime: declared }),
     }));
 
-    expect(result).toMatchObject({ id: "runtime", status: "fail" });
-    expect(result.detail).toContain("orch is running under node");
+    expect(result).toMatchObject({ id: "runtime", status: "ok" });
   });
 
   // The regression that motivated the whole axis: a stale entrypoint shebang must be
@@ -149,7 +142,10 @@ describe("doctor runtime verdict table", () => {
     const orchDir = tempDir();
     writeSettingsFixture(orchDir, { runtime: "node" });
 
-    const result = checkRuntime(orchDir, observed({ running: "bun" }));
+    const result = checkRuntime(orchDir, observed({
+      running: "bun",
+      entrypoint: () => ({ path: "/usr/local/bin/orch", runtime: "bun" }),
+    }));
 
     expect(result.detail).toContain("orch doctor --fix");
     expect(result.detail).toContain("orch setup --runtime bun");

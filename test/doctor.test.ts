@@ -4,8 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
-import { openStore } from "../src/store/connection.ts";
-import { STORE_SCHEMA } from "../src/store/schema.ts";
+import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
@@ -63,7 +62,7 @@ describe("runDoctor", () => {
     openStore(directory);
     const result = check(await runDoctor(directory), "store");
     expect(result).toMatchObject({ status: "ok", label: "Store" });
-    expect(result.detail).toContain(`schema ${STORE_SCHEMA}`);
+    expect(result.detail).toContain("applied migration");
   });
 
   test("warns when the store is absent", () => {
@@ -73,17 +72,17 @@ describe("runDoctor", () => {
     expect(fs.existsSync(path.join(directory, "orch.db"))).toBe(false);
   });
 
-  test("fails when the store schema stamp is wrong", () => {
+  test("fails when the store predates orch's migrations", () => {
     const directory = tempDir();
     openStore(directory);
+    closeAllStores();
     const database = new Database(path.join(directory, "orch.db"));
-    database.exec(`PRAGMA user_version = ${STORE_SCHEMA - 1}`);
+    database.exec("DROP TABLE __drizzle_migrations");
     database.close();
 
     const result = checkStore(directory);
     expect(result.status).toBe("fail");
-    expect(result.detail).toContain(`stamp ${STORE_SCHEMA - 1}`);
-    expect(result.detail).toContain(`expected ${STORE_SCHEMA}`);
+    expect(result.detail).toContain("db:reset");
   });
 
   test("fails and names a missing store table", () => {

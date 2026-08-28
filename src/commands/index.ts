@@ -15,6 +15,7 @@ import { cmdReview, cmdReviewInteractive } from "./review.ts";
 import { cmdQueue } from "./queue.ts";
 import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
+import { cmdGrant } from "./grant.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
 import { cmdSettings, cmdSettingsModels, cmdSettingsNotify, cmdSettingsSkills } from "./settings.ts";
@@ -99,7 +100,11 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
                    [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
                                  3=2+1, 4=2x2, ...; cap 8). Names <prefix>-1..N.
+                                 Run from outside a pane, opening a workspace is REFUSED until a
+                                 human approves it with 'orch grant'; --workspace <id> uses an open one.
                                  --backend headless needs --prompt: a detached agent runs it and exits.
+  orch grant [<hash>|--list]     Approve actions an agent was refused. Needs a terminal:
+                                 there is no flag that answers the prompt for you.
   orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
@@ -166,7 +171,7 @@ MAINTENANCE
                                  Record one sink; a sink already configured is replaced, keeping
                                  the fields this call does not name. Each sink declares its own
                                  fields (webhook --url, command --command; desktop and herdr take
-                                 none). --on defaults to blocked,error.
+                                 none). --on defaults to blocked,error,done.
                                  e.g. orch settings notify add command --command="notify-send orch"
   orch settings notify remove <sink>
                                  Stop delivering through that sink.
@@ -304,6 +309,7 @@ const commandHandlers: Record<string, Handler> = {
   move: (args) => cmdMove(args),
   ws: (args) => cmdWs(args),
   clean: (args) => cmdClean(args),
+  grant: (args) => dispatchAsync(cmdGrant(args)),
   settings: (args) => {
     if (args[0] === "models") dispatchAsync(cmdSettingsModels(args.slice(1)));
     else if (args[0] === "notify") dispatchAsync(cmdSettingsNotify(args.slice(1)));

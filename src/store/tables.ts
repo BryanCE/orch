@@ -1,0 +1,368 @@
+import { sql } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, real, sqliteTable, sqliteView, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+/**
+ * Every table, typed.
+ *
+ * This is the QUERY surface, not the creation DDL. `schema.ts` still creates the
+ * store because drizzle's SQLite dialect cannot emit three things orch's schema
+ * mandates (`TASKS/06-schema.md`): `STRICT`, `WITHOUT ROWID`, and the
+ * `no_overlap` triggers. Creation is a one-time act here anyway — Rule 8 gives
+ * orch one live shape with no migrations, so a generated migration would have
+ * nothing to migrate.
+ *
+ * What this file buys is the thing raw sqlite cannot: results that are typed
+ * instead of `unknown`, so no store module has to cast a row into shape. Rule 13
+ * bans those casts and this is what removes the need for them.
+ *
+ * The two halves are pinned together by a test comparing these definitions to
+ * `PRAGMA table_info` for every table, so a drift fails the gate rather than a
+ * query at run time.
+ */
+
+// ── runtime operational tables ───────────────────────────────────────────────
+
+export const ownership = sqliteTable("ownership", {
+  agentKey: text("agent_key").primaryKey(),
+  owner: text("owner").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const outbox = sqliteTable("outbox", {
+  id: text("id").primaryKey(),
+  target: text("target").notNull(),
+  payload: text("payload").notNull(),
+  state: text("state").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  nextAttemptAt: integer("next_attempt_at").notNull().default(0),
+}, (table) => [index("outbox_pending").on(table.state, table.nextAttemptAt)]);
+
+export const spawned = sqliteTable("spawned", {
+  pane: text("pane").primaryKey(),
+  ts: text("ts"),
+  adapter: text("adapter"),
+  model: text("model"),
+  backend: text("backend"),
+  workspace: text("workspace"),
+  handle: text("handle"),
+  name: text("name"),
+  cwd: text("cwd"),
+  worktree: text("worktree"),
+  branch: text("branch"),
+  spawnedBy: text("spawned_by"),
+  spawnedByLabel: text("spawned_by_label"),
+});
+
+export const catalogues = sqliteTable("catalogues", {
+  command: text("command").primaryKey(),
+  at: integer("at").notNull(),
+  stdout: text("stdout").notNull(),
+});
+
+export const events = sqliteTable("events", {
+  seq: integer("seq").primaryKey({ autoIncrement: true }),
+  ts: text("ts").notNull(),
+  payload: text("payload").notNull(),
+});
+
+export const runs = sqliteTable("runs", {
+  dispatchId: text("dispatch_id").primaryKey(),
+  agentKey: text("agent_key").notNull(),
+  adapter: text("adapter"),
+  model: text("model"),
+  workspace: text("workspace"),
+  task: text("task"),
+  state: text("state").notNull(),
+  startedAt: text("started_at").notNull(),
+  finishedAt: text("finished_at"),
+  tokensIn: integer("tokens_in"),
+  tokensOut: integer("tokens_out"),
+  cacheRead: integer("cache_read"),
+  cacheWrite: integer("cache_write"),
+  cost: real("cost"),
+  turns: integer("turns"),
+  result: text("result"),
+  lastError: text("last_error"),
+}, (table) => [index("runs_agent_started").on(table.agentKey, table.startedAt)]);
+
+// ── lookup tables ────────────────────────────────────────────────────────────
+
+export const harnesses = sqliteTable("harnesses", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  enabledAt: integer("enabled_at"),
+});
+
+export const plexers = sqliteTable("plexers", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  enabledAt: integer("enabled_at"),
+});
+
+export const hosts = sqliteTable("hosts", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  os: text("os").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [check("hosts_os", sql`${table.os} IN ('linux','windows','darwin')`)]);
+
+export const hostPlexers = sqliteTable("host_plexers", {
+  hostId: text("host_id").notNull().references(() => hosts.id, { onDelete: "cascade" }),
+  plexerId: text("plexer_id").notNull().references(() => plexers.id),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  version: text("version").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.hostId, table.plexerId, table.since] }),
+  uniqueIndex("one_install").on(table.hostId, table.plexerId).where(sql`until IS NULL`),
+  check("host_plexers_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+export const spaces = sqliteTable("spaces", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdBy: text("created_by").references((): AnySQLiteColumn => agents.id),
+  createdAt: integer("created_at").notNull(),
+});
+
+// ── the agent hub ────────────────────────────────────────────────────────────
+
+export const agents = sqliteTable("agents", {
+  id: text("id").primaryKey(),
+  spawnedBy: text("spawned_by").references((): AnySQLiteColumn => agents.id),
+  rootAgentId: text("root_agent_id").notNull().references((): AnySQLiteColumn => agents.id),
+  harnessId: text("harness_id").notNull().references(() => harnesses.id),
+  cwd: text("cwd").notNull(),
+  name: text("name").notNull(),
+  label: text("label"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("agents_by_pack").on(table.rootAgentId),
+  index("agents_by_spawner").on(table.spawnedBy),
+  check("agents_not_self_spawned", sql`${table.spawnedBy} IS NULL OR ${table.spawnedBy} <> ${table.id}`),
+  check("agents_root_is_self", sql`${table.spawnedBy} IS NOT NULL OR ${table.rootAgentId} = ${table.id}`),
+]);
+
+// ── facts only some agents have ──────────────────────────────────────────────
+
+export const agentWorktrees = sqliteTable("agent_worktrees", {
+  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  branch: text("branch").notNull(),
+});
+
+export const agentEndings = sqliteTable("agent_endings", {
+  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  endedAt: integer("ended_at").notNull(),
+  closedBy: text("closed_by").references(() => agents.id),
+});
+
+export const agentPlexers = sqliteTable("agent_plexers", {
+  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  plexerId: text("plexer_id").notNull().references(() => plexers.id),
+});
+
+// ── satellites: one independently-varying fact over one timeline ─────────────
+
+export const agentProcesses = sqliteTable("agent_processes", {
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  hostId: text("host_id").notNull().references(() => hosts.id),
+  pid: integer("pid").notNull(),
+  startToken: text("start_token"),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.since] }),
+  uniqueIndex("one_live_process").on(table.agentId).where(sql`until IS NULL`),
+  check("agent_processes_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+export const agentHandles = sqliteTable("agent_handles", {
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  handle: text("handle").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.since] }),
+  uniqueIndex("one_handle").on(table.agentId).where(sql`until IS NULL`),
+  check("agent_handles_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+export const agentSpaces = sqliteTable("agent_spaces", {
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  spaceId: text("space_id").notNull().references(() => spaces.id),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.since] }),
+  uniqueIndex("one_space").on(table.agentId).where(sql`until IS NULL`),
+  check("agent_spaces_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+export const agentTunings = sqliteTable("agent_tunings", {
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  model: text("model").notNull(),
+  thinking: text("thinking"),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.since] }),
+  uniqueIndex("one_tuning").on(table.agentId).where(sql`until IS NULL`),
+  check("agent_tunings_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+export const agentLeases = sqliteTable("agent_leases", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  orchId: text("orch_id").notNull().references(() => agents.id),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  releaseReason: text("release_reason"),
+}, (table) => [
+  uniqueIndex("one_lease").on(table.agentId).where(sql`until IS NULL`),
+  index("leases_by_orch").on(table.orchId).where(sql`until IS NULL`),
+  check("agent_leases_reason", sql`${table.releaseReason} IS NULL OR ${table.releaseReason} IN ('released','handoff','adopted','expired')`),
+  check("agent_leases_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+  check("agent_leases_closed_has_reason", sql`(${table.until} IS NULL) = (${table.releaseReason} IS NULL)`),
+  check("agent_leases_not_self", sql`${table.orchId} <> ${table.agentId}`),
+]);
+
+// ── where groupings live ─────────────────────────────────────────────────────
+
+export const spacePlexers = sqliteTable("space_plexers", {
+  spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  plexerId: text("plexer_id").notNull().references(() => plexers.id),
+  handle: text("handle").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.spaceId, table.since] }),
+  uniqueIndex("one_space_home").on(table.spaceId).where(sql`until IS NULL`),
+  check("space_plexers_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+export const packPlexers = sqliteTable("pack_plexers", {
+  packId: text("pack_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  plexerId: text("plexer_id").notNull().references(() => plexers.id),
+  handle: text("handle").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.packId, table.since] }),
+  uniqueIndex("one_pack_home").on(table.packId).where(sql`until IS NULL`),
+  check("pack_plexers_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+export const packIntakes = sqliteTable("pack_intakes", {
+  packId: text("pack_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+}, (table) => [
+  primaryKey({ columns: [table.packId, table.spaceId, table.since] }),
+  uniqueIndex("one_intake").on(table.packId, table.spaceId).where(sql`until IS NULL`),
+  check("pack_intakes_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+// ── work ─────────────────────────────────────────────────────────────────────
+
+export const tasks = sqliteTable("tasks", {
+  id: text("id").primaryKey(),
+  text: text("text").notNull(),
+  opts: text("opts").notNull(),
+  enqueuedBy: text("enqueued_by").notNull().references(() => agents.id),
+  scopeAgentId: text("scope_agent_id").references(() => agents.id),
+  scopePackId: text("scope_pack_id").references(() => agents.id),
+  scopeSpaceId: text("scope_space_id").references(() => spaces.id),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("tasks_by_agent").on(table.scopeAgentId),
+  index("tasks_by_pack").on(table.scopePackId),
+  index("tasks_by_space").on(table.scopeSpaceId),
+  index("tasks_by_enqueuer").on(table.enqueuedBy),
+  check(
+    "tasks_exactly_one_scope",
+    sql`(${table.scopeAgentId} IS NOT NULL) + (${table.scopePackId} IS NOT NULL) + (${table.scopeSpaceId} IS NOT NULL) = 1`,
+  ),
+]);
+
+export const taskCancellations = sqliteTable("task_cancellations", {
+  taskId: text("task_id").primaryKey().references(() => tasks.id, { onDelete: "cascade" }),
+  cancelledAt: integer("cancelled_at").notNull(),
+  cancelledBy: text("cancelled_by").notNull().references(() => agents.id),
+});
+
+export const taskAttempts = sqliteTable("task_attempts", {
+  taskId: text("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  agentId: text("agent_id").notNull().references(() => agents.id),
+  dispatchId: text("dispatch_id").notNull(),
+  outcome: text("outcome"),
+  result: text("result"),
+  error: text("error"),
+}, (table) => [
+  primaryKey({ columns: [table.taskId, table.since] }),
+  uniqueIndex("one_open_attempt").on(table.taskId).where(sql`until IS NULL`),
+  index("attempts_running").on(table.agentId).where(sql`until IS NULL`),
+  check("task_attempts_outcome", sql`${table.outcome} IS NULL OR ${table.outcome} IN ('done','failed')`),
+  check("task_attempts_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+  check("task_attempts_closed_has_outcome", sql`(${table.until} IS NULL) = (${table.outcome} IS NULL)`),
+  check("task_attempts_failed_has_error", sql`${table.outcome} <> 'failed' OR ${table.error} IS NOT NULL`),
+  check("task_attempts_result_only_done", sql`${table.outcome} = 'done' OR ${table.result} IS NULL`),
+]);
+
+// ── human consent ────────────────────────────────────────────────────────────
+
+export const grantRequests = sqliteTable("grant_requests", {
+  id: text("id").primaryKey(),
+  actionHash: text("action_hash").notNull(),
+  kind: text("kind").notNull(),
+  requestedBy: text("requested_by").references(() => agents.id),
+  requestedAt: integer("requested_at").notNull(),
+}, (table) => [index("grants_by_action").on(table.actionHash)]);
+
+export const grantRequestParams = sqliteTable("grant_request_params", {
+  requestId: text("request_id").notNull().references(() => grantRequests.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  value: text("value").notNull(),
+}, (table) => [primaryKey({ columns: [table.requestId, table.name] })]);
+
+export const grantApprovals = sqliteTable("grant_approvals", {
+  requestId: text("request_id").primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
+  approvedAt: integer("approved_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  hostId: text("host_id").notNull().references(() => hosts.id),
+}, (table) => [check("grant_approvals_expiry", sql`${table.expiresAt} > ${table.approvedAt}`)]);
+
+export const grantDenials = sqliteTable("grant_denials", {
+  requestId: text("request_id").primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
+  deniedAt: integer("denied_at").notNull(),
+});
+
+export const grantSpends = sqliteTable("grant_spends", {
+  requestId: text("request_id").primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
+  spentAt: integer("spent_at").notNull(),
+  spentBy: text("spent_by").references(() => agents.id),
+});
+
+// ── derived states ───────────────────────────────────────────────────────────
+
+export const taskStates = sqliteView("task_states", {
+  taskId: text("task_id").notNull(),
+  state: text("state").notNull(),
+}).existing();
+
+/** Expiry is absent on purpose: it depends on the clock, and a view that reads
+ *  the clock answers differently for unchanged rows. Callers compare
+ *  `expires_at` at the instant they spend. */
+export const grantStates = sqliteView("grant_states", {
+  requestId: text("request_id").notNull(),
+  actionHash: text("action_hash").notNull(),
+  kind: text("kind").notNull(),
+  requestedAt: integer("requested_at").notNull(),
+  expiresAt: integer("expires_at"),
+  state: text("state").notNull(),
+}).existing();

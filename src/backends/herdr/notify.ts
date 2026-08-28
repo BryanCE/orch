@@ -12,7 +12,6 @@ function herdrRunsAgents(): boolean {
 /** Herdr-owned native notification sink. */
 export const herdrNotificationProvider: SinkProvider = {
   id: HERDR_SINK_ID,
-  onDefaults: ["blocked", "error"],
   label: "Herdr",
   description: "Herdr native notifications",
   remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",

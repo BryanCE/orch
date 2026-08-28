@@ -12,7 +12,7 @@ orch owns one canonical event model and formatter. Producers emit the event; not
 
 ## Built-in notifier adapters
 
-Each entry is an object in the `notify` array of `settings.json`. The `on` field is optional and defaults to `["blocked", "error"]`; it filters delivery by the event's `newState`. Adapter-specific fields are the remaining keys in the object.
+Each entry is an object in the `notify` array of `settings.json`. The `on` field is optional and defaults to `["blocked", "error", "done"]`; it filters delivery by the event's `newState`. Adapter-specific fields are the remaining keys in the object.
 
 ### `herdr`
 

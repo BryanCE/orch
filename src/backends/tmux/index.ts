@@ -184,6 +184,16 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return handle;
   }
 
+  /** Replace a pane's shell with the agent, so a window's own pane becomes the
+   *  agent's rather than a second pane being opened beside it and the first
+   *  left to be closed — a close tmux is free to refuse. */
+  private runInPane(handle: TmuxHandle, cwd: string, envArgs: readonly string[], command: string): TmuxHandle {
+    const target = String(handle);
+    const respawned = bestEffortTmux(["respawn-pane", "-k", "-t", target, "-c", cwd, ...envArgs, "--", "bash", "-lc", command]);
+    if (respawned === null) throw new Error(`tmux could not start the agent in pane ${target}`);
+    return target;
+  }
+
   /** Open a fresh window to place a new pane when no group is given. */
   private placeInNewWindow(cwd: string, envArgs: readonly string[], command: string): TmuxHandle {
     const output = bestEffortTmux([
@@ -218,9 +228,11 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     // A planned target pane wins over the group: `-t <window>` splits whatever
     // pane happens to be active there, which makes placement depend on focus.
     const splitTarget = typeof opts.targetPane === "string" ? opts.targetPane : opts.group;
-    const handle = splitTarget
-      ? this.placeInGroup(splitTarget, opts.split, cwd, envArgs, command)
-      : this.placeInNewWindow(cwd, envArgs, command);
+    const handle = typeof opts.intoPane === "string"
+      ? this.runInPane(opts.intoPane, cwd, envArgs, command)
+      : splitTarget
+        ? this.placeInGroup(splitTarget, opts.split, cwd, envArgs, command)
+        : this.placeInNewWindow(cwd, envArgs, command);
 
     bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent_key", opts.key ?? ""]);
     bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent", String(adapter.id)]);
@@ -302,9 +314,10 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   /** Create a window and report it with its root pane. Throws on failure (D4). */
-  createGroup(opts: { workspace: string; cwd: string; label?: string | null }): { group: BackendGroup; rootHandle: TmuxHandle } {
+  createGroup(opts: CreateGroupRequest): { group: BackendGroup; rootHandle: TmuxHandle } {
     const args = ["new-window", "-P", "-F", "#{window_id}\t#{window_index}\t#{pane_id}", "-t", opts.workspace, "-c", opts.cwd];
     if (opts.label) args.push("-n", opts.label);
+    for (const [name, value] of Object.entries(opts.env ?? {})) args.push("-e", `${name}=${value}`);
     const [windowId, windowIndex, paneId] = execTmux(args).trim().split("\t");
     if (!windowId || !paneId) throw new Error("tmux new-window returned no window/pane id");
     const index = Number(windowIndex);

@@ -21,6 +21,9 @@ describe("build entrypoint", () => {
 
     expect(BUILD_RUNTIME).toBe("node");
     expect(readFileSync(file, "utf8").split("\n", 1)[0]).toBe("#!/usr/bin/env node");
-    expect(statSync(file).mode & 0o111).not.toBe(0);
+    // NTFS carries no executable bit, so `chmod` there can only ever clear or set
+    // read-only and the mode reads back 0. The permission is asserted where the
+    // filesystem can hold one; the shebang is asserted everywhere.
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o111).not.toBe(0);
   });
 });

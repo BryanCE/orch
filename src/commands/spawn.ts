@@ -1,4 +1,5 @@
 import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import { recordGrantRequest, spendGrant, type GrantAction } from "../store/grant-rows.ts";
 import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree, liveNamedRecords, nextNameIndex } from "../policy/name.ts";
@@ -495,16 +496,40 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
   }
 }
 
+/** Exactly what opening a workspace for this fleet would do. Every field the
+ *  human must see is here: it is both what they read and what the grant is
+ *  bound to, so the two can never describe different actions. */
+function newWorkspaceAction(settings: SpawnSettings, backend: Backend): GrantAction {
+  return {
+    kind: "spawn.new-workspace",
+    params: { plexer: backend.id, cwd: settings.cwd, panes: String(settings.n), name: settings.prefix },
+  };
+}
+
+/** Opening a workspace puts a window on the human's screen, so a caller with no
+ *  workspace of its own may not take one unasked. There is no flag to pass here:
+ *  a flag is typed by whoever runs the command, which is the agent. */
+function assertNewWorkspaceGranted(settings: SpawnSettings, backend: Backend, callerAgentId: string | null): void {
+  const action = newWorkspaceAction(settings, backend);
+  if (spendGrant(orchDir(), action, callerAgentId)) return;
+  const request = recordGrantRequest(orchDir(), action, callerAgentId);
+  die(`orch is not running inside a ${backend.id} pane, so this spawn would open a NEW ${backend.id} workspace.\n`
+    + `Ask the user to approve it in another terminal:\n\n    orch grant ${request.id}\n\n`
+    + `then retry this exact command. Or pass --workspace <id> to place the fleet in an open workspace,`
+    + ` or --backend headless with --prompt to launch detached.`);
+}
+
 /** The workspace this fleet lives in: the one the caller is sitting in, else one
  *  orch opens for itself, named for the project it was invoked from. A caller
  *  outside the plexer owns no workspace, and helping itself to an existing one
  *  puts orch's agents in another person's space. */
-function resolveSpawnWorkspace(settings: SpawnSettings, backend: Backend): string {
+function resolveSpawnWorkspace(settings: SpawnSettings, backend: Backend, callerAgentId: string | null): string {
   const existing = settings.workspace ?? callerWorkspace();
   if (existing) return existing;
   if (!backend.createWorkspace) {
     die(`backend ${backend.id} cannot open a workspace of its own. Pass --workspace <id>, or --backend headless with --prompt to launch detached.`);
   }
+  assertNewWorkspaceGranted(settings, backend, callerAgentId);
   try {
     return backend.createWorkspace({ cwd: settings.cwd, label: path.basename(settings.cwd) }).workspace;
   } catch (error: unknown) {
@@ -528,27 +553,33 @@ function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Ba
   // presence writer, registry, and daemon ack all join on it. The backend pane
   // handle is recorded as a field, never re-minted into a second key.
   const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
+  const spawner = spawnerIdentity();
+  // The group is born with a shell pane and the root agent runs IN it. Splitting
+  // off it and closing it instead left an orphan every time the plexer declined
+  // the close, and every later tiling decision balanced against that phantom.
+  const rootEnv = {
+    ...agentIdentityEnv(rootName, spawner),
+    ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined),
+    ORCH_AGENT_KEY: key,
+    ORCH_DIR: orchDir(),
+  };
   let group: BackendGroup;
-  let shellRoot: BackendHandle;
+  let rootPane: BackendHandle;
   try {
-    const created = groupHome.create({ workspace, cwd: rootCwd, label: settings.label });
+    const created = groupHome.create({ workspace, cwd: rootCwd, label: settings.label, env: rootEnv });
     group = created.group;
-    shellRoot = created.rootHandle;
+    rootPane = created.rootHandle;
   } catch (error: unknown) {
     die(`group create failed: ${errorMessage(error)}`);
   }
-  const spawner = spawnerIdentity();
   let handle: BackendHandle;
   try {
-    // The fresh tab's shell pane is the split target: without one the backend
-    // falls back to the caller's pane and the agent lands on the human's tab.
-    handle = backend.spawn(adapter, { key, env: { ...agentIdentityEnv(rootName, spawner), ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined) }, cwd: rootCwd, name: rootName, workspace, group: group.id, targetPane: shellRoot, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
+    handle = backend.spawn(adapter, { key, env: rootEnv, cwd: rootCwd, name: rootName, workspace, group: group.id, intoPane: rootPane, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
   } catch (error: unknown) {
     // A tab holding no agent is pure pollution: close it before failing the launch.
     try { groupHome.close(group.id); } catch { /* the failure below is the report */ }
     die(`root spawn failed: ${errorMessage(error)}`);
   }
-  backend.close(shellRoot);
   return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
 }
 
@@ -769,7 +800,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
     await executeDetachedSpawn(settings, backend, spawnerAgentId);
     return;
   }
-  const workspace = resolveSpawnWorkspace(settings, backend);
+  const workspace = resolveSpawnWorkspace(settings, backend, spawnerAgentId);
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
   const names = claimSpawnNames(settings.prefix, workspace, settings.n);

@@ -29,8 +29,10 @@ const HostSchema = z.strictObject({
 /** The shared agent-state vocabulary used by presence, events, and notify sinks. */
 export const NOTIFY_STATES = AGENT_STATES;
 export type NotifyState = (typeof NOTIFY_STATES)[number];
-/** The states a notify entry delivers on when it declares no `on` list of its own. */
-export const NOTIFY_DEFAULT_ON: readonly NotifyState[] = ["blocked", "error"];
+/** The states a notify entry delivers on when it declares no `on` list of its own:
+ *  work needs you, work broke, work finished. A notifier silent on `done` never
+ *  tells you the thing you were waiting for. */
+export const NOTIFY_DEFAULT_ON: readonly NotifyState[] = ["blocked", "error", "done"];
 const NotifyOnSchema = z.array(z.enum(NOTIFY_STATES)).optional();
 const NotifyEntrySchema = z.discriminatedUnion("id", [
   z.strictObject({ id: z.literal("desktop"), on: NotifyOnSchema }),

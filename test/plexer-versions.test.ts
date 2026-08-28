@@ -39,11 +39,29 @@ describe("plexer version support", () => {
   });
 
   test("doctor names both versions and tells the operator to update orch", () => {
-    const result = backendVersionsVerdict([{ plexerId: "herdr", installed: "0.9.0" }]);
+    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: true, installed: "0.9.0" }]);
     expect(result.status).toBe("fail");
     expect(result.detail).toContain("herdr");
     expect(result.detail).toContain("0.9.0");
     expect(result.detail).toContain(">=0.8.0 <0.9.0");
     expect(result.detail).toContain("update orch");
+  });
+
+  test("a supported plexer the user never installed is not a complaint", () => {
+    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: false, installed: null }]);
+    expect(result.status).toBe("ok");
+    expect(result.detail).toContain("herdr: not installed");
+  });
+
+  test("an in-range install reports ok with the version it read", () => {
+    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: true, installed: "0.8.4" }]);
+    expect(result.status).toBe("ok");
+    expect(result.detail).toContain("installed 0.8.4");
+  });
+
+  test("only an installed plexer that cannot report a version warns", () => {
+    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: true, installed: null }]);
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("--version");
   });
 });

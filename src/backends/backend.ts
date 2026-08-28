@@ -46,6 +46,9 @@ export interface CreateGroupRequest {
   readonly workspace: string;
   readonly cwd: string;
   readonly label?: string | null;
+  /** Environment for the group's own shell pane, for a caller that will launch
+   *  an agent in it rather than opening a second pane beside it. */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /** Result of creating a group, including its initial shell pane. */
@@ -184,6 +187,13 @@ export interface BackendSpawnOpts {
   readonly split?: BackendSplit;
   /** Pane the new pane must split, so placement never depends on what has focus. */
   readonly targetPane?: BackendHandle;
+  /**
+   * Launch the agent in this pane instead of opening one. A group is born with a
+   * shell pane, and splitting off it to then close it leaves an orphan whenever
+   * the plexer declines the close — which every later tiling decision then
+   * balances against. Handing that pane over directly cannot leave one.
+   */
+  readonly intoPane?: BackendHandle;
 }
 
 /** Opaque backend-specific process or pane handle. */

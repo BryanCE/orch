@@ -160,8 +160,11 @@ function recordedSkillRoots(): string[] {
   return (named.length ? named : [...SETTINGS_DEFAULTS.skills.roots]).map(resolveSkillRoot);
 }
 
-/** Every packaged skill, removed from every root the install wrote it to. */
+/** Every packaged skill, removed from every root the install wrote it to. A build
+ *  keeps them: only `orch setup` ever writes skills back, so a rebuild that removed
+ *  them would leave the machine without them until the next full reinstall. */
 function skillRemovals(): WipeStep[] {
+  if (isBuildCleanup) return [];
   const roots = recordedSkillRoots();
   return packagedSkillNames(REPO).flatMap((name) => roots.map((root) => deletion(join(root, name)))).filter(nonNull);
 }

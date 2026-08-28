@@ -1,7 +1,5 @@
-import { hostname } from "node:os";
-import { allBackends, detectBackends } from "../backends/registry.ts";
+import { allBackends, detectBackends, getBackend } from "../backends/registry.ts";
 import { SUPPORTED_RANGES, supportedRange, versionInRange } from "../backends/versions.ts";
-import { hostPlexers } from "../store/agent-rows.ts";
 import type { CheckResult, DoctorBackendReport } from "../check-result.ts";
 
 /** The backend orch would actually pick, given the configured default. Mirrors
@@ -69,9 +67,13 @@ export function backendCapabilitiesVerdict(
   };
 }
 
-/** Probe every supported backend, mark enabled ones, then apply the verdict. */
+/** What this host can say about one plexer right now: whether its binary is
+ *  here at all, and the version that binary reports. A plexer orch supports but
+ *  the user never installed is a choice, not a defect — `installed` is only
+ *  meaningful once `detected` is true. */
 export interface BackendVersionObservation {
   plexerId: string;
+  detected: boolean;
   installed: string | null;
 }
 
@@ -82,39 +84,42 @@ export interface BackendVersionObservation {
 export function backendVersionsVerdict(observations: readonly BackendVersionObservation[]): CheckResult {
   const rows: string[] = [];
   const failures: string[] = [];
-  let unknown = 0;
-  for (const observation of observations) {
-    const range = supportedRange(observation.plexerId);
+  const unreadable: string[] = [];
+  for (const { plexerId, detected, installed } of observations) {
+    const range = supportedRange(plexerId);
     if (!range) continue;
-    const installed = observation.installed;
-    if (!installed) {
-      unknown++;
-      rows.push(`${observation.plexerId}: installed version unknown (supported ${range})`);
-      continue;
-    }
-    if (versionInRange(installed, range)) {
-      rows.push(`${observation.plexerId}: installed ${installed}, supported ${range} (in range)`);
+    if (!detected) {
+      rows.push(`${plexerId}: not installed`);
+    } else if (!installed) {
+      const reason = `${plexerId}: installed but '${plexerId} --version' reported no version orch could read (supported ${range})`;
+      unreadable.push(reason);
+      rows.push(reason);
+    } else if (versionInRange(installed, range)) {
+      rows.push(`${plexerId}: installed ${installed}, supported ${range} (in range)`);
     } else {
-      const reason = `${observation.plexerId}: installed ${installed} is outside orch's supported ${range}; update orch`;
+      const reason = `${plexerId}: installed ${installed} is outside orch's supported ${range}; update orch`;
       failures.push(reason);
       rows.push(reason);
     }
   }
+  const reasons = [...failures, ...unreadable];
   return {
     id: "backend-versions",
     label: "Backend versions",
-    status: failures.length ? "fail" : unknown ? "warn" : "ok",
-    detail: failures.length ? `${failures.join("; ")}\n    ${rows.join("\n    ")}` : rows.join("\n    ") || "no supported plexer versions recorded",
+    status: failures.length ? "fail" : unreadable.length ? "warn" : "ok",
+    detail: reasons.length ? `${reasons.join("; ")}\n    ${rows.join("\n    ")}` : rows.join("\n    ") || "no supported plexers",
   };
 }
 
-/** Compare the current host's recorded install rows with orch's declarations. */
-export function checkBackendVersions(orchDir: string, hostId = hostname()): CheckResult {
-  const rows = hostPlexers(orchDir, hostId).filter((row) => row.until === null);
-  const observations = Object.keys(SUPPORTED_RANGES).map((plexerId) => ({
-    plexerId,
-    installed: rows.find((row) => row.plexerId === plexerId)?.version ?? null,
-  }));
+/** Ask each supported plexer on this machine what it is, then compare against
+ * orch's declared range. The binary is the fact; the store's install history is
+ * a record of past sessions and answers nothing about a fresh checkout. */
+export function checkBackendVersions(): CheckResult {
+  const detected = detectBackends();
+  const observations = Object.keys(SUPPORTED_RANGES).map((plexerId) => {
+    const here = detected.get(plexerId)?.detected ?? false;
+    return { plexerId, detected: here, installed: here ? getBackend(plexerId)?.version?.() ?? null : null };
+  });
   return backendVersionsVerdict(observations);
 }
 

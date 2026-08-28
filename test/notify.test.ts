@@ -64,9 +64,9 @@ describe("notify", () => {
     const result = captureStderr(() => loadSinks(directory));
 
     expect(result.value).toEqual([
-      { type: "desktop", on: ["blocked", "error"] },
+      { type: "desktop", on: ["blocked", "error", "done"] },
       { type: "webhook", on: ["done", "error"], url: "https://example.test/hook", timeoutMs: 3000 },
-      { type: "command", on: ["blocked", "error"], command: nodeCommand(""), timeoutMs: 3000 },
+      { type: "command", on: ["blocked", "error", "done"], command: nodeCommand(""), timeoutMs: 3000 },
       { type: "herdr", on: ["done"], timeoutMs: 3000 },
     ]);
     expect(result.stderr).toBe("");

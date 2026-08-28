@@ -3,7 +3,18 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+
+function stringField(row: unknown, column: string): string {
+  if (isRecord(row) && typeof row[column] === "string") return row[column];
+  throw new Error(`row carries no string '${column}'`);
+}
+
+function numberField(row: unknown, column: string): number {
+  if (isRecord(row) && typeof row[column] === "number") return row[column];
+  throw new Error(`row carries no number '${column}'`);
+}
 
 type Db = ReturnType<typeof openStore>;
 interface TableColumn { name: string; type: string; notnull: number }
@@ -21,9 +32,10 @@ function base(d: ReturnType<typeof openStore>) {
 // Keep it independent of src/store/schema.ts: a missing or superseded object must
 // make this test fail rather than being silently excluded as a legacy name.
 const expectedInventory = new Set([
-  ...["ownership", "outbox", "spawned", "catalogues", "events", "runs", "harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes"].map(name => `table:${name}`),
-  ...["outbox_pending", "runs_agent_started", "one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running"].map(name => `index:${name}`),
+  ...["ownership", "outbox", "spawned", "catalogues", "events", "runs", "harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes", "grant_requests", "grant_request_params", "grant_approvals", "grant_denials", "grant_spends", "__drizzle_migrations"].map(name => `table:${name}`),
+  ...["outbox_pending", "runs_agent_started", "one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running", "grants_by_action"].map(name => `index:${name}`),
   `view:task_states`,
+  `view:grant_states`,
   ...["agent_handles", "agent_processes", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "host_plexers", "task_attempts", "pack_intakes"].map(name => `trigger:${name}_no_overlap`),
 ]);
 
@@ -36,13 +48,13 @@ function addDeps(d: ReturnType<typeof openStore>) {
 describe("rebuild schema", () => {
   test("rebuild DDL inventory is exact", () => {
     const d = db();
-    const rows = d.query("SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as {type:string,name:string}[];
-    expect(new Set(rows.map(r => `${r.type}:${r.name}`))).toEqual(expectedInventory);
+    const rows = d.query("SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all();
+    expect(new Set(rows.map((row) => `${stringField(row, "type")}:${stringField(row, "name")}`))).toEqual(expectedInventory);
   });
 
-  test("schema stamp and foreign keys are enabled", () => {
+  test("the store opens migrated, with foreign keys enabled", () => {
     const d = db();
-    expect(d.query("PRAGMA user_version").get()).toEqual({ user_version: 6 });
+    expect(numberField(d.query("SELECT COUNT(*) AS applied FROM __drizzle_migrations").get(), "applied")).toBeGreaterThan(0);
     expect(d.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   });
 
@@ -127,7 +139,9 @@ describe("rebuild schema", () => {
     expect(() => d.query("INSERT INTO agent_leases(id,agent_id,orch_id,since,until) VALUES (?,?,?,?,?)").run(10,"a","b",1,2)).toThrow();
     d.query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,?)").run("b",2,"a");
     d.query("DELETE FROM agents WHERE id = ?").run("b");
-    expect(d.query("SELECT 1 FROM agent_endings WHERE agent_id='b'").get()).toBeNull();
+    // Count, not the row: an empty `.get()` is undefined under node:sqlite and
+    // null under bun:sqlite, and the cascade is what this asserts either way.
+    expect(d.query("SELECT COUNT(*) AS rows FROM agent_endings WHERE agent_id='b'").get()).toEqual({ rows: 0 });
     d.query("INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?)").run("t","T","{}","a", "a", null, null, 1);
     let since = 10;
     const bad = (outcome: string | null,result: string | null,error: string | null) => () => d.query("INSERT INTO task_attempts(task_id,since,until,agent_id,dispatch_id,outcome,result,error) VALUES (?,?,?,?,?,?,?,?)").run("t",since++,100,"a","x",outcome,result,error);

@@ -1,40 +1,43 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
 import type { NotifyEvent } from "../src/notify/format.ts";
 
+// Stubbing the cli module replaces it for every test file in the process, which
+// silently hands the next suite these fixtures instead of its own. The cli
+// already exposes the process runner as a seam, so the fake goes there: one
+// suite's fake cannot outlive its own restore, and the real argv building,
+// parsing and error wrapping stay under test.
 const herdrArgv: string[][] = [];
 const launched = new Set<string>();
-void mock.module("../src/backends/herdr/cli.ts", () => ({
-  herdrPanes: () => [{ pane_id: "w6:p9", workspace_id: "ws-test" }],
-  herdrJSON: (args: string[]) => {
-    herdrArgv.push([...args]);
-    // herdr answers `pane run` with an empty body, never JSON.
-    if (args[0] === "pane" && args[1] === "run") throw new Error(`herdr ${args.join(" ")} returned non-JSON: `);
-    launched.delete("w6:p10");
-    if (args[0] === "pane" && args[1] === "split") return { pane: { pane_id: "w6:p10" } };
-    return { tab: { tab_id: "t6", workspace_id: "ws-test" }, root_pane: { pane_id: "w6:p10" } };
-  },
-  herdrAck: (args: string[]) => {
-    herdrArgv.push([...args]);
-    if (args[0] === "pane" && args[1] === "run") launched.add(args[2] ?? "");
-  },
-  herdrNames: () => new Map(),
-  herdrTabs: () => new Map(),
-  herdrReachable: () => true,
-  herdrVersion: () => null,
-  paneStatus: () => null,
-  // A pane runs its shell until the launch line lands, then the harness owns the
-  // terminal — the transition spawn verifies before calling a launch done.
-  herdrExec: (args: string[]) => {
-    const running = launched.has(args[3] ?? "");
-    return JSON.stringify({ result: { process_info: {
-      shell_pid: 100,
-      foreground_process_group_id: running ? 200 : 100,
-      foreground_processes: [{ name: running ? "pi" : "bash" }],
-    } } });
-  },
-}));
+
+/** A pane runs its shell until the launch line lands, then the harness owns the
+ *  terminal - the transition spawn verifies before calling a launch done. */
+function paneProcessInfo(pane: string): string {
+  const running = launched.has(pane);
+  return JSON.stringify({ result: { process_info: {
+    shell_pid: 100,
+    foreground_process_group_id: running ? 200 : 100,
+    foreground_processes: [{ name: running ? "pi" : "bash" }],
+  } } });
+}
+
+const restoreExecutor = setHerdrExecutor((_command, args) => {
+  herdrArgv.push([...args]);
+  const [command, subcommand] = args;
+  if (command === "pane" && subcommand === "process-info") return paneProcessInfo(args[3] ?? "");
+  if (command === "pane" && subcommand === "list") return JSON.stringify({ panes: [{ pane_id: "w6:p9", workspace_id: "ws-test" }] });
+  if (command === "agent" && subcommand === "list") return JSON.stringify({ agents: [] });
+  if (command === "tab" && subcommand === "list") return JSON.stringify({ tabs: [] });
+  if (command === "tab" && subcommand === "create") {
+    return JSON.stringify({ tab: { tab_id: "t6", workspace_id: "ws-test" }, root_pane: { pane_id: "w6:p10" } });
+  }
+  if (command === "pane" && subcommand === "split") return JSON.stringify({ pane: { pane_id: "w6:p10" } });
+  if (command === "pane" && subcommand === "run") launched.add(args[2] ?? "");
+  // Every mutation answers with an empty body, never JSON.
+  return "";
+});
 
 /** The last call herdr received for one command, so an assertion names what it
  *  means instead of counting backwards past the launch checks. */
@@ -76,7 +79,7 @@ function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
 }
 
 afterAll(() => {
-  mock.restore();
+  restoreExecutor();
   if (callerPane === undefined) delete process.env.HERDR_PANE_ID;
   else process.env.HERDR_PANE_ID = callerPane;
 });
@@ -88,10 +91,11 @@ describe("herdr and notification hardening", () => {
 
     expect(handle).toBe("w6:p10");
     expect(lastCall("pane", "rename")).toEqual(["pane", "rename", "w6:p10", "pi-"]);
-    // Canonical herdr launch: the harness kind is selected by herdr, and the
-    // pane handle is passed as one argv value.
+    // Canonical herdr launch: the harness kind is selected by herdr, the pane
+    // handle is passed as one argv value, and orch hands herdr the same start
+    // budget it outwaits, so neither side can decide alone who gave up first.
     expect(lastCall("agent", "start")).toEqual([
-      "agent", "start", "pi-", "--kind", "pi", "--pane", "w6:p10",
+      "agent", "start", "pi-", "--kind", "pi", "--pane", "w6:p10", "--timeout", String(AGENT_START_TIMEOUT_MS),
     ]);
     expect(lastCall("tab", "create")).toContain("/tmp/work dir");
     expect(lastCall("tab", "create")).toContain(`ORCH_PROJECT=${projectRoot()}`);
@@ -109,11 +113,10 @@ describe("herdr and notification hardening", () => {
     expect(title).toContain("[workspace]");
     expect(title).not.toContain("[workspace] p9:");
 
-    let emitted: unknown;
+    let emitted: NotifyEvent | undefined;
     emitAndNotify((value) => { emitted = value; }, [], event());
-    const canonical = emitted as NotifyEvent;
-    expect(canonical.workspace).toBe("workspace");
-    expect(canonical.agent).toBe("workspace/agent-p9");
-    expect(canonical.agent).not.toContain("p9:");
+    expect(emitted?.workspace).toBe("workspace");
+    expect(emitted?.agent).toBe("workspace/agent-p9");
+    expect(emitted?.agent).not.toContain("p9:");
   });
 });

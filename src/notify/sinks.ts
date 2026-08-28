@@ -11,7 +11,6 @@ import { notificationText, payload, type NotifyEvent } from "./format.ts";
 /** Provider port used by backend-owned notification sinks. */
 export interface SinkProvider {
   id: string;
-  onDefaults: readonly string[];
   available(): boolean | Promise<boolean>;
   send(title: string, body: string): boolean | Promise<boolean>;
   remediation?: string;

@@ -1,50 +1,51 @@
-// Every DDL orch runs lives here and nowhere else. The per-agent json and jsonl
-// files stay the human-visible truth channel for presence and results; only this
-// internal state lives in SQLite.
+// The DDL drizzle-kit cannot emit. Tables, columns, indexes and CHECKs are
+// declared once in `tables.ts` and generated into `drizzle/`; SQLite views and
+// triggers have no drizzle builder, so they are written here and appended to the
+// generated migration by `bun db:gen`. Nothing here duplicates a table.
 
-/** Stamped into `PRAGMA user_version`; a store carrying any other stamp is
- *  malformed and gets reaped and recreated empty. */
-export const STORE_SCHEMA = 6;
+export interface UnemittedStatement {
+  /** The object this statement creates, so a re-run can tell it already exists. */
+  readonly name: string;
+  readonly sql: string;
+}
 
-const overlap = (table: string, keys: string) => { const where = keys.split(', ').map(k => `${k} = NEW.${k}`).join(' AND '); return `CREATE TRIGGER ${table}_no_overlap BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'overlapping interval') WHERE EXISTS (SELECT 1 FROM ${table} WHERE ${where} AND NEW.since < COALESCE(until, 9223372036854775807) AND COALESCE(NEW.until, 9223372036854775807) > since); END;`; };
-const NO_OVERLAP_TRIGGERS = [
-  overlap('agent_handles','agent_id'), overlap('agent_processes','agent_id'), overlap('agent_spaces','agent_id'), overlap('agent_tunings','agent_id'), overlap('agent_leases','agent_id'), overlap('space_plexers','space_id'), overlap('pack_plexers','pack_id'), overlap('host_plexers','host_id, plexer_id'), overlap('task_attempts','task_id'), overlap('pack_intakes','pack_id, space_id'),
-];
-export const REBUILD_DDL: readonly string[] = [
-// Runtime operational tables retained by current row owners. They are part of
-// the one current schema, not a second legacy DDL block.
-`CREATE TABLE ownership (agent_key TEXT PRIMARY KEY, owner TEXT NOT NULL, updated_at TEXT NOT NULL);`,
-`CREATE TABLE outbox (id TEXT PRIMARY KEY, target TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, next_attempt_at INTEGER NOT NULL DEFAULT 0);`,
-`CREATE TABLE spawned (pane TEXT PRIMARY KEY, ts TEXT, adapter TEXT, model TEXT, backend TEXT, workspace TEXT, handle TEXT, name TEXT, cwd TEXT, worktree TEXT, branch TEXT, spawned_by TEXT, spawned_by_label TEXT);`,
-`CREATE TABLE catalogues (command TEXT PRIMARY KEY, at INTEGER NOT NULL, stdout TEXT NOT NULL);`,
-`CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, payload TEXT NOT NULL);`,
-`CREATE TABLE runs (dispatch_id TEXT PRIMARY KEY, agent_key TEXT NOT NULL, adapter TEXT, model TEXT, workspace TEXT, task TEXT, state TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, tokens_in INTEGER, tokens_out INTEGER, cache_read INTEGER, cache_write INTEGER, cost REAL, turns INTEGER, result TEXT, last_error TEXT);`,
-"CREATE INDEX outbox_pending ON outbox(state, next_attempt_at);",
-"CREATE INDEX runs_agent_started ON runs(agent_key, started_at);",
-"CREATE TABLE harnesses (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, enabled_at INTEGER NULL) STRICT, WITHOUT ROWID;",
-"CREATE TABLE plexers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, enabled_at INTEGER NULL) STRICT, WITHOUT ROWID;",
-`CREATE TABLE hosts (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, os TEXT NOT NULL CHECK (os IN ('linux','windows','darwin')), created_at INTEGER NOT NULL) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE host_plexers (host_id TEXT NOT NULL REFERENCES hosts(id) ON DELETE CASCADE, plexer_id TEXT NOT NULL REFERENCES plexers(id), since INTEGER NOT NULL, until INTEGER NULL, version TEXT NOT NULL, PRIMARY KEY (host_id, plexer_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE spaces (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NULL REFERENCES agents(id), created_at INTEGER NOT NULL) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agents (id TEXT NOT NULL PRIMARY KEY, spawned_by TEXT NULL REFERENCES agents(id), root_agent_id TEXT NOT NULL REFERENCES agents(id), harness_id TEXT NOT NULL REFERENCES harnesses(id), cwd TEXT NOT NULL, name TEXT NOT NULL, label TEXT NULL, created_at INTEGER NOT NULL, CHECK (spawned_by IS NULL OR spawned_by <> id), CHECK (spawned_by IS NOT NULL OR root_agent_id = id)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_worktrees (agent_id TEXT NOT NULL PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, path TEXT NOT NULL, branch TEXT NOT NULL) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_endings (agent_id TEXT NOT NULL PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, ended_at INTEGER NOT NULL, closed_by TEXT NULL REFERENCES agents(id)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_processes (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, host_id TEXT NOT NULL REFERENCES hosts(id), pid INTEGER NOT NULL, start_token TEXT NULL, PRIMARY KEY (agent_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_plexers (agent_id TEXT NOT NULL PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, plexer_id TEXT NOT NULL REFERENCES plexers(id)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_handles (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, handle TEXT NOT NULL, PRIMARY KEY (agent_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_spaces (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, space_id TEXT NOT NULL REFERENCES spaces(id), PRIMARY KEY (agent_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_tunings (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, model TEXT NOT NULL, thinking TEXT NULL, PRIMARY KEY (agent_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE agent_leases (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, orch_id TEXT NOT NULL REFERENCES agents(id), since INTEGER NOT NULL, until INTEGER NULL, release_reason TEXT NULL CHECK (release_reason IN ('released','handoff','adopted','expired')), CHECK (until IS NULL OR until > since), CHECK ((until IS NULL) = (release_reason IS NULL)), CHECK (orch_id <> agent_id)) STRICT;`,
-`CREATE TABLE space_plexers (space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, plexer_id TEXT NOT NULL REFERENCES plexers(id), handle TEXT NOT NULL, PRIMARY KEY (space_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE pack_plexers (pack_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, plexer_id TEXT NOT NULL REFERENCES plexers(id), handle TEXT NOT NULL, PRIMARY KEY (pack_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE tasks (id TEXT NOT NULL PRIMARY KEY, text TEXT NOT NULL, opts TEXT NOT NULL, enqueued_by TEXT NOT NULL REFERENCES agents(id), scope_agent_id TEXT NULL REFERENCES agents(id), scope_pack_id TEXT NULL REFERENCES agents(id), scope_space_id TEXT NULL REFERENCES spaces(id), created_at INTEGER NOT NULL, CHECK ((scope_agent_id IS NOT NULL) + (scope_pack_id IS NOT NULL) + (scope_space_id IS NOT NULL) = 1)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE task_cancellations (task_id TEXT NOT NULL PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE, cancelled_at INTEGER NOT NULL, cancelled_by TEXT NOT NULL REFERENCES agents(id)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE task_attempts (task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, agent_id TEXT NOT NULL REFERENCES agents(id), dispatch_id TEXT NOT NULL, outcome TEXT NULL CHECK (outcome IN ('done','failed')), result TEXT NULL, error TEXT NULL, PRIMARY KEY (task_id, since), CHECK (until IS NULL OR until > since), CHECK ((until IS NULL) = (outcome IS NULL)), CHECK (outcome <> 'failed' OR error IS NOT NULL), CHECK (outcome = 'done' OR result IS NULL)) STRICT, WITHOUT ROWID;`,
-`CREATE TABLE pack_intakes (pack_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, since INTEGER NOT NULL, until INTEGER NULL, PRIMARY KEY (pack_id, space_id, since), CHECK (until IS NULL OR until > since)) STRICT, WITHOUT ROWID;`,
-`CREATE UNIQUE INDEX one_install ON host_plexers(host_id, plexer_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_live_process ON agent_processes(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_handle ON agent_handles(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_space ON agent_spaces(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_tuning ON agent_tunings(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_lease ON agent_leases(agent_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_space_home ON space_plexers(space_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_pack_home ON pack_plexers(pack_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_intake ON pack_intakes(pack_id, space_id) WHERE until IS NULL;`,`CREATE UNIQUE INDEX one_open_attempt ON task_attempts(task_id) WHERE until IS NULL;`,
-`CREATE INDEX agents_by_pack ON agents(root_agent_id);`,`CREATE INDEX agents_by_spawner ON agents(spawned_by);`,`CREATE INDEX leases_by_orch ON agent_leases(orch_id) WHERE until IS NULL;`,`CREATE INDEX tasks_by_agent ON tasks(scope_agent_id);`,`CREATE INDEX tasks_by_pack ON tasks(scope_pack_id);`,`CREATE INDEX tasks_by_space ON tasks(scope_space_id);`,`CREATE INDEX tasks_by_enqueuer ON tasks(enqueued_by);`,`CREATE INDEX attempts_running ON task_attempts(agent_id) WHERE until IS NULL;`,
-`CREATE VIEW task_states AS SELECT t.id AS task_id, CASE WHEN c.task_id IS NOT NULL THEN 'cancelled' WHEN (a.task_id IS NULL OR a.until IS NULL OR a.outcome = 'failed') AND ((t.scope_agent_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_endings e WHERE e.agent_id = t.scope_agent_id)) OR (t.scope_pack_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a_live WHERE a_live.root_agent_id = t.scope_pack_id AND NOT EXISTS (SELECT 1 FROM agent_endings e_live WHERE e_live.agent_id = a_live.id)))) THEN 'unrunnable' WHEN a.task_id IS NULL THEN 'queued' WHEN a.until IS NULL THEN 'claimed' ELSE a.outcome END AS state FROM tasks t LEFT JOIN task_cancellations c ON c.task_id = t.id LEFT JOIN task_attempts a ON a.task_id = t.id AND a.since = (SELECT MAX(since) FROM task_attempts WHERE task_id = t.id);`,
-...NO_OVERLAP_TRIGGERS,
+/** Reject a new interval that overlaps a live one for the same key. `[since, until)`
+ *  is half-open, so touching endpoints do not collide and an open interval runs to
+ *  the end of time. */
+function noOverlapTrigger(table: string, keys: string): UnemittedStatement {
+  const sameKey = keys.split(", ").map((key) => `${key} = NEW.${key}`).join(" AND ");
+  return {
+    name: `${table}_no_overlap`,
+    sql: `CREATE TRIGGER ${table}_no_overlap BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'overlapping interval') WHERE EXISTS (SELECT 1 FROM ${table} WHERE ${sameKey} AND NEW.since < COALESCE(until, 9223372036854775807) AND COALESCE(NEW.until, 9223372036854775807) > since); END;`,
+  };
+}
+
+const NO_OVERLAP_TRIGGERS: readonly UnemittedStatement[] = [
+  noOverlapTrigger("agent_handles", "agent_id"),
+  noOverlapTrigger("agent_processes", "agent_id"),
+  noOverlapTrigger("agent_spaces", "agent_id"),
+  noOverlapTrigger("agent_tunings", "agent_id"),
+  noOverlapTrigger("agent_leases", "agent_id"),
+  noOverlapTrigger("space_plexers", "space_id"),
+  noOverlapTrigger("pack_plexers", "pack_id"),
+  noOverlapTrigger("host_plexers", "host_id, plexer_id"),
+  noOverlapTrigger("task_attempts", "task_id"),
+  noOverlapTrigger("pack_intakes", "pack_id, space_id"),
 ];
 
-export const CORE_TABLE_DDL: readonly string[] = REBUILD_DDL;
+const TASK_STATES: UnemittedStatement = {
+  name: "task_states",
+  sql: `CREATE VIEW task_states AS SELECT t.id AS task_id, CASE WHEN c.task_id IS NOT NULL THEN 'cancelled' WHEN (a.task_id IS NULL OR a.until IS NULL OR a.outcome = 'failed') AND ((t.scope_agent_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_endings e WHERE e.agent_id = t.scope_agent_id)) OR (t.scope_pack_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a_live WHERE a_live.root_agent_id = t.scope_pack_id AND NOT EXISTS (SELECT 1 FROM agent_endings e_live WHERE e_live.agent_id = a_live.id)))) THEN 'unrunnable' WHEN a.task_id IS NULL THEN 'queued' WHEN a.until IS NULL THEN 'claimed' ELSE a.outcome END AS state FROM tasks t LEFT JOIN task_cancellations c ON c.task_id = t.id LEFT JOIN task_attempts a ON a.task_id = t.id AND a.since = (SELECT MAX(since) FROM task_attempts WHERE task_id = t.id);`,
+};
+
+// Expiry is deliberately absent: it depends on the clock, and a view that reads
+// the clock reports a different answer for the same rows. Callers compare
+// `expires_at` themselves at the instant they spend.
+const GRANT_STATES: UnemittedStatement = {
+  name: "grant_states",
+  sql: `CREATE VIEW grant_states AS SELECT r.id AS request_id, r.action_hash, r.kind, r.requested_at, a.expires_at, CASE WHEN s.request_id IS NOT NULL THEN 'spent' WHEN d.request_id IS NOT NULL THEN 'denied' WHEN a.request_id IS NULL THEN 'pending' ELSE 'approved' END AS state FROM grant_requests r LEFT JOIN grant_approvals a ON a.request_id = r.id LEFT JOIN grant_denials d ON d.request_id = r.id LEFT JOIN grant_spends s ON s.request_id = r.id;`,
+};
+
+/** Appended to the generated migration in this order: views first, so a trigger
+ *  may read one, then the interval guards. */
+export const UNEMITTED_DDL: readonly UnemittedStatement[] = [TASK_STATES, GRANT_STATES, ...NO_OVERLAP_TRIGGERS];

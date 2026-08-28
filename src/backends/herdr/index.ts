@@ -3,7 +3,7 @@ import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
 import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
 import type { PaneForeground } from "../pane-ready.ts";
-import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, version, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
+import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
   BackendCapabilities,
@@ -215,10 +215,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     // A planned target puts the pane in its tab from birth; without one herdr
     // splits the caller's own pane and the fresh pane must be re-seated after.
     const planned = typeof opts.targetPane === "string" ? opts.targetPane : null;
+    // A handed-over pane is the caller's to clean up, and it is already seated.
+    const adopted = typeof opts.intoPane === "string" ? opts.intoPane : null;
+    if (adopted) {
+      this.startAgentInPane(adapter, adopted, opts);
+      return adopted;
+    }
     const handle = this.openPane(workspace, opts, planned ?? process.env.HERDR_PANE_ID ?? null);
-    const name = paneName(adapter, opts);
     try {
-      herdrAck(["pane", "rename", handle, name]);
+      this.startAgentInPane(adapter, handle, opts);
     } catch (error: unknown) {
       try {
         herdrAck(["pane", "close", handle]);
@@ -229,10 +234,16 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       }
       throw error;
     }
-    const kind = herdrKind(adapter.id, name);
-    herdrAck(["agent", "start", name, "--kind", kind, "--pane", handle]);
     if (opts.group && !planned) this.reseatIntoGroup(handle, opts.group, opts.split ?? "right");
     return handle;
+  }
+
+  /** Name a pane for its agent and boot the harness in it. Cleanup is the
+   *  caller's: only it knows whether the pane is one it just opened. */
+  private startAgentInPane(adapter: AgentAdapter, handle: HerdrHandle, opts: BackendSpawnOpts): void {
+    const name = paneName(adapter, opts);
+    herdrAck(["pane", "rename", handle, name]);
+    herdrStartAgent(["agent", "start", name, "--kind", herdrKind(adapter.id, name), "--pane", handle]);
   }
 
   /** herdr's env flags for a pane orch is about to launch an agent into. */
@@ -444,9 +455,10 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Create a tab and report it with its root pane. Throws on failure. */
-  createGroup(opts: { workspace: string; cwd: string; label?: string | null }): { group: BackendGroup; rootHandle: HerdrHandle } {
+  createGroup(opts: CreateGroupRequest): { group: BackendGroup; rootHandle: HerdrHandle } {
     const args = ["tab", "create", "--workspace", opts.workspace, "--cwd", opts.cwd, "--no-focus"];
     if (opts.label) args.push("--label", opts.label);
+    args.push(...this.paneEnvFlags({ env: opts.env }));
     const result = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(args);
     if (!result?.tab?.tab_id || !result.root_pane?.pane_id) throw new Error("tab create returned no tab/root pane");
     return { group: groupFromTab(result.tab), rootHandle: result.root_pane.pane_id };

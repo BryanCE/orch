@@ -117,10 +117,6 @@ export function checkRuntime(orchDir: string, observations: RuntimeObservations 
     problems.push(`declared runtime ${declared} is not on PATH, so every harness shim spawn will fail`);
   }
 
-  if (running !== declared) {
-    problems.push(`orch is running under ${running} but settings.json declares ${declared}`);
-  }
-
   const entrypoint = entrypointOf();
   const staleEntrypoint = entrypoint?.runtime && entrypoint.runtime !== declared ? entrypoint : null;
   if (staleEntrypoint) {

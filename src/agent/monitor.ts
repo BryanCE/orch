@@ -95,6 +95,9 @@ export interface FleetMonitorOptions {
   ownKey(context: HarnessContext): string | undefined;
   /** Themed spelling of the status line; plain text by default. */
   renderStatus?: FleetStatusRenderer;
+  /** Where transitions arrive from; the daemon's event stream by default. A test
+   *  pushes its own so the monitor's seam can be driven without a daemon. */
+  subscribe?: typeof subscribeEvents;
 }
 
 /**
@@ -169,7 +172,7 @@ export function createFleetMonitor(orchDir: string, options: FleetMonitorOptions
 
   // Live-only on initial connection: a plain pi session must not replay durable history.
   // Reconnects still resume from the last delivered sequence inside subscribeEvents.
-  subscription = subscribeEvents(orchDir, {}, (value) => {
+  subscription = (options.subscribe ?? subscribeEvents)(orchDir, {}, (value) => {
     if (!isNotifyEvent(value)) return;
     record(value);
     announce(value);

@@ -1,8 +1,9 @@
-import { createRequire } from "node:module";
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { join } from "node:path";
-import { STORE_SCHEMA, CORE_TABLE_DDL } from "./schema.ts";
+import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
+import { migrate } from "drizzle-orm/node-sqlite/migrator";
+import * as tables from "./tables.ts";
 import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
 import { presenceRoot } from "../presence/writer.ts";
 import { pidAlive } from "../util.ts";
@@ -19,14 +20,18 @@ interface DatabaseLike {
   close(): void;
 }
 
-/** Bind values crossing from orch's untyped statement port into the driver. Callers
- *  build these from row shapes the schema already fixes, so the driver rejects a
- *  genuinely unbindable value at run time rather than this cast hiding it. */
-function asSqlInputs(params: readonly unknown[]): SQLInputValue[] {
-  return params as SQLInputValue[];
+/** SQLite stores five kinds of value, and every caller of this port builds its
+ *  arguments from a row shape the schema already fixes. Anything else is a bug
+ *  worth naming here rather than a value to hand the driver and hope. */
+function bindValue(value: unknown): SQLInputValue {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") return value;
+  if (value instanceof Uint8Array) return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  throw new TypeError(`cannot bind ${typeof value} to a SQLite parameter`);
 }
 
-class SqliteDatabaseAdapter implements DatabaseLike {
+class NodeSqliteAdapter implements DatabaseLike {
   public constructor(private readonly database: DatabaseSync) {}
 
   exec(sql: string): void {
@@ -39,55 +44,46 @@ class SqliteDatabaseAdapter implements DatabaseLike {
 
   query(sql: string): StatementLike {
     const statement = this.database.prepare(sql);
+    const bound = (params: readonly unknown[]) => params.map(bindValue);
     return {
-      run: (...params) => ({ changes: Number(statement.run(...asSqlInputs(params)).changes) }),
-      all: (...params) => statement.all(...asSqlInputs(params)),
-      get: (...params) => statement.get(...asSqlInputs(params)),
+      run: (...params) => ({ changes: Number(statement.run(...bound(params)).changes) }),
+      all: (...params) => statement.all(...bound(params)),
+      // A row that is not there is absent, and absence is null here as it is in
+      // every column: one answer for "no row", never a second empty value a
+      // caller has to remember to test for separately.
+      get: (...params) => statement.get(...bound(params)) ?? null,
     };
   }
 }
 
-const connections = new Map<string, DatabaseLike>();
-
-const require = createRequire(import.meta.url);
-
-/** A built-in module this runtime provides, or null when it does not ship one. */
-function builtinModuleOrNull<Module>(specifier: string): Module | null {
-  try {
-    return require(specifier) as Module;
-  } catch {
-    return null;
-  }
+/** One open file, in both the shapes callers need: the untyped statement port
+ *  the store was written against, and the drizzle handle replacing it. Both
+ *  address the same connection, so a half-converted module stays consistent. */
+interface OpenDatabase {
+  readonly port: DatabaseLike;
+  readonly orm: NodeSQLiteDatabase<typeof tables>;
 }
 
-/** node:sqlite is the driver everywhere it exists; bun predates it, so bun:sqlite
- *  is the guarded fallback there (CLAUDE.md Rule 6). Resolved lazily so a runtime
- *  carrying neither fails at first use, with a name, rather than at module load. */
-function createDatabase(file: string): DatabaseLike {
-  const nodeSqlite = builtinModuleOrNull<{ DatabaseSync: new (file: string) => DatabaseSync }>("node:sqlite");
-  if (nodeSqlite) return new SqliteDatabaseAdapter(new nodeSqlite.DatabaseSync(file));
-  const bunSqlite = builtinModuleOrNull<{ Database: new (file: string, options: { create: boolean }) => DatabaseLike }>("bun:sqlite");
-  if (bunSqlite) return new bunSqlite.Database(file, { create: true });
-  throw new Error(`cannot open ${file}: this runtime provides neither node:sqlite nor bun:sqlite`);
+const connections = new Map<string, OpenDatabase>();
+
+/** One driver under both the raw port and drizzle, so a half-converted module
+ *  stays consistent. `node:sqlite` is a builtin in node and bun alike: no
+ *  compiled addon to mismatch a platform, and none for bun's N-API layer to
+ *  panic on (oven-sh/bun#24956). */
+function createDatabase(file: string): OpenDatabase {
+  const client = new DatabaseSync(file);
+  return { port: new NodeSqliteAdapter(client), orm: drizzle({ client, schema: tables }) };
 }
 
 function databasePath(orchDir: string): string {
   return join(orchDir, "orch.db");
 }
 
-function createTables(db: DatabaseLike): void {
-  for (const ddl of CORE_TABLE_DDL) db.exec(ddl);
-}
-
-/** True once any table exists — a file this open just created has none, and an
- *  unstamped empty file is new, not stale. */
-function storeIsPopulated(db: DatabaseLike): boolean {
-  return db.query("SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1").get() != null;
-}
-
-function storeSchemaOf(db: DatabaseLike): number {
-  const row = db.query("PRAGMA user_version").get() as { user_version?: number } | null;
-  return row?.user_version ?? 0;
+/** The generated migrations, shipped beside the package. Both bundles orch runs
+ *  from — `dist/bin/orch.js` and `dist/daemon/orchd.js` — sit two levels under the
+ *  package root, which is also where this file sits under the checkout. */
+function migrationsFolder(): string {
+  return join(import.meta.dirname, "..", "..", "drizzle");
 }
 
 /** A current-schema status record with a live pid means an agent is still
@@ -111,69 +107,83 @@ function hasLivePresence(orchDir: string): boolean {
   return false;
 }
 
+/** A store carrying orch's tables with no record of the migrations that create
+ *  them: every file written before orch adopted drizzle looks like this. Asked
+ *  first because drizzle's migrator writes `__drizzle_migrations` before it
+ *  reaches the collision, and a refused open must leave the file untouched. */
+function predatesMigrations(db: DatabaseLike): boolean {
+  const anyTable = db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1").get();
+  if (anyTable == null) return false;
+  return db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'").get() == null;
+}
+
 /**
- * Reap a store written against a different shape and hand back an empty one.
+ * Bring the file up to the migrations shipped with this orch, creating it when
+ * absent. drizzle records what it applied in `__drizzle_migrations`, so a store
+ * already at the newest migration runs no DDL at all.
  *
- * `CREATE TABLE IF NOT EXISTS` cannot add a column, so a store from an older
- * shape survives every open and then rejects each insert against the new
- * columns — which spawned panes that no row ever described. Pre-publish there
- * is exactly one shape (Rule 8): the old file is malformed data, not a version
- * to migrate.
+ * A store predating migrations is not repairable from here — it is backed up and
+ * rebuilt by `bun db:reset`.
  */
-function recreateStore(db: DatabaseLike, path: string): DatabaseLike {
-  db.close();
-  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
-  process.stderr.write(`orch: ${path} was written against an older store shape - recreated empty\n`);
-  return createDatabase(path);
+/** drizzle refuses a migration folder written by an older drizzle-kit. The folder
+ *  is the stale half, not the store, so rebuilding the store cannot fix it and
+ *  only costs the data — every rebuild meets the same refusal. */
+function migrationFolderPredatesKit(reason: string): boolean {
+  return reason.includes("drizzle-kit up");
+}
+
+function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): void {
+  try {
+    if (predatesMigrations(opened.port)) throw new Error("it has orch's tables but no record of the migrations that create them");
+    migrate(opened.orm, { migrationsFolder: migrationsFolder() });
+  } catch (error) {
+    opened.port.close();
+    const reason = error instanceof Error ? error.message : String(error);
+    const live = hasLivePresence(orchDir) ? " Live agents hold this store; close them first." : "";
+    const remedy = migrationFolderPredatesKit(reason)
+      ? "Regenerate the migration folder with 'bun db:gen'; rebuilding the store will not help."
+      : `Rebuild it with 'bun db:reset', which first keeps a copy under ${join(orchDir, "backups")}.`;
+    throw new Error(`orch: ${path} does not match orch's migrations (${reason}).${live} ${remedy}`);
+  }
+}
+
+/** The typed drizzle handle for one orch dir, opened and verified exactly as
+ *  {@link openStore} does — they share the connection cache and the one file. */
+export function orm(orchDir: string): NodeSQLiteDatabase<typeof tables> {
+  return openDatabase(orchDir).orm;
 }
 
 /** Open (create-if-absent) the WAL store for one orch dir; connection is cached. */
 export function openStore(orchDir: string): DatabaseLike {
+  return openDatabase(orchDir).port;
+}
+
+function openDatabase(orchDir: string): OpenDatabase {
   const path = databasePath(orchDir);
   const cached = connections.get(path);
   if (cached) return cached;
   mkdirSync(orchDir, { recursive: true });
-  let db = createDatabase(path);
+  const opened = createDatabase(path);
+  const db = opened.port;
   db.exec("PRAGMA foreign_keys = ON;");
-  let fresh = !storeIsPopulated(db);
-  if (!fresh) {
-    const foundSchema = storeSchemaOf(db);
-    if (foundSchema !== STORE_SCHEMA) {
-      const livePresence = hasLivePresence(orchDir);
-      const slave = process.env.ORCH_AGENT_KEY !== undefined;
-      if (livePresence) {
-        db.close();
-        throw new Error(`orch: refusing schema mismatch (schema skew: stamp ${foundSchema}, expected ${STORE_SCHEMA}) while live presence exists; stop agents before rebuild/reinstall`);
-      }
-      if (slave) {
-        db.close();
-        throw new Error(`orch: slave cannot recreate schema mismatch (schema skew: stamp ${foundSchema}, expected ${STORE_SCHEMA}); rebuild/reinstall orch from the pack orch or user`);
-      }
-      db = recreateStore(db, path);
-      db.exec("PRAGMA foreign_keys = ON;");
-      fresh = true;
-    }
-  }
-  db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
-  // The DDL is not idempotent and must never replay onto a live current-schema
-  // store: a reopen runs NO DDL at all. Only a new or just-reaped file is built.
-  if (fresh) {
-    createTables(db);
-    db.exec(`PRAGMA user_version = ${STORE_SCHEMA}`);
-  }
-  connections.set(path, db);
-  return db;
+  // Both pragmas above are connection state and write nothing. Journal mode is
+  // written into the file, so it comes after the guard: an open orch refuses
+  // must leave the store byte-identical.
+  applyMigrations(opened, path, orchDir);
+  db.exec("PRAGMA journal_mode = WAL;");
+  connections.set(path, opened);
+  return opened;
 }
 
 /** Close every cached connection; tests call this before removing their temp dirs. */
 export function closeAllStores(): void {
-  for (const [path, db] of connections) {
-    // bun's node:sqlite keeps a WAL-mode database file locked on Windows past
-    // close() (oven-sh/bun#25964); leaving WAL first releases the mapping so
-    // the file is deletable the moment close returns.
-    try { db.exec("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;"); } catch {}
-    db.close();
+  for (const [path, opened] of connections) {
+    // A WAL-mode database file can stay locked on Windows past close(); leaving
+    // WAL first releases the mapping so the file is deletable the moment close
+    // returns, which is what lets a test remove its temp dir.
+    try { opened.port.exec("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;"); } catch {}
+    opened.port.close();
     connections.delete(path);
   }
 }

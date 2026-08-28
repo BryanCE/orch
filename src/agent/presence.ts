@@ -7,10 +7,9 @@
 // Nothing here is backend-aware: the pane id, the status sink and the daemon ack
 // transport are all injected by the composition root.
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { HarnessApi, HarnessContext } from "./harness.ts";
-import { serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
+import { mintAgentId, serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
   ensurePresenceAgentDir,
@@ -101,16 +100,27 @@ export function isAssistantMessageLike(value: unknown): value is AssistantMessag
   return value.errorMessage === undefined || typeof value.errorMessage === "string";
 }
 
-// Orch-spawned agents use their opaque identity key. The owner's interactive
-// pane has a local pid key when no orch key is present; otherwise skip presence.
+/** The key an interactive session orch did not spawn addresses itself by. A
+ *  session is an agent, so it mints an id like any other and holds it for the
+ *  life of the process; a pid is where it runs, and a key built from one reads
+ *  back as a malformed identity every reader then has to ignore. Placement is
+ *  orch's to record, so the key carries the unplaced pair, never a claim. */
+let ownSessionKey: string | undefined;
+
+function sessionKey(): string {
+  ownSessionKey ??= serializeIdentity({ backend: "headless", workspace: "local", id: mintAgentId() });
+  return ownSessionKey;
+}
+
+// Orch-spawned agents use the identity their launch handed them; an interactive
+// session mints its own; a session with no UI has nobody to address and skips presence.
 function computeKey(hasUI: boolean): string | undefined {
   const rawKey = process.env.ORCH_AGENT_KEY;
   if (rawKey) {
     const identity = tryParseIdentity(rawKey);
     return identity ? serializeIdentity(identity) : undefined;
   }
-  if (hasUI && process.pid > 0) return `session-${process.pid}`;
-  return undefined;
+  return hasUI ? sessionKey() : undefined;
 }
 
 export function extractText(content: unknown): string {

@@ -8,6 +8,7 @@ import { presenceAgentDir, writeResult, writeStatus } from "../src/presence/writ
 import { createAgentChannelRole, createCaptureRole } from "../src/presence/roles.ts";
 import { insertOutboxMessage, outboxMessagePending } from "../src/store/outbox-rows.ts";
 import { consumeOutboxAcks } from "../src/daemon/outbox.ts";
+import { closeAllStores } from "../src/store/connection.ts";
 
 const dirs: string[] = [];
 function tempOrchDir(): string {
@@ -17,6 +18,9 @@ function tempOrchDir(): string {
 }
 
 afterEach(() => {
+  // Windows keeps the store file locked while a connection is open, so the temp
+  // dir is only removable once every cached connection has been closed.
+  closeAllStores();
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 

@@ -36,7 +36,7 @@ export const Route = createFileRoute("/ws/$slug")({
 });
 
 function WorkspaceDetail() {
-  const { slug } = Route.useParams() as { slug: string };
+  const { slug } = Route.useParams();
   const { data: workspaces = [], isPending } = useFleet();
   const { events, status } = useDaemonEvents();
   const [selected, setSelected] = useState<FleetAgent | null>(null);
@@ -54,6 +54,10 @@ function WorkspaceDetail() {
 
   const agentKeys = new Set(ws.agents.map((agent) => agent.key));
   const workspaceEvents = events.filter((event) => typeof event.key === "string" && agentKeys.has(event.key));
+  // A missing lease is an explicit, daemon-derived state. Unknown rows stay in
+  // the existing fleet until their transitional agents record appears.
+  const unleased = ws.agents.filter((agent) => agent.leaseKnown && agent.lease === null);
+  const liveFleet = ws.agents.filter((agent) => !(agent.leaseKnown && agent.lease === null));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -79,16 +83,38 @@ function WorkspaceDetail() {
                   <p className="text-sm">No agents in this workspace.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {ws.agents.map((a) => (
-                    <AgentCard
-                      key={a.key}
-                      agent={a}
-                      active={selected?.key === a.key}
-                      onClick={() => setSelected(a)}
-                    />
-                  ))}
-                </div>
+                <>
+                  {liveFleet.length > 0 && (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {liveFleet.map((a) => (
+                        <AgentCard
+                          key={a.key}
+                          agent={a}
+                          active={selected?.key === a.key}
+                          onClick={() => setSelected(a)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {unleased.length > 0 && (
+                    <section className={cn("mt-8 space-y-3", "opacity-60")}>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Unleased</h2>
+                        <Badge variant="outline" className="font-mono text-[10px]">{unleased.length}</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {unleased.map((a) => (
+                          <AgentCard
+                            key={a.key}
+                            agent={a}
+                            active={selected?.key === a.key}
+                            onClick={() => setSelected(a)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
             </div>
           </ScrollArea>

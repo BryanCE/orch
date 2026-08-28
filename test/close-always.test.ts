@@ -1,9 +1,10 @@
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { cmdClose } from "../src/commands/lifecycle.ts";
+import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { checkWall } from "../src/policy/workspace.ts";
@@ -12,6 +13,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: string[] = [];
+const children: ChildProcess[] = [];
 const oldDir = process.env.ORCH_DIR;
 const oldOwner = process.env.ORCH_OWNER;
 
@@ -46,7 +48,17 @@ function writeStatus(dir: string, key: string, handle: string, pid: number): voi
   }));
 }
 
-afterEach(() => {
+afterEach(async () => {
+  const spawned = children.splice(0);
+  for (const child of spawned) {
+    if (child.pid) { try { process.kill(child.pid, "SIGTERM"); } catch {} }
+  }
+  await Promise.all(spawned.map((child) => child.exitCode !== null
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+      const bound = setTimeout(resolve, 2_000);
+      child.once("close", () => { clearTimeout(bound); resolve(); });
+    })));
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
   if (oldOwner === undefined) delete process.env.ORCH_OWNER; else process.env.ORCH_OWNER = oldOwner;
@@ -62,7 +74,7 @@ describe("close always works", () => {
     ] as const;
     for (const [key, handle] of records) {
       recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle, owner: "caller" });
-      writeStatus(dir, key, handle, process.pid);
+      writeStatus(dir, key, handle, 99999999);
     }
 
     const backend = headlessBackend as typeof headlessBackend & {
@@ -87,6 +99,60 @@ describe("close always works", () => {
       expect(spawnedRecords().has(key)).toBe(false);
       expect(existsSync(join(dir, "agents", key))).toBe(false);
     }
+  });
+
+  test("presence-only live identity closes the pane without signalling or reaping", () => {
+    const dir = makeDir();
+    const key = "headless~foreign~legacy-presence";
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
+    children.push(child);
+    const pid = child.pid!;
+    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "caller" });
+    writeStatus(dir, key, key, pid);
+
+    const backend = headlessBackend as typeof headlessBackend & { capabilities: { panes: boolean } };
+    const oldPanes = backend.capabilities.panes;
+    const oldClose = backend.close.bind(backend);
+    let paneClosed = false;
+    const oldExitCode = process.exitCode;
+    backend.capabilities.panes = true;
+    backend.close = () => { paneClosed = true; return true; };
+    try { cmdClose([key, "--json"]); } finally {
+      process.exitCode = oldExitCode;
+      backend.capabilities.panes = oldPanes;
+      backend.close = oldClose;
+    }
+
+    expect(paneClosed).toBe(true);
+    expect(child.exitCode).toBeNull();
+    expect(spawnedRecords().has(key)).toBe(true);
+  });
+
+  test("close ignores owner and spawnedBy gates", () => {
+    makeDir();
+    const key = "headless~foreign~owned";
+    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "other", spawnedBy: "other-session" });
+    const backend = headlessBackend;
+    const oldClose = backend.close.bind(backend);
+    let closed = false;
+    backend.close = () => { closed = true; return true; };
+    try { cmdClose([key, "--json"]); } finally { backend.close = oldClose; }
+    expect(closed).toBe(true);
+    expect(spawnedRecords().has(key)).toBe(false);
+  });
+
+  test("abort ignores owner gate", () => {
+    makeDir();
+    const key = "headless~foreign~abort";
+    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "other", spawnedBy: "other-session" });
+    const backend = headlessBackend as Omit<typeof headlessBackend, "canSendKeys"> & { canSendKeys: boolean };
+    const oldCan = backend.canSendKeys;
+    const oldSend = backend.sendKeys.bind(backend);
+    let sends = 0;
+    backend.canSendKeys = true;
+    backend.sendKeys = () => { sends++; return true; };
+    try { cmdAbort([key, "--json"]); } finally { backend.canSendKeys = oldCan; backend.sendKeys = oldSend; }
+    expect(sends).toBe(2);
   });
 
   test("dead pane-less close is a successful no-op that reaps registry and presence", () => {

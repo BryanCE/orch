@@ -202,6 +202,18 @@ export interface DeadPresenceReapResult {
   failed: { entry: PresenceEntry; error: unknown }[];
 }
 
+/** Return the newest valid orch timestamp recorded in an agent's presence files. */
+function newestRecordedInstant(entry: PresenceEntry): number | null {
+  const values: unknown[] = [];
+  if (entry.status) values.push(entry.status.startedAt, entry.status.finishedAt, entry.status.updatedAt, entry.status.asking?.ts);
+  if (isRecord(entry.result)) values.push(entry.result.startedAt, entry.result.finishedAt, entry.result.updatedAt);
+  const instants = values
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => Date.parse(value))
+    .filter((value) => Number.isFinite(value));
+  return instants.length > 0 ? Math.max(...instants) : null;
+}
+
 /** Reap dead presence directories old enough for retention. This is the shared
  * path for daemon retention and `orch clean`; it also removes spawned and owner rows. */
 export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPresenceReapResult {
@@ -211,11 +223,10 @@ export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPr
   for (const entry of loadPresence(root).values()) {
     if (entry.alive) continue;
     if (cutoffMs !== undefined) {
-      try {
-        if (statSync(entry.dir).mtimeMs >= cutoffMs) continue;
-      } catch {
-        continue;
-      }
+      // Filesystem mtimes are incidental (rewrites, copies, and extraction can
+      // change them). Retention is based only on instants orch recorded.
+      const recorded = newestRecordedInstant(entry);
+      if (recorded !== null && recorded >= cutoffMs) continue;
     }
     try {
       reapSpawnedRecord(entry.key, root);

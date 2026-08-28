@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatEventGap, isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/events.ts";
+import { eventInMineScope, formatEventGap, isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/events.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc.ts";
 
@@ -11,6 +11,15 @@ describe("commands/events", () => {
   test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ statusFilter: null, all: false, json: false, sinceSeq: undefined, once: false, mine: true, targets: [] }));
   test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "--any-agent", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, sinceSeq: undefined, once: false, mine: false, targets: ["agent"] }));
   test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ statusFilter: null, all: false, json: true, sinceSeq: 42, once: true, mine: true, targets: [] }));
+  test("includes an adopted agent whose open lease is mine", () => {
+    expect(eventInMineScope({ mineAddress: "me", leaseOwner: "me", eventSpawnedBy: "other", recordSpawnedBy: "other" })).toBe(true);
+  });
+  test("keeps my spawned agent in scope before its lease is written", () => {
+    expect(eventInMineScope({ mineAddress: "me", leaseOwner: null, eventSpawnedBy: "me", recordSpawnedBy: "me" })).toBe(true);
+  });
+  test("excludes my spawned agent while another orch holds its lease", () => {
+    expect(eventInMineScope({ mineAddress: "me", leaseOwner: "other", eventSpawnedBy: "me", recordSpawnedBy: "me" })).toBe(false);
+  });
   test("describes durable replay and reports pruned history gaps", () => {
     expect(helpTopic("events")).toContain("survives daemon restarts");
     expect(helpTopic("events")).toContain("events retention window");

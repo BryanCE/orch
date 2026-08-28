@@ -16,14 +16,20 @@ const WORKER_HEADER_ASK_CLAUSE =
 /**
  * Appended only when BOTH sides of the reply can carry it: this worker's bridge
  * has the peer tools, and the spawner is a live presence inbox that can receive
- * the write. A worker's own `caps.steer` says nothing about whether whoever
+ * the write. A worker's own `capabilities.steer` says nothing about whether whoever
  * launched it has a mailbox — a Claude Code session orchestrating a pi fleet
  * never does, and telling its workers to `orch_send target "spawner"` sent every
  * one of them into a refusal they then had to reason their way out of.
  */
 const WORKER_HEADER_SPAWNER_CLAUSE =
   " The session orchestrating you is named in your status record (spawnedByLabel);" +
-  " reply or report to it with orch_send target \"spawner\".";
+  " reply or report to it with orch_send target \"spawner\" ONLY;" +
+  " never relay via siblings or other agents.";
+
+/** Appended when the spawner's inbox is not reachable: the result is collected from presence. */
+const WORKER_HEADER_NO_SPAWNER_CLAUSE =
+  " finish, write your result, END the turn - your result is collected from your session/result file;" +
+  " NEVER route a report through another agent.";
 
 /** Names the machine-wide locked commands; empty when the user declared none. */
 function lockedCommandsClause(lockedCommands: readonly string[]): string {
@@ -41,8 +47,10 @@ export interface WorkerHeaderContext {
 
 /** Compose the worker header from the adapter's capabilities and this spawn's reachable peers. */
 export function workerHeaderFor(adapter: AgentAdapter | undefined, context: WorkerHeaderContext = {}): string {
-  const ask = adapter?.caps.ask ? WORKER_HEADER_ASK_CLAUSE : "";
-  const spawner = adapter?.caps.steer === "inbox" && context.spawnerRepliable ? WORKER_HEADER_SPAWNER_CLAUSE : "";
+  const ask = adapter?.capabilities.ask ? WORKER_HEADER_ASK_CLAUSE : "";
+  const spawner = adapter?.capabilities.steer === "inbox" && context.spawnerRepliable
+    ? WORKER_HEADER_SPAWNER_CLAUSE
+    : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
   return WORKER_HEADER_BASE + ask + spawner + lockedCommandsClause(context.lockedCommands ?? []);
 }
 

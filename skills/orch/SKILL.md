@@ -66,6 +66,36 @@ run `orch doctor` — with `-y` it applies every fix unattended.
   the same tab, and immediately `orch close` the zombie it replaces. Never spawn while an
   addressable idle pane exists.
 
+## The cadence — how an orchestrator stays fast
+
+The failure mode is always the same: the fleet idles while the orchestrator reads, writes
+one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
+
+- **Batch the wave.** When N panes are free, send ALL their `reset` + `rename` calls in one
+  shot, then ALL N dispatches in the next. One pane at a time is the bottleneck wearing a
+  process hat.
+- **Keep one reviewer pane on a stronger model.** A `checker` pane (one tier up) does
+  nothing but verify landed work against its specs and WRITE its findings to a report file
+  (e.g. `recon/wave-review.md`): per slice PASS/ISSUES, file:line, smallest fix. The next
+  fix wave dispatches by pointing at that file — the orchestrator rules on conflicts
+  instead of re-deriving every finding.
+- **Recon before rewire.** Before a cross-cutting change, spend one pane on a READ-ONLY
+  inventory (every consumer, every call site, every fixture — file:line) written to a
+  report file. Dispatches then cite the report instead of restating it; the orchestrator
+  stops being the spec-writing bottleneck.
+- **Answer `asking` within seconds.** `orch questions` → `orch answer` the moment the watch
+  fires. A blocked pane is the most expensive kind of idle, and a steer aimed at it is lost.
+- **Verify at stopping points with scoped runs.** Turn idle panes into verifiers that run
+  ONLY their slice's test files: `orch lock run -- bun test <files>`. The lock serializes
+  heavy runs machine-wide (waiters sleep-poll until it frees, dead holders are evicted), so
+  a 12-pane fleet cannot stampede the machine. Full-suite gates stay with the user.
+- **`done` is a claim.** Check the diff or route it through the reviewer pane before
+  building on it; a $0.02 "done" on a big slice is a tell.
+- **Redispatch once on error, then escalate the model** — not the other way around.
+- **Self-hosting boundary:** changes to orch's own code bite only after rebuild + daemon
+  reload + respawn, and a daemon bounce deafens every live bridge — so batch orch-self
+  fixes at wave boundaries, never mid-wave.
+
 ## Spawn
 
 ```bash

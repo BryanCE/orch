@@ -58,9 +58,9 @@ const NotifyEntrySchema = z.discriminatedUnion("id", [
 export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 
 export const SETTINGS_DEFAULTS = {
-  fleet: { spawn_cap: 8, worker_peer_tools: false, cross_workspace: false },
+  fleet: { spawn_cap: 8, pack_cap: 10, worker_peer_tools: false, cross_workspace: false },
   queue: { max_retries: 1 },
-  retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, identities_days: 7, agent_dirs_days: 7, logs_days: 7 },
+  retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
@@ -95,6 +95,7 @@ const SettingsFileSchema = z.strictObject({
   }).optional(),
   fleet: z.strictObject({
     spawn_cap: PositiveInt.optional(),
+    pack_cap: PositiveInt.optional(),
     max_agents: PositiveInt.optional(),
     workspace_caps: z.record(z.string(), PositiveInt).optional(),
     worker_peer_tools: z.boolean().optional(),
@@ -120,9 +121,11 @@ const SettingsFileSchema = z.strictObject({
   queue: z.strictObject({
     max_retries: z.number().int().nonnegative().optional(),
   }).optional(),
-  /** Retention windows in days for settled queue tasks, stored events, completed runs,
-   * delivered outbox messages, session identities, dead agent directories, and logs. */
+  /** Retention windows in days for ended agents, settled queue tasks, stored events,
+   * completed runs, delivered outbox messages, and logs. */
   retention: z.strictObject({
+    /** Ended agent records and presence directories older than this many days. */
+    ended_agents_days: PositiveInt.optional(),
     /** Settled queue tasks older than this many days. */
     queue_days: PositiveInt.optional(),
     /** Stored events older than this many days. */
@@ -131,10 +134,6 @@ const SettingsFileSchema = z.strictObject({
     runs_days: PositiveInt.optional(),
     /** Delivered outbox messages older than this many days. */
     outbox_days: PositiveInt.optional(),
-    /** Session identities older than this many days. */
-    identities_days: PositiveInt.optional(),
-    /** Dead presence directories older than this many days. */
-    agent_dirs_days: PositiveInt.optional(),
     /** Headless log files older than this many days. */
     logs_days: PositiveInt.optional(),
   }).optional(),
@@ -175,11 +174,11 @@ export interface OrchConfig {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; worktree: boolean };
-  fleet: { spawn_cap: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
+  fleet: { spawn_cap: number; pack_cap?: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
-  retention: { queue_days: number; events_days: number; runs_days: number; outbox_days: number; identities_days: number; agent_dirs_days: number; logs_days: number };
+  retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; logs_days: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];
   locked_commands: string[];
@@ -320,6 +319,7 @@ function configValues(root: Partial<SettingsFile>): Omit<OrchConfig, "runtime" |
     defaults: { ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree },
     fleet: {
       spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
+      pack_cap: root.fleet?.pack_cap ?? SETTINGS_DEFAULTS.fleet.pack_cap,
       max_agents: root.fleet?.max_agents,
       workspace_caps: root.fleet?.workspace_caps ?? {},
       worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
@@ -334,12 +334,11 @@ function configValues(root: Partial<SettingsFile>): Omit<OrchConfig, "runtime" |
     },
     queue: { max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries },
     retention: {
+      ended_agents_days: root.retention?.ended_agents_days ?? SETTINGS_DEFAULTS.retention.ended_agents_days,
       queue_days: root.retention?.queue_days ?? SETTINGS_DEFAULTS.retention.queue_days,
       events_days: root.retention?.events_days ?? SETTINGS_DEFAULTS.retention.events_days,
       runs_days: root.retention?.runs_days ?? SETTINGS_DEFAULTS.retention.runs_days,
       outbox_days: root.retention?.outbox_days ?? SETTINGS_DEFAULTS.retention.outbox_days,
-      identities_days: root.retention?.identities_days ?? SETTINGS_DEFAULTS.retention.identities_days,
-      agent_dirs_days: root.retention?.agent_dirs_days ?? SETTINGS_DEFAULTS.retention.agent_dirs_days,
       logs_days: root.retention?.logs_days ?? SETTINGS_DEFAULTS.retention.logs_days,
     },
     timeouts: {

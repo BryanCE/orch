@@ -1,4 +1,7 @@
+import { hostname } from "node:os";
 import { allBackends, detectBackends } from "../backends/registry.ts";
+import { SUPPORTED_RANGES, supportedRange, versionInRange } from "../backends/versions.ts";
+import { hostPlexers } from "../store/agent-rows.ts";
 import type { CheckResult, DoctorBackendReport } from "../check-result.ts";
 
 /** The backend orch would actually pick, given the configured default. Mirrors
@@ -67,6 +70,54 @@ export function backendCapabilitiesVerdict(
 }
 
 /** Probe every supported backend, mark enabled ones, then apply the verdict. */
+export interface BackendVersionObservation {
+  plexerId: string;
+  installed: string | null;
+}
+
+/** Render the support-matrix comparison separately from host discovery so it is
+ * deterministic and easy to test. An out-of-range install is a hard failure:
+ * silently assuming a newer pre-1.0 integration is exactly the drift this check
+ * is intended to prevent. */
+export function backendVersionsVerdict(observations: readonly BackendVersionObservation[]): CheckResult {
+  const rows: string[] = [];
+  const failures: string[] = [];
+  let unknown = 0;
+  for (const observation of observations) {
+    const range = supportedRange(observation.plexerId);
+    if (!range) continue;
+    const installed = observation.installed;
+    if (!installed) {
+      unknown++;
+      rows.push(`${observation.plexerId}: installed version unknown (supported ${range})`);
+      continue;
+    }
+    if (versionInRange(installed, range)) {
+      rows.push(`${observation.plexerId}: installed ${installed}, supported ${range} (in range)`);
+    } else {
+      const reason = `${observation.plexerId}: installed ${installed} is outside orch's supported ${range}; update orch`;
+      failures.push(reason);
+      rows.push(reason);
+    }
+  }
+  return {
+    id: "backend-versions",
+    label: "Backend versions",
+    status: failures.length ? "fail" : unknown ? "warn" : "ok",
+    detail: failures.length ? `${failures.join("; ")}\n    ${rows.join("\n    ")}` : rows.join("\n    ") || "no supported plexer versions recorded",
+  };
+}
+
+/** Compare the current host's recorded install rows with orch's declarations. */
+export function checkBackendVersions(orchDir: string, hostId = hostname()): CheckResult {
+  const rows = hostPlexers(orchDir, hostId).filter((row) => row.until === null);
+  const observations = Object.keys(SUPPORTED_RANGES).map((plexerId) => ({
+    plexerId,
+    installed: rows.find((row) => row.plexerId === plexerId)?.version ?? null,
+  }));
+  return backendVersionsVerdict(observations);
+}
+
 export function checkBackendCapabilities(
   enabledIds: readonly string[] = allBackends().map((backend) => backend.id),
   configured?: string | null,

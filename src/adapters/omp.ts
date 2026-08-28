@@ -104,7 +104,7 @@ export class OmpAdapter implements AgentAdapter {
   readonly id = "omp" as const;
 
   /** omp supports every D4 capability through its bridge and session files. */
-  readonly caps = {
+  readonly capabilities = {
     steer: "inbox" as const,
     ask: true,
     setModel: true,

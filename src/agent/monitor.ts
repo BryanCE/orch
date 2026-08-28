@@ -1,36 +1,74 @@
-// pi's live view of the fleet, for a pi session that is ORCHESTRATING one.
+// The in-session view of a fleet, for a harness session that is ORCHESTRATING one.
 //
-// A pi orchestrator otherwise learns nothing until it polls: a worker can sit
+// An orchestrator otherwise learns nothing until it polls: a worker can sit
 // blocked on a question for an hour and the only tell is someone running
 // `orch status`. This subscribes ONCE to the daemon's event stream for the whole
-// session and keeps a widget current, so a transition arrives instead of being
-// discovered.
+// session and keeps a read model current, so a transition arrives instead of
+// being discovered.
+//
+// WHO sees it is identity, never environment: the model only surfaces agents
+// whose events say THIS session spawned them (`spawnedBy` == our presence key).
+// A pi session that never spawned anything — someone's personal pi in another
+// terminal — has an empty model and gets NO status line, no widget, nothing.
+// "Not a worker" was never evidence of being an orchestrator.
 //
 // The subscription is orch's transport (src/daemon/rpc.ts) and survives daemon
-// restarts on its own. Nothing here is plexer-aware: the fleet view is built
-// purely from the events, so no pane, tab or socket concept enters this file.
+// restarts on its own. Nothing here is plexer-aware: the view is built purely
+// from the events, so no pane, tab or socket concept enters this file.
 import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { subscribeEvents, type EventSubscription } from "../daemon/rpc.ts";
 import type { NotifyEvent } from "../notify/format.ts";
 import { isRecord, truncate } from "../util.ts";
 
-/** Widget id; also the status-line key, so both clear together. */
-const WIDGET_ID = "orch-fleet";
+/** Status-line key; one writer, cleared by the same key. */
+const STATUS_ID = "orch-fleet";
 
 /** States worth interrupting the user for the moment they are entered. */
 const ALERT_STATES = new Set(["blocked", "error", "aborted"]);
 
-/** States that mean the agent is finished with its turn. */
-const SETTLED_STATES = new Set(["done", "idle", "exited"]);
-
 const TASK_WIDTH = 60;
 
 /** One agent as the orchestrator currently understands it, from events alone. */
-interface FleetAgent {
+export interface FleetAgentRow {
+  key: string;
   name: string;
   state: string;
+  model: string | null;
   task: string;
+  cost?: number;
   ts: string;
+}
+
+/** Live, read-only view of this session's own fleet, for a harness UI to render. */
+export interface FleetReadModel {
+  list(): readonly FleetAgentRow[];
+  size(): number;
+  /** Fires on every accepted transition; returns an unsubscribe. */
+  subscribe(listener: () => void): () => void;
+}
+
+/** How the status line spells the fleet; a harness with a themed UI substitutes its own. */
+export type FleetStatusRenderer = (context: HarnessContext, agents: readonly FleetAgentRow[]) => string;
+
+export function countFleetStates(agents: readonly FleetAgentRow[]): { working: number; blocked: number; done: number; failed: number } {
+  let working = 0, blocked = 0, done = 0, failed = 0;
+  for (const agent of agents) {
+    if (agent.state === "working") working += 1;
+    else if (agent.state === "blocked" || agent.state === "asking") blocked += 1;
+    else if (agent.state === "error" || agent.state === "aborted") failed += 1;
+    else if (agent.state === "done" || agent.state === "idle") done += 1;
+  }
+  return { working, blocked, done, failed };
+}
+
+function plainStatus(_context: HarnessContext, agents: readonly FleetAgentRow[]): string {
+  const counts = countFleetStates(agents);
+  const parts: string[] = [];
+  if (counts.working) parts.push(`${counts.working} working`);
+  if (counts.blocked) parts.push(`${counts.blocked} blocked`);
+  if (counts.failed) parts.push(`${counts.failed} failed`);
+  if (counts.done) parts.push(`${counts.done} done`);
+  return `orch: ${parts.join(" · ")} — /fleet to view`;
 }
 
 function isNotifyEvent(value: unknown): value is NotifyEvent {
@@ -42,66 +80,89 @@ function isNotifyEvent(value: unknown): value is NotifyEvent {
 
 /** Short display name for an agent, falling back to its opaque key. */
 function agentLabel(event: NotifyEvent): string {
-  return event.agent ?? event.key;
-}
-
-function fleetLines(agents: Map<string, FleetAgent>): string[] {
-  if (agents.size === 0) return [`${WIDGET_ID}: no live agents`];
-  const width = Math.max(...[...agents.values()].map((agent) => agent.name.length));
-  return [...agents.values()]
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map((agent) => `${agent.name.padEnd(width)}  ${agent.state.padEnd(8)}  ${agent.task}`);
-}
-
-/** Agents whose state should pull the user's attention right now. */
-function alerting(agents: Map<string, FleetAgent>): FleetAgent[] {
-  return [...agents.values()].filter((agent) => ALERT_STATES.has(agent.state));
-}
-
-function summaryLine(agents: Map<string, FleetAgent>): string {
-  const blocked = alerting(agents).length;
-  const working = [...agents.values()].filter((agent) => agent.state === "working").length;
-  return `orch ${working} working${blocked ? `, ${blocked} needs you` : ""}`;
+  return event.name ?? event.agent ?? event.key;
 }
 
 export interface FleetMonitor {
-  /** Bind the monitor to a live session's UI and start streaming. */
+  /** Bind the monitor to a live session's UI and start rendering. */
   attach(context: HarnessContext): void;
   stop(): void;
+  readonly model: FleetReadModel;
+}
+
+export interface FleetMonitorOptions {
+  /** This session's own identity, once a context can compute it. */
+  ownKey(context: HarnessContext): string | undefined;
+  /** Themed spelling of the status line; plain text by default. */
+  renderStatus?: FleetStatusRenderer;
 }
 
 /**
  * Build the fleet monitor. It streams immediately so no transition is missed
  * while the session is still starting; the UI binds when a context arrives.
+ * Every event is kept, but only the session's OWN fleet is ever surfaced.
  */
-export function createFleetMonitor(orchDir: string): FleetMonitor {
-  const agents = new Map<string, FleetAgent>();
+export function createFleetMonitor(orchDir: string, options: FleetMonitorOptions): FleetMonitor {
+  const seen = new Map<string, { row: FleetAgentRow; spawnedBy: string | undefined }>();
+  const listeners = new Set<() => void>();
   let context: HarnessContext | undefined;
+  let key: string | undefined;
   let subscription: EventSubscription | undefined;
+  const renderStatus = options.renderStatus ?? plainStatus;
+
+  function ownAgents(): FleetAgentRow[] {
+    if (!key) return [];
+    return [...seen.values()]
+      .filter((entry) => entry.spawnedBy === key)
+      .map((entry) => entry.row)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  const model: FleetReadModel = {
+    list: () => ownAgents(),
+    size: () => ownAgents().length,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
 
   function render(): void {
     if (!context?.hasUI) return;
-    context.ui.setWidget(WIDGET_ID, fleetLines(agents));
-    context.ui.setStatus(WIDGET_ID, summaryLine(agents));
+    const agents = ownAgents();
+    // An empty fleet renders as NOTHING: no status line, no reminder that orch
+    // exists. This is what keeps an unrelated session's screen untouched.
+    context.ui.setStatus(STATUS_ID, agents.length === 0 ? undefined : renderStatus(context, agents));
   }
 
   function record(event: NotifyEvent): void {
-    if (SETTLED_STATES.has(event.newState) && event.newState === "exited") {
-      agents.delete(event.key);
+    if (event.newState === "exited") {
+      seen.delete(event.key);
       return;
     }
-    agents.set(event.key, {
-      name: agentLabel(event),
-      state: event.newState,
-      task: truncate(event.task ?? event.lastError ?? "", TASK_WIDTH),
-      ts: event.ts,
+    seen.set(event.key, {
+      spawnedBy: event.spawnedBy,
+      row: {
+        key: event.key,
+        name: agentLabel(event),
+        state: event.newState,
+        model: event.model ?? null,
+        task: truncate(event.task ?? event.lastError ?? "", TASK_WIDTH),
+        cost: event.cost,
+        ts: event.ts,
+      },
     });
+  }
+
+  function isOwn(event: NotifyEvent): boolean {
+    return key !== undefined && event.spawnedBy === key;
   }
 
   // An alert is announced once, on the transition INTO the state — re-announcing
   // on every later event would make the notification worthless.
   function announce(event: NotifyEvent): void {
-    if (!context?.hasUI || !ALERT_STATES.has(event.newState) || ALERT_STATES.has(event.oldState)) return;
+    if (!context?.hasUI || !isOwn(event)) return;
+    if (!ALERT_STATES.has(event.newState) || ALERT_STATES.has(event.oldState)) return;
     const detail = event.task ?? event.lastError ?? event.newState;
     context.ui.notify(`${agentLabel(event)}: ${truncate(detail, TASK_WIDTH)}`, event.newState === "blocked" ? "warning" : "error");
   }
@@ -111,34 +172,33 @@ export function createFleetMonitor(orchDir: string): FleetMonitor {
     record(value);
     announce(value);
     render();
+    if (isOwn(value)) for (const listener of listeners) listener();
   });
 
   return {
+    model,
     attach(next: HarnessContext): void {
       context = next;
+      key = options.ownKey(next);
       render();
     },
     stop(): void {
       subscription?.close();
       subscription = undefined;
-      if (context?.hasUI) {
-        context.ui.setWidget(WIDGET_ID, undefined);
-        context.ui.setStatus(WIDGET_ID, undefined);
-      }
+      if (context?.hasUI) context.ui.setStatus(STATUS_ID, undefined);
     },
   };
 }
 
-/** True when this pi session drives a fleet rather than being one of its workers.
- *  A worker is launched with an orch identity; an orchestrator never is. */
-export function isOrchestratorSession(): boolean {
-  return !process.env.ORCH_AGENT_KEY;
-}
-
-/** Wire the fleet monitor into a pi orchestrator session; a worker session gets nothing. */
-export function registerFleetMonitor(harness: HarnessApi, orchDir: string): void {
-  if (!isOrchestratorSession()) return;
-  const monitor = createFleetMonitor(orchDir);
+/** Wire the fleet monitor into an orchestrating session; a spawned worker gets nothing.
+ *  (A worker carries its minted identity in ORCH_AGENT_KEY; it never watches a fleet.) */
+export function registerFleetMonitor(
+  harness: HarnessApi,
+  orchDir: string,
+  options: FleetMonitorOptions,
+): FleetReadModel | undefined {
+  if (process.env.ORCH_AGENT_KEY) return undefined;
+  const monitor = createFleetMonitor(orchDir, options);
   harness.on("session_start", (_event, context) => {
     monitor.attach(context);
     return Promise.resolve();
@@ -147,4 +207,5 @@ export function registerFleetMonitor(harness: HarnessApi, orchDir: string): void
     monitor.stop();
     return Promise.resolve();
   });
+  return monitor.model;
 }

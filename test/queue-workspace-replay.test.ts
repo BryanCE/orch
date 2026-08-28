@@ -1,83 +1,25 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TaskRec } from "../src/queue";
-import { addTask, listTasks, nextQueuedTask } from "../src/queue";
-import { insertQueueTask } from "../src/store/queue-rows.ts";
+import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
+import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
-/** Seed a malformed queue row with a NULL origin workspace — addTask refuses to write one. */
-function seedUnscopedRow(orchDir: string, id: string): void {
-  const ts = new Date("2000-01-01T00:00:00.000Z").toISOString();
-  const task: TaskRec = {
-    id,
-    text: "legacy task",
-    opts: {},
-    createdAt: ts,
-    updatedAt: ts,
-    state: "queued",
-    retries: 0,
-  };
-  insertQueueTask(orchDir, task);
-}
+const dirs: string[] = [];
+afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-const tempDirs: string[] = [];
-
-function makeOrchDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-queue-workspace-"));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    removeTempDir(tempDirs.pop()!);
-  }
-});
-
-describe("queue workspace replay", () => {
-  test("persists workspace through append-only replay", () => {
-    const orchDir = makeOrchDir();
-    const task = addTask(orchDir, "do x", {}, "w8");
-
-    const replayed = listTasks(orchDir).find((candidate) => candidate.id === task.id);
-    expect(replayed).toMatchObject({ id: task.id, workspace: "w8" });
-  });
-
-  test("a malformed null-workspace row replays but is never claimable", () => {
-    const orchDir = makeOrchDir();
-    addTask(orchDir, "scoped", {}, "w1"); // creates the store + schema
-    seedUnscopedRow(orchDir, "orphan-row");
-
-    const replayed = listTasks(orchDir).find((candidate) => candidate.id === "orphan-row");
-    expect(replayed).toBeDefined();
-    expect(replayed?.workspace).toBeUndefined();
-    expect(nextQueuedTask(listTasks(orchDir).filter((task) => task.id === "orphan-row"), "agent", "w9")).toBeUndefined();
-  });
-
-  test("replays separate workspace values for multiple tasks", () => {
-    const orchDir = makeOrchDir();
-    const w1 = addTask(orchDir, "workspace one", {}, "w1");
-    const w8 = addTask(orchDir, "workspace eight", {}, "w8");
-
-    const replayed = listTasks(orchDir);
-    expect(replayed.find((task) => task.id === w1.id)?.workspace).toBe("w1");
-    expect(replayed.find((task) => task.id === w8.id)?.workspace).toBe("w8");
-  });
-
-  test("selects only tasks eligible for the requested workspace", () => {
-    const orchDir = makeOrchDir();
-    const w1 = addTask(orchDir, "workspace one", {}, "w1");
-    const w8 = addTask(orchDir, "workspace eight", {}, "w8");
-    seedUnscopedRow(orchDir, "orphan-row");
-
-    const replayed = listTasks(orchDir);
-    const next = nextQueuedTask(replayed, "agent", "w8");
-
-    // Only the w8 task is eligible: w1 is a foreign workspace, the orphan is malformed.
-    expect(next?.id).toBe(w8.id);
-    expect(next?.id).not.toBe(w1.id);
-    expect(next?.id).not.toBe("orphan-row");
+describe("queue replay keeps typed scope", () => {
+  test("stored scope offers pack work only to that pack", () => {
+    const dir = mkdtempSync(join(tmpdir(), "orch-queue-replay-")); dirs.push(dir);
+    const db = openStore(dir);
+    db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
+    for (const [id, root, parent] of [["a","a",null],["a1","a","a"],["b","b",null]] as const) {
+      db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?,1)").run(id,parent,root,"pi","/tmp",id);
+    }
+    const task = addTask(dir, "do x", {}, "a");
+    expect(listTasks(dir)[0]?.scopePackId).toBe("a");
+    expect(nextQueuedTask(dir, "a1", 1)?.id).toBe(task.id);
+    expect(nextQueuedTask(dir, "b", 1)).toBeUndefined();
   });
 });

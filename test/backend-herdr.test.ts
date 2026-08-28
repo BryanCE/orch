@@ -63,8 +63,6 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
   },
   herdrJSON: (args: string[]) => {
     herdrArgv.push([...args]);
-    // herdr answers `pane run` with an empty body: asking it for JSON is what
-    // aborted every spawn after the command had already started in the pane.
     if (args[0] === "pane" && args[1] === "run") throw new Error(`herdr ${args.join(" ")} returned non-JSON: `);
     if (args[0] === "pane" && args[1] === "move") return { move_result: moveResults.shift() ?? { changed: true } };
     if (args[0] === "pane" && args[1] === "split") return { pane: { pane_id: freshPane("w0:p3") } };
@@ -84,7 +82,7 @@ void mock.module("../src/backends/herdr/cli.ts", () => ({
   },
   herdrAck: (args: string[]) => {
     herdrArgv.push([...args]);
-    if (args[0] === "pane" && args[1] === "run") launched.add(args[2] ?? "");
+    if (args[0] === "agent" && args[1] === "start") launched.add(args[args.indexOf("--pane") + 1] ?? "");
   },
   herdrBestEffort: (args: string[]) => {
     herdrArgv.push([...args]);
@@ -98,7 +96,7 @@ const backend = new HerdrBackend();
 
 const fakeAdapter: AgentAdapter = {
   id: "pi",
-  caps: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
+  capabilities: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
   interactiveCmd: () => "fake-agent",
   headlessCmd: () => ["true"],
   detectState: () => "unknown",
@@ -124,7 +122,7 @@ describe("HerdrBackend", () => {
     expect(backend.id).toBe("herdr");
     expect(backend.panes).toBe(true);
     expect(backend.focusable).toBe(true);
-    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
+    expect(backend.capabilities).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
 
     // No caller pane, so the agent gets its own tab in the workspace it was
     // handed — never one this process went looking for.
@@ -136,20 +134,15 @@ describe("HerdrBackend", () => {
     expect(herdrArgv).toEqual([
       ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
       ["pane", "rename", "w0:p9", "pi-agent"],
-      ["pane", "process-info", "--pane", "w0:p9"],
-      ["pane", "run", "w0:p9", "bash -lc 'fake-agent'"],
-      ["pane", "process-info", "--pane", "w0:p9"],
+      ["agent", "start", "pi-agent", "--kind", "pi", "--pane", "w0:p9"],
     ]);
   });
 
-  test("orch launches its own command line; herdr never picks the executable", () => {
-    // `agent start --kind` would substitute herdr's canonical binary and drop
-    // both the adapter command and an explicit --cmd.
+  test("starts the mapped herdr harness kind in the pane it created", () => {
     herdrArgv.length = 0;
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", cmd: "my-own-launcher --flag" });
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", cmd: "ignored-by-herdr-start" });
 
-    expect(lastCall("pane", "run")).toEqual(["pane", "run", "w0:p9", "bash -lc 'my-own-launcher --flag'"]);
-    expect(herdrArgv.flat()).not.toContain("--kind");
+    expect(lastCall("agent", "start")).toEqual(["agent", "start", "pi-agent", "--kind", "pi", "--pane", "w0:p9"]);
   });
 
   test("a caller pane is split rather than given a new tab", () => {
@@ -194,7 +187,7 @@ describe("HerdrBackend", () => {
     backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t1", split: "down", targetPane: "w0:p1" });
 
     expect(herdrArgv[0]?.slice(0, 5)).toEqual(["pane", "split", "w0:p1", "--direction", "down"]);
-    expect(lastCall("pane", "run")).toEqual(["pane", "run", "w0:p3", "bash -lc 'fake-agent'"]);
+    expect(lastCall("agent", "start")).toEqual(["agent", "start", "pi-agent", "--kind", "pi", "--pane", "w0:p3"]);
     expect(herdrArgv.some((args) => args[1] === "move")).toBe(false);
   });
 

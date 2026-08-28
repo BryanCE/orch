@@ -144,7 +144,7 @@ export async function cmdAnswer(args: string[]): Promise<void> {
   if (!force && (!questionPath || !files.existsSync(questionPath)))
     die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
-  // The daemon's control dispatcher applies the answer (wall + ownership + caps.ask gate);
+  // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
   const result = await writeRpc("answer", { target: ent.presence.key, text }, gov);
   const recipient = recipientFor(ent.presence.key);

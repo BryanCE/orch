@@ -433,6 +433,22 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     }
   });
 
+  // An aborted or errored turn never fires tool_execution_end for the call that
+  // was in flight, and the process lives on - exactly the leak that stalls a
+  // fleet behind a live-pid lock. Turn end releases anything still held.
+  function releaseAllCommandLocks(): void {
+    for (const [toolCallId, held] of commandLocks) {
+      commandLocks.delete(toolCallId);
+      try {
+        releaseCommandLock(ORCH_DIR, held.lock.pid);
+      } catch {
+        // best-effort; max-age eviction is the backstop
+      }
+    }
+  }
+  harness.on("turn_end", releaseAllCommandLocks);
+  harness.on("session_shutdown", releaseAllCommandLocks);
+
   function finalFailedAssistantMessage(messages: readonly unknown[]): AssistantMessageLike | undefined {
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];

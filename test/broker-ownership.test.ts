@@ -3,7 +3,6 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { checkWall } from "../src/policy/workspace.ts";
 import { checkOwnerWrite, getOwner, setOwner } from "../src/store/ownership-rows.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
@@ -52,16 +51,4 @@ describe("broker ownership and workspace governance", () => {
     expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
   });
 
-  test("work-loop selection stays within the origin workspace", () => {
-    const orchDir = makeOrchDir();
-    const origin = addTask(orchDir, "origin task", {}, "w1");
-    const foreign = addTask(orchDir, "foreign task", {}, "w2");
-    const tasks = listTasks(orchDir);
-
-    expect(nextQueuedTask(tasks, "worker", "w1")?.id).toBe(origin.id);
-    expect(nextQueuedTask(tasks, "worker", "w2")?.id).toBe(foreign.id);
-    // No unscoped tasks exist, and neither scoped task leaks into a third workspace.
-    expect(nextQueuedTask(tasks, "worker", "w3")).toBeUndefined();
-    expect(nextQueuedTask(tasks.filter((task) => task.id === foreign.id), "worker", "w1")).toBeUndefined();
-  });
 });

@@ -8,7 +8,9 @@ import { STATUS_FILE } from "../presence/schema.ts";
 import { loadPresence, orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
 import { writeSpawnedName, type SpawnedRecord } from "../store/spawned-rows.ts";
+import { openStore } from "../store/connection.ts";
 import { errorMessage, isRecord, packageRoot, pidAlive } from "../util.ts";
+import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import type { LifecycleVerb } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -18,7 +20,7 @@ import { loadConfig } from "../config.ts";
 import { adapterCommand, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
-import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, selfSpawnAddress, spawnedBySelf, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
+import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
 export async function cmdRun(args: string[]): Promise<void> {
@@ -254,7 +256,7 @@ export async function cmdReload(args: string[]): Promise<void> {
       const agentId = ent.agent ?? ent.presence?.status?.agent;
       if (!agentId) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(agentId);
-      const reloadCmd = adapter.caps.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
+      const reloadCmd = adapter.capabilities.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
       // No console to type `/reload` into leaves only the daemon, which owns
       // every lifecycle mechanism a backend does or does not have.
@@ -303,7 +305,7 @@ export async function cmdRestart(args: string[]): Promise<void> {
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
-    const quitCmd = adapter.caps.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
+    const quitCmd = adapter.capabilities.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
     // A pane is quit and relaunched by typing into its shell; a detached agent
     // has no shell, so the daemon rules on what restart means for it.
@@ -366,42 +368,70 @@ export function cmdRename(args: string[]) {
   else process.stdout.write(`${handle} -> ${paneLabel ? "pane label" : "named"} "${name}".\n`);
 }
 
+interface RecordedProcess {
+  pid: number;
+  startToken?: string;
+}
+
+/** Read the launch identity from the normalized agent process interval. Presence
+ * status carries liveness only and can never authorize a signal. */
+function recordedProcess(key: string): RecordedProcess | null {
+  try {
+    const row = openStore(orchDir()).query(
+      "SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL",
+    ).get(key) as { pid?: unknown; start_token?: unknown } | null;
+    if (!row || typeof row.pid !== "number") return null;
+    return { pid: row.pid, ...(typeof row.start_token === "string" ? { startToken: row.start_token } : {}) };
+  } catch {
+    return null;
+  }
+}
+
 export function cmdClose(args: string[]) {
-  const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json", "--force"]);
+  const usage = "usage: orch close <target>... | --all [--stream] [--json]";
+  const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
   const all = enabled.has("--all");
   const stream = enabled.has("--stream");
   const json = enabled.has("--json");
-  const force = enabled.has("--force");
-  if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream]");
+  // Reject unknown flags before resolving or closing any preceding target.
+  if (positional.some((argument) => argument.startsWith("--"))) die(usage);
+  if (!all && !positional.length) die(usage);
 
-  const targets: { backend: Backend | null; handle: BackendHandle; key: string; pid?: number }[] = [];
+  const targets: { backend: Backend | null; handle: BackendHandle; key: string; presencePid?: number; recorded: RecordedProcess | null }[] = [];
   if (all) {
-    // --all is deliberately owner-scoped, but not workspace-scoped. Dead and
-    // headless records are cleanup targets too.
+    // --all sweeps every orch-managed record, regardless of owner or spawner.
+    // Dead and headless records are cleanup targets too.
     //
     // Each row is read directly, never resolved through a target string:
     // resolution is what makes a stale row ambiguous, and one unresolvable row
     // must not abort the sweep. A bulk close that closes nothing leaves every
     // name reserved, which is exactly when respawning is the only way out.
-    requireCallerOwnerToken();
     for (const record of spawnedRecords().values()) {
-      if (!ownsAgent(record)) continue;
-      if (!spawnedBySelf(record)) continue;
+      // Every registry row is orch-managed, regardless of which session spawned it.
+      // Ending is never gated by ownership or provenance; unmanaged panes have no row.
       const backend = getBackend(record.backend ?? "") ?? null;
       if (!backend) process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
       const presence = loadPresence().get(record.pane);
-      targets.push({ backend, handle: record.handle ?? record.pane, key: record.pane, pid: presence?.status?.pid });
+      targets.push({
+        backend,
+        handle: record.handle ?? record.pane,
+        key: record.pane,
+        presencePid: presence?.status?.pid,
+        recorded: recordedProcess(record.pane),
+      });
     }
   }
   for (const target of positional) {
     const resolved = resolveLifecycleTarget(target);
-    assertAgentOwned(target, resolved.entity, force);
-    if (resolved.record.spawnedBy !== undefined && resolved.record.spawnedBy !== selfSpawnAddress() && !force) {
-      const label = resolved.record.spawnedByLabel ?? "another session";
-      die(`Target "${target}" was spawned by ${label} (${resolved.record.spawnedBy}). Use --force to override.`);
-    }
-    const pid = resolved.entity.presence?.status?.pid;
-    targets.push({ backend: resolved.backend, handle: resolved.handle, key: resolved.record.pane, pid });
+    // Close is an unconditional ending operation: ownership and provenance never gate it.
+    const status = resolved.entity.presence?.status;
+    targets.push({
+      backend: resolved.backend,
+      handle: resolved.handle,
+      key: resolved.record.pane,
+      presencePid: status?.pid,
+      recorded: recordedProcess(resolved.record.pane),
+    });
   }
 
   let ok = 0;
@@ -410,14 +440,44 @@ export function cmdClose(args: string[]) {
   for (const target of targets) {
     if (seen.has(target.key)) continue;
     seen.add(target.key);
-    let closedByBackend = false;
-    try { closedByBackend = target.backend?.close(target.handle) ?? false; } catch {}
     let signalled = false;
-    if (!closedByBackend && target.pid !== undefined && pidAlive(target.pid)) {
-      try { process.kill(target.pid, "SIGTERM"); signalled = true; } catch {}
+    let closedByBackend = false;
+    const recorded = target.recorded;
+    const recordedLive = recorded !== null && processIsAlive(recorded.pid);
+    const identityProven = recordedLive
+      && typeof recorded.startToken === "string"
+      && processInstanceMatches(recorded.pid, recorded.startToken);
+
+    if (identityProven) {
+      try { process.kill(recorded.pid, "SIGTERM"); signalled = true; } catch {}
+    } else if (target.backend?.capabilities.panes) {
+      // Closing a plexer pane ends its own PTY. Unlike a PID signal, that cannot
+      // accidentally target an unrelated process instance after PID recycling.
+      try { closedByBackend = target.backend.close(target.handle); } catch {}
     }
-    // A missing pane is already clean. Always reap the orch-owned record and
-    // presence directory once ownership has been checked.
+
+    const watchedPids = new Set<number>();
+    if (target.recorded && processIsAlive(target.recorded.pid)) watchedPids.add(target.recorded.pid);
+    if (target.presencePid !== undefined && processIsAlive(target.presencePid)) watchedPids.add(target.presencePid);
+    if (signalled) {
+      for (let attempt = 0; attempt < 10 && [...watchedPids].some(processIsAlive); attempt++) sleepMs(50);
+    }
+    const stillAlive = [...watchedPids].some(processIsAlive);
+    if (stillAlive) {
+      if (!json) {
+        const reason = recordedLive && !identityProven
+          ? "recorded process identity could not be proven"
+          : identityProven ? "process is still running" : "live process identity could not be proven";
+        process.stderr.write(`Could not close ${String(target.handle)}: ${reason}.\n`);
+      }
+      continue;
+    }
+
+    // A plexer pane is safe to clean after process death. A pane-less backend's
+    // close mechanism may itself signal a presence PID, so core never calls it.
+    if (!closedByBackend && target.backend?.capabilities.panes) {
+      try { closedByBackend = target.backend.close(target.handle); } catch {}
+    }
     reapSpawnedRecord(target.key);
     ok++;
     closed.push(String(target.handle));
@@ -441,18 +501,17 @@ export function cmdClose(args: string[]) {
 
 export function cmdAbort(args: string[]) {
   const json = args.includes("--json");
-  const force = args.includes("--force");
   const target = args.find((arg) => arg !== "--json" && arg !== "--force");
   if (!target) die("usage: orch abort <target> [--force] [--json]");
-  const records = spawnedRecords();
-  const { backend, handle, key } = backendTarget(target, "abort", records);
-  assertAgentOwned(target, { key }, force, records);
+  // Abort is an unconditional ending operation: resolve from orch's registry so
+  // a foreign-workspace target is still reachable, and never apply owner gates.
+  const { backend, handle } = resolveLifecycleTarget(target);
   if (!backend.canSendKeys) die(`backend ${backend.id} cannot send keys.`);
-  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${handle}.`);
+  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${String(handle)}.`);
   sleepMs(500);
-  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${handle}.`);
+  if (!backend.sendKeys(handle, ["Escape"])) die(`Could not abort ${String(handle)}.`);
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
-  else process.stdout.write(`Aborted ${handle}.\n`);
+  else process.stdout.write(`Aborted ${String(handle)}.\n`);
 }
 
 

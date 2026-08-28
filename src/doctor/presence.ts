@@ -5,8 +5,7 @@ import { loadPresence, presenceDir, type PresenceEntry } from "../presence/store
 import { placementOf } from "../agent/registry.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import type { CheckResult, IgnoredPresenceRecord } from "../check-result.ts";
-import { selectQueueTasks } from "../store/queue-rows.ts";
-import type { TaskRec } from "../queue.ts";
+import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
 
 function humanAge(ms: number): string {
@@ -61,7 +60,7 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
     : { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no malformed presence records", ignoredRecords };
 }
 
-/** One human-legible line for an unscoped queue row — id, state, age, task snippet. */
+/** One human-legible line for a malformed-scope task — id, state, age, task snippet. */
 function describeUnscopedTask(task: TaskRec): string {
   const age = Date.parse(task.createdAt);
   const seen = Number.isFinite(age) ? humanAge(Date.now() - age) : "unknown";
@@ -69,20 +68,18 @@ function describeUnscopedTask(task: TaskRec): string {
 }
 
 /**
- * Report queue rows with no origin workspace. Such a row is malformed by the
- * current schema (Rule 8): `nextQueuedTask` never claims it, so it is stuck
- * forever. Report-only — a reappable record surfaced for `orch clean`, never a
- * pre-selected destructive fix.
+ * Report tasks that violate exactly-one typed scope. The current schema rejects
+ * these rows; this remains report-only for a store damaged outside orch.
  */
 export function checkUnscopedTasks(orchDir: string): CheckResult {
   let tasks: TaskRec[];
   try {
-    tasks = selectQueueTasks(orchDir);
+    tasks = listTasks(orchDir);
   } catch {
     return { id: "unscoped-tasks", label: "Unscoped queue tasks", status: "ok", detail: "no queue" };
   }
-  const unscoped = tasks.filter(
-    (task) => task.workspace === undefined && (task.state === "queued" || task.state === "claimed"),
+  const unscoped = tasks.filter((task) =>
+    [task.scopeAgentId, task.scopePackId, task.scopeSpaceId].filter((scope) => scope !== null).length !== 1,
   );
   if (!unscoped.length) {
     return { id: "unscoped-tasks", label: "Unscoped queue tasks", status: "ok", detail: "no unscoped tasks" };
@@ -91,7 +88,7 @@ export function checkUnscopedTasks(orchDir: string): CheckResult {
     id: "unscoped-tasks",
     label: "Unscoped queue tasks",
     status: "warn",
-    detail: `${unscoped.length} unscoped queue task${unscoped.length === 1 ? "" : "s"} (no origin workspace - never claimable; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
+    detail: `${unscoped.length} malformed-scope task${unscoped.length === 1 ? "" : "s"} (exactly one scope is required; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
   };
 }
 

@@ -110,11 +110,21 @@ export function openStore(orchDir: string): DatabaseLike {
   if (cached) return cached;
   mkdirSync(orchDir, { recursive: true });
   let db = createDatabase(path);
-  if (storeIsPopulated(db) && storeSchemaOf(db) !== STORE_SCHEMA) db = recreateStore(db, path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  let fresh = !storeIsPopulated(db);
+  if (!fresh && storeSchemaOf(db) !== STORE_SCHEMA) {
+    db = recreateStore(db, path);
+    db.exec("PRAGMA foreign_keys = ON;");
+    fresh = true;
+  }
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
-  createTables(db);
-  db.exec(`PRAGMA user_version = ${STORE_SCHEMA}`);
+  // The DDL is not idempotent and must never replay onto a live current-schema
+  // store: a reopen runs NO DDL at all. Only a new or just-reaped file is built.
+  if (fresh) {
+    createTables(db);
+    db.exec(`PRAGMA user_version = ${STORE_SCHEMA}`);
+  }
   connections.set(path, db);
   return db;
 }

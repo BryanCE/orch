@@ -7,7 +7,7 @@ import { NO_CAPABILITIES, type AgentCapabilities, type Workspace } from "@/lib/f
 // module's body from the client bundle. Adding a plain exported function pulls
 // ./daemon — and node:net with it — into the browser chunk, which kills hydration.
 
-export type DaemonUp = { daemon: "up" };
+export interface DaemonUp { daemon: "up" }
 export type DaemonHome = "local" | "wsl" | "remote";
 export interface DaemonWhere {
   home: DaemonHome;
@@ -41,6 +41,12 @@ export const getDaemonStatus = createServerFn({ method: "GET" }).handler(async (
   }
 });
 
+interface PresenceLease {
+  holderId: string;
+  holderName: string;
+  holderAlive: boolean;
+}
+
 interface PresenceRow {
   key: string;
   paneId: string | null;
@@ -53,7 +59,9 @@ interface PresenceRow {
   cost: number;
   ctxPercent: number | null;
   tokens: unknown;
-  caps: Partial<AgentCapabilities> | null;
+  capabilities: Partial<AgentCapabilities> | null;
+  lease: PresenceLease | null;
+  leaseKnown: boolean;
   workspace?: string | null;
   workspaceName?: string | null;
 }
@@ -61,8 +69,8 @@ interface PresenceRow {
 /**
  * Read the daemon's capability report defensively. The backend port grows new
  * capabilities over time, and a build that has not heard of one must read it as
- * absent rather than crash or assume it. `caps` is the wire name; the UI reads
- * `agent.capabilities` so its call sites say what they mean.
+ * absent rather than crash or assume it. `capabilities` is the wire name; the UI
+ * reads `agent.capabilities` so its call sites say what they mean.
  */
 function agentCapabilities(reported: Partial<AgentCapabilities> | null): AgentCapabilities {
   if (!reported) return NO_CAPABILITIES;
@@ -92,15 +100,17 @@ function fleetFromPresence(result: PresenceResult): Workspace[] {
       key: row.key,
       handle: row.paneId ?? row.key,
       pane: row.paneId,
-      capabilities: agentCapabilities(row.caps),
+      capabilities: agentCapabilities(row.capabilities),
       name: row.name ?? row.agent ?? row.key,
       state: row.state,
       ...(row.model ? { model: { id: row.model } } : {}),
       ...(row.lastText ? { lastText: row.lastText } : {}),
       cost: row.cost,
-      ...(row.tokens && typeof row.tokens === "object" ? { tokens: row.tokens as Workspace["agents"][number]["tokens"] } : {}),
+      ...(row.tokens && typeof row.tokens === "object" ? { tokens: row.tokens } : {}),
       ...(row.ctxPercent !== null ? { context: { percent: row.ctxPercent } } : {}),
       alive: !row.exited,
+      lease: row.lease && typeof row.lease === "object" ? row.lease : null,
+      leaseKnown: row.leaseKnown === true,
     });
     workspaces.set(id, workspace);
   }

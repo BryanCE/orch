@@ -172,7 +172,7 @@ CREATE TABLE agent_tunings (          -- how it is configured. NOT where it is.
 -- do that, so this table keeps its rowid.
 
 CREATE TABLE agent_leases (
-  id             INTEGER NOT NULL PRIMARY KEY,         -- monotonic fencing token
+  id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, -- monotonic fencing token
   agent_id       TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   orch_id        TEXT    NOT NULL REFERENCES agents(id),   -- the orch that may drive it
   since          INTEGER NOT NULL,
@@ -392,8 +392,9 @@ equality test instead of a recursive walk. The standard objection to materialize
 re-parenting cost, and re-parenting is impossible here by invariant.
 
 **`agent_leases` keeps its surrogate key** because that key is the fencing token and must be
-monotonic across all agents. Every other satellite drops its surrogate for the natural
-`(agent_id, since)`, since nothing ever looked one up by a surrogate.
+monotonic across all agents. It uses `AUTOINCREMENT` because a deleted max id must never be
+reissued to a later lease. Every other satellite drops its surrogate for the natural `(agent_id,
+since)`, since nothing ever looked one up by a surrogate.
 
 **`agent_endings` answers "clean or crash" without asking a harness.** The question was whether
 any harness can reliably signal a clean exit. It does not need to: orch already knows whether

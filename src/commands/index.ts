@@ -20,6 +20,7 @@ import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessag
 import { cmdSettings, cmdSettingsModels, cmdSettingsNotify, cmdSettingsSkills } from "./settings.ts";
 import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
+import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
 import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
 
@@ -112,6 +113,9 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch close <target>... | --all [--stream]
                                  Close pane(s) ('orch kill' is an alias). --all closes only
                                  panes orch spawned (never the user's); --stream also kills orch events.
+  orch detach <target>           Release the target's lease; it remains running and adoptable.
+  orch adopt <target> | --all    Adopt an unleased agent (or every available orphan).
+  orch reap <target>             Delete an ended agent record and its presence directory.
   orch panes                     Raw merged pane list (tab-separated, for scripting).
 
 TABS
@@ -203,7 +207,7 @@ const VERSION = readOrchVersion();
 
 const STALE_GUARD_COMMANDS = new Set([
   "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
-  "queue", "work", "model", "broadcast",
+  "queue", "work", "model", "broadcast", "detach", "adopt", "reap",
 ]);
 
 /** Refuse writes sent to a live daemon from a stale installed CLI. */
@@ -274,7 +278,7 @@ export function runCommand(argv: string[]): void {
     case "notify": void cmdNotify(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "questions": void cmdQuestions(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "runs": cmdRuns(rest); break;
-    case "queue": cmdQueue(rest); break;
+    case "queue": void cmdQueue(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "lock": void cmdLock(rest).then((code) => { process.exitCode = code; }).catch((error: unknown) => die(errorMessage(error))); break;
     case "daemon": void cmdDaemon(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "doctor": void cmdDoctor(rest).catch((error: unknown) => die(errorMessage(error))); break;
@@ -303,6 +307,9 @@ export function runCommand(argv: string[]): void {
     case "restart": void cmdRestart(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "rename": cmdRename(rest); break;
     case "close": case "kill": cmdClose(rest); break;
+    case "detach": void cmdDetach(rest).catch((error: unknown) => die(errorMessage(error))); break;
+    case "adopt": void cmdAdopt(rest).catch((error: unknown) => die(errorMessage(error))); break;
+    case "reap": void cmdReap(rest).catch((error: unknown) => die(errorMessage(error))); break;
     case "abort": cmdAbort(rest); break;
     case "keys": cmdKeys(rest); break;
     case "peek": cmdPeek(rest); break;

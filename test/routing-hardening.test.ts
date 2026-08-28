@@ -3,11 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
+import { addTask, claimTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { openStore } from "../src/store/connection.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { checkOwnerWrite, getOwner, setOwner } from "../src/store/ownership-rows.ts";
-import { writeTaskClaim } from "../src/store/queue-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
@@ -22,20 +21,24 @@ afterEach(() => {
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
+function seedPack(dir: string): void {
+  const db = openStore(dir);
+  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
+  db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)").run();
+  db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('worker','orch','orch','pi','/tmp','worker',1)").run();
+}
+
 describe("store hardening", () => {
-  test("stores hostile values as data and preserves origin workspace selection", () => {
+  test("stores hostile values as data and preserves pack selection", () => {
     const dir = tempDir("orch-routing-store-");
-    const text = "'); DROP TABLE queue; --";
-    const task = addTask(dir, text, { constraints: { value: text } }, "workspace-a");
-    const other = addTask(dir, "other", {}, "workspace-b");
+    seedPack(dir);
+    const text = "'); DROP TABLE tasks; --";
+    const task = addTask(dir, text, { constraints: { value: text } }, "orch");
     const tasks = listTasks(dir);
 
     expect(tasks.find((candidate) => candidate.id === task.id)?.text).toBe(text);
-    expect(nextQueuedTask(tasks, "worker", "workspace-a")?.id).toBe(task.id);
-    expect(nextQueuedTask(tasks, "worker", "workspace-b")?.id).toBe(other.id);
-    // A task never crosses into a foreign workspace; nothing is claimable in workspace-c.
-    expect(nextQueuedTask(tasks, "worker", "workspace-c")).toBeUndefined();
-    expect(listTasks(dir)).toHaveLength(2);
+    expect(nextQueuedTask(dir, "worker", 1)?.id).toBe(task.id);
+    expect(listTasks(dir)).toHaveLength(1);
   });
 
   test("a fresh store creates the full current schema with WAL enabled", () => {
@@ -60,12 +63,13 @@ describe("store hardening", () => {
     expect(getOwner(dir, "pane-1")).toBe("orch-a");
   });
 
-  test("the conditional claim is exactly once", () => {
+  test("the attempt insert claim is exactly once", () => {
     const dir = tempDir("orch-routing-claim-");
-    const task = addTask(dir, "claim me", {}, "w1");
-    expect(writeTaskClaim(dir, task.id, "worker-a", "2026-01-01T00:00:00.000Z", "dispatch-a")).toBe(true);
-    expect(writeTaskClaim(dir, task.id, "worker-b", "2026-01-01T00:00:01.000Z", "dispatch-b")).toBe(false);
-    expect(listTasks(dir).find((candidate) => candidate.id === task.id)?.agentKey).toBe("worker-a");
+    seedPack(dir);
+    const task = addTask(dir, "claim me", {}, "orch");
+    expect(claimTask(dir, task.id, "worker", "dispatch-a")).toBe(true);
+    expect(claimTask(dir, task.id, "orch", "dispatch-b")).toBe(false);
+    expect(listTasks(dir).find((candidate) => candidate.id === task.id)?.attempts[0]?.agentId).toBe("worker");
   });
 });
 

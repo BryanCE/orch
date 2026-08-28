@@ -12,12 +12,14 @@ import { workerHeaderFor, type WorkerHeaderContext } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendId } from "../backends/backend.ts";
 import { detachedBackend, resolveBackend } from "../backends/registry.ts";
-import { nextTilePlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
+import { nextTilePlacement, planTilePlacement, readGroupLayout, type TileFirstSplit, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
 import * as path from "node:path";
 import { errorMessage } from "../util.ts";
 import { callDaemon, daemonOutage } from "./daemon.ts";
+import { rpcHello } from "../daemon/rpc.ts";
+import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 
@@ -56,7 +58,7 @@ function reportShortfall(requested: number, placed: number): void {
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
 async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<number | null> {
-  if (adapter.caps.registersPresenceOnStart) {
+  if (adapter.capabilities.registersPresenceOnStart) {
     const stalled = await awaitBridgeRegistration(created, json);
     return created.length - stalled.length;
   }
@@ -319,6 +321,66 @@ export function liveSpawnCounts(records: Map<string, SpawnedRecord>, presence: M
   return counts;
 }
 
+const SPAWN_POLICY_OFFERS = "bind the task to a live slave (orch dispatch <name>) or put it on the pack queue (orch queue add)";
+
+/** Return a spawn policy refusal without allocating a pane, tab, worktree, or queue entry. */
+export function spawnPolicyError(
+  settings: Pick<OrchConfig, "fleet">,
+  _workspace: string,
+  requested: number,
+  records: Map<string, SpawnedRecord>,
+  presence: Map<string, PresenceEntry>,
+  spawnerKey: string | null,
+): string | null {
+  let current = spawnerKey;
+  let depth = 0;
+  const seen = new Set<string>();
+  while (current !== null && !seen.has(current)) {
+    seen.add(current);
+    const parent = records.get(current)?.spawnedBy;
+    if (!parent) break;
+    current = parent;
+    depth++;
+  }
+  // A depth-two spawner may not create a depth-three child. The chain is
+  // provenance, never a schema change to the recursive agent model.
+  if (depth >= 2) return `maximum spawn depth is 2 (this spawner is at depth ${depth}). ${SPAWN_POLICY_OFFERS}`;
+
+  // The pack root is the first key in the spawnedBy chain. Registry rows do
+  // not necessarily contain that root (a self-registering orch has no
+  // spawned row), hence the explicit +1 for the root when it is absent. A
+  // caller without a reply key uses the undefined spawnedBy scope and its
+  // workspace, which is the only scope available to a bare operator session.
+  const packRoot = current;
+  let live = 0;
+  for (const [key] of records) {
+    let root = key;
+    const chain = new Set<string>();
+    while (!chain.has(root)) {
+      chain.add(root);
+      const parent = records.get(root)?.spawnedBy;
+      if (!parent) break;
+      root = parent;
+    }
+    const samePack = spawnerKey === null
+      ? records.get(key)?.workspace === _workspace && records.get(root)?.spawnedBy === undefined
+      : root === packRoot;
+    if (!samePack || !presence.get(key)?.alive) continue;
+    live++;
+  }
+  if (spawnerKey === null || packRoot === null || !records.has(packRoot)) live++;
+  const cap = settings.fleet.pack_cap ?? 10;
+  if (live + requested > cap) {
+    return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested). ${SPAWN_POLICY_OFFERS}`;
+  }
+  return null;
+}
+
+function assertSpawnPolicy(settings: Pick<OrchConfig, "fleet">, workspace: string, requested: number): void {
+  const refusal = spawnPolicyError(settings, workspace, requested, spawnedRecords(), loadPresence(), spawnerIdentity().key);
+  if (refusal) die(`spawn refused: ${refusal}`);
+}
+
 function assertSpawnCapacity(settings: Pick<OrchConfig, "fleet">, workspace: string, requested: number): void {
   const counts = liveSpawnCounts(spawnedRecords(), loadPresence());
   const live = [...counts.values()].reduce((total, count) => total + count, 0);
@@ -336,7 +398,7 @@ function assertSpawnCapacity(settings: Pick<OrchConfig, "fleet">, workspace: str
 // Detached agents are launched BY THE DAEMON, not here: orchd outlives this CLI
 // and already owns delivery. Each runs the prompt it was launched with and exits —
 // there is no pane for it to idle in.
-async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): Promise<void> {
+async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, spawnerAgentId: string | null): Promise<void> {
   if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
   // A detached agent has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process.
@@ -344,6 +406,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
   // Detached agents mint their identity under the backend's own workspace (headless → "local"),
   // never the caller's herdr identity; the cap check must match that same bucket, not callerWorkspace().
   const workspace = settings.workspace ?? "local";
+  assertSpawnPolicy(settings, workspace, settings.n);
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
   const config = loadConfig(orchDir());
@@ -366,7 +429,11 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
         cwd,
         // The daemon launches the process, but the IDENTITY of the spawner is
         // this CLI's: orchd's own env knows nothing about the calling session.
-        env: { ...agentIdentityEnv(name, spawner), ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined) },
+        env: {
+          ...agentIdentityEnv(name, spawner),
+          ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined),
+          ...(spawnerAgentId ? { ORCH_SPAWNER_AGENT_ID: spawnerAgentId } : {}),
+        },
         model: settings.model,
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
@@ -383,6 +450,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
         backend: settings.backend,
         workspace,
         name,
+        cwd,
         worktree: settings.worktree ? cwd : undefined,
         branch: settings.worktree ? `orch/${name}` : undefined,
         owner: callerOwnerToken(),
@@ -401,7 +469,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend): 
   // written its presence dir, so returning before that hands the caller a key it
   // cannot dispatch to yet.
   reportShortfall(settings.n, created.length);
-  const stalled = adapter.caps.steer === "inbox" ? await awaitBridgeRegistration(created, settings.json) : [];
+  const stalled = adapter.capabilities.steer === "inbox" ? await awaitBridgeRegistration(created, settings.json) : [];
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
     agents: created,
@@ -491,6 +559,8 @@ export interface TabSpawnSpec {
   cmd?: string;
   worktree?: string;
   branch?: string;
+  /** Hello-registered id of the session performing this launch. */
+  spawnerAgentId?: string | null;
 }
 
 // The single spawn-into-a-tab pipeline shared by `orch spawn` (additional panes)
@@ -532,6 +602,12 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     spawnedBy: spawner.key ?? undefined,
     spawnedByLabel: spawner.label,
   });
+  registerSpawnedAgent(orchDir(), {
+    key, harnessId: spec.adapterId, backendId: spec.backend.id, pane: spec.backend.panes,
+    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model,
+    spawner: spec.spawnerAgentId ?? null,
+    worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
+  });
   return { key, pane: String(handle), name: spec.name };
 }
 
@@ -544,7 +620,7 @@ export function tileAgentIntoGroup(spec: Omit<TabSpawnSpec, "placement">, firstS
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, backend: Backend): CreatedAgent {
+function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, backend: Backend, spawnerAgentId: string | null): CreatedAgent {
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup({
     backend,
@@ -561,16 +637,17 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     cmd: settings.commandFlag ? settings.cmd : undefined,
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
+    spawnerAgentId,
   }, settings.tiling.first_split);
 }
 
 /** Fill a group with named agents. A pane that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-function growFleetIntoGroup(settings: SpawnSettings, workspace: string, group: string, backend: Backend, names: readonly string[]): CreatedAgent[] {
+function growFleetIntoGroup(settings: SpawnSettings, workspace: string, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null): CreatedAgent[] {
   const created: CreatedAgent[] = [];
   for (const name of names) {
     try {
-      created.push(placeAgent(settings, name, workspace, group, backend));
+      created.push(placeAgent(settings, name, workspace, group, backend, spawnerAgentId));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent ${name}: ${errorMessage(error)}\n`);
     }
@@ -608,15 +685,8 @@ function claimSpawnNames(prefix: string, workspace: string, count: number): stri
 }
 
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
-async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend, names: readonly string[]): Promise<void> {
-  const created: CreatedAgent[] = [];
-  for (const name of names) {
-    try {
-      created.push(placeAgent(settings, name, workspace, group.id, nextTilePlacement(backend, group.id, settings.tiling.first_split), backend));
-    } catch (error: unknown) {
-      process.stderr.write(`warning: could not place agent ${name}: ${errorMessage(error)}\n`);
-    }
-  }
+async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null): Promise<void> {
+  const created = growFleetIntoGroup(settings, workspace, group.id, backend, names, spawnerAgentId);
   await reportSpawnResults(settings, group.id, group.label ?? group.id, created, backend);
 }
 
@@ -674,10 +744,15 @@ function spawnBackend(settings: SpawnSettings): Backend {
 }
 
 async function executeSpawn(settings: SpawnSettings): Promise<void> {
+  // Enforce provenance depth and pack size before resolving a backend or
+  // allocating its workspace; a refused spawn creates nothing and is never queued.
+  assertSpawnPolicy(settings, settings.workspace ?? callerWorkspace() ?? "", settings.n);
+  const spawner = spawnerIdentity();
+  const spawnerAgentId = spawner.key ? (await rpcHello(orchDir())).id : null;
   const backend = spawnBackend(settings);
   // A backend without group creation has no panes to tile into: spawn detached.
   if (!backend.createGroup) {
-    await executeDetachedSpawn(settings, backend);
+    await executeDetachedSpawn(settings, backend, spawnerAgentId);
     return;
   }
   const workspace = resolveSpawnWorkspace(settings, backend);
@@ -689,13 +764,18 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // fill, so no follow-up move/tile is needed.
   const existing = (settings.tabExplicit ? findGroupInWorkspace(backend, workspace, settings.label) : undefined)
     ?? groupOfLivePrefix(backend, settings.prefix, workspace);
-  if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend, names);
+  if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend, names, spawnerAgentId);
   const root = createSpawnRoot(settings, workspace, backend, adapter, names[0]!);
   const created: CreatedAgent[] = [];
-  const spawner = spawnerIdentity();
   recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? undefined, spawnedByLabel: spawner.label });
+  registerSpawnedAgent(orchDir(), {
+    key: root.key, harnessId: settings.adapter, backendId: backend.id, pane: backend.panes,
+    handle: root.root, cwd: root.rootCwd, name: root.rootName, model: settings.model,
+    spawner: spawnerAgentId,
+    worktree: settings.worktree ? { path: root.rootCwd, branch: `orch/${root.rootName}` } : undefined,
+  });
   created.push({ key: root.key, pane: root.root, name: root.rootName });
-  launchAdditionalAgents(settings, root, created, backend, names.slice(1));
+  created.push(...growFleetIntoGroup(settings, root.workspace, root.tabId, backend, names.slice(1), spawnerAgentId));
   await reportSpawnResults(settings, root.tabId, root.tabLabel, created, backend);
 }
 
@@ -723,6 +803,8 @@ export async function cmdTile(args: string[]) {
   const workspace = tab.workspace ?? callerWorkspace();
   if (!workspace) die(`Could not determine workspace for group "${tab.id}".`);
   assertSpawnCapacity(config, workspace, 1);
+  const tileSpawner = spawnerIdentity();
+  const spawnerAgentId = tileSpawner.key ? (await rpcHello(orchDir())).id : null;
   let agent: CreatedAgent;
   try {
     agent = spawnOneIntoTab({
@@ -742,6 +824,7 @@ export async function cmdTile(args: string[]) {
       workers: workerPolicyFrom(config),
       model,
       preferredModels,
+      spawnerAgentId,
     });
   } catch (e: unknown) {
     die(`tile failed: ${errorMessage(e)}`);

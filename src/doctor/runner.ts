@@ -5,7 +5,7 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
 import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
-import { checkBackendCapabilities } from "./backends.ts";
+import { checkBackendCapabilities, checkBackendVersions } from "./backends.ts";
 import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
 import { checkHarnessModels } from "./models.ts";
@@ -91,6 +91,7 @@ export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH):
     ...providerChecks,
     ...livePairs.map((pair) => Promise.resolve(pair)),
     isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(enabledBackends, configuredBackend)),
+    isolated("backend-versions", "Backend versions", () => checkBackendVersions(orchDir)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("store", "Store", () => checkStore(orchDir)),

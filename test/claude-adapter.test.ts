@@ -57,7 +57,7 @@ afterAll(() => {
 describe("Claude adapter", () => {
   test("declares its identity and capabilities", () => {
     expect(claudeAdapter.id).toBe("claude");
-    expect(claudeAdapter.caps).toEqual({ steer: "keys", ask: false, setModel: false, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: false, lifecycle: [] });
+    expect(claudeAdapter.capabilities).toEqual({ steer: "keys", ask: false, setModel: false, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: false, lifecycle: [] });
   });
 
   test("builds the interactive Claude launch command", () => {

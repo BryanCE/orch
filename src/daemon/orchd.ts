@@ -15,19 +15,64 @@ import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { withTransaction } from "../store/connection.ts";
+import { openStore, withTransaction } from "../store/connection.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessagePending } from "../store/outbox-rows.ts";
 import { checkOwnerWrite, getOwner } from "../store/ownership-rows.ts";
 import { checkWall, operatorControls } from "../policy/workspace.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps } from "./outbox.ts";
-import { normalizeControlTarget } from "../backends/identity.ts";
+import { normalizeControlTarget, tryParseIdentity } from "../backends/identity.ts";
 import { deliverControl, KEYSTROKE_KIND, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
+import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
+
+export interface LeasePayload {
+  readonly holderId: string;
+  readonly holderName: string;
+  readonly holderAlive: boolean;
+}
+
+export interface LeaseStatusPayload {
+  readonly lease: LeasePayload | null;
+  /** False means the status key has no corresponding row in agents yet. */
+  readonly leaseKnown: boolean;
+}
+
+interface LeasePayloadRow {
+  holder_id: string;
+  holder_name: string;
+  pid: number | null;
+  start_token: string | null;
+}
+
+/** Derive lease facts from the normalized agent/lease rows, never from presence or ownership files. */
+export function deriveLeasePayload(directory: string, key: string): LeaseStatusPayload {
+  const db = openStore(directory);
+  // Presence keys carry an environment prefix around orch's opaque agent id. The
+  // agents table is keyed by that id; malformed/unparseable keys stay unknown.
+  const agentId = tryParseIdentity(key)?.id ?? key;
+  const agent = db.query("SELECT id FROM agents WHERE id = ?").get(agentId) as { id: string } | null;
+  if (!agent) return { lease: null, leaseKnown: false };
+  const row = db.query(
+    `SELECT l.orch_id AS holder_id, h.name AS holder_name, p.pid, p.start_token
+       FROM agent_leases l
+       JOIN agents h ON h.id = l.orch_id
+       LEFT JOIN agent_processes p ON p.agent_id = l.orch_id AND p.until IS NULL
+      WHERE l.agent_id = ? AND l.until IS NULL`,
+  ).get(agentId) as LeasePayloadRow | null;
+  if (!row) return { lease: null, leaseKnown: true };
+  const holderAlive = typeof row.pid === "number" && (row.start_token
+    ? processInstanceMatches(row.pid, row.start_token)
+    : processIsAlive(row.pid));
+  return {
+    lease: { holderId: row.holder_id, holderName: row.holder_name || row.holder_id, holderAlive },
+    leaseKnown: true,
+  };
+}
 
 const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
 const bootCodeHash = computeCodeHash(entrypoint);
@@ -74,7 +119,10 @@ function getSinks(directory: string): Sink[] {
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
  *  second shape here is what left the method unusable and every client reading files. */
 function fleetStatus(directory: string): { rows: StatusRow[] } {
-  return { rows: fleetStatusRows(getConfig(directory).workspaces) };
+  const rows = fleetStatusRows(getConfig(directory).workspaces);
+  return {
+    rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key) })),
+  };
 }
 
 async function socketAnswers(directory: string): Promise<boolean> {

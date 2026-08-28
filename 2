@@ -1,0 +1,77 @@
+[35mcheck:bridge[0m | check:bridge OK (769 files scanned)
+[33mtc          [0m | test/commands-lease.test.ts(111,5): error TS2322: Type 'true' is not assignable to type 'false'.
+[33mtc          [0m | test/spawn-policy.test.ts(96,5): error TS2322: Type '(str: string | Uint8Array<ArrayBufferLike>, encoding?: BufferEncoding | undefined, cb?: ((err?: Error | null) => void) | undefined) => true' is not assignable to type '{ (buffer: string | Uint8Array<ArrayBufferLike>, cb?: ((err?: Error | null | undefined) => void) | undefined): boolean; (str: string | Uint8Array<ArrayBufferLike>, encoding?: BufferEncoding | undefined, cb?: ((err?: Error | ... 1 more ... | undefined) => void) | undefined): boolean; }'.
+[33mtc          [0m |   Types of parameters 'encoding' and 'cb' are incompatible.
+[33mtc          [0m |     Type '((err?: Error | null | undefined) => void) | undefined' is not assignable to type 'BufferEncoding | undefined'.
+[33mtc          [0m |       Type '(err?: Error | null | undefined) => void' is not assignable to type 'BufferEncoding | undefined'.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
+[36mlint        [0m |      ,-[src/store/task-rows.ts:180:40]
+[36mlint        [0m |  179 | 
+[36mlint        [0m |  180 | export function allTasks(dir: string): Array<TaskRow & { state: TaskState }> {
+[36mlint        [0m |      :                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  181 |   const rows = openStore(dir).query(`
+[36mlint        [0m |      `----
+[36mlint        [0m |   help: Replace `Array<TaskRow & { state: TaskState }>` with `(TaskRow & { state: TaskState })[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
+[36mlint        [0m |      ,-[src/store/task-rows.ts:201:21]
+[36mlint        [0m |  200 |       )) < ?
+[36mlint        [0m |  201 |   `).all(cutoff) as Array<{ id: string }>;
+[36mlint        [0m |      :                     ^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  202 |   const remove = db.query("DELETE FROM tasks WHERE id=?");
+[36mlint        [0m |      `----
+[36mlint        [0m |   help: Replace `Array<{ id: string }>` with `{ id: string }[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
+[36mlint        [0m |      ,-[src/store/task-rows.ts:257:57]
+[36mlint        [0m |  256 | 
+[36mlint        [0m |  257 | export function intakesOf(dir: string, packId: string): Array<{ packId: string; spaceId: string; since: number; until: number | null }> {
+[36mlint        [0m |      :                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  258 |   const rows = openStore(dir).query("SELECT pack_id,space_id,since,until FROM pack_intakes WHERE pack_id=? ORDER BY since").all(packId) as RawIntakeRow[];
+[36mlint        [0m |      `----
+[36mlint        [0m |   help: Replace `Array<{ packId: string; spaceId: string; since: number; until: number | null }>` with `{ packId: string; spaceId: string; since: number; until: number | null }[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(array-type): Array type using 'Array<T>' is forbidden. Use 'T[]' instead.
+[36mlint        [0m |     ,-[src/commands/queue.ts:42:108]
+[36mlint        [0m |  41 |   if (agentById(directory, target)) return target;
+[36mlint        [0m |  42 |   const rows = openStore(directory).query("SELECT id FROM agents WHERE name=? ORDER BY id").all(target) as Array<{ id: string }>;
+[36mlint        [0m |     :                                                                                                            ^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  43 |   if (rows.length === 0) die(`Unknown agent: ${target}`);
+[36mlint        [0m |     `----
+[36mlint        [0m |   help: Replace `Array<{ id: string }>` with `{ id: string }[]`.
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(prefer-regexp-exec): Use the `RegExp#exec()` method instead.
+[36mlint        [0m |      ,-[src/queue.ts:169:23]
+[36mlint        [0m |  168 |   } catch (error) {
+[36mlint        [0m |  169 |     if (String(error).match(/one_open_attempt|UNIQUE constraint failed: task_attempts\.task_id/i)) return false;
+[36mlint        [0m |      :                       ^^^^^
+[36mlint        [0m |  170 |     throw error;
+[36mlint        [0m |      `----
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(prefer-optional-chain): Prefer using an optional chain expression instead, as it's more concise and easier to read.
+[36mlint        [0m |      ,-[src/queue.ts:199:7]
+[36mlint        [0m |  198 |   const attempt = task.attempts.at(-1);
+[36mlint        [0m |  199 |   if (!attempt || attempt.until !== null) throw new Error(`Task ${task.id} has no open attempt`);
+[36mlint        [0m |      :       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  200 |   return attempt;
+[36mlint        [0m |      `----
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(no-unnecessary-type-assertion): This assertion is unnecessary since the receiver accepts the original type of the expression.
+[36mlint        [0m |     ,-[test/queue.test.ts:44:48]
+[36mlint        [0m |  43 |     expect(() => addTask(dir, "none", {}, "missing")).toThrow(/enqueuer/i);
+[36mlint        [0m |  44 |     expect(() => addTask(dir, "many", {}, "a1", { agentId: "a2", spaceId: "space-1" } as never)).toThrow(/exactly one/i);
+[36mlint        [0m |     :                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  45 |   });
+[36mlint        [0m |     `----
+[36mlint        [0m | 
+[36mlint        [0m |   x typescript(no-unsafe-assignment): Unsafe assignment of an any value.
+[36mlint        [0m |     ,-[test/queue.test.ts:93:80]
+[36mlint        [0m |  92 |     const own = addTask(dir, "own", {}, "a1");
+[36mlint        [0m |  93 |     expect(cancelTask(dir, own.id, "orch-b")).toMatchObject({ state: "queued", error: expect.stringContaining("permitted") });
+[36mlint        [0m |     :                                                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[36mlint        [0m |  94 |     expect(cancelTask(dir, own.id, "a1")).toMatchObject({ state: "cancelled" });
+[36mlint        [0m |     `----
+[36mlint        [0m | 
+[36mlint        [0m | Found 0 warnings and 8 errors.
+[36mlint        [0m | Finished in 1.1s on 276 files with 65 rules using 8 threads.

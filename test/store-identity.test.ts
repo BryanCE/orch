@@ -2,12 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
-import {
-  deleteSessionIdentitiesBefore,
-  getOrCreateSessionIdentity,
-  isSessionIdentity,
-} from "../src/store/identity-rows.ts";
+import { closeAllStores } from "../src/store/connection.ts";
+import { agentById, getOrCreateSessionAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
+import { currentProcess } from "../src/store/interval-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const tempDirs: string[] = [];
@@ -23,32 +20,36 @@ function fixture(): string {
   return orchDir;
 }
 
-describe("identity store rows", () => {
-  test("accepts session identity values and rejects malformed values", () => {
-    expect(isSessionIdentity({ id: "session-1", label: "lead", kind: "session" })).toBe(true);
-    expect(isSessionIdentity({ id: "", label: "lead", kind: "session" })).toBe(false);
-    expect(isSessionIdentity({ id: "session-1", label: "lead", kind: "worker" })).toBe(false);
-    expect(isSessionIdentity(null)).toBe(false);
+describe("hello agent identity rows", () => {
+  test("reuses the live agent for the same session process and mints for another", () => {
+    const orchDir = fixture();
+    const first = getOrCreateSessionAgent(orchDir, {
+      pid: 42, startToken: "start-a", harnessId: "pi", cwd: "/repo", label: "first", hostId: "host", hostName: "Host", hostOs: "linux", now: 1_000,
+    });
+    const same = getOrCreateSessionAgent(orchDir, {
+      pid: 42, startToken: "start-a", harnessId: "pi", cwd: "/repo", label: "renamed", hostId: "host", hostName: "Host", hostOs: "linux", now: 2_000,
+    });
+    const other = getOrCreateSessionAgent(orchDir, {
+      pid: 43, startToken: "start-b", harnessId: "pi", cwd: "/repo", label: "other", hostId: "host", hostName: "Host", hostOs: "linux", now: 3_000,
+    });
+
+    expect(same.id).toBe(first.id);
+    expect(same.label).toBe("renamed");
+    expect(other.id).not.toBe(first.id);
   });
 
-  test("reuses an identity for the same process start and replaces it after pid recycling", () => {
+  test("first sight creates a named root agent and open process row", () => {
     const orchDir = fixture();
-    const first = getOrCreateSessionIdentity(orchDir, 42, "2026-01-01T00:00:00.000Z", "old session");
-    const sameProcess = getOrCreateSessionIdentity(orchDir, 42, "2026-01-01T00:00:00.000Z", "renamed session");
-    const recycledProcess = getOrCreateSessionIdentity(orchDir, 42, "2026-01-02T00:00:00.000Z", "new session");
+    const identity = getOrCreateSessionAgent(orchDir, {
+      pid: 42, startToken: "start-a", harnessId: "pi", cwd: "/repo", label: "lead", hostId: "host", hostName: "Host", hostOs: "linux", now: 1_000,
+    });
 
-    expect(sameProcess.id).toBe(first.id);
-    expect(sameProcess.label).toBe("renamed session");
-    expect(recycledProcess.id).not.toBe(first.id);
-    expect(recycledProcess.label).toBe("new session");
-  });
-
-  test("deletes identities older than the cutoff", () => {
-    const orchDir = fixture();
-    getOrCreateSessionIdentity(orchDir, 1, "2026-01-01T00:00:00.000Z", "old");
-    getOrCreateSessionIdentity(orchDir, 2, "2026-01-02T00:00:00.000Z", "new");
-
-    expect(deleteSessionIdentitiesBefore(orchDir, "2026-01-02T00:00:00.000Z")).toBe(1);
-    expect(openStore(orchDir).query("SELECT ancestor_pid FROM session_identities").all()).toEqual([{ ancestor_pid: 2 }]);
+    expect(agentById(orchDir, identity.id)).toMatchObject({
+      id: identity.id, spawnedBy: null, rootAgentId: identity.id, harnessId: "pi", cwd: "/repo",
+      name: `pi-${identity.id.slice(0, 8)}`, label: "lead",
+    });
+    expect(currentProcess(orchDir, identity.id)).toMatchObject({ pid: 42, start_token: "start-a", host_id: "host", until: null });
+    expect(isLiveAgentIdentity(orchDir, identity)).toBe(true);
+    expect(isLiveAgentIdentity(orchDir, { id: "missing", label: "lead", kind: "session" })).toBe(false);
   });
 });

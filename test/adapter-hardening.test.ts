@@ -45,7 +45,7 @@ describe("adapter and runtime hardening", () => {
     const directory = temp();
     const adapter: AgentAdapter = {
       id: "pi",
-      caps: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
+      capabilities: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
       interactiveCmd: () => "true",
       headlessCmd: () => [process.execPath, "-e", "setTimeout(() => {}, 1000)"],
       detectState: () => "unknown",

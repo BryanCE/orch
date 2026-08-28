@@ -69,7 +69,7 @@ export function cmdResult(args: string[]) {
   if (text) {
     process.stderr.write("(no result.json - falling back to adapter-extracted session text)\n");
     if (json) {
-      const sview = adapter?.caps.sessionTail
+      const sview = adapter?.capabilities.sessionTail
         ? adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined })
         : undefined;
       process.stdout.write(
@@ -232,7 +232,7 @@ function warningQuestionRow(host: string, warning: string): QuestionRow {
 /** Resolve the target's adapter and require a declared session-tail capability, or die. */
 function resolveSessionTailAdapter(target: string, ent: Entity): AgentAdapter {
   const adapter = entityAdapter(ent);
-  if (!adapter?.caps.sessionTail) {
+  if (!adapter?.capabilities.sessionTail) {
     die(`Target "${target}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.`);
   }
   return adapter;

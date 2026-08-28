@@ -92,7 +92,7 @@ describe("HeadlessBackend", () => {
   });
 
   test("spawns a detached process and records its handle", async () => {
-    expect(backend.caps).toEqual({ panes: false, focusable: false, canSendKeys: false, canPruneLogs: true });
+    expect(backend.capabilities).toEqual({ panes: false, focusable: false, canSendKeys: false, canPruneLogs: true });
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-1", prompt: "sleep" });
     handles.push(handle);
 

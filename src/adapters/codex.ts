@@ -95,7 +95,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly id = "codex" as const;
 
   /** Codex cannot ask through orch or switch a live model; resume is degraded steering. */
-  readonly caps = {
+  readonly capabilities = {
     steer: "resume" as const,
     ask: false,
     setModel: false,

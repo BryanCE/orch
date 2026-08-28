@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import { activePaneHud } from "../backends/hud.ts";
 import { createDaemonAck } from "./daemon-ack.ts";
-import { registerFleetMonitor } from "./monitor.ts";
+import { registerFleetMonitor, type FleetReadModel, type FleetStatusRenderer } from "./monitor.ts";
 import { ORCH_DIR, createAgentPresence } from "./presence.ts";
 import { registerAgentTools } from "./tools.ts";
 import type { HarnessApi, HarnessIdentity } from "./harness.ts";
@@ -20,8 +20,22 @@ export function hashExtensionFile(file: string): string {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 12);
 }
 
+/** What a composition root gets back: the live fleet model (when the generic
+ * monitor is wired), and this session's own orch identity for richer seats. */
+export interface HarnessBridge {
+  fleet: FleetReadModel | undefined;
+  /** This session's presence key, once minted; a harness-specific orchestrator
+   *  seat (extensions/pi/fleet) keys its identity wall on this. */
+  ownKey: () => string | undefined;
+}
+
 /** Bind one harness session to orch: its pane, its presence, its tools, its fleet view. */
-export function registerHarnessBridge(harness: HarnessApi, identity: HarnessIdentity, extensionHash: string): void {
+export function registerHarnessBridge(
+  harness: HarnessApi,
+  identity: HarnessIdentity,
+  extensionHash: string,
+  ui?: { renderFleetStatus?: FleetStatusRenderer; fleet?: boolean },
+): HarnessBridge {
   const hud = activePaneHud();
   const paneId = hud.paneHandle;
 
@@ -65,5 +79,15 @@ export function registerHarnessBridge(harness: HarnessApi, identity: HarnessIden
   hud.registerBlockedRelay(harness.events, onBlockedChange);
   // A session that orchestrates also watches: one daemon subscription for the
   // whole session, so a worker going blocked surfaces instead of being polled for.
-  registerFleetMonitor(harness, ORCH_DIR);
+  // The model only ever contains agents THIS session spawned; for everyone else
+  // it stays empty and renders nothing.
+  // A composition root that ships its own orchestrator seat opts out of the
+  // generic status line so exactly one writer owns the fleet surface.
+  const fleet = ui?.fleet === false
+    ? undefined
+    : registerFleetMonitor(harness, ORCH_DIR, {
+        ownKey: (context) => presence.ownPresenceKey(context) || undefined,
+        renderStatus: ui?.renderFleetStatus,
+      });
+  return { fleet, ownKey: () => presence.state.key || undefined };
 }

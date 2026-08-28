@@ -171,6 +171,17 @@ Close pane(s).
                 --all sweeps only agents it spawned itself.
   --stream      Also kill the caller's 'orch events' stream.
 `,
+  detach: `orch detach <target>
+Release the target's lease. The agent keeps running and becomes adoptable; an already-unleased
+agent is a friendly no-op.
+`,
+  adopt: `orch adopt <target> | --all
+Adopt an unleased agent, or every available orphan. A live lease holder must release first.
+`,
+  reap: `orch reap <target>
+Delete an agent record and its presence directory. Refuses while the process or any descendant
+is live; ending is never gated by the lease.
+`,
   panes: `orch panes
 Raw merged pane list, tab-separated, for scripting.
 `,

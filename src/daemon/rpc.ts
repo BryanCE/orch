@@ -1,19 +1,32 @@
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { readDaemonLock } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortFile } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
-import { getOrCreateSessionIdentity, isSessionIdentity, type SessionIdentity } from "../store/identity-rows.ts";
+import { getOrCreateSessionAgent, isLiveAgentIdentity, type HostOs, type SessionAgentIdentity } from "../store/agent-rows.ts";
+import { processStartToken } from "../process-identity.ts";
+import { openStore } from "../store/connection.ts";
+import { allBackends } from "../backends/registry.ts";
+import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
 export interface RpcRequestContext {
   readonly transport: "unix" | "tcp";
-  readonly identity?: SessionIdentity;
+  readonly identity?: SessionAgentIdentity;
 }
+
+export interface UnleasedAgent {
+  readonly id: string;
+  readonly name: string;
+}
+
+/** The hello identity retains its existing fields and appends the adoptable agents summary. */
+export type HelloResponse = SessionAgentIdentity & { readonly unleased: readonly UnleasedAgent[]; readonly registrationWarning?: string };
 export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter, context: RpcRequestContext) => unknown;
 export type RpcHandlers = Record<string, RpcHandler>;
 
@@ -131,9 +144,21 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
-// The process start instant must stay stable across hello calls so a session keeps
-// one identity for its lifetime, even when its parent pid remains unchanged.
-const clientStartedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
+const announcedHelloSessions = new Set<string>();
+
+/** Print the startup adoption hint once for each session identity. The writer seam keeps
+ * command output testable without changing the wire response. */
+export function announceUnleasedAgents(
+  orchDir: string,
+  identity: HelloResponse,
+  write: (text: string) => void = (text) => { process.stdout.write(text); },
+): void {
+  const key = `${orchDir}\0${identity.id}`;
+  if (announcedHelloSessions.has(key)) return;
+  announcedHelloSessions.add(key);
+  if (identity.unleased.length === 0) return;
+  write(`${identity.unleased.length} unleased agent(s) exist - orch adopt ${identity.unleased[0]!.name} to take one, orch status to see them.\n`);
+}
 
 function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {
   const files = daemonRuntimeFiles(orchDir);
@@ -166,7 +191,7 @@ function parseRequest(line: string): { id: unknown; method: string; params: unkn
 }
 
 interface ConnectionState {
-  identity?: SessionIdentity;
+  identity?: SessionAgentIdentity;
 }
 
 /**
@@ -180,17 +205,83 @@ interface ConnectionState {
  * display, never for authorization: a same-uid caller that misreports its session
  * gains nothing it could not already do by dialing again.
  */
-function helloIdentity(orchDir: string, params: unknown, daemonToken: string): SessionIdentity {
+function nonEmpty(value: string | undefined): string | undefined {
+  if (value === "") return undefined;
+  return value;
+}
+
+function hostOs(): HostOs {
+  if (process.platform === "win32") return "windows";
+  if (process.platform === "darwin") return "darwin";
+  if (process.platform === "linux") return "linux";
+  throw new RpcError("IDENTITY_UNAVAILABLE", `hello cannot register unsupported host OS ${process.platform}`);
+}
+
+function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
+  const rows = openStore(orchDir).query(
+    `SELECT a.id, a.name
+       FROM agents a
+       LEFT JOIN agent_endings e ON e.agent_id = a.id
+      WHERE a.id <> ?
+        AND e.agent_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM agent_leases newest
+           WHERE newest.agent_id = a.id
+             AND newest.id = (SELECT MAX(latest.id) FROM agent_leases latest WHERE latest.agent_id = a.id)
+             AND newest.until IS NULL
+        )
+      ORDER BY a.id`,
+  ).all(excludeId) as { id: string; name: string }[];
+  return rows.map(({ id, name }) => ({ id, name }));
+}
+
+function helloIdentity(orchDir: string, params: unknown, daemonToken: string): HelloResponse {
   const claim = isObject(params) ? params : {};
   if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "hello requires the daemon token");
   const pid = typeof claim.pid === "number" ? claim.pid : Number.NaN;
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's session pid");
-  const startedAt = typeof claim.startedAt === "string" ? claim.startedAt.trim() : "";
-  if (!startedAt || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(startedAt) || !Number.isFinite(Date.parse(startedAt))) {
-    throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's process start time");
-  }
+  const harness = typeof claim.harness === "string" ? claim.harness.trim() : "";
+  const cwd = typeof claim.cwd === "string" ? claim.cwd.trim() : "";
+  if (!harness || !cwd) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's harness and cwd");
+  const startToken = processStartToken(pid);
+  if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "hello could not verify the caller's session process");
+  // A CLI invocation is short-lived, while its parent session is not. Detect the
+  // first hello for that process instance so the startup hint cannot repeat on
+  // every subsequent `orch` command from the same session.
+  const alreadyRegistered = openStore(orchDir).query(
+    `SELECT a.id FROM agents a
+       JOIN agent_processes p ON p.agent_id = a.id AND p.until IS NULL
+       LEFT JOIN agent_endings e ON e.agent_id = a.id
+      WHERE p.pid = ? AND p.start_token = ? AND e.agent_id IS NULL
+      LIMIT 1`,
+  ).get(pid, startToken) != null;
   const claimed = typeof claim.label === "string" ? claim.label.trim() : "";
-  return getOrCreateSessionIdentity(orchDir, pid, startedAt, claimed || `session ${pid}`);
+  const host = hostname();
+  const plexerId = typeof claim.plexer === "string" ? claim.plexer.trim() : null;
+  const plexerVersion = typeof claim.plexerVersion === "string" ? claim.plexerVersion.trim() : null;
+  const identity = getOrCreateSessionAgent(orchDir, {
+    pid,
+    startToken,
+    harnessId: harness,
+    cwd,
+    label: claimed || `${harness} session ${pid}`,
+    hostId: host,
+    hostName: host,
+    hostOs: hostOs(),
+    plexerId,
+    plexerVersion,
+    now: Date.now(),
+  });
+  const registrationWarning = plexerId && plexerVersion && supportedRange(plexerId) && !supportedPlexerVersion(plexerId, plexerVersion)
+    ? `plexer ${plexerId} ${plexerVersion} is outside orch's supported ${supportedRange(plexerId)}; update orch`
+    : undefined;
+  return {
+    ...identity,
+    ...(registrationWarning ? { registrationWarning } : {}),
+    // The summary belongs to session startup. Later invocations retain the
+    // field for wire stability but have no announcement to make.
+    unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id),
+  };
 }
 
 function handleLine(
@@ -592,11 +683,32 @@ export async function rpcCall(
 /** Register this process with the daemon and return the identity it issued. Reading the
  *  `0600` token file IS the credential, so there is nothing else to enroll. The session
  *  is this process's parent — the shell or harness that outlives one `orch` invocation. */
-export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<SessionIdentity> {
+export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<HelloResponse> {
   const token = readFileSync(daemonRuntimeFiles(orchDir).token, "utf8").trim();
-  const identity = await rpcCall(orchDir, "hello", { token, pid: process.ppid, startedAt: clientStartedAt, label }, timeoutMs);
-  if (!isSessionIdentity(identity)) throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
-  return identity;
+  const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
+  const harness = configuredHarness
+    ?? (process.env.PI_CODING_AGENT ? "pi" : undefined)
+    ?? (process.env.CLAUDECODE ? "claude" : undefined)
+    ?? (process.env.CODEX_PID ? "codex" : undefined)
+    ?? "cli";
+  // Registration carries the plexer fact observed by this session. Herdr is
+  // the only versioned integration today; unknown environments simply omit it.
+  const callerBackend = allBackends().find((backend) => backend.currentIdentity?.());
+  const plexer = callerBackend?.id;
+  const plexerVersion = callerBackend?.version?.() ?? undefined;
+  const identity = await rpcCall(orchDir, "hello", { token, pid: process.ppid, harness, cwd: process.cwd(), label, plexer, plexerVersion }, timeoutMs);
+  if (!isLiveAgentIdentity(orchDir, identity) || !isObject(identity)) {
+    throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
+  }
+  const unleased = identity.unleased;
+  if (!Array.isArray(unleased)
+    || unleased.some((agent: unknown) => !isObject(agent) || typeof agent.id !== "string" || typeof agent.name !== "string")) {
+    throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
+  }
+  const response = { ...identity, unleased } as HelloResponse;
+  announceUnleasedAgents(orchDir, response);
+  if (response.registrationWarning) process.stderr.write(`warning: ${response.registrationWarning}\n`);
+  return response;
 }
 
 export interface EventSubscription {

@@ -9,6 +9,7 @@ import { subscribeEvents } from "../daemon/rpc.ts";
 import { deliverToSink, loadSinks, type Sink } from "../notify/router.ts";
 import { notificationText, type NotifyEvent } from "../notify/format.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
+import { currentLease, leasesByOrch } from "../store/lease-rows.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { die } from "./target.ts";
 
@@ -43,11 +44,27 @@ interface EventsContext {
 }
 
 
+export function eventInMineScope(input: {
+  mineAddress: string | undefined;
+  leaseOwner: string | null;
+  eventSpawnedBy?: string;
+  recordSpawnedBy?: string;
+}): boolean {
+  if (!input.mineAddress) return false;
+  // An open lease is authoritative. Provenance is only the transitional
+  // fallback while spawn has not written a lease row yet.
+  if (input.leaseOwner !== null) return input.leaseOwner === input.mineAddress;
+  return input.eventSpawnedBy === input.mineAddress || input.recordSpawnedBy === input.mineAddress;
+}
+
 export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
   const items = eventsItems(options);
   const mineAddress = options.mine ? spawnerIdentity().key ?? undefined : undefined;
+  const mineLeaseIds = mineAddress
+    ? new Set(leasesByOrch(orchDir(), mineAddress).map((lease) => lease.agentId))
+    : new Set<string>();
   const accepts = (key: string, event?: NotifyEvent): boolean => {
     const inScope = options.targets.length
       ? items.has(key)
@@ -56,7 +73,9 @@ export async function cmdEvents(args: string[]) {
     if (!inScope) return false;
     if (!options.mine) return true;
     const eventSpawnedBy = isRecord(event) && typeof event.spawnedBy === "string" ? event.spawnedBy : undefined;
-    return eventSpawnedBy === mineAddress || spawnedRecords().get(key)?.spawnedBy === mineAddress;
+    const recordSpawnedBy = spawnedRecords().get(key)?.spawnedBy;
+    const leaseOwner = mineLeaseIds.has(key) ? mineAddress! : currentLease(orchDir(), key)?.orchId ?? null;
+    return eventInMineScope({ mineAddress, leaseOwner, eventSpawnedBy, recordSpawnedBy });
   };
   const context: EventsContext = {
     options,

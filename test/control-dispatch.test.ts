@@ -131,7 +131,7 @@ describe("deliverControl", () => {
     process.env.ORCH_DIR = directory;
     const key = target("headless", "unsupported");
     presence(directory, key, "claude");
-    const caps: { steer: "inbox" | "keys" | "resume" | "none" } = claudeAdapter.caps;
+    const caps: { steer: "inbox" | "keys" | "resume" | "none" } = claudeAdapter.capabilities;
     const previousSteer = caps.steer;
     caps.steer = "none";
     try {

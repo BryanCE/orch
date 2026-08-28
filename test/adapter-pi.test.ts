@@ -60,7 +60,13 @@ describe("PiAdapter", () => {
       "openai/gpt-5",
       "fix tests",
     ]);
-    expect(adapter.caps).toEqual({ steer: "inbox", ask: true, setModel: true, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: true, lifecycle: ["reset", "reload", "restart"] });
+    expect(adapter.capabilities).toEqual({ steer: "inbox", ask: true, setModel: true, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: true, lifecycle: ["reset", "reload", "restart"] });
+  });
+
+  test("restricted workers explicitly load the bundled pi extension", () => {
+    const command = adapter.restrictedInteractiveCmd({});
+    expect(command).toContain("--no-extensions");
+    expect(command).toMatch(/-e .*pi-bridge\.js/);
   });
 
   test("declares its lifecycle slash-commands", () => {

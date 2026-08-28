@@ -1,9 +1,9 @@
-import type { AgentAdapter } from "../../adapters/adapter.ts";
+import type { AgentAdapter, AdapterId } from "../../adapters/adapter.ts";
 import { registerSinkProvider } from "../../notify/sinks.ts";
 import { herdrNotificationProvider } from "./notify.ts";
-import { binaryOnPath, errorMessage, isRecord, projectRoot, shellQuote } from "../../util.ts";
-import { NO_PANE_FOREGROUND, paneAtShellPrompt, paneRunsCommand, sleepMs, type PaneForeground } from "../pane-ready.ts";
-import { herdrAck, herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
+import { binaryOnPath, errorMessage, isRecord, projectRoot } from "../../util.ts";
+import { NO_PANE_FOREGROUND, type PaneForeground } from "../pane-ready.ts";
+import { herdrAck, herdrBestEffort, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrTabs, herdrVersion, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
   BackendCapabilities,
@@ -25,17 +25,13 @@ export type HerdrHandle = string;
 
 const HERDR_BACKEND: BackendId = "herdr";
 
-/** A fresh pane's shell settles in well under a second; five seconds is the outer
- *  bound before orch types anyway and lets the launch check rule on the result. */
-const SHELL_PROMPT_ATTEMPTS = 20;
-const SHELL_PROMPT_POLL_MS = 250;
-
-/** A harness takes a moment to claim the terminal, and a line typed into a shell
- *  that was still starting runs late rather than never — so the window is wide
- *  enough that a retype cannot land on top of a harness that just came up. */
-const LAUNCH_SETTLE_ATTEMPTS = 24;
-const LAUNCH_SETTLE_POLL_MS = 250;
-const LAUNCH_ATTEMPTS = 2;
+/** Explicit mapping from orch adapter ids to herdr's closed harness-kind list. */
+const HERDR_KINDS: Record<AdapterId, string> = {
+  pi: "pi",
+  omp: "omp",
+  claude: "claude",
+  codex: "codex",
+};
 
 /** Workspace of the invoking pane, and ONLY of the invoking pane. A caller outside
  *  herdr has no workspace: falling back to the first listed pane spawned orch's
@@ -44,14 +40,6 @@ function callerPaneWorkspace(): string | undefined {
   const caller = process.env.HERDR_PANE_ID;
   if (!caller) return undefined;
   return herdrPanes().find((pane) => pane.pane_id === caller)?.workspace_id;
-}
-
-/** The launch line orch runs in the pane. An explicit --cmd is the caller's
- *  verbatim; ignoring it made --cmd a no-op that still printed what it never ran. */
-function launchCommand(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
-  const command = opts.cmd ?? adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
-  if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
-  return command;
 }
 
 /** The pane's border label; empty ids are invalid at runtime even though
@@ -131,11 +119,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly panes = true;
   readonly focusable = true;
   readonly canSendKeys = true;
-  readonly caps: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true, canPruneLogs: false };
+  readonly capabilities: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true, canPruneLogs: false };
 
   /** True when the herdr binary is resolvable on PATH. */
   isAvailable(): boolean {
     return binaryOnPath("herdr");
+  }
+
+  version(): string | null {
+    return herdrVersion();
   }
 
   /** True when a herdr control socket is reachable (inside a live herdr session). */
@@ -154,14 +146,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return { backend: HERDR_BACKEND, workspace: pane.workspace_id, id: handle };
   }
 
-  /**
-   * Open a pane and run the adapter's command line in it, preserved as one
-   * `bash -lc` value so quoting survives. orch launches, never herdr:
-   * `agent start --kind` would pick herdr's own executable and discard both the
-   * adapter's command and `--cmd`.
-   */
+  /** Create a pane first, then start herdr's canonical harness in that pane. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
-    const command = launchCommand(adapter, opts);
     const workspace = opts.workspace ?? callerPaneWorkspace();
     if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
 
@@ -170,49 +156,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     const planned = typeof opts.targetPane === "string" ? opts.targetPane : null;
     const handle = this.openPane(workspace, opts, planned ?? process.env.HERDR_PANE_ID ?? null);
     herdrBestEffort(["pane", "rename", handle, paneName(adapter, opts)]);
-    // ONE argument. herdr types what it is given into the pane's shell, joining
-    // separate argv words with plain spaces — `bash -lc <cmd>` split across words
-    // arrives unquoted, so the shell takes `pi` as the whole -c string and every
-    // flag after it as a positional arg, launching the harness with no arguments.
-    this.launchInPane(handle, `bash -lc ${shellQuote(command)}`);
+    const kind = HERDR_KINDS[adapter.id];
+    if (!kind) throw new Error(`unsupported herdr harness kind: ${String(adapter.id)}`);
+    herdrAck(["agent", "start", paneName(adapter, opts), "--kind", kind, "--pane", handle]);
     if (opts.group && !planned) this.reseatIntoGroup(handle, opts.group, opts.split ?? "right");
     return handle;
-  }
-
-  /**
-   * Type the launch line into a pane and prove it ran. `pane run` hands text to
-   * whatever the terminal is doing at that instant, and a shell still sourcing
-   * its rc files echoes the line and drops it — leaving a named, registered pane
-   * sitting at a bare prompt with no harness in it. Nothing outside the pane can
-   * tell "at a prompt" from "starting up", so the launch is verified rather than
-   * timed, and a swallowed line is retyped once before the pane is given up on.
-   */
-  private launchInPane(handle: HerdrHandle, line: string): void {
-    for (let attempt = 0; attempt < LAUNCH_ATTEMPTS; attempt++) {
-      this.awaitShellPrompt(handle);
-      herdrAck(["pane", "run", handle, line]);
-      if (this.awaitCommandRunning(handle)) return;
-    }
-    this.close(handle);
-    throw new Error(`${handle} swallowed the launch line: the pane never left its shell prompt`);
-  }
-
-  /** Wait out the pane's shell startup, so the launch line is typed at a terminal
-   *  that is at least no longer running something else. */
-  private awaitShellPrompt(handle: HerdrHandle): void {
-    for (let attempt = 0; attempt < SHELL_PROMPT_ATTEMPTS; attempt++) {
-      if (paneAtShellPrompt(this.paneForeground(handle))) return;
-      sleepMs(SHELL_PROMPT_POLL_MS);
-    }
-  }
-
-  /** True once the launched command owns the pane's terminal. */
-  private awaitCommandRunning(handle: HerdrHandle): boolean {
-    for (let attempt = 0; attempt < LAUNCH_SETTLE_ATTEMPTS; attempt++) {
-      sleepMs(LAUNCH_SETTLE_POLL_MS);
-      if (paneRunsCommand(this.paneForeground(handle))) return true;
-    }
-    return false;
   }
 
   /** herdr's env flags for a pane orch is about to launch an agent into. */

@@ -197,7 +197,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 
   /** Claude has no inbox or answer protocol; hooks provide state/session tails. */
-  readonly caps = {
+  readonly capabilities = {
     steer: "keys" as const,
     ask: false,
     setModel: false,

@@ -90,12 +90,12 @@ describe("runDoctor", () => {
     const directory = tempDir();
     openStore(directory);
     const database = new Database(path.join(directory, "orch.db"));
-    database.exec("DROP TABLE queue");
+    database.exec("DROP TABLE tasks");
     database.close();
 
     const result = checkStore(directory);
     expect(result.status).toBe("fail");
-    expect(result.detail).toContain("queue");
+    expect(result.detail).toContain("tasks");
   });
 
   test("reports a normal ORCH_DIR on the Linux filesystem", async () => {

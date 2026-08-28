@@ -16,13 +16,13 @@ or web section, which made settled things look open and got them asked again.
 | # | item | status |
 |---|---|---|
 | A1 | Entity model: an orch is an agent; **four** facts never welded — identity, provenance, lease, environment. Lifetime is not one of them | `DECIDED` — `01-agent-model.md` |
-| A2 | **5NF schema**, past it only where a split deletes a constraint. Lookups `harnesses`, `plexers`, `hosts`; `spaces`; the `agents` hub; `agent_processes`; `agent_leases`; `agent_plexers` (which layer, immutable) and its coordinate `agent_handles`; `agent_spaces`; `agent_tunings` for configuration, which is not environment; and `agent_worktrees` / `agent_endings` for facts only some agents have. Harness and `cwd` are on the hub: a running process cannot change either, and every agent has both | `DECIDED` — `06-schema.md` |
-| A16 | Non-agent environments: `space_plexers`, `pack_plexers` (E10, E11); `host_plexers` for which plexer is installed on a machine and at what version (E17). Queue: `tasks`, `task_attempts`, `pack_intakes`, `task_states` | `DECIDED` — `06-schema.md` |
+| A2 | **5NF schema**, past it only where a split deletes a constraint. Lookups `harnesses`, `plexers`, `hosts`; `spaces`; the `agents` hub; `agent_processes`; `agent_leases`; `agent_plexers` (which layer, immutable) and its coordinate `agent_handles`; `agent_spaces`; `agent_tunings` for configuration, which is not environment; and `agent_worktrees` / `agent_endings` for facts only some agents have. Harness and `cwd` are on the hub: a running process cannot change either, and every agent has both | `BUILT` — `src/store/schema.ts` |
+| A16 | Non-agent environments: `space_plexers`, `pack_plexers` (E10, E11); `host_plexers` for which plexer is installed on a machine and at what version (E17). Queue: `tasks`, `task_attempts`, `pack_intakes`, `task_states` | `BUILT` — `src/store/schema.ts` |
 | A14 | **Environment is a composition, never a table.** What can change gets its own narrow table with its own `since`/`until` and partial unique index; a missing axis is a missing row, never a NULL. What cannot change is a column on the hub — a satellite whose history is always one row is a join answering a question nobody can ask | `DECIDED` |
 | A15 | Adding an axis that can change (OS side, remote host, container) is one table plus one line in the composer — zero consumer changes | `DECIDED` |
-| A3 | Data types chosen from purpose; instants are INTEGER epoch ms; no booleans | `DECIDED` |
-| A4 | `STRICT` tables + partial unique indexes for "one live X" | `DECIDED` |
-| A5 | `PRAGMA foreign_keys = ON` in `openStore` — absent today, so every FK is decoration | `BROKEN` |
+| A3 | Data types chosen from purpose; instants are INTEGER epoch ms; no booleans | `BUILT` — `src/store/schema.ts` |
+| A4 | `STRICT` tables + partial unique indexes for "one live X" | `BUILT` — `src/store/schema.ts` |
+| A5 | `PRAGMA foreign_keys = ON` in `openStore` — absent today, so every FK is decoration | `BUILT` — `src/store/connection.ts` |
 | A6 | `processInstanceMatches(pid, start_token)` as the one liveness primitive | `BUILT` — `src/process-identity.ts`, replaced two divergent copies |
 | A7 | A **space** is user-created and optional — never minted from a path. With no space set the reachability boundary is the repo root | `DECIDED` — `adr/0001` |
 | A8 | Vocabulary (`orch` / `slave` / `pack` / `space`) is a display map, never stored — roles are derived from the tree. User-configurable terms are later polish, but the one-map constraint holds from day one | `DECIDED` |
@@ -38,7 +38,7 @@ The `hello` handshake in detail. Nothing outside `TASKS/` is part of this plan.
 
 | # | item | status |
 |---|---|---|
-| B1 | `hello` is the only entry point; identity is issued by orchd, never derived by the caller | `DECIDED` |
+| B1 | `hello` is the only entry point; identity is issued by orchd, never derived by the caller | `BUILT` — `src/daemon/rpc.ts` |
 | B9 | `hello` is also where the **environment** is recorded in full — harness, plexer, directory, space, OS side. It is not filled in later or inferred at use, because it is what dictates everything that agent can do (E13) | `DECIDED` |
 | B2 | Credential is the `0600` token file in `$ORCH_DIR`; same-uid is the whole trust boundary | `DECIDED` |
 | B3 | One mechanism on both transports; TCP is a fallback, never a client class | `DECIDED` |
@@ -46,13 +46,13 @@ The `hello` handshake in detail. Nothing outside `TASKS/` is part of this plan.
 | B5 | `selfActor()` and the four-branch `spawnerIdentity()` fallback are deleted, not adapted | `DECIDED` |
 | B6 | No-daemon commands (`setup`, `doctor`, `help`, `version`, `status --offline`) need no identity because they never write | `DECIDED` |
 | B7 | Every agent has an inbox; reading it promptly is the only thing that varies | `DECIDED` |
-| B8 | `session_identities` table deleted — a session is an agent row | `DECIDED` |
+| B8 | `session_identities` table deleted — a session is an agent row | `BUILT` — `src/store/agent-rows.ts` |
 
 ## C. Leases — who may drive what
 
 | # | item | status |
 |---|---|---|
-| C1 | Lease ops: renew / release / handoff / adoption / expiry. Expiry transfers nothing | `DECIDED` |
+| C1 | Lease ops: renew / release / handoff / adoption / expiry. Expiry transfers nothing | `BUILT` — `src/store/lease-rows.ts` |
 | C2 | **Authority is the lease:** you may act on an agent if you hold its lease, or if no lease is in force | `DECIDED` |
 | C3 | An orch can never touch another orch's agents — not their panes, not their model, nothing | `DECIDED` |
 | C4 | `--steal` is the deliberate override for taking from a **live** orch | `DECIDED` |
@@ -63,7 +63,7 @@ The `hello` handshake in detail. Nothing outside `TASKS/` is part of this plan.
 | C4f | **An agent may rename itself** with no lease in force — acting on itself is not driving. Renaming another agent is | `DECIDED` |
 | C4d | **Resolving a name to an id is a first-class operation**, not a per-command lookup — orch resolves the name of a slave, another orch, or anything else the same way, in one place at the boundary | `DECIDED` |
 | C5 | A transfer must not disturb the agent — no reset, no re-attach, no context loss | `DECIDED` |
-| C6 | `orch events` scope follows the lease, not `spawnedBy` — an adopted fleet must be watchable | `DECIDED` |
+| C6 | `orch events` scope follows the lease, not `spawnedBy` — an adopted fleet must be watchable | `BUILT` — `src/commands/events.ts` |
 | C7 | Live views group by lease; history groups by provenance | `DECIDED` |
 
 ## Cq. Queue
@@ -79,15 +79,15 @@ Modelled in `06-schema.md`: `tasks`, `task_attempts`, `pack_intakes`, and the `t
 | Cq5 | Agent scope requires leasing it at enqueue; the binding survives adoption | `DECIDED` |
 | Cq6 | Retry re-binding follows scope — pack-scoped retries anywhere in the pack, only agent-scoped re-pins | `DECIDED` |
 | Cq7 | `origin_workspace` deleted — scope replaces it | `DECIDED` |
-| Cq8 | **Today's bug:** `orch work` gives a queued task to any idle agent in the workspace, including another orch's slaves | `BROKEN` |
+| Cq8 | **Today's bug:** `orch work` gives a queued task to any idle agent in the workspace, including another orch's slaves | `BUILT` — `src/daemon/work-loop.ts` |
 | Cq9 | Queue CRUD: cancel by the enqueuer or the orch leasing the targeted agents (human always); edit only by the enqueuer while `queued`; read open | `DECIDED` |
 | Cq10 | **Unrunnable** (no live agent in scope) is reapable; **stale** (long-queued but claimable) is surfaced, never deleted on age | `DECIDED` |
 | Cq11 | Reaping an unrunnable task is **always deliberate** — never a timer. Unrunnable is a fact about who is alive now, and a new orch changes that | `DECIDED` |
 | Cq12 | An orphaned task has three deliberate resolutions: **take it on** (re-scope to the taker's pack), leave, reap | `DECIDED` |
 | Cq13 | Adoption carries the queue — pack-scoped tasks come with the agents, nothing to re-parent | `DECIDED` |
-| Cq14 | **A claim is an attempt row, and a retry is the next one.** `retries`, `last_error` and `agent_key` leave the task; the claim is an INSERT guarded by `one_open_attempt`, not a conditional UPDATE. Cq6 stops being enforceable code and becomes unrepresentable | `DECIDED` |
-| Cq15 | **State is derived** (`task_states`), never stored. A stored `state` is a second truth beside the attempts that produce it | `DECIDED` |
-| Cq16 | Scope is three typed nullable references with `exactly one non-null`, never `(kind, id)` — a polymorphic pair cannot carry a foreign key | `DECIDED` |
+| Cq14 | **A claim is an attempt row, and a retry is the next one.** `retries`, `last_error` and `agent_key` leave the task; the claim is an INSERT guarded by `one_open_attempt`, not a conditional UPDATE. Cq6 stops being enforceable code and becomes unrepresentable | `BUILT` — `src/store/task-rows.ts` |
+| Cq15 | **State is derived** (`task_states`), never stored. A stored `state` is a second truth beside the attempts that produce it | `BUILT` — `src/store/schema.ts` |
+| Cq16 | Scope is three typed nullable references with `exactly one non-null`, never `(kind, id)` — a polymorphic pair cannot carry a foreign key | `BUILT` — `src/store/task-rows.ts` |
 
 ## D. Lifecycle
 
@@ -98,10 +98,10 @@ Modelled in `06-schema.md`: `tasks`, `task_attempts`, `pack_intakes`, and the `t
 | D3 | Unleased + idle stays alive and adoptable, indefinitely. Nothing ages it out | `DECIDED` |
 | D4 | Nothing actively working is ever closed on a timer | `DECIDED` |
 | D5 | Nested spawn: a grandchild becomes unleased, never falls to the grandparent | `DECIDED` |
-| D6 | Three verbs — `abort` the turn, `close` the process, `reap` the record | `DECIDED` |
+| D6 | Three verbs — `abort` the turn, `close` the process, `reap` the record | `BUILT` — `src/commands/lease.ts` |
 | D7 | Kill path never routes through the leasing orch and never touches the plexer | `DECIDED` |
 | D8 | Adoption announces itself when a session starts where unleased agents exist | `DECIDED` |
-| D9 | `orch detach` = release the lease. One meaning: it is nobody's, anyone may adopt | `DECIDED` |
+| D9 | `orch detach` = release the lease. One meaning: it is nobody's, anyone may adopt | `BUILT` — `src/commands/lease.ts` |
 | D10 | Lock-delay cooldown after expiry so a flapping orch cannot thrash a lease | `DESIGN` |
 | D11 | **Two things close an agent: the user, or the orch that spawned it. Nothing else, ever.** No timer, no retention window, no sweep, no idle rule, whatever state it is in and however long it sits | `DECIDED` |
 | D14 | **Nothing reaps an agent record on a timer either.** A record is deleted when the user says so. The only clock is a long fallback so the store cannot grow without bound, measured in months, not a cleanup policy dressed as one | `DECIDED` |
@@ -122,7 +122,7 @@ Modelled in `06-schema.md`: `tasks`, `task_attempts`, `pack_intakes`, and the `t
 | E8 | **An orch spawning into a plexer it is not itself inside MUST get its own new plexer workspace.** Its pack has to be visibly separate from other orchs' work and from the human's own panes — otherwise its agents read as random agents with no discoverable origin. Allowable, but never unmarked | `DECIDED` |
 | E9 | That makes "can hold orch's structure" one of the things an environment provides — create / rename / close a home for a space or a pack, implemented per plexer and branched on by what it provides, never by plexer id. orch stays coupled to no plexer. Today it exposes none of it: `orch ws` is list + focus, and `orch spawn --workspace` only picks an existing one. The coordinate it returns lands in `space_plexers` / `pack_plexers` | `DESIGN` |
 | E10 | **There is no new noun, and there must not be one.** The thing being grouped is already a **space** or a **pack**; what the plexer groups by is a coordinate orch stores and hands back, never says. The port operates on "this space's home" / "this pack's home"; `space_plexers` and `pack_plexers` hold the coordinate. Minting an orch word for a plexer coordinate is exactly how `wF` got printed as a name | `DECIDED` — `06-schema.md` |
-| E6 | Rename `caps` → `capabilities` daemon-side, ~30 sites across backends/adapters/commands/control/doctor/tests. Do **not** rename the column-width `caps` locals in `src/table.ts`, `src/commands/queue.ts:15`, `src/commands/status.ts:212,427` | `DECIDED` |
+| E6 | Rename `caps` → `capabilities` daemon-side, ~30 sites across backends/adapters/commands/control/doctor/tests. Do **not** rename the column-width `caps` locals in `src/table.ts`, `src/commands/queue.ts:15`, `src/commands/status.ts:212,427` | `BUILT` — `src/backends/backend.ts` |
 | E13 | **The environment dictates what is possible — no oxygen, no fire.** `hello` records where the agent is: harness, plexer, directory, space, OS side. What it can do follows from that and is never itself recorded: no capability rows, and nothing declared to orch by a plexer. Nothing is discovered or negotiated at the moment of acting either. No method-presence check and no loose flags — Ef10's optional methods and Ef12's booleans are both deleted | `DECIDED` |
 | E14 | **No fallback logic and no unsupported-operation error path inside orch.** orch never reaches for something the environment lacks, so there is nothing to catch. "Can't" is only ever said to a *human* who asked, and it is an answer, not a failure: `orch zoom` on a headless agent replies that the agent has no pane | `DECIDED` |
 | E15 | What is possible changes when **what is there** changes — a move (a new environment record) or an upgrade (a new `host_plexers` row). Neither is a negotiation at the moment of acting | `DECIDED` |
@@ -182,9 +182,9 @@ second place to decide what a verb means.
 
 | # | item | status |
 |---|---|---|
-| F1 | `orch detach <target>` — release the lease. One meaning; there is no lifetime to change | `BUILD` — D9 |
-| F2 | `orch adopt` — take the lease on unleased agents, with the unprompted announcement | `BUILD` — C1, D8 |
-| F3 | `orch reap` — the third verb; does not exist today | `BUILD` — D6 |
+| F1 | `orch detach <target>` — release the lease. One meaning; there is no lifetime to change | `BUILT` — `src/commands/lease.ts` |
+| F2 | `orch adopt` — take the lease on unleased agents, with the unprompted announcement | `BUILT` — `src/commands/lease.ts` |
+| F3 | `orch reap` — the third verb; does not exist today | `BUILT` — `src/commands/lease.ts` |
 | F4 | `orch spawn <name>` — naming is **required**; there is no `--detached` and no default name | `BUILD` — C4e, F4 |
 | F5 | `orch space` — create / rename / delete, replacing `orch ws` | `DESIGN` — the concept is A7/`adr/0001`; the command surface is not written |
 | F6 | Status output: unleased agents must read as "no orch driving it", never as yours | `BUILD` — D3 |
@@ -210,15 +210,15 @@ second place to decide what a verb means.
 
 | # | item | status |
 |---|---|---|
-| H1 | **Corrected — the machinery exists.** `src/config.ts:63` carries seven windows including `agent_dirs_days`, `src/daemon/retention.ts:62-68` consumes all seven, `src/daemon/work-loop.ts:197-207` sweeps them. The defect is the **clock**: `reapDeadPresenceDirs` (`src/presence/store.ts:194`) ages a directory by its filesystem `mtime` instead of by when the agent ended | `BROKEN` |
-| H2 | Thirteen stale presence dirs on disk right now — seven `headless~local~*` plus six `herdr~wF~*` whose pi processes are all dead | `BROKEN` |
+| H1 | **Corrected — the machinery exists.** `src/config.ts:63` carries seven windows including `agent_dirs_days`, `src/daemon/retention.ts:62-68` consumes all seven, `src/daemon/work-loop.ts:197-207` sweeps them. The defect is the **clock**: `reapDeadPresenceDirs` (`src/presence/store.ts:194`) ages a directory by its filesystem `mtime` instead of by when the agent ended | `BUILT` — `src/presence/store.ts` |
+| H2 | Thirteen stale presence dirs on disk right now — seven `headless~local~*` plus six `herdr~wF~*` whose pi processes are all dead | `BUILT` — `test/retention.test.ts` |
 | H3 | Reap must walk the provenance tree — refusing to delete an agent with descendants | `DECIDED` |
-| H4 | Retention settings settled: `ended_agents_days` 90 (the long fallback), `queue_days` 14, `events_days` 7, `runs_days` 30, `outbox_days` 7, `logs_days` 7. Every one deletes a record of something already ended. No new columns — every clock is already recorded | `DECIDED` — `06-schema.md` |
-| H9 | Agent records get the long fallback; orch's own byproducts (events, outbox, runs, logs) keep short windows. An agent is the user's, a delivered outbox row is orch's own litter, and they do not get the same treatment | `DECIDED` |
-| H7 | **Every retention window is user-configurable in `settings.json`, individually.** The numbers in H4 are defaults, never constants in the source. How long a user's own records are kept is the user's call, and a value they cannot see or change is orch deciding it for them | `DECIDED` |
-| H8 | A window the user has not set falls back to its default alone — setting one never disturbs another, and there is no all-or-nothing retention block | `DECIDED` |
-| H5 | `agent_dirs_days` is retired into `ended_agents_days`: one window covering the row, its satellites and its presence directory, keyed on `agent_endings.ended_at`. Two names for one age is how they drift apart | `DECIDED` |
-| H6 | `identities_days` is deleted along with `session_identities` (B8) | `DECIDED` |
+| H4 | Retention settings settled: `ended_agents_days` 90 (the long fallback), `queue_days` 14, `events_days` 7, `runs_days` 30, `outbox_days` 7, `logs_days` 7. Every one deletes a record of something already ended. No new columns — every clock is already recorded | `BUILT` — `src/config.ts` |
+| H9 | Agent records get the long fallback; orch's own byproducts (events, outbox, runs, logs) keep short windows. An agent is the user's, a delivered outbox row is orch's own litter, and they do not get the same treatment | `BUILT` — `src/daemon/retention.ts` |
+| H7 | **Every retention window is user-configurable in `settings.json`, individually.** The numbers in H4 are defaults, never constants in the source. How long a user's own records are kept is the user's call, and a value they cannot see or change is orch deciding it for them | `BUILT` — `src/config.ts` |
+| H8 | A window the user has not set falls back to its default alone — setting one never disturbs another, and there is no all-or-nothing retention block | `BUILT` — `src/config.ts` |
+| H5 | `agent_dirs_days` is retired into `ended_agents_days`: one window covering the row, its satellites and its presence directory, keyed on `agent_endings.ended_at`. Two names for one age is how they drift apart | `BUILT` — `src/config.ts` |
+| H6 | `identities_days` is deleted along with `session_identities` (B8) | `BUILT` — `src/config.ts` |
 
 ## I. Enforcement
 
@@ -248,7 +248,7 @@ Rule 8: bump the schema, reap, never accept two shapes.
 | J5 | `STORE_SCHEMA` and `PRESENCE_SCHEMA` both bump; old stores reaped | `DECIDED` |
 | J6 | Sequencing: port seam and columns first, key change second, as its own change | `DECIDED` |
 | J7 | `queue` → `tasks` + `task_attempts`: `TaskRec` loses `workspace`, `retries`, `lastError`, `agentKey` and gains an attempt list. `src/queue.ts`, `src/store/queue-rows.ts`, `src/commands/queue.ts`, the work loop and every queue fixture. Old rows are reaped, never migrated (Rule 8) | `DECIDED` — `adr/0002` |
-| J8 | `retention.identities_days` and `retention.agent_dirs_days` are deleted from `settings.json`; `ended_agents_days` replaces them | `DECIDED` |
+| J8 | `retention.identities_days` and `retention.agent_dirs_days` are deleted from `settings.json`; `ended_agents_days` replaces them | `BUILT` — `src/config.ts` |
 
 ## K. Tooling and environment
 
@@ -271,24 +271,24 @@ Rule 8: bump the schema, reap, never accept two shapes.
 | M6 | Never two daemons at once — machine-wide registration refuses the second start and names the live one; doctor verifies | `DESIGN` |
 | M7 | Cross-OS execution is a **backend**, not a peer daemon: start / is-alive / kill. An OS side with no executor is one nothing can run on — an answer, never a crash or a silent empty list | `DESIGN` |
 | M8 | `orch status --offline` is a second reader of a second source — demote to a doctor affordance or delete | `DESIGN` |
-| M9 | Default visibility scoped by plexer workspace (`src/commands/status.ts:187`) — a live fleet vanishes when you change herdr window. Reads are never gated | `BROKEN` |
+| M9 | Default visibility scoped by plexer workspace (`src/commands/status.ts:187`) — a live fleet vanishes when you change herdr window. Reads are never gated | `BUILT` — `src/commands/status.ts` |
 
 ## L. Outstanding defects
 
 | # | item | status |
 |---|---|---|
-| L1 | `src/daemon/work-loop.ts:117,223` — `string \| null` assigned to `string \| undefined` | `BROKEN` |
+| L1 | `src/daemon/work-loop.ts:117,223` — `string \| null` assigned to `string \| undefined` | `BUILT` — `src/daemon/work-loop.ts` |
 | L2 | `test/close-always.test.ts:40` — unused `workspace` parameter | `BROKEN` |
-| L3 | `src/commands/status.ts:232,439` — the zero-rows message asserts "backend down and no agent dirs" without testing either. Printed while herdr was up and 13 agent dirs existed. It must report what it found: agents seen, how many alive, whether the backend answered | `BROKEN` |
-| L4 | Status renders dead agents as live work — state, cost and LAST come from `status.json`, which outlives the process. No liveness check against a recorded pid | `BROKEN` |
+| L3 | `src/commands/status.ts:232,439` — the zero-rows message asserts "backend down and no agent dirs" without testing either. Printed while herdr was up and 13 agent dirs existed. It must report what it found: agents seen, how many alive, whether the backend answered | `BUILT` — `src/commands/status.ts` |
+| L4 | Status renders dead agents as live work — state, cost and LAST come from `status.json`, which outlives the process. No liveness check against a recorded pid | `BUILT` — `src/commands/status.ts` |
 | L8 | **`workspaceNames()` returned the first TAB's label as a workspace's name.** herdr's `workspace list` carries the real `label` (`{"workspace_id":"wF","label":"t3reports"}`) and orch never read it, so `wF` was displayed where `t3reports` was one field away. `HerdrWorkspace.label` was already in the type and `workspaces()` already fetched it; the name map simply looked at tabs instead | `FIXED` — reads `workspaces()` |
 | L6 | **A slave with no reachable spawner relays through a sibling and burns its turn.** Reproduced live: two of four research agents spent their whole turn on `orch_send` to each other and returned relay chatter instead of their report. `ORCH_SPAWNER` was unset, and nothing told them to park the message | `BROKEN` |
 | L7 | `ack.jsonl` is written (`src/presence/inbox.ts:61-72`) and **nothing reads it** — the documented fallback is half-built | `BROKEN` |
-| L9 | **`src/backends/herdr/index.ts:215` calls `agent send`, removed in herdr 0.7.5.** This is the delivery path. Replacement is `agent prompt <target> <text>`, one call, no separate Enter (Eh15, Eh16) | `BROKEN` |
-| L10 | **`src/backends/herdr/index.ts:343` calls top-level `wait agent-status`, removed in 0.7.5.** Replacement is `agent wait <target> --until <state> --timeout <ms>`; note `--status` became `--until` | `BROKEN` |
-| L11 | **`src/backends/herdr/index.ts:148` calls `agent start <name> --workspace --cwd --no-focus`.** None of those flags exist. `agent start` now needs `--kind` and `--pane`, and never creates layout — so spawn must create the pane first (Eh12) | `BROKEN` |
-| L12 | **`herdrBestEffort` swallows every one of these failures silently**, which is why three removed commands broke nothing visibly. It is the exact "silently no-ops" that E14 forbids | `BROKEN` |
-| L5 | `orch close --all` is scoped by provenance (`spawnedBySelf`, `src/commands/lifecycle.ts:389`) and per-target close refuses on `spawnedBy` (`:402`). Ending is never gated (D7), and live scoping follows the lease, never provenance (C6) | `BROKEN` |
+| L9 | **`src/backends/herdr/index.ts:215` calls `agent send`, removed in herdr 0.7.5.** This is the delivery path. Replacement is `agent prompt <target> <text>`, one call, no separate Enter (Eh15, Eh16) | `BUILT` — `src/backends/herdr/index.ts` |
+| L10 | **`src/backends/herdr/index.ts:343` calls top-level `wait agent-status`, removed in 0.7.5.** Replacement is `agent wait <target> --until <state> --timeout <ms>`; note `--status` became `--until` | `BUILT` — `src/backends/herdr/index.ts` |
+| L11 | **`src/backends/herdr/index.ts:148` calls `agent start <name> --workspace --cwd --no-focus`.** None of those flags exist. `agent start` now needs `--kind` and `--pane`, and never creates layout — so spawn must create the pane first (Eh12) | `BUILT` — `src/backends/herdr/index.ts` |
+| L12 | **`herdrBestEffort` swallows every one of these failures silently**, which is why three removed commands broke nothing visibly. It is the exact "silently no-ops" that E14 forbids | `BUILT` — `src/backends/herdr/cli.ts` |
+| L5 | `orch close --all` is scoped by provenance (`spawnedBySelf`, `src/commands/lifecycle.ts:389`) and per-target close refuses on `spawnedBy` (`:402`). Ending is never gated (D7), and live scoping follows the lease, never provenance (C6) | `BUILT` — `src/commands/lifecycle.ts` |
 
 ---
 

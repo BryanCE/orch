@@ -17,8 +17,11 @@ import {
   startRpcServer,
   type RpcServer,
 } from "../src/daemon/rpc";
-import { isSessionIdentity } from "../src/store/identity-rows.ts";
+import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
+import { openStore } from "../src/store/connection.ts";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
+import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
+import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];
@@ -103,15 +106,54 @@ describe("daemon RPC", () => {
     expect(first.id).not.toContain("~");
   });
 
+  test("hello returns live agents whose newest lease is closed or absent", async () => {
+    const dir = tempOrchDir();
+    ensureHarness(dir, "pi", "pi", 1);
+    insertAgent(dir, { id: "closed", name: "closed-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "free", name: "free-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "holder", name: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "leased", name: "leased-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "ended", name: "ended-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
+    acquireLease(dir, "closed", "holder", 2);
+    releaseLease(dir, "closed", "holder", 3);
+    acquireLease(dir, "leased", "holder", 2);
+    endAgent(dir, "ended", 4, null);
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd() });
+    expect(reply.result).toMatchObject({
+      unleased: [
+        { id: "closed", name: "closed-worker" },
+        { id: "free", name: "free-worker" },
+        { id: "holder", name: "holder" },
+      ],
+    });
+    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd() });
+    expect(repeat.result).toMatchObject({ unleased: [] });
+  });
+
+  test("hello returns an empty unleased list when none exist", async () => {
+    const dir = tempOrchDir();
+    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    servers.push(server);
+    const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd() });
+    expect(reply.result).toMatchObject({ unleased: [] });
+  });
+
   test("a TCP hello with the daemon token gets an identity", async () => {
     const dir = tempOrchDir();
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, startedAt: "2024-01-01T00:00:00.000Z", label: "web client" });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), label: "web client" });
     expect(reply.id).toBe(1);
-    if (!isSessionIdentity(reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
+    if (!isLiveAgentIdentity(dir, reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
     expect(reply.result.label).toBe("web client");
+    const agent = openStore(dir).query("SELECT id, spawned_by, root_agent_id, harness_id, cwd, name FROM agents WHERE id = ?").get(reply.result.id);
+    expect(agent).toMatchObject({ id: reply.result.id, spawned_by: null, root_agent_id: reply.result.id, harness_id: "pi", cwd: process.cwd(), name: `pi-${reply.result.id.slice(0, 8)}` });
+    expect(openStore(dir).query("SELECT pid, start_token, until FROM agent_processes WHERE agent_id = ?").get(reply.result.id)).toMatchObject({ pid: process.pid, start_token: processStartToken(process.pid), until: null });
   });
 
   test("refuses a hello that reports no session pid", async () => {
@@ -122,7 +164,7 @@ describe("daemon RPC", () => {
     expect(await tcpHello(server, { token })).toMatchObject({ id: 1, error: { code: "IDENTITY_UNAVAILABLE" } });
   });
 
-  test("refuses a hello without a process start time", async () => {
+  test("refuses a hello without its environment", async () => {
     const dir = tempOrchDir();
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
@@ -130,16 +172,18 @@ describe("daemon RPC", () => {
     expect(await tcpHello(server, { token, pid: process.pid })).toMatchObject({ id: 1, error: { code: "IDENTITY_UNAVAILABLE" } });
   });
 
-  test("issues a new identity when a pid is recycled", async () => {
+  test("same session pid keeps its id and a different session pid gets another", async () => {
     const dir = tempOrchDir();
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const first = await tcpHello(server, { token, pid: 424242, startedAt: "2024-01-01T00:00:00.000Z", label: "old session" });
-    const second = await tcpHello(server, { token, pid: 424242, startedAt: "2025-01-01T00:00:00.000Z", label: "new session" });
-    if (!isSessionIdentity(first.result) || !isSessionIdentity(second.result)) throw new Error("hello returned a non-identity");
-    expect(second.result.id).not.toBe(first.result.id);
-    expect(second.result.label).toBe("new session");
+    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), label });
+    const first = await tcpHello(server, claim(process.pid, "first"));
+    const same = await tcpHello(server, claim(process.pid, "renamed"));
+    const other = await tcpHello(server, claim(process.ppid, "other"));
+    if (!isLiveAgentIdentity(dir, first.result) || !isLiveAgentIdentity(dir, same.result) || !isLiveAgentIdentity(dir, other.result)) throw new Error("hello returned a non-identity");
+    expect(same.result.id).toBe(first.result.id);
+    expect(other.result.id).not.toBe(first.result.id);
   });
 
   test("refuses a TCP hello without a token", async () => {

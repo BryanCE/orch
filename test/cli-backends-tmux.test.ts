@@ -41,7 +41,7 @@ describe("tmux backend registry and capabilities", () => {
     expect(backend.panes).toBe(true);
     expect(backend.focusable).toBe(true);
     expect(backend.canSendKeys).toBe(true);
-    expect(backend.caps).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
+    expect(backend.capabilities).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
   });
 
   test("reflects the TMUX environment", () => {

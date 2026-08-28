@@ -109,7 +109,7 @@ function refuseSteerWhileAsking(target: string, action: PromptAction): void {
  * is touched, and only an adapter declaring `steer: "keys"` ever reaches it.
  */
 async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<void> {
-  const mechanism = adapter.caps.steer;
+  const mechanism = adapter.capabilities.steer;
   if (mechanism === "none") throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} declares steer "none"`);
   if (mechanism === "inbox") requireLiveAgent(target, adapter, action.kind);
   refuseSteerWhileAsking(target, action);
@@ -131,7 +131,7 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
 }
 
 async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<void> {
-  if (!adapter.caps.ask) {
+  if (!adapter.capabilities.ask) {
     throw new Error(`cannot answer ${target}: adapter ${adapter.id} declares ask false`);
   }
   requireLiveAgent(target, adapter, "answer");
@@ -146,7 +146,7 @@ async function deliverAnswer(target: string, adapter: AgentAdapter, text: string
  * surfaces as an error instead of a false "accepted".
  */
 async function deliverModel(target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<void> {
-  if (!adapter.caps.setModel || !adapter.setModel) {
+  if (!adapter.capabilities.setModel || !adapter.setModel) {
     throw new Error(`cannot set model on ${target}: adapter ${adapter.id} declares setModel false`);
   }
   const directory = orchDir();
@@ -180,7 +180,7 @@ function resolveBackendHandle(target: string): { backend: Backend; handle: Backe
  * its id.
  */
 function deliverLifecycle(target: string, adapter: AgentAdapter, verb: LifecycleVerb): void {
-  if (!adapter.caps.lifecycle.includes(verb)) {
+  if (!adapter.capabilities.lifecycle.includes(verb)) {
     throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} declares no ${verb} mechanism`);
   }
   const route = resolveBackendHandle(target);

@@ -1,5 +1,6 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { isRecord } from "../../util.ts";
+import { extractVersion } from "../versions.ts";
 
 export interface HerdrPane {
   pane_id: string;
@@ -111,6 +112,19 @@ export function herdrJSON<T = unknown>(args: string[]): T {
 export function herdrAck(args: string[]): void {
   herdrOutput(args);
 }
+
+/** Read herdr's installed semantic version from its CLI. A missing binary or
+ * an unexpected response is unknown rather than a fabricated version. */
+export function version(): string | null {
+  try {
+    return extractVersion(herdrExec(["--version"]));
+  } catch {
+    return null;
+  }
+}
+
+/** Alias named for callers that make the backend explicit. */
+export const herdrVersion = version;
 
 /** True only when the herdr control socket responds. */
 export function herdrReachable(): boolean {

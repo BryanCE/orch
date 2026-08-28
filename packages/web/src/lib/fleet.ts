@@ -17,6 +17,12 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   canPruneLogs: false,
 };
 
+export interface FleetLease {
+  holderId: string;
+  holderName: string;
+  holderAlive: boolean;
+}
+
 export interface FleetAgent {
   /** full presence key `<backend>~<workspace>~<handle>` */
   key: string;
@@ -38,6 +44,10 @@ export interface FleetAgent {
   tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
   context?: { percent?: number };
   alive: boolean;
+  /** Current lease facts from orchd; null means known unleased. */
+  lease: FleetLease | null;
+  /** False when orchd has no agents row for this key yet. */
+  leaseKnown: boolean;
 }
 
 export interface Workspace {

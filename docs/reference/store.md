@@ -17,7 +17,7 @@ Choose the first home whose rule matches; each condition is sufficient.
 | Home | Choose it when | Existing examples |
 |---|---|---|
 | **File** | A process other than orch writes it; a human edits it; something watches it for change; the operating system owns its meaning; or it is an append-only stream nobody updates that a person may tail. Harness shims under `extensions/` run inside the agent process, so requiring SQLite would ship a driver into every bundle, contend with the daemon's write lock, and stall a turn; they write `status.json`, `result.json`, and `ack.jsonl`. | `settings.json`; the daemon's `status.json` filesystem watch; `orchd.lock`, `orchd.sock`, `orchd.port`, `orchd.token`; session transcripts and headless stdout logs. |
-| **Table** | More than one process writes it concurrently (the daemon plus each CLI invocation); the record mutates over its life; reads are by predicate rather than key (pending work due for its next attempt, settled rows before a cutoff); two writes must commit together (ownership transfer plus outbox insert); it needs a never-reused monotonic identifier; or it is pruned by age (removing the middle of JSONL rewrites the whole file). | `queue` (`queued` → `claimed` → `done`), `ownership` + `outbox` transfer, `events.seq`, and retained runs. |
+| **Table** | More than one process writes it concurrently (the daemon plus each CLI invocation); the record mutates over its life; reads are by predicate rather than key (pending work due for its next attempt, settled rows before a cutoff); two writes must commit together (lease transfer plus control outbox); it needs a never-reused monotonic identifier; or it is pruned by age (removing the middle of JSONL rewrites the whole file). | `tasks` (`queued` → `claimed` → `done`), `agent_leases` + `outbox` transfer, `events.seq`, and retained runs. |
 
 **Rule above both: ONE FACT, ONE HOME.** Never mirror one fact in a file and a table. The `spawned.jsonl`-beside-the-`spawned`-table incident was exactly that duplicate registry.
 
@@ -52,9 +52,9 @@ For the category map and owning modules, see [Choosing a home for new state](#ch
 
 Holds task text and options, origin workspace, timestamps, state (`queued`, `claimed`, `done`, `failed`, or `cancelled`), retry/error data, the bound agent and dispatch id, and the JSON result. `src/store/queue-rows.ts` owns every row operation. `src/queue.ts` is the domain wrapper used by `orch queue add`, `list`, `history`, and `cancel`; `src/daemon/work-loop.ts` reads queued tasks, atomically claims them for an idle agent, and writes done, failure, and requeue transitions. Doctor also reads the queue when checking presence/task consistency.
 
-### Ownership (`ownership`)
+### Agent leases (`agent_leases`)
 
-Maps an `agent_key` to its current `owner` and update time. `src/store/ownership-rows.ts` owns it. `src/presence/store.ts` records ownership when a spawn is registered; `src/daemon/orchd.ts` reads and checks it in `governWrite()` before accepting dispatch, steer, model, or answer writes. `src/store/spawned-rows.ts` reads the owner while materializing spawned records.
+Maps an agent to its current holder. `src/store/lease-rows.ts` owns acquisition, release, handoff, adoption, and expiry; the lease id is the fencing token. Lifecycle ending and reaping are deliberately not lease-gated.
 
 ### Outbox (`outbox`)
 
@@ -62,11 +62,11 @@ Stores durable control messages: id, target, JSON payload, pending/delivered sta
 
 ### Spawn registry (`spawned`)
 
-Stores the per-pane/agent registry: serialized pane key, spawn timestamp, adapter/model/backend, workspace and backend handle, display name, cwd, worktree/branch, and spawning session metadata. `src/store/spawned-rows.ts` owns it. Spawn paths call `src/presence/store.ts` (`recordSpawned()`), which also records ownership when supplied. Status, target resolution, review, work-loop routing, and backends read it; lifecycle and clean/reap paths delete or relabel rows.
+Stores the per-pane/agent registry: serialized pane key, spawn timestamp, adapter/model/backend, workspace and backend handle, display name, cwd, worktree/branch, and spawning session metadata. `src/store/spawned-rows.ts` owns it. Spawn paths call `src/presence/store.ts` (`recordSpawned()`). Status, target resolution, review, work-loop routing, and backends read it; lifecycle and clean/reap paths delete or relabel rows.
 
-### Session identities (`session_identities`)
+### Agents and session processes (`agents`, `agent_processes`)
 
-Maps an ancestor process id to a session id, label, `kind = 'session'`, and the process start timestamp used to detect PID reuse. `src/store/identity-rows.ts` owns it. The daemon RPC `hello` handler (`src/daemon/rpc.ts`) reads or creates/refreshes the row and returns the identity to the caller. No other command is a second identity writer.
+A session is an ordinary row in `agents`. The daemon RPC `hello` handler (`src/daemon/rpc.ts`) gets or creates that row and records the live process instance in `agent_processes` using `(pid, start_token)` continuity; the pair detects PID reuse. The minted agent id is immutable, while process intervals end when the process does.
 
 ### Events (`events`)
 
@@ -87,10 +87,10 @@ Every table has exactly one owning row module under `src/store/`:
 | Table | Owning module |
 |---|---|
 | `queue` | `src/store/queue-rows.ts` |
-| `ownership` | `src/store/ownership-rows.ts` |
+| `agent_leases` | `src/store/lease-rows.ts` |
 | `outbox` | `src/store/outbox-rows.ts` |
 | `spawned` | `src/store/spawned-rows.ts` |
-| `session_identities` | `src/store/identity-rows.ts` |
+| `agents`, `agent_processes` | `src/store/agent-rows.ts` |
 | `events` | `src/store/event-rows.ts` |
 | `runs` | `src/store/run-rows.ts` |
 | `catalogues` | `src/store/catalogue-rows.ts` |
@@ -113,6 +113,5 @@ Retention settings live under `retention` in `settings.json` and are normalized 
 | Stored events | `events_days` | 7 days | `deleteEventsBefore()` exists, but no production caller was found; appended rows grow without bound in the current wiring. |
 | Completed runs | `runs_days` | 30 days | `deleteRunsBefore()` exists, but no production caller was found; rows grow without bound in the current wiring. |
 | Delivered outbox messages | `outbox_days` | 7 days | `deleteDeliveredBefore()` exists; no production caller was found, so delivered rows are not automatically pruned. Pending rows are not covered by this window. |
-| Session identities | `identities_days` | 7 days | `deleteSessionIdentitiesBefore()` exists, but no production caller was found; rows are not automatically pruned. |
 
-The remaining tables have no retention setting: `ownership` rows are keyed/upserted and removed when a spawned record is reaped; `spawned` rows are removed only by explicit lifecycle/reap paths; and `catalogues` is keyed by command and can be cleared explicitly. If a retention loop is added, it should call the owning row module rather than issue SQL from the daemon.
+The remaining tables have no retention setting: `agent_leases` close as lifecycle events occur; `spawned` rows are removed only by explicit lifecycle/reap paths; and `catalogues` is keyed by command and can be cleared explicitly. If a retention loop is added, it should call the owning row module rather than issue SQL from the daemon.

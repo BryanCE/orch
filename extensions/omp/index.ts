@@ -13,6 +13,9 @@
 //             switch lands one tick later rather than not at all.
 import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
+import { ORCH_DIR } from "../../src/agent/presence.ts";
+import { registerOrchSeat } from "../../src/seat/index.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HarnessApi, HarnessIdentity } from "../../src/agent/harness.ts";
 
 /** omp calls itself `omp`, and fires `session_stop` when a run will not auto-continue. */
@@ -21,7 +24,14 @@ const OMP_IDENTITY: HarnessIdentity = { agentId: "omp", settleEvent: "session_st
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 function ompExtension(harness: HarnessApi): void {
-  registerHarnessBridge(harness, OMP_IDENTITY, EXTENSION_HASH);
+  const bridge = registerHarnessBridge(harness, OMP_IDENTITY, EXTENSION_HASH, { fleet: false });
+  // omp's extension surface is pi-shaped, so the orchestrator seat (status
+  // line, /orch-view dashboard, per-agent views) ships here too — enabling omp
+  // as a harness in setup/settings is the consent for this integration.
+  registerOrchSeat(harness as unknown as ExtensionAPI, {
+    orchDir: ORCH_DIR,
+    ownKey: bridge.ownKey,
+  });
 }
 
 export default ompExtension;

@@ -38,12 +38,25 @@ describe("worker prompt capability composition", () => {
   });
 
   test("the reply-to-spawner clause needs a reachable spawner, not just an inbox-steerable worker", () => {
-    // pi has caps.steer === "inbox", so the worker CAN receive inbox writes. That says
+    // pi has capabilities.steer === "inbox", so the worker CAN receive inbox writes. That says
     // nothing about whether whoever launched it can. Instructing the reply without a
     // live spawner inbox is what made every worker call orch_send and get refused.
     expect(workerHeaderFor(getAdapter("pi"), { spawnerRepliable: false })).not.toContain("orch_send");
     expect(workerHeaderFor(getAdapter("pi"), {})).not.toContain("orch_send");
     expect(workerHeaderFor(getAdapter("pi"), { spawnerRepliable: true })).toContain("orch_send target \"spawner\"");
+  });
+
+  test("unreachable spawner tells the worker to finish and end without relaying", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { spawnerRepliable: false });
+    expect(header).toContain("finish, write your result, END the turn");
+    expect(header).toContain("your result is collected from your session/result file");
+    expect(header).toContain("NEVER route a report through another agent");
+  });
+
+  test("reachable spawner permits replying to the spawner only", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { spawnerRepliable: true });
+    expect(header).toContain("reply or report to it with orch_send target \"spawner\" ONLY");
+    expect(header).toContain("never relay via siblings or other agents");
   });
 
   test("a reachable spawner still earns no clause when the worker cannot be steered by inbox", () => {

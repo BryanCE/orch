@@ -174,11 +174,13 @@ export interface Backend<Handle = BackendHandle> {
   /** Whether raw keystroke delivery is supported (capability-gated by callers). */
   readonly canSendKeys: boolean;
   /** Declared backend capabilities. */
-  readonly caps: BackendCapabilities;
+  readonly capabilities: BackendCapabilities;
   /** Whether the backend binary/runtime is present on this machine. */
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
   isInsideSession(): boolean;
+  /** Installed integration version, when this backend exposes one. */
+  version?(): string | null;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   close(handle: Handle): boolean;
   list(): Handle[];

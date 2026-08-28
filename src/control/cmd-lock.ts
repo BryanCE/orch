@@ -20,6 +20,10 @@ interface CommandLockOptions {
 const LOCK_NAME = "cmd-lock.json";
 const DEFAULT_TIMEOUT_MS = 600_000;
 const DEFAULT_POLL_MS = 500;
+/** A lock older than this is abandoned even if its holder pid is alive - a
+ *  leaked acquire (holder never released, process idles on) must not stall a
+ *  fleet forever. Generous: no legitimate locked command runs this long. */
+const MAX_LOCK_AGE_MS = 15 * 60 * 1000;
 
 function normalizeCommandText(text: string): string {
   return text.trim().replace(/\s+/g, " ");
@@ -69,7 +73,10 @@ function createLock(path: string, record: CommandLock): boolean {
 }
 
 function reapLock(path: string, lock: CommandLock): boolean {
-  if (processIsAlive(lock.pid)) return false;
+  if (processIsAlive(lock.pid)) {
+    if (Date.now() - lock.ts <= MAX_LOCK_AGE_MS) return false;
+    process.stderr.write(`cmd-lock: evicting abandoned lock held by ${lock.holder} (pid ${lock.pid}, age ${Date.now() - lock.ts}ms)\n`);
+  }
   try {
     unlinkSync(path);
     return true;

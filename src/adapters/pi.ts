@@ -424,7 +424,7 @@ export class PiAdapter implements AgentAdapter {
   readonly id = "pi" as const;
 
   /** Pi supports every D4 capability through the bridge and session files. */
-  readonly caps = {
+  readonly capabilities = {
     steer: "inbox" as const,
     ask: true,
     setModel: true,

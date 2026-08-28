@@ -193,6 +193,15 @@ export const CORE_SCOPE_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = ne
   ],
 ]);
 
+/** Eh13: the explicit adapter-id -> herdr-kind map is the ONE sanctioned place a
+ *  backend spells a harness name — it is herdr's wire vocabulary, not a branch. */
+export const BACKEND_KIND_MAP_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "src/backends/herdr/index.ts",
+    new Set(['pi: "pi",', 'claude: "claude",', 'codex: "codex",']),
+  ],
+]);
+
 /** Exact backend-owned environment names in addition to the directory-derived prefix. */
 const BACKEND_ENV_PREFIX_EXTRAS: ReadonlyMap<string, readonly string[]> = new Map([
   ["tmux", ["TMUX"]],
@@ -492,6 +501,7 @@ function runAllChecks(): void {
       return "agent adapter imports are forbidden in backends";
     }
     if (/["']\b(?:pi|claude|codex)\b["']/.test(line)) {
+      if (BACKEND_KIND_MAP_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
       return "agent id literals are forbidden in backends";
     }
     return undefined;

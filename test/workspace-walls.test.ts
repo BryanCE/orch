@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { entityWorkspace, scopeEntitiesToWorkspace, workspaceOf, type Entity } from "../src/entities.ts";
 import { checkWall } from "../src/policy/workspace.ts";
-import { nextQueuedTask, type TaskRec } from "../src/queue.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -19,19 +18,6 @@ afterAll(() => removeTempDir(orchDir));
 
 function fakeEntity(key: string, paneId: string | null): Entity {
   return { key, paneId, managed: true, workspace: null, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, backend: null, presence: null, sessionPath: null, presenceOnly: true };
-}
-
-function fakeTask(id: string, createdAt: string, workspace?: string, agent?: string): TaskRec {
-  return {
-    id,
-    text: id,
-    workspace,
-    opts: agent ? { agent } : {},
-    createdAt,
-    updatedAt: createdAt,
-    state: "queued",
-    retries: 0,
-  };
 }
 
 describe("workspace helpers", () => {
@@ -85,30 +71,5 @@ describe("workspace wall writes", () => {
 
   test("allows legacy unscoped targets", () => {
     expect(checkWall(orchDir, "herdr~w1~p1", "legacy-target", { crossWorkspace: false })).toEqual({ allowed: true });
-  });
-});
-
-describe("workspace-aware queued task selection", () => {
-  test("excludes tasks pinned to another workspace", () => {
-    const task = fakeTask("w8-task", "2026-01-01T00:00:00.000Z", "w8");
-    expect(nextQueuedTask([task], "pi", "w1")).toBeUndefined();
-    expect(nextQueuedTask([task], "pi", "w8")).toBe(task);
-  });
-
-  test("skips a malformed unscoped task in every workspace", () => {
-    const task = fakeTask("orphan", "2026-01-01T00:00:00.000Z");
-    expect(nextQueuedTask([task], "pi", "w1")).toBeUndefined();
-    expect(nextQueuedTask([task], "pi", "w8")).toBeUndefined();
-    expect(nextQueuedTask([task], "pi")).toBeUndefined();
-  });
-
-  test("selects the earliest eligible task and respects agent constraints", () => {
-    const tasks = [
-      fakeTask("later", "2026-01-01T00:00:02.000Z", "w1"),
-      fakeTask("wrong-agent", "2026-01-01T00:00:00.000Z", "w1", "claude"),
-      fakeTask("earliest", "2026-01-01T00:00:01.000Z", "w1", "pi"),
-    ];
-    expect(nextQueuedTask(tasks, "pi", "w1")?.id).toBe("earliest");
-    expect(nextQueuedTask(tasks, "claude", "w1")?.id).toBe("wrong-agent");
   });
 });

@@ -14,6 +14,7 @@ import type {
   DeliverPayload,
 } from "../backend.ts";
 import { insertSpawnedRecord, selectSpawnedRecords } from "../../store/spawned-rows.ts";
+import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {
@@ -117,7 +118,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   // fallow-ignore-next-line unused-class-member
   readonly focusable = false;
   readonly canSendKeys = false;
-  readonly caps: BackendCapabilities = { panes: false, focusable: false, canSendKeys: false, canPruneLogs: true };
+  readonly capabilities: BackendCapabilities = { panes: false, focusable: false, canSendKeys: false, canPruneLogs: true };
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly killer: (pid: number, signal: "SIGTERM") => void;
 
@@ -202,6 +203,19 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       handle: JSON.stringify(handle),
       name: opts.name,
       cwd: opts.cwd,
+    });
+    const worktreePath = opts.env?.ORCH_AGENT_WORKTREE;
+    const worktreeBranch = opts.env?.ORCH_AGENT_BRANCH;
+    registerSpawnedAgent(directory, {
+      key,
+      harnessId: adapter.id,
+      backendId: HEADLESS_BACKEND,
+      pane: false,
+      cwd: opts.cwd ?? process.cwd(),
+      name: opts.name ?? opts.env?.ORCH_AGENT_NAME ?? key,
+      model: opts.model ?? "",
+      spawner: opts.env?.ORCH_SPAWNER_AGENT_ID ?? null,
+      worktree: worktreePath && worktreeBranch ? { path: worktreePath, branch: worktreeBranch } : undefined,
     });
     return handle;
   }

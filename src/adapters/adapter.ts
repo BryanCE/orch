@@ -195,7 +195,7 @@ export interface AgentAdapter {
   /**
    * Declared behavior limits used by commands to choose safe fallbacks or fail clearly.
    */
-  readonly caps: {
+  readonly capabilities: {
     /** Steering mechanism: inbox is lossless, keys/resume are degraded, none is unsupported. */
     readonly steer: SteerMechanism;
     /** Whether the adapter can participate in orch's blocking question/answer flow. */
@@ -250,15 +250,15 @@ export interface AgentAdapter {
   steer(request: SteerRequest): AdapterCommand | undefined;
   /** Build the command or presence action used to answer a blocking question. */
   answer(request: AnswerRequest): AdapterCommand | undefined;
-  /** Build the command or presence action used to switch the active model; present only when caps.setModel is true. */
+  /** Build the command or presence action used to switch the active model; present only when capabilities.setModel is true. */
   setModel?(request: ModelRequest): AdapterCommand | undefined;
-  /** Build the delivery text for a lifecycle verb; called only when caps.lifecycle includes that verb. */
+  /** Build the delivery text for a lifecycle verb; called only when capabilities.lifecycle includes that verb. */
   lifecycleCmd?(verb: LifecycleVerb): { text: string } | undefined;
   /** Extract the final assistant text that should be written to `result.json`. */
   extractResult(input: ResultExtractionInput): string | undefined;
   /**
    * Read supplementary state/model/cost/task/result data from the adapter's
-   * native session output. Declared only by adapters with `caps.sessionTail`;
+   * native session output. Declared only by adapters with `capabilities.sessionTail`;
    * callers must gate on that capability, never on method presence.
    */
   readSessionView?(input: SessionViewInput): SessionView | undefined;

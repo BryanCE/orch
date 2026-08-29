@@ -9,7 +9,8 @@
 #   1. types    - bunx tsc --noEmit
 #   2. lint     - bunx oxlint
 #   3. tests    - bun test
-#   4. TASKS    - every row in TASKS/02-scope.md is BUILT
+#   4. TASKS    - every row in TASKS/02-scope.md and TASKS/15-burndown.md is BUILT
+#                 (15-burndown.md also carries the methodology every session follows)
 # `bun run check` is deliberately NOT used: that gate is the user's alone
 # (CLAUDE.md Rule 5), so the same ground is covered by calling tsc and oxlint
 # directly.
@@ -64,7 +65,7 @@ if { [ -n "$code_now" ] && [ -z "$tasks_now" ]; } || { [ -n "$code_last" ] && [ 
 Types are clean, lint is clean, tests are green, and TASKS/ was not touched.
 Finished work that is not marked makes the scope file lie about the tree.
 
-Go through TASKS/02-scope.md NOW and, for every row the tree already satisfies:
+Go through TASKS/15-burndown.md (then 02-scope.md) NOW and, for every row the tree already satisfies:
   - set it to \`BUILT\` with the exact file:line that satisfies it, and
   - name the test that proves it.
 Mark nothing you have not run the test for. Then stop."
@@ -75,7 +76,7 @@ report="$(python3 - <<'PY'
 import re, sys
 
 rows, section = [], "?"
-for line in open("TASKS/02-scope.md", encoding="utf-8"):
+for line in [l for f in ("TASKS/02-scope.md", "TASKS/15-burndown.md") for l in open(f, encoding="utf-8")]:
     if line.startswith("## "):
         section = line.strip("# \n")
     if not line.startswith("|"):
@@ -108,7 +109,9 @@ Do this now, and do not stop until it is green:
      not. A test that fails for an unrelated reason, or that asserts less than the
      row demands, is not the row's test. Run it. Paste the red output.
   2. Write the smallest code that passes it. Run it. Paste the green output.
-  3. Mark {nxt[0]} BUILT in TASKS/02-scope.md with the file:line that satisfies it.
+  3. Mark {nxt[0]} BUILT in the TASKS file that holds it (15-burndown.md or 02-scope.md) with the file:line that satisfies it.
+     Follow the methodology in TASKS/15-burndown.md: red -> green -> tsc/oxlint/bun test clean -> /cmt -> mark -> next.
+     Rows B1..B3 are the ONLY work. Do NOT start TASKS/10-review-findings.md.
   4. Then, and only then, move to the next row.
 
 Never mark a row built without running its test. Never revert or kill running work.""")

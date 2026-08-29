@@ -65,16 +65,26 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
 class HomedBackend extends FakePanedBackend {
   override readonly spaceHome: SpaceHomeRole | null;
   override readonly identity: EnvironmentIdentityRole;
+  private readonly inside: boolean;
 
-  constructor(home: SpaceHomeRole | null, inside: Identity | null) {
+  constructor(home: SpaceHomeRole | null, inside: boolean, self: Identity | null) {
     super({ id: "herdr" });
     this.spaceHome = home;
-    this.identity = { current: (): Identity | null => inside };
+    this.inside = inside;
+    this.identity = { current: (): Identity | null => self };
+  }
+
+  /** Rule 11: WHERE the caller sits is environment. It is answered by the
+   *  plexer's own environment, never by whether orch minted the caller an id. */
+  override isInsideSession(): boolean {
+    return this.inside;
   }
 }
 
-function homedBackend(home: SpaceHomeRole | null, inside: Identity | null): Backend {
-  return new HomedBackend(home, inside);
+/** `inside` is the environment fact (in a pane of this plexer); `self` is the
+ *  identity fact (an orch-minted id, or none for a human's own pane). */
+function homedBackend(home: SpaceHomeRole | null, inside: boolean, self: Identity | null = null): Backend {
+  return new HomedBackend(home, inside, self);
 }
 
 /** A grant gate that records whether it was asked, so a test can assert orch did
@@ -93,7 +103,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, null), space: "space00001",
+      directory: dir, backend: homedBackend(home, false), space: "space00001",
       packRootId: seedOrch(dir, "packroot01"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
     });
 
@@ -113,13 +123,35 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, { id: "insideorch" }), space: null,
+      directory: dir, backend: homedBackend(home, true, { id: "insideorch" }), space: null,
       packRootId: seedOrch(dir, "packroot02"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
     });
 
     // A7: a space is optional, and nothing mints one from a path.
     expect(placement.space).toBeNull();
     // No coordinate: the plexer places the fleet where the caller already is.
+    expect(placement.workspace).toBeUndefined();
+    expect(home.created).toEqual([]);
+    expect(grant.asked).toBe(0);
+  });
+
+  // Rule 11: environment is never identity. A human's own pane has HERDR_PANE_ID
+  // and NO ORCH_AGENT_KEY — it is inside the plexer and has no orch identity, and
+  // those are two different facts. 2026-08-29: the placement answered "inside?"
+  // with `identity.current() !== null`, so a Claude session the user launched in
+  // a herdr pane was told it was OUTSIDE herdr and asked for a grant to open a
+  // window it never needed.
+  test("a caller INSIDE the plexer with NO orch identity (a human's pane) spawns beside itself", () => {
+    const dir = fixture();
+    const home = new RecordingHomeRole();
+    const grant = gate();
+
+    const placement = resolveSpawnPlacement({
+      directory: dir, backend: homedBackend(home, true, null), space: null,
+      packRootId: seedOrch(dir, "packroot02b"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
+    });
+
+    expect(placement.space).toBeNull();
     expect(placement.workspace).toBeUndefined();
     expect(home.created).toEqual([]);
     expect(grant.asked).toBe(0);
@@ -132,7 +164,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, null), space: null,
+      directory: dir, backend: homedBackend(home, false), space: null,
       packRootId: orch, cwd: "/home/bryan/work", label: "api", grantNewHome: grant.grantNewHome,
     });
 
@@ -154,7 +186,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const home = new RecordingHomeRole();
     const grant = gate();
     const request = {
-      directory: dir, backend: homedBackend(home, null), space: null,
+      directory: dir, backend: homedBackend(home, false), space: null,
       packRootId: orch, cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
     };
 
@@ -173,7 +205,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(null, null), space: null,
+      directory: dir, backend: homedBackend(null, false), space: null,
       packRootId: seedOrch(dir, "packroot05"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
     });
 
@@ -192,7 +224,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, null), space: "space00002",
+      directory: dir, backend: homedBackend(home, false), space: "space00002",
       packRootId: seedOrch(dir, "packroot06"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
     });
 

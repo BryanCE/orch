@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -17,6 +17,13 @@ import type { RpcServer } from "../src/types/daemon.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
+
+// The machine registration is a per-machine rendezvous outside any orchDir. Left
+// at its real path, a doctor test sees whatever orchd the USER has running and
+// reports "two live daemons" against the test's own lock. Point it at a temp dir.
+const discoveryDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-discovery-"));
+process.env.ORCH_DAEMON_DISCOVERY_DIR = discoveryDir;
+afterAll(() => { removeTempDir(discoveryDir); });
 
 function tempDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-"));

@@ -216,3 +216,38 @@ first agent's name. Every name is resolved and validated BEFORE a tab, a pane or
 exists, so a refused spawn still leaves nothing. `TASKS/02-scope.md` F4 states the rule:
 names are per-slice and unnumbered, and there is no implicit "grow the fleet under this
 prefix" path.
+
+## U7 — `orch spawn` from a human's herdr pane says "not running inside a herdr pane" — FIXED
+
+Ran, from a Claude session the USER launched in herdr pane `w7:p1` (`HERDR_PANE_ID=w7:p1`,
+`HERDR_ENV=1`, no `ORCH_AGENT_KEY`):
+
+```
+orch spawn b1-spawn b1-cli b1-setup b1-daemon --tab b1 --cwd /home/bryan/orch
+```
+
+Got: `orch is not running inside a herdr pane, so this spawn would open a NEW herdr space.
+Ask the user to approve it … orch grant k7xb20jt`. The fleet never launched; the only ways
+out were a grant for a window nobody wanted, or `--space`, which then passed the space NAME
+to herdr as a workspace id (`workspace b1 not found`).
+
+**Expected:** a caller inside a herdr pane spawns beside itself — a new tab in the SAME
+space — and is asked nothing.
+
+**Cause:** `resolveSpawnPlacement` (`src/commands/spawn.ts`) answered "am I inside this
+plexer?" with `backend.identity.current() !== null`, i.e. "did orch mint me an id?". A
+human's own pane has no `ORCH_AGENT_KEY`, so it was called OUTSIDE. Rule 11 in one line:
+environment (where) read off identity (who). `rpcHello` (`src/daemon/rpc.ts`) made the same
+mistake when recording the session's plexer. And herdr's `isInsideSession()` said "inside"
+whenever the herdr socket was merely reachable, which is a third fact again.
+
+**FIXED.** `inside` is `backend.isInsideSession()` (`src/commands/spawn.ts:574`), the
+plexer's own environment answer; herdr answers it from `HERDR_ENV`/`HERDR_PANE_ID` only
+(`src/backends/herdr/index.ts:263`), reachability no longer counts; `rpcHello` records the
+plexer the same way (`src/daemon/rpc.ts:833`). Proven by `test/spawn-placement.test.ts`
+"a caller INSIDE the plexer with NO orch identity (a human's pane) spawns beside itself".
+
+The recurrence the user saw all day was NOT a revert: the installed `orch` (built 10:50) predated
+`77c8e17` (11:51) and nine later commits. A fix in the tree reaches the installed binary only
+through the user's `bun run build:dev` + `orch daemon reload` (Rule 12) — after every landed
+fix to `src/commands/` or `src/backends/`, say so in the hand-off line.

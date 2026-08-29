@@ -3,7 +3,7 @@ import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
 import { binaryOnPath, isRecord } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
-import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version } from "./cli.ts";
+import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrStartAgent, herdrTabs, version } from "./cli.ts";
 import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
@@ -260,8 +260,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** True when a herdr control socket is reachable (inside a live herdr session). */
+  /** Inside = this process runs in a herdr pane, which herdr says through the
+   *  environment it gives every pane. Reachability is a different fact (herdr is
+   *  up somewhere) and answers a different question. */
   isInsideSession(): boolean {
-    return process.env.HERDR_ENV === "1" || herdrReachable();
+    return process.env.HERDR_ENV === "1" || process.env.HERDR_PANE_ID !== undefined;
   }
 
   /** Identity of the calling pane, resolved from herdr's own environment. */

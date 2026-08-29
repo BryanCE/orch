@@ -568,10 +568,12 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   // ROLE, never from whether a method happens to exist (E13). Its absence is the
   // answer, not a failure (E14): the plexer places the fleet on its own default.
   const home = backend.spaceHome;
-  const identity = backend.identity;
   // Already inside this plexer: the fleet lands beside the caller. There is no
-  // window to open, so there is nothing to ask the human for.
-  const inside = identity !== null && identity.current() !== null;
+  // window to open, so there is nothing to ask the human for. WHERE the caller
+  // sits is an environment fact answered by the plexer's own environment (Rule
+  // 11) — never by whether orch minted the caller an id: a human's own pane has
+  // no ORCH_AGENT_KEY and is inside all the same.
+  const inside = backend.isInsideSession();
   if (home === null || inside || packRootId === null) return { space: null, workspace: undefined };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
   const existing = homeHandle(directory, subject, backend.id);

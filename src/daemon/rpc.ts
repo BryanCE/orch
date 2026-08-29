@@ -830,7 +830,10 @@ export function helloClaim(orchDir: string, label?: string): Record<string, unkn
   const harness = configuredHarness ?? session?.harnessId ?? "cli";
   // Registration carries the plexer fact observed by this session. Herdr is
   // the only versioned integration today; unknown environments simply omit it.
-  const callerBackend = allBackends().find((backend) => backend.identity?.current());
+  // The plexer this session sits in is an environment fact (Rule 11): answered
+  // by the plexer's own environment, never by whether orch minted the caller an
+  // id — a human's own pane has no ORCH_AGENT_KEY and is inside all the same.
+  const callerBackend = allBackends().find((backend) => backend.paneInventory !== null && backend.isInsideSession());
   return {
     token,
     pid: session?.pid ?? process.pid,

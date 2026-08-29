@@ -82,7 +82,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                       this content region moves. Routes lay out in normal flow and
                       never open a second page-level scroller. */}
                   <ScrollArea className="min-h-0 flex-1">
-                    <main data-content-region className="flex min-h-full flex-col">{children}</main>
+                    <div data-content-region className="flex min-h-full flex-col">
+                      {children}
+                    </div>
                   </ScrollArea>
                 </SidebarInset>
               </SidebarProvider>

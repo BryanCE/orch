@@ -15,7 +15,7 @@ export function DaemonGate({ children }: { children: ReactNode }) {
 
   if (isPending) {
     return (
-      <div className="flex h-screen w-full items-center justify-center">
+      <div className="flex h-full w-full items-center justify-center">
         <p className="animate-pulse font-mono text-sm text-muted-foreground">connecting to orch…</p>
       </div>
     );
@@ -23,7 +23,7 @@ export function DaemonGate({ children }: { children: ReactNode }) {
 
   if (!data || data.daemon === "down") {
     return (
-      <div className="flex h-screen w-full items-center justify-center p-6">
+      <div className="flex h-full w-full items-center justify-center p-6">
         <Card className="w-full max-w-md">
           <CardHeader>
             <div className="mb-2 flex size-11 items-center justify-center rounded-full bg-destructive/10">

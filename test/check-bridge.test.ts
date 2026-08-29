@@ -293,6 +293,38 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
     expect(checkEnvironmentCapabilityLine('  if (plexer === "herdr") return focus();', "src/backends/herdr/index.ts")).toBeUndefined();
   });
 
+  // TASKS/02-scope.md I2 — the rule is not "a checker exists", it is that NO
+  // behaviour in the tree branches on a plexer or harness id and NONE checks
+  // whether a method exists. Every other rule in this file has a clean-tree half;
+  // this one had only synthetic fixtures, which is how a rule passes for years
+  // while the tree quietly violates it.
+  test("passes the clean tree: no file in ANY scanned scope branches on an environment id", () => {
+    // Exactly the scopes check-bridge runs this rule over. `src/backends/<plexer>/`
+    // is self-exempt inside the checker - a concrete plexer owns its own wire
+    // vocabulary - so including it here is deliberate and proves the exemption
+    // is the checker's, not this test's.
+    const scopes = ["src", "extensions", "packages/web/src"];
+    const violations: string[] = [];
+    for (const scope of scopes) {
+      for (const file of sourceFiles(scope)) {
+        const relPath = file.replace(/\\/g, "/");
+        const lines = readRepoLines(file);
+        for (let index = 0; index < lines.length; index++) {
+          const reason = checkEnvironmentCapabilityLine(lines[index]!, relPath);
+          if (reason) violations.push(`${relPath}:${index + 1}: ${lines[index]!.trim()}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  test("the core-scope allowlist is EMPTY, so no line holds a standing exemption", () => {
+    // A per-line exemption never fails, so nothing ever tells you it stopped
+    // being needed - the `src/seat/` hole this rule's comment names. The
+    // allowlist exists as a mechanism and is deliberately unused.
+    expect([...CORE_SCOPE_ALLOWLIST.keys()]).toEqual([]);
+  });
+
   test("allows capability-driven code", () => {
     expect(checkEnvironmentCapabilityLine("  if (capabilities.canSendKeys) return sendKeys(target, text);", "src/commands/control.ts")).toBeUndefined();
   });

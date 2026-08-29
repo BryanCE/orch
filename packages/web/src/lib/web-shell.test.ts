@@ -14,12 +14,36 @@ async function source(path: string): Promise<string> {
   return Bun.file(new URL(path, import.meta.url)).text();
 }
 
+/** Every route component, i.e. everything that renders inside the one shell. */
+const ROUTE_SOURCES = [
+  "../routes/index.tsx",
+  "../routes/events.tsx",
+  "../routes/queue.tsx",
+  "../routes/spaces/$slug.tsx",
+];
+
 describe("web shell and fleet views", () => {
   test("the app shell scrolls only its content region", async () => {
     const root = await source("../routes/__root.tsx");
+    // Fixed-height page: header and sidebar cannot move because the document
+    // itself never scrolls.
     expect(root).toContain('<body className="h-screen overflow-hidden">');
-    expect(root).toMatch(/<ScrollArea[\s\S]*<main[^>]*data-content-region/);
-    expect(root).not.toContain('<body className="h-screen overflow-hidden"><ScrollArea');
+    // The ScrollArea that owns the content region is bounded — one in an
+    // unbounded parent silently never scrolls, which is the usual way this
+    // is gotten wrong.
+    expect(root).toMatch(
+      /<ScrollArea className="min-h-0 flex-1">[\s\S]*?<div data-content-region/
+    );
+  });
+
+  test("no route declares a scroll frame of its own", async () => {
+    for (const path of ROUTE_SOURCES) {
+      const src = await source(path);
+      // `overflow-x-auto` stays allowed: wide content scrolls sideways inside
+      // its own container so the shell never does.
+      expect(src).not.toMatch(/overflow-(auto|scroll|y-)/);
+      expect(src).not.toMatch(/\bh-(screen|dvh|svh)\b/);
+    }
   });
 
   test("unleased agents are partitioned into an orphan bucket", () => {

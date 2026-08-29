@@ -47,7 +47,11 @@ export function ColorSchemeDialog({
         <DialogHeader>
           <DialogTitle>Choose Color Theme</DialogTitle>
         </DialogHeader>
-        <ScrollArea className="max-h-[60vh] pr-3">
+        {/* A definite height, not `max-h-*`: a ScrollArea whose parent height is
+            auto leaves its viewport auto too, and it silently never scrolls. The
+            dialog is not a flex column with a definite height, so the scroller
+            carries the bound itself. */}
+        <ScrollArea className="h-[60vh] pr-3">
           <div className="grid gap-2 py-4">
             {COLOR_SCHEMES.map((scheme) => {
             const isSelected = currentScheme === scheme.id

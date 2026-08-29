@@ -38,10 +38,6 @@ export function presenceRootFault(root = orchDir()): string | null {
 /** Serialized identity keys are already a single filesystem-safe segment
  *  (`<backend>~<workspace>~<handle>`, with `~ % : /` percent-escaped inside
  *  each part), so the presence directory name IS the key — no remapping. */
-export function presenceKeyFromDirectoryName(name: string): string {
-  return name;
-}
-
 export function removePresenceAgentDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
@@ -226,10 +222,37 @@ function newestRecordedInstant(entry: PresenceEntry): number | null {
 
 /** Reap dead presence directories old enough for retention. This is the shared
  * path for daemon retention and `orch clean`; it also removes the agent rows. */
+/**
+ * Remove every presence directory whose name is not a minted id.
+ *
+ * J4 — existing dirs are REAPED, not migrated. A pid inside such a directory is
+ * not a reason to keep it: it is exactly why Rule 11's seven stale dirs with no
+ * nameable owner survived. Whatever process that pid belongs to still has its
+ * own presence under the id orch minted for it, or it has none and orch cannot
+ * address it either way.
+ */
+function reapMalformedPresenceDirs(root: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(presenceDir(root));
+  } catch (error: unknown) {
+    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTDIR")) return [];
+    throw error;
+  }
+  const removed: string[] = [];
+  for (const name of names) {
+    if (tryParseIdentity(name) !== null) continue;
+    removePresenceAgentDir(join(presenceDir(root), name));
+    removed.push(name);
+  }
+  return removed;
+}
+
 export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPresenceReapResult {
   const removed: PresenceEntry[] = [];
   const failed: { entry: PresenceEntry; error: unknown }[] = [];
   const cutoffMs = olderThan?.getTime();
+  reapMalformedPresenceDirs(root);
   for (const entry of loadPresence(root).values()) {
     if (entry.alive) continue;
     if (cutoffMs !== undefined) {
@@ -260,8 +283,12 @@ export function loadPresence(root = orchDir()): Map<string, PresenceEntry> {
     if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTDIR")) return presence;
     throw error;
   }
-  for (const storedKey of keys) {
-    const key = presenceKeyFromDirectoryName(storedKey);
+  for (const key of keys) {
+    // J4/A1: a presence directory is named by the minted id and nothing else, so
+    // a name that does not parse names NO agent - there is nothing to key the
+    // four facts on. Rule 8: an old-shape record is malformed, never a second
+    // shape to accept. It is reaped by `reapMalformedPresenceDirs`, not read.
+    if (tryParseIdentity(key) === null) continue;
     const dir = presenceAgentDir(key, root);
     try {
       if (!statSync(dir).isDirectory()) continue;

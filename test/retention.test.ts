@@ -164,7 +164,7 @@ describe("retention sweep", () => {
 
   test("keeps dead dirs with a newer recorded instant despite an old mtime", () => {
     const orchDir = fixture();
-    const key = "dead-agent-new";
+    const key = "deadagentn";
     const dir = seedStatus(orchDir, key, { pid: 999999, updatedAt: "2026-01-20T00:00:00.000Z" });
     writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done", finishedAt: "2026-01-31T00:00:00.000Z" });
     utimesSync(dir, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
@@ -174,7 +174,7 @@ describe("retention sweep", () => {
 
   test("reaps malformed dead dirs with no recorded instant", () => {
     const orchDir = fixture();
-    const key = "dead-agent-malformed";
+    const key = "deadagentm";
     const dir = seedStatus(orchDir, key, { pid: 999999 });
     writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done" });
     utimesSync(dir, NOW, NOW);
@@ -184,7 +184,7 @@ describe("retention sweep", () => {
 
   test("keeps result-only recorded instant despite an old mtime", () => {
     const orchDir = fixture();
-    const key = "dead-agent-result-only";
+    const key = "deadagentr";
     const dir = seedStatus(orchDir, key, { pid: 999999 });
     writeFileSync(join(dir, "status.json"), "not valid status");
     writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done", finishedAt: "2026-01-31T00:00:00.000Z" });
@@ -195,7 +195,7 @@ describe("retention sweep", () => {
 
   test("never reaps a live presence dir regardless of age", () => {
     const orchDir = fixture();
-    const dir = seedStatus(orchDir, "live-agent", { pid: process.pid });
+    const dir = seedStatus(orchDir, "liveagent1", { pid: process.pid });
     const old = new Date(NOW.getTime() - 100 * 24 * 60 * 60 * 1000);
     utimesSync(dir, old, old);
     expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 1 }), NOW).ended_agents).toBe(0);
@@ -206,11 +206,11 @@ describe("retention sweep", () => {
     const orchDir = fixture();
     const logs = join(orchDir, "logs");
     mkdirSync(logs);
-    const deadLog = join(logs, "dead-agent.log");
-    const liveLog = join(logs, "live-agent.log");
+    const deadLog = join(logs, "deadagent1.log");
+    const liveLog = join(logs, "liveagent1.log");
     writeFileSync(deadLog, "dead");
     writeFileSync(liveLog, "live");
-    seedStatus(orchDir, "live-agent", { pid: process.pid });
+    seedStatus(orchDir, "liveagent1", { pid: process.pid });
     const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
     utimesSync(deadLog, old, old);
     utimesSync(liveLog, old, old);

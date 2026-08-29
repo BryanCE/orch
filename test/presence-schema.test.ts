@@ -115,30 +115,30 @@ describe("presence status schema", () => {
   });
 
   test("rejects a status record that carries no schema stamp", () => {
-    writeStatus("unstamped", { pid: process.pid, state: "idle" });
+    writeStatus("unstamped1", { pid: process.pid, state: "idle" });
 
     expect(readStatuses().unstamped).toBeUndefined();
   });
 
   test("rejects a status record stamped with a non-current schema", () => {
-    writeStatus("wrong-stamp", { schema: PRESENCE_SCHEMA + 1, agent: "pi", pid: process.pid, state: "idle" });
+    writeStatus("wrongstamp", { schema: PRESENCE_SCHEMA + 1, agent: "pi", pid: process.pid, state: "idle" });
 
-    expect(readStatuses()["wrong-stamp"]).toBeUndefined();
+    expect(readStatuses().wrongstamp).toBeUndefined();
   });
 
   test("rejects a current-schema record carrying placement fields", () => {
-    writeStatus("placement-copy", { schema: PRESENCE_SCHEMA, agent: "pi", space: "wrong", pid: process.pid, state: "idle" });
+    writeStatus("placemntcp", { schema: PRESENCE_SCHEMA, agent: "pi", space: "wrong", pid: process.pid, state: "idle" });
 
-    expect(readStatuses()["placement-copy"]).toBeUndefined();
+    expect(readStatuses().placemntcp).toBeUndefined();
   });
 
   test("a malformed record is skipped without hiding the valid records beside it", () => {
-    writeStatus("unstamped", { pid: process.pid, state: "idle" });
-    writeStatus("current", { schema: PRESENCE_SCHEMA, agent: "pi", pid: process.pid, state: "done" });
+    writeStatus("unstamped1", { pid: process.pid, state: "idle" });
+    writeStatus("currentag1", { schema: PRESENCE_SCHEMA, agent: "pi", pid: process.pid, state: "done" });
 
     const statuses = readStatuses();
-    expect(Object.keys(statuses)).toEqual(["current"]);
-    expect(statuses.current!).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "pi" });
+    expect(Object.keys(statuses)).toEqual(["currentag1"]);
+    expect(statuses.currentag1!).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "pi" });
   });
 
   test("the four facts are recorded apart and composed back onto the minted id", () => {

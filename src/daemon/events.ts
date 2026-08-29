@@ -5,7 +5,7 @@ import { notify } from "../notify/router.ts";
 import { abstractAgentLabel, spaceLabelForKey } from "../notify/format.ts";
 import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
-import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus } from "../presence/store.ts";
+import { presenceAgentDir, readJSON, readPresenceStatus } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { upsertRun } from "../store/run-rows.ts";
@@ -384,7 +384,6 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   const selectedKeys = (): string[] => options.keys
     ? [...options.keys.keys()]
     : directoryNames(agentsDir)
-      .map(presenceKeyFromDirectoryName)
       .filter((key) => options.acceptKey?.(key) ?? true);
   const scan = (): void => {
     // Snapshot delivered states, then arm every watcher before reconciliation.

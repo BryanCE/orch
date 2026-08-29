@@ -186,12 +186,6 @@ CREATE TABLE `outbox` (
 	`next_attempt_at` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `ownership` (
-	`agent_key` text PRIMARY KEY,
-	`owner` text NOT NULL,
-	`updated_at` integer NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE `pack_intakes` (
 	`pack_id` text NOT NULL,
 	`space_id` text NOT NULL,
@@ -259,22 +253,6 @@ CREATE TABLE `spaces` (
 	`created_by` text,
 	`created_at` integer NOT NULL,
 	CONSTRAINT `fk_spaces_created_by_agents_id_fk` FOREIGN KEY (`created_by`) REFERENCES `agents`(`id`)
-);
---> statement-breakpoint
-CREATE TABLE `spawned` (
-	`pane` text PRIMARY KEY,
-	`ts` integer,
-	`adapter` text,
-	`model` text,
-	`backend` text,
-	`space` text,
-	`handle` text,
-	`name` text,
-	`cwd` text,
-	`worktree` text,
-	`branch` text,
-	`spawned_by` text,
-	`spawned_by_label` text
 );
 --> statement-breakpoint
 CREATE TABLE `task_attempts` (

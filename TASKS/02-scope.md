@@ -64,7 +64,7 @@ The `hello` handshake in detail. Nothing outside `TASKS/` is part of this plan.
 | C4d | **Resolving a name to an id is a first-class operation**, not a per-command lookup — orch resolves the name of a slave, another orch, or anything else the same way, in one place at the boundary | `BUILT` — `resolveTarget` is that one place: every command resolves through it, and an unknown target is a lookup miss rather than a per-command error. Tests: `test/lease-authority.test.ts` "C4c/C4d name resolution" — "a unique name resolves, and an unknown target is a lookup miss" |
 | C5 | A transfer must not disturb the agent — no reset, no re-attach, no context loss | `BUILT` — `handoffLease`/`adoptLease` (`src/store/lease-rows.ts:82,89`) write `agent_leases` and nothing else. Tests: `test/transfer-does-not-disturb.test.ts` (5) — after a handoff the environment, tuning, provenance and identity are identical, the open `agent_processes` interval is byte-for-byte the same (a new or closed one would mean a relaunch), no message reaches the inbox and `status.json` is unchanged, and the ended holding is kept as history — without which the C4a fence would mean nothing |
 | C6 | `orch events` scope follows the lease, not `spawnedBy` — an adopted fleet must be watchable | `BUILT` — `src/commands/events.ts` |
-| C7 | Live views group by lease; history groups by provenance | `DECIDED` |
+| C7 | Live views group by lease; history groups by provenance | `BUILT` — a space encompasses its orchs, each orch the agents it holds: `packages/web/src/lib/fleet.ts:170` (`leaseGroup`), `:206` (`projectFleet` nests `orchs`), rendered `packages/web/src/routes/spaces/$slug.tsx:86`. History still groups on the provenance root, `fleet.ts:180`. Proven by `test/web-projection.test.ts:96` "live views group by lease (C7)" — 5 tests incl. an ADOPTED agent filing under its current holder, never its spawner. |
 
 ## Cq. Queue
 
@@ -72,7 +72,7 @@ Modelled in `06-schema.md`: `tasks`, `task_attempts`, `pack_intakes`, and the `t
 
 | # | item | status |
 |---|---|---|
-| Cq1 | **Dispatch is push and is driving; claiming is pull and is not.** The gate is on enqueuing into a scope, never on claiming — a pack drains its queue whether or not its orch is alive | `DECIDED` |
+| Cq1 | **Dispatch is push and is driving; claiming is pull and is not.** The gate is on enqueuing into a scope, never on claiming — a pack drains its queue whether or not its orch is alive | `BUILT` — the gate is at enqueue only: pack scope `src/queue.ts:129` (a live held member of the pack earns it; provenance never does), agent scope `src/queue.ts:149` (the lease), space scope by membership. Claiming is ungated — `claimTask` consults no lease. Proven by `test/queue.test.ts:69` "Cq1: the gate is on enqueuing into a scope, and adoption earns it" and `test/queue.test.ts:81` "Cq1: a pack drains its queue with its orch dead and no lease in force". |
 | Cq2 | Three scopes chosen at enqueue: **agent**, **pack**, **space** | `DECIDED` |
 | Cq3 | Space scope needs **two-sided consent** — publishing is an offer; a pack opts in to consume | `DECIDED` |
 | Cq4 | Results go to the enqueuer, not the runner — cross-pack delivery is orch↔orch messaging | `DECIDED` |

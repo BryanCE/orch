@@ -1,7 +1,7 @@
 $ bun run --parallel --no-exit-on-error lint tc check:bridge
-check:bridge | check:bridge OK (925 files scanned)
-check:bridge | Done in 502ms
-tc           | Done in 1.56s
+check:bridge | check:bridge OK (924 files scanned)
+check:bridge | Done in 594ms
+tc           | Done in 2.18s
 lint         | Found 0 warnings and 0 errors.
-lint         | Finished in 1.9s on 367 files with 65 rules using 8 threads.
-lint         | Done in 1.95s
+lint         | Finished in 2.5s on 384 files with 65 rules using 8 threads.
+lint         | Done in 2.52s

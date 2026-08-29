@@ -9,7 +9,7 @@ import { ADAPTER_IDS, AGENT_STATES, type AdapterId } from "./adapters/adapter.ts
 import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.ts";
 import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
 import { THINKING_LEVELS, type ThinkingLevel } from "./policy/thinking.ts";
-import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
+import { ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
 import { ensurePrivateDir, errnoCode, errorMessage, isRecord } from "./util.ts";
 import { isLogLevel, type LogLevel } from "./log.ts";
 

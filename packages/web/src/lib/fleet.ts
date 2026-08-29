@@ -82,8 +82,20 @@ export interface AgentGroup {
   agents: FleetAgent[];
 }
 
-/** The live view's grouping is orch's space; "workspace" is a plexer's word (adr/0001). */
-export type Space = AgentGroup;
+/** One orch's slice of a space: the agents it HOLDS right now. C7 - live views
+ *  group by lease, so this level is keyed by the lease holder and by nothing
+ *  else. Provenance never appears here; it is history's grouping. */
+export type OrchGroup = AgentGroup;
+
+/**
+ * The live view's grouping is orch's space; "workspace" is a plexer's word
+ * (adr/0001). A space encompasses the orchs working in it, and each orch
+ * encompasses the agents it holds — `agents` stays the flat membership of the
+ * space so the lease level ADDS depth without hiding anything.
+ */
+export interface Space extends AgentGroup {
+  orchs: OrchGroup[];
+}
 
 /** Shown when an agent is in no space of the user's. Not a place — a missing value. */
 const UNSCOPED_ID = "unscoped";
@@ -91,6 +103,9 @@ const UNSCOPED_NAME = "unscoped";
 /** Shown for an ended agent that reported no spawner (a self-registered session). */
 const UNSPAWNED_ID = "unspawned";
 const UNSPAWNED_NAME = "No spawner";
+/** Held by no orch. Adoptable, never gone — orch does not invent a holder. */
+const UNHELD_ID = "unheld";
+const UNHELD_NAME = "unheld";
 /** A spawner orch known only by its id: an id is not a name, so it is not printed as one. */
 const UNNAMED_SPAWNER = "Unnamed orch";
 
@@ -161,6 +176,15 @@ function historyGroup(row: FleetProjectionRow): { id: string; name: string } {
   return { id: root, name: trimmed(row.rootAgentName) ?? trimmed(row.spawnedByLabel) ?? UNNAMED_SPAWNER };
 }
 
+/** C7: inside a space, live work groups by its LEASE HOLDER. An unheld agent is
+ *  filed as unheld — it is adoptable, not gone, and orch never invents a holder
+ *  for it (Rule 11: work survives its spawner). */
+function leaseGroup(row: FleetProjectionRow): { id: string; name: string } {
+  const lease = row.lease;
+  if (lease === null) return { id: UNHELD_ID, name: UNHELD_NAME };
+  return { id: lease.holderId, name: trimmed(lease.holderName) ?? lease.holderId };
+}
+
 function groupedRows(
   rows: readonly FleetProjectionRow[],
   historical: boolean,
@@ -178,7 +202,13 @@ function groupedRows(
 }
 
 export function projectFleet(rows: readonly FleetProjectionRow[]): Space[] {
-  return groupedRows(rows, false, liveGroup);
+  const spaces: Space[] = [];
+  for (const group of groupedRows(rows, false, liveGroup)) {
+    const members = new Set(group.agents.map((agent) => agent.key));
+    const orchs = groupedRows(rows.filter((row) => members.has(row.key)), false, leaseGroup);
+    spaces.push({ ...group, orchs });
+  }
+  return spaces;
 }
 
 export function projectHistory(rows: readonly FleetProjectionRow[]): AgentGroup[] {

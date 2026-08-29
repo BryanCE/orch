@@ -54,7 +54,10 @@ function SpaceDetail() {
 
   const agentKeys = new Set(space.agents.map((agent) => agent.key));
   const spaceEvents = events.filter((event) => typeof event.key === "string" && agentKeys.has(event.key));
-  const [liveFleet, orphans] = partitionAgents(space.agents);
+  const [, orphans] = partitionAgents(space.agents);
+  // Every orch section holds at least one agent by definition; the unheld group
+  // is dropped here because the Orphans section already names that fact.
+  const heldOrchs = space.orchs.filter((orch) => orch.agents.some((agent) => agent.lease !== null));
 
   return (
     <div className="flex flex-1 flex-col">
@@ -79,18 +82,28 @@ function SpaceDetail() {
               </div>
             ) : (
               <>
-                {liveFleet.length > 0 && (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {liveFleet.map((a) => (
-                      <AgentCard
-                        key={a.key}
-                        agent={a}
-                        active={selected?.key === a.key}
-                        onClick={() => setSelected(a)}
-                      />
-                    ))}
-                  </div>
-                )}
+                {/* C7: live work groups by LEASE. A space encompasses the orchs
+                    working in it and each orch encompasses the agents it holds,
+                    so the fleet is rendered one section per holder. Unheld
+                    agents are the Orphans section below, not an invented orch. */}
+                {heldOrchs.map((orch) => (
+                  <section key={orch.id} className="mb-8 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{orch.name}</h2>
+                      <Badge variant="outline" className="font-mono text-[10px]">{orch.agents.length}</Badge>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {orch.agents.map((a) => (
+                        <AgentCard
+                          key={a.key}
+                          agent={a}
+                          active={selected?.key === a.key}
+                          onClick={() => setSelected(a)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))}
                 {orphans.length > 0 && (
                   <section className={cn("mt-8 space-y-3", "opacity-70")}>
                     <div className="flex items-center gap-2">

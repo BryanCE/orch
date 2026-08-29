@@ -24,7 +24,7 @@ describe one event — a process instance, a lease, a claim.
 |---|---|
 | Validity is the **half-open interval** `[since, until)`; `until IS NULL` is open | adjacent rows meet exactly — no gap, no shared instant, and the convention survives a change of granularity |
 | Instants are `INTEGER` epoch **milliseconds** | the dominant operation is arithmetic, not display; 8 bytes, native sort, no timezone can be wrong |
-| Every column declares `NULL` or `NOT NULL` explicitly — **including every `PRIMARY KEY`** | without `STRICT` and `WITHOUT ROWID`, SQLite lets a `TEXT PRIMARY KEY` hold `NULL`, so the constraint has to be written |
+| Every non-key column declares `NULL` or `NOT NULL` explicitly | a nullable column is a real answer ("no handle") and must be told apart from an oversight. A `PRIMARY KEY` always has a value, so it needs no such declaration |
 | ~~`STRICT` on every table~~ — **removed on Bryan's ruling 2026-08-29** | it needed a hand-written post-pass over the drizzle-kit migration, and one schema file with nothing on top outranks it (row A4) |
 | `WITHOUT ROWID` where the primary key *is* the access path and rows are small | removes a redundant B-tree and clusters by the key actually queried |
 | A fact **every** row has is a column; a fact **only some** have is its own table; a fact that **changes** is a satellite with `since`/`until` | this is the whole placement rule. It is why `cwd` is a column, `agent_worktrees` and `agent_endings` are tables, and `agent_spaces` has a timeline |

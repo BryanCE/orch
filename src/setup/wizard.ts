@@ -1,5 +1,5 @@
 import { intro, outro } from "@clack/prompts";
-import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
+import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import type { HarnessModel } from "../adapters/adapter.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { allBackends } from "../backends/registry.ts";

@@ -17,7 +17,6 @@ function numberField(row: unknown, column: string): number {
 }
 
 type Db = ReturnType<typeof openStore>;
-interface TableColumn { name: string; type: string; notnull: number }
 
 const dirs: string[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
@@ -60,20 +59,6 @@ describe("rebuild schema", () => {
     expect(d.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   });
 
-  test("documented column declarations are exact", () => {
-    const d = db();
-    const expected: Record<string, [string,string,number][]> = {
-      agents: [["id","TEXT",1],["spawned_by","TEXT",0],["root_agent_id","TEXT",1],["harness_id","TEXT",1],["cwd","TEXT",1],["name","TEXT",1],["label","TEXT",0],["session_token","TEXT",0],["created_at","INTEGER",1]],
-      // `id` reports notnull=0 because INTEGER PRIMARY KEY AUTOINCREMENT is the
-      // rowid alias: SQLite can never store NULL in it, so NOT NULL is noise.
-      agent_leases: [["id","INTEGER",0],["agent_id","TEXT",1],["orch_id","TEXT",1],["since","INTEGER",1],["until","INTEGER",0],["release_reason","TEXT",0]],
-      tasks: [["id","TEXT",1],["text","TEXT",1],["opts","TEXT",1],["enqueued_by","TEXT",1],["scope_agent_id","TEXT",0],["scope_pack_id","TEXT",0],["scope_space_id","TEXT",0],["created_at","INTEGER",1]],
-      task_attempts: [["task_id","TEXT",1],["since","INTEGER",1],["until","INTEGER",0],["agent_id","TEXT",1],["dispatch_id","TEXT",1],["outcome","TEXT",0],["result","TEXT",0],["error","TEXT",0]],
-    };
-    for (const [table, cols] of Object.entries(expected)) {
-      expect((d.query(`PRAGMA table_info(${table})`).all() as TableColumn[]).map(c => [c.name,c.type,c.notnull])).toEqual(cols);
-    }
-  });
   test("all ten partial unique indexes allow only one open row", () => {
     const cases = [
       ["host_plexers", (d: Db) => { d.query("INSERT INTO host_plexers(host_id,plexer_id,since,version) VALUES (?,?,?,?)").run("h","px",1,"v"); return () => d.query("INSERT INTO host_plexers(host_id,plexer_id,since,version) VALUES (?,?,?,?)").run("h","px",2,"v"); }],

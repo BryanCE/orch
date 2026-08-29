@@ -68,12 +68,12 @@ describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
 
     test("writes status.json for a valid key", () => {
       const orchDir = tempOrchDir();
-      const result = runShim(runtime, "SessionStart", { ORCH_AGENT_KEY: "herdr~wTest~p1", ORCH_DIR: orchDir });
+      const result = runShim(runtime, "SessionStart", { ORCH_AGENT_KEY: "k7m2q9x4b1", ORCH_DIR: orchDir });
 
       expect(result.status).toBe(0);
-      const statusFile = path.join(orchDir, "agents", "herdr~wTest~p1", "status.json");
+      const statusFile = path.join(orchDir, "agents", "k7m2q9x4b1", "status.json");
       const status = JSON.parse(fs.readFileSync(statusFile, "utf8")) as Record<string, unknown>;
-      expect(status.key).toBe("herdr~wTest~p1");
+      expect(status.key).toBe("k7m2q9x4b1");
       expect(status.state).toBe("working");
     }, 30_000);
   });

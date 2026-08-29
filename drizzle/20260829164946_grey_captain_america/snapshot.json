@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "e1cf635f-99bf-4f21-9e7d-8e8a1161b843",
+  "id": "cd798cf3-e286-4a7d-8c70-9e2e3083bc61",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -87,10 +87,6 @@
       "entityType": "tables"
     },
     {
-      "name": "ownership",
-      "entityType": "tables"
-    },
-    {
       "name": "pack_intakes",
       "entityType": "tables"
     },
@@ -112,10 +108,6 @@
     },
     {
       "name": "spaces",
-      "entityType": "tables"
-    },
-    {
-      "name": "spawned",
       "entityType": "tables"
     },
     {
@@ -972,36 +964,6 @@
     },
     {
       "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "agent_key",
-      "entityType": "columns",
-      "table": "ownership"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "owner",
-      "entityType": "columns",
-      "table": "ownership"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "ownership"
-    },
-    {
-      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -1379,136 +1341,6 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "spaces"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "pane",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "ts",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "adapter",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "model",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "backend",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "space",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "handle",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "name",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "cwd",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "worktree",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "branch",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "spawned_by",
-      "entityType": "columns",
-      "table": "spawned"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "spawned_by_label",
-      "entityType": "columns",
-      "table": "spawned"
     },
     {
       "type": "text",
@@ -2530,15 +2362,6 @@
     },
     {
       "columns": [
-        "agent_key"
-      ],
-      "nameExplicit": false,
-      "name": "ownership_pk",
-      "table": "ownership",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "id"
       ],
       "nameExplicit": false,
@@ -2562,15 +2385,6 @@
       "nameExplicit": false,
       "name": "spaces_pk",
       "table": "spaces",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "pane"
-      ],
-      "nameExplicit": false,
-      "name": "spawned_pk",
-      "table": "spawned",
       "entityType": "pks"
     },
     {

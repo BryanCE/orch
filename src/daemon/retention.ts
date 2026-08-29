@@ -8,27 +8,26 @@ import { deleteDeliveredBefore } from "../store/outbox-rows.ts";
 import { deleteSettledTasksBefore } from "../store/task-rows.ts";
 import { deleteRunsBefore } from "../store/run-rows.ts";
 import { openStore } from "../store/connection.ts";
-import { selectSpawnedRecords } from "../store/spawned-rows.ts";
+import { isRecord } from "../util.ts";
 import { rmSync, statSync } from "node:fs";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 
-/** Delete ended agent records only when no descendants remain. */
+function isEndedAgentRow(value: unknown): value is { agent_id: string } {
+  return isRecord(value) && typeof value.agent_id === "string";
+}
+
+/** Delete ended agent records only when no descendants remain.
+ *
+ *  A1: an agent is reaped by its IDENTITY and by nothing else. Environment,
+ *  ownership and provenance are satellites of the hub row, so deleting the hub
+ *  takes them with it; there is no second key to sweep, and no scan of a wide
+ *  row is needed to discover the identities an agent is filed under. */
 function removeExpiredAgentRecords(orchDir: string, cutoff: Date): { count: number; ids: Set<string> } {
   const db = openStore(orchDir);
   const rows = db.query(`SELECT e.agent_id FROM agent_endings e
-    WHERE e.ended_at < ? AND NOT EXISTS (SELECT 1 FROM agents child WHERE child.spawned_by = e.agent_id)`).all(cutoff.getTime()) as { agent_id: string }[];
-  const spawned = selectSpawnedRecords(orchDir);
-  for (const row of rows) {
-    // Normalized agent ids are the third segment of the serialized registry key;
-    // clean every matching key so an ended agent cannot retain a name/owner row
-    // merely because its presence directory was never created.
-    const keys = spawned.filter((record) =>
-      record.pane === row.agent_id || tryParseIdentity(record.pane)?.id === row.agent_id,
-    ).map((record) => record.pane);
-    for (const key of keys.length > 0 ? keys : [row.agent_id]) {
-      reapSpawnedRecord(key, orchDir, { agentId: row.agent_id });
-    }
-  }
+    WHERE e.ended_at < ? AND NOT EXISTS (SELECT 1 FROM agents child WHERE child.spawned_by = e.agent_id)`)
+    .all(cutoff.getTime()).filter(isEndedAgentRow);
+  for (const row of rows) reapSpawnedRecord(row.agent_id, orchDir, { agentId: row.agent_id });
   return { count: rows.length, ids: new Set(rows.map((row) => row.agent_id)) };
 }
 

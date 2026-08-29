@@ -6,7 +6,7 @@ import { loadConfig } from "../src/config.ts";
 import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
 import { SpawnRefusalError, assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn.ts";
 import { presenceAgentDir, type PresenceEntry } from "../src/presence/store.ts";
-import type { SpawnedRecord } from "../src/store/spawned-rows.ts";
+import type { AgentView } from "../src/store/agent-view.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -22,20 +22,34 @@ function tempDir(): string {
   return dir;
 }
 
-function presence(key: string, workspace: string, pid = process.pid): PresenceEntry {
+function presence(key: string, pid = process.pid): PresenceEntry {
   const dir = presenceAgentDir(key);
   seedStatusInDir(dir, { key, pid });
   return { key, dir, status: { schema: PRESENCE_SCHEMA, key, pid }, result: null, alive: pid === process.pid };
 }
 
-function records(entries: [string, string, number?][]): { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> } {
-  const registry = new Map<string, SpawnedRecord>();
+/** A complete AgentView: the space is an ENVIRONMENT axis and provenance is its
+ *  own immutable fact — neither is a column on a wide row (A1). */
+function agentViewFixture(id: string, space: string, spawnedBy: string | null): AgentView {
+  return {
+    id, name: id, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
+    spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
+    environment: { plexer: "headless", handle: null, space, worktree: null, branch: null },
+    tuning: { model: null, thinking: null },
+    endedAt: null,
+  };
+}
+
+/** Both maps are keyed by the MINTED ID; presence joins to an agent by identity,
+ *  never by the pane-bearing key. */
+function records(entries: [string, string, number?, string?][]): { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> } {
+  const views = new Map<string, AgentView>();
   const live = new Map<string, PresenceEntry>();
-  for (const [key, space, pid] of entries) {
-    registry.set(key, { pane: key, space });
-    live.set(key, presence(key, space, pid));
+  for (const [id, space, pid, spawnedBy] of entries) {
+    views.set(id, agentViewFixture(id, space, spawnedBy ?? null));
+    live.set(id, presence(`headless~${space}~${id}`, pid));
   }
-  return { records: registry, presence: live };
+  return { views, presence: live };
 }
 
 afterEach(() => {
@@ -48,13 +62,13 @@ function capacityRefusal(
   settings: Parameters<typeof assertSpawnCapacity>[0],
   workspace: string,
   requested: number,
-  data: { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> },
+  data: { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> },
 ): string {
   // A refusal THROWS and prints nothing: `die()` belongs to the CLI boundary,
   // never inside a function another command calls (bug 1.11). The message the
   // caller would print is the error's own.
   try {
-    assertSpawnCapacity(settings, workspace, requested, data.records, data.presence);
+    assertSpawnCapacity(settings, workspace, requested, data.views, data.presence);
   } catch (error: unknown) {
     if (error instanceof SpawnRefusalError) return error.message;
     throw error;
@@ -85,7 +99,7 @@ describe("spawn limits", () => {
   test("global boundary refusal data counts the whole request", () => {
     const dir = tempDir();
     const data = records([["a", "wA"], ["b", "wB"], ["c", "wB"], ["d", "wC"], ["e", "wC"]]);
-    expect([...liveSpawnCounts(data.records, data.presence).entries()]).toEqual([["wA", 1], ["wB", 2], ["wC", 2]]);
+    expect([...liveSpawnCounts(data.views, data.presence).entries()]).toEqual([["wA", 1], ["wB", 2], ["wC", 2]]);
     writeSettingsFixture(dir, { fleet: { max_agents: 6 } });
     const settings = loadConfig(dir);
     expect(settings.fleet.max_agents).toBe(6);
@@ -97,8 +111,8 @@ describe("spawn limits", () => {
     writeSettingsFixture(dir, { fleet: { max_agents: 6 } });
     const settings = loadConfig(dir);
     const data = records([["a", "wD"], ["b", "wD"], ["c", "wD"]]);
-    expect(liveSpawnCounts(data.records, data.presence).get("wD")).toBe(3);
-    expect(() => assertSpawnCapacity(settings, "wD", 3, data.records, data.presence)).not.toThrow();
+    expect(liveSpawnCounts(data.views, data.presence).get("wD")).toBe(3);
+    expect(() => assertSpawnCapacity(settings, "wD", 3, data.views, data.presence)).not.toThrow();
   });
 
   test("workspace cap is independent of global headroom", () => {
@@ -114,32 +128,30 @@ describe("spawn limits", () => {
     writeSettingsFixture(dir, { fleet: { max_agents: 6 } });
     const settings = loadConfig(dir);
     const data = records([["a", "wD"], ["b", "wX"]]);
-    expect(() => assertSpawnCapacity(settings, "wX", 4, data.records, data.presence)).not.toThrow();
+    expect(() => assertSpawnCapacity(settings, "wX", 4, data.views, data.presence)).not.toThrow();
     expect(capacityRefusal(settings, "wX", 5, data)).toBe("spawn refused: would put all spaces at 7/6 agents (2 live + 5 requested; fleet.max_agents)");
   });
 
   test("foreign pack members do not consume the caller's pack cap", () => {
     const data = records([
-      ["root-child-1", "wD"], ["root-child-2", "wD"], ["root-child-3", "wD"], ["root-child-4", "wD"],
-      ["root-child-5", "wD"], ["root-child-6", "wD"], ["root-child-7", "wD"], ["root-child-8", "wD"],
-      ["foreign-1", "wD"], ["foreign-2", "wD"],
+      ["root-child-1", "wD", undefined, "root"], ["root-child-2", "wD", undefined, "root"],
+      ["root-child-3", "wD", undefined, "root"], ["root-child-4", "wD", undefined, "root"],
+      ["root-child-5", "wD", undefined, "root"], ["root-child-6", "wD", undefined, "root"],
+      ["root-child-7", "wD", undefined, "root"], ["root-child-8", "wD", undefined, "root"],
+      ["foreign-1", "wD", undefined, "other-root"], ["foreign-2", "wD", undefined, "other-root"],
     ]);
-    for (const key of ["root-child-1", "root-child-2", "root-child-3", "root-child-4", "root-child-5", "root-child-6", "root-child-7", "root-child-8"])
-      data.records.get(key)!.spawnedBy = "root";
-    data.records.get("foreign-1")!.spawnedBy = "other-root";
-    data.records.get("foreign-2")!.spawnedBy = "other-root";
-    expect(spawnPolicyError({ fleet: { pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false, spawn_cap: 8 } }, "wD", 1, data.records, data.presence, "root")).toBeNull();
+    expect(spawnPolicyError({ fleet: { pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false, spawn_cap: 8 } }, "wD", 1, data.views, data.presence, "root")).toBeNull();
   });
 
   test("dead pid records free capacity", () => {
     const data = records([["dead", "wD", 99999999], ["live", "wD"]]);
-    expect(liveSpawnCounts(data.records, data.presence)).toEqual(new Map([["wD", 1]]));
+    expect(liveSpawnCounts(data.views, data.presence)).toEqual(new Map([["wD", 1]]));
   });
 
   test("foreign panes never count", () => {
     const data = records([["orch", "wD"]]);
-    data.presence.set("foreign", presence("foreign", "wD"));
-    expect(liveSpawnCounts(data.records, data.presence).get("wD")).toBe(1);
+    data.presence.set("foreign", presence("headless~wD~foreign"));
+    expect(liveSpawnCounts(data.views, data.presence).get("wD")).toBe(1);
   });
 
   test("doctor reports an unsatisfiable workspace cap without a fix", async () => {

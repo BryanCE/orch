@@ -7,12 +7,10 @@ import { abstractAgentLabel, spaceLabelForKey, type NotifyEvent } from "../notif
 import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
 import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus, type PresenceStatus } from "../presence/store.ts";
-import { selectSpawnedRecord } from "../store/spawned-rows.ts";
-import { agentById } from "../store/agent-rows.ts";
+import { agentView } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { upsertRun, type RunRecord } from "../store/run-rows.ts";
 import { pidAlive, truncate } from "../util.ts";
-import { placementOf } from "../agent/registry.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import { isAgentState } from "../agent-state.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
@@ -150,9 +148,13 @@ function identityFields(
   value: object,
   metadata: PresenceMetadata,
 ): PresenceIdentityFields {
-  const space = placementOf(orchDir, key)?.space;
+  // A1: the four facts are read back together through the one composer. A key
+  // that names no agent has no name and no environment - that is an answer, not
+  // a row to go looking for under a second id.
   const normalizedId = tryParseIdentity(key)?.id;
-  const normalizedName = normalizedId ? agentById(orchDir, normalizedId)?.name : null;
+  const view = normalizedId === undefined ? null : agentView(orchDir, normalizedId);
+  const space = view?.environment.space ?? undefined;
+  const normalizedName = view?.name ?? null;
   const assignedName = optionalString(property(value, "agent"));
   const label = optionalString(property(value, "label"));
   const tabLabel = optionalString(property(value, "tabLabel"));
@@ -292,9 +294,13 @@ function runRecordForTransition(
     state: event.newState,
     startedAt,
   };
-  const spawned = selectSpawnedRecord(orchDir, key);
-  if (spawned?.adapter !== undefined) run.adapter = spawned.adapter;
-  if (spawned?.space !== undefined) run.space = spawned.space;
+  // The harness is a fact of the agent's identity row, read through the composer.
+  // Its SPACE is deliberately not copied here: A1 forbids a second table keeping
+  // its own copy of a mutable environment fact, so a run reads it through the
+  // agent whenever it is wanted.
+  const agentId = tryParseIdentity(key)?.id;
+  const view = agentId === undefined ? null : agentView(orchDir, agentId);
+  if (view) run.adapter = view.harnessId;
   if (status.model && typeof status.model.id === "string") run.model = status.model.id;
   if (typeof status.task === "string") run.task = status.task;
   if (TERMINAL_STATES.has(event.newState) && typeof status.finishedAt === "string") {

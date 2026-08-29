@@ -77,9 +77,9 @@ into a fake space called `local`. Fix: `ownSessionKey ??= mintAgentId()`.
 
 ### 1.4 — `parseIdentity` callers use the key to answer environment questions
 
-- `src/commands/target.ts:222-223` — `const id = parseIdentity(ent.key);` / `const backend = getBackend(id.backend);`
+- `src/commands/target.ts:226-227` — `const id = parseIdentity(ent.key);` / `const backend = getBackend(id.backend);`
 - `src/commands/panes.ts:129-130` — `const id = parseIdentity(ent.key);` / `if (id.backend !== backend.id) die(\`Target "${target}" belongs to backend ${id.backend}.\`);`
-- `src/commands/target.ts:172` — `return callerSpace() ?? tryParseIdentity(token)?.workspace ?? null;`
+- `src/commands/target.ts:176` — `return callerSpace() ?? tryParseIdentity(token)?.workspace ?? null;`
 - `src/commands/events.ts:77` — `: parsed !== null && (options.all || parsed.workspace === currentSpace());`
 
 Welds: **identity read as environment.** `backendTarget` and `cmdTab` select the *plexer* by
@@ -90,8 +90,8 @@ parsing the key.
 
 ### 1.5 — Full caller list for `parseIdentity` / `tryParseIdentity` (production only)
 
-`src/store/spawn-registration.ts:29`, `src/commands/panes.ts:129`, `src/commands/target.ts:222`
-(+ `tryParseIdentity` at `:104`, `:172`, `:236`, `:290`, `:294`),
+`src/store/spawn-registration.ts:29`, `src/commands/panes.ts:129`, `src/commands/target.ts:226`
+(+ `tryParseIdentity` at `:56`, `:68`, `:163`, `:176`, `:295`, `:296`, `:329`),
 `extensions/codex/index.ts:33`, `extensions/claude/index.ts:66`, `src/entities.ts:5/68`,
 `src/policy/name.ts:6`, `src/identity/self.ts:55`, `src/daemon/events.ts:12`,
 `src/daemon/retention.ts:26`, `src/daemon/orchd.ts:254/256/257`, `src/commands/events.ts:74/79`,
@@ -104,10 +104,11 @@ no-op once the key IS the id; the ones that want `.backend`/`.workspace` are §1
 ### 1.6 — A pane handle used AS an identity  ⚠ SEVERITY 2
 
 - `src/entities.ts:134` — `const key = keyByHandle.get(paneId) ?? paneId;`
-- `src/commands/target.ts` (`resolveLifecycleTarget`) — `handle: record!.handle ?? ent.paneId ?? … (parsed?.id ?? ent.key)` and `ent ??= { key: record!.pane, paneId: record!.handle ?? null, … }`
+- `src/commands/target.ts:330` — `const backendId = view?.environment.plexer ?? ent.backend ?? parsed?.backend;` (residual: prefers the view, still falls back to the key)
+- `src/commands/target.ts:334/337` — `const fallback: BackendHandle = typeof pid === "number" ? { pid, key: ent.key } : (parsed?.id ?? ent.key);` / `: (ent.paneId ?? parsed?.id ?? fallback);`
 - `src/entities.ts:88` — `transportId: record?.handle ?? key,`
 - `src/backends/identity.ts:158-159` — `record.pane === target || record.handle === target || tryParseIdentity(record.pane)?.id === target`
-- `src/commands/target.ts` (`registryTargetMatches`) — `if (record.pane === target || record.handle === target || record.name === target) return true;`
+- `src/commands/target.ts:282` — `const direct = entities.filter((entity) => entity.key === target || entity.paneId === target || entity.name === target);`
 
 Welds: **environment (a renumberable plexer coordinate) into identity.** `entities.ts:134` is
 the worst: when no registry row maps the handle, the *pane id becomes the entity key*, and every
@@ -176,7 +177,7 @@ consumer in §1.4/§5 still parses the identity key. Fix: write the `agent_space
 Welds: **environment onto a self-report.** The schema gate already rejects `backend`, `space`
 and `handle` as "a writer claiming to know where it runs" — but `paneId`, `worktree` and
 `branch` are the same claim under different names, and `paneId` is then consumed as a routing
-address (`entities.ts:174-178`, `identity.ts:171`, `target.ts:236`). Fix: add `paneId`,
+address (`entities.ts:173-179`, `identity.ts:171`, `target.ts:294-297`). Fix: add `paneId`,
 `worktree` and `branch` to the rejected set and read all three from `agentView().environment`.
 
 ### 2.5 — `Entity` is a second wide row
@@ -240,9 +241,9 @@ keep only `acquireLease`.
 
 ### 3.3 — `assertAgentOwned` now reads the lease, but does not check the holder is alive  ⚠ SEVERITY 2
 
-- `src/commands/target.ts:205` — `const holder = views ? viewForKey(views, entity.key)?.heldBy?.orchId ?? null : leaseHolderOf(entity.key);`
-- `src/commands/target.ts:206-207` — `if (holder !== null && !ownsAgent({ owner: holder, pane: entity.key })) { die(\`Target "${target}" is owned by ${holder}. Use --force to override.\`); }`
-- `src/commands/target.ts:175-181` — `export function ownsAgent(record: { owner?: string; pane?: string }): boolean { … if (record.owner === token) return true; … }`
+- `src/commands/target.ts:209` — `const holder = views ? viewForKey(views, entity.key)?.heldBy?.orchId ?? null : leaseHolderOf(entity.key);`
+- `src/commands/target.ts:210-211` — `if (holder !== null && !ownsAgent({ owner: holder, pane: entity.key })) { die(\`Target "${target}" is owned by ${holder}. Use --force to override.\`); }`
+- `src/commands/target.ts:179-185` — `export function ownsAgent(record: { owner?: string; pane?: string }): boolean { … if (record.owner === token) return true; … }`
 
 Welds: **lease treated as authorization rather than mutual exclusion.** This landed mid-audit
 and is a real improvement, but it has no liveness step — a **dead** holder still refuses the
@@ -273,7 +274,7 @@ Same question, lower stakes, for `orch zoom` / `orch focus`
 ### 3.6 — `operatorControls` grants on a space derived from the identity key
 
 - `src/policy/space.ts:39-41` — `return actor !== null … && sameSpace(actorSpace, spaceOf(orchDir, agentKey));`
-- `src/commands/target.ts:172` — `return callerSpace() ?? tryParseIdentity(token)?.workspace ?? null;`
+- `src/commands/target.ts:176` — `return callerSpace() ?? tryParseIdentity(token)?.workspace ?? null;`
 
 Welds: **environment into an ownership decision.** Whether you may drive an agent is decided by
 comparing a plexer grouping parsed out of your own key against one parsed out of the target's.
@@ -325,7 +326,7 @@ Confirmed clean.
 
 ### 5.1 — Plexer selected by parsing the identity key (also §1.4)
 
-- `src/commands/target.ts:222-223` — `const id = parseIdentity(ent.key);` / `const backend = getBackend(id.backend);`
+- `src/commands/target.ts:226-227` — `const id = parseIdentity(ent.key);` / `const backend = getBackend(id.backend);`
 - `src/commands/panes.ts:130` — `if (id.backend !== backend.id) die(\`Target "${target}" belongs to backend ${id.backend}.\`);`
 
 Fix: `getBackend(agentView(dir, id).environment.plexer)`.
@@ -347,7 +348,6 @@ diffing the registry by plexer id.
 - `src/commands/lifecycle.ts:612` — `if (!entity.paneId || !input) {`
 - `src/entities.ts:223` — `paneId: backend?.paneInventory ? record.handle ?? null : null,`
 - `src/commands/status.ts:582` — `if (v.entity.backend === null) return null;`
-- `src/commands/target.ts:236` — `const handle = ent.paneId ?? (records ?? spawnedRecords()).get(ent.key)?.handle ?? ent.key;`
 
 `lifecycle.ts:612` is the clearest: `abort` checks the declared capability (`!input`) **and**
 `!entity.paneId`. The second clause is the `handle === null` mistake — a missing coordinate is
@@ -359,7 +359,7 @@ absent, that is a broken environment row for doctor, not a silent "does not appl
 
 - `src/entities.ts:108` — `return resolveBackend({}).identity?.current()?.workspace ?? null;`
 - `src/entities.ts:157` — `space: target.workspace ?? spaceOf(orchDir(), key),`
-- `src/commands/target.ts:213` — `return backend.identity?.current()?.workspace ?? null;`
+- `src/commands/target.ts:217` — `return backend.identity?.current()?.workspace ?? null;`
 - `src/commands/panes.ts:146-147` — `const workspace = backend.identity?.current()?.workspace ?? null;` / `const tabs = groups.filter((tab) => all || workspace === null || tab.workspace === workspace);`
 - `src/doctor/backends.ts:143` — `space: backend.identity?.current()?.workspace ?? null,`
 - `src/commands/spawn.ts:993` — `const space = tab.workspace ?? callerSpace();`

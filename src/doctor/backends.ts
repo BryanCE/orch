@@ -140,7 +140,9 @@ export function checkBackendCapabilities(
       active: false,
       available: probe.detected,
       insideSession: probe.insideSession,
-      space: backend.identity?.current()?.workspace ?? null,
+      // The plexer's own grouping for the calling pane. Never read off an
+      // identity: identity carries no environment (A1).
+      space: backend.paneInventory?.current()?.workspace ?? null,
       roles: Object.entries({
         paneHost: backend.paneHost,
         paneInventory: backend.paneInventory,

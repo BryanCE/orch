@@ -7,8 +7,8 @@ import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { codexAdapter } from "../src/adapters/codex.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { insertSpawnedRecord, selectSpawnedRecords } from "../src/store/spawned-rows.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
+import { recordSpawned } from "../src/presence/store.ts";
+import { agentView } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
@@ -95,7 +95,7 @@ describe("HeadlessBackend", () => {
   });
 
   test("spawns a detached process and records its handle", async () => {
-    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "fake-1" });
+    const key = "hfake0000a1";
     // E13: capability is which roles are composed, not a flags bag. Headless owns
     // its own logs, is inside no space, and addresses agents by key.
     expect(backend.logPruning).not.toBeNull();
@@ -105,18 +105,19 @@ describe("HeadlessBackend", () => {
     handles.push(handle);
 
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
-    const record = selectSpawnedRecords(testOrchDir).find((entry) => entry.pane === key);
-    expect(record?.backend).toBe("headless");
-    expect(JSON.parse(record?.handle ?? "null")).toEqual({ pid: handle.pid, key });
-    expect(record?.cwd).toBeUndefined();
+    // A handle is not a pane: this environment shows nothing, and it still hands
+    // orch a concrete address for the process it started.
+    const view = agentView(testOrchDir, key);
+    expect(view?.environment.plexer).toBe("headless");
+    expect(JSON.parse(view?.environment.handle ?? "null")).toEqual({ pid: handle.pid, key });
     expect(fs.existsSync(path.join(testOrchDir, "logs"))).toBe(true);
-    expect(fs.existsSync(path.join(testOrchDir, "logs", "headless_test_fake-1.log"))).toBe(true);
+    expect(fs.existsSync(path.join(testOrchDir, "logs", `${key}.log`))).toBe(true);
     expect(backend.list()).toContainEqual({ pid: handle.pid, key, alive: true });
     expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", key, "status.json"), "utf8")) as { key: string }).key).toBe(key);
   }, 30000);
 
   test("completes a headless dispatch round-trip and leaves a readable result", async () => {
-    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "round-trip" });
+    const key = "hroundtrp1";
     const adapter = makeFakeAdapter({
       headlessCmd: (_prompt: string, opts: SpawnOpts): string[] => {
         const dir = path.join(opts.orchDir!, "agents", opts.key!);
@@ -138,7 +139,7 @@ describe("HeadlessBackend", () => {
   }, 30000);
 
   test("records and mirrors the headless log for Codex session-tail parsing", async () => {
-    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "codex-tail" });
+    const key = "hcodextal1";
     const handle = backend.spawn(codexLogAdapter, { key, prompt: "tail" });
     handles.push(handle);
     const statusPath = path.join(testOrchDir, "agents", key, "status.json");
@@ -152,8 +153,8 @@ describe("HeadlessBackend", () => {
   }, 30000);
 
   test("closes only when registry and presence pid/key both match", async () => {
-    const key = serializeIdentity({ backend: "headless", workspace: "test", id: "fake-2" });
-    const wrongKey = serializeIdentity({ backend: "headless", workspace: "test", id: "wrong-key" });
+    const key = "hfake0000a2";
+    const wrongKey = "hwrongkey1";
     const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep" });
     handles.push(handle);
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
@@ -172,10 +173,10 @@ describe("HeadlessBackend", () => {
       pidAlive: () => true,
       killer: (pid, signal) => calls.push({ pid, signal }),
     });
-    const handle = { pid: 41001, key: "hermetic-match" };
+    const handle = { pid: 41001, key: "hmatch0001" };
     fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
     seedStatus(testOrchDir, handle.key, { pid: handle.pid });
-    insertSpawnedRecord(testOrchDir, { pane: handle.key, backend: "headless", handle: JSON.stringify(handle), adapter: "codex" });
+    recordSpawned(handle.key, { backend: "headless", handle: JSON.stringify(handle), adapter: "codex" });
 
     expect(hermetic.close(handle)).toBe(true);
     expect(calls).toEqual([{ pid: handle.pid, signal: "SIGTERM" }]);
@@ -184,20 +185,20 @@ describe("HeadlessBackend", () => {
   test("refuses when presence pid is missing or key does not match the recorded handle", () => {
     const calls: number[] = [];
     const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
-    const recorded = { pid: 41002, key: "hermetic-recorded" };
-    insertSpawnedRecord(testOrchDir, { pane: recorded.key, backend: "headless", handle: JSON.stringify(recorded), adapter: "codex" });
+    const recorded = { pid: 41002, key: "hrecorded1" };
+    recordSpawned(recorded.key, { backend: "headless", handle: JSON.stringify(recorded), adapter: "codex" });
 
     fs.mkdirSync(path.join(testOrchDir, "agents", recorded.key), { recursive: true });
     expect(hermetic.close(recorded)).toBe(false);
     seedStatus(testOrchDir, recorded.key, { pid: recorded.pid });
-    expect(hermetic.close({ pid: recorded.pid, key: "hermetic-wrong" })).toBe(false);
+    expect(hermetic.close({ pid: recorded.pid, key: "hwrong0001" })).toBe(false);
     expect(calls).toEqual([]);
   });
 
   test("never signals an unrecorded pid", () => {
     const calls: number[] = [];
     const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
-    const handle = { pid: 41003, key: "hermetic-unrecorded" };
+    const handle = { pid: 41003, key: "hunrecord1" };
     fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
     seedStatus(testOrchDir, handle.key, { pid: handle.pid });
 

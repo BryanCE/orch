@@ -1,14 +1,14 @@
 import { loadConfig, type HostConfig } from "../config.ts";
-import { getBackend, resolveBackend } from "../backends/registry.ts";
+import { getBackend } from "../backends/registry.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
-import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
 import { selfId } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, type PresenceEntry } from "../presence/store.ts";
-import { agentViews, type AgentView } from "../store/agent-view.ts";
+import { agentViews, environmentOf, type AgentView } from "../store/agent-view.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { CommandRefusal } from "../refusal.ts";
@@ -57,12 +57,11 @@ function looksLikePaneKey(key: string): boolean {
 }
 
 /**
- * The one identity inside a presence key.
+ * The identity a presence key names, or null when it names none.
  *
- * A key is `<plexer>~<space>~<id>`: environment wrapped around orch's minted id
- * (Rule 11). The store is keyed by the id alone, so every join from a key to an
- * agent goes through here — reading the whole key as an identity is what made a
- * moved agent look like a different one.
+ * The store is keyed by the minted id alone, so every join from a directory
+ * name to an agent goes through here. Nothing downstream slices a plexer or a
+ * space out of the key: those are environment, composed separately (A1).
  */
 export function agentIdOfKey(key: string | null | undefined): string | null {
   return tryParseIdentity(key)?.id ?? null;
@@ -169,11 +168,21 @@ export function forbidAgentOverride(flag: string): void {
   if (callerIsSpawnedAgent()) die(`${flag} is operator-only: a spawned agent may only touch agents it spawned.`);
 }
 
-/** Where the caller acts: the pane it is sitting in, else the space its own
- *  owner token names. An operator driving orch from outside any pane still
- *  operates a space, and losing that made its own fleet foreign to it. */
+/** The space one agent is composed into. A space is an ENVIRONMENT axis read
+ *  from the composer, never a segment sliced out of an identity (A1). */
+function spaceOfAgent(id: string): string | null {
+  try {
+    return environmentOf(orchDir(), id).space;
+  } catch {
+    return null;
+  }
+}
+
+/** Where the caller acts: its own space, else the space its owner token names.
+ *  An operator driving orch from outside any pane still operates a space, and
+ *  losing that made its own fleet foreign to it. */
 export function actorSpace(token: string): string | null {
-  return callerSpace() ?? tryParseIdentity(token)?.workspace ?? null;
+  return callerSpace() ?? spaceOfAgent(token);
 }
 
 export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
@@ -212,9 +221,12 @@ export function assertAgentOwned(
   }
 }
 
+/** The caller's own space, read off the caller's own agent record. Asking the
+ *  plexer "which workspace am I in" answered with a plexer coordinate, which is
+ *  environment wearing identity's hat (Rule 11). */
 export function callerSpace(): string | null {
-  const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
-  return backend.identity?.current()?.workspace ?? null;
+  const id = selfId();
+  return id === null || id === undefined ? null : spaceOfAgent(id);
 }
 
 export function backendTarget(
@@ -223,14 +235,17 @@ export function backendTarget(
   views?: ReadonlyMap<string, AgentView>,
 ): { backend: Backend; handle: string; key: string } {
   const ent = resolveTarget(target);
-  const id = parseIdentity(ent.key);
-  const backend = getBackend(id.backend);
-  if (!backend) die(`orch ${command}: backend ${JSON.stringify(id.backend)} is not registered.`);
+  // The plexer is an ENVIRONMENT axis composed onto the agent, never a segment
+  // of its key: an agent that moves plexers keeps the identity it was minted with.
+  const view = viewForKey(views ?? agentViewIndex(), ent.key);
+  const plexer = view?.environment.plexer ?? ent.backend;
+  const backend = plexer === null ? undefined : getBackend(plexer);
+  if (!backend) die(`orch ${command}: backend ${JSON.stringify(plexer)} is not registered.`);
   // Resolve the user-facing target once, then pass the backend's real pane
   // handle. Names are display metadata; herdr pane commands require paneId.
   // A headless target has no pane handle; retain its identity so the command
   // boundary can return a successful no-pane answer without touching a provider.
-  const handle = ent.paneId ?? viewForKey(views ?? agentViewIndex(), ent.key)?.environment.handle ?? ent.key;
+  const handle = ent.paneId ?? view?.environment.handle ?? ent.key;
   return { backend, handle, key: ent.key };
 }
 
@@ -326,14 +341,13 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
       sessionPath: null, presenceOnly: true, space: found.environment.space };
   }
   view = view ?? viewForKey(views, ent.key);
-  const parsed = tryParseIdentity(ent.key);
-  const backendId = view?.environment.plexer ?? ent.backend ?? parsed?.backend;
+  const backendId = view?.environment.plexer ?? ent.backend;
   const backend = backendId ? getBackend(backendId) : undefined;
   if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(backendId)}.`);
   const pid = ent.presence?.status?.pid;
-  const fallback: BackendHandle = typeof pid === "number" ? { pid, key: ent.key } : (parsed?.id ?? ent.key);
+  const fallback: BackendHandle = typeof pid === "number" ? { pid, key: ent.key } : ent.key;
   const handle: BackendHandle = view
     ? (view.environment.handle ?? ent.paneId ?? fallback)
-    : (ent.paneId ?? parsed?.id ?? fallback);
+    : (ent.paneId ?? fallback);
   return { entity: ent, key: ent.key, view: view ?? null, backend, handle };
 }

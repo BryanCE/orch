@@ -1,6 +1,6 @@
-import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import { bridgeRegistered, loadPresence, orchDir, recordSpawned, type PresenceEntry } from "../presence/store.ts";
 import { recordGrantRequest, spendGrant, type GrantAction } from "../store/grant-rows.ts";
-import type { SpawnedRecord } from "../store/spawned-rows.ts";
+import type { AgentView } from "../store/agent-view.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree, assertValidAgentName } from "../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
@@ -24,7 +24,7 @@ import { errorMessage, sleep } from "../util.ts";
 import { callDaemon, daemonOutage } from "./daemon.ts";
 import { rpcHello } from "../daemon/rpc.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
-import { callerOwnerToken, callerSpace, die } from "./target.ts";
+import { agentViewIndex, callerOwnerToken, callerSpace, die, presenceById } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
 
@@ -375,12 +375,17 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
 
 export interface CreatedAgent { key: string; pane: string; name: string }
 
-export function liveSpawnCounts(records: Map<string, SpawnedRecord>, presence: Map<string, PresenceEntry>): Map<string, number> {
+/** Live agents per space. Both maps are keyed by the minted id: a space is an
+ *  environment axis composed onto the agent, and presence answers for the same
+ *  identity — joining the two on a pane key is what lost the detached fleet. */
+export function liveSpawnCounts(
+  views: ReadonlyMap<string, AgentView>,
+  presence: ReadonlyMap<string, PresenceEntry>,
+): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const [key] of records) {
-    const entry = presence.get(key);
-    const space = records.get(key)?.space;
-    if (!entry?.alive || typeof space !== "string") continue;
+  for (const [id, view] of views) {
+    const space = view.environment.space;
+    if (!presence.get(id)?.alive || space === null) continue;
     counts.set(space, (counts.get(space) ?? 0) + 1);
   }
   return counts;
@@ -393,16 +398,18 @@ export function spawnPolicyError(
   settings: Pick<OrchConfig, "fleet">,
   _space: string,
   requested: number,
-  records: Map<string, SpawnedRecord>,
-  presence: Map<string, PresenceEntry>,
-  spawnerKey: string | null,
+  views: ReadonlyMap<string, AgentView>,
+  presence: ReadonlyMap<string, PresenceEntry>,
+  spawnerId: string | null,
 ): string | null {
-  let current = spawnerKey;
+  // Provenance is walked by minted id: it is immutable, so the chain survives
+  // every move an agent makes (A1).
+  let current = spawnerId;
   let depth = 0;
   const seen = new Set<string>();
   while (current !== null && !seen.has(current)) {
     seen.add(current);
-    const parent = records.get(current)?.spawnedBy;
+    const parent = views.get(current)?.spawnedBy;
     if (!parent) break;
     current = parent;
     depth++;
@@ -418,22 +425,22 @@ export function spawnPolicyError(
   // space, which is the only scope available to a bare operator session.
   const packRoot = current;
   let live = 0;
-  for (const [key] of records) {
-    let root = key;
+  for (const [id, view] of views) {
+    let root = id;
     const chain = new Set<string>();
     while (!chain.has(root)) {
       chain.add(root);
-      const parent = records.get(root)?.spawnedBy;
+      const parent = views.get(root)?.spawnedBy;
       if (!parent) break;
       root = parent;
     }
-    const samePack = spawnerKey === null
-      ? records.get(key)?.space === _space && records.get(root)?.spawnedBy === undefined
+    const samePack = spawnerId === null
+      ? view.environment.space === _space && (views.get(root)?.spawnedBy ?? null) === null
       : root === packRoot;
-    if (!samePack || !presence.get(key)?.alive) continue;
+    if (!samePack || !presence.get(id)?.alive) continue;
     live++;
   }
-  if (spawnerKey === null || packRoot === null || !records.has(packRoot)) live++;
+  if (spawnerId === null || packRoot === null || !views.has(packRoot)) live++;
   const cap = settings.fleet.pack_cap ?? 10;
   if (live + requested > cap) {
     return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested). ${SPAWN_POLICY_OFFERS}`;
@@ -442,7 +449,7 @@ export function spawnPolicyError(
 }
 
 function assertSpawnPolicy(settings: Pick<OrchConfig, "fleet">, space: string, requested: number): void {
-  const refusal = spawnPolicyError(settings, space, requested, spawnedRecords(), loadPresence(), spawnerIdentity().key);
+  const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(), presenceById(), spawnerIdentity().key);
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
@@ -450,10 +457,10 @@ export function assertSpawnCapacity(
   settings: Pick<OrchConfig, "fleet">,
   space: string,
   requested: number,
-  records: Map<string, SpawnedRecord> = spawnedRecords(),
-  presence: Map<string, PresenceEntry> = loadPresence(),
+  views: ReadonlyMap<string, AgentView> = agentViewIndex(),
+  presence: ReadonlyMap<string, PresenceEntry> = presenceById(),
 ): void {
-  const counts = liveSpawnCounts(records, presence);
+  const counts = liveSpawnCounts(views, presence);
   const live = [...counts.values()].reduce((total, count) => total + count, 0);
   const spaceLive = counts.get(space) ?? 0;
   const spaceCap = settings.fleet.space_caps[space];
@@ -491,7 +498,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
       // it via ORCH_AGENT_KEY, exactly like the pane paths (spawnOneIntoTab).
       // The backend records the OS pid separately for close ownership; the key
       // never encodes it, and the backend never re-mints a second identity.
-      const key = serializeIdentity({ backend: backend.id, workspace: space, id: mintAgentId() });
+      const key = serializeIdentity({ id: mintAgentId() });
       const spawner = spawnerIdentity();
       // orchd launches a real harness process inside this call, so it gets the adapter-command
       // budget, not the 5s default meant for a question orchd answers from memory.
@@ -632,7 +639,7 @@ export interface TabSpawnSpec {
 // (warn-and-continue vs die); this throws on backend failure.
 export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   assertNameFree(spec.name, spec.space);
-  const key = spec.key ?? serializeIdentity({ backend: spec.backend.id, workspace: spec.space, id: mintAgentId() });
+  const key = spec.key ?? serializeIdentity({ id: mintAgentId() });
   const spawner = spawnerIdentity();
   const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), ORCH_AGENT_KEY: key, ORCH_DIR: orchDir() };
   let pane: BackendHandle;
@@ -862,7 +869,7 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
 function spawnBackend(settings: SpawnSettings): Backend {
   const backend = resolveBackend({ configured: settings.backend });
   if (!backend.groupHome || settings.space !== null) return backend;
-  if (backend.identity?.current()?.workspace) return backend;
+  if (backend.isInsideSession()) return backend;
   if (backend.spaceHome) return backend;
   commandLogger().warn("spawn.detached-fallback", { backend: backend.id });
   process.stderr.write(
@@ -916,7 +923,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const prepared: { name: string; cwd: string; key: string; env: Readonly<Record<string, string>>; branch: string | undefined; pane: BackendHandle }[] = names.map((name) => {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
-    const key = serializeIdentity({ backend: backend.id, workspace: space, id: mintAgentId() });
+    const key = serializeIdentity({ id: mintAgentId() });
     const spawnerInfo = spawnerIdentity();
     const env = { ...agentIdentityEnv(name, spawnerInfo), ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined), ORCH_AGENT_KEY: key, ORCH_DIR: orchDir() };
     return { name, cwd, key, env, branch: settings.worktree ? `orch/${name}` : undefined, pane: undefined };

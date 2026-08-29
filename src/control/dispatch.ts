@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget } from "../backends/identity.ts";
-import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
+import { loadPresence, orchDir } from "../presence/store.ts";
+import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
@@ -35,19 +36,19 @@ const ADAPTER_COMMAND_TIMEOUT_MS = SETTINGS_DEFAULTS.timeouts.adapter_command_ms
 
 /** Resolve the adapter recorded for a target via presence status, then the spawn registry. */
 export function resolveTargetAdapter(target: string): AgentAdapter | undefined {
-  const agent = loadPresence().get(target)?.status?.agent ?? spawnedRecords().get(target)?.adapter;
+  const agent = loadPresence().get(target)?.status?.agent ?? agentView(orchDir(), target)?.harnessId;
   if (typeof agent !== "string" || !agent) return undefined;
   return resolveAdapter(agent);
 }
 
 /** Resolve the backend and native handle addressing a canonical target. */
 export function resolveTargetRoute(target: string): { backend: Backend; handle: BackendHandle } | undefined {
-  // The registry owns the live native handle; the identity carries no pane
-  // information at all, so this is the only source for it.
-  const record = spawnedRecords().get(target);
-  if (record?.backend && record.handle !== undefined) {
-    const backend = getBackend(record.backend);
-    if (backend) return { backend, handle: record.handle };
+  // Environment owns the live native handle; the identity carries no pane
+  // information at all, so the composer is the only source for it.
+  const environment = agentView(orchDir(), target)?.environment;
+  if (environment?.plexer && environment.handle !== null) {
+    const backend = getBackend(environment.plexer);
+    if (backend) return { backend, handle: environment.handle };
   }
   // Without a registry row there is no pane handle to deliver to: the identity
   // id names the agent, never its backend pane.
@@ -174,7 +175,7 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
 function resolveBackendHandle(target: string): { backend: Backend; handle: BackendHandle } | undefined {
   const route = resolveTargetRoute(target);
   if (route) return route;
-  const backendId = spawnedRecords().get(target)?.backend;
+  const backendId = agentView(orchDir(), target)?.environment.plexer;
   const backend = backendId ? getBackend(backendId) : undefined;
   const handle = backend?.handleLookup?.handleFor(target);
   return backend && handle !== undefined ? { backend, handle } : undefined;

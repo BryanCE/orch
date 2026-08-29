@@ -29,7 +29,7 @@ import {
   type CreatedGroup,
   type MovePaneRequest,
 } from "../backend.ts";
-import type { Identity } from "../identity.ts";
+import { tryParseIdentity, type Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { sleepMs } from "../pane-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
@@ -151,7 +151,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly paneInventory: PaneInventoryRole<TmuxHandle> = {
     current: () => {
       const handle = process.env.TMUX_PANE;
-      return handle ? { handle, workspace: this.currentIdentity()?.workspace ?? null, group: null } : null;
+      return handle ? { handle, workspace: this.sessionOf(handle), group: null } : null;
     },
     list: () => this.inventory(),
   };
@@ -241,10 +241,9 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   currentIdentity(): Identity | null {
     const handle = process.env.TMUX_PANE;
     if (!handle) return null;
-    const workspace = this.sessionOf(handle);
-    if (!workspace) return null;
-    // Not orch-spawned, so nothing was minted; the pane id is this process's stable id.
-    return { backend: TMUX_BACKEND, workspace, id: handle };
+    // See the herdr backend: identity is minted by orch and arrives in the
+    // environment. A pane this process merely happens to occupy is not one.
+    return tryParseIdentity(process.env.ORCH_AGENT_KEY);
   }
 
   /** Split one pane (or the group's active pane) to place a new pane inside a group (D8). */

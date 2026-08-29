@@ -1,6 +1,44 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
-import { paneForeground, reloadPaneAndAwaitBridge } from "../src/commands/lifecycle.ts";
+import { ownedAgentKeys, paneForeground, reloadPaneAndAwaitBridge } from "../src/commands/lifecycle.ts";
+import { recordSpawned } from "../src/presence/store.ts";
+import { releaseLease } from "../src/store/lease-rows.ts";
+import { closeAllStores } from "../src/store/connection.ts";
+import { seedStatus } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+
+/** A1 / Rule 11: ownership is the OPEN LEASE and nothing else. Releasing it
+ *  costs a driver, never the agent — and a released lease is history, so it must
+ *  stop answering for ownership the instant it closes. */
+function withFleet(body: (root: string, key: string, agentId: string) => void): void {
+  const root = mkdtempSync(join(tmpdir(), "orch-owned-keys-"));
+  const oldDir = process.env.ORCH_DIR;
+  const oldOwner = process.env.ORCH_OWNER;
+  const oldAgentKey = process.env.ORCH_AGENT_KEY;
+  process.env.ORCH_DIR = root;
+  process.env.ORCH_OWNER = "orch-a";
+  delete process.env.ORCH_AGENT_KEY;
+  try {
+    writeSettingsFixture(root, {
+      enabled: { adapters: ["pi"], backends: ["headless"] },
+      defaults: { adapter: "pi", backend: "headless" },
+    });
+    const key = "headless~local~worker1";
+    recordSpawned(key, { adapter: "pi", backend: "headless", space: "local", handle: "worker1", owner: "orch-a" });
+    seedStatus(root, key, { key, pid: process.pid });
+    body(root, key, "worker1");
+  } finally {
+    closeAllStores();
+    if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
+    if (oldOwner === undefined) delete process.env.ORCH_OWNER; else process.env.ORCH_OWNER = oldOwner;
+    if (oldAgentKey !== undefined) process.env.ORCH_AGENT_KEY = oldAgentKey;
+    removeTempDir(root);
+  }
+}
 
 describe("commands/lifecycle", () => {
   test("capability helpers fail closed when absent", () => {
@@ -8,4 +46,12 @@ describe("commands/lifecycle", () => {
     expect(reloadPaneAndAwaitBridge({ sendKeys: () => false } as never, "p1", "headless~local~1", "reload")).toEqual(expect.objectContaining({ pane: "p1", ok: false }) as ReturnType<typeof reloadPaneAndAwaitBridge>);
   });
   test("reports missing bridge pid without touching backend", () => expect(reloadPaneAndAwaitBridge({ sendKeys: () => { throw new Error("should not send"); } } as never, "p1", "missing~local~1", "reload")).toMatchObject({ ok: false }));
+
+  test("--all targets the agents this orch holds a live lease on, and drops them when it releases", () => {
+    withFleet((root, key, agentId) => {
+      expect(ownedAgentKeys()).toContain(key);
+      releaseLease(root, agentId, "orch-a");
+      expect(ownedAgentKeys()).not.toContain(key);
+    });
+  });
 });

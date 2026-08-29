@@ -3,7 +3,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { openStore } from "../src/store/connection.ts";
+import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
 import { deliver } from "../src/notify/router.ts";
 import { notificationText, spaceColor, type NotifyEvent } from "../src/notify/format.ts";
 import { TASK_MAX } from "../src/agent/presence.ts";
@@ -132,13 +134,19 @@ describe("notification and presence event formatting", () => {
     expect(transition(orchDir, "herdr~w8~p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
   });
 
-  test("derivePresenceTransition leaves workspace to the registry", () => {
+  // A1: the event's space is COMPOSED from the agent's own environment satellite,
+  // never parsed out of the presence key. A key that names no agent has none.
+  test("derivePresenceTransition composes the space from the agent's environment", () => {
     const orchDir = tempOrchDir();
-    const registeredKey = "herdr~w8~p3";
-    insertSpawnedRecord(orchDir, { pane: registeredKey, space: "registry-workspace" });
-    const withWorkspace = transition(orchDir, registeredKey, { state: "done" });
-    expect(withWorkspace?.space).toBe("registry-workspace");
-    const withoutWorkspace = transition(orchDir, "p3", { state: "done" });
-    expect(withoutWorkspace?.space).toBeUndefined();
+    const registeredKey = "spacedagn1";
+    ensureHarness(orchDir, "pi", "pi");
+    insertAgent(orchDir, { id: registeredKey, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "spaced", createdAt: 1 });
+    openStore(orchDir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run("registry-space", "registry-space", 1);
+    setSpace(orchDir, registeredKey, 1, "registry-space");
+    const withSpace = transition(orchDir, registeredKey, { state: "done" });
+    expect(withSpace?.space).toBe("registry-space");
+    // Not an identity key: it addresses no agent, so it composes no environment.
+    const withoutSpace = transition(orchDir, "p3", { state: "done" });
+    expect(withoutSpace?.space).toBeUndefined();
   });
 });

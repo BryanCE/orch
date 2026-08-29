@@ -16,8 +16,10 @@ import type {
   BackendSpawnOpts,
   PaneForegroundRole,
 } from "../backend.ts";
-import { insertSpawnedRecord, selectSpawnedRecords } from "../../store/spawned-rows.ts";
+import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
+import { ensurePlexer } from "../../store/agent-rows.ts";
+import { setAgentPlexer, setHandle } from "../../store/interval-rows.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 
 /** Handle owned by one detached headless process. */
@@ -69,14 +71,21 @@ function parseHeadlessHandle(value: unknown): HeadlessHandle | undefined {
   return typeof pid === "number" && Number.isInteger(pid) && safeKey(key) ? { pid, key } : undefined;
 }
 
+/**
+ * Every recorded handle this backend can address.
+ *
+ * Rule 11: the filter is the declared handle SHAPE, never a plexer id. A handle
+ * this backend understands is one it can parse into a live pid/key pair — an
+ * agent recorded under some other plexer simply has a handle that means nothing
+ * here, and a `backend === "headless"` test would say the same thing while
+ * making the model care which environment an agent happens to be in.
+ */
 function headlessHandles(directory: string): HeadlessHandle[] {
   try {
-    return selectSpawnedRecords(directory)
-      .filter((record) => record.backend === HEADLESS_BACKEND)
-      .flatMap((record) => {
-        const handle = parseHeadlessHandle(record.handle);
-        return handle ? [handle] : [];
-      });
+    return agentViews(directory).flatMap((view) => {
+      const handle = parseHeadlessHandle(view.environment.handle);
+      return handle ? [handle] : [];
+    });
   } catch {
     return [];
   }
@@ -97,7 +106,7 @@ function registeredHandle(handle: HeadlessHandle, directory: string): boolean {
 }
 
 /**
- * Detached process backend. Dead entries remain observable in the spawned table,
+ * Detached process backend. Dead entries stay observable in the agent store,
  * while close can only signal a registered process with matching presence ownership.
  */
 export interface HeadlessBackendDeps {
@@ -218,29 +227,28 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
     const handle: HeadlessHandle = { pid, key };
-    insertSpawnedRecord(directory, {
-      pane: key,
-      backend: HEADLESS_BACKEND,
-      adapter: adapter.id,
-      model: opts.model,
-      space: opts.workspace,
-      handle: JSON.stringify(handle),
-      name: opts.name,
-      cwd: opts.cwd,
-    });
     const worktreePath = opts.env?.ORCH_AGENT_WORKTREE;
     const worktreeBranch = opts.env?.ORCH_AGENT_BRANCH;
-    registerSpawnedAgent(directory, {
+    const now = Date.now();
+    const agentId = registerSpawnedAgent(directory, {
       key,
       harnessId: adapter.id,
       backendId: HEADLESS_BACKEND,
+      // No pane: this environment offers no plexer shortcut to the process.
       pane: false,
       cwd: opts.cwd ?? process.cwd(),
       name: opts.name ?? opts.env?.ORCH_AGENT_NAME ?? key,
       model: opts.model ?? "",
       spawner: opts.env?.ORCH_SPAWNER_AGENT_ID ?? null,
       worktree: worktreePath && worktreeBranch ? { path: worktreePath, branch: worktreeBranch } : undefined,
+      now,
     });
+    // A handle is not a pane. This environment has no pane to show, and it still
+    // hands orch a concrete address for the process it just started — recording
+    // it is what lets `list`/`close`/`handleFor` reach an agent with no screen.
+    ensurePlexer(directory, HEADLESS_BACKEND, HEADLESS_BACKEND, now);
+    setAgentPlexer(directory, agentId, HEADLESS_BACKEND);
+    setHandle(directory, agentId, now, JSON.stringify(handle));
     return handle;
   }
 
@@ -263,8 +271,8 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     }
   }
 
-  /** The live handle for one agent key. A detached handle carries the OS pid, which
-   *  a relaunch replaces, so the spawned table is the current source for it. */
+  /** The live handle for one agent key. A detached handle carries the OS pid,
+   *  which a relaunch replaces, so the recorded environment is its one source. */
   handleFor(key: string): HeadlessHandle | undefined {
     return this.list().find((handle) => handle.key === key && handle.alive);
   }

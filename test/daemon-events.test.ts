@@ -137,7 +137,7 @@ describe("daemon presence events", () => {
 
   test("a dispatched transition writes the full run row and preserves untruncated result", async () => {
     const orchDir = tempOrchDir();
-    const key = "headless~runs~full";
+    const key = "runsfull01";
     // The agent's presence payload carries ISO on the wire; the STORE returns
     // epoch millis (CLAUDE.md Rule 11: instants are INTEGER epoch millis, never TEXT).
     const startedAt = "2026-01-01T00:00:00.000Z";
@@ -145,7 +145,7 @@ describe("daemon presence events", () => {
     const startedAtMs = Date.parse(startedAt);
     const finishedAtMs = Date.parse(finishedAt);
     const resultText = "x".repeat(3_000);
-    seedAgent(orchDir, "full", { harnessId: "pi", space: "space-full" });
+    seedAgent(orchDir, key, { harnessId: "pi", space: "space-full" });
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-full", startedAt });
     const events: unknown[] = [];
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
@@ -194,7 +194,7 @@ describe("daemon presence events", () => {
 
   test("repeated transitions upsert one run and only terminal states set finishedAt", async () => {
     const orchDir = tempOrchDir();
-    const key = "headless~runs~repeat";
+    const key = "runsrepeat";
     const startedAt = "2026-01-02T00:00:00.000Z";
     const events: unknown[] = [];
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-repeat", startedAt, task: "first task" });
@@ -223,7 +223,7 @@ describe("daemon presence events", () => {
 
   test("a status without a dispatch id does not write history", async () => {
     const orchDir = tempOrchDir();
-    const key = "headless~runs~human";
+    const key = "runshuman1";
     const events: unknown[] = [];
     writeStatus(orchDir, key, "working");
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
@@ -235,7 +235,7 @@ describe("daemon presence events", () => {
 
   test("a throwing history write does not stop event delivery", async () => {
     const orchDir = tempOrchDir();
-    const key = "headless~runs~broken-store";
+    const key = "runsbroken";
     openStore(orchDir).exec("CREATE TRIGGER fail_run_history BEFORE INSERT ON runs BEGIN SELECT RAISE(ABORT, 'history disabled'); END;");
     const events: unknown[] = [];
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-broken", startedAt: "2026-01-04T00:00:00.000Z" });
@@ -303,17 +303,17 @@ describe("daemon presence events", () => {
 
   test("presence transitions use the normalized agent name after rename", () => {
     const orchDir = tempOrchDir();
-    const key = "headless~local~agent-renamed";
+    const key = "agentrenam";
     ensureHarness(orchDir, "pi", "Pi");
-    insertAgent(orchDir, { id: "agent-renamed", spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Before", createdAt: 1 });
-    expect(renameAgent(orchDir, "agent-renamed", "After")).toBe(true);
+    insertAgent(orchDir, { id: key, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Before", createdAt: 1 });
+    expect(renameAgent(orchDir, key, "After")).toBe(true);
     const event = derivePresenceTransition(orchDir, key, { pid: process.pid, state: "done", agent: "stale" }, { name: "stale", tab: null }, new Map([[key, "working"]]));
     expect(event?.name).toBe("After");
   });
 
   test("derivePresenceTransition preserves the complete asking transition payload", () => {
     const orchDir = tempOrchDir();
-    const key = "headless~asking~payload";
+    const key = "askpayload";
     const states = new Map([[key, "working"]]);
     const now = new Date("2026-02-03T04:05:06.000Z");
     const event = derivePresenceTransition(orchDir, key, {

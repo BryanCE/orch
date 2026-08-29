@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { SETTINGS_DEFAULTS, loadConfig, type OrchConfig } from "../src/config.ts";
 import { cmdSpawn, spawnPolicyError } from "../src/commands/spawn.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
-import { presenceAgentDir, recordSpawned, spawnedRecords } from "../src/presence/store.ts";
+import { presenceAgentDir, recordSpawned } from "../src/presence/store.ts";
+import { agentViews, type AgentView } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { openStore } from "../src/store/connection.ts";
 import type { PresenceEntry } from "../src/presence/store.ts";
-import type { SpawnedRecord } from "../src/store/spawned-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
@@ -27,27 +27,44 @@ const fleet = (pack_cap = 10): OrchConfig["fleet"] => ({
   pack_cap,
 });
 
-function policy(pack_cap: number, records: SpawnedRecord[], spawnerKey = "root", requested = 1): string | null {
-  const registry = new Map(records.map((record) => [record.pane, record]));
-  const presence = new Map(records.map((record): [string, PresenceEntry] => [record.pane, {
-    key: record.pane,
-    dir: "",
-    status: null,
-    result: null,
-    alive: true,
-  }]));
-  return spawnPolicyError({ fleet: fleet(pack_cap) }, "space", requested, registry, presence, spawnerKey);
+/** A complete AgentView; provenance is the spawner's ID, never a pane key. */
+function agentViewFixture(id: string, spawnedBy: string | null, space: string): AgentView {
+  return {
+    id, name: id, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
+    spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
+    environment: { plexer: "headless", handle: null, space, worktree: null, branch: null },
+    tuning: { model: null, thinking: null },
+    endedAt: null,
+  };
+}
+
+function fixtureMaps(agents: AgentView[]): { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> } {
+  return {
+    views: new Map(agents.map((view): [string, AgentView] => [view.id, view])),
+    presence: new Map(agents.map((view): [string, PresenceEntry] => [view.id, {
+      key: `headless~${view.environment.space ?? "space"}~${view.id}`,
+      dir: "",
+      status: null,
+      result: null,
+      alive: true,
+    }])),
+  };
+}
+
+function policy(pack_cap: number, agents: AgentView[], spawnerId = "root", requested = 1): string | null {
+  const { views, presence } = fixtureMaps(agents);
+  return spawnPolicyError({ fleet: fleet(pack_cap) }, "space", requested, views, presence, spawnerId);
 }
 
 describe("spawn policy caps", () => {
   test("allows a pack spawn while under the cap", () => {
-    const records = Array.from({ length: 8 }, (_, index) => ({ pane: `slave-${index}`, spawnedBy: "root", space: "space" }));
-    expect(policy(10, records)).toBeNull();
+    const agents = Array.from({ length: 8 }, (_, index) => agentViewFixture(`slave-${index}`, "root", "space"));
+    expect(policy(10, agents)).toBeNull();
   });
 
   test("blocks an at-cap spawn and offers dispatch or the pack queue", () => {
-    const records = Array.from({ length: 9 }, (_, index) => ({ pane: `slave-${index}`, spawnedBy: "root", space: "space" }));
-    const error = policy(10, records);
+    const agents = Array.from({ length: 9 }, (_, index) => agentViewFixture(`slave-${index}`, "root", "space"));
+    const error = policy(10, agents);
     expect(error).toContain("pack cap 10");
     expect(error).toContain("orch dispatch <name>");
     expect(error).toContain("orch queue add");
@@ -55,8 +72,8 @@ describe("spawn policy caps", () => {
 
   test("blocks a spawn that would create depth three", () => {
     const error = policy(10, [
-      { pane: "child", spawnedBy: "root", space: "space" },
-      { pane: "grandchild", spawnedBy: "child", space: "space" },
+      agentViewFixture("child", "root", "space"),
+      agentViewFixture("grandchild", "child", "space"),
     ], "grandchild");
     expect(error).toContain("depth 2");
     expect(error).toContain("orch dispatch <name>");
@@ -69,10 +86,8 @@ describe("spawn policy caps", () => {
     writeSettingsFixture(dir, { fleet: { pack_cap: 2 } });
     const config = loadConfig(dir);
     expect(config.fleet.pack_cap).toBe(2);
-    const records = [{ pane: "slave", spawnedBy: "root", space: "space" }];
-    const registry = new Map(records.map((record) => [record.pane, record]));
-    const presence = new Map(records.map((record): [string, PresenceEntry] => [record.pane, { key: record.pane, dir: "", status: null, result: null, alive: true }]));
-    expect(spawnPolicyError(config, "space", 1, registry, presence, "root")).toContain("pack cap 2");
+    const { views, presence } = fixtureMaps([agentViewFixture("slave", "root", "space")]);
+    expect(spawnPolicyError(config, "space", 1, views, presence, "root")).toContain("pack cap 2");
   });
 
   test("a refused cmdSpawn makes no name, worktree, registry, or queue mutation", async () => {
@@ -89,7 +104,7 @@ describe("spawn policy caps", () => {
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));
-    const beforeRegistry = [...spawnedRecords().entries()];
+    const beforeRegistry = agentViews(dir).map((view) => view.id);
     const beforeTasks = (openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count;
     // Inject a backend claimant: policy refusal must happen before allocation.
     const backend = headlessBackend as unknown as { spawn: typeof headlessBackend.spawn };
@@ -129,7 +144,7 @@ describe("spawn policy caps", () => {
     expect(stderr).toBe("");
     expect(backendAllocations).toBe(0);
     // The live registry row above is the injected name claimant; it must remain the sole claim.
-    expect([...spawnedRecords().entries()]).toEqual(beforeRegistry);
+    expect(agentViews(dir).map((view) => view.id)).toEqual(beforeRegistry);
     expect((openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(beforeTasks);
     expect(existsSync(join(dir, "agents", key))).toBe(true);
     expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);

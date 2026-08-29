@@ -4,13 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureHarness, ensureHost, getOrCreateSessionAgent, insertAgent, packMembers } from "../src/store/agent-rows.ts";
 import { acquireLease, adoptLease, currentLease, leaseHistory, openLeaseId, releaseLease } from "../src/store/lease-rows.ts";
+import { holderOf } from "../src/store/agent-view.ts";
 import { openStore } from "../src/store/connection.ts";
 import { deriveLeasePayload, governWrite } from "../src/daemon/orchd.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/commands/lease.ts";
 import { resolveSpawnNames } from "../src/commands/spawn.ts";
-import { checkOwnerWrite, setOwner } from "../src/store/ownership-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];
@@ -77,18 +77,23 @@ describe("C3 foreign agents are untouchable", () => {
     expect(adoptAgent(dir, "worker", "caller-orch")).toMatchObject({ adopted: true });
   });
 
-  test("a dead ownership row is not a collision either", () => {
+  // A1: the lease is the ONLY ownership mechanism. There is no second id space
+  // beside it, so what the composer reports as the holder and what the lease
+  // trail says cannot disagree — there is nothing left to disagree with.
+  test("the composed holder IS the open lease, with nothing beside it", () => {
     const dir = fixture();
-    dead(dir, "zombie-orch");
+    live(dir, "orch-a");
     agent(dir, "worker", "worker");
-    setOwner(dir, "worker", "zombie-orch");
-    expect(checkOwnerWrite(dir, "worker", "caller-orch")).toEqual({ ok: true });
-    // A live one still excludes, and an owner orch has no known liveness at all.
-    live(dir, "live-orch");
-    setOwner(dir, "worker", "live-orch");
-    expect(checkOwnerWrite(dir, "worker", "caller-orch")).toEqual({ ok: false, reason: "agent is owned by live-orch" });
-    setOwner(dir, "worker", "unknown-orch");
-    expect(checkOwnerWrite(dir, "worker", "caller-orch")).toEqual({ ok: false, reason: "agent is owned by unknown-orch" });
+    expect(holderOf(dir, "worker")).toBeNull();
+
+    acquireLease(dir, "worker", "orch-a", 2);
+    expect(holderOf(dir, "worker")).toEqual({ orchId: "orch-a", since: 2 });
+    expect(currentLease(dir, "worker")?.orchId).toBe("orch-a");
+
+    releaseLease(dir, "worker", "orch-a", 3);
+    expect(holderOf(dir, "worker")).toBeNull();
+    // Released is history, not ownership: the trail keeps the holding.
+    expect(leaseHistory(dir, "worker")).toHaveLength(1);
   });
 });
 

@@ -1,16 +1,15 @@
 import { buildEntities, entitySpace, scopeEntitiesToSpace, sortEntities, resolveTarget } from "../entities.ts";
 import { loadConfig } from "../config.ts";
-import { orchDir, spawnedRecords } from "../presence/store.ts";
+import { orchDir } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit } from "../backends/backend.ts";
-import { parseIdentity } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent } from "./target.ts";
+import { agentAddress, agentIdOfKey, agentViewIndex, assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent, presenceById, viewForKey } from "./target.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { displaySpace } from "./status.ts";
 import { spaceName } from "../policy/space.ts";
-import { writeSpawnedHandle } from "../store/spawned-rows.ts";
+import { setHandle } from "../store/interval-rows.ts";
 import { commandLogger } from "./logging.ts";
 
 type BoundaryPlan<T> =
@@ -126,8 +125,10 @@ export function resolveTab(target: string): BackendGroup {
     process.exit(1);
   }
   const ent = resolveTarget(target);
-  const id = parseIdentity(ent.key);
-  if (id.backend !== backend.id) die(`Target "${target}" belongs to backend ${id.backend}.`);
+  // Which plexer an agent is in is an ENVIRONMENT axis composed onto it, not a
+  // segment of its identity: an agent that moves keeps the id it was minted with.
+  const plexer = viewForKey(agentViewIndex(), ent.key)?.environment.plexer ?? ent.backend;
+  if (plexer !== null && plexer !== backend.id) die(`Target "${target}" belongs to backend ${plexer}.`);
   // The identity id names the agent and carries no pane; the resolved entity's
   // paneId is the only backend handle for it.
   const pane = backend.paneInventory?.list().find((item) => String(item.handle) === ent.paneId);
@@ -172,9 +173,16 @@ export function cmdTabs(args: string[]) {
 function assertGroupAgentsOwned(backend: Backend, group: string, force: boolean): void {
   if (force) return;
   const handles = new Set((backend.paneInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
-  for (const record of spawnedRecords().values()) {
-    if (record.owner && record.handle !== undefined && handles.has(String(record.handle)) && !ownsAgent(record)) {
-      die(`Group ${group} holds agent ${record.pane} owned by ${record.owner}. Use --force to override.`);
+  const presence = presenceById();
+  for (const view of agentViewIndex().values()) {
+    // Ownership is the open lease; the pane handle is environment. A group is a
+    // set of PLACES, so it is matched on the handle and refused on the lease.
+    const holder = view.heldBy?.orchId;
+    const handle = view.environment.handle;
+    if (holder === undefined || handle === null || !handles.has(handle)) continue;
+    const address = agentAddress(view, presence);
+    if (!ownsAgent({ owner: holder, pane: address })) {
+      die(`Group ${group} holds agent ${address} owned by ${holder}. Use --force to override.`);
     }
   }
 }
@@ -329,7 +337,11 @@ export function cmdMove(args: string[]) {
     }
     if (!isBackendSplit(split)) die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
     role.move({ handle, group: newTab ? null : groupId!, split, against, label });
-    writeSpawnedHandle(orchDir(), key, String(handle));
+    // The pane moved; the agent did not become a different agent. A14: the
+    // handle is an interval on its own axis, so the old one closes and a new
+    // one opens — identity is untouched.
+    const movedId = agentIdOfKey(key);
+    if (movedId !== null) setHandle(orchDir(), movedId, Date.now(), String(handle));
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
     else process.stdout.write(`Moved ${String(handle)} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {

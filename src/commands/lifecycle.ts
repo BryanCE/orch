@@ -5,9 +5,9 @@ import { refreshStaleShims } from "../doctor/runner.ts";
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../entities.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
-import { type SpawnedRecord } from "../store/spawned-rows.ts";
+import { liveAgentViews, type AgentView } from "../store/agent-view.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId } from "../identity/self.ts";
 import { openStore } from "../store/connection.ts";
@@ -23,7 +23,7 @@ import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { adapterCommand, assertLaunchModelAllowed, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
-import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
+import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 
 function lifecycleLogger(key: string) {
@@ -96,9 +96,15 @@ function awaitIdleAfter(statusPath: string, beforeUpdated: number, sentAt: numbe
 /** Every orch-owned live agent, addressed by identity key. Keying on paneId instead
  *  silently skipped the entire detached fleet — a headless agent never has a pane. */
 export function ownedAgentKeys(): string[] {
-  const records = spawnedRecords();
+  // Ownership is the OPEN lease (Rule 11). A released one is history and must
+  // stop answering here, or `--all` keeps steering agents this orch let go.
+  const views = agentViewIndex();
   return buildEntities()
-    .filter((ent) => ent.presence && ownsAgent(records.get(ent.key) ?? {}))
+    .filter((ent) => {
+      if (!ent.presence) return false;
+      const view = viewForKey(views, ent.key);
+      return ownsAgent(view ? { owner: view.heldBy?.orchId, pane: ent.key } : {});
+    })
     .map((ent) => ent.key);
 }
 
@@ -392,15 +398,15 @@ function renameAgent(
   handle: BackendHandle,
   key: string,
   name: string,
-  records: ReadonlyMap<string, SpawnedRecord>,
+  views: ReadonlyMap<string, AgentView>,
 ): boolean {
-  const record = records.get(key);
-  if (!record) {
+  const view = viewForKey(views, key);
+  if (!view) {
     lifecycleLogger(key).error("rename.unmanaged-agent", { target: key });
     process.stderr.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return false;
   }
-  assertNameFree(name, record.space ?? "");
+  assertNameFree(name, view.environment.space ?? "");
   const identity = tryParseIdentity(key);
   if (!identity || !renameNormalizedAgent(orchDir(), identity.id, name)) return false;
   const role = backend.agentNaming;
@@ -417,9 +423,9 @@ export function cmdRename(args: string[]) {
   const target = positional[0];
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
-  const records = spawnedRecords();
-  const { backend, handle, key } = backendTarget(target, "rename", records);
-  assertAgentOwned(target, { key }, force, records);
+  const views = agentViewIndex();
+  const { backend, handle, key } = backendTarget(target, "rename", views);
+  assertAgentOwned(target, { key }, force, views);
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.
   // --pane relabels the backend's pane chrome instead and leaves the name alone.
@@ -429,7 +435,7 @@ export function cmdRename(args: string[]) {
       if (!backend.paneNaming) throw new Error("target environment has no pane naming role");
       backend.paneNaming.renamePane(handle, name);
       renamed = true;
-    } else renamed = renameAgent(backend, handle, key, name, records);
+    } else renamed = renameAgent(backend, handle, key, name, views);
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }
@@ -491,19 +497,21 @@ export function cmdClose(args: string[]) {
     // resolution is what makes a stale row ambiguous, and one unresolvable row
     // must not abort the sweep. A bulk close that closes nothing leaves every
     // name reserved, which is exactly when respawning is the only way out.
-    for (const record of spawnedRecords().values()) {
-      // Every registry row is orch-managed, regardless of which session spawned it.
-      // Ending is never gated by ownership or provenance; unmanaged panes have no row.
-      const backend = getBackend(record.backend ?? "") ?? null;
+    const presence = presenceById();
+    for (const view of liveAgentViews(orchDir())) {
+      // Every minted agent is orch-managed, regardless of which session spawned it.
+      // Ending is never gated by ownership or provenance; unmanaged panes have no id.
+      const address = agentAddress(view, presence);
+      const backend = getBackend(view.environment.plexer ?? "") ?? null;
       if (!backend) {
-        lifecycleLogger(record.pane).warn("close.unknown-backend", { backend: record.backend ?? null, handle: record.pane });
-        process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
+        lifecycleLogger(address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
+        process.stderr.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
       }
       targets.push({
         backend,
-        handle: record.handle ?? record.pane,
-        key: record.pane,
-        recorded: recordedProcess(record.pane),
+        handle: view.environment.handle ?? address,
+        key: address,
+        recorded: recordedProcess(address),
         // A registry handle is not proof of a live pane. Bulk close may still
         // ask the backend to verify because it enumerates every managed row.
         paneKnown: true,
@@ -516,8 +524,8 @@ export function cmdClose(args: string[]) {
     targets.push({
       backend: resolved.backend,
       handle: resolved.handle,
-      key: resolved.record.pane,
-      recorded: recordedProcess(resolved.record.pane),
+      key: resolved.key,
+      recorded: recordedProcess(resolved.key),
       // A pane-capable backend's stale registry row may outlive its pane. Do
       // not invoke a provider with an opaque identity handle in that case.
       paneKnown: resolved.entity.paneId !== null || resolved.backend.paneInventory === null,

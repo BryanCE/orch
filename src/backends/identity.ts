@@ -1,27 +1,46 @@
 import { randomBytes } from "node:crypto";
-import { loadPresence, spawnedRecords } from "../presence/store.ts";
+import { loadPresence } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
+import { agentViews } from "../store/agent-view.ts";
 
 /**
- * Backend-owned agent identity and its filesystem-safe serialized key.
+ * Agent identity: one minted id, and nothing else.
  *
- * The plexer backend is the identity authority: it mints one stable identity
- * per spawned agent and orch serializes it to a single, flat, filesystem-safe
- * presence-directory segment. This module is the ONLY boundary that converts
- * between the structured identity and its string key; no other code parses the
- * key format.
+ * TASKS/01-agent-model.md — *"Identity = a minted id and NOTHING else,
+ * immutable. Never encode environment into identity. No
+ * `<backend>~<workspace>~<handle>` key."*
+ *
+ * This module used to serialize `<plexer>~<plexer-grouping>~<id>` into the
+ * presence directory name and the registry primary key. That made an agent's
+ * identity a function of where it happened to be sitting, so an agent that
+ * MOVED between plexers or spaces could not keep its identity — which is why
+ * moving was never implemented, and why a driving session with no plexer and no
+ * space was stamped `headless~local~…`, inventing a place called "local" that
+ * the web then rendered as a real one.
+ *
+ * The plexer and the space are environment. They live in `agent_plexers` and
+ * `agent_spaces`, on their own timelines, and are read through
+ * `src/store/agent-view.ts`. Nothing reads them out of a key, because a key no
+ * longer has anywhere to put them.
  */
 
-/** Structured identity minted by the selected plexer backend for one agent. */
+/** Characters in a minted id; excludes every separator and escape trigger. */
+const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+const ID_LENGTH = 10;
+
+/** The shape a minted id always has. A key that does not match this is not an
+ *  identity, whatever produced it. */
+const ID_PATTERN = new RegExp(`^[${ID_ALPHABET}]{${ID_LENGTH}}$`);
+
+/**
+ * An agent's identity.
+ *
+ * One field on purpose. Provenance, ownership and environment are three other
+ * facts on three other timelines; welding any of them in here is what this
+ * module exists to prevent.
+ */
 export interface Identity {
-  /**
-   * Backend id that owns the agent. Deliberately `string`, not `BackendId`:
-   * keys are parsed from disk, and a key naming a backend this build no longer
-   * registers must reach `getBackend` and fail there by name — parsing cannot
-   * be the thing that refuses to read a row that still needs closing.
-   */
-  readonly backend: string;
-  /** Workspace reported by the backend; always a string, never null. */
-  readonly workspace: string;
   /**
    * Opaque agent id minted BEFORE launch and passed via ORCH_AGENT_KEY.
    *
@@ -37,11 +56,6 @@ export interface Identity {
   readonly id: string;
 }
 
-/** Characters in a minted id; excludes every separator and escape trigger. */
-const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-const ID_LENGTH = 10;
-
 /** Mint one opaque agent id. Unique per spawn, stable for the agent's life. */
 export function mintAgentId(): string {
   const bytes = randomBytes(ID_LENGTH);
@@ -50,98 +64,46 @@ export function mintAgentId(): string {
   return id;
 }
 
-/** Separator between the three key segments; escaped inside each segment. */
-const SEP = "~";
-
-/**
- * Percent-escapes applied within each segment. `%` MUST come first so the
- * escape marker introduced by later rules is never itself re-escaped.
- */
-const ESCAPES: readonly (readonly [string, string])[] = [
-  ["%", "%25"],
-  ["~", "%7E"],
-  [":", "%3A"],
-  ["/", "%2F"],
-];
-
-/** Escape the separator and other path-unsafe characters within one segment. */
-function escapeSegment(part: string): string {
-  let out = part;
-  for (const [char, code] of ESCAPES) out = out.replaceAll(char, code);
-  return out;
-}
-
-/** Reverse {@link escapeSegment} in a single pass so decoded `%` never re-triggers. */
-function unescapeSegment(part: string): string {
-  return part.replace(/%(25|7E|3A|2F)/g, (whole, code: string) => {
-    switch (code) {
-      case "25": return "%";
-      case "7E": return "~";
-      case "3A": return ":";
-      case "2F": return "/";
-      default: return whole;
-    }
-  });
-}
-
-/** Reject identities missing the fields required to address an agent. */
-function assertIdentity(id: Identity): void {
-  if (typeof id.backend !== "string" || id.backend.length === 0) {
-    throw new Error(`identity backend must be a non-empty string: ${JSON.stringify(id.backend)}`);
-  }
-  if (typeof id.workspace !== "string") {
-    throw new Error(`identity workspace must be a string: ${JSON.stringify(id.workspace)}`);
-  }
-  if (typeof id.id !== "string" || id.id.length === 0) {
-    throw new Error(`identity id must be a non-empty string: ${JSON.stringify(id.id)}`);
-  }
+/** True when `value` has the shape of a minted id. */
+export function isAgentId(value: unknown): value is string {
+  return typeof value === "string" && ID_PATTERN.test(value);
 }
 
 /**
- * Serialize an identity to a single filesystem-safe key segment
- * `<backend>~<workspace>~<handle>`. Never produces a nested path.
+ * The key for an identity — which is the id itself.
+ *
+ * Kept as a named function rather than inlined so that "what goes in a presence
+ * directory name" has exactly one answer in the codebase, and so the day
+ * something wants to change it, there is one place to change.
  */
 export function serializeIdentity(id: Identity): string {
-  assertIdentity(id);
-  return [id.backend, id.workspace, id.id].map(escapeSegment).join(SEP);
+  if (!isAgentId(id.id)) {
+    throw new Error(`identity id must be ${ID_LENGTH} lowercase alphanumerics: ${JSON.stringify(id.id)}`);
+  }
+  return id.id;
 }
 
-/**
- * Parse a serialized key back into its identity. Throws on any malformed key
- * (wrong segment count or a segment that fails identity validation).
- */
+/** Parse a key back into an identity. Throws when the key is not a minted id. */
 export function parseIdentity(key: string): Identity {
-  if (typeof key !== "string" || key.length === 0) {
-    throw new Error(`identity key must be a non-empty string: ${JSON.stringify(key)}`);
+  if (!isAgentId(key)) {
+    throw new Error(`malformed identity key: expected ${ID_LENGTH} lowercase alphanumerics, got ${JSON.stringify(key)}`);
   }
-  const segments = key.split(SEP);
-  if (segments.length !== 3) {
-    throw new Error(`malformed identity key: expected 3 segments, got ${segments.length}: ${JSON.stringify(key)}`);
-  }
-  const [backend, workspace, agentId] = segments.map(unescapeSegment) as [string, string, string];
-  const identity: Identity = { backend, workspace, id: agentId };
-  assertIdentity(identity);
-  return identity;
+  return { id: key };
 }
 
 /** Parse a key without throwing; returns null when the key is malformed. */
 export function tryParseIdentity(key: string | null | undefined): Identity | null {
   if (key === null || key === undefined) return null;
-  try {
-    return parseIdentity(key);
-  } catch {
-    return null;
-  }
+  return isAgentId(key) ? { id: key } : null;
 }
 
 /**
  * Resolve any spelling of a target to the one canonical identity key.
  *
- * An agent is addressable three ways — its key, its mutable name, or its
- * backend pane id — and all three must land on the same key so an orchestrator
- * can always reach anything orch spawned. Only the key is an identity; the
- * other two are lookups through the registry, which is why a name can be
- * reassigned without any address breaking.
+ * An agent is addressable three ways — its id, its mutable name, or its
+ * environment's handle for the pane it happens to occupy. Only the first is
+ * identity; the other two are looked up through the composer, never parsed out
+ * of the key, because both of them move.
  *
  * A dead agent still resolves (close and cleanup need it), but a live one wins:
  * reusing a name whose previous holder exited must never be ambiguous.
@@ -154,13 +116,12 @@ export function normalizeControlTarget(target: string): string {
   const presence = loadPresence();
   if (presence.has(target)) return target;
 
-  const matches = [...spawnedRecords().values()].filter((record) =>
-    record.pane === target || record.handle === target
-    || tryParseIdentity(record.pane)?.id === target);
+  const matches = agentViews(orchDir()).filter((view) =>
+    view.id === target || view.name === target || view.environment.handle === target);
 
-  const live = matches.filter((record) => presence.get(record.pane)?.alive);
+  const live = matches.filter((view) => presence.get(view.id)?.alive);
   const resolved = live.length > 0 ? live : matches;
-  const keys = new Set(resolved.map((record) => record.pane));
+  const keys = new Set(resolved.map((view) => view.id));
 
   if (keys.size === 1) return [...keys][0]!;
   if (keys.size > 1) throw new Error(`control target ${target} is ambiguous: ${[...keys].join(", ")}`);

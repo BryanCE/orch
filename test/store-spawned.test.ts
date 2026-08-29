@@ -3,19 +3,13 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore, closeAllStores } from "../src/store/connection.ts";
-import { insertSpawnedRecord, selectSpawnedRecords, deleteSpawnedRecord, isSpawnedRow } from "../src/store/spawned-rows.ts";
-import { setOwner, getOwner, deleteOwner } from "../src/store/ownership-rows.ts";
-import { reapSpawnedRecord } from "../src/presence/store.ts";
+import { recordSpawned, reapSpawnedRecord } from "../src/presence/store.ts";
+import { agentView, agentViews, holderOf, liveAgentViews } from "../src/store/agent-view.ts";
 import { removeDeadAgentDirs } from "../src/commands/clean.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
-import type { AgentAdapter } from "../src/adapters/adapter.ts";
-import type { SpawnedRecord } from "../src/store/spawned-rows.ts";
-
-interface TableColumn {
-  name: string;
-}
+import { fakeAdapter } from "./helpers/adapter.ts";
 
 const tempDirs: string[] = [];
 const spawnedPids: number[] = [];
@@ -28,11 +22,6 @@ function makeOrchDir(): string {
   return dir;
 }
 
-function seedSpawnedRecord(dir: string, pane: string): void {
-  deleteSpawnedRecord(dir, pane);
-  insertSpawnedRecord(dir, { pane, backend: "headless", space: "local" });
-}
-
 afterEach(() => {
   for (const pid of spawnedPids.splice(0)) {
     try { process.kill(pid, "SIGTERM"); } catch {}
@@ -43,87 +32,89 @@ afterEach(() => {
   else process.env.ORCH_DIR = oldOrchDir;
 });
 
-describe("spawned and ownership store rows", () => {
-  test("spawned-row guard rejects arrays", () => {
-    expect(isSpawnedRow([])).toBe(false);
+// A1: the wide `spawned` row is gone. Its primary key was the PANE, so moving an
+// agent minted a new identity; every fact it welded now lives in the table that
+// owns it and is read back only through the composer.
+describe("the agent store replaces the spawned row", () => {
+  test("records the four facts apart and composes them back together", () => {
+    const dir = makeOrchDir();
+    recordSpawned("aaaaaaaaa1", {
+      adapter: "pi", backend: "headless", space: "w1", handle: "handle-1",
+      name: "recon-1", cwd: dir, model: "openai/gpt-5.6", owner: "bbbbbbbbb1",
+    });
+
+    expect(agentView(dir, "aaaaaaaaa1")).toMatchObject({
+      id: "aaaaaaaaa1",
+      name: "recon-1",
+      harnessId: "pi",
+      cwd: dir,
+      environment: { plexer: "headless", space: "w1", handle: "handle-1", worktree: null, branch: null },
+      tuning: { model: "openai/gpt-5.6" },
+      endedAt: null,
+    });
+    expect(holderOf(dir, "aaaaaaaaa1")?.orchId).toBe("bbbbbbbbb1");
   });
 
-  test("round-trips name and space through the public spawned seam", () => {
+  test("moving an agent between plexer handles keeps its identity", () => {
     const dir = makeOrchDir();
-    insertSpawnedRecord(dir, { pane: "herdr~w1~a1", name: "recon-1", space: "w1" });
-    const records = selectSpawnedRecords(dir);
-    expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ pane: "herdr~w1~a1", name: "recon-1", space: "w1" });
+    recordSpawned("aaaaaaaaa1", { adapter: "pi", backend: "headless", handle: "first" });
+    recordSpawned("aaaaaaaaa1", { handle: "second" });
+
+    expect(agentViews(dir).map((view) => view.id)).toEqual(["aaaaaaaaa1"]);
+    expect(agentView(dir, "aaaaaaaaa1")?.environment.handle).toBe("second");
   });
 
-  test("ownership table has no workspace column", () => {
+  test("an agent with no handle is still an agent, just without a shortcut", () => {
     const dir = makeOrchDir();
-    const columns = openStore(dir).query("PRAGMA table_info(ownership)").all() as TableColumn[];
+    recordSpawned("aaaaaaaaa1", { adapter: "pi" });
 
-    expect(columns.some((column) => column.name === "workspace")).toBe(false);
+    expect(agentView(dir, "aaaaaaaaa1")?.environment).toMatchObject({ plexer: null, handle: null, space: null });
+    expect(liveAgentViews(dir).map((view) => view.id)).toEqual(["aaaaaaaaa1"]);
   });
 
-  test("selectSpawnedRecords joins every row to its owner", () => {
+  test("a key that is not a minted identity registers nothing", () => {
     const dir = makeOrchDir();
-    for (let index = 0; index < 20; index++) {
-      const pane = `headless~local~worker-${index}`;
-      seedSpawnedRecord(dir, pane);
-      setOwner(dir, pane, `orch-${index}`);
-    }
+    recordSpawned("headless~local~worker", { adapter: "pi", backend: "headless" });
 
-    const records = selectSpawnedRecords(dir);
-
-
-    expect(records).toHaveLength(20);
-    expect(records.every((record) => record.owner === `orch-${Number(record.pane.split("-").at(-1))}`)).toBe(true);
+    expect(agentViews(dir)).toEqual([]);
   });
 
-  test("deleteOwner removes an ownership row", () => {
+  test("reapSpawnedRecord removes the agent and every fact hanging off it", () => {
     const dir = makeOrchDir();
-    setOwner(dir, "headless~local~worker", "orch-a");
-
-    deleteOwner(dir, "headless~local~worker");
-
-    expect(getOwner(dir, "headless~local~worker")).toBeUndefined();
-  });
-
-  test("reapSpawnedRecord removes the spawned and ownership rows", () => {
-    const dir = makeOrchDir();
-    const key = "headless~local~close-reap";
-    seedSpawnedRecord(dir, key);
-    setOwner(dir, key, "orch-close");
+    const key = "aaaaaaaaa1";
+    recordSpawned(key, { adapter: "pi", backend: "headless", space: "local", handle: "h", owner: "bbbbbbbbb1" });
+    seedStatus(dir, key, { pid: 99999999 });
 
     reapSpawnedRecord(key);
 
-    expect(selectSpawnedRecords(dir).some((record) => record.pane === key)).toBe(false);
-    expect(getOwner(dir, key)).toBeUndefined();
+    expect(agentView(dir, key)).toBeNull();
+    expect(openStore(dir).query("SELECT COUNT(*) AS n FROM agent_leases WHERE agent_id = ?").get(key)).toEqual({ n: 0 });
+    expect(openStore(dir).query("SELECT COUNT(*) AS n FROM agent_handles WHERE agent_id = ?").get(key)).toEqual({ n: 0 });
+    expect(existsSync(join(dir, "agents", key))).toBe(false);
   });
 
-  test("removeDeadAgentDirs removes the spawned and ownership rows", () => {
+  test("removeDeadAgentDirs reaps the agent behind a dead presence dir", () => {
     const dir = makeOrchDir();
-    const key = "headless~local~clean-reap";
+    const key = "aaaaaaaaa2";
     seedStatus(dir, key, { pid: 99999999 });
-    seedSpawnedRecord(dir, key);
-    setOwner(dir, key, "orch-clean");
+    recordSpawned(key, { adapter: "pi", backend: "headless", space: "local", owner: "bbbbbbbbb1" });
 
     expect(removeDeadAgentDirs(true)).toContain(`${key} (pid 99999999)`);
-    expect(selectSpawnedRecords(dir).some((record) => record.pane === key)).toBe(false);
-    expect(getOwner(dir, key)).toBeUndefined();
+    expect(agentView(dir, key)).toBeNull();
   });
 
-  test("headless spawn records the spawned table and does not create spawned.jsonl", () => {
+  test("headless spawn registers the agent hub and never writes spawned.jsonl", () => {
     const dir = makeOrchDir();
-    const key = "headless~local~table-only";
-    const adapter = {
-      id: "pi",
-      headlessCmd: () => [process.execPath, "-e", ""],
-    } as unknown as AgentAdapter;
+    const key = "aaaaaaaaa3";
+    const adapter = fakeAdapter({ headlessCmd: () => [process.execPath, "-e", ""] });
     const handle = new HeadlessBackend().spawn(adapter, { key, prompt: "work", orchDir: dir, cwd: dir });
     spawnedPids.push(handle.pid);
 
-    expect(selectSpawnedRecords(dir)).toEqual([
-      expect.objectContaining({ pane: key, backend: "headless", adapter: "pi" }) as unknown as SpawnedRecord,
-    ]);
+    expect(agentView(dir, key)).toMatchObject({
+      id: key,
+      harnessId: "pi",
+      environment: { plexer: "headless", handle: JSON.stringify({ pid: handle.pid, key }) },
+    });
     expect(existsSync(join(dir, "spawned.jsonl"))).toBe(false);
   });
 });

@@ -11,7 +11,7 @@ import { agentViews, environmentOf, holderOf, tuningOf, type AgentView } from ".
 import { adoptLease } from "../store/lease-rows.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "../store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
-import { serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { isAdapterId, type AdapterId } from "../adapters/adapter.ts";
 import { isBackendId, type BackendId } from "../backends/backend.ts";
 import { openStore } from "../store/connection.ts";
@@ -163,35 +163,37 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
 }
 
 /**
- * One agent as the pane-keyed callers still spell it, COMPOSED at read time from
- * the four facts (src/store/agent-view.ts) — never stored in this shape.
+ * What a caller may state about an agent orch is registering or adopting.
  *
  * A1: the old `spawned` table welded identity, provenance, ownership and
- * environment into one wide row whose primary key was the pane, so moving an
- * agent minted a new identity. This is that row's obituary: a projection with
- * no table behind it, which every caller migrates off onto {@link AgentView}.
+ * environment into one wide row whose primary key was the PANE, so moving an
+ * agent minted a new identity. These are the same facts as an argument list,
+ * fanned out to the table that owns each one; nothing stores them together.
+ * Reads go through {@link AgentView}, never back through a flat row.
  */
-export interface AgentRecord {
-  /** The serialized identity key, recomposed from id + environment. */
-  pane: string;
-  ts?: number;
+export interface AgentFacts {
+  /** Harness the agent runs (`agents.harness_id`). */
   adapter?: AdapterId;
+  /** Tuning — survives a move, so never environment. */
   model?: string;
+  /** Environment: the plexer the agent is in. */
   backend?: BackendId;
+  /** Environment: orch's own grouping. */
   space?: string;
+  /** Environment: the plexer's shortcut to it. An agent without one is an agent
+   *  without a shortcut, never one orch cannot reach. */
   handle?: string;
   name?: string;
   cwd?: string;
   worktree?: string;
   branch?: string;
-  /** The live lease holder. Ownership is a lease, never a second id space. */
+  /** Ownership: the orch to lease it to. A lease, never a second id space. */
   owner?: string;
+  /** Provenance: the agent that spawned it. Immutable once written. */
   spawnedBy?: string;
+  /** Ignored: a spawner's label is READ from the spawner, never copied here. */
   spawnedByLabel?: string;
 }
-
-/** What a caller may state about an agent it is registering or adopting. */
-export type AgentRecordInput = Omit<AgentRecord, "pane" | "ts">;
 
 /** Make sure a space id exists before an agent can be placed in it. Spaces are
  *  orch's own grouping; a plexer's workspace name only ever seeds one. */
@@ -211,101 +213,80 @@ function ensureOrchAgent(root: string, orchId: string, harnessId: string, now: n
 /**
  * Record the four facts for one agent orch has just launched or adopted.
  *
- * Identity is the minted id inside the key and nothing else; the key's other
- * two segments are LEGACY environment welded into it at mint time, so they are
- * decomposed into the environment satellites here and never read back out of
- * the key again.
+ * The key IS the minted id and carries nothing else (src/backends/identity.ts),
+ * so every environment axis below comes from what the caller states — never
+ * decoded out of the address. An axis the caller does not state stays absent.
  */
-export function recordSpawned(pane: string, metadata: AgentRecordInput = {}): void {
+export function recordSpawned(key: string, metadata: AgentFacts = {}): void {
   const root = orchDir();
   // A target that is not an orch-minted identity names no agent: there is
   // nothing to key the four facts on, and inventing one would fork the agent.
-  const identity = tryParseIdentity(pane);
+  const identity = tryParseIdentity(key);
   if (!identity) return;
+  const agentId = identity.id;
   const now = Date.now();
-  const harnessId = metadata.adapter ?? identity.backend;
-  const plexerId = metadata.backend ?? identity.backend;
-  const spaceId = metadata.space ?? identity.workspace;
-  ensureHarness(root, harnessId, harnessId, now);
-  ensurePlexer(root, plexerId, plexerId, now);
-  if (!agentById(root, identity.id)) {
-    const spawner = metadata.spawnedBy && agentById(root, metadata.spawnedBy) ? metadata.spawnedBy : null;
+  const existing = agentById(root, agentId);
+  if (!existing) {
+    // An agent with no stated harness is one orch cannot run: refusing to invent
+    // one is what keeps a half-registered row from becoming an unreachable ghost.
+    if (metadata.adapter === undefined) return;
+    ensureHarness(root, metadata.adapter, metadata.adapter, now);
+    const spawner = metadata.spawnedBy !== undefined && agentById(root, metadata.spawnedBy) ? metadata.spawnedBy : null;
     insertAgent(root, {
-      id: identity.id,
+      id: agentId,
       spawnedBy: spawner,
-      harnessId,
+      harnessId: metadata.adapter,
       cwd: metadata.cwd ?? process.cwd(),
-      name: metadata.name ?? pane,
+      name: metadata.name ?? agentId,
       createdAt: now,
     });
   }
-  const environment = environmentOf(root, identity.id);
-  if (environment.plexer === null) setAgentPlexer(root, identity.id, plexerId);
-  if (metadata.handle !== undefined && environment.handle !== metadata.handle) {
-    setHandle(root, identity.id, now, metadata.handle);
+  const environment = environmentOf(root, agentId);
+  if (metadata.backend !== undefined && environment.plexer === null) {
+    ensurePlexer(root, metadata.backend, metadata.backend, now);
+    setAgentPlexer(root, agentId, metadata.backend);
   }
-  if (environment.space !== spaceId) {
-    ensureSpace(root, spaceId, now);
-    setSpace(root, identity.id, now, spaceId);
+  if (metadata.handle !== undefined && environment.handle !== metadata.handle) {
+    setHandle(root, agentId, now, metadata.handle);
+  }
+  if (metadata.space !== undefined && environment.space !== metadata.space) {
+    ensureSpace(root, metadata.space, now);
+    setSpace(root, agentId, now, metadata.space);
   }
   if (metadata.worktree !== undefined && metadata.branch !== undefined) {
-    setWorktree(root, identity.id, metadata.worktree, metadata.branch);
+    setWorktree(root, agentId, metadata.worktree, metadata.branch);
   }
-  if (metadata.model !== undefined && tuningOf(root, identity.id).model === null) {
-    setTuning(root, identity.id, now, { model: metadata.model });
+  if (metadata.model !== undefined && tuningOf(root, agentId).model === null) {
+    setTuning(root, agentId, now, { model: metadata.model });
   }
   // Ownership is a lease and nothing else. An agent never holds its own lease
   // (`agent_leases_not_self`), and re-stamping the holder it already has would
   // close and reopen a holding that never changed hands.
-  if (metadata.owner !== undefined && metadata.owner !== identity.id) {
-    ensureOrchAgent(root, metadata.owner, harnessId, now);
-    if (holderOf(root, identity.id)?.orchId !== metadata.owner) {
-      adoptLease(root, identity.id, metadata.owner, now);
+  if (metadata.owner !== undefined && metadata.owner !== agentId) {
+    ensureOrchAgent(root, metadata.owner, metadata.adapter ?? existing?.harnessId ?? "orch", now);
+    if (holderOf(root, agentId)?.orchId !== metadata.owner) {
+      adoptLease(root, agentId, metadata.owner, now);
     }
   }
 }
 
-/** Compose one legacy record, or null for an agent that has no serializable key
- *  — a driving session orch registered through `hello` was never in the pane
- *  registry either, and inventing a key for it would mint a second identity. */
-function projectAgentRecord(view: AgentView): AgentRecord | null {
-  const { plexer, space, handle, worktree, branch } = view.environment;
-  if (plexer === null || space === null) return null;
-  const record: AgentRecord = {
-    pane: serializeIdentity({ backend: plexer, workspace: space, id: view.id }),
-    ts: view.createdAt,
-    space,
-    name: view.name,
-    cwd: view.cwd,
-  };
-  if (isAdapterId(view.harnessId)) record.adapter = view.harnessId;
-  if (isBackendId(plexer)) record.backend = plexer;
-  if (handle !== null) record.handle = handle;
-  if (worktree !== null) record.worktree = worktree;
-  if (branch !== null) record.branch = branch;
-  if (view.tuning.model !== null) record.model = view.tuning.model;
-  if (view.heldBy !== null) record.owner = view.heldBy.orchId;
-  if (view.spawnedBy !== null) record.spawnedBy = view.spawnedBy;
-  return record;
-}
-
-export function spawnedRecords(): Map<string, AgentRecord> {
-  const records = new Map<string, AgentRecord>();
+/**
+ * Every agent the store knows, indexed by its minted id.
+ *
+ * A1: this replaces the pane-keyed `spawned` scan. Identity is the minted id and
+ * nothing else, and a presence key IS that id, so one index answers both "which
+ * agent is this key" and "what has orch spawned" without a second id space.
+ * Values are the composed {@link AgentView}: environment, tuning and the lease
+ * are read from the tables that own them, never from a flat row.
+ */
+export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
+  const index = new Map<string, AgentView>();
+  // A store that does not exist yet is an empty fleet, not a crash: `orch
+  // status` runs before anything has ever been spawned.
   try {
-    const root = orchDir();
-    for (const view of agentViews(root)) {
-      const record = projectAgentRecord(view);
-      if (!record) continue;
-      // Provenance names the spawner; its LABEL is the spawner's own name, read
-      // from that agent — never a second copy stored beside the child.
-      if (view.spawnedBy !== null) {
-        const spawner = agentById(root, view.spawnedBy);
-        if (spawner) record.spawnedByLabel = spawner.name;
-      }
-      records.set(record.pane, record);
-    }
-  } catch {}
-  return records;
+    for (const view of agentViews(root)) index.set(view.id, view);
+  } catch { /* nothing spawned yet */ }
+  return index;
 }
 
 /** Reap one agent: the hub row (which cascades every satellite, lease and
@@ -336,7 +317,7 @@ function newestRecordedInstant(entry: PresenceEntry): number | null {
 }
 
 /** Reap dead presence directories old enough for retention. This is the shared
- * path for daemon retention and `orch clean`; it also removes spawned and owner rows. */
+ * path for daemon retention and `orch clean`; it also removes the agent rows. */
 export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPresenceReapResult {
   const removed: PresenceEntry[] = [];
   const failed: { entry: PresenceEntry; error: unknown }[] = [];

@@ -18,7 +18,8 @@ import { withSpinner, promptText, logStep, logWarning } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
 import { installSkills, packagedSkillNames } from "../setup/skills.ts";
 import { setupIntro, setupOutro, selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectNotifiers, selectRuntime, chooseInstalls } from "../setup/wizard.ts";
-import { loadPresence, orchDir, presenceDir, spawnedRecords } from "../presence/store.ts";
+import { loadPresence, orchDir, presenceDir } from "../presence/store.ts";
+import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
 import { cmdSpawn } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
@@ -603,10 +604,10 @@ export interface SmokeSteps {
 
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
 async function spawnHeadlessSmokeAgent(cwd: string, prompt: string): Promise<string> {
-  const before = new Set(spawnedRecords().keys());
+  const before = new Set(agentViews(orchDir()).map((view) => view.id));
   await cmdSpawn(["1", "--backend", "headless", "--name", "orch-smoke", "--cwd", cwd, "--prompt", prompt]);
-  const after = spawnedRecords();
-  const key = [...after.keys()].find((candidate) => !before.has(candidate) && after.get(candidate)?.backend === "headless");
+  const after = agentViews(orchDir());
+  const key = after.find((view) => !before.has(view.id) && view.environment.plexer === "headless")?.id;
   if (!key) throw new Error("headless spawn recorded no new agent");
   return key;
 }

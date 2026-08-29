@@ -36,7 +36,7 @@ import {
   type CreatedGroup,
   type MovePaneRequest,
 } from "../backend.ts";
-import type { Identity } from "../identity.ts";
+import { tryParseIdentity, type Identity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
 
@@ -278,11 +278,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   currentIdentity(): Identity | null {
     const handle = process.env.HERDR_PANE_ID;
     if (!handle) return null;
-    const pane = herdrPanes().find((candidate) => candidate.pane_id === handle);
-    if (!pane?.workspace_id) return null;
-    // The caller's own pane was never orch-spawned, so no id was minted for it;
-    // its pane id is stable for this process and stands in as the identity.
-    return { backend: HERDR_BACKEND, workspace: pane.workspace_id, id: handle };
+    // Identity is orch's, not the plexer's: it exists only if orch minted one and
+    // handed it over at launch. A pane orch never spawned has NO orch identity,
+    // and that is an answer — the pane id is a plexer coordinate that renumbers
+    // on a move, so promoting it to an identity forks the agent in two (A1).
+    return tryParseIdentity(process.env.ORCH_AGENT_KEY);
   }
 
   /** Create a pane first, then start herdr's canonical harness in that pane. */

@@ -7,12 +7,10 @@ import { loadConfigOrNull, SETTINGS_SCHEMA, type OrchConfig } from "../src/confi
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
-import { setOwner } from "../src/store/ownership-rows.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { selectRuns, upsertRun, type RunRecord } from "../src/store/run-rows.ts";
 import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
+import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeResult } from "../src/presence/writer.ts";
@@ -116,31 +114,39 @@ describe("retention sweep", () => {
     expect(counts.runs).toBe(1);
   });
 
-  test("reaps expired agents with no presence dir and releases registry/name reservation", () => {
+  // A1: an ended agent is reaped by its IDENTITY. Its environment, its lease and
+  // its worktree are satellites of that id and go with it; nothing is keyed by a
+  // pane, so nothing survives because a presence directory was never created.
+  test("reaps expired agents by identity, taking every satellite with them", () => {
     const orchDir = fixture();
-    const agentId = "expired-no-presence";
-    const key = serializeIdentity({ backend: "headless", workspace: "test", id: agentId });
+    const agentId = "expirednop";
+    const holder = "holderorch";
     const old = "2026-01-20T00:00:00.000Z";
     const db = openStore(orchDir);
     db.query("INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')").run();
+    db.query("INSERT OR IGNORE INTO plexers(id,name) VALUES ('headless','headless')").run();
+    db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
+      .run(holder, holder, "pi", "/tmp", holder, Date.parse(old));
     db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
       .run(agentId, agentId, "pi", "/tmp", "reserved-agent", Date.parse(old));
     db.query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,NULL)").run(agentId, Date.parse(old));
     db.query("INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (?,?,?)").run(agentId, "/tmp/worktree", "orch/expired");
-    insertSpawnedRecord(orchDir, { pane: key, name: "reserved-agent", ts: NOW.getTime() });
-    setOwner(orchDir, key, "owner");
+    db.query("INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (?,?)").run(agentId, "headless");
+    acquireLease(orchDir, agentId, holder, Date.parse(old));
 
     expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(db.query("SELECT id FROM agents WHERE id=?").get(agentId)).toBeNull();
     expect(db.query("SELECT agent_id FROM agent_worktrees WHERE agent_id=?").get(agentId)).toBeNull();
-    expect(db.query("SELECT pane FROM spawned WHERE pane=?").get(key)).toBeNull();
-    expect(db.query("SELECT agent_key FROM ownership WHERE agent_key=?").get(key)).toBeNull();
+    expect(db.query("SELECT agent_id FROM agent_plexers WHERE agent_id=?").get(agentId)).toBeNull();
+    expect(db.query("SELECT id FROM agent_leases WHERE agent_id=?").get(agentId)).toBeNull();
     expect(db.query("SELECT id FROM agents WHERE name=?").get("reserved-agent")).toBeNull();
+    // The holder is an agent in its own right and outlives what it held.
+    expect(db.query("SELECT id FROM agents WHERE id=?").get(holder)).not.toBeNull();
   });
 
   test("reaps dead dirs by recorded instants, not a fresh directory mtime", () => {
     const orchDir = fixture();
-    const key = "dead-agent";
+    const key = "deadagent1";
     const old = "2026-01-20T00:00:00.000Z";
     const dir = seedStatus(orchDir, key, { pid: 999999, updatedAt: old });
     const db = openStore(orchDir);
@@ -148,13 +154,10 @@ describe("retention sweep", () => {
     db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
       .run(key, key, "pi", "/tmp", key, Date.parse(old));
     db.query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,NULL)").run(key, Date.parse(old));
-    insertSpawnedRecord(orchDir, { pane: key, ts: NOW.getTime() });
-    setOwner(orchDir, key, "owner");
     utimesSync(dir, NOW, NOW);
     expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
     expect(openStore(orchDir).query("SELECT id FROM agents WHERE id=?").get(key)).toBeNull();
-    expect(openStore(orchDir).query("SELECT pane FROM spawned WHERE pane=?").get(key)).toBeNull();
   });
 
   test("keeps dead dirs with a newer recorded instant despite an old mtime", () => {

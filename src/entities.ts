@@ -1,14 +1,14 @@
 import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
 import type { Backend, BackendTarget } from "./backends/backend.ts";
-import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./presence/store.ts";
+import { loadPresence, orchDir, type PresenceEntry } from "./presence/store.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import type { Recipient } from "./recipient.ts";
-import type { SpawnedRecord } from "./store/spawned-rows.ts";
+import { agentViews, type AgentView } from "./store/agent-view.ts";
 import { selfId } from "./identity/self.ts";
 import { CommandRefusal } from "./refusal.ts";
 
@@ -61,31 +61,62 @@ export function formatTarget(ref: TargetRef): string {
   return ref.host ? `${ref.host}/${ref.target}` : ref.target;
 }
 
-/** Resolve an identity key to the agent an operator knows, enriched with the routing
- *  facts only orch's spawn registry holds. */
+/** Every agent the store knows, indexed by its minted id — the ONLY key the
+ *  store has. A store that does not exist yet is an empty fleet, not a crash. */
+function viewsById(root = orchDir()): Map<string, AgentView> {
+  const index = new Map<string, AgentView>();
+  try {
+    for (const view of agentViews(root)) index.set(view.id, view);
+  } catch { /* nothing spawned yet */ }
+  return index;
+}
+
+/** Join a presence/pane key to its agent through the minted id alone. Reading
+ *  the whole key as an identity is what made a MOVED agent look like a new one. */
+function viewForKey(views: ReadonlyMap<string, AgentView>, key: string): AgentView | undefined {
+  const id = tryParseIdentity(key)?.id;
+  return id === undefined ? undefined : views.get(id);
+}
+
+/** The address that reaches an agent: the presence key it actually has, else
+ *  its bare id. Never rebuilt from environment — an axis it happens to be
+ *  missing must not silently rename it. */
+function addressOf(view: AgentView, presenceById: ReadonlyMap<string, PresenceEntry>): string {
+  return presenceById.get(view.id)?.key ?? view.id;
+}
+
+function indexPresenceById(presence: ReadonlyMap<string, PresenceEntry>): Map<string, PresenceEntry> {
+  const byId = new Map<string, PresenceEntry>();
+  for (const entry of presence.values()) {
+    const id = tryParseIdentity(entry.key)?.id;
+    if (id !== undefined) byId.set(id, entry);
+  }
+  return byId;
+}
+
+/** Resolve an identity key to the agent an operator knows. */
 function normalizedAgentName(key: string): string | null {
   const id = tryParseIdentity(key)?.id;
   if (!id) return null;
   try { return agentById(orchDir(), id)?.name ?? null; } catch { return null; }
 }
 
-function recipientName(_record: SpawnedRecord | undefined, status: PresenceEntry["status"], space: string, key: string): string {
+function recipientName(status: PresenceEntry["status"], space: string, key: string): string {
   return normalizedAgentName(key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(space, key);
 }
 
-function recipientHarness(record: SpawnedRecord | undefined, status: PresenceEntry["status"]): string | null {
-  return record?.adapter ?? status?.agent ?? null;
-}
-
-export function recipientFor(key: string, spawned = spawnedRecords()): Recipient {
-  const record = spawned.get(key);
+export function recipientFor(key: string, views = viewsById()): Recipient {
+  const view = viewForKey(views, key);
   const status = loadPresence().get(key)?.status ?? null;
-  const space = record?.space ?? spaceOf(orchDir(), key) ?? "space";
+  const space = view?.environment.space ?? spaceOf(orchDir(), key) ?? "space";
   return {
-    name: recipientName(record, status, space, key),
-    harness: recipientHarness(record, status),
-    multiplexer: record?.backend ?? null,
-    transportId: record?.handle ?? key,
+    name: recipientName(status, space, key),
+    // The harness is the agent's own, never the plexer it happens to sit in.
+    harness: view?.harnessId ?? status?.agent ?? null,
+    multiplexer: view?.environment.plexer ?? null,
+    // A missing handle is a missing shortcut, not an unreachable agent: orch's
+    // own inbox/ack channel is addressed by the key either way.
+    transportId: view?.environment.handle ?? key,
   };
 }
 
@@ -114,10 +145,18 @@ export function scopeEntitiesToSpace(entities: Entity[], opts?: { all?: boolean 
   return entities.filter((entity) => sameSpace(entitySpace(entity), current));
 }
 
-function handlesByKey(records: Map<string, SpawnedRecord>, backend: Backend): Map<string, string> {
+/** The fleet as one read: every agent by id, and the presence that names it. */
+interface Fleet {
+  readonly views: ReadonlyMap<string, AgentView>;
+  readonly presence: ReadonlyMap<string, PresenceEntry>;
+  readonly presenceById: ReadonlyMap<string, PresenceEntry>;
+}
+
+function handlesByKey(fleet: Fleet, backend: Backend): Map<string, string> {
   const keyByHandle = new Map<string, string>();
-  for (const [key, record] of records) {
-    if (record.backend === backend.id && record.handle) keyByHandle.set(record.handle, key);
+  for (const view of fleet.views.values()) {
+    const { plexer, handle } = view.environment;
+    if (plexer === backend.id && handle !== null) keyByHandle.set(handle, addressOf(view, fleet.presenceById));
   }
   return keyByHandle;
 }
@@ -126,18 +165,17 @@ function entityFromBackendTarget(
   backend: Backend,
   target: BackendTarget,
   keyByHandle: Map<string, string>,
-  presence: Map<string, PresenceEntry>,
-  records: Map<string, SpawnedRecord>,
+  fleet: Fleet,
   usedPresence: Set<string>,
 ): Entity {
   const paneId = String(target.handle);
   const key = keyByHandle.get(paneId) ?? paneId;
-  const pres: PresenceEntry | null = presence.get(key) ?? null;
+  const pres: PresenceEntry | null = fleet.presence.get(key) ?? null;
   if (pres) usedPresence.add(pres.key);
   return {
     key,
     paneId,
-    managed: records.has(key),
+    managed: viewForKey(fleet.views, key) !== undefined,
     // Orch's registry owns the name; the backend's own pane label is only a
     // fallback for panes orch never spawned.
     name: normalizedAgentName(key) ?? target.name,
@@ -158,16 +196,11 @@ function entityFromBackendTarget(
   };
 }
 
-function entitiesFromBackend(
-  backend: Backend,
-  presence: Map<string, PresenceEntry>,
-  records: Map<string, SpawnedRecord>,
-  usedPresence: Set<string>,
-): Entity[] {
+function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
   if (!backend.paneInventory || !backend.isInsideSession()) return [];
-  const keyByHandle = handlesByKey(records, backend);
+  const keyByHandle = handlesByKey(fleet, backend);
   return backend.paneInventory.list()
-    .map((target) => entityFromBackendTarget(backend, target, keyByHandle, presence, records, usedPresence));
+    .map((target) => entityFromBackendTarget(backend, target, keyByHandle, fleet, usedPresence));
 }
 
 function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "paneId" | "agent" | "sessionPath"> {
@@ -179,72 +212,69 @@ function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "paneId" | "ag
   };
 }
 
-function presenceOnlyEntity(
-  entry: PresenceEntry,
-  records: Map<string, SpawnedRecord>,
-): Entity {
-  const record = records.get(entry.key);
+function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
+  const view = viewForKey(fleet.views, entry.key);
   const statusFields = presenceStatusFields(entry);
   return {
     key: entry.key,
     ...statusFields,
-    managed: records.has(entry.key),
+    managed: view !== undefined,
     name: normalizedAgentName(entry.key) ?? null,
     tabLabel: null,
     focused: false,
     backendStatus: null,
-    backend: record?.backend ?? null,
+    backend: view?.environment.plexer ?? null,
     presence: entry,
     presenceOnly: true,
-    space: record?.space ?? spaceOf(orchDir(), entry.key),
+    space: view?.environment.space ?? spaceOf(orchDir(), entry.key),
   };
 }
 
-function entitiesFromPresence(
-  presence: Map<string, PresenceEntry>,
-  records: Map<string, SpawnedRecord>,
-  usedPresence: Set<string>,
-): Entity[] {
-  return [...presence.values()]
+function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[] {
+  return [...fleet.presence.values()]
     .filter((entry) => !usedPresence.has(entry.key))
-    .map((entry) => presenceOnlyEntity(entry, records));
+    .map((entry) => presenceOnlyEntity(entry, fleet));
 }
 
-function entitiesFromRecords(
-  records: Map<string, SpawnedRecord>,
-  entities: Entity[],
-): Entity[] {
-  return [...records.entries()]
-    .filter(([key]) => !entities.some((entity) => entity.key === key))
-    .map(([key, record]) => {
-      const backend = record.backend ? allBackends().find((candidate) => candidate.id === record.backend) : undefined;
-      return {
-        key,
-        paneId: backend?.paneInventory ? record.handle ?? null : null,
-        managed: true,
-        name: normalizedAgentName(key) ?? null,
-        tabLabel: null,
-        agent: null,
-        focused: false,
-        backendStatus: null,
-        backend: record.backend ?? null,
-        presence: null,
-        sessionPath: null,
-        presenceOnly: true,
-        space: record.space ?? null,
-      };
+/** Agents the store knows that neither a pane nor a presence directory surfaced.
+ *  An agent with no handle is one with no SHORTCUT — it is still orch's, still
+ *  addressable, and still listed. */
+function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
+  const listed = new Set(entities.map((entity) => entity.key));
+  const found: Entity[] = [];
+  for (const view of fleet.views.values()) {
+    const key = addressOf(view, fleet.presenceById);
+    if (listed.has(key)) continue;
+    const { plexer, handle, space } = view.environment;
+    const backend = plexer === null ? undefined : allBackends().find((candidate) => candidate.id === plexer);
+    found.push({
+      key,
+      paneId: backend?.paneInventory ? handle : null,
+      managed: true,
+      name: view.name,
+      tabLabel: null,
+      agent: null,
+      focused: false,
+      backendStatus: null,
+      backend: plexer,
+      presence: null,
+      sessionPath: null,
+      presenceOnly: true,
+      space,
     });
+  }
+  return found;
 }
 
 export function buildEntities(options: { skipBackends?: boolean } = {}): Entity[] {
   const presence = loadPresence();
-  const records = spawnedRecords();
+  const fleet: Fleet = { views: viewsById(), presence, presenceById: indexPresenceById(presence) };
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []
-    : allBackends().flatMap((backend) => entitiesFromBackend(backend, presence, records, usedPresence));
-  const entities = [...backendEntities, ...entitiesFromPresence(presence, records, usedPresence)];
-  return [...entities, ...entitiesFromRecords(records, entities)];
+    : allBackends().flatMap((backend) => entitiesFromBackend(backend, fleet, usedPresence));
+  const entities = [...backendEntities, ...entitiesFromPresence(fleet, usedPresence)];
+  return [...entities, ...entitiesFromStore(fleet, entities)];
 }
 
 export function sortEntities(entities: Entity[]): Entity[] {

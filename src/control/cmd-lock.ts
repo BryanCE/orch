@@ -1,8 +1,8 @@
-import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { processInstanceMatches, processStartToken } from "../process-identity.ts";
-import { ensurePrivateDir, errnoCode, sleep } from "../util.ts";
+import { createFileExclusively, ensurePrivateDir, errnoCode, sleep } from "../util.ts";
 import type { CommandLock } from "../types/control.ts";
 
 interface CommandLockOptions {
@@ -44,21 +44,6 @@ function loadLock(path: string): CommandLock | null {
   }
 }
 
-function createLock(path: string, record: CommandLock): boolean {
-  try {
-    const fd = openSync(path, "wx");
-    try {
-      writeSync(fd, JSON.stringify(record));
-    } finally {
-      closeSync(fd);
-    }
-    return true;
-  } catch (error: unknown) {
-    if (errnoCode(error) === "EEXIST") return false;
-    throw error;
-  }
-}
-
 function reapLock(path: string, lock: CommandLock): boolean {
   if (processInstanceMatches(lock.pid, lock.start_token)) return false;
   try {
@@ -80,7 +65,7 @@ export async function acquireCommandLock(orchDir: string, options: CommandLockOp
   if (!startToken) throw new Error("cannot identify current process instance for command lock");
   const record: CommandLock = { pid: process.pid, start_token: startToken, holder: options.holder, ...(options.note === undefined ? {} : { note: options.note }), acquired_at: started };
   while (Date.now() - started <= timeoutMs) {
-    if (createLock(path, record)) return record;
+    if (createFileExclusively(path, JSON.stringify(record))) return record;
     const current = loadLock(path);
     if (current && reapLock(path, current)) continue;
     if (!current) {

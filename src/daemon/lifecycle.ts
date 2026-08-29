@@ -7,12 +7,11 @@ import {
   openSync,
   readFileSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
-import { ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";
+import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
 import type { OsSide } from "../types/core.ts";
@@ -105,20 +104,18 @@ export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationRe
   const file = registrationPath();
   mkdirSync(path.dirname(file), { recursive: true });
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Created atomically: a half-written registration reads as NO registration,
+    // and this code would then evict the LIVE machine-wide one and let a second
+    // orchd start (M1/M6). See `createFileExclusively`.
+    if (createFileExclusively(file, `${JSON.stringify(registration)}\n`)) return { acquired: true, registration };
+    const existing = readDaemonRegistration();
+    if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
+      return { acquired: false, registration: existing };
+    }
     try {
-      writeFileSync(file, `${JSON.stringify(registration)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
-      return { acquired: true, registration };
-    } catch (error: unknown) {
-      if (errnoCode(error) !== "EEXIST") throw error;
-      const existing = readDaemonRegistration();
-      if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
-        return { acquired: false, registration: existing };
-      }
-      try {
-        unlinkSync(file);
-      } catch (unlinkError: unknown) {
-        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false };
-      }
+      unlinkSync(file);
+    } catch (unlinkError: unknown) {
+      if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false };
     }
   }
   return { acquired: false };
@@ -233,17 +230,15 @@ export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = ()
   };
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Same atomicity requirement as the registration above: `canReclaim` reads an
+    // unparseable record as "nobody holds this", so a half-written lock file is a
+    // live daemon's lock being handed to the next starter.
+    if (createFileExclusively(file, `${JSON.stringify(record)}\n`)) return true;
+    if (!canReclaim(readLock(file), socketProbe, orchDir)) return false;
     try {
-      writeFileSync(file, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
-      return true;
-    } catch (error: unknown) {
-      if (errnoCode(error) !== "EEXIST") throw error;
-      if (!canReclaim(readLock(file), socketProbe, orchDir)) return false;
-      try {
-        unlinkSync(file);
-      } catch (unlinkError: unknown) {
-        if (errnoCode(unlinkError) !== "ENOENT") return false;
-      }
+      unlinkSync(file);
+    } catch (unlinkError: unknown) {
+      if (errnoCode(unlinkError) !== "ENOENT") return false;
     }
   }
   return false;

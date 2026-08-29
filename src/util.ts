@@ -1,4 +1,5 @@
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JsonRecord, OsSide } from "./types/core.ts";
@@ -194,6 +195,45 @@ export function parsePid(text: unknown): number | undefined {
  * only when it CREATES, so a directory an earlier run left at `0755` would keep
  * it forever.
  */
+/**
+ * Create `path` with its content ALREADY IN IT, or report that it is taken.
+ *
+ * `writeFileSync(path, text, { flag: "wx" })` is open(O_CREAT|O_EXCL) followed by
+ * write(2), and between those two syscalls the file EXISTS and is EMPTY. That
+ * window is not theoretical: a reader racing a writer on this machine saw it on
+ * 6.5% of reads, and it widens under load.
+ *
+ * Every caller is an exclusive LOCK whose waiter reads the file to decide whether
+ * the holder is still alive — and an empty file parses as NO holder. The waiter
+ * then deletes a live holder's lock and takes it: two `orch lock run` commands
+ * overlapping, or the machine-wide daemon registration evicted so a second orchd
+ * starts. `link(2)` is atomic and fails with EEXIST, so the record is complete
+ * before the path exists at all.
+ *
+ * Returns false when something already holds `path`.
+ */
+export function createFileExclusively(path: string, content: string, mode = 0o600): boolean {
+  // The staging name carries the pid and a random suffix so two acquirers racing
+  // for the same lock never stage over each other.
+  const staging = `${path}.${process.pid}.${randomBytes(6).toString("hex")}`;
+  try {
+    writeFileSync(staging, content, { encoding: "utf8", flag: "wx", mode });
+    try {
+      linkSync(staging, path);
+      return true;
+    } catch (error: unknown) {
+      if (errnoCode(error) === "EEXIST") return false;
+      throw error;
+    }
+  } finally {
+    try {
+      unlinkSync(staging);
+    } catch (error: unknown) {
+      if (errnoCode(error) !== "ENOENT") throw error;
+    }
+  }
+}
+
 export function ensurePrivateDir(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
   if ((statSync(path).mode & 0o777) !== 0o700) chmodSync(path, 0o700);

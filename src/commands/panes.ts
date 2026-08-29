@@ -10,6 +10,7 @@ import { displaySpace } from "./status.ts";
 import { spaceName } from "../policy/space.ts";
 import { setHandle } from "../store/interval-rows.ts";
 import { commandLogger } from "./logging.ts";
+import { ambiguousTargetRefusal } from "../refusal.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
 
 type BoundaryPlan<T> =
@@ -120,9 +121,10 @@ export function resolveTab(target: string): BackendGroup {
   if (candidates.length === 1) return candidates[0]!;
   if (candidates.length > 1) {
     commandLogger().error("tabs.ambiguous", { target, candidates: candidates.map((group) => group.id).join(",") });
-    process.stderr.write(`Ambiguous group "${target}". Candidates:\n`);
-    for (const group of candidates) process.stdout.write(`  ${group.id}  ${group.label}\n`);
-    process.exit(1);
+    // ONE wording for "that matched more than one thing" (U3), and a refusal is
+    // thrown, never exited: `process.exit` from the middle of a resolver leaves
+    // the caller nothing to recover from and truncates what it already wrote.
+    throw ambiguousTargetRefusal(target, candidates.map((group) => ({ key: group.id, detail: group.label ?? null })));
   }
   const ent = resolveTarget(target);
   // Which plexer an agent is in is an ENVIRONMENT axis composed onto it, not a

@@ -858,7 +858,12 @@ export function setupRequiredMessage(): string {
 export async function runFirstTimeSetup(argv: string[], dispatch: (argv: string[]) => void): Promise<void> {
   process.stdout.write("First run - no harness/backend recorded yet, walking through setup.\n\n");
   await cmdSetup([]);
-  // A cancelled wizard records nothing; exit instead of looping back into the gate.
-  if (compositionUnrecorded()) process.exit(1);
+  // A cancelled wizard records nothing, so the original command must not run.
+  // `process.exitCode`, never `process.exit()`: exiting truncates whatever the
+  // wizard already wrote (src/commands/index.ts:272 states the same rule).
+  if (compositionUnrecorded()) {
+    process.exitCode = 1;
+    return;
+  }
   dispatch(argv);
 }

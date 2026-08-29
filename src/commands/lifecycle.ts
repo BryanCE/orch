@@ -28,9 +28,10 @@ import { parseGovernance, writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendHandle, PaneForeground, PaneHostRole } from "../types/backend.ts";
-import type { LifecycleVerb } from "../types/adapter.ts";
+import type { AgentAdapter, LifecycleVerb } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
-import type { AgentFlags } from "../types/command.ts";
+import type { AgentFlags, LifecycleTarget } from "../types/command.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 function lifecycleLogger(key: string) {
   const agentId = tryParseIdentity(key)?.id;
@@ -278,46 +279,70 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
   return false;
 }
 
-export async function cmdReload(args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const all = args.includes("--all");
-  const force = args.includes("--force");
+/** The targets a lifecycle command was given.
+ *
+ *  `reload` and `restart` collected these with two hand-written loops that
+ *  differed only in whether a flag took a value, so `--all` meant "every agent
+ *  this caller owns" in two places. One place now. */
+function lifecycleTargets(
+  args: readonly string[],
+  booleans: readonly string[],
+  valueFlags: readonly string[] = [],
+): { targets: string[]; values: Map<string, string>; all: boolean } {
+  const known = new Set(booleans);
+  const takesValue = new Set(valueFlags);
+  const values = new Map<string, string>();
   const targets: string[] = [];
-  if (all) requireCallerOwnerToken();
-  for (const arg of args) {
-    if (arg === "--json" || arg === "--force") continue;
-    if (arg === "--all") targets.push(...ownedAgentKeys());
-    else targets.push(arg);
+  let all = false;
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index]!;
+    if (takesValue.has(argument)) { values.set(argument, args[++index] ?? ""); continue; }
+    if (argument === "--all") { all = true; continue; }
+    if (known.has(argument)) continue;
+    targets.push(argument);
   }
-  // `--all` is a valid invocation even with zero live panes: it still touches
-  // reload.signal (SIGNALED) for config/extension watchers. Only a bare call
-  // with neither --all nor a target is a usage error.
-  if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
-  // Resolve every target BEFORE touching a shim: an unresolvable target must not
-  // leave a redeployed integration behind, and the refresh below can only be
-  // scoped to the harnesses in play once they are known.
-  type Planned = ReturnType<typeof resolveLifecycleTarget> & { target: string; agentId: string; reloadText: string };
-  const planned: Planned[] = [];
-  const results: ReloadResult[] = [];
+  // `--all` is every agent this caller OWNS, which is a right the caller has to
+  // hold before the list is even built.
+  if (all) {
+    requireCallerOwnerToken();
+    targets.push(...ownedAgentKeys());
+  }
+  return { targets, values, all };
+}
+
+/** One target's reload, planned but not yet performed. */
+interface PlannedReload {
+  readonly resolved: LifecycleTarget;
+  readonly target: string;
+  readonly harnessId: string;
+  readonly reloadText: string;
+}
+
+/** Resolve every target BEFORE touching a shim: an unresolvable target must not
+ *  leave a redeployed integration behind, and the refresh can only be scoped to
+ *  the harnesses in play once they are known. */
+function planReloads(targets: readonly string[], force: boolean, results: ReloadResult[]): PlannedReload[] {
+  const planned: PlannedReload[] = [];
   for (const target of targets) {
     try {
       const resolved = resolveLifecycleTarget(target);
       assertAgentOwned(target, resolved.entity, force);
-      const agentId = resolved.entity.agent ?? resolved.entity.presence?.status?.agent;
-      if (!agentId) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
-      const adapter = resolveAdapterOrDie(agentId);
+      const harness = resolved.entity.agent ?? resolved.entity.presence?.status?.agent;
+      if (!harness) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
+      const adapter = resolveAdapterOrDie(harness);
       const reloadCmd = adapter.lifecycleControl?.lifecycleCmd("reload");
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
-      planned.push({ ...resolved, target, agentId: adapter.id, reloadText: reloadCmd.text });
+      planned.push({ resolved, target, harnessId: adapter.id, reloadText: reloadCmd.text });
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
   }
-  // A reload exists to pick up new code, so stale deployments redeploy first —
-  // but only for the harnesses being reloaded. `orch reload <pi agent>` has no
-  // business rewriting another harness's integration.
-  if (planned.length) await refreshStaleShims(orchDir(), [...new Set(planned.map((p) => p.agentId))]);
-  for (const { target, entity: ent, backend, handle, reloadText } of planned) {
+  return planned;
+}
+
+async function performReloads(planned: readonly PlannedReload[], results: ReloadResult[]): Promise<void> {
+  for (const { target, resolved, reloadText } of planned) {
+    const { entity: ent, backend, handle } = resolved;
     try {
       // No console to type `/reload` into leaves only the daemon, which owns
       // every lifecycle mechanism a backend does or does not have.
@@ -328,11 +353,9 @@ export async function cmdReload(args: string[]): Promise<void> {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
   }
-  try {
-    touchReloadSignal();
-  } catch (error: unknown) {
-    die(`Failed reload.signal: ${errorMessage(error)}`);
-  }
+}
+
+function reportReloads(results: readonly ReloadResult[], json: boolean): void {
   const ok = results.filter((result) => result.ok).length;
   if (json) {
     process.stdout.write(JSON.stringify({ results, ok, total: results.length, hard: false, signaled: "reload.signal" }) + "\n");
@@ -342,59 +365,87 @@ export async function cmdReload(args: string[]): Promise<void> {
     }
     process.stdout.write("SIGNALED reload.signal\n");
   }
-  if (ok !== results.length) process.exit(1);
+  // `process.exitCode`, never `process.exit()`: the JSON above is buffered, so
+  // exiting here truncates the very payload a caller reads to find out WHICH
+  // target failed (src/commands/index.ts:272 states the same rule).
+  if (ok !== results.length) process.exitCode = 1;
+}
+
+export async function cmdReload(args: string[]): Promise<void> {
+  const json = args.includes("--json");
+  const { targets, all } = lifecycleTargets(args, ["--json", "--force"]);
+  // `--all` is a valid invocation even with zero live panes: it still touches
+  // reload.signal (SIGNALED) for config/extension watchers. Only a bare call
+  // with neither --all nor a target is a usage error.
+  if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
+  const results: ReloadResult[] = [];
+  const planned = planReloads(targets, args.includes("--force"), results);
+  // A reload exists to pick up new code, so stale deployments redeploy first —
+  // but only for the harnesses being reloaded. `orch reload <pi agent>` has no
+  // business rewriting another harness's integration.
+  if (planned.length) await refreshStaleShims(orchDir(), [...new Set(planned.map((plan) => plan.harnessId))]);
+  await performReloads(planned, results);
+  try {
+    touchReloadSignal();
+  } catch (error: unknown) {
+    die(`Failed reload.signal: ${errorMessage(error)}`);
+  }
+  reportReloads(results, json);
+}
+
+/** The command a restart relaunches the harness on. Restart is a FRESH launch,
+ *  so the model is resolved exactly like spawn and reset rather than letting the
+ *  harness fall back to its own default. */
+function restartLaunchCommand(cmd: string | null, harnessId: string, adapter: AgentAdapter, config: OrchConfig): string {
+  if (cmd !== null) return cmd;
+  const model = launchModel({}, config, adapter);
+  assertLaunchModelAllowed(adapter.id, model);
+  return adapterCommand(harnessId, config, { model, preferredModels: config.models.preferred[adapter.id] ?? [] });
+}
+
+/** Restart one target. A detached agent has no shell to type a quit into, so the
+ *  daemon rules on what restart means for it. */
+async function restartOneTarget(target: string, cmd: string | null, config: OrchConfig, flags: { json: boolean; force: boolean }): Promise<boolean> {
+  const { entity: ent, backend, handle } = resolveLifecycleTarget(target);
+  assertAgentOwned(target, ent, flags.force);
+  const harness = ent.agent ?? ent.presence?.status?.agent;
+  if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
+  const adapter = resolveAdapterOrDie(harness);
+  const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
+  if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
+  if (!backend.paneInput) {
+    const restarted = await lifecycleThroughDaemon("restart", ent.key, String(handle));
+    if (restarted.ok) {
+      if (!flags.json) process.stdout.write(`${restarted.pane}: bridge live.\n`);
+      return true;
+    }
+    const reason = restarted.reason ?? "restart failed";
+    lifecycleLogger(ent.key).error("lifecycle.restart-failed", { handle: String(restarted.pane), error: reason });
+    process.stderr.write(`${restarted.pane}: ${reason}\n`);
+    return false;
+  }
+  const launch = restartLaunchCommand(cmd, harness, adapter, config);
+  if (!flags.json) process.stdout.write(`Restarting ${String(handle)} (${launch})...\n`);
+  if (!restartPaneAndAwaitBridge(backend, String(handle), launch, ent.key, quitCmd.text)) return false;
+  if (!flags.json) process.stdout.write(`${String(handle)}: bridge live.\n`);
+  return true;
 }
 
 export async function cmdRestart(args: string[]): Promise<void> {
-  let cmd: string | null = null;
   const json = args.includes("--json");
-  const force = args.includes("--force");
-  const targets: string[] = [];
-  if (args.includes("--all")) requireCallerOwnerToken();
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--cmd") cmd = args[++i]!;
-    else if (args[i] === "--hard" || args[i] === "--json" || args[i] === "--force") continue;
-    else if (args[i] === "--all") targets.push(...ownedAgentKeys());
-    else targets.push(args[i]!);
-  }
+  const flags = { json, force: args.includes("--force") };
+  const { targets, values } = lifecycleTargets(args, ["--hard", "--json", "--force"], ["--cmd"]);
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
+  const cmd = values.get("--cmd") ?? null;
   const config = loadConfig(orchDir());
   let ok = 0;
   for (const target of targets) {
-    const { entity: ent, backend, handle } = resolveLifecycleTarget(target);
-    assertAgentOwned(target, ent, force);
-    const agentId = ent.agent ?? ent.presence?.status?.agent;
-    if (!agentId) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
-    const adapter = resolveAdapterOrDie(agentId);
-    const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
-    if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
-    // A pane is quit and relaunched by typing into its shell; a detached agent
-    // has no shell, so the daemon rules on what restart means for it.
-    if (!backend.paneInput) {
-      const restarted = await lifecycleThroughDaemon("restart", ent.key, String(handle));
-      if (restarted.ok) { ok++; if (!json) process.stdout.write(`${restarted.pane}: bridge live.\n`); }
-      else {
-        const reason = restarted.reason ?? "restart failed";
-        lifecycleLogger(ent.key).error("lifecycle.restart-failed", { handle: String(restarted.pane), error: reason });
-        process.stderr.write(`${restarted.pane}: ${reason}\n`);
-      }
-      continue;
-    }
-    // Restart is a fresh harness launch, so resolve its model exactly like spawn
-    // and reset instead of letting the harness fall back to its own default.
-    let launch = cmd;
-    if (launch === null) {
-      const model = launchModel({}, config, adapter);
-      assertLaunchModelAllowed(adapter.id, model);
-      const preferredModels = config.models.preferred[adapter.id] ?? [];
-      launch = adapterCommand(agentId, config, { model, preferredModels });
-    }
-    if (!json) process.stdout.write(`Restarting ${String(handle)} (${launch})...\n`);
-    if (restartPaneAndAwaitBridge(backend, String(handle), launch, ent.key, quitCmd.text)) { ok++; if (!json) process.stdout.write(`${String(handle)}: bridge live.\n`); }
+    if (await restartOneTarget(target, cmd, config, flags)) ok++;
   }
   if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);
-  if (ok !== targets.length) process.exit(1);
+  // `process.exitCode`, never `process.exit()` — same rule as reload above.
+  if (ok !== targets.length) process.exitCode = 1;
 }
 
 /** What the plexer did with the name after orch's own write landed (U5). */

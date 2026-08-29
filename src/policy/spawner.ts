@@ -1,6 +1,8 @@
 import { callerSession, selfIdentity } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { agentById } from "../store/agent-rows.ts";
+import { projectRoot } from "../util.ts";
+import type { BackendSpawnOpts } from "../types/backend.ts";
 import type { SpawnerIdentity } from "../types/policy.ts";
 
 /**
@@ -41,4 +43,39 @@ export function agentIdentityEnv(name: string, spawner: SpawnerIdentity): Record
 export function worktreeEnv(path: string | undefined, branch: string | undefined): Record<string, string> {
   if (!path) return {};
   return { ORCH_AGENT_WORKTREE: path, ...(branch ? { ORCH_AGENT_BRANCH: branch } : {}) };
+}
+
+/**
+ * The environment EVERY plexer launches an agent into.
+ *
+ * One builder, because three had already drifted: herdr set `ORCH_PROJECT`,
+ * headless set it, and tmux set none — so a tmux worker in a worktree resolved
+ * `projectRoot()` to its own cwd and `peers.ts` filtered it out of the fleet
+ * that spawned it (TASKS/10-review-findings.md 1.13). Project scope is not a
+ * per-plexer nicety; it is how a worker knows which fleet it belongs to.
+ *
+ * Only what the CALLER passed, plus the project: reading `process.env` for
+ * `ORCH_DIR` here would make the launched environment depend on this process's
+ * own ambient state. `extra` is for genuinely handle-specific vars (headless's
+ * log path), and `opts.env` wins over everything — it is the caller's explicit
+ * word.
+ *
+ * An empty value is an ABSENT one. Exporting `ORCH_DIR=` sets the variable to
+ * the empty string, which every reader sees as configured, and that is worse
+ * than leaving it unset.
+ */
+export function agentLaunchEnv(
+  opts: Pick<BackendSpawnOpts, "key" | "orchDir" | "env">,
+  extra: Readonly<Record<string, string | undefined>> = {},
+): Record<string, string> {
+  const candidates: Record<string, string | undefined> = {
+    ORCH_AGENT_KEY: opts.key,
+    ORCH_DIR: opts.orchDir,
+    ORCH_PROJECT: projectRoot(),
+    ...extra,
+    ...(opts.env ?? {}),
+  };
+  return Object.fromEntries(
+    Object.entries(candidates).filter((entry): entry is [string, string] => Boolean(entry[1])),
+  );
 }

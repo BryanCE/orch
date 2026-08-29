@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
+import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { sleepMs } from "../pane-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
@@ -277,12 +278,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const cwd = opts.cwd ?? process.cwd();
-    const orchDir = opts.orchDir ?? process.env.ORCH_DIR ?? "";
-    const envArgs = tmuxEnvArgs({
-      ORCH_AGENT_KEY: opts.key ?? "",
-      ORCH_DIR: orchDir,
-      ...(opts.env ?? {}),
-    });
+    const envArgs = tmuxEnvArgs(agentLaunchEnv({ ...opts, orchDir: opts.orchDir ?? process.env.ORCH_DIR }));
 
     // A planned target pane wins over the group: `-t <window>` splits whatever
     // pane happens to be active there, which makes placement depend on focus.

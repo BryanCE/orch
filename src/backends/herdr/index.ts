@@ -1,7 +1,8 @@
 import { isAdapterId } from "../../adapters/adapter.ts";
 import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
-import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
+import { binaryOnPath, isRecord } from "../../util.ts";
+import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version } from "./cli.ts";
 import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
@@ -274,7 +275,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       // opts.targetPane is an opaque cross-backend handle; herdr's own is a
       // string, so it is narrowed here rather than trusted (as tmux does too).
       targetPane: typeof opts.targetPane === "string" ? opts.targetPane : undefined,
-      env: this.paneEnvironment(opts),
+      env: agentLaunchEnv(opts),
     }).handle;
     if (!opened) {
       this.startAgentInPane(adapter, handle, opts);
@@ -332,28 +333,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return args;
   }
 
-  /** The env every herdr pane is opened with. ORCH_PROJECT is not optional:
-   *  without it a worker in a worktree resolves projectRoot() to its own cwd and
-   *  filters itself out of its fleet (bug 1.13). */
-  private paneEnvironment(opts: BackendSpawnOpts): Record<string, string> {
-    const candidates: Record<string, string | undefined> = {
-      ORCH_AGENT_KEY: opts.key,
-      // Only what the CALLER passed: reading process.env here made the pane's
-      // environment depend on this process's own ambient state.
-      ORCH_DIR: opts.orchDir,
-      ORCH_PROJECT: projectRoot(),
-      ...(opts.env ?? {}),
-    };
-    // An empty value is an absent one: exporting `ORCH_DIR=` into the pane sets
-    // the variable to the empty string, which reads as configured and is worse
-    // than leaving it unset.
-    return Object.fromEntries(
-      Object.entries(candidates).filter((entry): entry is [string, string] => Boolean(entry[1])),
-    );
-  }
-
   private paneEnvFlags(opts: BackendSpawnOpts): string[] {
-    return Object.entries(this.paneEnvironment(opts)).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+    return Object.entries(agentLaunchEnv(opts)).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
   }
 
   /**

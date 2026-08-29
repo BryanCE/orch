@@ -3,9 +3,9 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { agentViews } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
@@ -27,7 +27,7 @@ function fixture(): string {
 describe("epoch-millisecond store instants", () => {
   test("a lease records its holding as an integer instant", () => {
     const dir = fixture();
-    recordSpawned("aaaaaaaaa1", { adapter: "pi", backend: "headless", owner: "bbbbbbbbb1" });
+    seedAgent("aaaaaaaaa1", { adapter: "pi", backend: "headless", owner: "bbbbbbbbb1" });
 
     expect(openStore(dir).query("SELECT typeof(since) AS kind FROM agent_leases WHERE agent_id = 'aaaaaaaaa1'").get())
       .toEqual({ kind: "integer" });

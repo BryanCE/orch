@@ -1,4 +1,4 @@
-import { bridgeRegistered, orchDir, recordSpawned } from "../presence/store.ts";
+import { bridgeRegistered, orchDir } from "../presence/store.ts";
 import { recordGrantRequest, spendGrant } from "../store/grant-rows.ts";
 import { loadConfig, resolveSetting } from "../config.ts";
 import { assertNameFree, assertValidAgentName } from "../policy/name.ts";
@@ -614,26 +614,16 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     }
     throw error;
   }
-  // Registration MINTS the agent row; recordSpawned only records facts against
-  // an agent that already exists. Reversing these two inserts the hub twice.
+  // ONE writer for one record (2.1). This states every axis the agent has —
+  // harness, plexer, handle, space, model, worktree, holder — because a second
+  // writer filling in the rest is how the two came to disagree about which
+  // record was authoritative.
   registerSpawnedAgent(orchDir(), {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, pane: spec.backend.paneInventory !== null,
-    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model,
+    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, space: spec.space,
     spawner: spec.spawnerAgentId ?? null,
-    worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
-  });
-  recordSpawned(key, {
-    adapter: spec.adapterId,
-    model: spec.model,
-    backend: spec.backend.id,
-    space: spec.space,
-    handle: String(handle),
-    cwd: spec.cwd,
-    worktree: spec.worktree,
-    branch: spec.branch,
     owner: callerOwnerToken(),
-    spawnedBy: spec.spawnerAgentId ?? undefined,
-    spawnedByLabel: spawner.label,
+    worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
   });
   return { key, pane: String(handle), name: spec.name };
 }

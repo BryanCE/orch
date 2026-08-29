@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { entitySpace, scopeEntitiesToSpace, spaceOf } from "../src/entities.ts";
 import { checkWall } from "../src/policy/space.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { Entity } from "../src/types/core.ts";
+import { placeAgent, seedAgent } from "./helpers/agent.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-space-walls-"));
 process.env.ORCH_DIR = orchDir;
@@ -33,7 +33,7 @@ const AGENTS = {
 for (const id of ["w1", "w2", "w6", "w7", "w12"]) seedSpace(orchDir, id);
 
 for (const agent of Object.values(AGENTS)) {
-  recordSpawned(agent.id, { adapter: "pi", backend: agent.plexer, space: agent.space });
+  seedAgent(agent.id, { adapter: "pi", backend: agent.plexer, space: agent.space });
 }
 
 afterAll(() => removeTempDir(orchDir));
@@ -52,9 +52,9 @@ describe("space helpers", () => {
   });
 
   test("an agent that moves space keeps its identity and reports the new space", () => {
-    recordSpawned(AGENTS.w6first.id, { space: "w7" });
+    placeAgent(AGENTS.w6first.id, { space: "w7" });
     expect(spaceOf(orchDir, AGENTS.w6first.id)).toBe("w7");
-    recordSpawned(AGENTS.w6first.id, { space: "w6" });
+    placeAgent(AGENTS.w6first.id, { space: "w6" });
     expect(spaceOf(orchDir, AGENTS.w6first.id)).toBe("w6");
   });
 

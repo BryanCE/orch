@@ -13,9 +13,10 @@ import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
+import { spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
+import { placeAgent } from "./helpers/agent.ts";
 
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
@@ -122,7 +123,7 @@ describe("lease commands", () => {
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
     seedSpace(dir, "space");
-    recordSpawned(key, { backend: "headless", space: "space", handle: "abort-handle" });
+    placeAgent(key, { backend: "headless", space: "space", handle: "abort-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
@@ -146,7 +147,7 @@ describe("lease commands", () => {
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
     seedSpace(dir, "space");
-    recordSpawned(key, { backend: "headless", space: "space", handle: "close-handle" });
+    placeAgent(key, { backend: "headless", space: "space", handle: "close-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));

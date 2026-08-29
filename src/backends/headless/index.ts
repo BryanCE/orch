@@ -8,8 +8,6 @@ import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { LocalProcessRole } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { ensurePlexer } from "../../store/agent-rows.ts";
-import { setAgentPlexer, setHandle } from "../../store/interval-rows.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, HandleLookupRole, LogPruningRole, PaneForegroundRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
@@ -206,12 +204,16 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const worktreePath = opts.env?.ORCH_AGENT_WORKTREE;
     const worktreeBranch = opts.env?.ORCH_AGENT_BRANCH;
     const now = Date.now();
-    const agentId = registerSpawnedAgent(directory, {
+    registerSpawnedAgent(directory, {
       key,
       harnessId: adapter.id,
       backendId: HEADLESS_BACKEND,
-      // No pane: this environment offers no plexer shortcut to the process.
+      // No pane: this environment offers no plexer shortcut to the process. It
+      // still has a handle — a concrete address for the process just started —
+      // and stating it here is what lets `list`/`close`/`handleFor` reach an
+      // agent with no screen without a SECOND write behind the registration.
       pane: false,
+      handle: JSON.stringify(handle),
       cwd: opts.cwd ?? process.cwd(),
       name: opts.name ?? opts.env?.ORCH_AGENT_NAME ?? key,
       model: opts.model ?? "",
@@ -219,12 +221,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       worktree: worktreePath && worktreeBranch ? { path: worktreePath, branch: worktreeBranch } : undefined,
       now,
     });
-    // A handle is not a pane. This environment has no pane to show, and it still
-    // hands orch a concrete address for the process it just started — recording
-    // it is what lets `list`/`close`/`handleFor` reach an agent with no screen.
-    ensurePlexer(directory, HEADLESS_BACKEND, HEADLESS_BACKEND, now);
-    setAgentPlexer(directory, agentId, HEADLESS_BACKEND);
-    setHandle(directory, agentId, now, JSON.stringify(handle));
     return handle;
   }
 

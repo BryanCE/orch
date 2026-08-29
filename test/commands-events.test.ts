@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eventInMineScope, eventInScope, eventInSpaceScope, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
 
 describe("commands/events", () => {
   test("owned renderers and tool help do not expose the retired workspace term", () => {
@@ -115,8 +115,7 @@ describe("commands/events space scope", () => {
   function seedAgent(root: string, space: string): string {
     const key = mintAgentId();
     seedSpace(root, space);
-    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", spawner: null });
-    recordSpawned(key, { adapter: "pi", space });
+    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", space, spawner: null });
     return key;
   }
 
@@ -138,7 +137,8 @@ describe("commands/events space scope", () => {
     const root = tempOrchDir();
     const key = seedAgent(root, "w1");
     seedSpace(root, "w2");
-    recordSpawned(key, { adapter: "pi", space: "w2" });
+    // A move is a new interval on the space axis, not a re-registration.
+    setSpace(root, key, Date.now(), "w2");
     // The identity key never changed; only the environment did.
     expect(eventInSpaceScope(root, key, "w1", false)).toBe(false);
     expect(eventInSpaceScope(root, key, "w2", false)).toBe(true);

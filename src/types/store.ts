@@ -188,7 +188,14 @@ export interface RunRecord { dispatchId:string; agentKey:string; adapter?:string
 export interface SpawnRegistration {
   key: string;
   harnessId: string;
-  backendId: string;
+  /**
+   * Environment: the plexer this agent runs in, when it runs in one.
+   *
+   * Absent means NO ROW in `agent_plexers` — a capless agent is in no plexer,
+   * which is a real answer and not a missing one. Rule 11: nullness IS the
+   * capability, so this is never a sentinel like "local" or "none".
+   */
+  backendId?: string;
   /** Whether this backend exposes the agent in a pane. */
   pane: boolean;
   handle?: string;
@@ -206,6 +213,14 @@ export interface SpawnRegistration {
   model: string;
   /** The hello-registered agent id of the spawning session, when it has one. */
   spawner: string | null;
+  /**
+   * Ownership: the orch that HOLDS this agent once it is running.
+   *
+   * Rule 11 — a lease, never a column on the agent, and never welded to the
+   * provenance above: a spawner hands work off and stops holding it. Absent
+   * means the spawner keeps the lease it took at launch.
+   */
+  owner?: string;
   worktree?: { path: string; branch: string };
   now?: number;
 }

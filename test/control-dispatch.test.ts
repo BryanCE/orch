@@ -5,10 +5,10 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { refusalOf } from "./helpers/refusal.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /** Above every real pid on Linux and macOS, so pidAlive is deterministically false. */
 const DEAD_PID = 0x7fffffff;
@@ -25,7 +25,7 @@ function tempDir(prefix = "orch-control-dispatch-"): string {
 /** A1: an address is a minted id and NOTHING else. This helper used to build
  *  `headless~local~<id>`, which welded the plexer and an invented place called
  *  "local" into identity. The plexer is now STATED as environment through
- *  `recordSpawned({ backend })` and read back through the composer. */
+ *  `seedAgent({ backend })` and read back through the composer. */
 function target(): string {
   return serializeIdentity({ id: mintAgentId() });
 }
@@ -99,7 +99,7 @@ describe("deliverControl", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     const dir = presence(directory, key, "claude");
-    recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
+    seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
 
     const outcome = await deliverControl(key, { kind: "steer", text: "hello claude" });
     expect(outcome).toEqual({ outcome: "answer", reason: "no-pane", text: `${key} has no pane; steer does not apply.` });
@@ -111,7 +111,7 @@ describe("deliverControl", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     const dir = presence(directory, key, "claude");
-    recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
+    seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
 
     const outcome = await deliverControl(key, { kind: "run", text: "hello claude" });
     expect(outcome).toEqual({ outcome: "answer", reason: "no-pane", text: `${key} has no pane; run does not apply.` });
@@ -145,7 +145,7 @@ describe("deliverControl", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
+    seedAgent(key, { adapter: "pi", backend: "headless", handle: key });
 
     expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/no presence dir/);
   });
@@ -158,7 +158,7 @@ describe("deliverControl", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     fs.mkdirSync(path.join(directory, "agents", key), { recursive: true });
-    recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
+    seedAgent(key, { adapter: "pi", backend: "headless", handle: key });
 
     expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/never registered/);
   });
@@ -168,7 +168,7 @@ describe("deliverControl", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     seedStatus(directory, key, { agent: "pi", pid: DEAD_PID });
-    recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
+    seedAgent(key, { adapter: "pi", backend: "headless", handle: key });
 
     const dispatched = deliverControl(key, { kind: "steer", text: "lost" });
     expect(dispatched).rejects.toThrow(/disconnected/);

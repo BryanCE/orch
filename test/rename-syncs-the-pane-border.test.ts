@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdRename } from "../src/commands/lifecycle.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { openStore } from "../src/store/connection.ts";
 import { isRecord } from "../src/util.ts";
@@ -13,6 +12,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { AgentNamingRole, PaneNamingRole } from "../src/types/backend.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /**
  * TASKS/11-usage-bugs.md U5 — `orch rename` set the NAME and left the pane
@@ -59,7 +59,7 @@ function fixture(): string {
   process.env.ORCH_DIR = dir;
   openStore(dir);
   seedSpace(dir, "space00001");
-  recordSpawned(KEY, { adapter: "pi", backend: "headless", space: "space00001", handle: "w7:p2J", name: "wave2-1" });
+  seedAgent(KEY, { adapter: "pi", backend: "headless", space: "space00001", handle: "w7:p2J", name: "wave2-1" });
   const agentDir = join(dir, "agents", KEY);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({

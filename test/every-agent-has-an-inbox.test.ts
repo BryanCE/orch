@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { createAgentChannelRole } from "../src/presence/roles.ts";
 import { inboxPath } from "../src/presence/inbox.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /**
  * TASKS/02-scope.md B7 — "EVERY agent has an inbox; reading it promptly is the
@@ -44,7 +44,7 @@ function storeDir(): string {
 /** One agent, placed exactly as far as the caller asks and no further. */
 function agent(directory: string, facts: Record<string, unknown>): string {
   const id = mintAgentId();
-  recordSpawned(id, { adapter: "pi", ...facts });
+  seedAgent(id, { adapter: "pi", ...facts });
   seedStatus(directory, id, { key: id, agent: "pi", pid: process.pid, state: "idle" });
   return id;
 }
@@ -111,7 +111,7 @@ describe("every agent has an inbox", () => {
     // No live bridge: THAT is what makes an agent unreachable, and the refusal
     // names it rather than blaming the environment.
     const dead = mintAgentId();
-    recordSpawned(dead, { adapter: "pi" });
+    seedAgent(dead, { adapter: "pi" });
     seedStatus(directory, dead, { key: dead, agent: "pi", pid: 999_999_99, state: "idle" });
     expect(() => channel.deliver(dead, { text: "go" })).toThrow(/bridge is disconnected/);
   });

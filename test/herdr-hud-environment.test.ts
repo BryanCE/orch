@@ -3,10 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { herdrHudActive, herdrPaneHandle } from "../src/backends/herdr/hud.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { placeAgent } from "./helpers/agent.ts";
 
 // A1 / CLAUDE.md Rule 11: the pane HUD's two questions — "am I in a herdr pane"
 // and "which pane am I" — are ENVIRONMENT, composed from `agent_plexers` and
@@ -55,7 +55,7 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     const root = tempOrchDir();
     const key = seedPaneAgent(root, "herdr", "%3");
     // The identity key never changes; only the environment does.
-    recordSpawned(key, { adapter: "pi", handle: "%9" });
+    placeAgent(key, { adapter: "pi", handle: "%9" });
     expect(herdrPaneHandle()).toBe("%9");
     expect(process.env.ORCH_AGENT_KEY).toBe(key);
   });

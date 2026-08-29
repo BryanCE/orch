@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { SETTINGS_DEFAULTS, loadConfig } from "../src/config.ts";
 import { cmdSpawn, spawnPolicyError } from "../src/commands/spawn.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
-import { presenceAgentDir, recordSpawned } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/store.ts";
 import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { openStore } from "../src/store/connection.ts";
@@ -13,6 +13,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 import type { OrchConfig } from "../src/types/config.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const tempDirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
@@ -105,7 +106,7 @@ describe("spawn policy caps", () => {
     // A space is USER-created and never minted (A7), so the fixture creates the
     // one the claimant sits in before placing an agent in it.
     openStore(dir).query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)").run("space", "space", 1);
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "space", handle: key });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "space", handle: key });
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));

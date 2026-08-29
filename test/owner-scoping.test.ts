@@ -7,7 +7,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { cmdClose } from "../src/commands/lifecycle.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { spawnedRecords, recordSpawned } from "../src/presence/store.ts";
+import { spawnedRecords } from "../src/presence/store.ts";
 import { openStore } from "../src/store/connection.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
@@ -16,6 +16,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import type { Backend } from "../src/types/backend.ts";
+import { placeAgent, seedAgent } from "./helpers/agent.ts";
 
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: string[] = [];
@@ -136,7 +137,7 @@ describe("fleet ownership scoping", () => {
     delete process.env.HERDR_PANE_ID;
     delete process.env.TMUX_PANE;
     seedSpace(dir, "local");
-    recordSpawned("kunowned01", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" });
+    seedAgent("kunowned01", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" });
     const result = runCli(dir, ["close", "--all", "--json"], undefined);
     expect(result.status).toBe(0);
     expect(spawnedRecords().has("kunowned01")).toBe(false);
@@ -146,8 +147,8 @@ describe("fleet ownership scoping", () => {
     const dir = makeDir();
     process.env.ORCH_OWNER = "caller";
     seedSpace(dir, "local");
-    recordSpawned("klmine0001", { adapter: "pi", backend: "headless", space: "local", handle: "mine", owner: "caller" });
-    recordSpawned("klforeign1", { adapter: "pi", backend: "headless", space: "local", handle: "foreign", owner: "other" });
+    seedAgent("klmine0001", { adapter: "pi", backend: "headless", space: "local", handle: "mine", owner: "caller" });
+    seedAgent("klforeign1", { adapter: "pi", backend: "headless", space: "local", handle: "foreign", owner: "other" });
 
     // `user-pane` is listed but never orch-spawned: `close --all` sweeps only
     // panes orch owns records for, never the user's own.
@@ -170,7 +171,7 @@ describe("fleet ownership scoping", () => {
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working" }));
     recordProcess(dir, key, pid, startToken);
     seedSpace(dir, "local");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
+    placeAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
 
     const result = runCli(dir, ["close", key], "caller-orchestrator");
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
@@ -194,7 +195,7 @@ describe("fleet ownership scoping", () => {
         schema: PRESENCE_SCHEMA, key, pid: process.pid, startToken: processStartToken(process.pid), agent: "pi", state: "working",
       }));
       seedSpace(dir, "local");
-      recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
+      seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
       const result = runCli(dir, [verb, key, ...(arg ? [arg] : [])], "caller-orchestrator");
       expect(result.status).not.toBe(0);
       expect(result.output).toContain("other-orchestrator");
@@ -212,7 +213,7 @@ describe("fleet ownership scoping", () => {
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
     writeFileSync(join(dir, "agents", key, "result.json"), JSON.stringify({ text: "other session's answer" }));
     seedSpace(dir, "local");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
 
     const refused = runCli(dir, ["result", key], "caller-orchestrator");
     expect(refused.status).not.toBe(0);
@@ -230,7 +231,7 @@ describe("fleet ownership scoping", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "working" }));
     seedSpace(dir, "local");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
 
     const mutations = [
       ["rename", key, "hijacked"],
@@ -256,7 +257,7 @@ describe("fleet ownership scoping", () => {
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working" }));
     recordProcess(dir, key, pid, startToken);
     seedSpace(dir, "local");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
+    placeAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
 
     const refused = runCli(dir, ["close", key, "--force"], "caller-orchestrator");
     expect(refused.status).not.toBe(0);
@@ -278,7 +279,7 @@ describe("fleet ownership scoping", () => {
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working" }));
     recordProcess(dir, key, pid, "not-this-process-instance");
     seedSpace(dir, "local");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
+    placeAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
 
     // A paned environment is COMPOSED, not faked onto the headless singleton:
     // E13 made the roles a provider composes the capability, so there is no
@@ -317,7 +318,7 @@ describe("a spawned agent touches only what it spawned", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wB");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wB", handle: key });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "wB", handle: key });
 
     const result = runCli(dir, ["dispatch", key, "hi", "--cross-space"], undefined, { ORCH_AGENT_KEY: agentKey });
     expect(result.status).not.toBe(0);
@@ -333,9 +334,9 @@ describe("a spawned agent touches only what it spawned", () => {
     // adopted, and adopting a driver must never hand over the right to end.
     // Provenance needs a spawner that EXISTS: `recordSpawned` drops a
     // `spawnedBy` naming no agent rather than inventing the row it points at.
-    recordSpawned(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
-    recordSpawned("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
-    recordSpawned("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
+    seedAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
+    seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
+    seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
 
     const result = runCli(dir, ["close", "--all", "--json"], undefined, { ORCH_AGENT_KEY: agentKey });
     expect(result.status).toBe(0);
@@ -348,9 +349,9 @@ describe("a spawned agent touches only what it spawned", () => {
   test("close --all from the HUMAN sweeps every managed spawn, whoever spawned it", () => {
     const dir = makeDir();
     seedSpace(dir, "wF");
-    recordSpawned(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
-    recordSpawned("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
-    recordSpawned("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
+    seedAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
+    seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
+    seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
 
     // No ORCH_AGENT_KEY: the caller is a person at a terminal. Rule 11 - the
     // human must ALWAYS be able to stop a runaway agent, so nothing gates this.
@@ -366,7 +367,7 @@ describe("a spawned agent touches only what it spawned", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" });
 
     const result = runCli(dir, ["close", key], undefined, { ORCH_AGENT_KEY: agentKey });
     // An agent reaches only its own provenance subtree. The refusal has to say
@@ -382,8 +383,8 @@ describe("a spawned agent touches only what it spawned", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    recordSpawned(agentKey, { backend: "headless", adapter: "pi", space: "wF", handle: agentKey });
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: agentKey });
+    seedAgent(agentKey, { backend: "headless", adapter: "pi", space: "wF", handle: agentKey });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: agentKey });
 
     const result = runCli(dir, ["close", key], undefined, { ORCH_AGENT_KEY: agentKey });
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
@@ -397,7 +398,7 @@ describe("a spawned agent touches only what it spawned", () => {
     // A dead pid: close must reap the record, never signal a live process here.
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    recordSpawned(key, { backend: "herdr", adapter: "pi", space: "wF", handle: key, owner: agentKey });
+    seedAgent(key, { backend: "herdr", adapter: "pi", space: "wF", handle: key, owner: agentKey });
 
     const result = runCli(dir, ["close", key], "kwfoperato");
     // Assert on the pair so a non-zero exit prints what orch actually said.

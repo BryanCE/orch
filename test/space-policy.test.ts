@@ -5,13 +5,14 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entitySpace } from "../src/entities.ts";
-import { presenceAgentDir, recordSpawned } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/store.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf } from "../src/policy/space.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /**
  * TASKS/02-scope.md A1 — the space an agent is in is ENVIRONMENT, composed onto
@@ -160,7 +161,7 @@ describe("a space is user-created, and absence falls back to the repo root", () 
     // conjuring it — otherwise every typo and every plexer id is a space
     // forever after. Refused BEFORE anything is written, so there is no
     // half-placed agent left behind.
-    expect(() => recordSpawned(id, { adapter: "pi", backend: "headless", space: "not-a-real-space" }))
+    expect(() => seedAgent(id, { adapter: "pi", backend: "headless", space: "not-a-real-space" }))
       .toThrow(/not-a-real-space/);
 
     expect(openStore(orchDir).query("SELECT id FROM spaces WHERE id = ?").all("not-a-real-space")).toEqual([]);

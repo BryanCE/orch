@@ -52,9 +52,9 @@ describe("spawn agent registration", () => {
     expect(currentLease(dir, "worker0001")).toMatchObject({ agentId: "worker0001", orchId: "orch-agent", since: 10, until: null });
   });
 
-  test("headless writes no plexer or handle row", () => {
+  test("an agent that states no plexer and no handle gets neither row", () => {
     const dir = fixture();
-    register(dir, { key: "worker0002", backendId: "headless", pane: false, handle: undefined });
+    register(dir, { key: "worker0002", backendId: undefined, pane: false, handle: undefined });
     expect(openStore(dir).query("SELECT * FROM agent_plexers WHERE agent_id = ?").get("worker0002")).toBeNull();
     expect(currentHandle(dir, "worker0002")).toBeNull();
   });

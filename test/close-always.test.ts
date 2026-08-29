@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
-import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
+import { spawnedRecords } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { openStore } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
@@ -14,6 +14,7 @@ import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/bac
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { placeAgent, seedAgent } from "./helpers/agent.ts";
 
 /**
  * Identity is a minted id and NOTHING else (TASKS/01-agent-model.md §2), so
@@ -95,7 +96,7 @@ describe("close always works", () => {
     ] as const;
     seedSpace(dir, "foreign-space");
     for (const [key, handle, name] of records) {
-      recordSpawned(key, {
+      seedAgent(key, {
         adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller",
         ...(name === null ? {} : { name }),
       });
@@ -131,7 +132,7 @@ describe("close always works", () => {
     const pid = child.pid!;
     recordProcess(dir, key, pid, processStartToken(pid)!);
     seedSpace(dir, "foreign-space");
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
+    placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     writeStatus(dir, key, handle, pid);
     // The pane host is never asked to close here — the recorded process is
     // signalled instead — so the inventory keeps listing the pane afterwards,
@@ -168,7 +169,7 @@ describe("close always works", () => {
     db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
       .run(key, 1, "test-host", pid, startToken);
     seedSpace(dir, "foreign-space");
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" });
+    placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" });
     writeStatus(dir, key, handle, pid);
 
     const originalKill = process.kill.bind(process);
@@ -202,7 +203,7 @@ describe("close always works", () => {
     children.push(child);
     const pid = child.pid!;
     seedSpace(dir, "foreign-space");
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     writeStatus(dir, key, handle, pid);
 
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
@@ -224,7 +225,7 @@ describe("close always works", () => {
     const key = "owned00001";
     const handle = "pane-owned";
     seedSpace(dir, "foreign-space");
-    recordSpawned(key, {
+    seedAgent(key, {
       adapter: "pi", backend: "headless", space: "foreign-space", handle,
       owner: "other", spawnedBy: "other-session",
     });
@@ -242,7 +243,7 @@ describe("close always works", () => {
     const key = "abort00001";
     const handle = "pane-abort";
     seedSpace(dir, "foreign-space");
-    recordSpawned(key, {
+    seedAgent(key, {
       adapter: "pi", backend: "headless", space: "foreign-space", handle,
       owner: "other", spawnedBy: "other-session",
     });
@@ -255,7 +256,7 @@ describe("close always works", () => {
     const dir = makeDir();
     const key = "duplicate1";
     seedSpace(dir, "foreign-space");
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle: "pane-duplicate", owner: "caller" });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle: "pane-duplicate", owner: "caller" });
     const oldExitCode = process.exitCode;
     const originalExit = process.exit.bind(process);
     const replacementExit: (code?: string | number | null) => void = (code) => {
@@ -277,7 +278,7 @@ describe("close always works", () => {
     const key = "deadpane01";
     const handle = "99999999";
     seedSpace(dir, "foreign-space");
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "status.json"), JSON.stringify({
@@ -297,8 +298,8 @@ describe("close always works", () => {
     const foreign = "spacebpane";
     seedSpace(dir, "space-a");
     seedSpace(dir, "space-b");
-    recordSpawned(operator, { adapter: "pi", backend: "headless", space: "space-a", handle: "operator" });
-    recordSpawned(foreign, { adapter: "pi", backend: "headless", space: "space-b", handle: "pane" });
+    seedAgent(operator, { adapter: "pi", backend: "headless", space: "space-a", handle: "operator" });
+    seedAgent(foreign, { adapter: "pi", backend: "headless", space: "space-b", handle: "pane" });
     const decision = checkWall(dir, operator, foreign, { crossSpace: false });
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain("space wall");

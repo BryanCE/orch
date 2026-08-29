@@ -201,7 +201,9 @@ describe("A1: spawn registration records the space as an environment axis", () =
     const key = mintAgentId();
 
     registerSpawnedAgent(dir, {
-      key, harnessId: "pi", backendId: "headless", pane: false,
+      // States no plexer and no space: a capless agent is in no plexer, and that
+      // is an ANSWER, not a gap for a second writer to close.
+      key, harnessId: "pi", pane: false,
       cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, now: 10,
     });
 

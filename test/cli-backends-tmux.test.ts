@@ -119,7 +119,7 @@ describe("tmux backend registry and capabilities", () => {
 
   test("refuses cross-session tmux steer without --cross-space", async () => {
     const { checkWall } = await import("../src/policy/space.ts");
-    const { recordSpawned } = await import("../src/presence/store.ts");
+    const { seedAgent } = await import("./helpers/agent.ts");
     const orchDir = mkdtempSync(join(tmpdir(), "orch-tmux-wall-"));
     const previousOrchDir = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
@@ -130,8 +130,8 @@ describe("tmux backend registry and capabilities", () => {
     seedSpace(orchDir, "side");
     const operator = "tmuxopera1";
     const foreign = "tmuxforei1";
-    recordSpawned(operator, { adapter: "pi", backend: "tmux", space: "main" });
-    recordSpawned(foreign, { adapter: "pi", backend: "tmux", space: "side" });
+    seedAgent(operator, { adapter: "pi", backend: "tmux", space: "main" });
+    seedAgent(foreign, { adapter: "pi", backend: "tmux", space: "side" });
     if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
     else process.env.ORCH_DIR = previousOrchDir;
     const decision = checkWall(orchDir, operator, foreign, { crossSpace: false });

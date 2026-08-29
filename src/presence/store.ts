@@ -7,15 +7,12 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
-import { liveAgentViews, environmentOf, holderOf, tuningOf } from "../store/agent-view.ts";
-import { adoptLease } from "../store/lease-rows.ts";
-import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "../store/agent-rows.ts";
-import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
+import { liveAgentViews } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { AgentView } from "../types/store.ts";
-import type { AgentFacts, DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
+import type { DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
 
 export { orchDir, presenceAgentDir };
 
@@ -91,87 +88,6 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
   return isPresenceStatus(status) ? status : null;
 }
 
-/**
- * A7: a space is USER-created and never minted. `orch space create` is the one
- * path that writes a `spaces` row, and it stamps who created it. Placing an
- * agent in a space nobody created is a refusal, not a silent insert — an
- * insert-or-ignore here is how a plexer's own workspace id (`wF`) came to be
- * displayed as a name the user had chosen (ADR 0001).
- */
-function requireSpace(root: string, spaceId: string): void {
-  const known = openStore(root).query("SELECT id FROM spaces WHERE id = ?").get(spaceId);
-  if (!known) {
-    throw new Error(`orch: no space named "${spaceId}". Create it first with 'orch space create ${spaceId}'.`);
-  }
-}
-
-/** Rule 11: an orchestrator IS an agent. A holder orch has never registered gets
- *  a row in the ONE agent table rather than a second id space beside it. */
-function ensureOrchAgent(root: string, orchId: string, harnessId: string, now: number): void {
-  if (agentById(root, orchId)) return;
-  ensureHarness(root, harnessId, harnessId, now);
-  insertAgent(root, { id: orchId, harnessId, cwd: process.cwd(), name: orchId, createdAt: now });
-}
-
-/**
- * Record the four facts for one agent orch has just launched or adopted.
- *
- * The key IS the minted id and carries nothing else (src/backends/identity.ts),
- * so every environment axis below comes from what the caller states — never
- * decoded out of the address. An axis the caller does not state stays absent.
- */
-export function recordSpawned(key: string, metadata: AgentFacts = {}): void {
-  const root = orchDir();
-  // A target that is not an orch-minted identity names no agent: there is
-  // nothing to key the four facts on, and inventing one would fork the agent.
-  const identity = tryParseIdentity(key);
-  if (!identity) return;
-  const agentId = identity.id;
-  const now = Date.now();
-  if (metadata.space !== undefined) requireSpace(root, metadata.space);
-  const existing = agentById(root, agentId);
-  if (!existing) {
-    // An agent with no stated harness is one orch cannot run: refusing to invent
-    // one is what keeps a half-registered row from becoming an unreachable ghost.
-    if (metadata.adapter === undefined) return;
-    ensureHarness(root, metadata.adapter, metadata.adapter, now);
-    const spawner = metadata.spawnedBy !== undefined && agentById(root, metadata.spawnedBy) ? metadata.spawnedBy : null;
-    insertAgent(root, {
-      id: agentId,
-      spawnedBy: spawner,
-      harnessId: metadata.adapter,
-      cwd: metadata.cwd ?? process.cwd(),
-      name: metadata.name ?? agentId,
-      createdAt: now,
-    });
-  }
-  const environment = environmentOf(root, agentId);
-  if (metadata.backend !== undefined && environment.plexer === null) {
-    ensurePlexer(root, metadata.backend, metadata.backend, now);
-    setAgentPlexer(root, agentId, metadata.backend);
-  }
-  if (metadata.handle !== undefined && environment.handle !== metadata.handle) {
-    setHandle(root, agentId, now, metadata.handle);
-  }
-  if (metadata.space !== undefined && environment.space !== metadata.space) {
-    setSpace(root, agentId, now, metadata.space);
-  }
-  if (metadata.worktree !== undefined && metadata.branch !== undefined) {
-    setWorktree(root, agentId, metadata.worktree, metadata.branch);
-  }
-  if (metadata.model !== undefined && tuningOf(root, agentId).model === null) {
-    setTuning(root, agentId, now, { model: metadata.model });
-  }
-  // Ownership is a lease and nothing else. An agent never holds its own lease
-  // (`agent_leases_not_self`), and re-stamping the holder it already has would
-  // close and reopen a holding that never changed hands.
-  if (metadata.owner !== undefined && metadata.owner !== agentId) {
-    ensureOrchAgent(root, metadata.owner, metadata.adapter ?? existing?.harnessId ?? "orch", now);
-    if (holderOf(root, agentId)?.orchId !== metadata.owner) {
-      adoptLease(root, agentId, metadata.owner, now);
-    }
-  }
-}
 
 /**
  * Every agent that has NOT ended, indexed by its minted id.

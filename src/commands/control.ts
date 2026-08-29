@@ -2,7 +2,8 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, recipientFor, recipientLabel, resolveTarget } from "../entities.ts";
 import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords } from "../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, spawnedRecords } from "../presence/store.ts";
+import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadConfig } from "../config.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
@@ -240,8 +241,21 @@ export async function cmdDispatch(args: string[]) {
   // Dispatching to a bare pane adopts it: the record carries the dispatcher's
   // owner token, or the adopted pane stays open to every other orchestrator.
   if (!spawnedRecords().has(key)) {
-    const spawner = spawnerIdentity();
-    recordSpawned(key, { adapter: settings.adapter, model: settings.model ?? undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? undefined, spawnedByLabel: spawner.label });
+    registerSpawnedAgent(orchDir(), {
+      key,
+      harnessId: settings.adapter,
+      backendId: settings.ent.backend ?? "headless",
+      // An adopted bare pane is a pane orch did not open: the plexer's own
+      // address for it is the handle, and an entity with none states none.
+      pane: false,
+      ...(settings.ent.paneId === null ? {} : { handle: settings.ent.paneId }),
+      ...(settings.ent.space === null ? {} : { space: settings.ent.space }),
+      cwd: process.cwd(),
+      name: settings.ent.name ?? key,
+      model: settings.model ?? "",
+      spawner: spawnerIdentity().key,
+      owner: callerOwnerToken(),
+    });
   }
   const recipient = recipientFor(key);
   // The id names this dispatch in `orch status` (.dispatchId): matching the two

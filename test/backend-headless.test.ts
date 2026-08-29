@@ -8,10 +8,10 @@ import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { readCodexSessionView } from "../src/adapters/codex-events.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { SpawnOpts } from "../src/types/adapter.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
@@ -178,7 +178,7 @@ describe("HeadlessBackend", () => {
     const handle = { pid: 41001, key: "hmatch0001" };
     fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
     seedStatus(testOrchDir, handle.key, { pid: handle.pid });
-    recordSpawned(handle.key, { backend: "headless", handle: JSON.stringify(handle), adapter: "codex" });
+    seedAgent(handle.key, { backend: "headless", handle: JSON.stringify(handle), adapter: "codex" });
 
     expect(hermetic.close(handle)).toBe(true);
     expect(calls).toEqual([{ pid: handle.pid, signal: "SIGTERM" }]);
@@ -188,7 +188,7 @@ describe("HeadlessBackend", () => {
     const calls: number[] = [];
     const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
     const recorded = { pid: 41002, key: "hrecorded1" };
-    recordSpawned(recorded.key, { backend: "headless", handle: JSON.stringify(recorded), adapter: "codex" });
+    seedAgent(recorded.key, { backend: "headless", handle: JSON.stringify(recorded), adapter: "codex" });
 
     fs.mkdirSync(path.join(testOrchDir, "agents", recorded.key), { recursive: true });
     expect(hermetic.close(recorded)).toBe(false);

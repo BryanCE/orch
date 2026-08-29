@@ -6,12 +6,13 @@ import { allAdapters } from "../src/adapters/registry.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../src/policy/spawner.ts";
 import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { peerSummaries, resolvePeer, sendPeerMessage } from "../src/agent/peers.ts";
-import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
+import { spawnedRecords } from "../src/presence/store.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
 import { INBOX_FILE } from "../src/presence/schema.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const IDENTITY_ENV = [
   "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
@@ -80,7 +81,7 @@ describe("spawner identity", () => {
     const orchDir = tempOrchDir();
     const key = "lead0000ab";
     seedSpace(orchDir, "wF");
-    recordSpawned(key, { space: "wF", adapter: "pi" });
+    seedAgent(key, { space: "wF", adapter: "pi" });
     seedStatus(orchDir, key, { agent: "pi", label: "lead-1", pid: process.pid, state: "working" });
     process.env.ORCH_AGENT_KEY = key;
     // Identity is the minted id and nothing else: the launch key IS that id, so
@@ -124,7 +125,7 @@ describe("spawner identity", () => {
     });
     const key = "stamp0001a";
     seedSpace(orchDir, "wF");
-    recordSpawned(key, {
+    seedAgent(key, {
       name: "fix-1",
       adapter: "pi",
       space: "wF",

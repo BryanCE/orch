@@ -3,12 +3,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
 
 const directories: string[] = [];
 let previousOrchDir: string | undefined;
@@ -26,8 +26,7 @@ function tempOrchDir(): string {
 function seedAgent(orchDir: string, name: string, space: string): string {
   const key = mintAgentId();
   seedSpace(orchDir, space);
-  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: orchDir, name, model: "test", spawner: null });
-  recordSpawned(key, { adapter: "pi", space });
+  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null });
   return key;
 }
 
@@ -104,7 +103,8 @@ describe("name scope follows the agent's current space, not its birthplace", () 
 
     // The agent moves. Its identity is untouched — only the environment changed.
     seedSpace(orchDir, "w2");
-    recordSpawned(key, { adapter: "pi", space: "w2" });
+    // A move is a new interval on the space axis, not a re-registration.
+    setSpace(orchDir, key, Date.now(), "w2");
 
     expect(() => assertNameFree("recon", "w1")).not.toThrow();
     expect(() => assertNameFree("recon", "w2")).toThrow(/already live/);

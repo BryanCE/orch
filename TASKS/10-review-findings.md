@@ -54,6 +54,20 @@ deletes from three places, and `?? spawned.get(key)` fallbacks sit in `status.ts
 disagreement **is** bug 1.1.
 **Rule 8** (one shape) and **Rule 11** (ownership is a lease) are both violated by a transitional
 dual store that shipped as permanent.
+**Status: `FIXED`.** `registerSpawnedAgent` (`src/store/spawn-registration.ts:15`) is now the only
+write: it states harness, plexer, handle, space, model, worktree AND the holder's lease, so nothing
+is left for a second writer to fill in. `recordSpawned` is DELETED from `src/presence/store.ts`
+along with its private `requireSpace`/`ensureOrchAgent`; `spawn.ts`, `control.ts` (the bare-pane
+adopt) and `headless/index.ts` (which used to re-write the plexer and handle behind the
+registration) each call the one writer once. The plexer is STATED rather than derived from `pane`,
+so a capless agent records no plexer row and a headless one records its own — the split that forced
+the second writer. `store/spawned-rows.ts`, `store/ownership-rows.ts`, the `legacy` branch of
+`deriveDriveState`, the ownership half of `governWrite` and every `?? spawned.get(key)` fallback are
+already gone; `agent/registry.ts` survives as one placement lookup over the composed view, not a
+second store. Fixtures seed through the same writer (`test/helpers/agent.ts` `seedAgent`), and a
+MOVE is a new interval on the axis that owns it (`placeAgent`), never a re-registration.
+`test/one-writer-records-a-spawned-agent.test.ts`.
+
 **Fix:** `registerSpawnedAgent` is the only write. `ownership` collapses into `agent_leases`;
 `spawned`'s columns (backend/workspace/handle/cwd/worktree/branch) are the environment satellite
 `TASKS/06-schema.md` already defines. Delete `store/spawned-rows.ts` (131), `store/ownership-rows.ts`

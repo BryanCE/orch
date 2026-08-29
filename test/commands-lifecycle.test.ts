@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
 import { ownedAgentKeys, paneForeground, reloadPaneAndAwaitBridge } from "../src/commands/lifecycle.ts";
-import { recordSpawned } from "../src/presence/store.ts";
 import { releaseLease } from "../src/store/lease-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /** A1 / Rule 11: ownership is the OPEN LEASE and nothing else. Releasing it
  *  costs a driver, never the agent — and a released lease is history, so it must
@@ -30,7 +30,7 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
     });
     const key = "worker0001";
     seedSpace(root, "local");
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "local", handle: "w1:p1", owner: "orcha00001" });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "local", handle: "w1:p1", owner: "orcha00001" });
     seedStatus(root, key, { key, pid: process.pid });
     body(root, key, key);
   } finally {

@@ -172,13 +172,16 @@ export function createFleetMonitor(orchDir: string, options: FleetMonitorOptions
 
   // Live-only on initial connection: a plain pi session must not replay durable history.
   // Reconnects still resume from the last delivered sequence inside subscribeEvents.
-  subscription = (options.subscribe ?? subscribeEvents)(orchDir, {}, (value) => {
+  const onEvent = (value: unknown): void => {
     if (!isNotifyEvent(value)) return;
     record(value);
     announce(value);
     render();
     if (isOwn(value)) for (const listener of listeners) listener();
-  });
+  };
+  subscription = options.subscribe
+    ? options.subscribe(orchDir, {}, onEvent)
+    : subscribeEvents(orchDir, {}, onEvent, undefined, true);
 
   return {
     model,

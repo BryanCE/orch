@@ -198,7 +198,7 @@ export function deleteSettledTasksBefore(dir: string, cutoff: number): number {
       AND COALESCE(c.cancelled_at, (
         SELECT MAX(a.until) FROM task_attempts a WHERE a.task_id=t.id
       )) < ?
-  `).all(cutoff) as { id: string }[];
+  `).all(cutoff).filter((row): row is { id: string } => row !== null && typeof row === "object" && !Array.isArray(row) && typeof Reflect.get(row, "id") === "string");
   const remove = db.query("DELETE FROM tasks WHERE id=?");
   for (const row of ids) remove.run(row.id);
   return ids.length;

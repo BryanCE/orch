@@ -4,10 +4,9 @@ import { truncate } from "./util.ts";
 /** Always-on worker header: the pane is unattended. */
 const WORKER_HEADER_BASE =
   "[orch worker] No human watches this pane." +
-  " Never run tests, typecheck, lint, or builds unless your task explicitly grants it;" +
-  " when granted, wrap the command as `orch lock run -- <cmd>` so only one heavy command runs machine-wide." +
-  " Do the work yourself in this pane: never fan out subagents of your own, and never shell out to the `orch` CLI." +
-  " A slice too big for one pane is reported back, not split by you.";
+  " Heavy commands (tests, builds, typechecks) MUST be run through `orch lock run -- <command>` — that is the ONE orch call a worker makes;" +
+  " every other orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden; never spawn subagents." +
+  " Do the work yourself in this pane. A slice too big for one pane is reported back, not split by you.";
 
 /** Appended only for adapters that support orch's blocking ask flow. */
 const WORKER_HEADER_ASK_CLAUSE =

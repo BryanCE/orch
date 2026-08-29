@@ -1,8 +1,7 @@
 import { isAdapterId, type AgentAdapter } from "../../adapters/adapter.ts";
-import { registerSinkProvider } from "../../notify/sinks.ts";
-import { herdrNotificationProvider } from "./notify.ts";
+import { registerNotifier } from "../../notify/sinks.ts";
+import { herdrNotifier } from "./notify.ts";
 import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
-import { paneAtShellPrompt, sleepMs, type PaneForeground } from "../pane-ready.ts";
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
@@ -18,6 +17,7 @@ import type {
   BackendZoomMode,
   PaneHostRole,
   PaneInventoryRole,
+  PaneForegroundRole,
   PaneScreenRole,
   PaneZoomRole,
   PaneNamingRole,
@@ -63,8 +63,14 @@ function callerPaneWorkspace(): string | undefined {
 /** The pane's border label; empty ids are invalid at runtime even though
  *  AdapterId is a closed union. */
 function paneName(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
-  const adapterName = adapter.id.trim() || "agent";
-  return opts.name ?? `${adapterName}-${opts.key?.trim() ?? "agent"}`;
+  if (opts.name) return opts.name;
+  const adapterName = (adapter.id.trim() || "agent").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+  // Identity keys contain '~', which herdr explicitly rejects. Keep only the
+  // id component and normalize it into herdr's 32-character naming grammar.
+  const rawId = opts.key?.trim().split("~").at(-1) ?? "";
+  const id = rawId.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^[^a-z]+/, "");
+  const suffix = id || "agent";
+  return `${adapterName}-${suffix}`.slice(0, 32);
 }
 
 function paneSessionPath(pane: HerdrPane): string | null {
@@ -132,30 +138,44 @@ const ZOOM_FLAGS: Record<BackendZoomMode, string> = { on: "--on", off: "--off", 
 
 /** A freshly created workspace's first pane takes noticeably longer to reach a
  *  prompt than a split of a pane already running one. */
-const PANE_SHELL_TIMEOUT_MS = 15_000;
-const PANE_SHELL_POLL_MS = 100;
-
 /** Herdr pane backend: adapts the herdr CLI to the plexer Backend port. */
 export class HerdrBackend implements Backend<HerdrHandle> {
   readonly id = HERDR_BACKEND;
-  readonly panes = true;
-  readonly focusable = true;
-  readonly canSendKeys = true;
-  readonly capabilities: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true, canPruneLogs: false };
+  readonly capabilities: BackendCapabilities = { canPruneLogs: false };
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneInput = {
     submit: (handle: HerdrHandle, text: string): void => { herdrAck(["pane", "run", handle, text]); },
     sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { herdrAck(["pane", "send-keys", handle, ...keys]); },
     focus: (handle: HerdrHandle): void => { herdrAck(["agent", "focus", handle]); },
-    foreground: (handle: HerdrHandle): PaneForeground => this.paneForeground(handle),
+  };
+  readonly paneForeground: PaneForegroundRole<HerdrHandle> = {
+    read: (handle) => {
+      const out = herdrExec(["pane", "process-info", "--pane", handle], {
+        timeout: 5000,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).toString();
+      const parsed: unknown = JSON.parse(out);
+      if (!isHerdrProcessInfo(parsed)) throw new Error(`herdr pane process-info returned invalid response for ${handle}`);
+      const info = parsed.result?.process_info;
+      return {
+        shellPid: optionalPid(info?.shell_pid),
+        foregroundPid: optionalPid(info?.foreground_process_group_id),
+        processes: info?.foreground_processes?.map((process) => String(process.name)) ?? [],
+      };
+    },
   };
   readonly paneHost: PaneHostRole<HerdrHandle> = {
-    open: (request: OpenPaneRequest) => {
+    open: (request: OpenPaneRequest<HerdrHandle>) => {
       const workspace = request.workspace ?? callerPaneWorkspace();
       if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
-      const targetPane = typeof request.targetPane === "string" ? request.targetPane : process.env.HERDR_PANE_ID ?? null;
-      return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env }, targetPane) };
+      const targetPane = typeof request.targetPane === "string"
+        ? request.targetPane
+        : typeof request.group === "string"
+          ? this.inventory().find((pane) => pane.group === request.group)?.handle ?? null
+          : null;
+      return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env, split: request.split }, targetPane) };
     },
     close: (handle) => { herdrAck(["pane", "close", handle]); },
   };
@@ -168,24 +188,47 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   readonly paneScreen: PaneScreenRole<HerdrHandle> = { read: (handle, lines) => this.read(handle, lines) };
   readonly paneZoom: PaneZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { this.zoom(handle, mode); } };
-  readonly paneNaming: PaneNamingRole<HerdrHandle> = { renamePane: (handle, name) => { this.renamePane(handle, name); } };
-  readonly agentNaming: AgentNamingRole<HerdrHandle> = { renameAgent: (handle, name) => { this.renameAgent(handle, name); } };
+  readonly paneNaming: PaneNamingRole<HerdrHandle> = { renamePane: (handle, name) => { herdrAck(["pane", "rename", handle, name]); } };
+  readonly agentNaming: AgentNamingRole<HerdrHandle> = { renameAgent: (handle, name) => { herdrAck(["agent", "rename", handle, name]); } };
   readonly agentStatus: AgentStatusRole<HerdrHandle> = { wait: (handle, status, timeoutMs) => { this.waitAgentStatus(handle, status, timeoutMs); } };
   readonly groupHome: GroupHomeRole<HerdrHandle> = {
-    list: () => this.groups(),
-    create: (request: CreateGroupRequest): CreatedGroup<HerdrHandle> => this.createGroup(request),
-    rename: (coordinate, label) => { this.renameGroup(coordinate, label); },
-    close: (coordinate) => { this.closeGroup(coordinate); },
-    focus: (coordinate) => { this.focusGroup(coordinate); },
+    list: () => [...herdrTabs().values()].map(groupFromTab),
+    create: (opts: CreateGroupRequest): CreatedGroup<HerdrHandle> => {
+      const args = ["tab", "create", "--workspace", opts.workspace, "--cwd", opts.cwd, "--no-focus"];
+      if (opts.label) args.push("--label", opts.label);
+      args.push(...this.paneEnvFlags({ env: opts.env }));
+      const result = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(args);
+      if (!result?.tab?.tab_id || !result.root_pane?.pane_id) throw new Error("tab create returned no tab/root pane");
+      return { group: groupFromTab(result.tab), rootHandle: result.root_pane.pane_id };
+    },
+    rename: (coordinate, label) => { herdrAck(["tab", "rename", coordinate, label]); },
+    close: (coordinate) => { herdrAck(["tab", "close", coordinate]); },
+    focus: (coordinate) => { herdrAck(["tab", "focus", coordinate]); },
     move: (request: MovePaneRequest<HerdrHandle>) => {
-      if (request.group === null) this.moveToNewGroup(request.handle, request.label ?? null);
-      else this.moveToGroup(request.handle, request.group, request.split, request.against ?? request.targetPane);
+      if (request.group === null) {
+        const args = ["pane", "move", request.handle, "--new-tab", "--no-focus"];
+        if (request.label) args.push("--label", request.label);
+        herdrJSON<{ move_result?: { pane?: { pane_id?: string } } }>(args);
+        return;
+      }
+      const move = this.movePaneIntoTab(request.handle, request.group, request.split, request.against ?? request.targetPane);
+      if (move.changed) return;
+      if (move.reason !== "same_tab") throw new Error(`herdr refused to move ${request.handle} into ${request.group}: ${move.reason ?? "unchanged"}`);
+      const bounceArgs = ["pane", "move", request.handle, "--new-tab", "--no-focus"];
+      const bouncedResult = herdrJSON<{ move_result?: { pane?: { pane_id?: string } } }>(bounceArgs);
+      const bounced = bouncedResult?.move_result?.pane?.pane_id ?? request.handle;
+      const reseated = this.movePaneIntoTab(bounced, request.group, request.split, request.against ?? request.targetPane);
+      if (!reseated.changed) throw new Error(`herdr left ${bounced} outside tab ${request.group}`);
     },
   };
-  readonly groupLayout: GroupLayoutRole<HerdrHandle> & ((coordinate: string) => BackendGroupLayout<HerdrHandle>) = Object.assign(
-    (coordinate: string) => this.groupLayoutFor(coordinate),
-    { read: (coordinate: string) => this.groupLayoutFor(coordinate) },
-  );
+  readonly groupLayout: GroupLayoutRole<HerdrHandle> = {
+    read: (group: string): BackendGroupLayout<HerdrHandle> => {
+      const panes = herdrPanes().filter((pane) => pane.tab_id === group);
+      if (!panes.length) throw new Error(`no panes on tab ${group}`);
+      const rects = panes.flatMap((pane) => pane.rect ? [{ handle: pane.pane_id, rect: pane.rect }] : []);
+      return rects.length === panes.length ? { group, panes: rects } : this.tabLayoutOf(panes[0]!.pane_id);
+    },
+  };
 
   /** True when the herdr binary is resolvable on PATH. */
   isAvailable(): boolean {
@@ -214,19 +257,26 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 
   /** Create a pane first, then start herdr's canonical harness in that pane. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
-    const workspace = opts.workspace ?? callerPaneWorkspace();
-    if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
-
-    // A planned target puts the pane in its tab from birth; without one herdr
-    // splits the caller's own pane and the fresh pane must be re-seated after.
-    const planned = typeof opts.targetPane === "string" ? opts.targetPane : null;
+    // Validate before adopting or opening a pane: an adopted pane is not ours
+    // to clean up if herdr cannot honor the request.
+    this.launchArgs(adapter, opts);
     // A handed-over pane is the caller's to clean up, and it is already seated.
     const adopted = typeof opts.intoPane === "string" ? opts.intoPane : null;
-    if (adopted) {
-      this.startAgentInPane(adapter, adopted, opts);
-      return adopted;
+    const opened = adopted === null;
+    const handle = adopted ?? this.paneHost.open({
+      cwd: opts.cwd ?? process.cwd(),
+      workspace: opts.workspace,
+      group: opts.group,
+      split: opts.split,
+      // opts.targetPane is an opaque cross-backend handle; herdr's own is a
+      // string, so it is narrowed here rather than trusted (as tmux does too).
+      targetPane: typeof opts.targetPane === "string" ? opts.targetPane : undefined,
+      env: this.paneEnvironment(opts),
+    }).handle;
+    if (!opened) {
+      this.startAgentInPane(adapter, handle, opts);
+      return handle;
     }
-    const handle = this.openPane(workspace, opts, planned ?? process.env.HERDR_PANE_ID ?? null);
     try {
       this.startAgentInPane(adapter, handle, opts);
     } catch (error: unknown) {
@@ -239,7 +289,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       }
       throw error;
     }
-    if (opts.group && !planned) this.reseatIntoGroup(handle, opts.group, opts.split ?? "right");
     return handle;
   }
 
@@ -248,42 +297,61 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   private startAgentInPane(adapter: AgentAdapter, handle: HerdrHandle, opts: BackendSpawnOpts): void {
     const name = paneName(adapter, opts);
     herdrAck(["pane", "rename", handle, name]);
-    this.awaitPaneShell(handle);
-    herdrStartAgent(["agent", "start", name, "--kind", herdrKind(adapter.id, name), "--pane", handle]);
+    if (!/^[a-z][a-z0-9_-]{0,31}$/.test(name)) throw new Error(`invalid herdr agent name: ${name}`);
+    if ([...herdrNames().values()].includes(name)) throw new Error(`herdr agent name collision: ${name}`);
+    // herdr owns the readiness handshake: `agent start` pins the pane's terminal
+    // id, retries `agent_pane_busy` while the shell is still initializing, and
+    // only then submits the launch. Polling for a shell here raced that retry and
+    // blocked orch's loop doing it. `herdrStartAgent` supplies `--timeout`.
+    const args = this.launchArgs(adapter, opts);
+    herdrStartAgent(["agent", "start", name, "--kind", herdrKind(adapter.id, name), "--pane", handle], args);
   }
 
-  /** herdr answers with a pane id before that pane's shell exists, so a launch sent
-   *  straight after is typed into a terminal that is not there to receive it — the
-   *  harness name lands as loose text and the agent never starts. A pane opened by
-   *  splitting an existing one is usually ready already; a pane in a workspace herdr
-   *  has just created is not. */
-  private awaitPaneShell(handle: HerdrHandle): void {
-    const deadline = Date.now() + PANE_SHELL_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      if (this.paneReachedShell(handle)) return;
-      sleepMs(PANE_SHELL_POLL_MS);
+  /** The arguments herdr appends to its own canonical executable.
+   *
+   *  herdr's `agent start` builds `argv = [interactive_agent_executable(kind),
+   *  ...args]` (its `src/app/agents.rs`), so orch supplies the ARGUMENTS and
+   *  herdr supplies the binary. That is why `opts.cmd` cannot select a different
+   *  executable here — and why its flags must still be honoured rather than
+   *  dropped, which is what bug 1.4 was. Raw and unquoted: herdr quotes for the
+   *  target shell itself (`interactive_shell_command`).
+   *
+   *  herdr rejects any argument containing a control character, so an adapter
+   *  that produced one is refused here with a message naming the argument. */
+  private launchArgs(adapter: AgentAdapter, opts: BackendSpawnOpts): string[] {
+    const argv = adapter.interactiveArgv(opts);
+    if (argv.length === 0) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive argv`);
+    const args = argv.slice(1);
+    const control = args.find((arg) => /[\u0000-\u001f\u007f]/.test(arg));
+    if (control !== undefined) {
+      throw new Error(`herdr refuses control characters in agent arguments: ${JSON.stringify(control)}`);
     }
-    throw new Error(`herdr pane ${handle} reported no shell within ${PANE_SHELL_TIMEOUT_MS}ms, so there was nothing to launch into`);
+    return args;
   }
 
-  /** A pane herdr has not finished opening answers process-info with an error; that
-   *  is "not ready yet", not a failure worth ending the spawn on. */
-  private paneReachedShell(handle: HerdrHandle): boolean {
-    try {
-      return paneAtShellPrompt(this.paneForeground(handle));
-    } catch {
-      return false;
-    }
+
+  /** The env every herdr pane is opened with. ORCH_PROJECT is not optional:
+   *  without it a worker in a worktree resolves projectRoot() to its own cwd and
+   *  filters itself out of its fleet (bug 1.13). */
+  private paneEnvironment(opts: BackendSpawnOpts): Record<string, string> {
+    const candidates: Record<string, string | undefined> = {
+      ORCH_AGENT_KEY: opts.key,
+      // Only what the CALLER passed: reading process.env here made the pane's
+      // environment depend on this process's own ambient state.
+      ORCH_DIR: opts.orchDir,
+      ORCH_PROJECT: projectRoot(),
+      ...(opts.env ?? {}),
+    };
+    // An empty value is an absent one: exporting `ORCH_DIR=` into the pane sets
+    // the variable to the empty string, which reads as configured and is worse
+    // than leaving it unset.
+    return Object.fromEntries(
+      Object.entries(candidates).filter((entry): entry is [string, string] => Boolean(entry[1])),
+    );
   }
 
-  /** herdr's env flags for a pane orch is about to launch an agent into. */
   private paneEnvFlags(opts: BackendSpawnOpts): string[] {
-    const env = new Map(Object.entries(opts.env ?? {}));
-    if (opts.key?.trim()) env.set("ORCH_AGENT_KEY", opts.key);
-    if (opts.orchDir) env.set("ORCH_DIR", opts.orchDir);
-    // The fleet's project identity survives worktree/launch-dir differences.
-    env.set("ORCH_PROJECT", projectRoot());
-    return [...env].flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+    return Object.entries(this.paneEnvironment(opts)).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
   }
 
   /**
@@ -301,12 +369,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     const handle = result.pane?.pane_id ?? result.root_pane?.pane_id;
     if (!handle) throw new Error(`herdr ${opened.command} returned no pane: ${JSON.stringify(result)}`);
     return handle;
-  }
-
-  /** Move a pane herdr opened in the caller's tab into the fleet's tab; a
-   *  refused move leaves the agent where herdr put it rather than failing the spawn. */
-  private reseatIntoGroup(handle: HerdrHandle, group: string, split: BackendSplit): void {
-    this.moveToGroup(handle, group, split);
   }
 
   /** Close one pane through herdr; invalid handles are refused locally. */
@@ -370,7 +432,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   /** Read the last visible lines of a pane's screen. Throws on failure. */
   // fallow-ignore-next-line unused-class-member
   read(handle: HerdrHandle, lines: number): string {
-    return herdrExec(["pane", "read", handle, "--source", "visible", "--lines", String(lines)], {
+    return herdrExec(["pane", "read", handle, "--source", "recent-unwrapped", "--lines", String(lines)], {
       timeout: 5000,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -384,53 +446,25 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Rename the agent shown for a pane. */
-  renameAgent(handle: HerdrHandle, name: string): boolean {
+  renameAgent(handle: HerdrHandle, name: string): void {
     herdrAck(["agent", "rename", handle, name]);
-    return true;
   }
 
   /** Rename the pane border label. */
-  renamePane(handle: HerdrHandle, name: string): boolean {
+  renamePane(handle: HerdrHandle, name: string): void {
     herdrAck(["pane", "rename", handle, name]);
-    return true;
   }
 
-  /** Move a pane into an existing tab, splitting `against` (the planned pane)
-   *  when given so the tab stays balanced instead of stacking. Throws on failure. */
-  moveToGroup(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): boolean {
-    const move = this.movePaneIntoTab(handle, group, split, against);
-    if (move.changed) return true;
-    if (move.reason !== "same_tab") throw new Error(`herdr refused to move ${handle} into ${group}: ${move.reason ?? "unchanged"}`);
-    // herdr no-ops a same-tab re-seat, so hop out to a throwaway tab (it closes
-    // itself once empty) and back: the cross-tab move honours the target pane.
-    this.moveToNewGroup(handle, null);
-    if (!this.movePaneIntoTab(handle, group, split, against).changed) throw new Error(`herdr left ${handle} outside tab ${group}`);
-    return true;
-  }
-
-  /** One `pane move` into a tab, reduced to whether herdr changed the layout. */
-  private movePaneIntoTab(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): { changed: boolean; reason: string | null } {
+  /** One `pane move` into a tab, retaining herdr's replacement pane id. */
+  private movePaneIntoTab(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): { handle: HerdrHandle; changed: boolean; reason: string | null } {
     const args = ["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"];
     if (against) args.push("--target-pane", against);
-    const result = herdrJSON<{ move_result?: { changed?: boolean; reason?: string } }>(args);
-    return { changed: result?.move_result?.changed !== false, reason: result?.move_result?.reason ?? null };
-  }
-
-  /** Move a pane into a freshly created tab. Throws on herdr failure. */
-  moveToNewGroup(handle: HerdrHandle, label: string | null): boolean {
-    const args = ["pane", "move", handle, "--new-tab", "--no-focus"];
-    if (label) args.push("--label", label);
-    herdrJSON<unknown>(args);
-    return true;
-  }
-
-  /** Geometry of every pane in a tab, from the pane listing when it carries
-   *  rects and a dedicated layout call when it does not. Throws on an empty tab. */
-  groupLayoutFor(group: string): BackendGroupLayout<HerdrHandle> {
-    const panes = herdrPanes().filter((pane) => pane.tab_id === group);
-    if (!panes.length) throw new Error(`no panes on tab ${group}`);
-    const rects = panes.flatMap((pane) => pane.rect ? [{ handle: pane.pane_id, rect: pane.rect }] : []);
-    return rects.length === panes.length ? { group, panes: rects } : this.tabLayoutOf(panes[0]!.pane_id);
+    const result = herdrJSON<{ move_result?: { changed?: boolean; reason?: string; pane?: { pane_id?: string } } }>(args);
+    return {
+      handle: result?.move_result?.pane?.pane_id ?? handle,
+      changed: result?.move_result?.changed !== false,
+      reason: result?.move_result?.reason ?? null,
+    };
   }
 
   /** Geometry of the tab containing a pane. Throws when unresolvable. */
@@ -443,23 +477,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return {
       group: layout.tab_id,
       panes: layout.panes.map((pane) => ({ handle: pane.pane_id, rect: pane.rect })),
-    };
-  }
-
-  /** What the pane is running right now; provider failures are propagated. */
-  paneForeground(handle: HerdrHandle): PaneForeground {
-    const out = herdrExec(["pane", "process-info", "--pane", handle], {
-      timeout: 5000,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).toString();
-    const parsed = JSON.parse(out) as unknown;
-    if (!isHerdrProcessInfo(parsed)) throw new Error(`herdr pane process-info returned invalid response for ${handle}`);
-    const info = parsed.result?.process_info;
-    return {
-      shellPid: optionalPid(info?.shell_pid),
-      foregroundPid: optionalPid(info?.foreground_process_group_id),
-      processes: info?.foreground_processes?.map((process) => String(process.name)) ?? [],
     };
   }
 
@@ -484,39 +501,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return { workspace, rootHandle };
   }
 
-  /** Create a tab and report it with its root pane. Throws on failure. */
-  createGroup(opts: CreateGroupRequest): { group: BackendGroup; rootHandle: HerdrHandle } {
-    const args = ["tab", "create", "--workspace", opts.workspace, "--cwd", opts.cwd, "--no-focus"];
-    if (opts.label) args.push("--label", opts.label);
-    args.push(...this.paneEnvFlags({ env: opts.env }));
-    const result = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(args);
-    if (!result?.tab?.tab_id || !result.root_pane?.pane_id) throw new Error("tab create returned no tab/root pane");
-    return { group: groupFromTab(result.tab), rootHandle: result.root_pane.pane_id };
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  groups(): BackendGroup[] {
-    return [...herdrTabs().values()].map(groupFromTab);
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  renameGroup(group: string, label: string): boolean {
-    herdrAck(["tab", "rename", group, label]);
-    return true;
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  closeGroup(group: string): boolean {
-    herdrAck(["tab", "close", group]);
-    return true;
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  focusGroup(group: string): boolean {
-    herdrAck(["tab", "focus", group]);
-    return true;
-  }
-
   /** Throws on herdr failure (callers surface the error). */
   // fallow-ignore-next-line unused-class-member
   workspaces(): BackendWorkspace[] {
@@ -534,4 +518,4 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 /** Shared herdr backend instance for command wiring. */
 export const herdrBackend = new HerdrBackend();
 
-registerSinkProvider(herdrNotificationProvider);
+registerNotifier(herdrNotifier);

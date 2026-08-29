@@ -206,9 +206,16 @@ class ClaudeAdapter implements AgentAdapter {
   /** Claude Code exports its per-session UUID, telling parallel sessions apart. */
   readonly sessionIdEnv = "CLAUDE_CODE_SESSION_ID";
 
+  /** Claude Code exports its own pid, which outlives each `orch` invocation. */
+  readonly sessionPidEnv = "CLAUDE_PID";
+
   /** Start Claude Code directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
-    return opts.model ? `claude --model ${opts.model}` : "claude";
+    return this.interactiveArgv(opts).join(" ");
+  }
+
+  interactiveArgv(opts: SpawnOpts): readonly string[] {
+    return opts.model ? ["claude", "--model", opts.model] : ["claude"];
   }
 
   /** Run Claude Code's print mode for detached workers. */

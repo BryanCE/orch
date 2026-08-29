@@ -25,13 +25,13 @@ describe("outbox restart replay", () => {
       id: "one",
       target: "message:one",
       payload: { messageId: "one", text: "first" },
-      createdAt: "2026-01-01T00:00:00.000Z",
+      createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
     });
     insertOutboxMessage(orchDir, {
       id: "two",
       target: "message:two",
       payload: { messageId: "two", text: "second" },
-      createdAt: "2026-01-01T00:00:01.000Z",
+      createdAt: Date.parse("2026-01-01T00:00:01.000Z"),
     });
 
     let now = 1_000;

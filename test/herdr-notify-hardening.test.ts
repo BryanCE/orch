@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
 import type { NotifyEvent } from "../src/notify/format.ts";
@@ -54,16 +55,13 @@ const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
 const { emitAndNotify } = await import("../src/daemon/events.ts");
 const { notificationText } = await import("../src/notify/format.ts");
 
-const adapter: AgentAdapter = {
-  id: "pi",
-  capabilities: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
+// Arguments that would be mangled by a shell round-trip: spaces, quotes and a
+// variable that must NOT expand. herdr quotes for the target shell itself, so
+// orch hands them over raw and one entry each.
+const adapter = makeFakeAdapter({
   interactiveCmd: () => `printf 'quoted "value" spaces $HOME'`,
-  headlessCmd: () => ["true"],
-  detectState: () => "unknown",
-  steer: () => undefined,
-  answer: () => undefined,
-  extractResult: () => undefined,
-};
+  interactiveArgv: () => ["printf", 'quoted "value" spaces $HOME'],
+});
 
 function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   return {
@@ -90,15 +88,24 @@ describe("herdr and notification hardening", () => {
     const handle = backend.spawn(adapter, { cwd: "/tmp/work dir", workspace: "ws-test", key: "  " });
 
     expect(handle).toBe("w6:p10");
-    expect(lastCall("pane", "rename")).toEqual(["pane", "rename", "w6:p10", "pi-"]);
-    // Canonical herdr launch: the harness kind is selected by herdr, the pane
-    // handle is passed as one argv value, and orch hands herdr the same start
-    // budget it outwaits, so neither side can decide alone who gave up first.
+    expect(lastCall("pane", "rename")).toEqual(["pane", "rename", "w6:p10", "pi-agent"]);
+    // Canonical herdr launch: herdr selects the harness executable from --kind and
+    // appends what follows `--`, so orch sends ARGUMENTS only — never the binary.
+    // Each argument stays one argv entry, unquoted: herdr applies the target
+    // shell's quoting itself, and pre-quoting here would export the quotes.
     expect(lastCall("agent", "start")).toEqual([
-      "agent", "start", "pi-", "--kind", "pi", "--pane", "w6:p10", "--timeout", String(AGENT_START_TIMEOUT_MS),
+      "agent", "start", "pi-agent", "--kind", "pi", "--pane", "w6:p10", "--timeout", String(AGENT_START_TIMEOUT_MS),
+      "--", 'quoted "value" spaces $HOME',
     ]);
     expect(lastCall("tab", "create")).toContain("/tmp/work dir");
     expect(lastCall("tab", "create")).toContain(`ORCH_PROJECT=${projectRoot()}`);
+  });
+
+  test("falls back to a valid name when the identity key contains herdr-invalid separators", () => {
+    new HerdrBackend().spawn(adapter, { workspace: "ws-test", key: "herdr~ws-test~ABC_123" });
+    const name = lastCall("pane", "rename")?.[3] ?? "";
+    expect(name).toBe("pi-abc_123");
+    expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
   });
 
   test("falls back to a real name when an adapter id is blank", () => {

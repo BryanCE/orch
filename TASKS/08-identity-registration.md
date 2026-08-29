@@ -55,9 +55,14 @@ who it is; it asks.
 3. orchd returns the id recorded for that session pid, minting and recording one on first
    sight.
 
-The session pid is the caller's parent process — the shell or harness that outlives any one
-`orch` invocation — so continuity is the daemon's to keep rather than something each process
-re-derives.
+Continuity is keyed on the harness's own **session token**, not on a pid. `process.ppid` was
+specified here first and is wrong: when a harness runs `orch` from a shell (Claude Code's Bash
+tool, any `sh -c`), the CLI's parent is that ephemeral shell, not the session, so every
+invocation presents a new pid and mints a new identity. Measured 2026-08-29: 22 agent rows for
+one Claude session. Each adapter declares the env var carrying its session id
+(`AgentAdapter.sessionIdEnv`); orch stores it on `agents.session_token` with a unique index and
+resolves the id from it. A harness exporting no token falls back to its open process instance.
+The pid remains recorded as liveness, never as identity.
 
 `hello` is the only place a participant enters the system. `selfActor()` and the four-branch
 fallback in `spawnerIdentity()` are deleted, not adapted.

@@ -3,7 +3,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { cmdClose } from "../src/commands/lifecycle.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -13,7 +13,7 @@ import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { openStore } from "../src/store/connection.ts";
 import type { Backend, BackendTarget } from "../src/backends/backend.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
-import { selfActor } from "../src/entities.ts";
+import { selfId } from "../src/identity/self.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -23,7 +23,12 @@ const children: ChildProcess[] = [];
 const oldDir = process.env.ORCH_DIR;
 const oldOwner = process.env.ORCH_OWNER;
 const oldPane = process.env.HERDR_PANE_ID;
+const oldTab = process.env.HERDR_TAB_ID;
+const oldWorkspace = process.env.HERDR_WORKSPACE_ID;
 const oldTmuxPane = process.env.TMUX_PANE;
+delete process.env.HERDR_PANE_ID;
+delete process.env.HERDR_TAB_ID;
+delete process.env.HERDR_WORKSPACE_ID;
 
 function makeDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-owner-scope-"));
@@ -62,6 +67,12 @@ function runCli(dir: string, args: string[], owner?: string, extraEnv?: Record<s
   return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
+afterAll(() => {
+  if (oldPane === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = oldPane;
+  if (oldTab === undefined) delete process.env.HERDR_TAB_ID; else process.env.HERDR_TAB_ID = oldTab;
+  if (oldWorkspace === undefined) delete process.env.HERDR_WORKSPACE_ID; else process.env.HERDR_WORKSPACE_ID = oldWorkspace;
+});
+
 afterEach(async () => {
   const spawned = children.splice(0);
   for (const child of spawned) {
@@ -78,18 +89,20 @@ afterEach(async () => {
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
   if (oldOwner === undefined) delete process.env.ORCH_OWNER; else process.env.ORCH_OWNER = oldOwner;
-  if (oldPane === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = oldPane;
+  delete process.env.HERDR_PANE_ID;
+  delete process.env.HERDR_TAB_ID;
+  delete process.env.HERDR_WORKSPACE_ID;
   if (oldTmuxPane === undefined) delete process.env.TMUX_PANE; else process.env.TMUX_PANE = oldTmuxPane;
 });
 
 describe("fleet ownership scoping", () => {
-  test("owner token uses ORCH_OWNER, else the write actor (selfActor)", () => {
+  test("owner token uses ORCH_OWNER, else this process's own minted id", () => {
     process.env.ORCH_OWNER = "override";
     expect(callerOwnerToken()).toBe("override");
     // The stamped owner must equal the daemon write actor, or an orchestrator
     // cannot control the agents it spawned. It is never the raw backend pane id.
     delete process.env.ORCH_OWNER;
-    expect(callerOwnerToken()).toBe(selfActor() ?? undefined);
+    expect(callerOwnerToken()).toBe(selfId());
   });
 
   test("spawn stamps the owner token from ORCH_OWNER on its record", () => {
@@ -134,27 +147,30 @@ describe("fleet ownership scoping", () => {
     recordSpawned("headless~local~foreign", { backend: "headless", workspace: "local", handle: "foreign", owner: "other" });
 
     const closed: string[] = [];
-    const backend = headlessBackend as Backend & { capabilities: { panes: boolean } };
-    // Exercise the in-process backend seam explicitly; headless normally has no pane capability.
-    const originalPanes = backend.capabilities.panes;
-    const originalInventory = backend.inventory?.bind(backend);
-    const originalClose = backend.close.bind(backend);
-    // The inventory also contains an unmanaged user pane; --all must ignore it.
-    backend.capabilities.panes = true;
-    backend.inventory = () => ["mine", "foreign", "user-pane"]
-      .filter((handle) => !closed.includes(handle))
-      .map((handle) => ({ handle })) as BackendTarget[];
-    backend.close = (handle) => { closed.push(String(handle)); return true; };
+    const backend = headlessBackend;
+    const originalInventory = backend.paneInventory;
+    const originalHost = backend.paneHost;
+    const paneTarget = (handle: string): BackendTarget => ({
+      handle, workspace: "local", group: null, groupLabel: null, name: null,
+      agent: "pi", focused: false, status: null, sessionPath: null,
+    });
+    Object.defineProperty(backend, "paneInventory", {
+      configurable: true,
+      value: { current: () => null, list: () => ["mine", "foreign", "user-pane"].filter((handle) => !closed.includes(handle)).map(paneTarget) },
+    });
+    Object.defineProperty(backend, "paneHost", {
+      configurable: true,
+      value: { open: () => { throw new Error("not used"); }, close: (handle: unknown) => { closed.push(String(handle)); } },
+    });
     try {
       cmdClose(["--all", "--json"]);
     } finally {
-      backend.capabilities.panes = originalPanes;
-      if (originalInventory) backend.inventory = originalInventory;
-      else delete backend.inventory;
-      backend.close = originalClose;
+      Object.defineProperty(backend, "paneInventory", { configurable: true, value: originalInventory });
+      Object.defineProperty(backend, "paneHost", { configurable: true, value: originalHost });
     }
 
-    expect(closed).toEqual(["mine", "foreign"]);
+    // Sweep order is not part of the contract.
+    expect([...closed].sort()).toEqual(["foreign", "mine"]);
   });
 
   test("explicit foreign target closes successfully", () => {
@@ -301,10 +317,12 @@ describe("fleet ownership scoping", () => {
 describe("a spawned agent touches only what it spawned", () => {
   const agentKey = "headless~wF~worker-a";
 
-  test("selfActor is the agent's own key inside a spawned agent", () => {
+  // TASKS/01: identity is a minted id and NOTHING else. The `headless~wF~`
+  // segments of a launch key are ENVIRONMENT and never travel as identity.
+  test("a spawned agent acts as its own minted id, not its launch key", () => {
     process.env.ORCH_AGENT_KEY = agentKey;
     try {
-      expect(selfActor()).toBe(agentKey);
+      expect(selfId()).toBe("worker-a");
     } finally {
       delete process.env.ORCH_AGENT_KEY;
     }

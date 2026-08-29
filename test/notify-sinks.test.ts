@@ -1,73 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { deliverToSink, loadSinks } from "../src/notify/router.ts";
-import { workspaceColor, type NotifyEvent } from "../src/notify/format.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
+import { describe, expect, test } from "bun:test";
+import { createNotifierRegistry } from "../src/notify/router.ts";
+import { createBuiltinNotifiers } from "../src/notify/sinks.ts";
+import type { NotifyEvent } from "../src/notify/format.ts";
 
-const tempDirs: string[] = [];
+const event: NotifyEvent = { key: "k", agent: null, tab: null, model: null, oldState: "working", newState: "done", ts: "2026-01-01T00:00:00.000Z" };
 
-function tempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-notify-sinks-"));
-  tempDirs.push(directory);
-  return directory;
-}
-
-function nodeCommand(script: string): string[] {
-  return [process.execPath, "-e", script];
-}
-
-afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
-});
-
-describe("notify sinks", () => {
-  test("delivers command sink payload as JSON", async () => {
-    const directory = tempDir();
-    const output = join(directory, "payload.json");
-    const event: NotifyEvent = {
-      key: "w6:p21",
-      workspace: "w6",
-      agent: "w-2",
-      tab: null,
-      model: null,
-      oldState: "working",
-      newState: "done",
-      task: "x",
-      ts: "2026-01-01T00:00:00.000Z",
-    };
-
-    const sink = {
-      type: "command" as const,
-      on: ["done"],
-      command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`),
-    };
-    expect(await deliverToSink(sink, event)).toBe(true);
-
-    const payload = JSON.parse(readFileSync(output, "utf8")) as Record<string, unknown>;
-    expect(payload).toMatchObject({
-      workspace: "w6",
-      workspaceColor: workspaceColor("w6"),
-      agent: "w-2",
-      newState: "done",
-      task: "x",
-    });
-    expect(payload.title).toContain("DONE");
-  });
-
-  test("loadSinks parses command and webhook declarations", () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, {
-      notify: [
-        { id: "command", on: ["done"], command: nodeCommand("") },
-        { id: "webhook", on: ["error"], url: "https://example.test/notify" },
-      ],
-    });
-
-    expect(loadSinks(directory)).toEqual([
-      { type: "command", on: ["done"], command: nodeCommand(""), timeoutMs: 3000 },
-      { type: "webhook", on: ["error"], url: "https://example.test/notify", timeoutMs: 3000 },
-    ]);
+describe("notification entries", () => {
+  test("desktop entries use the canonical notifier registry", async () => {
+    const desktop = createBuiltinNotifiers().find((notifier) => notifier.id === "desktop");
+    if (!desktop) throw new Error("desktop notifier missing");
+    const registry = createNotifierRegistry([{ ...desktop, available: () => true, deliver: () => Promise.resolve(true) }]);
+    expect(await registry.deliver({ id: "desktop", on: ["done"] }, event)).toBe(true);
   });
 });

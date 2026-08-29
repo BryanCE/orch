@@ -1,5 +1,6 @@
 import type { CheckResult } from "../check-result.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
+import type { ThinkingLevel } from "../policy/thinking.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
 export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;
@@ -35,6 +36,8 @@ export interface SpawnOpts {
   readonly cwd?: string;
   /** Model specification selected for the session, when supported. */
   readonly model?: string;
+  /** Independent thinking effort selected for the session, when supported. */
+  readonly thinking?: ThinkingLevel;
   /** Model patterns the harness should expose in its native cycle/picker, when configured. */
   readonly preferredModels?: readonly string[];
   /** Directory containing orch's presence protocol files. */
@@ -190,9 +193,18 @@ export interface HarnessModel {
   readonly label?: string;
 }
 
+export interface ThinkingStrategy {
+  /** Translate orch's neutral level into this harness's launch vocabulary. */
+  launchArgs(level: ThinkingLevel): readonly string[];
+  /** Apply a level to a running session where the harness supports it. */
+  set(level: ThinkingLevel): void;
+}
+
 export interface AgentAdapter {
   /** Stable adapter id recorded in the spawn registry and presence status. */
   readonly id: AdapterId;
+  /** Harness-specific thinking control, absent when that harness exposes none. */
+  readonly thinking?: ThinkingStrategy | null;
   /**
    * Declared behavior limits used by commands to choose safe fallbacks or fail clearly.
    */
@@ -229,8 +241,26 @@ export interface AgentAdapter {
    * spawn is attributed to the harness kind, never to one session.
    */
   readonly sessionIdEnv?: string;
+  /**
+   * Env var carrying the PID of this harness's own session process, when its
+   * sessions export one. It is what makes a session's orch identity stable: the
+   * `orch` CLI is short-lived and its parent is whatever shell the harness ran
+   * it from, so `process.ppid` names a different process on every invocation.
+   * Absent when the harness exports none - such a session simply has no stable
+   * identity, and orch must never guess one from a harness id.
+   */
+  readonly sessionPidEnv?: string;
   /** Build the normal shell command used to start one agent in an interactive pane. */
   interactiveCmd(opts: SpawnOpts): string;
+  /**
+   * The same interactive launch as `interactiveCmd`, as RAW argv: the executable
+   * first, then unquoted arguments. A plexer that starts the harness itself needs
+   * the arguments without a shell's quoting, because it applies its own for the
+   * shell it is launching into — herdr does exactly this
+   * (`argv = [interactive_agent_executable(kind), ...args]`), and handing it a
+   * pre-quoted string exports the quotes as part of the value.
+   */
+  interactiveArgv(opts: SpawnOpts): readonly string[];
   /**
    * Build the restricted shell command used for worker launches.
    * Adapters that cannot enforce a tool allowlist return their normal command;

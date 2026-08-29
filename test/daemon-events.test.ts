@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { selectRuns } from "../src/store/run-rows.ts";
 import { openStore } from "../src/store/connection.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { insertAgent, renameAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import {
   derivePresenceTransition,
@@ -13,8 +14,8 @@ import {
   startPresenceWatch,
   type PresenceWatch,
 } from "../src/daemon/events.ts";
-import { rpcSubscribe, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
-import type { Sink } from "../src/notify/router.ts";
+import { startRpcServer, subscribeEvents, type RpcServer } from "../src/daemon/rpc.ts";
+import type { NotifyEntry } from "../src/config.ts";
 import type { NotifyEvent } from "../src/notify/format.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -32,10 +33,6 @@ function tempOrchDir(): string {
 function storageKey(key: string): string {
   // Windows forbids ':' in directory names; the event state assertions do not depend on the key text.
   return process.platform === "win32" ? key.replaceAll(":", "_") : key;
-}
-
-function nodeCommand(script: string): string[] {
-  return [process.execPath, "-e", script];
 }
 
 function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
@@ -92,6 +89,20 @@ afterEach(async () => {
 });
 
 describe("daemon presence events", () => {
+  test("closes every watcher when watched agent directories disappear", () => {
+    const orchDir = tempOrchDir();
+    const keys = ["workspace:watch-a", "workspace:watch-b", "workspace:watch-c"];
+    for (const key of keys) writeStatus(orchDir, key, "idle");
+    let closed = 0;
+    const watcher = startPresenceWatch({ orchDir, onEvent: () => { /* transitions are irrelevant to this test */ }, onWatcherClosed: () => { closed++; } });
+    presenceWatches.push(watcher);
+    watcher.scan();
+    expect(watcher.watcherCount()).toBe(keys.length);
+    for (const key of keys) rmSync(join(orchDir, "agents", storageKey(key)), { recursive: true, force: true });
+    watcher.scan();
+    expect(watcher.watcherCount()).toBe(0);
+    expect(closed).toBe(keys.length);
+  });
   test("an RPC subscriber receives a presence transition", async () => {
     const orchDir = tempOrchDir();
     writeStatus(orchDir, "workspace:p1", "working");
@@ -102,19 +113,23 @@ describe("daemon presence events", () => {
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => server.emit(event) });
     presenceWatches.push(watcher);
     const received: unknown[] = [];
-    const stop = await rpcSubscribe(orchDir, "subscribe-events", (event) => received.push(event));
+    const subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event));
 
     writeStatus(orchDir, "workspace:p1", "idle");
     await waitFor(() => received.some((event) => eventState(event) === "idle"));
-    stop();
+    subscription.close();
     expect(eventState(received[0])).toBe("idle");
   });
 
   test("a dispatched transition writes the full run row and preserves untruncated result", async () => {
     const orchDir = tempOrchDir();
     const key = "headless~runs~full";
+    // The agent's presence payload carries ISO on the wire; the STORE returns
+    // epoch millis (CLAUDE.md Rule 11: instants are INTEGER epoch millis, never TEXT).
     const startedAt = "2026-01-01T00:00:00.000Z";
     const finishedAt = "2026-01-01T00:01:00.000Z";
+    const startedAtMs = Date.parse(startedAt);
+    const finishedAtMs = Date.parse(finishedAt);
     const resultText = "x".repeat(3_000);
     insertSpawnedRecord(orchDir, { pane: key, adapter: "pi", workspace: "workspace-full" });
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-full", startedAt });
@@ -145,8 +160,8 @@ describe("daemon presence events", () => {
       workspace: "workspace-full",
       task: "the complete task",
       state: "done",
-      startedAt,
-      finishedAt,
+      startedAt: startedAtMs,
+      finishedAt: finishedAtMs,
       tokensIn: 11,
       tokensOut: 22,
       cacheRead: 33,
@@ -178,14 +193,14 @@ describe("daemon presence events", () => {
     });
     await waitFor(() => events.some((event) => eventState(event) === "blocked"));
     const blockedRun = selectRuns(orchDir)[0];
-    expect(blockedRun).toMatchObject({ state: "blocked", startedAt, task: "updated task", tokensIn: 4, turns: 2 });
+    expect(blockedRun).toMatchObject({ state: "blocked", startedAt: Date.parse(startedAt), task: "updated task", tokensIn: 4, turns: 2 });
     expect(blockedRun?.finishedAt).toBeUndefined();
 
     writeStatus(orchDir, key, "done", { dispatchId: "dispatch-repeat", startedAt, finishedAt: "2026-01-02T00:02:00.000Z" });
     await waitFor(() => events.some((event) => eventState(event) === "done"));
     const runs = selectRuns(orchDir);
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ dispatchId: "dispatch-repeat", state: "done", startedAt, finishedAt: "2026-01-02T00:02:00.000Z" });
+    expect(runs[0]).toMatchObject({ dispatchId: "dispatch-repeat", state: "done", startedAt: Date.parse(startedAt), finishedAt: Date.parse("2026-01-02T00:02:00.000Z") });
   });
 
   test("a status without a dispatch id does not write history", async () => {
@@ -256,7 +271,7 @@ describe("daemon presence events", () => {
   test("presence transitions resolve the human name before emission", () => {
     const orchDir = tempOrchDir();
     const key = "w6:p-name";
-    insertSpawnedRecord(orchDir, { pane: key, workspace: "w6", name: "Ada" });
+    insertSpawnedRecord(orchDir, { pane: key, workspace: "w6" });
     const states = new Map([[key, "working"]]);
     const event = derivePresenceTransition(
       orchDir,
@@ -267,6 +282,16 @@ describe("daemon presence events", () => {
     );
     expect(event?.agent).toBe("Ada");
     expect(event?.agent).not.toContain(key);
+  });
+
+  test("presence transitions use the normalized agent name after rename", () => {
+    const orchDir = tempOrchDir();
+    const key = "headless~local~agent-renamed";
+    ensureHarness(orchDir, "pi", "Pi");
+    insertAgent(orchDir, { id: "agent-renamed", spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Before", createdAt: 1 });
+    expect(renameAgent(orchDir, "agent-renamed", "After")).toBe(true);
+    const event = derivePresenceTransition(orchDir, key, { pid: process.pid, state: "done", agent: "stale" }, { name: "stale", tab: null }, new Map([[key, "working"]]));
+    expect(event?.name).toBe("After");
   });
 
   test("derivePresenceTransition preserves the complete asking transition payload", () => {
@@ -317,10 +342,10 @@ describe("daemon presence events", () => {
     const orchDir = tempOrchDir();
     const output = join(orchDir, "notification.json");
     writeStatus(orchDir, "workspace:p2", "working");
-    const sink: Sink = {
-      type: "command",
+    const sink: NotifyEntry = {
+      id: "command",
       on: ["asking"],
-      command: nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`),
+      command: [process.execPath, "-e", `const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`],
     };
     const watcher = startPresenceWatch({
       orchDir,
@@ -341,33 +366,4 @@ describe("daemon presence events", () => {
     expect(payload.title).toStartWith("ASKING");
   });
 
-  test("a dead daemon closes the subscription instead of falling back to files", async () => {
-    const orchDir = tempOrchDir();
-    const server = await startRpcServer(orchDir, {
-      "subscribe-events": () => ({ subscribed: true }),
-    });
-    servers.push(server);
-    let closes = 0;
-    const stop = await rpcSubscribe(orchDir, "subscribe-events", () => { /* noop */ }, () => { closes++; });
-
-    await server.close();
-    servers.splice(servers.indexOf(server), 1);
-    await waitFor(() => closes > 0);
-    expect(closes).toBe(1);
-    stop();
-  });
-
-  test("a caller-initiated stop is not reported as a disconnect", async () => {
-    const orchDir = tempOrchDir();
-    const server = await startRpcServer(orchDir, {
-      "subscribe-events": () => ({ subscribed: true }),
-    });
-    servers.push(server);
-    let closes = 0;
-    const stop = await rpcSubscribe(orchDir, "subscribe-events", () => { /* noop */ }, () => { closes++; });
-
-    stop();
-    await Bun.sleep(50);
-    expect(closes).toBe(0);
-  });
 });

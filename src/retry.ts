@@ -1,4 +1,4 @@
-import { errorMessage } from "./util.ts";
+import { errorMessage, sleep } from "./util.ts";
 
 /**
  * One retry policy for every flaky IO path in orch. Older and loaded machines fail these
@@ -13,6 +13,10 @@ export interface RetryPolicy {
   delayMs: number;
   /** Multiplies the wait after each failed attempt. */
   backoff: number;
+  /** Which failures are worth reattempting. A failure this rejects is rethrown
+   *  at once: retrying a name collision or a bad argument only wastes the budget
+   *  that a genuinely slow machine needs. Absent = every failure is retryable. */
+  retryable?: (error: unknown) => boolean;
 }
 
 const DEFAULT_RETRY: RetryPolicy = { attempts: 3, delayMs: 250, backoff: 3 };
@@ -30,10 +34,6 @@ function sleepBlocking(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** Reattempt an asynchronous operation until it succeeds or the policy runs out, then throw. */
 export async function retryingAsync<T>(
   label: string,
@@ -46,6 +46,7 @@ export async function retryingAsync<T>(
       return await operation();
     } catch (error: unknown) {
       last = error;
+      if (policy.retryable !== undefined && !policy.retryable(error)) throw error;
       if (attempt < policy.attempts - 1) await sleep(waitMs(policy, attempt));
     }
   }
@@ -64,6 +65,7 @@ export function retryingSync<T>(
       return operation();
     } catch (error: unknown) {
       last = error;
+      if (policy.retryable !== undefined && !policy.retryable(error)) throw error;
       if (attempt < policy.attempts - 1) sleepBlocking(waitMs(policy, attempt));
     }
   }

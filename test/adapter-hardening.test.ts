@@ -10,6 +10,7 @@ import { checkNotifiers } from "../src/doctor/notify.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -43,16 +44,10 @@ describe("adapter and runtime hardening", () => {
 
   test("headless refuses to spawn without a caller-minted presence key", () => {
     const directory = temp();
-    const adapter: AgentAdapter = {
-      id: "pi",
-      capabilities: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
+    const adapter: AgentAdapter = fakeAdapter({
       interactiveCmd: () => "true",
       headlessCmd: () => [process.execPath, "-e", "setTimeout(() => {}, 1000)"],
-      detectState: () => "unknown",
-      steer: () => undefined,
-      answer: () => undefined,
-      extractResult: () => undefined,
-    };
+    });
     const backend = new HeadlessBackend({ pidAlive: () => false });
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;

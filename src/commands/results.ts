@@ -11,7 +11,7 @@ import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags,
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
 
-interface QuestionRow { key: string; name: string | null; age: string; question: string; workspace?: string; host?: string; warning?: string }
+interface QuestionRow { key: string; name: string | null; age: string; question: string; space?: string; host?: string; warning?: string }
 
 interface QuestionPayload { ts?: unknown; question: string }
 
@@ -146,7 +146,7 @@ export async function cmdQuestions(args: string[]): Promise<void> {
     process.stdout.write("No pending questions.\n");
     return;
   }
-  const tableRows = rows.map((row) => [row.host ?? "local", row.key, row.name ?? "-", row.age, row.question]);
+  const tableRows = rows.map((row) => [row.host ?? "-", row.key, row.name ?? "-", row.age, row.question]);
   process.stdout.write(renderTable(["HOST", "PANE", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
 }
 
@@ -199,19 +199,18 @@ function cmdQuestionsLocal(args: string[]) {
       name: names.get(pres.key) ?? null,
       age: formatAge(question.ts),
       question: questionText(question),
-      workspace: workspaceOf(orchDir(), pres.key) ?? "-",
-      host: "local",
+      space: workspaceOf(orchDir(), pres.key) ?? "-",
     })), null, 2) + "\n");
     return;
   }
-  const workspaces = pending.map(({ pres }) => workspaceOf(orchDir(), pres.key) ?? "-");
-  const showWorkspace = all && new Set(workspaces).size > 1;
+  const spaces = pending.map(({ pres }) => workspaceOf(orchDir(), pres.key) ?? "-");
+  const showSpace = all && new Set(spaces).size > 1;
   process.stdout.write(
     pending
       .map(({ pres, question }) => {
         const label = names.get(pres.key) ?? "-";
-        const workspaceLabel = workspaceOf(orchDir(), pres.key) ?? "-";
-        const name = showWorkspace ? `${workspaceLabel} / ${label}` : label;
+        const spaceLabel = workspaceOf(orchDir(), pres.key) ?? "-";
+        const name = showSpace ? `${spaceLabel} / ${label}` : label;
         return `${pres.key}  ${name}  ${formatAge(question.ts)}\n${question.question}`;
       })
       .join("\n\n") + "\n"
@@ -240,7 +239,7 @@ function localQuestionRows(args: string[]): QuestionRow[] {
   const { pending, names } = collectPendingQuestions(args);
   return pending.map(({ pres, question }) => ({
     key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
-    question: questionText(question), workspace: workspaceOf(orchDir(), pres.key) ?? "-", host: "local",
+    question: questionText(question), space: workspaceOf(orchDir(), pres.key) ?? "-",
   }));
 }
 

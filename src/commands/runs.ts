@@ -7,8 +7,8 @@ import { die } from "./target.ts";
 
 const USAGE = "usage: orch runs [<target>] [-n <count>] [--json]";
 
-/** Format an ISO timestamp for a compact, deterministic human-readable table cell. */
-function formatRunStarted(timestamp: string): string {
+/** Format an epoch-millisecond timestamp for a compact, deterministic human-readable table cell. */
+function formatRunStarted(timestamp: number): string {
   const when = new Date(timestamp);
   if (!Number.isFinite(when.getTime())) return "?";
   return when.toISOString().replace("T", " ").slice(0, 19);
@@ -16,9 +16,9 @@ function formatRunStarted(timestamp: string): string {
 
 /** A running row has no duration yet; never turn that into a misleading zero. */
 function formatRunDuration(run: Pick<RunRecord, "startedAt" | "finishedAt">): string {
-  if (!run.finishedAt) return "running";
-  const started = new Date(run.startedAt).getTime();
-  const finished = new Date(run.finishedAt).getTime();
+  if (run.finishedAt === undefined) return "running";
+  const started = run.startedAt;
+  const finished = run.finishedAt;
   if (!Number.isFinite(started) || !Number.isFinite(finished)) return "?";
   const seconds = Math.max(0, (finished - started) / 1000);
   if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;

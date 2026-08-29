@@ -1,20 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { daemonRpc, down, type DaemonDown, type DaemonEndpoint } from "./daemon";
-import { projectFleet, projectHistory, type FleetProjectionRow, type Workspace } from "@/lib/fleet";
+import { projectFleet, projectHistory, type FleetProjectionRow, type Space } from "@/lib/fleet";
 
 // Every export here is a server function, so the TanStack Start plugin strips this
 // module's body from the client bundle. Adding a plain exported function pulls
 // ./daemon — and node:net with it — into the browser chunk, which kills hydration.
 
 interface DaemonUp { daemon: "up" }
-export type DaemonHome = "local" | "wsl" | "remote";
+export type DaemonHome = "same-host" | "wsl" | "remote";
 interface DaemonWhere {
   home: DaemonHome;
   endpoint: DaemonEndpoint;
 }
 type DaemonStatus = DaemonDown | (DaemonUp & { running: true; startedAt?: string; where: DaemonWhere });
-type FleetResult = DaemonDown | { daemon: "up"; workspaces: Workspace[]; history: Workspace[] };
+type FleetResult = DaemonDown | { daemon: "up"; spaces: Space[]; history: Space[] };
 
 /**
  * Which machine orchd sits on, relative to this web server. A unix socket is one
@@ -22,7 +22,7 @@ type FleetResult = DaemonDown | { daemon: "up"; workspaces: Workspace[]; history
  * holding a unix socket crossed loopback into WSL — the standing setup here.
  */
 function daemonHome(endpoint: DaemonEndpoint, daemonTransport: unknown): DaemonHome {
-  if (endpoint.transport === "unix") return "local";
+  if (endpoint.transport === "unix") return "same-host";
   if (process.platform === "win32" && daemonTransport === "unix") return "wsl";
   return "remote";
 }
@@ -43,8 +43,8 @@ export const getDaemonStatus = createServerFn({ method: "GET" }).handler(async (
 
 interface PresenceRow extends FleetProjectionRow {
   /** Legacy plexer coordinate, retained for daemon routing but never displayed. */
-  workspace?: string | null;
-  workspaceName?: string | null;
+  space?: string | null;
+  spaceName?: string | null;
 }
 
 interface PresenceResult {
@@ -73,7 +73,7 @@ export const getFleet = createServerFn({ method: "GET" }).handler(async (): Prom
     const { result } = await daemonRpc<PresenceResult>("status");
     return {
       daemon: "up",
-      workspaces: projectFleet(result.rows),
+      spaces: projectFleet(result.rows),
       history: projectHistory(result.rows),
     };
   } catch (error) {

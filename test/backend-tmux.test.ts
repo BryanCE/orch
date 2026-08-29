@@ -2,9 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
 
 /** One synthetic tmux pane row served by the fake `list-panes -a` query. */
 interface FakePane {
@@ -125,21 +126,13 @@ void mock.module("node:child_process", () => ({
 }));
 
 const { TmuxBackend } = await import("../src/backends/tmux/index.ts");
+const { paneForeground } = await import("../src/commands/lifecycle.ts");
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalTmuxEnv = process.env.TMUX;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-tmux-"));
 
-const fakeAdapter: AgentAdapter = {
-  id: "pi",
-  capabilities: { steer: "none", ask: false, setModel: false, sessionTail: false, registersPresenceOnStart: false, lifecycle: [], enforcesCommandLocks: false },
-  interactiveCmd: () => "fake-agent",
-  headlessCmd: () => ["true"],
-  detectState: () => "unknown",
-  steer: () => undefined,
-  answer: () => undefined,
-  extractResult: () => undefined,
-};
+const fakeAdapter = makeFakeAdapter();
 
 function writeStatus(key: string, status: Record<string, unknown>): void {
   seedStatus(testOrchDir, key, status);
@@ -171,12 +164,36 @@ afterAll(() => {
 });
 
 describe("TmuxBackend", () => {
-  test("exposes tmux pane capabilities", () => {
+  test("does not expose legacy top-level group methods", () => {
     const backend = new TmuxBackend();
-    expect(backend.panes).toBe(true);
-    expect(backend.focusable).toBe(true);
-    expect(backend.canSendKeys).toBe(true);
-    expect(backend.capabilities).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
+    for (const method of ["createGroup", "groups", "renameGroup", "closeGroup", "focusGroup", "movePane", "moveToGroup", "groupLayoutFor"]) expect(method in backend).toBe(false);
+  });
+
+  test("composes a complete group role bundle", () => {
+    const backend = new TmuxBackend();
+    expect(typeof backend.groupHome.list).toBe("function");
+    expect(typeof backend.groupHome.create).toBe("function");
+    expect(typeof backend.groupHome.rename).toBe("function");
+    expect(typeof backend.groupHome.close).toBe("function");
+    expect(typeof backend.groupHome.focus).toBe("function");
+    expect(typeof backend.groupHome.move).toBe("function");
+    expect(typeof backend.groupLayout.read).toBe("function");
+  });
+
+  test("exposes tmux pane roles", () => {
+    const backend = new TmuxBackend();
+    expect(backend.paneHost).not.toBeNull();
+    expect(backend.paneInventory).not.toBeNull();
+    expect(backend.paneInput).not.toBeNull();
+    expect(backend.paneForeground).toBeNull();
+    expect(backend.paneScreen).not.toBeNull();
+    expect(backend.capabilities).toEqual({ canPruneLogs: false });
+  });
+
+  test("does not declare pane foreground capability", () => {
+    const backend = new TmuxBackend();
+    expect(Object.hasOwn(backend.paneInput, "foreground")).toBe(false);
+    expect(paneForeground(backend, "%1")).toEqual(NO_PANE_FOREGROUND);
   });
 
   test("reports tmux availability", () => {
@@ -286,6 +303,18 @@ describe("TmuxBackend", () => {
     expect(callArgs("tmux", "set-option")).toEqual(["set-option", "-p", "-t", "%1", "@orch_agent_name", "agent-label"]);
   });
 
+  test("paneHost.open splits the requested target with cwd and environment", () => {
+    const backend = new TmuxBackend();
+    const created = backend.paneHost.open({ cwd: "/work", group: "@1", split: "right", targetPane: "%7", env: { ORCH_AGENT_KEY: "k1", FOO: "bar" } });
+    expect(created.handle).toBe("%1");
+    expect(callArgs("tmux", "split-window")).toEqual([
+      "split-window", "-t", "%7", "-h", "-P", "-F", "#{pane_id}", "-c", "/work",
+      "-e", "ORCH_AGENT_KEY=k1", "-e", "FOO=bar", "--", "bash",
+    ]);
+    backend.paneHost.close(created.handle);
+    expect(execCalls.some((call) => call.args.join(" ") === "kill-pane -t %1")).toBe(true);
+  });
+
   test("spawn places the agent into an existing group via split-window when opts.group is set", () => {
     const backend = new TmuxBackend();
     const handle = backend.spawn(fakeAdapter, { key: "tmux~main~agent-1", cwd: "/work", group: "@1", split: "right" });
@@ -315,7 +344,7 @@ describe("TmuxBackend", () => {
     const backend = new TmuxBackend();
 
     // Non-orch panes count: geometry the planner ignores is geometry it plans over.
-    expect(backend.groupLayout("@1")).toEqual({
+    expect(backend.groupLayout.read("@1")).toEqual({
       group: "@1",
       panes: [
         { handle: "%1", rect: { width: 100, height: 50, x: 0, y: 0 } },
@@ -352,7 +381,7 @@ describe("TmuxBackend", () => {
     ];
 
     const backend = new TmuxBackend();
-    expect(backend.groups()).toEqual([
+    expect(backend.groupHome.list()).toEqual([
       { id: "@1", label: "agents", workspace: "main", focused: true, number: 0, paneCount: 2, status: null },
       { id: "@2", label: "side-window", workspace: "side", focused: false, number: 3, paneCount: 1, status: null },
     ]);
@@ -364,7 +393,7 @@ describe("TmuxBackend", () => {
 
   test("createGroup opens a window and reports its root pane, throwing on failure", () => {
     const backend = new TmuxBackend();
-    const { group, rootHandle } = backend.createGroup({ workspace: "main", cwd: "/work", label: "extra" });
+    const { group, rootHandle } = backend.groupHome.create({ workspace: "main", cwd: "/work", label: "extra" });
 
     expect(rootHandle).toBe("%1");
     expect(group).toEqual({ id: "@w1", label: "extra", workspace: "main", focused: false, number: 1, paneCount: 1, status: null });

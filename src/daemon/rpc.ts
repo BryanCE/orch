@@ -7,11 +7,13 @@ import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortPath } from "../presence/socket-client.ts";
 import { errorMessage } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
+import { callerSession } from "../identity/self.ts";
 import { currentHostOs, getOrCreateSessionAgent, isLiveAgentIdentity, type HostOs, type SessionAgentIdentity } from "../store/agent-rows.ts";
 import { processStartToken } from "../process-identity.ts";
 import { openStore } from "../store/connection.ts";
 import { allBackends } from "../backends/registry.ts";
 import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
+import { ensureDaemon, translateDaemonError } from "../commands/daemon.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
@@ -91,7 +93,7 @@ export class ReplayBuffer {
   constructor(private readonly orchDir: string) {}
 
   push(event: unknown): BufferedEvent {
-    const stored = appendEvent(this.orchDir, new Date().toISOString(), event);
+    const stored = appendEvent(this.orchDir, Date.now(), event);
     return { event: stored.event, seq: stored.seq };
   }
 
@@ -111,8 +113,6 @@ export class ReplayBuffer {
 export interface RpcServer {
   /** Stop accepting connections and remove the endpoint files. */
   close(): Promise<void>;
-  /** Alias for close(), useful to callers that use server lifecycle wording. */
-  stop(): Promise<void>;
   /** Push an event to every connection subscribed with subscribe-events. */
   emit(event: unknown): void;
   /** How many connections currently hold a subscribe-events subscription. */
@@ -137,6 +137,47 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function isRpcResponse(value: unknown): value is RpcResponse {
+  if (!isObject(value)) return false;
+  const hasId = Object.prototype.hasOwnProperty.call(value, "id");
+  const hasResult = Object.prototype.hasOwnProperty.call(value, "result");
+  const hasError = Object.prototype.hasOwnProperty.call(value, "error");
+  const hasEvent = Object.prototype.hasOwnProperty.call(value, "event");
+  const hasGap = Object.prototype.hasOwnProperty.call(value, "gap");
+  if (!hasId && !hasEvent && !hasGap) return false;
+  if (hasId && value.id !== null && typeof value.id !== "number") return false;
+  if (hasResult && hasError) return false;
+  if (hasId && !hasResult && !hasError) return false;
+  if (hasEvent && value.event === undefined) return false;
+  if ("seq" in value && (typeof value.seq !== "number" || !Number.isSafeInteger(value.seq))) return false;
+  if (hasGap && (value.gap !== true || typeof value.oldestSeq !== "number")) return false;
+  if ("oldestSeq" in value && typeof value.oldestSeq !== "number") return false;
+  if (hasError) {
+    const error = value.error;
+    if (typeof error === "string") return true;
+    if (!isObject(error)) return false;
+    if (typeof error.code !== "string" && typeof error.code !== "number") return false;
+    if (typeof error.message !== "string") return false;
+  }
+  return hasEvent || hasGap || hasResult || hasError;
+}
+
+function isUnleasedAgent(value: unknown): value is UnleasedAgent {
+  return isObject(value) && typeof value.id === "string" && typeof value.name === "string";
+}
+
+/** Validate every field carried by the hello response before trusting it. */
+export function isHelloResponse(value: unknown): value is HelloResponse {
+  return isObject(value)
+    && typeof value.id === "string"
+    && value.id.length > 0
+    && typeof value.label === "string"
+    && value.kind === "session"
+    && Array.isArray(value.unleased)
+    && value.unleased.every(isUnleasedAgent)
+    && (value.registrationWarning === undefined || typeof value.registrationWarning === "string");
+}
+
 const DEFAULT_TIMEOUT_MS = 5_000;
 // Bounds for the self-healing event subscription's reconnect loop. A daemon can
 // return at any time (restart, reload, machine wake), so retries never give up;
@@ -144,7 +185,6 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
-const announcedHelloSessions = new Set<string>();
 
 /** Print the startup adoption hint once for each session identity. The writer seam keeps
  * command output testable without changing the wire response. */
@@ -153,15 +193,12 @@ export function announceUnleasedAgents(
   identity: HelloResponse,
   write: (text: string) => void = (text) => { process.stdout.write(text); },
 ): void {
-  const key = `${orchDir}\0${identity.id}`;
-  if (announcedHelloSessions.has(key)) return;
-  announcedHelloSessions.add(key);
   if (identity.unleased.length === 0) return;
   write(`${identity.unleased.length} unleased agent(s) exist - orch adopt ${identity.unleased[0]!.name} to take one, orch status to see them.\n`);
 }
 
-function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {
-  const registration = liveDaemonRegistration();
+export function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {
+  const registration = liveDaemonRegistration(orchDir);
   if (registration) return { socket: registration.socket, port: registration.port, token: registration.token };
   const files = daemonRuntimeFiles(orchDir);
   return { socket: files.socket, port: files.port, token: files.token };
@@ -182,10 +219,10 @@ function parseRequest(line: string): { id: unknown; method: string; params: unkn
   } catch {
     return errorResponse(null, "INVALID_REQUEST", "Malformed JSON request");
   }
-  if (!request || typeof request !== "object" || Array.isArray(request)) {
+  if (!isObject(request)) {
     return errorResponse(null, "INVALID_REQUEST", "Request must be a JSON object");
   }
-  const value = request as Record<string, unknown>;
+  const value = request;
   if (typeof value.method !== "string" || value.method.length === 0) {
     return errorResponse(value.id ?? null, "INVALID_REQUEST", "Request method must be a non-empty string");
   }
@@ -220,6 +257,10 @@ function hostOs(): HostOs {
   }
 }
 
+function isUnleasedAgentRow(value: unknown): value is { id: string; name: string } {
+  return isObject(value) && typeof value.id === "string" && typeof value.name === "string";
+}
+
 function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
   const rows = openStore(orchDir).query(
     `SELECT a.id, a.name
@@ -234,8 +275,8 @@ function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
              AND newest.until IS NULL
         )
       ORDER BY a.id`,
-  ).all(excludeId) as { id: string; name: string }[];
-  return rows.map(({ id, name }) => ({ id, name }));
+  ).all(excludeId);
+  return rows.filter(isUnleasedAgentRow).map(({ id, name }) => ({ id, name }));
 }
 
 function helloIdentity(orchDir: string, params: unknown, daemonToken: string): HelloResponse {
@@ -258,6 +299,9 @@ function helloIdentity(orchDir: string, params: unknown, daemonToken: string): H
       WHERE p.pid = ? AND p.start_token = ? AND e.agent_id IS NULL
       LIMIT 1`,
   ).get(pid, startToken) != null;
+  const sessionToken = typeof claim.sessionToken === "string" && claim.sessionToken.length > 0
+    ? claim.sessionToken
+    : null;
   const claimed = typeof claim.label === "string" ? claim.label.trim() : "";
   const host = hostname();
   const plexerId = typeof claim.plexer === "string" ? claim.plexer.trim() : null;
@@ -265,6 +309,7 @@ function helloIdentity(orchDir: string, params: unknown, daemonToken: string): H
   const identity = getOrCreateSessionAgent(orchDir, {
     pid,
     startToken,
+    sessionToken,
     harnessId: harness,
     cwd,
     label: claimed || `${harness} session ${pid}`,
@@ -451,8 +496,8 @@ const NOT_LISTENING_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
 type DialSilence = "not-listening" | "unreachable";
 
 function silenceOf(error: unknown): DialSilence {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return typeof code === "string" && NOT_LISTENING_CODES.has(code) ? "not-listening" : "unreachable";
+  const code = isObject(error) && typeof error.code === "string" ? error.code : undefined;
+  return code !== undefined && NOT_LISTENING_CODES.has(code) ? "not-listening" : "unreachable";
 }
 
 /** Dial one daemon endpoint, or say why it stayed silent. An absent unix-socket
@@ -493,25 +538,29 @@ function responseError(response: RpcResponse): RpcError {
   return new RpcError(error?.code ?? "RPC_ERROR", error?.message ?? "RPC request failed", error?.data);
 }
 
+export function readJsonMessages(socket: Socket, onMessage: (message: RpcResponse) => void): void {
+  framedLineReader(socket, (raw) => {
+    const line = raw.trim();
+    if (!line) return;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isRpcResponse(parsed)) onMessage(parsed);
+    } catch {
+      // Ignore malformed unsolicited data from the server.
+    }
+  });
+}
+
 function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise<RpcResponse> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new DaemonUnreachableError("response"));
     }, timeoutMs);
-    framedLineReader(socket, (raw) => {
-      const line = raw.trim();
-      if (!line) return;
-      try {
-        const parsed: unknown = JSON.parse(line);
-        if (!isObject(parsed)) return;
-        const message = parsed as unknown as RpcResponse;
-        if (message.id === id) {
-          clearTimeout(timer);
-          resolve(message);
-        }
-      } catch {
-        // Ignore unsolicited malformed data from a server.
+    readJsonMessages(socket, (parsed) => {
+      if (parsed.id === id) {
+        clearTimeout(timer);
+        resolve(parsed);
       }
     });
     socket.once("error", (error) => {
@@ -532,6 +581,13 @@ function writeDaemonToken(path: string): string {
   writeFileSync(path, `${token}\n`, { mode: 0o600 });
   chmodSync(path, 0o600);
   return token;
+}
+
+/** Return the port assigned by a TCP listener, failing instead of guessing. */
+function boundTcpPort(server: Server): number {
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("TCP listener did not report an address");
+  return address.port;
 }
 
 /** Start the local RPC endpoint, preferring a unix socket and falling back to loopback TCP. */
@@ -585,7 +641,7 @@ export async function startRpcServer(
     try { server.close(); } catch {}
     tcpServer = createServer(attachTcp);
     await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
-    const boundPort = (tcpServer.address() as { port: number }).port;
+    const boundPort = boundTcpPort(tcpServer);
     writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
     transport = "tcp";
     tcpEndpoint = `tcp://127.0.0.1:${boundPort}`;
@@ -606,7 +662,7 @@ async function startTcpServer(
   const tcpServer = createServer(attach);
   try {
     await listen(tcpServer, { host: "127.0.0.1", port });
-    const boundPort = (tcpServer.address() as { port: number }).port;
+    const boundPort = boundTcpPort(tcpServer);
     writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
     return tcpServer;
   } catch (error: unknown) {
@@ -651,7 +707,6 @@ function makeRpcServer(
   };
   return {
     close,
-    stop: close,
     emit: (event) => {
       const buffered = replayBuffer.push(event);
       for (const socket of subscriptions) lineResponse(socket, buffered);
@@ -683,35 +738,55 @@ export async function rpcCall(
   }
 }
 
+/**
+ * The one hello claim. TASKS/08-identity-registration.md: a session presents a
+ * STABLE token the harness itself carries, and orch resolves the id it already
+ * minted. `process.ppid` is the shell this `orch` ran under — it differs on every
+ * invocation, so claiming it re-mints a fresh agent id per CLI call (finding 1.15).
+ * Both the request path and the subscription's inline handshake build the claim
+ * HERE so the two can never present different facts for the same session.
+ */
+export function helloClaim(orchDir: string, label?: string): Record<string, unknown> {
+  const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
+  // The calling harness identifies ITSELF through its adapter's declared env
+  // vocabulary; orch names no harness here (Rule 9). An empty ORCH_HARNESS is
+  // unset, not a harness named "".
+  const session = callerSession();
+  const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
+  const harness = configuredHarness ?? session?.harnessId ?? "cli";
+  // Registration carries the plexer fact observed by this session. Herdr is
+  // the only versioned integration today; unknown environments simply omit it.
+  const callerBackend = allBackends().find((backend) => backend.currentIdentity?.());
+  return {
+    token,
+    pid: session?.pid ?? process.pid,
+    sessionToken: session?.sessionId ?? null,
+    harness,
+    cwd: process.cwd(),
+    label,
+    plexer: callerBackend?.id,
+    plexerVersion: callerBackend?.version?.() ?? undefined,
+  };
+}
+
 /** Register this process with the daemon and return the identity it issued. Reading the
  *  `0600` token file IS the credential, so there is nothing else to enroll. The session
  *  is this process's parent — the shell or harness that outlives one `orch` invocation. */
 export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<HelloResponse> {
-  const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
-  const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
-  const harness = configuredHarness
-    ?? (process.env.PI_CODING_AGENT ? "pi" : undefined)
-    ?? (process.env.CLAUDECODE ? "claude" : undefined)
-    ?? (process.env.CODEX_PID ? "codex" : undefined)
-    ?? "cli";
-  // Registration carries the plexer fact observed by this session. Herdr is
-  // the only versioned integration today; unknown environments simply omit it.
-  const callerBackend = allBackends().find((backend) => backend.currentIdentity?.());
-  const plexer = callerBackend?.id;
-  const plexerVersion = callerBackend?.version?.() ?? undefined;
-  const identity = await rpcCall(orchDir, "hello", { token, pid: process.ppid, harness, cwd: process.cwd(), label, plexer, plexerVersion }, timeoutMs);
-  if (!isLiveAgentIdentity(orchDir, identity) || !isObject(identity)) {
-    throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
+  try {
+    // Ensure the daemon first: its token exists only for the lifetime of a running
+    // daemon, so reading it before this probe turns a fresh store into raw ENOENT.
+    await ensureDaemon(orchDir);
+    const identity = await rpcCall(orchDir, "hello", helloClaim(orchDir, label), timeoutMs);
+    if (!isLiveAgentIdentity(orchDir, identity) || !isHelloResponse(identity)) {
+      throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
+    }
+    announceUnleasedAgents(orchDir, identity);
+    if (identity.registrationWarning) process.stderr.write(`warning: ${identity.registrationWarning}\n`);
+    return identity;
+  } catch (error: unknown) {
+    throw translateDaemonError(orchDir, error);
   }
-  const unleased = identity.unleased;
-  if (!Array.isArray(unleased)
-    || unleased.some((agent: unknown) => !isObject(agent) || typeof agent.id !== "string" || typeof agent.name !== "string")) {
-    throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
-  }
-  const response = { ...identity, unleased } as HelloResponse;
-  announceUnleasedAgents(orchDir, response);
-  if (response.registrationWarning) process.stderr.write(`warning: ${response.registrationWarning}\n`);
-  return response;
 }
 
 export interface EventSubscription {
@@ -734,6 +809,7 @@ export function subscribeEvents(
   opts: { since?: number },
   onEvent: (event: unknown, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
+  hello = false,
 ): EventSubscription {
   let last = opts.since ?? 0;
   let socket: Socket | undefined;
@@ -770,25 +846,27 @@ export function subscribeEvents(
         }
         socket = connected;
         backoffMs = RECONNECT_BASE_MS; // a healthy dial resets the climb
-        framedLineReader(connected, (raw) => {
-          const line = raw.trim();
-          if (!line) return;
-          try {
-            const parsed: unknown = JSON.parse(line);
-            if (!isObject(parsed)) return;
-            const message = parsed as RpcResponse;
-            if (message.gap === true && typeof message.oldestSeq === "number") {
-              onGap?.(message.oldestSeq);
-            } else if (message.seq !== undefined && typeof message.seq === "number" && "event" in message) {
-              last = Math.max(last, message.seq);
-              onEvent(message.event, message.seq);
-            }
-          } catch {
-            // Ignore malformed unsolicited data from the daemon.
+        readJsonMessages(connected, (parsed) => {
+          if (parsed.gap === true && typeof parsed.oldestSeq === "number") {
+            onGap?.(parsed.oldestSeq);
+          } else if (parsed.seq !== undefined && "event" in parsed) {
+            last = Math.max(last, parsed.seq);
+            onEvent(parsed.event, parsed.seq);
           }
         });
         connected.once("error", onDisconnect);
         connected.once("close", onDisconnect);
+        // Re-register bridge sessions on every daemon instance. The token is
+        // read fresh because a restart mints a new credential; this handshake
+        // shares the same socket as the event subscription.
+        if (hello) {
+          // The token is read fresh because a restart mints a new credential.
+          connected.write(`${JSON.stringify({
+            id: nextRequestId++,
+            method: "hello",
+            params: helloClaim(orchDir),
+          })}\n`);
+        }
         // The first dial honours the caller's `since` (undefined = live only).
         // Durable sequence numbers survive daemon restarts, so reconnects resume
         // from the last sequence delivered instead of replaying an unrelated window.
@@ -819,50 +897,5 @@ export function subscribeEvents(
       socket = undefined;
     },
     lastSeq: () => last,
-  };
-}
-
-/** Subscribe to pushed events; the returned function closes the subscription.
- *  `onClose` fires when the daemon drops the connection but NOT when the caller
- *  stops it — the socket is the disconnect signal, so no caller has to poll. */
-export async function rpcSubscribe(
-  orchDir: string,
-  method: string,
-  onEvent: (event: unknown) => void,
-  onClose?: () => void,
-): Promise<() => void> {
-  const socket = await connectDaemon(orchDir, DEFAULT_TIMEOUT_MS);
-  const id = nextRequestId++;
-  let responseResolve!: (value: unknown) => void;
-  let responseReject!: (reason?: unknown) => void;
-  const response = new Promise<unknown>((resolve, reject) => {
-    responseResolve = resolve;
-    responseReject = reject;
-  });
-  framedLineReader(socket, (raw) => {
-    const line = raw.trim();
-    if (!line) return;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (!isObject(parsed)) return;
-      const message = parsed as unknown as RpcResponse;
-      if (Object.prototype.hasOwnProperty.call(message, "event")) {
-        try {
-          onEvent(message.event);
-        } catch {}
-      } else if (message.id === id) {
-        if (message.error !== undefined) responseReject(responseError(message));
-        else responseResolve(message.result);
-      }
-    } catch {}
-  });
-  socket.once("error", responseReject);
-  socket.write(`${JSON.stringify({ id, method })}\n`);
-  await response;
-  let stopped = false;
-  socket.on("close", () => { if (!stopped) onClose?.(); });
-  return () => {
-    stopped = true;
-    socket.destroy();
   };
 }

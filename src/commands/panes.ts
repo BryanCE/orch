@@ -1,7 +1,7 @@
 import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, resolveTarget } from "../entities.ts";
 import { loadConfig } from "../config.ts";
 import { orchDir, spawnedRecords } from "../presence/store.ts";
-import type { Backend, BackendGroup, BackendHandle } from "../backends/backend.ts";
+import type { Backend, BackendGroup, BackendHandle, BackendSplit } from "../backends/backend.ts";
 import { parseIdentity } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
@@ -10,6 +10,7 @@ import { assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent } fro
 import { openingPlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
 import { displayWorkspace } from "./status.ts";
 import { workspaceName } from "../policy/workspace.ts";
+import { writeSpawnedHandle } from "../store/spawned-rows.ts";
 
 type BoundaryPlan<T> =
   | { readonly outcome: "invoke"; readonly role: T }
@@ -170,7 +171,7 @@ function assertGroupAgentsOwned(backend: Backend, group: string, force: boolean)
   const handles = new Set((backend.paneInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
   for (const record of spawnedRecords().values()) {
     if (record.owner && record.handle !== undefined && handles.has(String(record.handle)) && !ownsAgent(record)) {
-      die(`Group ${group} holds agent ${record.name ?? record.pane} owned by ${record.owner}. Use --force to override.`);
+      die(`Group ${group} holds agent ${record.pane} owned by ${record.owner}. Use --force to override.`);
     }
   }
 }
@@ -195,7 +196,7 @@ function cmdTabNew(rest: string[], json: boolean, backend: Backend): void {
   const created = backend.groupHome!.create({ workspace, cwd, label });
   if (json) process.stdout.write(JSON.stringify(created) + "\n");
   else process.stdout.write(`Created group ${created.group.id} "${created.group.label}" - root handle ${String(created.rootHandle)}\n`);
-  backend.close(created.rootHandle);
+  if (backend.paneHost) backend.paneHost.close(created.rootHandle);
 }
 
 function cmdTabRename(target: string | undefined, label: string | undefined, json: boolean, backend: Backend): void {
@@ -280,9 +281,14 @@ export function cmdZoom(args: string[]) {
  *  already in that group must never be planned as its own split target. */
 function tilePlacementBesides(backend: Backend, group: string, mover: string): TilePlacement {
   const firstSplit = loadConfig(orchDir()).tiling.first_split;
-  const layout = readGroupLayout(backend, group);
-  if (!layout) return openingPlacement(firstSplit);
+  const role = backend.groupLayout;
+  if (!role) return openingPlacement(firstSplit);
+  const layout = readGroupLayout(role, group);
   return planTilePlacement({ ...layout, panes: layout.panes.filter((pane) => String(pane.handle) !== mover) }, firstSplit);
+}
+
+function isBackendSplit(value: string): value is BackendSplit {
+  return value === "down" || value === "right";
 }
 
 export function cmdMove(args: string[]) {
@@ -305,7 +311,7 @@ export function cmdMove(args: string[]) {
   const target = positional[0];
   if (!target || (!tab && !newTab))
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
-  const { backend, handle } = requireOwnedPaneTarget(target, "move", force);
+  const { backend, handle, key } = requireOwnedPaneTarget(target, "move", force);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group move" }, json); return; }
   try {
@@ -318,9 +324,11 @@ export function cmdMove(args: string[]) {
       split = placement.split;
       against = placement.targetPane;
     }
-    role.move({ handle, group: newTab ? null : groupId!, split: split as "down" | "right", against, label });
+    if (!isBackendSplit(split)) die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
+    role.move({ handle, group: newTab ? null : groupId!, split, against, label });
+    writeSpawnedHandle(orchDir(), key, String(handle));
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
-    else process.stdout.write(`Moved ${handle} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
+    else process.stdout.write(`Moved ${String(handle)} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {
     die(`move failed: ${errorMessage(e)}`);
   }

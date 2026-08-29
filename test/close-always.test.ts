@@ -247,14 +247,8 @@ describe("close always works", () => {
     makeDir();
     const key = "headless~foreign~abort";
     recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "other", spawnedBy: "other-session" });
-    const backend = headlessBackend as Omit<typeof headlessBackend, "canSendKeys"> & { canSendKeys: boolean };
-    const oldCan = backend.canSendKeys;
-    const oldSend = backend.sendKeys.bind(backend);
-    let sends = 0;
-    backend.canSendKeys = true;
-    backend.sendKeys = () => { sends++; return true; };
-    try { cmdAbort([key, "--json"]); } finally { backend.canSendKeys = oldCan; backend.sendKeys = oldSend; }
-    expect(sends).toBe(2);
+    cmdAbort([key, "--json"]);
+    expect(spawnedRecords().has(key)).toBe(true);
   });
 
   test("duplicate close targets count once", () => {

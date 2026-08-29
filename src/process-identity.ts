@@ -4,6 +4,7 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { osSide } from "./util.ts";
 
 const FIELD_READ_TIMEOUT_MS = 5_000;
 
@@ -61,8 +62,8 @@ function linuxStartTicks(pid: number): string | undefined {
  * as "matches".
  */
 export function processStartToken(pid: number): string | undefined {
-  if (process.platform === "linux") return linuxStartTicks(pid);
-  if (process.platform === "win32") {
+  if (osSide() === "linux") return linuxStartTicks(pid);
+  if (osSide() === "windows") {
     return readProcessField("powershell", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.Ticks`]);
   }
   return readProcessField("ps", ["-o", "lstart=", "-p", String(pid)]);

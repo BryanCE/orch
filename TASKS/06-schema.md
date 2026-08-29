@@ -172,7 +172,7 @@ CREATE TABLE agent_tunings (          -- how it is configured. NOT where it is.
 -- do that, so this table keeps its rowid.
 
 CREATE TABLE agent_leases (
-  id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, -- monotonic fencing token
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,          -- monotonic fencing token; rowid alias, never NULL
   agent_id       TEXT    NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   orch_id        TEXT    NOT NULL REFERENCES agents(id),   -- the orch that may drive it
   since          INTEGER NOT NULL,

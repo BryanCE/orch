@@ -1,7 +1,6 @@
-import { serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
-import { allAdapters } from "../adapters/registry.ts";
-import { loadPresence, spawnedRecords } from "../presence/store.ts";
-import { optionalString } from "../util.ts";
+import { callerSession, selfIdentity } from "../identity/self.ts";
+import { orchDir } from "../presence/store.ts";
+import { agentById } from "../store/agent-rows.ts";
 
 /**
  * Who launched a spawn, as every spawned agent should know it. Identity is
@@ -16,45 +15,21 @@ export interface SpawnerIdentity {
   label: string;
 }
 
-/** The caller is itself an orch-spawned agent: full identity by its own key. */
-function spawnedCallerIdentity(): SpawnerIdentity | null {
-  const identity = tryParseIdentity(process.env.ORCH_AGENT_KEY);
-  if (!identity) return null;
-  const key = serializeIdentity(identity);
-  const status = loadPresence().get(key)?.status;
-  const name = optionalString(status?.label) ?? spawnedRecords().get(key)?.name;
-  const harness = optionalString(status?.agent) ?? spawnedRecords().get(key)?.adapter;
-  return { key, label: name ? `${name}${harness ? ` (${harness})` : ""}` : key };
-}
-
-/** The caller is a human's harness session whose bridge exported its presence key. */
-function harnessSessionIdentity(): SpawnerIdentity | null {
-  const key = optionalString(process.env.ORCH_SESSION_KEY);
-  if (!key) return null;
-  const harness = optionalString(loadPresence().get(key)?.status?.agent);
-  return { key, label: harness ? `${harness} session` : "session" };
-}
-
-/** The caller is a harness session with no presence, named by its env marker.
- *  Its key is ALWAYS null: this is the branch for sessions that have no presence
- *  dir, so there is no inbox to address. A harness exporting a per-session id
- *  tells two parallel sessions of the same harness apart in the LABEL — minting
- *  that id as a key hands every worker a reply address that cannot resolve. */
-function markedSessionIdentity(): SpawnerIdentity | null {
-  const marked = allAdapters().find((adapter) =>
-    adapter.sessionEnvMarker !== undefined && optionalString(process.env[adapter.sessionEnvMarker]) !== undefined);
-  if (!marked) return null;
-  const sessionId = marked.sessionIdEnv ? optionalString(process.env[marked.sessionIdEnv]) : undefined;
-  return {
-    key: null,
-    label: sessionId ? `${marked.id} session ${sessionId.slice(0, 8)}` : `${marked.id} session`,
-  };
-}
-
-/** The launching session's identity: an orch agent, a harness session with a
- *  presence inbox, a marked harness session without one, or a bare operator. */
+/**
+ * The launching session's identity: the id orch issued it, plus a label to show.
+ *
+ * There is ONE source (TASKS/08): orch mints in `hello` and this reads the record.
+ * The four-branch env ladder that used to live here asked the plexer, then two
+ * harness env vars, then fell back to the literal id `"operator"` — four answers
+ * that could not agree, so a spawner's address never matched its own lease.
+ */
 export function spawnerIdentity(): SpawnerIdentity {
-  return spawnedCallerIdentity() ?? harnessSessionIdentity() ?? markedSessionIdentity() ?? { key: null, label: "operator" };
+  const id = selfIdentity()?.id ?? null;
+  const session = callerSession();
+  const name = id === null ? null : agentById(orchDir(), id)?.name ?? null;
+  const label = name
+    ?? (session ? `${session.harnessId} session` : "operator");
+  return { key: id, label };
 }
 
 /**

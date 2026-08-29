@@ -5,6 +5,7 @@ import { is } from "drizzle-orm";
 import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
 import * as tables from "../store/tables.ts";
 import type { CheckResult } from "../check-result.ts";
+import { errorMessage } from "../util.ts";
 
 /** drizzle records what it has applied here; a store built before orch adopted
  *  migrations has the tables and no record of them. */
@@ -79,7 +80,7 @@ export function checkStore(orchDir: string): CheckResult {
     const applied = appliedCount(database.prepare(`SELECT COUNT(*) AS applied FROM ${MIGRATIONS_TABLE}`).get());
     return { id, label, status: "ok", detail: `store healthy at ${applied} applied migration${applied === 1 ? "" : "s"}` };
   } catch (error: unknown) {
-    return { id, label, status: "fail", detail: `cannot open orch.db: ${error instanceof Error ? error.message : String(error)}` };
+    return { id, label, status: "fail", detail: `cannot open orch.db: ${errorMessage(error)}` };
   } finally {
     try { database?.close(); } catch {}
   }

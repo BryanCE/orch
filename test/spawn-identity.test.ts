@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { parseIdentity, normalizeControlTarget } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
+import { agentById } from "../src/store/agent-rows.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import type { Backend } from "../src/backends/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -74,8 +75,8 @@ describe("one key per pane spawn (12.1)", () => {
     expect(record!.pane).toBe(agent.key);
     expect(record!.workspace).toBe("wsA");
     expect(record!.backend).toBe("herdr");
-    // Name and pane handle are plain columns beside the key, not part of it.
-    expect(record!.name).toBe("audit-1");
+    // Name is normalized on the agent row; spawned rows carry placement only.
+    expect(agentById(process.env.ORCH_DIR!, identity.id)?.name).toBe("audit-1");
     expect(record!.handle).toBe("%5");
   });
 
@@ -99,7 +100,7 @@ describe("one key per pane spawn (12.1)", () => {
     const second = spawnAudit();
 
     expect(second.key).not.toBe(first.key);
-    expect(spawnedRecords().get(second.key)!.name).toBe("audit-1");
+    expect(agentById(process.env.ORCH_DIR!, parseIdentity(second.key).id)?.name).toBe("audit-1");
   });
 
   test("a spawned agent resolves to exactly one control-target candidate", () => {

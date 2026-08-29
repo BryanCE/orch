@@ -1,4 +1,5 @@
-import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
+import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
+import { runTool, runToolBestEffort } from "../tool-exec.ts";
 
 const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   encoding: "utf8",
@@ -8,16 +9,12 @@ const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
 
 /** Run tmux and swallow any failure, returning null instead of throwing. */
 export function bestEffortTmux(args: string[]): string | null {
-  try {
-    return execFileSync("tmux", args, DEFAULT_OPTIONS);
-  } catch {
-    return null;
-  }
+  return runToolBestEffort("tmux", args);
 }
 
 /** Run tmux and let a failure throw (matches herdrExec: callers treat it as an error). */
 export function execTmux(args: string[], options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS): string {
-  return execFileSync("tmux", args, options);
+  return runTool("tmux", args, undefined, options);
 }
 
 /** One tmux pane row from the shared inventory query (D1). */

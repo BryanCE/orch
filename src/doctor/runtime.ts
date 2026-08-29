@@ -1,7 +1,7 @@
 import * as filesystem from "node:fs";
 import { declaredRuntime } from "../config.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
-import { binaryPath } from "../util.ts";
+import { binaryPath, errorMessage } from "../util.ts";
 import type { CheckResult } from "../check-result.ts";
 
 const id = "runtime";
@@ -104,7 +104,7 @@ export function checkRuntime(orchDir: string, observations: RuntimeObservations 
     declared = declaredRuntime(orchDir);
   } catch (error: unknown) {
     // checkConfig owns malformed-settings reporting; stay silent rather than duplicate it.
-    return { id, label, status: "skip", detail: error instanceof Error ? error.message : String(error) };
+    return { id, label, status: "skip", detail: errorMessage(error) };
   }
 
   const resolve = observations.resolve ?? binaryPath;

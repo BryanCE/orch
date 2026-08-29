@@ -1,4 +1,5 @@
 import { loadConfigOrNull } from "../config.ts";
+import { errorMessage } from "../util.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
@@ -24,7 +25,7 @@ async function isolated(id: string, label: string, check: () => Promise<CheckRes
   try {
     return await check();
   } catch (error: unknown) {
-    return { id, label, status: "fail", detail: error instanceof Error ? error.message : String(error) };
+    return { id, label, status: "fail", detail: errorMessage(error) };
   }
 }
 
@@ -47,13 +48,23 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
       const diagnosis = adapter.diagnoseShim ? await adapter.diagnoseShim() : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
       return { ...diagnosis, id, label: `${adapterId} + ${backendId} live pair`, detail: `${adapterId}/${backendId}: ${diagnosis.detail}` };
     } catch (error: unknown) {
-      return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: error instanceof Error ? error.message : String(error) };
+      return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: errorMessage(error) };
     }
   }));
 }
 
 /** Run independent environment diagnostics; individual check failures never reject this function. */
-export async function runDoctor(orchDir: string, sshRunner: SshRunner = runSSH): Promise<CheckResult[]> {
+export interface DoctorOptions {
+  readonly yes?: boolean;
+  readonly sshRunner?: SshRunner;
+}
+
+export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner | DoctorOptions = runSSH): Promise<CheckResult[]> {
+  // `yes` is a command-level concern; accepting it here keeps programmatic doctor
+  // runs explicit while preserving the runner's read-only diagnostic contract.
+  const sshRunner = typeof sshRunnerOrOptions === "function"
+    ? sshRunnerOrOptions
+    : (sshRunnerOrOptions.sshRunner ?? runSSH);
   // Read settings only to derive provider checks. An unconfigured install has no enabled
   // providers, and checkConfig owns the user-facing failure result, so neither an absent nor a
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
@@ -148,7 +159,7 @@ export async function refreshStaleShims(orchDir: string): Promise<string[]> {
       refreshed.push(id);
     } catch (error: unknown) {
       // A broken shim diagnosis warns; it never blocks the command that asked.
-      process.stderr.write(`warning: ${id} integration refresh failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`warning: ${id} integration refresh failed: ${errorMessage(error)}\n`);
     }
   }
   return refreshed;

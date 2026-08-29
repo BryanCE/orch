@@ -4,8 +4,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { formatAge, isQuestionPayload, questionText, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
+import { formatAge, isQuestionPayload, questionText, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
+import { seedStatus } from "./helpers/presence.ts";
 import { currentWorkspace } from "../src/entities.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -34,6 +35,28 @@ function captureStdout(run: () => void): string {
 }
 
 describe("commands/results", () => {
+  test.serial("renders missing space and host as absent instead of inventing local", () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-"));
+    const old = process.env.ORCH_DIR;
+    const key = "headless~opaque~question-agent";
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    const dir = seedStatus(root, key, { agent: "pi", pid: process.pid, state: "blocked", label: "question-agent" });
+    writeFileSync(join(dir, "question.json"), JSON.stringify({ question: "need input", ts: new Date().toISOString() }));
+    try {
+      const output = captureStdout(() => { void cmdQuestions(["--local", "--all", "--json"]); });
+      const parsed: unknown = JSON.parse(output);
+      expect(parsed).toEqual([expect.objectContaining({ key, space: "-" })]);
+      expect(output).not.toContain("local");
+      expect(output).not.toContain("workspace");
+      expect(parsed).not.toHaveProperty("host");
+      expect(parsed).not.toHaveProperty("workspace");
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+
   test.serial("validates and extracts question payloads", () => {
     expect(isQuestionPayload({ question: "why?" })).toBe(true);
     expect(questionText({ question: "why?" })).toBe("why?");

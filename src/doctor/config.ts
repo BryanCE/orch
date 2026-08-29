@@ -4,6 +4,7 @@ import { loadConfig, loadConfigOrNull, settingsPath, type OrchConfig } from "../
 import { resolveAdapter } from "../adapters/registry.ts";
 import type { CheckResult } from "../check-result.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
+import { errorMessage } from "../util.ts";
 
 export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
@@ -43,7 +44,7 @@ export async function checkConfig(orchDir: string): Promise<CheckResult> {
     loadConfig(orchDir);
     return { id: "config", label: "Config validity", status: "ok", detail: file };
   } catch (error: unknown) {
-    return { id: "config", label: "Config validity", status: "fail", detail: error instanceof Error ? error.message : String(error) };
+    return { id: "config", label: "Config validity", status: "fail", detail: errorMessage(error) };
   }
 }
 

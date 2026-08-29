@@ -1,6 +1,8 @@
-import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
+import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
+import { type RetryPolicy } from "../../retry.ts";
+import { DEFAULT_TOOL_RETRY, runTool } from "../tool-exec.ts";
 
 export interface HerdrPane {
   pane_id: string;
@@ -63,8 +65,22 @@ function errorDetail(error: unknown): string {
   return error instanceof Error ? error.message : outputText(error);
 }
 
-type HerdrExecutor = (command: string, args: string[], options?: ExecFileSyncOptionsWithStringEncoding) => string;
-let executeHerdr: HerdrExecutor = (command, args, options) => execFileSync(command, args, options) as string;
+type HerdrExecutor = (
+  command: string,
+  args: string[],
+  options?: ExecFileSyncOptionsWithStringEncoding,
+  policy?: RetryPolicy,
+) => string;
+
+const DEFAULT_HERDR_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
+  encoding: "utf8",
+  stdio: ["ignore", "pipe", "pipe"],
+};
+/** The default runner goes through orch's shared tool seam, so every herdr
+ *  command - not just `agent start` - rides the same backoff. A test that
+ *  injects its own executor replaces this wholesale and retries nothing. */
+let executeHerdr: HerdrExecutor = (command, args, options, policy) =>
+  runTool(command, args, policy ?? DEFAULT_TOOL_RETRY, options ?? DEFAULT_HERDR_OPTIONS);
 
 function isHerdrPane(value: unknown): value is HerdrPane {
   return isRecord(value) && typeof value.pane_id === "string";
@@ -144,10 +160,45 @@ export function herdrAck(args: string[], timeoutMs?: number): void {
   herdrOutput(args, timeoutMs);
 }
 
+/** herdr reports why a start failed as a JSON error code on stderr. */
+function herdrErrorCode(error: unknown): string | null {
+  if (!isRecord(error) || error.stderr === undefined) return null;
+  try {
+    const parsed: unknown = JSON.parse(outputText(error.stderr).trim());
+    return isRecord(parsed) && isRecord(parsed.error) && typeof parsed.error.code === "string"
+      ? parsed.error.code
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A pane whose shell has not finished coming up answers `agent_pane_busy`.
+ *  herdr retries that itself, but only for 2s (PANE_SHELL_READINESS_RETRY_TIMEOUT
+ *  in its cli/agent.rs) - a loaded or slow machine takes longer than that to reach
+ *  a prompt, and the spawn then fails for a reason that was never an error. */
+const START_RETRY: RetryPolicy = {
+  attempts: 5,
+  delayMs: 500,
+  backoff: 2,
+  retryable: (error) => herdrErrorCode(error) === "agent_pane_busy",
+};
+
 /** Start a harness in an existing pane. Blocking on both sides by nature: herdr
  *  settles the process before answering, and orch waits out the budget it set. */
-export function herdrStartAgent(args: string[]): void {
-  herdrOutput([...args, "--timeout", String(AGENT_START_TIMEOUT_MS)], AGENT_START_EXEC_TIMEOUT_MS);
+export function herdrStartAgent(args: string[], agentArgs: readonly string[] = []): void {
+  // herdr's grammar is `agent start <name> [OPTIONS] [-- [AGENT_ARG]...]`; the
+  // separator must come after every option or herdr reads the flags as agent args.
+  const fullArgs = [...args, "--timeout", String(AGENT_START_TIMEOUT_MS),
+    ...(agentArgs.length > 0 ? ["--", ...agentArgs] : [])];
+  listCache.clear();
+  try {
+    executeHerdr("herdr", fullArgs, { timeout: AGENT_START_EXEC_TIMEOUT_MS, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, START_RETRY);
+  } catch (error: unknown) {
+    // A harness that started but has not painted its first frame is not a failure.
+    if (herdrErrorCode(error) === "agent_not_ready") return;
+    throw new Error(`herdr ${fullArgs.join(" ")} failed: ${errorDetail(error)}`);
+  }
 }
 
 /** Read herdr's installed semantic version from its CLI. A missing binary or

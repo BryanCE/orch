@@ -27,37 +27,37 @@ function fixture(): string {
 describe("event store rows", () => {
   test("appendEvent assigns increasing sequence numbers and round-trips payload", () => {
     const orchDir = fixture();
-    const first = appendEvent(orchDir, "2026-01-01T00:00:00.000Z", { kind: "started", count: 1 });
-    const second = appendEvent(orchDir, "2026-01-01T00:00:01.000Z", ["finished", true]);
+    const first = appendEvent(orchDir, Date.parse("2026-01-01T00:00:00.000Z"), { kind: "started", count: 1 });
+    const second = appendEvent(orchDir, Date.parse("2026-01-01T00:00:01.000Z"), ["finished", true]);
 
-    expect(first).toEqual({ seq: 1, ts: "2026-01-01T00:00:00.000Z", event: { kind: "started", count: 1 } });
-    expect(second).toEqual({ seq: 2, ts: "2026-01-01T00:00:01.000Z", event: ["finished", true] });
+    expect(first).toEqual({ seq: 1, ts: Date.parse("2026-01-01T00:00:00.000Z"), event: { kind: "started", count: 1 } });
+    expect(second).toEqual({ seq: 2, ts: Date.parse("2026-01-01T00:00:01.000Z"), event: ["finished", true] });
   });
 
   test("appendEvent keeps sequence numbers across store reopen", () => {
     const orchDir = fixture();
-    appendEvent(orchDir, "2026-01-01T00:00:00.000Z", { n: 1 });
-    appendEvent(orchDir, "2026-01-01T00:00:01.000Z", { n: 2 });
-    appendEvent(orchDir, "2026-01-01T00:00:02.000Z", { n: 3 });
+    appendEvent(orchDir, Date.parse("2026-01-01T00:00:00.000Z"), { n: 1 });
+    appendEvent(orchDir, Date.parse("2026-01-01T00:00:01.000Z"), { n: 2 });
+    appendEvent(orchDir, Date.parse("2026-01-01T00:00:02.000Z"), { n: 3 });
     closeAllStores();
 
-    expect(appendEvent(orchDir, "2026-01-01T00:00:03.000Z", { n: 4 }).seq).toBe(4);
+    expect(appendEvent(orchDir, Date.parse("2026-01-01T00:00:03.000Z"), { n: 4 }).seq).toBe(4);
   });
 
   test("pruned sequence numbers are never reused", () => {
     const orchDir = fixture();
     for (let i = 1; i <= 5; i += 1) {
-      appendEvent(orchDir, `2026-01-01T00:00:0${i}.000Z`, { n: i });
+      appendEvent(orchDir, Date.parse(`2026-01-01T00:00:0${i}.000Z`), { n: i });
     }
 
-    expect(deleteEventsBefore(orchDir, "2026-01-01T00:00:04.000Z")).toBe(3);
-    expect(appendEvent(orchDir, "2026-01-01T00:00:06.000Z", { n: 6 }).seq).toBe(6);
+    expect(deleteEventsBefore(orchDir, Date.parse("2026-01-01T00:00:04.000Z"))).toBe(3);
+    expect(appendEvent(orchDir, Date.parse("2026-01-01T00:00:06.000Z"), { n: 6 }).seq).toBe(6);
   });
 
   test("selectEventsSince filters by sequence, orders ascending, and honours limit", () => {
     const orchDir = fixture();
     for (let i = 1; i <= 5; i += 1) {
-      appendEvent(orchDir, `2026-01-01T00:00:0${i}.000Z`, { n: i });
+      appendEvent(orchDir, Date.parse(`2026-01-01T00:00:0${i}.000Z`), { n: i });
     }
 
     expect(selectEventsSince(orchDir, 2, 2).map((row) => row.seq)).toEqual([3, 4]);
@@ -68,10 +68,10 @@ describe("event store rows", () => {
     const orchDir = fixture();
     expect(oldestEventSeq(orchDir)).toBeUndefined();
     for (let i = 1; i <= 5; i += 1) {
-      appendEvent(orchDir, `2026-01-01T00:00:0${i}.000Z`, { n: i });
+      appendEvent(orchDir, Date.parse(`2026-01-01T00:00:0${i}.000Z`), { n: i });
     }
 
-    expect(deleteEventsBefore(orchDir, "2026-01-01T00:00:04.000Z")).toBe(3);
+    expect(deleteEventsBefore(orchDir, Date.parse("2026-01-01T00:00:04.000Z"))).toBe(3);
     expect(oldestEventSeq(orchDir)).toBe(4);
   });
 });

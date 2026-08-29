@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/config.ts";
 import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
-import { assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn.ts";
+import { SpawnRefusalError, assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn.ts";
 import { presenceAgentDir, type PresenceEntry } from "../src/presence/store.ts";
 import type { SpawnedRecord } from "../src/store/spawned-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -50,25 +50,14 @@ function capacityRefusal(
   requested: number,
   data: { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> },
 ): string {
-  const originalExit = process.exit.bind(process);
-  const originalWrite = process.stderr.write.bind(process.stderr);
-  let stderr = "";
-  function stderrWrite(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;
-  function stderrWrite(chunk: string | Uint8Array, _encoding: BufferEncoding, _callback?: (error: Error | null | undefined) => void): boolean;
-  function stderrWrite(chunk: string | Uint8Array): boolean {
-    stderr += String(chunk);
-    return true;
-  }
-  process.stderr.write = stderrWrite;
-  process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
+  // A refusal THROWS and prints nothing: `die()` belongs to the CLI boundary,
+  // never inside a function another command calls (bug 1.11). The message the
+  // caller would print is the error's own.
   try {
     assertSpawnCapacity(settings, workspace, requested, data.records, data.presence);
   } catch (error: unknown) {
-    if (error instanceof Error && error.message.startsWith("exit ")) return stderr;
+    if (error instanceof SpawnRefusalError) return error.message;
     throw error;
-  } finally {
-    process.exit = originalExit;
-    process.stderr.write = originalWrite;
   }
   throw new Error("expected spawn capacity refusal");
 }
@@ -100,7 +89,7 @@ describe("spawn limits", () => {
     writeSettingsFixture(dir, { fleet: { max_agents: 6 } });
     const settings = loadConfig(dir);
     expect(settings.fleet.max_agents).toBe(6);
-    expect(capacityRefusal(settings, "wA", 2, data)).toBe("spawn refused: would put all workspaces at 7/6 agents (5 live + 2 requested; fleet.max_agents)\n");
+    expect(capacityRefusal(settings, "wA", 2, data)).toBe("spawn refused: would put all workspaces at 7/6 agents (5 live + 2 requested; fleet.max_agents)");
   });
 
   test("one workspace may use the full global allotment", () => {
@@ -117,7 +106,7 @@ describe("spawn limits", () => {
     writeSettingsFixture(dir, { fleet: { max_agents: 12, workspace_caps: { wD: 4 } } });
     const settings = loadConfig(dir);
     const data = records([["a", "wD"], ["b", "wD"], ["c", "wD"]]);
-    expect(capacityRefusal(settings, "wD", 2, data)).toBe("spawn refused: would put wD at 5/4 agents (3 live + 2 requested; fleet.workspace_caps.wD)\n");
+    expect(capacityRefusal(settings, "wD", 2, data)).toBe("spawn refused: would put wD at 5/4 agents (3 live + 2 requested; fleet.workspace_caps.wD)");
   });
 
   test("uncapped workspace is bounded only by global count", () => {
@@ -126,7 +115,7 @@ describe("spawn limits", () => {
     const settings = loadConfig(dir);
     const data = records([["a", "wD"], ["b", "wX"]]);
     expect(() => assertSpawnCapacity(settings, "wX", 4, data.records, data.presence)).not.toThrow();
-    expect(capacityRefusal(settings, "wX", 5, data)).toBe("spawn refused: would put all workspaces at 7/6 agents (2 live + 5 requested; fleet.max_agents)\n");
+    expect(capacityRefusal(settings, "wX", 5, data)).toBe("spawn refused: would put all workspaces at 7/6 agents (2 live + 5 requested; fleet.max_agents)");
   });
 
   test("foreign pack members do not consume the caller's pack cap", () => {

@@ -1,14 +1,15 @@
 import * as files from "node:fs";
-import { deleteSettingsNotify, loadConfig, NOTIFY_DEFAULT_ON, NOTIFY_STATES, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsNotify, writeSettingsPreferredModels, writeSettingsSkills, type NotifyEntry, type NotifyState, type OrchConfig } from "../config.ts";
+import { deleteSettingsNotify, loadConfig, NOTIFY_DEFAULT_ON, NOTIFY_STATES, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsNotify, writeSettingsPreferredModels, writeSettingsSkills, writeSettingsThinking, SETTINGS_DEFAULTS, type NotifyEntry, type NotifyState, type OrchConfig } from "../config.ts";
 import { buildSelectedNotifyEntries, probeNotifiers, type NotifierChoice } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup.ts";
 import { refreshAdapterCatalogues } from "../adapters/registry.ts";
-import { ADAPTER_IDS } from "../adapters/adapter.ts";
+import { ADAPTER_IDS, isAdapterId } from "../adapters/adapter.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
 import { BACKEND_IDS } from "../backends/backend.ts";
+import { isThinkingLevel, THINKING_LEVELS } from "../policy/thinking.ts";
 import { die } from "./target.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
@@ -254,6 +255,9 @@ export function cmdSettings(args: string[]): void {
 
   const provenance = [
     { key: "defaults.worktree", ...resolveWithSource<boolean>({ env: "ORCH_WORKTREE", config: rawSetting<boolean>(orchDir(), "defaults", "worktree"), fallback: config.defaults.worktree }) },
+    // Thinking is its own axis (TASKS/12), so it is listed as its own setting and
+    // never as part of a model id.
+    { key: "defaults.thinking", ...resolveWithSource<string>({ env: "ORCH_THINKING", config: rawSetting<string>(orchDir(), "defaults", "thinking"), fallback: config.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking }) },
     { key: "adapter", ...resolveWithSource<string>({ env: "ORCH_ADAPTER", config: rawSetting<string>(orchDir(), "defaults", "adapter"), fallback: "(none)" }) },
     { key: "backend", ...resolveWithSource<string>({ env: "ORCH_BACKEND", config: rawSetting<string>(orchDir(), "defaults", "backend"), fallback: "(auto)" }) },
     { key: "daemon.tcp_port", ...resolveWithSource<number>({ env: "ORCH_DAEMON_PORT", config: rawSetting<number>(orchDir(), "daemon", "tcp_port"), fallback: config.daemon.tcp_port }) },
@@ -301,4 +305,46 @@ export function cmdSettings(args: string[]): void {
   process.stdout.write(`  hosts               ${Object.keys(config.hosts).length}\n`);
   process.stdout.write(`  workspaces          ${Object.keys(config.workspaces).length}\n`);
   process.stdout.write(`  notify              ${config.notify.length}\n`);
+}
+
+/**
+ * Set the thinking effort a launch uses when nothing overrides it.
+ *
+ * `TASKS/12-thinking.md`: thinking is its own axis, configurable through orch rather
+ * than by hand-editing settings.json, and it applies to any model and any harness.
+ * A bare level sets the global default; `--harness=<id>` sets that harness's override,
+ * and `--clear` with `--harness` removes it.
+ */
+export function cmdSettingsThinking(args: string[]): void {
+  const harnessFlag = args.find((argument) => argument.startsWith("--harness="))?.slice("--harness=".length);
+  const clear = args.includes("--clear");
+  const level = args.find((argument) => !argument.startsWith("--"));
+
+  if (harnessFlag !== undefined && !isAdapterId(harnessFlag)) {
+    throw new Error(`unknown harness ${JSON.stringify(harnessFlag)}; known harnesses: ${ADAPTER_IDS.join(", ")}`);
+  }
+  if (clear) {
+    if (harnessFlag === undefined) throw new Error("--clear needs --harness=<id>: the global default always has a value");
+    writeSettingsThinking(orchDir(), { byHarness: { [harnessFlag]: null } });
+    process.stdout.write(`cleared the thinking override for ${harnessFlag}\n`);
+    return;
+  }
+  if (level === undefined) {
+    const config = currentConfig();
+    process.stdout.write(`thinking  ${config.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking}\n`);
+    for (const [harness, value] of Object.entries(config.defaults.thinking_by_harness ?? {})) {
+      process.stdout.write(`thinking (${harness})  ${String(value)}\n`);
+    }
+    return;
+  }
+  if (!isThinkingLevel(level)) {
+    throw new Error(`unknown thinking level ${JSON.stringify(level)}; valid levels: ${THINKING_LEVELS.join(", ")}`);
+  }
+  if (harnessFlag === undefined) {
+    writeSettingsThinking(orchDir(), { thinking: level });
+    process.stdout.write(`thinking  ${level}\n`);
+  } else {
+    writeSettingsThinking(orchDir(), { byHarness: { [harnessFlag]: level } });
+    process.stdout.write(`thinking (${harnessFlag})  ${level}\n`);
+  }
 }

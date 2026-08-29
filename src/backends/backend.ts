@@ -11,18 +11,18 @@ export interface PaneCoordinate {
 }
 
 export type PaneTarget<Handle = BackendHandle> = BackendTarget<Handle>;
-export interface OpenPaneRequest {
+export interface OpenPaneRequest<Handle = BackendHandle> {
   readonly cwd: string;
   readonly workspace?: string;
   readonly group?: string;
   readonly split?: BackendSplit;
-  readonly targetPane?: BackendHandle;
+  readonly targetPane?: Handle;
   readonly env?: Readonly<Record<string, string>>;
 }
 export interface CreatedPane<Handle = BackendHandle> { readonly handle: Handle; }
 
 export interface PaneHostRole<Handle = BackendHandle> {
-  open(request: OpenPaneRequest): CreatedPane<Handle>;
+  open(request: OpenPaneRequest<Handle>): CreatedPane<Handle>;
   close(handle: Handle): void;
 }
 export interface PaneInventoryRole<Handle = BackendHandle> {
@@ -33,8 +33,8 @@ export interface PaneInputRole<Handle = BackendHandle> {
   submit(handle: Handle, text: string): void;
   sendKeys(handle: Handle, keys: readonly string[]): void;
   focus(handle: Handle): void;
-  foreground(handle: Handle): PaneForeground;
 }
+export interface PaneForegroundRole<Handle = BackendHandle> { read(handle: Handle): PaneForeground; }
 export interface PaneScreenRole<Handle = BackendHandle> { read(handle: Handle, lines: number): string; }
 export interface PaneZoomRole<Handle = BackendHandle> { setZoom(handle: Handle, mode: BackendZoomMode): void; }
 export interface PaneNamingRole<Handle = BackendHandle> { renamePane(handle: Handle, name: string): void; }
@@ -87,6 +87,7 @@ export interface EnvironmentServices<Handle = BackendHandle> {
   readonly paneHost: PaneHostRole<Handle> | null;
   readonly paneInventory: PaneInventoryRole<Handle> | null;
   readonly paneInput: PaneInputRole<Handle> | null;
+  readonly paneForeground: PaneForegroundRole<Handle> | null;
   readonly paneScreen: PaneScreenRole<Handle> | null;
   readonly paneZoom: PaneZoomRole<Handle> | null;
   readonly paneNaming: PaneNamingRole<Handle> | null;
@@ -145,12 +146,6 @@ export interface CaptureRole {
 
 /** Capabilities exposed by a backend. */
 export interface BackendCapabilities {
-  /** Whether the backend creates or manages visible panes. */
-  readonly panes: boolean;
-  /** Whether the backend can focus one of its handles. */
-  readonly focusable: boolean;
-  /** Whether the backend can deliver raw keystrokes to a handle. */
-  readonly canSendKeys: boolean;
   /** Whether the backend owns logs and can prune its stale log artifacts. */
   readonly canPruneLogs: boolean;
 }
@@ -283,10 +278,6 @@ export type GroupLayout<Handle = BackendHandle> = BackendGroupLayout<Handle>;
  */
 export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Handle> {
   readonly id: BackendId;
-  readonly panes: boolean;
-  readonly focusable: boolean;
-  /** Whether raw keystroke delivery is supported (capability-gated by callers). */
-  readonly canSendKeys: boolean;
   /** Declared backend capabilities. */
   readonly capabilities: BackendCapabilities;
   /** Orch-owned channels composed for this environment. */
@@ -301,12 +292,6 @@ export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Han
   /** Installed integration version, when this backend exposes one. */
   version?(): string | null;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
-  close(handle: Handle): boolean;
-  list(): Handle[];
-  /** Bring a target into view. */
-  focus(handle: Handle): boolean;
-  /** Send raw keystrokes (backend key names, e.g. "Escape", "Enter"). */
-  sendKeys(handle: Handle, keys: readonly string[]): boolean;
   /**
    * Workspace id → human display name for the workspaces the backend can
    * enumerate. A backend with no name concept returns an empty map; consumers
@@ -322,21 +307,8 @@ export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Han
   handleFor?(key: string): Handle | undefined;
   /** Identity of the calling process's own target, when inside a session. */
   currentIdentity?(): Identity | null;
-  /** Every live target with display metadata (fleet enumeration). */
-  inventory?(): BackendTarget<Handle>[];
-  /** Read the last visible lines of a target's screen. Throws on failure. */
-  read?(handle: Handle, lines: number): string;
-  zoom?(handle: Handle, mode: BackendZoomMode): boolean;
-  /** Rename the agent shown for a target. */
-  renameAgent?(handle: Handle, name: string): boolean;
-  /** Rename the pane border label of a target. */
-  renamePane?(handle: Handle, name: string): boolean;
   /** Remove stale backend-owned logs, retaining logs for live presence keys. */
   pruneLogs?(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number;
-  /** What a target is running right now, for launch and exit checks. */
-  paneForeground?(handle: Handle): PaneForeground;
-  /** Block until the backend reports the agent status, or time out. */
-  waitAgentStatus?(handle: Handle, status: string, timeoutMs: number): boolean;
   workspaces?(): BackendWorkspace[];
   /** Open a workspace of orch's own and report it with its root handle. Throws on
    *  failure. A caller outside the plexer has no workspace to borrow, and taking

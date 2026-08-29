@@ -1,11 +1,11 @@
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { join } from "node:path";
+import { defineRelations } from "drizzle-orm";
 import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "./tables.ts";
-import { PRESENCE_SCHEMA, STATUS_FILE } from "../presence/schema.ts";
-import { presenceRoot } from "../presence/writer.ts";
+import { presenceRoot, readStatus } from "../presence/writer.ts";
 import { pidAlive } from "../util.ts";
 
 interface StatementLike {
@@ -14,7 +14,7 @@ interface StatementLike {
   get(...params: unknown[]): unknown;
 }
 
-interface DatabaseLike {
+export interface DatabaseLike {
   exec(sql: string): void;
   query(sql: string): StatementLike;
   close(): void;
@@ -61,8 +61,15 @@ class NodeSqliteAdapter implements DatabaseLike {
  *  address the same connection, so a half-converted module stays consistent. */
 interface OpenDatabase {
   readonly port: DatabaseLike;
-  readonly orm: NodeSQLiteDatabase<typeof tables>;
+  readonly orm: Orm;
 }
+
+/** drizzle 1.x types its handle by a relations object rather than the bare
+ *  table module. Every table is registered here with no relations between them:
+ *  the store queries tables directly, so the relational query builder stays
+ *  unused, but the handle still names exactly orch's tables. */
+const relations = defineRelations(tables);
+type Orm = NodeSQLiteDatabase<typeof relations>;
 
 const connections = new Map<string, OpenDatabase>();
 
@@ -72,7 +79,7 @@ const connections = new Map<string, OpenDatabase>();
  *  panic on (oven-sh/bun#24956). */
 function createDatabase(file: string): OpenDatabase {
   const client = new DatabaseSync(file);
-  return { port: new NodeSqliteAdapter(client), orm: drizzle({ client, schema: tables }) };
+  return { port: new NodeSqliteAdapter(client), orm: drizzle({ client, relations }) };
 }
 
 function databasePath(orchDir: string): string {
@@ -98,8 +105,8 @@ function hasLivePresence(orchDir: string): boolean {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     try {
-      const status = JSON.parse(readFileSync(join(presenceRoot(orchDir), entry.name, STATUS_FILE), "utf8")) as { schema?: unknown; pid?: unknown };
-      if (status?.schema === PRESENCE_SCHEMA && pidAlive(status.pid)) return true;
+      const status = readStatus(join(presenceRoot(orchDir), entry.name));
+      if (pidAlive(status.pid)) return true;
     } catch {
       // A malformed status is not a live presence record.
     }
@@ -149,7 +156,7 @@ function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): v
 
 /** The typed drizzle handle for one orch dir, opened and verified exactly as
  *  {@link openStore} does — they share the connection cache and the one file. */
-export function orm(orchDir: string): NodeSQLiteDatabase<typeof tables> {
+export function orm(orchDir: string): Orm {
   return openDatabase(orchDir).orm;
 }
 
@@ -188,8 +195,7 @@ export function closeAllStores(): void {
   }
 }
 
-export function withTransaction<T>(orchDir: string, body: () => T): T {
-  const db = openStore(orchDir);
+export function transaction<T>(db: DatabaseLike, body: () => T): T {
   db.exec("BEGIN IMMEDIATE");
   try {
     const result = body();
@@ -199,4 +205,8 @@ export function withTransaction<T>(orchDir: string, body: () => T): T {
     try { db.exec("ROLLBACK"); } catch {}
     throw error;
   }
+}
+
+export function withTransaction<T>(orchDir: string, body: () => T): T {
+  return transaction(openStore(orchDir), body);
 }

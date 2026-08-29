@@ -4,7 +4,7 @@ import { ArrowRight, Users, Inbox } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useFleet } from "@/hooks/use-fleet";
-import { stateColor, type Workspace } from "@/lib/fleet";
+import { stateColor, type Space } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/")({
   component: GodView,
 });
 
-function rollup(ws: Workspace) {
+function rollup(ws: Space) {
   const cost = ws.agents.reduce((s, a) => s + (a.cost ?? 0), 0);
   const counts = ws.agents.reduce<Record<string, number>>((m, a) => {
     m[a.state] = (m[a.state] ?? 0) + 1;
@@ -22,23 +22,23 @@ function rollup(ws: Workspace) {
 }
 
 function GodView() {
-  const { data: workspaces = [], isPending } = useFleet();
+  const { data: spaces = [], isPending } = useFleet();
 
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center gap-3">
         <h1 className="text-xl font-semibold">Spaces</h1>
-        {!isPending && <Badge variant="outline">{workspaces.length} live</Badge>}
+        {!isPending && <Badge variant="outline">{spaces.length} live</Badge>}
       </div>
 
-      {!isPending && workspaces.length === 0 ? (
+      {!isPending && spaces.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
           <Inbox className="size-10" />
           <p className="text-sm">No agents running. Spawn a fleet and it shows up here.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {workspaces.map((ws) => {
+          {spaces.map((ws) => {
             const r = rollup(ws);
             return (
               <Link key={ws.slug} to="/ws/$slug" params={{ slug: ws.slug }} className="group">

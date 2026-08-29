@@ -10,6 +10,8 @@ import { callDaemon, parseGovernance, writeRpc, type WriteGovernance } from "./d
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
+import type { AgentAdapter } from "../adapters/adapter.ts";
+import type { WorkerHeaderContext } from "../worker-prompt.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
 
 type DispatchFlags = AgentFlags & {
@@ -48,6 +50,7 @@ export async function cmdSteer(args: string[]): Promise<void> {
     return;
   }
   const entity = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  assertAgentOwned(target, entity, gov.steal);
   if (!entity.paneId) {
     if (!entity.presence) die(`Target "${target}" has no agent presence.`);
     // The daemon's control dispatcher applies the effect; the CLI never steers directly.
@@ -159,6 +162,7 @@ export async function cmdModel(args: string[]): Promise<void> {
   const modelArg = rest[1];
   if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
   const ent = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  assertAgentOwned(target, ent, gov.steal);
   const pane = ent.paneId ?? ent.key;
   const result = await setAgentModel(ent.key, modelArg, gov);
   const recipient = recipientFor(ent.key);
@@ -179,6 +183,24 @@ async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGover
     : null;
   await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, unchanged: previous === modelArg };
+}
+
+export interface DispatchToAgentOptions {
+  raw?: boolean;
+  adapter?: AgentAdapter;
+  context?: WorkerHeaderContext;
+  gov?: WriteGovernance;
+}
+
+/** Deliver a prompt through orchd's canonical dispatch path. */
+export async function dispatchToAgent(key: string, text: string, options: DispatchToAgentOptions = {}): Promise<{ dispatchId: string }> {
+  const delivered = await writeRpc(
+    "dispatch",
+    { target: key, text: workerPrompt(text, options.raw ?? false, options.adapter, options.context ?? {}) },
+    options.gov,
+  );
+  if (!isRecord(delivered) || typeof delivered.id !== "string") throw new Error("dispatch response missing dispatch id");
+  return { dispatchId: delivered.id };
 }
 
 export async function cmdDispatch(args: string[]) {
@@ -204,7 +226,7 @@ export async function cmdDispatch(args: string[]) {
   const key = settings.ent.key;
   if (settings.model) await setAgentModel(key, settings.model, gov);
   const headerContext = { lockedCommands: config.locked_commands, spawnerRepliable: spawnerIsRepliable() };
-  const result = await writeRpc("dispatch", { target: key, text: workerPrompt(settings.prompt, settings.raw, entityAdapter(settings.ent), headerContext) }, gov);
+  const { dispatchId } = await dispatchToAgent(key, settings.prompt, { raw: settings.raw, adapter: entityAdapter(settings.ent), context: headerContext, gov });
   // A spawned agent is already registered under its key; only an unrecorded
   // bare pane needs a row, and it must carry the same key we just dispatched to.
   // Dispatching to a bare pane adopts it: the record carries the dispatcher's
@@ -216,7 +238,7 @@ export async function cmdDispatch(args: string[]) {
   const recipient = recipientFor(key);
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the pane runs the prompt this command sent, not some other delivery.
-  const dispatchId = isRecord(result) && typeof result.id === "string" ? result.id : null;
+  const result = { id: dispatchId };
   if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}${dispatchId ? ` (dispatch ${dispatchId})` : ""}.\n`);
 }
@@ -243,6 +265,7 @@ function resolveDispatchSettings(flags: DispatchFlags, config: OrchConfig, gov: 
   const prompt = flags.positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
   const ent = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  assertAgentOwned(target, ent, gov.steal);
   const pane = ent.paneId ?? ent.key;
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);

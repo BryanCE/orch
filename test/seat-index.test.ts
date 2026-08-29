@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { countStates, formatSeatStatus } from "../src/seat/index.ts";
+import { countStates, formatSeatStatus, hasTheme } from "../src/seat/index.ts";
 import type { PackSnapshot } from "../src/seat/domain.ts";
 import { reconcileDashboardSelection } from "../src/seat/ui/takeover.ts";
+import { errorMessage } from "../src/util.ts";
 
 function snapshot(state: string, key = state): PackSnapshot {
   return {
@@ -24,6 +25,17 @@ function plainTheme(): Theme {
 }
 
 describe("seat pure seams", () => {
+  test("errorMessage preserves non-Error thrown values", () => {
+    expect(errorMessage("failed")).toBe("failed");
+    expect(errorMessage({ reason: "failed" })).toBe("[object Object]");
+  });
+
+  test("hasTheme discriminates missing and valid themes", () => {
+    expect(hasTheme({})).toBe(false);
+    const theme = plainTheme();
+    expect(hasTheme({ theme })).toBe(true);
+  });
+
   test("countStates groups active, blocked, failed, and settled states", () => {
     expect(countStates([
       snapshot("working"),

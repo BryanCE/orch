@@ -51,7 +51,21 @@ describe("lease commands", () => {
     expect(currentLease(dir, "worker")).toBeNull();
     expect(adoptAgent(dir, "worker", "new-orch", 4)).toMatchObject({ adopted: true, name: "worker" });
     expect(currentLease(dir, "worker")?.orchId).toBe("new-orch");
-    expect(() => detachAgent(dir, "worker", "orch", 5)).toThrow(/leased by/);
+    // Rule 11: a lease excludes only while its holder is ALIVE. "new-orch" has no
+    // process, so its lease is a stale row and detach clears it. Refusing here is
+    // what stranded a fleet: every driving verb is gated on the lease, so detach
+    // is the only way out and must never be blocked by the thing it exists to clear.
+    expect(detachAgent(dir, "worker", "orch", 5)).toMatchObject({ released: true });
+    expect(currentLease(dir, "worker")).toBeNull();
+  });
+
+  test("a LIVE foreign holder still excludes everyone else", () => {
+    const dir = fixture();
+    agent(dir, "orch"); agent(dir, "worker", "worker");
+    liveHolder(dir, "live-orch");
+    acquireLease(dir, "worker", "live-orch", 2);
+    expect(() => detachAgent(dir, "worker", "orch", 3)).toThrow(/leased by live orch/);
+    expect(currentLease(dir, "worker")?.orchId).toBe("live-orch");
   });
 
   test("adopt takes an unleased agent and a dead holder", () => {
@@ -104,24 +118,19 @@ describe("lease commands", () => {
     agent(dir, key, "abort-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
-    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "abort-handle", name: "abort-worker" });
+    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "abort-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
 
-    const backend = headlessBackend as unknown as { canSendKeys: boolean; sendKeys: typeof headlessBackend.sendKeys };
-    const oldCanSendKeys = backend.canSendKeys;
-    const oldSendKeys = backend.sendKeys.bind(backend);
-    let sends = 0;
-    backend.canSendKeys = true;
-    backend.sendKeys = () => { sends++; return true; };
-    try {
-      cmdAbort([key, "--json"]);
-    } finally {
-      backend.canSendKeys = oldCanSendKeys;
-      backend.sendKeys = oldSendKeys;
-    }
-    expect(sends).toBe(2);
+    // Rule 11: `abort`/`close`/`reap` are NEVER gated — the human must always be
+    // able to kill from CLI or web, whether or not a live foreign orch holds the
+    // lease. Abort must therefore PROCEED here and must not steal the lease.
+    // Headless composes no paneInput (TASKS/07: "Headless has channel, capture and
+    // process roles and no pane roles"), so this asserts the refusal is absent,
+    // not that any keystroke was sent.
+    expect(headlessBackend.paneInput).toBeNull();
+    expect(() => { cmdAbort([key, "--json"]); }).not.toThrow();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });
 
@@ -132,7 +141,7 @@ describe("lease commands", () => {
     agent(dir, key, "close-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
-    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "close-handle", name: "close-worker" });
+    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "close-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));

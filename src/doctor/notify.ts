@@ -1,11 +1,11 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadConfigOrNull, type NotifyEntry } from "../config.ts";
-import { createNotifierRegistry, loadSinks, type Sink } from "../notify/router.ts";
+import { loadConfigOrNull, NOTIFY_DEFAULT_ON, type NotifyEntry } from "../config.ts";
+import { createNotifierRegistry } from "../notify/router.ts";
 import { allBackends } from "../backends/registry.ts";
 import type { CheckResult } from "../check-result.ts";
 import type { BinaryStatus } from "./bins.ts";
-import { binaryOnPath, packageRoot } from "../util.ts";
+import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
@@ -31,22 +31,21 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
     // Only a settings.json that exists and is malformed is a failure worth naming here.
     configured = loadConfigOrNull(orchDir)?.notify ?? [];
   } catch (error: unknown) {
-    return { id, label, status: "fail", detail: error instanceof Error ? error.message : String(error) };
+    return { id, label, status: "fail", detail: errorMessage(error) };
   }
   if (!configured.length) return { id, label, status: "ok", detail: "no notifiers configured" };
 
   const registry = createNotifierRegistry();
   const failures: string[] = [];
+  const warnings: string[] = [];
   for (const [index, entry] of configured.entries()) {
     const number = index + 1;
     const adapter = entry.id;
-    const config: Record<string, unknown> = { ...entry };
-    delete config.id;
-    delete config.on;
-    if (adapter === "command" && typeof config.command === "string") {
-      config.command = ["sh", "-c", config.command];
+    const effectiveOn = entry.on ?? NOTIFY_DEFAULT_ON;
+    if (!effectiveOn.includes("done")) {
+      warnings.push(`${adapter}: effective "on" list omits "done"; fix: orch settings notify add ${adapter} --on=blocked,error,done`);
     }
-    const errors = registry.validate(adapter, config);
+    const errors = registry.validate(entry);
     if (errors.length) {
       failures.push(`${adapter || `notifier #${number}`}: ${errors.join(", ")}; fix: add ${errors.map((error) => {
         const field = /requires (\\w+)$/.exec(error)?.[1] ?? "the required field";
@@ -54,37 +53,37 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
       }).join(", ")} to [[notify]]`);
       continue;
     }
-    const result = await registry.probe(adapter, config);
+    const result = await registry.reachable(entry);
     if (!result.available) {
-      const remediation = notifierRemediation(adapter, config, registry.get(adapter)?.remediation);
+      const remediation = notifierRemediation(adapter, entry, registry.notifierFor(entry)?.remediation);
       failures.push(`${adapter || `notifier #${number}`}: ${result.reason ?? result.error ?? "unavailable"}; ${remediation}`);
     }
   }
 
   if (failures.length) return { id, label, status: "fail", detail: failures.join("; ") };
+  if (warnings.length) return { id, label, status: "warn", detail: warnings.join("; ") };
   return { id, label, status: "ok", detail: `${configured.length} configured notifier${configured.length === 1 ? "" : "s"} are available` };
 }
 
 export function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResult {
   const id = "notify-sinks";
   const label = "Notification sinks";
-  const sinks = loadSinks(orchDir);
+  const sinks = loadConfigOrNull(orchDir)?.notify ?? [];
   if (!sinks.length) return { id, label, status: "ok", detail: "no notify sinks configured" };
 
   const desktop = checkNotifications(bins);
   const unavailable: string[] = [];
-  sinks.forEach((sink: Sink, index) => {
-    const name = `${sink.type} sink #${index + 1}`;
-    if (sink.type === "webhook") {
+  sinks.forEach((sink, index) => {
+    const name = `${sink.id} sink #${index + 1}`;
+    if (sink.id === "webhook") {
       try {
         const url = new URL(String(sink.url));
         if (url.protocol !== "http:" && url.protocol !== "https:") unavailable.push(`${name} URL is not http/https`);
       } catch {
         unavailable.push(`${name} URL is not well-formed`);
       }
-    } else if (sink.type === "command") {
-      const command = (sink as { command?: unknown }).command;
-      const normalized = typeof command === "string" ? ["sh", "-c", command] : command;
+    } else if (sink.id === "command") {
+      const normalized = typeof sink.command === "string" ? ["sh", "-c", sink.command] : sink.command;
       const binary = Array.isArray(normalized) && typeof normalized[0] === "string" ? normalized[0] : undefined;
       if (!binary || !binaryOnPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
     } else if (desktop.status !== "ok") {

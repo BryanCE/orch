@@ -26,6 +26,13 @@ describe("worker prompt capability composition", () => {
     expect(workerPrompt("task", false, getAdapter("pi"))).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ntask`);
   });
 
+  test("pi worker header permits only locked heavy commands through orch", () => {
+    const header = workerHeaderFor(getAdapter("pi"));
+    expect(header).toContain("orch lock run -- ");
+    expect(header).toContain("every other orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden");
+    expect(header).toContain("never spawn subagents");
+  });
+
   test("locked-commands clause names the commands when the list is non-empty", () => {
     const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: ["bun test", "bun run check"] });
     expect(header).toContain("locked machine-wide: bun test, bun run check");

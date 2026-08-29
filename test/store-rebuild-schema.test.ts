@@ -33,7 +33,7 @@ function base(d: ReturnType<typeof openStore>) {
 // make this test fail rather than being silently excluded as a legacy name.
 const expectedInventory = new Set([
   ...["ownership", "outbox", "spawned", "catalogues", "events", "runs", "harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes", "grant_requests", "grant_request_params", "grant_approvals", "grant_denials", "grant_spends", "__drizzle_migrations"].map(name => `table:${name}`),
-  ...["outbox_pending", "runs_agent_started", "one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running", "grants_by_action"].map(name => `index:${name}`),
+  ...["outbox_pending", "runs_agent_started", "one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running", "grants_by_action", "one_agent_per_session"].map(name => `index:${name}`),
   `view:task_states`,
   `view:grant_states`,
   ...["agent_handles", "agent_processes", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "host_plexers", "task_attempts", "pack_intakes"].map(name => `trigger:${name}_no_overlap`),
@@ -61,8 +61,10 @@ describe("rebuild schema", () => {
   test("documented column declarations are exact", () => {
     const d = db();
     const expected: Record<string, [string,string,number][]> = {
-      agents: [["id","TEXT",1],["spawned_by","TEXT",0],["root_agent_id","TEXT",1],["harness_id","TEXT",1],["cwd","TEXT",1],["name","TEXT",1],["label","TEXT",0],["created_at","INTEGER",1]],
-      agent_leases: [["id","INTEGER",1],["agent_id","TEXT",1],["orch_id","TEXT",1],["since","INTEGER",1],["until","INTEGER",0],["release_reason","TEXT",0]],
+      agents: [["id","TEXT",1],["spawned_by","TEXT",0],["root_agent_id","TEXT",1],["harness_id","TEXT",1],["cwd","TEXT",1],["name","TEXT",1],["label","TEXT",0],["session_token","TEXT",0],["created_at","INTEGER",1]],
+      // `id` reports notnull=0 because INTEGER PRIMARY KEY AUTOINCREMENT is the
+      // rowid alias: SQLite can never store NULL in it, so NOT NULL is noise.
+      agent_leases: [["id","INTEGER",0],["agent_id","TEXT",1],["orch_id","TEXT",1],["since","INTEGER",1],["until","INTEGER",0],["release_reason","TEXT",0]],
       tasks: [["id","TEXT",1],["text","TEXT",1],["opts","TEXT",1],["enqueued_by","TEXT",1],["scope_agent_id","TEXT",0],["scope_pack_id","TEXT",0],["scope_space_id","TEXT",0],["created_at","INTEGER",1]],
       task_attempts: [["task_id","TEXT",1],["since","INTEGER",1],["until","INTEGER",0],["agent_id","TEXT",1],["dispatch_id","TEXT",1],["outcome","TEXT",0],["result","TEXT",0],["error","TEXT",0]],
     };

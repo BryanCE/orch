@@ -94,6 +94,10 @@ function installCodexNotifyShim(root: string): void {
 export class CodexAdapter implements AgentAdapter {
   readonly id = "codex" as const;
 
+  /** Codex exports its session pid, which doubles as its session marker. */
+  readonly sessionEnvMarker = "CODEX_PID";
+  readonly sessionPidEnv = "CODEX_PID";
+
   /** Codex cannot ask through orch or switch a live model; resume is degraded steering. */
   readonly capabilities = {
     steer: "resume" as const,
@@ -112,6 +116,10 @@ export class CodexAdapter implements AgentAdapter {
     const command = ["codex"];
     if (opts.model) command.push("--model", shellQuote(opts.model));
     return command.join(" ");
+  }
+
+  interactiveArgv(opts: SpawnOpts): readonly string[] {
+    return opts.model ? ["codex", "--model", opts.model] : ["codex"];
   }
 
   /** Run Codex's documented JSON event stream in a detached process. */

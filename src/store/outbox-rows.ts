@@ -1,86 +1,14 @@
-import { openStore } from "./connection.ts";
-
-export interface OutboxMessageInput {
-  id: string;
-  target: string;
-  payload: unknown;
-  createdAt?: string;
-}
-
-export interface OutboxMessage {
-  id: string;
-  target: string;
-  payload: unknown;
-  state: "pending" | "delivered";
-  attempts: number;
-  createdAt: string;
-  nextAttemptAt: number;
-}
-
-interface OutboxRow {
-  id: string;
-  target: string;
-  payload: string;
-  state: string;
-  attempts: number;
-  created_at: string;
-  next_attempt_at: number;
-}
-
-function rowToOutboxMessage(row: OutboxRow): OutboxMessage {
-  return {
-    id: row.id,
-    target: row.target,
-    payload: JSON.parse(row.payload) as unknown,
-    state: row.state as OutboxMessage["state"],
-    attempts: row.attempts,
-    createdAt: row.created_at,
-    nextAttemptAt: row.next_attempt_at,
-  };
-}
-
-/** Insert a pending message; synchronous so callers may use it in a transaction. */
-export function insertOutboxMessage(orchDir: string, msg: OutboxMessageInput): void {
-  const createdAt = msg.createdAt ?? new Date().toISOString();
-  openStore(orchDir)
-    .query(
-      `INSERT INTO outbox (id, target, payload, state, attempts, created_at, next_attempt_at)
-       VALUES (?, ?, ?, 'pending', 0, ?, 0)`,
-    )
-    .run(msg.id, msg.target, JSON.stringify(msg.payload), createdAt);
-}
-
-export function selectPendingOutbox(orchDir: string, now: number): OutboxMessage[] {
-  const rows = openStore(orchDir)
-    .query(
-      "SELECT id, target, payload, state, attempts, created_at, next_attempt_at FROM outbox WHERE state = 'pending' AND next_attempt_at <= ? ORDER BY created_at ASC",
-    )
-    .all(now) as OutboxRow[];
-  return rows.map(rowToOutboxMessage);
-}
-
-/** Check one message's pending state without reading unrelated rows. */
-export function outboxMessagePending(orchDir: string, id: string): boolean {
-  const row = openStore(orchDir)
-    .query("SELECT 1 FROM outbox WHERE id = ? AND state = 'pending' LIMIT 1")
-    .get(id);
-  return row != null;
-}
-
-export function markOutboxDelivered(orchDir: string, id: string): void {
-  openStore(orchDir)
-    .query("UPDATE outbox SET state = 'delivered' WHERE id = ? AND state = 'pending'")
-    .run(id);
-}
-
-export function bumpOutboxAttempt(orchDir: string, id: string, nextAttemptAt: number): void {
-  openStore(orchDir)
-    .query(
-      "UPDATE outbox SET attempts = attempts + 1, next_attempt_at = ? WHERE id = ? AND state = 'pending'",
-    )
-    .run(nextAttemptAt, id);
-}
-
-export function deleteDeliveredBefore(orchDir: string, cutoffIso: string): number {
-  return openStore(orchDir).query("DELETE FROM outbox WHERE state = 'delivered' AND created_at < ?").run(cutoffIso).changes;
-}
+import { and, asc, eq, lte, lt } from "drizzle-orm";
+import { orm } from "./connection.ts";
+import { outbox } from "./tables.ts";
+export interface OutboxMessageInput{id:string;target:string;payload:unknown;createdAt?:number}
+export interface OutboxMessage{id:string;target:string;payload:unknown;state:"pending"|"delivered";attempts:number;createdAt:number;nextAttemptAt:number}
+type OutboxRow=typeof outbox.$inferSelect;
+function isState(value:string):value is OutboxMessage["state"] { return value === "pending" || value === "delivered"; }
+function toMessage(row:OutboxRow):OutboxMessage { if(!isState(row.state)) throw new Error("invalid outbox state"); return {id:row.id,target:row.target,payload:JSON.parse(row.payload),state:row.state,attempts:Number(row.attempts),createdAt:row.createdAt,nextAttemptAt:Number(row.nextAttemptAt)}; }
+export function insertOutboxMessage(d:string,m:OutboxMessageInput):void{orm(d).insert(outbox).values({id:m.id,target:m.target,payload:JSON.stringify(m.payload),state:"pending",createdAt:m.createdAt??Date.now(),nextAttemptAt:0}).run();}
+export function selectPendingOutbox(d:string,now:number):OutboxMessage[]{return orm(d).select().from(outbox).where(and(eq(outbox.state,"pending"),lte(outbox.nextAttemptAt,now))).orderBy(asc(outbox.createdAt)).all().map(toMessage);}
+export function outboxMessagePending(d:string,id:string):boolean{return orm(d).select({id:outbox.id}).from(outbox).where(and(eq(outbox.id,id),eq(outbox.state,"pending"))).limit(1).get()!==undefined;}
+export function markOutboxDelivered(d:string,id:string):void{orm(d).update(outbox).set({state:"delivered"}).where(and(eq(outbox.id,id),eq(outbox.state,"pending"))).run();}
+export function bumpOutboxAttempt(d:string,id:string,nextAttemptAt:number):void{const row=orm(d).select({attempts:outbox.attempts}).from(outbox).where(eq(outbox.id,id)).get();if(!row)return;orm(d).update(outbox).set({attempts:Number(row.attempts)+1,nextAttemptAt}).where(and(eq(outbox.id,id),eq(outbox.state,"pending"))).run();}
+export function deleteDeliveredBefore(d:string,cutoff:number):number{return Number(orm(d).delete(outbox).where(and(eq(outbox.state,"delivered"),lt(outbox.createdAt,cutoff))).run().changes);}

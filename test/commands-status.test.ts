@@ -77,12 +77,10 @@ describe("commands/status", () => {
   // what the backend DECLARES — a new plexer changes no renderer.
   test("row carries the owning backend's declared capabilities", () => {
     const paned = statusRowFromView(deriveView(seededEntity, new Map()), {});
-    expect(paned.capabilities).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
+    expect(paned.capabilities).toEqual({ canPruneLogs: false });
 
     const detached = { ...seededEntity, key: "headless~local~1", backend: "headless" } as unknown as Entity;
-    expect(statusRowFromView(deriveView(detached, new Map()), {}).capabilities).toEqual({
-      panes: false, focusable: false, canSendKeys: false, canPruneLogs: true,
-    });
+    expect(statusRowFromView(deriveView(detached, new Map()), {}).capabilities).toEqual({ canPruneLogs: true });
   });
 
   test("an agent whose backend orch cannot name reports no capabilities", () => {

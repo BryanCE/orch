@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
 import { orchDir } from "../../src/presence/writer.ts";
 import { registerOrchSeat } from "../../src/seat/index.ts";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HarnessApi, HarnessIdentity } from "../../src/agent/harness.ts";
 
 /** pi calls itself `pi`, and fires `agent_settled` when a run will not auto-continue. */
@@ -21,7 +20,7 @@ function piExtension(harness: HarnessApi): void {
   // The shared bridge exposes only the common harness surface; the orchestrator
   // seat (status line, /orch dashboard, per-agent views) needs pi's richer UI,
   // which is available in this harness-specific composition root.
-  registerOrchSeat(harness as unknown as ExtensionAPI, {
+  registerOrchSeat(harness, {
     orchDir: orchDir(),
     ownKey: bridge.ownKey,
   });

@@ -2,12 +2,14 @@ import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
 import type { Backend, BackendTarget } from "./backends/backend.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./presence/store.ts";
-import { serializeIdentity, tryParseIdentity } from "./backends/identity.ts";
+import { tryParseIdentity } from "./backends/identity.ts";
+import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameWorkspace, workspaceOf } from "./policy/workspace.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import type { Recipient } from "./recipient.ts";
 import type { SpawnedRecord } from "./store/spawned-rows.ts";
+import { selfId } from "./identity/self.ts";
 
 export { workspaceOf } from "./policy/workspace.ts";
 export { recipientLabel, type Recipient } from "./recipient.ts";
@@ -60,8 +62,14 @@ export function formatTarget(ref: TargetRef): string {
 
 /** Resolve an identity key to the agent an operator knows, enriched with the routing
  *  facts only orch's spawn registry holds. */
-function recipientName(record: SpawnedRecord | undefined, status: PresenceEntry["status"], workspace: string, key: string): string {
-  return record?.name ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key);
+function normalizedAgentName(key: string): string | null {
+  const id = tryParseIdentity(key)?.id;
+  if (!id) return null;
+  try { return agentById(orchDir(), id)?.name ?? null; } catch { return null; }
+}
+
+function recipientName(_record: SpawnedRecord | undefined, status: PresenceEntry["status"], workspace: string, key: string): string {
+  return normalizedAgentName(key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key);
 }
 
 function recipientHarness(record: SpawnedRecord | undefined, status: PresenceEntry["status"]): string | null {
@@ -97,17 +105,6 @@ export function currentWorkspace(): string | null {
   return resolveBackend({}).currentIdentity?.()?.workspace ?? null;
 }
 
-/** The orchestrator's own target key, used for ownership and wall checks. */
-export function selfActor(): string | null {
-  // A spawned agent acts as ITSELF — the key minted at its launch — never as
-  // the shared workspace operator. One shared token was how a single agent's
-  // `close --all` owned, and killed, every fleet in the workspace.
-  const spawnedIdentity = tryParseIdentity(process.env.ORCH_AGENT_KEY);
-  if (spawnedIdentity) return serializeIdentity(spawnedIdentity);
-  const id = resolveBackend({}).currentIdentity?.();
-  return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;
-}
-
 export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
   const currentWs = currentWorkspace();
   if (opts?.all === true || currentWs === null) return entities;
@@ -140,7 +137,7 @@ function entityFromBackendTarget(
     managed: records.has(key),
     // Orch's registry owns the name; the backend's own pane label is only a
     // fallback for panes orch never spawned.
-    name: records.get(key)?.name ?? target.name,
+    name: normalizedAgentName(key) ?? target.name,
     tabLabel: target.groupLabel,
     agent: target.agent,
     focused: target.focused,
@@ -164,9 +161,9 @@ function entitiesFromBackend(
   records: Map<string, SpawnedRecord>,
   usedPresence: Set<string>,
 ): Entity[] {
-  if ((!backend.paneInventory && !backend.inventory) || !backend.isInsideSession()) return [];
+  if (!backend.paneInventory || !backend.isInsideSession()) return [];
   const keyByHandle = handlesByKey(records, backend);
-  return (backend.paneInventory?.list() ?? backend.inventory?.() ?? [])
+  return backend.paneInventory.list()
     .map((target) => entityFromBackendTarget(backend, target, keyByHandle, presence, records, usedPresence));
 }
 
@@ -189,7 +186,7 @@ function presenceOnlyEntity(
     key: entry.key,
     ...statusFields,
     managed: records.has(entry.key),
-    name: record?.name ?? null,
+    name: normalizedAgentName(entry.key) ?? null,
     tabLabel: null,
     focused: false,
     backendStatus: null,
@@ -222,7 +219,7 @@ function entitiesFromRecords(
         key,
         paneId: backend?.paneInventory ? record.handle ?? null : null,
         managed: true,
-        name: record.name ?? null,
+        name: normalizedAgentName(key) ?? null,
         tabLabel: null,
         agent: null,
         focused: false,
@@ -320,7 +317,7 @@ export function resolveTarget(target: string, opts?: { all?: boolean; crossWorks
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
       // The wall decision lives in policy/workspace.ts alone; this only relays it.
-      const decision = checkWall(orchDir(), selfActor(), foreign.key, { crossWorkspace: false });
+      const decision = checkWall(orchDir(), selfId() ?? null, foreign.key, { crossWorkspace: false });
       if (!decision.allowed) die(decision.reason ?? "workspace-wall denied the write");
     }
   }

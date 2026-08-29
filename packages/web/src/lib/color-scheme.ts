@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { THEMES } from '@/themes'
 import type { ColorSchemeId, ThemeMeta } from '@/themes'
+import { includesValue } from './validation'
 
 export const COLOR_SCHEMES: readonly ThemeMeta[] = THEMES
 export type { ColorSchemeId, ThemeMeta }
@@ -13,7 +14,7 @@ const STORAGE_KEY = 'color-scheme'
 const DEFAULT_SCHEME: ColorSchemeId = 'ilsynth'
 
 function isValidScheme(value: string | null | undefined): value is ColorSchemeId {
-  return !!value && COLOR_SCHEMES.some((s) => s.id === value)
+  return includesValue(COLOR_SCHEMES.map((scheme) => scheme.id), value)
 }
 
 // Server functions for SSR

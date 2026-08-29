@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireDaemonLock } from "../src/daemon/lifecycle";
+import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
+import { serializeIdentity } from "../src/backends/identity.ts";
 import {
   DaemonAbsentError,
   DaemonUnreachableError,
   RpcError,
+  isHelloResponse,
   rpcCall,
   rpcHello,
-  rpcSubscribe,
   subscribeEvents,
   ReplayBuffer,
   startRpcServer,
@@ -19,10 +20,13 @@ import {
 } from "../src/daemon/rpc";
 import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
 import { openStore } from "../src/store/connection.ts";
+import { selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedStatus } from "./helpers/presence.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const dirs: string[] = [];
 const servers: RpcServer[] = [];
@@ -90,6 +94,64 @@ afterEach(async () => {
 });
 
 describe("daemon RPC", () => {
+  test("rejects a hello response with a malformed optional field", () => {
+    expect(isHelloResponse({
+      id: "session-id",
+      label: "session",
+      kind: "session",
+      unleased: [],
+      registrationWarning: 42,
+    })).toBe(false);
+  });
+
+  test("hello translates an absent daemon instead of reading a missing token", async () => {
+    const dir = tempOrchDir();
+    const previousEntrypoint = process.env.ORCHD_ENTRYPOINT;
+    const failingEntrypoint = join(dir, "daemon-fails.js");
+    writeFileSync(failingEntrypoint, "process.exit(0);\n");
+    process.env.ORCHD_ENTRYPOINT = failingEntrypoint;
+    expect(existsSync(daemonRuntimeFiles(dir).token)).toBe(false);
+    try {
+      const failure = await rejectionOf(rpcHello(dir));
+      if (!(failure instanceof Error)) throw new Error("hello did not reject with an Error");
+      expect(failure.message).toContain("orch daemon unavailable");
+      expect(failure.message).not.toContain("ENOENT");
+    } finally {
+      if (previousEntrypoint === undefined) delete process.env.ORCHD_ENTRYPOINT;
+      else process.env.ORCHD_ENTRYPOINT = previousEntrypoint;
+    }
+  }, 15_000);
+
+  test("a control refusal is not accepted and remains pending in the outbox", async () => {
+    const dir = tempOrchDir();
+    const discovery = tempOrchDir();
+    const previousDir = process.env.ORCH_DIR;
+    const previousDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
+    const previousEntrypoint = process.env.ORCHD_ENTRYPOINT;
+    process.env.ORCH_DIR = dir;
+    process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
+    process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/orchd.ts");
+    writeSettingsFixture(dir, { defaults: { adapter: "claude" } });
+    const target = serializeIdentity({ backend: "headless", workspace: "local", id: "no-pane" });
+    seedStatus(dir, target, { agent: "claude", pid: process.pid, state: "working" });
+    try {
+      await rpcHello(dir);
+      const failure = await rejectionOf(rpcCall(dir, "dispatch", { target, text: "should remain pending" }));
+      if (!(failure instanceof RpcError)) throw new Error("refused dispatch did not return an RPC error");
+      expect(failure.message).toContain("was not applied or acknowledged");
+      expect(selectPendingOutbox(dir, Number.MAX_SAFE_INTEGER)).toHaveLength(1);
+    } finally {
+      const pid = provenDaemonPid(dir);
+      if (pid !== undefined && pid !== process.pid) await terminateDaemon(pid, 5_000);
+      if (previousDir === undefined) delete process.env.ORCH_DIR;
+      else process.env.ORCH_DIR = previousDir;
+      if (previousDiscovery === undefined) delete process.env.ORCH_DAEMON_DISCOVERY_DIR;
+      else process.env.ORCH_DAEMON_DISCOVERY_DIR = previousDiscovery;
+      if (previousEntrypoint === undefined) delete process.env.ORCHD_ENTRYPOINT;
+      else process.env.ORCHD_ENTRYPOINT = previousEntrypoint;
+    }
+  }, 30_000);
+
   test("round-trips a call over the real unix socket", async () => {
     const dir = tempOrchDir();
     await start(dir);
@@ -243,11 +305,14 @@ describe("daemon RPC", () => {
   test("delivers pushed subscription events", async () => {
     const dir = tempOrchDir();
     const server = await start(dir);
-    const event = new Promise((resolve) => {
-      void rpcSubscribe(dir, "subscribe-events", resolve);
-    });
-    expect(await event).toEqual({ kind: "pushed", value: 1 });
-    server.emit({ kind: "broadcast", value: 2 });
+    const received: unknown[] = [];
+    const subscription = subscribeEvents(dir, { since: 0 }, (value) => received.push(value));
+    await Bun.sleep(25);
+    server.emit({ kind: "pushed", value: 1 });
+    const deadline = Date.now() + 2_000;
+    while (received.length === 0 && Date.now() < deadline) await Bun.sleep(5);
+    expect(received).toContainEqual({ kind: "pushed", value: 1 });
+    subscription.close();
   });
 
   test("replays durable events after a daemon restart without a gap", async () => {
@@ -275,10 +340,10 @@ describe("daemon RPC", () => {
 
   test("reports the oldest sequence when replay starts before the pruned window", () => {
     const dir = tempOrchDir();
-    appendEvent(dir, "2024-01-01T00:00:00.000Z", { value: 1 });
-    appendEvent(dir, "2024-01-02T00:00:00.000Z", { value: 2 });
-    appendEvent(dir, "2024-01-03T00:00:00.000Z", { value: 3 });
-    deleteEventsBefore(dir, "2024-01-03T00:00:00.000Z");
+    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), { value: 1 });
+    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), { value: 2 });
+    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), { value: 3 });
+    deleteEventsBefore(dir, Date.parse("2024-01-03T00:00:00.000Z"));
     const replay = new ReplayBuffer(dir).since(0);
     expect(replay.gap).toBe(true);
     expect(replay.oldestSeq).toBe(3);

@@ -32,7 +32,7 @@ export interface PeerSummary {
   name?: string;
   /** Harness this peer runs (pi, claude, codex, omp). */
   harness?: string;
-  workspace: string | null;
+  space: string | null;
   state: string;
   /** True on the row that is the CALLER's own spawner — the reply target. */
   isSpawner?: true;
@@ -153,7 +153,7 @@ function summarizePeer(peer: Peer, spawnerKey: string | undefined): PeerSummary 
     key: peer.key,
     name: optionalString(peer.status.label),
     harness: optionalString(peer.status.agent),
-    workspace: workspaceOf(orchDir(), peer.key),
+    space: workspaceOf(orchDir(), peer.key),
     state: optionalString(peer.status.state) ?? "unknown",
     isSpawner: peer.key === spawnerKey ? true : undefined,
     spawnedBy: optionalString(peer.status.spawnedBy),
@@ -201,7 +201,7 @@ export function sendPeerMessage(target: string, text: string, ownKey: string, al
   const ownName = optionalString(readStatus(presenceAgentDir(ownKey)).label);
   appendPeerInbox(resolved.peer.dir, `[from ${ownName ? `${ownName} (${ownKey})` : ownKey}] ${text}`);
   // The sender knows a peer by its name and harness, not by the transport key that routed there.
-  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, workspaceOf(orchDir(), resolved.peer.key) ?? "workspace", resolved.peer.status))}`;
+  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, workspaceOf(orchDir(), resolved.peer.key) ?? "", resolved.peer.status))}`;
 }
 
 function formatPeerLines(peers: PeerSummary[]): string {
@@ -230,19 +230,19 @@ async function executeTool(action: () => string | Promise<string>, error: string
 interface OrchSendParams {
   target: string;
   text: string;
-  cross_workspace?: boolean;
-  allWorkspaces?: boolean;
+  cross_spaces?: boolean;
+  allSpaces?: boolean;
 }
 
 interface OrchReadParams {
   target: string;
-  cross_workspace?: boolean;
-  allWorkspaces?: boolean;
+  cross_spaces?: boolean;
+  allSpaces?: boolean;
 }
 
 interface OrchAgentsParams {
-  all_workspaces?: boolean;
-  allWorkspaces?: boolean;
+  all_spaces?: boolean;
+  allSpaces?: boolean;
 }
 
 /** Registers the commands and tools through which this agent reaches its peers. */
@@ -286,15 +286,14 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
     promptSnippet: "Discover live orchestrator peer agents and their compact status",
     promptGuidelines: ["Use orch_agents to discover live peer agents before sending or reading peer messages."],
     parameters: Type.Object({
-      all_workspaces: Type.Optional(Type.Boolean({ description: "Include agents in every workspace" })),
-      // Keep the original camelCase spelling for existing callers.
-      allWorkspaces: Type.Optional(Type.Boolean({ description: "Include agents in every workspace" })),
+      all_spaces: Type.Optional(Type.Boolean({ description: "Include agents in every space" })),
+      allSpaces: Type.Optional(Type.Boolean({ description: "Include agents in every space" })),
     }),
     async execute(_toolCallId, params: OrchAgentsParams, _signal, _onUpdate, ctx: HarnessContext) {
       return executeTool(
         () => JSON.stringify(peerSummaries(
           presence.ownPresenceKey(ctx),
-          params.all_workspaces === true || params.allWorkspaces === true,
+          params.all_spaces === true || params.allSpaces === true,
         )),
         "error: unable to list peer agents",
       );
@@ -310,12 +309,11 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
     parameters: Type.Object({
       target: Type.String({ description: "Peer name, key, unique key suffix, or \"spawner\" (the session that spawned this agent)" }),
       text: Type.String({ description: "Message to send" }),
-      cross_workspace: Type.Optional(Type.Boolean({ description: "Allow sending across workspaces" })),
-      // Keep the original spelling for existing callers.
-      allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow sending across workspaces" })),
+      cross_spaces: Type.Optional(Type.Boolean({ description: "Allow sending across spaces" })),
+      allSpaces: Type.Optional(Type.Boolean({ description: "Allow sending across spaces" })),
     }),
     async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: HarnessContext) {
-      const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
+      const crossWorkspace = params.cross_spaces === true || params.allSpaces === true;
       return executeTool(
         () => sendPeerMessage(params.target, params.text, presence.ownPresenceKey(ctx), crossWorkspace),
         "error: unable to send peer message",
@@ -331,12 +329,11 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
     promptGuidelines: ["Use orch_read to inspect a peer agent's latest result or status text."],
     parameters: Type.Object({
       target: Type.String({ description: "Peer name, key, unique key suffix, or \"spawner\"" }),
-      cross_workspace: Type.Optional(Type.Boolean({ description: "Allow reading across workspaces" })),
-      // Keep the original spelling for existing callers.
-      allWorkspaces: Type.Optional(Type.Boolean({ description: "Allow reading across workspaces" })),
+      cross_spaces: Type.Optional(Type.Boolean({ description: "Allow reading across spaces" })),
+      allSpaces: Type.Optional(Type.Boolean({ description: "Allow reading across spaces" })),
     }),
     async execute(_toolCallId, params: OrchReadParams, _signal, _onUpdate, ctx: HarnessContext) {
-      const crossWorkspace = params.cross_workspace === true || params.allWorkspaces === true;
+      const crossWorkspace = params.cross_spaces === true || params.allSpaces === true;
       return executeTool(() => {
         const ownKey = presence.ownPresenceKey(ctx);
         const resolved = resolvePeer(params.target, ownKey, crossWorkspace);
@@ -348,7 +345,7 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
           : typeof resolved.peer.status.lastText === "string" ? resolved.peer.status.lastText : "";
         return JSON.stringify({
           key: resolved.peer.key,
-          workspace: workspaceOf(orchDir(), resolved.peer.key),
+          space: workspaceOf(orchDir(), resolved.peer.key),
           state: optionalString(resolved.peer.status.state) ?? "unknown",
           model: peerModel(resolved.peer.status),
           text,

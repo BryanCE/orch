@@ -16,8 +16,8 @@
 import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
-import { isRecord, type JsonRecord } from "../util.ts";
+import { ANSWER_FILE, PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
+import { errorMessage, isRecord, type JsonRecord } from "../util.ts";
 
 /** A presence protocol record. Domain name for the shared JSON record shape. */
 export type PresenceRecord = JsonRecord;
@@ -107,6 +107,86 @@ export function readStatus(directory: string): PresenceRecord {
 /** Write the agent's status record. */
 export function writeStatus(directory: string, status: PresenceRecord): void {
   atomicWrite(presenceFile(directory, STATUS_FILE), status);
+}
+
+export interface LaunchEnvFacts {
+  label: string | null;
+  spawnedBy: string | null;
+  spawnedByLabel: string | null;
+  worktree: string | null;
+  branch: string | null;
+  tabLabel: string | null;
+}
+
+/** Read the launch vocabulary once, at the presence boundary. */
+export function launchKey(validate: (key: string) => void): string | undefined {
+  const key = process.env.ORCH_AGENT_KEY;
+  if (!key) return undefined;
+  try {
+    validate(key);
+  } catch (error: unknown) {
+    process.stderr.write(`${errorMessage(error)}\n`);
+    process.exit(1);
+  }
+  return key;
+}
+
+export function readJsonStdin(): JsonRecord {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(0, "utf8"));
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function parseJsonArgument(raw: string | undefined): JsonRecord {
+  try {
+    const parsed: unknown = JSON.parse(raw ?? "{}");
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function launchEnvFacts(): LaunchEnvFacts {
+  const value = (name: string): string | null => {
+    const raw = process.env[name];
+    return typeof raw === "string" && raw.length > 0 ? raw : null;
+  };
+  return {
+    label: value("ORCH_AGENT_NAME"),
+    spawnedBy: value("ORCH_SPAWNER"),
+    spawnedByLabel: value("ORCH_SPAWNER_LABEL"),
+    worktree: value("ORCH_AGENT_WORKTREE"),
+    branch: value("ORCH_AGENT_BRANCH"),
+    tabLabel: null,
+  };
+}
+
+/** Merge the one canonical launch stamp into a status record. */
+export function launchStamp(previous: PresenceRecord, id: string, key: string): PresenceRecord {
+  const facts = launchEnvFacts();
+  return {
+    ...previous,
+    schema: PRESENCE_SCHEMA,
+    agent: id,
+    key,
+    label: facts.label ?? previous.label ?? null,
+    spawnedBy: facts.spawnedBy ?? previous.spawnedBy ?? null,
+    spawnedByLabel: facts.spawnedByLabel ?? previous.spawnedByLabel ?? null,
+    worktree: facts.worktree ?? previous.worktree ?? null,
+    branch: facts.branch ?? previous.branch ?? null,
+    tabLabel: previous.tabLabel ?? facts.tabLabel,
+    cost: typeof previous.cost === "number" ? previous.cost : 0,
+    tokens: previous.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    turns: typeof previous.turns === "number" ? previous.turns : 0,
+  };
+}
+
+/** Write the answer to an agent's blocking question. */
+export function writeAnswer(directory: string, text: string): void {
+  atomicWrite(presenceFile(directory, ANSWER_FILE), { text, ts: new Date().toISOString() });
 }
 
 /** Write the agent's settled-turn result record. */

@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import type { HostConfig } from "./config.ts";
-import { shellQuote } from "./util.ts";
+import { osSide, shellQuote } from "./util.ts";
 
 const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
 
@@ -54,7 +54,7 @@ export function runSSH(destination: string, command: string, options: RemoteOpti
 }
 
 function windowsCommandShell(sshBin: string): boolean {
-  return process.platform === "win32" && /\.(?:cmd|bat)$/i.test(sshBin);
+  return osSide() === "windows" && /\.(?:cmd|bat)$/i.test(sshBin);
 }
 
 function outputText(value: unknown): string {

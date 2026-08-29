@@ -5,7 +5,7 @@ import { rpcHello } from "../daemon/rpc.ts";
 import { join } from "node:path";
 import { openStore } from "../store/connection.ts";
 import { agentById, childrenOf, liveAgents, type AgentRow } from "../store/agent-rows.ts";
-import { adoptLease, currentLease, releaseLease } from "../store/lease-rows.ts";
+import { adoptLease, currentLease, expireLease, releaseLease } from "../store/lease-rows.ts";
 
 export interface LeaseCommandResult {
   readonly id: string;
@@ -73,12 +73,26 @@ function allDescendants(directory: string, parentId: string, result: AgentRow[] 
   return result;
 }
 
-/** Release only the caller's lease. An already-unleased agent is a friendly no-op. */
+/** Release the caller's lease, or expire a dead holder's. An already-unleased
+ *  agent is a friendly no-op.
+ *
+ *  Rule 11: a lease is mutual exclusion, and only a LIVE holder excludes anyone.
+ *  A dead holder's lease is a stale row, and refusing to release it strands the
+ *  agent permanently - every driving verb is gated on that same lease, so detach
+ *  is the only way out and must never be blocked by the thing it exists to clear.
+ *  This mirrors adoptAgent below, which already gates on liveness. */
 export function detachAgent(directory: string, target: string, orchId: string, now = Date.now()): LeaseCommandResult {
   const agent = lookupAgent(directory, target);
   const lease = currentLease(directory, agent.id);
   if (!lease) return { id: agent.id, name: displayName(agent), released: false };
-  if (lease.orchId !== orchId) throw new Error(`${displayName(agent)} is leased by ${lease.orchId}.`);
+  if (lease.orchId !== orchId) {
+    if (holderStillAlive(directory, lease.orchId)) {
+      throw new Error(`${displayName(agent)} is leased by live orch ${lease.orchId}.`);
+    }
+    // Closed as "expired", not "released": no caller held it to release.
+    expireLease(directory, agent.id, now);
+    return { id: agent.id, name: displayName(agent), released: true };
+  }
   releaseLease(directory, agent.id, orchId, now);
   return { id: agent.id, name: displayName(agent), released: true };
 }

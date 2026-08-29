@@ -10,17 +10,22 @@ import {
   removeMergedWorktree,
   worktreeBranch,
 } from "../src/worktree.ts";
+import { provenDaemonPid } from "../src/daemon/lifecycle.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fixtureRepo, git } from "./helpers/git-repo.ts";
 
 const directories: string[] = [];
+const daemonDiscoveries = new Map<string, string>();
 
 /** orch has no built-in configuration, so a spawned CLI needs a recorded composition in its
  * ORCH_DIR exactly as a real install does. */
 function orchDirWithSettings(): string {
+  const discovery = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-discovery-"));
   const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-review-dir-"));
-  directories.push(orchDir);
+  // Push in this order so afterEach stops the daemon before removing either directory.
+  directories.push(discovery, orchDir);
+  daemonDiscoveries.set(orchDir, discovery);
   writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
   return orchDir;
 }
@@ -43,7 +48,7 @@ function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, 
     schema: PRESENCE_SCHEMA, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
   }));
   insertSpawnedRecord(orchDir, {
-    pane, ts: new Date().toISOString(), adapter: "pi", worktree: worktreePath, branch,
+    pane, ts: Date.now(), adapter: "pi", worktree: worktreePath, branch,
   });
 }
 
@@ -52,7 +57,12 @@ function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
     cwd: repoRoot,
     // The daemon must run today's source, not a possibly stale dist/ build —
     // write commands auto-start it and deliver through its code.
-    env: { ...process.env, ORCH_DIR: orchDir, ORCHD_ENTRYPOINT: path.join(import.meta.dir, "../src/daemon/orchd.ts") },
+    env: {
+      ...process.env,
+      ORCH_DIR: orchDir,
+      ORCHD_ENTRYPOINT: path.join(import.meta.dir, "../src/daemon/orchd.ts"),
+      ORCH_DAEMON_DISCOVERY_DIR: daemonDiscoveries.get(orchDir),
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -61,14 +71,9 @@ function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
 }
 
 async function stopDaemon(orchDir: string): Promise<void> {
-  let pid: number | undefined;
-  try {
-    const lock = JSON.parse(fs.readFileSync(path.join(orchDir, "orchd.lock"), "utf8")) as { pid?: number };
-    pid = lock.pid;
-  } catch {
-    return; // No daemon was started for this directory.
-  }
-  if (!pid) return;
+  // Only signal a daemon whose lock identity is proven for this exact store.
+  const pid = provenDaemonPid(orchDir);
+  if (pid === undefined || pid === process.pid) return;
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -92,6 +97,7 @@ afterEach(async () => {
     const directory = directories.pop()!;
     await stopDaemon(directory);
     removeTempDir(directory);
+    daemonDiscoveries.delete(directory);
   }
 });
 

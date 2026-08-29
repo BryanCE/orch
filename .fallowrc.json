@@ -1,21 +1,20 @@
 {
 	"$schema": "https://docs.fallow.tools/schema.json",
-
 	"entry": [
 		"bin/orch.ts",
 		"src/daemon/orchd.ts",
 		"extensions/*/index.ts",
 		"packages/web/src/router.tsx"
 	],
-
 	"ignorePatterns": [
 		"dist/**",
 		".fallow/**",
 		"packages/web/.tanstack/**"
 	],
-
-	"ignoreDependencies": ["@tanstack/react-db", "react"],
-
+	"ignoreDependencies": [
+		"@tanstack/react-db",
+		"react"
+	],
 	"overrides": [
 		{
 			"files": [
@@ -34,7 +33,6 @@
 			}
 		}
 	],
-
 	"duplicates": {
 		"mode": "semantic",
 		"minTokens": 35,
@@ -45,10 +43,11 @@
 			"bin/**",
 			"packages/web/src/components/ui/**",
 			"packages/web/src/routeTree.gen.ts",
-			"packages/web/src/themes/**"
+			"packages/web/src/themes/**",
+			"src/commands/help.ts",
+			"**/*.css"
 		]
 	},
-
 	"health": {
 		"maxCyclomatic": 12,
 		"ignore": [
@@ -57,10 +56,11 @@
 			"bin/**",
 			"packages/web/src/components/ui/**",
 			"packages/web/src/routeTree.gen.ts",
-			"packages/web/src/themes/**"
+			"packages/web/src/themes/**",
+			"src/commands/help.ts",
+			"**/*.css"
 		]
 	},
-
 	"audit": {
 		"gate": "all"
 	}

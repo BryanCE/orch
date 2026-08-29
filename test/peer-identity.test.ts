@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { allAdapters } from "../src/adapters/registry.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../src/policy/spawner.ts";
+import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { peerSummaries, resolvePeer, sendPeerMessage } from "../src/agent/peers.ts";
 import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
@@ -10,7 +12,12 @@ import { INBOX_FILE } from "../src/presence/schema.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
-const IDENTITY_ENV = ["ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_NAME", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH"] as const;
+const IDENTITY_ENV = [
+  "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
+  "ORCH_AGENT_NAME", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH",
+  ...allAdapters().flatMap((adapter) => [adapter.sessionEnvMarker, adapter.sessionIdEnv, adapter.sessionPidEnv])
+    .filter((name): name is string => name !== undefined),
+];
 
 const directories: string[] = [];
 let savedEnv: Record<string, string | undefined> = {};
@@ -41,37 +48,42 @@ describe("spawner identity", () => {
     expect(spawnerIdentity()).toEqual({ key: null, label: "operator" });
   });
 
-  test("a Claude Code session names itself through its env marker", () => {
+  test("an unregistered Claude Code session is labelled by its harness, with no id", () => {
     tempOrchDir();
     process.env.CLAUDECODE = "1";
     expect(spawnerIdentity()).toEqual({ key: null, label: "claude session" });
   });
 
-  test("a Claude Code session has NO reply address; its session id only names it apart", () => {
-    tempOrchDir();
+  test("a session orch has registered IS addressable, by the id orch minted", () => {
+    const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "e2277e83-74d9";
-    // A harness session with no presence dir has no inbox to reply to, whether or
-    // not it exports a session id. The id distinguishes two parallel sessions in
-    // the LABEL; minting it as a key hands workers an address that cannot resolve.
-    expect(spawnerIdentity()).toEqual({ key: null, label: "claude session e2277e83" });
+    // TASKS/08: a participant outside a plexer must be nameable. The id comes from
+    // orch's own record for this session token - never from a plexer coordinate,
+    // and never the literal string "operator".
+    const registered = getOrCreateSessionAgent(orchDir, {
+      pid: 4242, startToken: "tok", sessionToken: "e2277e83-74d9", harnessId: "claude",
+      cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
+    });
+    expect(spawnerIdentity().key).toBe(registered.id);
   });
 
-  test("a harness session with presence hands out its own reply address", () => {
-    const orchDir = tempOrchDir();
-    seedStatus(orchDir, "session-4242", { agent: "pi", pid: process.pid, state: "idle" });
-    process.env.ORCH_SESSION_KEY = "session-4242";
-    process.env.CLAUDECODE = "1"; // the presence key wins over the generic marker
-    expect(spawnerIdentity()).toEqual({ key: "session-4242", label: "pi session" });
+  test("an unregistered session has no id to hand out, and does not invent one", () => {
+    tempOrchDir();
+    process.env.CLAUDECODE = "1";
+    process.env.CLAUDE_CODE_SESSION_ID = "never-registered";
+    expect(spawnerIdentity().key).toBeNull();
   });
 
-  test("an orch-spawned orchestrator is named by its own agent name and harness", () => {
+  test("an orch-spawned orchestrator acts as the id orch minted for it", () => {
     const orchDir = tempOrchDir();
     const key = "headless~wF~lead0000ab";
-    recordSpawned(key, { name: "lead-1", workspace: "wF", adapter: "pi" });
+    recordSpawned(key, { workspace: "wF", adapter: "pi" });
     seedStatus(orchDir, key, { agent: "pi", label: "lead-1", pid: process.pid, state: "working" });
     process.env.ORCH_AGENT_KEY = key;
-    expect(spawnerIdentity()).toEqual({ key, label: "lead-1 (pi)" });
+    // Identity is the minted id and nothing else: the plexer and workspace
+    // segments of the launch key are ENVIRONMENT and never travel as the id.
+    expect(spawnerIdentity().key).toBe("lead0000ab");
   });
 
   test("agentIdentityEnv stamps a reply address only when the spawner has one", () => {
@@ -129,7 +141,7 @@ describe("the spawner address invariant", () => {
     return agentIdentityEnv("worker-1", spawnerIdentity()).ORCH_SPAWNER;
   }
 
-  test("a Claude Code session stamps no address, so no worker is handed an unreachable one", () => {
+  test("an UNREGISTERED session stamps no address, so no worker is handed an unreachable one", () => {
     tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859-4757-8c32-15bcaa9c761a";
@@ -143,13 +155,20 @@ describe("the spawner address invariant", () => {
 
   test("an address that IS stamped resolves to a live inbox", () => {
     const orchDir = tempOrchDir();
-    seedStatus(orchDir, "session-4242", { agent: "pi", pid: process.pid, state: "idle" });
-    process.env.ORCH_SESSION_KEY = "session-4242";
+    process.env.CLAUDECODE = "1";
+    process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859";
+    // TASKS/08: a session is an agent with the same addressability. Its address is
+    // the id orch minted for it, not a plexer coordinate and not ORCH_SESSION_KEY.
+    const registered = getOrCreateSessionAgent(orchDir, {
+      pid: 4242, startToken: "tok", sessionToken: "c0f80035-1859", harnessId: "claude",
+      cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
+    });
+    seedStatus(orchDir, registered.id, { agent: "pi", pid: process.pid, state: "idle" });
 
     const address = stampedSpawnerAddress();
-    expect(address).toBe("session-4242");
+    expect(address).toBe(registered.id);
     process.env.ORCH_SPAWNER = address;
-    process.env.ORCH_SPAWNER_LABEL = "pi session";
+    process.env.ORCH_SPAWNER_LABEL = "claude session";
 
     const resolved = resolvePeer("spawner", "headless~wF~worker0006");
     expect("error" in resolved ? resolved.error : null).toBeNull();
@@ -157,6 +176,19 @@ describe("the spawner address invariant", () => {
 });
 
 describe("peer identity in messaging", () => {
+  test("peer summaries render an unplaced agent without a local place name", () => {
+    const directory = tempOrchDir();
+    const ownKey = "headless~opaque~sender0001";
+    const peerKey = "headless~opaque~unplaced0002";
+    seedStatus(directory, peerKey, { agent: "pi", pid: process.pid, state: "idle", label: "unplaced" });
+
+    const summary = peerSummaries(ownKey)[0];
+    expect(summary?.space).toBeNull();
+    const output = JSON.stringify(summary);
+    expect(output).not.toContain("local");
+    expect(output).not.toContain("workspace");
+  });
+
   test("orch_send reports the peer's NAME, and stamps the sender's name on the message", () => {
     const orchDir = tempOrchDir();
     const ownKey = "headless~wF~sender0001";

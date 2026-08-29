@@ -3,10 +3,12 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { refreshStaleShims } from "../doctor/runner.ts";
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../entities.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
-import { writeSpawnedName, type SpawnedRecord } from "../store/spawned-rows.ts";
+import { type SpawnedRecord } from "../store/spawned-rows.ts";
+import { renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { openStore } from "../store/connection.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
@@ -16,7 +18,8 @@ import { getBackend } from "../backends/registry.ts";
 import { NO_PANE_FOREGROUND, paneAtShellPrompt, sleepMs, type PaneForeground } from "../backends/pane-ready.ts";
 
 import { loadConfig } from "../config.ts";
-import { adapterCommand, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
+import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
+import { adapterCommand, assertLaunchModelAllowed, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
@@ -92,7 +95,7 @@ export function ownedAgentKeys(): string[] {
     .map((ent) => ent.key);
 }
 
-/** Split `orch reset` args into its --model flag and the targets to clear. */
+/** Split `orch reset` args into its --model/--thinking flags and the targets to clear. */
 function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags } {
   const targets: string[] = [];
   const flags: AgentFlags = {};
@@ -101,6 +104,7 @@ function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags 
     const arg = args[index]!;
     if (arg === "--json" || arg === "--force") continue;
     if (arg === "--model") { flags.modelFlag = args[++index]; continue; }
+    if (arg === "--thinking") { flags.thinkingFlag = args[++index]; continue; }
     if (arg === "--all") targets.push(...ownedAgentKeys());
     else targets.push(arg);
   }
@@ -111,7 +115,7 @@ export async function cmdNew(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const force = args.includes("--force");
   const { targets, flags } = parseResetArgs(args);
-  if (!targets.length) die("usage: orch reset <target>... | --all [--model <model[:thinking]>] [--json]");
+  if (!targets.length) die("usage: orch reset <target>... | --all [--model <model>] [--thinking <level>] [--json]");
   // Check ownership before resolving model configuration: a driving verb must
   // name a live foreign holder even when this caller has no model selected.
   for (const target of targets) {
@@ -120,7 +124,19 @@ export async function cmdNew(args: string[]): Promise<void> {
   }
   // A cleared session drops back to the harness's own default, so reset re-pins on
   // exactly the terms a spawn does: the model named here, else the configured default.
-  const model = launchModel(flags, loadConfig(orchDir()), resolveAdapterOrDie(pickAdapter(flags, loadConfig(orchDir()))));
+  const config = loadConfig(orchDir());
+  const adapter = resolveAdapterOrDie(pickAdapter(flags, config));
+  const model = launchModel(flags, config, adapter);
+  // Reset re-pins on exactly the terms a spawn does, and that includes the
+  // thinking effort: re-pinning the bare model dropped the level and every reset
+  // silently returned the agent to the harness default (TASKS/12-thinking.md).
+  const thinking = resolveThinking({
+    flag: flags.thinkingFlag,
+    modelSuffix: splitThinkingSuffix(flags.modelFlag ?? config.defaults.models[adapter.id] ?? "").thinking,
+    harness: adapter.id,
+    config,
+  });
+  assertLaunchModelAllowed(adapter.id, model);
   const cleared: { key: string; pane: string; name: string }[] = [];
   const results: { target: string; cleared: true; ready: true }[] = [];
   for (const target of targets) {
@@ -143,13 +159,13 @@ export async function cmdNew(args: string[]): Promise<void> {
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
-  if ((await pinModels(cleared, model)).length) process.exitCode = 1;
+  if ((await pinModels(cleared, model, thinking)).length) process.exitCode = 1;
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
   else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${model}.\n`);
 }
 
 export function paneForeground(backend: Backend, handle: string): PaneForeground {
-  return backend.paneInput?.foreground(handle) ?? NO_PANE_FOREGROUND;
+  return backend.paneForeground?.read(handle) ?? NO_PANE_FOREGROUND;
 }
 
 interface ReloadResult {
@@ -331,6 +347,7 @@ export async function cmdRestart(args: string[]): Promise<void> {
     let launch = cmd;
     if (launch === null) {
       const model = launchModel({}, config, adapter);
+      assertLaunchModelAllowed(adapter.id, model);
       const preferredModels = config.models.preferred[adapter.id] ?? [];
       launch = adapterCommand(agentId, config, { model, preferredModels });
     }
@@ -356,7 +373,8 @@ function renameAgent(
     return false;
   }
   assertNameFree(name, record.workspace ?? "");
-  if (!writeSpawnedName(orchDir(), key, name)) return false;
+  const identity = tryParseIdentity(key);
+  if (!identity || !renameNormalizedAgent(orchDir(), identity.id, name)) return false;
   const role = backend.agentNaming;
   if (!role) throw new Error("target environment has no agent naming role");
   role.renameAgent(handle, name);
@@ -483,8 +501,7 @@ export function cmdClose(args: string[]) {
       && typeof recorded.startToken === "string"
       && processInstanceMatches(recorded.pid, recorded.startToken);
     const paneHost = target.backend?.paneHost;
-    const paneCapable = target.paneKnown
-      && ((paneHost !== null && paneHost !== undefined) || target.backend?.capabilities.panes === true);
+    const paneCapable = target.paneKnown && paneHost !== null && paneHost !== undefined;
 
     if (identityProven && recorded) {
       // Signal only the recorded process instance. Reaping waits until that
@@ -493,17 +510,11 @@ export function cmdClose(args: string[]) {
       try { process.kill(recorded.pid, "SIGTERM"); signalled = true; } catch { closeFailed = true; }
       if (signalled && recordedProcessRemains(recorded)) closeFailed = true;
     } else if (paneCapable) {
-      // A pane host owns closure when process identity is unavailable. Its
-      // close throws on failure; the legacy backend boolean is checked too.
+      // A pane host owns closure when process identity is unavailable.
       try {
-        if (paneHost) {
-          paneHost.close(target.handle);
-          closedByBackend = true;
-        } else if (target.backend?.close(target.handle)) {
-          closedByBackend = true;
-        } else {
-          closeFailed = true;
-        }
+        if (!paneHost) throw new Error("target environment has no pane host");
+        paneHost.close(target.handle);
+        closedByBackend = true;
       } catch {
         closeFailed = true;
       }
@@ -518,7 +529,7 @@ export function cmdClose(args: string[]) {
     if (!closeFailed && paneCapable) {
       try {
         const inventory = target.backend?.paneInventory;
-        const list = inventory ? inventory.list() : target.backend?.inventory?.();
+        const list = inventory?.list();
         if (list?.some((entry) => entry.handle === target.handle)) closeFailed = true;
       } catch {
         closeFailed = true;
@@ -557,21 +568,17 @@ export function cmdAbort(args: string[]) {
   // Abort is an unconditional ending operation: resolve from orch's registry so
   // a foreign-workspace target is still reachable, and never apply owner gates.
   const { backend, handle, entity } = resolveLifecycleTarget(target);
-  const noPane = (!entity.paneId || !backend.paneInventory) && !backend.canSendKeys;
-  if (noPane || (!backend.paneInput && !backend.canSendKeys)) {
-    const reason = noPane ? "no-pane" : "no-environment-role";
-    const text = noPane ? `${target} has no pane; abort does not apply.` : "this pane environment does not provide abort";
+  const input = backend.paneInput;
+  if (!entity.paneId || !input) {
+    const reason = !entity.paneId ? "no-pane" : "no-environment-role";
+    const text = !entity.paneId ? `${target} has no pane; abort does not apply.` : "this pane environment does not provide abort";
     if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason, text }) + "\n");
     else process.stdout.write(text + "\n");
     return;
   }
-  const input = backend.paneInput;
-  const sendKeys = input
-    ? (pane: BackendHandle, keys: readonly string[]) => input.sendKeys(pane, keys)
-    : (pane: BackendHandle, keys: readonly string[]) => { if (!backend.sendKeys(pane, keys)) throw new Error(`Could not send keys to ${String(pane)}.`); };
-  sendKeys(handle, ["Escape"]);
+  input.sendKeys(handle, ["Escape"]);
   sleepMs(500);
-  sendKeys(handle, ["Escape"]);
+  input.sendKeys(handle, ["Escape"]);
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
   else process.stdout.write(`Aborted ${String(handle)}.\n`);
 }

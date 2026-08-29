@@ -93,8 +93,7 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
   building on it; a $0.02 "done" on a big slice is a tell.
 - **Redispatch once on error, then escalate the model** — not the other way around.
 - **Self-hosting boundary:** changes to orch's own code bite only after rebuild + daemon
-  reload + respawn, and a daemon bounce deafens every live bridge — so batch orch-self
-  fixes at wave boundaries, never mid-wave.
+  reload + respawn; bridges reconnect to a restarted daemon on their own.
 
 ## Spawn
 
@@ -300,7 +299,7 @@ Bare `orch review` walks it interactively.
 
 ## Facts that bite
 
-- **Daemon first, spawn last.** A daemon bounce deafens live bridges — they do not reconnect.
+- **Daemon first, spawn last.** Bridges reconnect to a restarted daemon on their own.
   After any daemon stop/start or rebuild: respawn the fleet, then smoke-test ONE trivial
   dispatch before fanning out. Trust `orch daemon status` (the RPC answer), not the existence
   of a pid file; a hung daemon means stop, kill the pid, start.

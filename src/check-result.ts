@@ -17,9 +17,7 @@ export interface DoctorBackendReport {
   /** Legacy spelling retained for consumers of the detailed capability report. */
   available?: boolean;
   insideSession: boolean;
-  panes: boolean;
-  focusable: boolean;
-  canSendKeys: boolean;
+  roles: readonly string[];
   workspace: string | null;
 }
 

@@ -1,8 +1,8 @@
 // The JS runtime orch runs under is a DECLARED value, never one inferred from PATH
 // order. This module is the single source of that vocabulary and of the invocation
-// form for each runtime. Node built-ins and util only — the harness shims are
-// bundled standalone and must not drag config/adapters/store along.
+// form for each runtime.
 
+import { allAdapters } from "./adapters/registry.ts";
 import { binaryPath } from "./util.ts";
 
 /**
@@ -24,20 +24,16 @@ export type OrchRuntime = (typeof ORCH_RUNTIMES)[number];
  */
 export const DEFAULT_RUNTIME: OrchRuntime = "node";
 
-/**
- * Env vars the harness shims read. Enumerated rather than blanket `--allow-env`
- * so a shim cannot read tokens sitting elsewhere in the agent's environment.
- */
-const SHIM_ENV_VARS = [
-  "ORCH_AGENT_KEY",
-  "ORCH_DIR",
-  "ORCH_AGENT_LOG",
-  "ORCH_PROJECT",
-  "CLAUDE_PID",
-  "CODEX_PID",
-  "HOME",
-  "USERPROFILE",
-] as const;
+/** Env vars the harness shims may read, including vocabulary owned by adapters. */
+function shimEnvVars(): string[] {
+  const names = new Set(["ORCH_AGENT_KEY", "ORCH_DIR", "ORCH_AGENT_LOG", "ORCH_PROJECT", "HOME", "USERPROFILE"]);
+  for (const adapter of allAdapters()) {
+    if (adapter.sessionEnvMarker) names.add(adapter.sessionEnvMarker);
+    if (adapter.sessionIdEnv) names.add(adapter.sessionIdEnv);
+    if (adapter.sessionPidEnv) names.add(adapter.sessionPidEnv);
+  }
+  return [...names];
+}
 
 /** Filesystem scope a shim invocation is granted. Paths must be absolute. */
 export interface ShimScope {
@@ -79,7 +75,7 @@ export function runtimeArgv(runtime: OrchRuntime, script: string, args: readonly
   return [
     bin,
     "run",
-    `--allow-env=${SHIM_ENV_VARS.join(",")}`,
+    `--allow-env=${shimEnvVars().join(",")}`,
     "--allow-sys=homedir",
     `--allow-read=${readable.join(",")}`,
     `--allow-write=${scope.orchDir}`,

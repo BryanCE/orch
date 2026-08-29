@@ -17,8 +17,8 @@ const base = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow =
   capabilities: null,
   lease: null,
   leaseKnown: false,
-  workspace: "wF",
-  workspaceName: null,
+  space: "wF",
+  spaceName: null,
   rootAgentId: null,
   rootAgentName: null,
   ...overrides,
@@ -37,7 +37,7 @@ describe("web fleet projection", () => {
     expect(unnamed!.name).not.toBe("wF:p1");
   });
 
-  test("uses the orch space name and never exposes the plexer workspace id", () => {
+  test("uses the orch space name and never exposes the plexer space id", () => {
     const [space] = projectFleet([base({ spaceId: "space-42", spaceName: "Release" })]);
 
     expect(space!.name).toBe("Release");
@@ -46,7 +46,7 @@ describe("web fleet projection", () => {
   });
 
   test("unscoped agents use a neutral space label when no orch space exists", () => {
-    const [space] = projectFleet([base({ workspace: "wF", workspaceName: null })]);
+    const [space] = projectFleet([base({ space: "wF", spaceName: null })]);
 
     expect(space!.name).toBe("unscoped");
     expect(space!.name).not.toBe("wF");

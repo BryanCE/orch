@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { useLiveQueryInvalidation } from "@/hooks/use-live-query-invalidation";
-import type { Workspace } from "@/lib/fleet";
+import type { Space } from "@/lib/fleet";
 import { getFleet } from "@/server/orch";
 
 const FLEET_QUERY_KEY = ["fleet"] as const;
@@ -16,10 +16,10 @@ export function useFleet() {
 
   return useQuery({
     queryKey: FLEET_QUERY_KEY,
-    queryFn: async (): Promise<Workspace[]> => {
+    queryFn: async (): Promise<Space[]> => {
       const fleet = await getFleet();
       if (fleet.daemon === "down") throw new Error(fleet.reason ?? "daemon unavailable");
-      return fleet.workspaces;
+      return fleet.spaces;
     },
     staleTime: Infinity,
   });

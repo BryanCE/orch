@@ -1,6 +1,8 @@
-import { readdirSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { createLogger } from "../log.ts";
 import { ACK_FILE } from "../presence/schema.ts";
+import { drainClaimedLines } from "../presence/inbox.ts";
 import { presenceRoot } from "../presence/writer.ts";
 import { isRecord } from "../util.ts";
 import {
@@ -40,23 +42,7 @@ export function consumeOutboxAcks(orchDir: string): number {
       continue;
     }
     const ackFile = join(agentDir, ACK_FILE);
-    const claim = `${ackFile}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.draining`;
-    try {
-      renameSync(ackFile, claim);
-    } catch {
-      continue;
-    }
-
-    let chunk = "";
-    try {
-      chunk = readFileSync(claim, "utf8");
-    } catch {
-      // A claimed but unreadable file cannot safely be retried.
-    } finally {
-      try { unlinkSync(claim); } catch { /* best-effort */ }
-    }
-
-    for (const line of chunk.split("\n")) {
+    for (const line of drainClaimedLines(ackFile)) {
       if (!line.trim()) continue;
       let parsed: unknown;
       try {
@@ -68,6 +54,7 @@ export function consumeOutboxAcks(orchDir: string): number {
         || parsed.key !== key) continue;
       if (!outboxMessagePending(orchDir, parsed.id)) continue;
       markOutboxDelivered(orchDir, parsed.id);
+      createLogger({ file: join(orchDir, "orchd.log"), level: "info" }).forCorrelation(parsed.id).info("dispatch.acked", { target: key });
       acknowledged += 1;
     }
   }
@@ -98,6 +85,8 @@ export async function drainOutbox(
     if (inFlight.has(key)) continue;
     inFlight.add(key);
     try {
+      const log = createLogger({ file: join(orchDir, "orchd.log"), level: "info" }).forCorrelation(message.id);
+      log.info("dispatch.delivering", { target: message.target, attempt: message.attempts });
       let acknowledged = false;
       try {
         acknowledged = await deps.deliver(message.target, message.payload, message.id);
@@ -111,6 +100,7 @@ export async function drainOutbox(
       }
 
       bumpOutboxAttempt(orchDir, message.id, retryAt(deps.now(), message.attempts));
+      log.warn("dispatch.retried", { target: message.target, attempt: message.attempts + 1 });
       retried += 1;
     } finally {
       inFlight.delete(key);

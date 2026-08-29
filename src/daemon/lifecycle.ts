@@ -27,8 +27,9 @@ interface LockRecord {
 export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
 
 /** The machine-wide rendezvous record. Its endpoint paths are the only address
- *  clients discover; the daemon's private ORCH_DIR is intentionally absent. */
+ *  clients discover; orchDir scopes those endpoints to the owning store. */
 export interface DaemonRegistration {
+  readonly orchDir: string;
   readonly pid: number;
   readonly startToken: string;
   readonly socket: string;
@@ -73,18 +74,20 @@ function registrationPath(): string {
 function parseRegistration(value: unknown): DaemonRegistration | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Partial<DaemonRegistration>;
-  if (typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0
+  if (typeof record.orchDir !== "string" || record.orchDir.length === 0
+    || typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0
     || typeof record.startToken !== "string" || record.startToken.length === 0
     || typeof record.socket !== "string" || record.socket.length === 0
     || typeof record.token !== "string" || record.token.length === 0
     || typeof record.port !== "string" || record.port.length === 0) return undefined;
+  const orchDir = record.orchDir;
   const pid = record.pid;
   const startToken = record.startToken;
   const socket = record.socket;
   const token = record.token;
   const port = record.port;
-  if (pid === undefined || startToken === undefined || socket === undefined || token === undefined || port === undefined) return undefined;
-  return { pid, startToken, socket, token, port };
+  if (orchDir === undefined || pid === undefined || startToken === undefined || socket === undefined || token === undefined || port === undefined) return undefined;
+  return { orchDir, pid, startToken, socket, token, port };
 }
 
 /** Read registration without interpreting liveness; doctor needs to distinguish
@@ -97,9 +100,11 @@ export function readDaemonRegistration(): DaemonRegistration | null {
   }
 }
 
-export function liveDaemonRegistration(): DaemonRegistration | null {
+export function liveDaemonRegistration(orchDir?: string): DaemonRegistration | null {
   const registration = readDaemonRegistration();
-  return registration && processInstanceMatches(registration.pid, registration.startToken) ? registration : null;
+  if (!registration || !processInstanceMatches(registration.pid, registration.startToken)) return null;
+  if (orchDir !== undefined && path.resolve(orchDir) !== path.resolve(registration.orchDir)) return null;
+  return registration;
 }
 
 /** Atomically claim the machine rendezvous. A recycled or dead (pid,startToken)
@@ -109,6 +114,7 @@ export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationRe
   const startToken = processStartToken(process.pid);
   if (!startToken) throw new Error("cannot register orchd without a process start token");
   const registration: DaemonRegistration = {
+    orchDir: path.resolve(orchDir),
     pid: process.pid,
     startToken,
     socket: runtime.socket,
@@ -177,8 +183,8 @@ function processIdentityMatches(record: LockRecord): boolean {
 export function provenDaemonPid(orchDir: string): number | undefined {
   const record = readLock(lockPath(orchDir));
   if (record) return record.startToken && processInstanceMatches(record.pid, record.startToken) ? record.pid : undefined;
-  const registration = readDaemonRegistration();
-  return registration && processInstanceMatches(registration.pid, registration.startToken) ? registration.pid : undefined;
+  const registration = liveDaemonRegistration(orchDir);
+  return registration?.pid;
 }
 
 function readLock(file: string): LockRecord | undefined {
@@ -295,7 +301,7 @@ function commandFor(entrypoint: string, args: string[]): [string, string[]] {
   return [entrypoint, args];
 }
 
-/** Spawn orchd detached, redirecting all output to `$ORCH_DIR/orchd.log`. */
+/** Spawn orchd detached; diagnostics are written by the structured logger, never raw stdio. */
 export function daemonize(
   entrypoint: string,
   args: string[] = [],
@@ -307,7 +313,7 @@ export function daemonize(
   try {
     const child = spawn(command, commandArgs, {
       detached: true,
-      stdio: ["ignore", log, log],
+      stdio: ["ignore", "ignore", "ignore"],
       env: process.env,
     });
     child.unref();

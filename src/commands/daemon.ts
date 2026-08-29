@@ -1,4 +1,5 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
+import * as path from "node:path";
 import {
   clearDaemonRuntime,
   daemonEntrypoint,
@@ -13,12 +14,8 @@ import {
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, rpcCall } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
-import { errorMessage, isRecord, pidAlive } from "../util.ts";
+import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
 import { actorWorkspace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export interface DaemonStatus {
   pid: number;
@@ -32,7 +29,7 @@ export interface DaemonStatus {
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
  *  A pid alone is never authority to signal — see {@link provenDaemonPid}. */
 export function daemonLockPid(directory = orchDir()): number | undefined {
-  return readDaemonLock(directory)?.pid ?? liveDaemonRegistration()?.pid;
+  return readDaemonLock(directory)?.pid ?? liveDaemonRegistration(directory)?.pid;
 }
 
 export function validDaemonStatus(value: unknown): value is DaemonStatus {
@@ -195,6 +192,13 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
   return { gov, rest };
 }
 
+/** Translate daemon liveness failures once at the command boundary. */
+export function translateDaemonError(directory: string, error: unknown): unknown {
+  if (error instanceof DaemonAbsentError) return new Error(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
+  if (error instanceof DaemonUnreachableError) return new Error(unreachableRefusal(directory));
+  return error;
+}
+
 /** One write to orchd, stamped with the caller's actor and governance. Throws the
  *  refusal text a human should read; the caller owns what an unreachable daemon costs.
  *  Use {@link writeRpc} when that cost is the whole command. */
@@ -203,7 +207,7 @@ export async function callDaemon(method: string, params: Record<string, unknown>
   if (gov.steal) forbidAgentOverride("--steal");
   if (gov.crossWorkspace) forbidAgentOverride("--cross-workspace");
   // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
-  // selfActor); anything else and an orchestrator cannot steer its own fleet.
+  // the id orch issued); anything else and an orchestrator cannot steer its own fleet.
   const actor = callerOwnerToken() ?? null;
   const enriched: Record<string, unknown> = { ...params };
   if (actor !== null) {
@@ -217,9 +221,7 @@ export async function callDaemon(method: string, params: Record<string, unknown>
     await ensureDaemon(directory);
     return await rpcCall(directory, method, enriched, timeoutMs);
   } catch (error: unknown) {
-    if (error instanceof DaemonAbsentError) throw new Error(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
-    if (error instanceof DaemonUnreachableError) throw new Error(unreachableRefusal(directory));
-    throw error;
+    throw translateDaemonError(directory, error);
   }
 }
 
@@ -264,7 +266,7 @@ function probeBudget(deadline: number): number {
 async function awaitDaemonProbe(directory: string, deadline: number): Promise<DaemonProbe> {
   let verdict = await probeDaemon(directory, probeBudget(deadline));
   while (verdict !== "answered" && Date.now() < deadline) {
-    await delay(50);
+    await sleep(50);
     verdict = await probeDaemon(directory, probeBudget(deadline));
   }
   return verdict;
@@ -273,7 +275,7 @@ async function awaitDaemonProbe(directory: string, deadline: number): Promise<Da
 async function startDaemon(foreground: boolean, json = false): Promise<void> {
   const directory = orchDir();
   const global = liveDaemonRegistration();
-  if (global && global.socket !== daemonRuntimeFiles(directory).socket) {
+  if (global && path.resolve(global.orchDir) !== path.resolve(directory)) {
     die(`orchd is already running; start refused. Live daemon socket: ${global.socket}; token: ${global.token}`);
   }
   const livePid = liveDaemonPid(directory);

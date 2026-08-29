@@ -2,6 +2,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } f
 import { join } from "node:path";
 
 import { processInstanceMatches, processStartToken } from "../process-identity.ts";
+import { sleep } from "../util.ts";
 
 export interface CommandLock {
   pid: number;
@@ -36,10 +37,6 @@ export function matchesLockedCommand(argv: readonly string[], patterns: readonly
 
 function lockPath(orchDir: string): string {
   return join(orchDir, LOCK_NAME);
-}
-
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function loadLock(path: string): CommandLock | null {
@@ -102,7 +99,7 @@ export async function acquireCommandLock(orchDir: string, options: CommandLockOp
       }
     }
     if (Date.now() - started >= timeoutMs) break;
-    await pause(pollMs);
+    await sleep(pollMs);
   }
   const holder = loadLock(path);
   const heldBy = holder ? `${holder.holder} (pid ${holder.pid})` : "an unknown holder";

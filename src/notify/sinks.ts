@@ -8,40 +8,6 @@ import * as path from "node:path";
 import { packageRoot } from "../util.ts";
 import { notificationText, payload, type NotifyEvent } from "./format.ts";
 
-/** Provider port used by backend-owned notification sinks. */
-export interface SinkProvider {
-  id: string;
-  available(): boolean | Promise<boolean>;
-  send(title: string, body: string): boolean | Promise<boolean>;
-  remediation?: string;
-  label?: string;
-  description?: string;
-}
-
-const sinkProviders = new Map<string, SinkProvider>();
-
-let onRegister: ((provider: SinkProvider) => void) | undefined;
-
-/** Register a backend-owned notification provider. */
-export function registerSinkProvider(provider: SinkProvider): void {
-  sinkProviders.set(provider.id, provider);
-  onRegister?.(provider);
-}
-
-/** Every registered provider, in registration order. */
-export function allSinkProviders(): SinkProvider[] {
-  return [...sinkProviders.values()];
-}
-
-export function hasSinkProvider(id: string): boolean {
-  return sinkProviders.has(id);
-}
-
-/** Subscribe the notifier registry to providers that register after it was created. */
-export function onSinkProviderRegistered(listener: (provider: SinkProvider) => void): void {
-  onRegister = listener;
-}
-
 /** A required configuration value collected for a notifier. */
 export interface NotifierConfigField {
   /** Config key used by the notifier. */
@@ -72,20 +38,9 @@ export interface Notifier {
   deliver(event: NotifyEvent, config?: Record<string, unknown>): Promise<boolean>;
 };
 
-export function providerNotifier(provider: SinkProvider): Notifier {
-  return {
-    id: provider.id,
-    label: provider.label ?? provider.id,
-    ...(provider.remediation ? { remediation: provider.remediation } : {}),
-    metadata: { description: provider.description, requiredConfig: [] },
-    available: () => provider.available(),
-    deliver: async (event) => {
-      const { title, body } = notificationText(event);
-      return !!(await provider.send(title, body));
-    },
-  };
-}
+const registeredNotifiers = new Map<string, Notifier>();
 
+export function registerNotifier(notifier: Notifier): void { registeredNotifiers.set(notifier.id, notifier); }
 export function stringArray(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) return null;
   return value;
@@ -153,7 +108,7 @@ export function commandAvailable(config: Record<string, unknown>): boolean {
 /** Built-in host integrations. Delivery always uses the canonical formatter above. */
 export function createBuiltinNotifiers(): Notifier[] {
   return [
-    ...allSinkProviders().map(providerNotifier),
+    ...registeredNotifiers.values(),
     {
       id: "desktop",
       label: "Desktop",

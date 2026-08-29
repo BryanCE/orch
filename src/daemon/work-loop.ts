@@ -1,17 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../control/dispatch.ts";
-import { sleepMs } from "../backends/pane-ready.ts";
 import { errorMessage, pidAlive } from "../util.ts";
 import {
   claimTask,
   listTasks,
   nextQueuedTask,
+  requireTask,
   recordTaskDone,
   recordTaskFailure,
   type TaskRec,
 } from "../queue.ts";
 import { emitAndNotify } from "./events.ts";
-import { loadSinks } from "../notify/router.ts";
 import { type NotifyEvent } from "../notify/format.ts";
 import { loadPresence, statusForPresence, type PresenceEntry } from "../presence/store.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
@@ -19,6 +18,7 @@ import { workerHeaderFor } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { spawnedRecords } from "../presence/store.ts";
 import { sweepExpiredRows } from "./retention.ts";
+import { createLogger } from "../log.ts";
 
 export interface WorkOptions {
   orchDir: string;
@@ -55,7 +55,7 @@ export function statusSpeaksForTask(status: { dispatchId?: string } | null, task
   return status.dispatchId === undefined || status.dispatchId === currentAttempt(task)?.dispatchId;
 }
 
-function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: number): string | null {
+async function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   let state: string | null = null;
   do {
@@ -63,7 +63,7 @@ function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: number):
     state = status?.state ?? null;
     if (state === "working" && statusSpeaksForTask(status, task)) return state;
     if (Date.now() >= deadline) return state;
-    sleepMs(250);
+    await abortableDelay(250);
   } while (true);
 }
 
@@ -80,19 +80,25 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   // retry of the same id can never deliver the prompt twice, and the agent's
   // status/result echo the id the settle path verifies against.
   const dispatchId = currentAttempt(task)?.dispatchId ?? randomUUID();
-  const sendPrompt = () => deliverControl(entry.key, { kind: "run", text: prompt, id: dispatchId });
+  const log = createLogger({ file: `${options.orchDir}/orchd.log`, level: "info" }).forCorrelation(dispatchId).forAgent(currentAttempt(task)?.agentId ?? entry.key);
+  const sendPrompt = () => {
+    log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
+    return deliverControl(entry.key, { kind: "run", text: prompt, id: dispatchId });
+  };
   const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
   try {
     await sendPrompt();
-    let status = waitForWorking(entry, task, dispatchAckTimeoutMs);
+    let status = await waitForWorking(entry, task, dispatchAckTimeoutMs);
     let retried = false;
     if (status !== "working") {
       retried = true;
+      log.warn("dispatch.retried", { target: entry.key });
       await sendPrompt();
-      status = waitForWorking(entry, task, dispatchAckTimeoutMs);
+      status = await waitForWorking(entry, task, dispatchAckTimeoutMs);
     }
     if (!options.json) process.stdout.write(`Dispatched to ${entry.key} -> status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
   } catch (error) {
+    log.error("dispatch.failed", { target: entry.key, error: errorMessage(error) });
     process.stderr.write(`Warning: cannot dispatch ${entry.key}: ${errorMessage(error)}\n`);
   }
 }
@@ -161,7 +167,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
     const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
     const state = await waitForTaskState(entry, task, dispatchAckTimeoutMs);
-    const current = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
+    const current = requireTask(options.orchDir, task.id);
     if (state === "timeout") {
       const failed = recordTaskFailure(options.orchDir, task.id, "agent did not acknowledge working");
       emit(taskEvent(entry, failed, current.state, failed.state, "agent did not acknowledge working"));
@@ -173,7 +179,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
       emit(taskEvent(entry, done, current.state, done.state));
     }
   } catch (error) {
-    const current = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
+    const current = requireTask(options.orchDir, task.id);
     settleError(options.orchDir, current, String(error), entry, emit);
   }
 }
@@ -183,7 +189,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
  *  deriving them here too is what published every agent transition twice. */
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
-    emitAndNotify(() => { /* noop */ }, loadSinks(options.orchDir), event);
+    emitAndNotify(() => { /* noop */ }, loadConfig(options.orchDir).notify, event);
   });
   const sweepIntervalMs = 60 * 60 * 1000;
   let lastSweepAt = Number.NEGATIVE_INFINITY;
@@ -203,14 +209,15 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     const presence = loadPresence();
     settleClaimedTasks(options.orchDir, emit);
     let assigned = 0;
+    const tasks = listTasks(options.orchDir);
     for (const entry of [...presence.values()].filter(agentIdle)) {
       // The facade resolves agent/pack/space eligibility from the registered
       // agent id and open pack intake. A foreign pack never sees this task.
-      const task = nextQueuedTask(options.orchDir, entry.key, maxRetries);
+      const task = nextQueuedTask(options.orchDir, entry.key, maxRetries, tasks);
       const dispatchId = randomUUID();
       if (!task || !claimTask(options.orchDir, task.id, entry.key, dispatchId)) continue;
       assigned++;
-      const claimed = listTasks(options.orchDir).find((item) => item.id === task.id) ?? task;
+      const claimed = requireTask(options.orchDir, task.id);
       emit(taskEvent(entry, claimed, task.state, claimed.state));
       await assignTask(options, entry, claimed, emit);
       if (options.once || options.signal?.aborted) break;
@@ -219,7 +226,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       settleClaimedTasks(options.orchDir, emit);
       return;
     }
-    const claimed = listTasks(options.orchDir).some((task) => task.state === "claimed");
+    const claimed = tasks.some((task) => task.state === "claimed");
     if (assigned === 0 && !claimed && !options.continuous) return;
     await abortableDelay(options.pollIntervalMs, options.signal);
   }

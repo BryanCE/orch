@@ -40,8 +40,9 @@ const ULTRAWIDE: BackendRect = { width: 400, height: 50, x: 0, y: 0 };
 const TALL: BackendRect = { width: 80, height: 60, x: 0, y: 0 };
 
 describe("planTilePlacement", () => {
-  test("a lone pane needs no target: every backend's default split hits it", () => {
-    expect(planTilePlacement(layout([{ handle: "%1", rect: SCREEN }]), "rows")).toEqual({ split: "down" });
+  test("a lone pane anchors the split to the only pane", () => {
+    expect(planTilePlacement(layout([{ handle: "w0:p9", rect: { x: 0, y: 0, width: 200, height: 50 } }]), "rows"))
+      .toEqual({ targetPane: "w0:p9", split: "down" });
   });
 
   test("first_split rules the opening split, however the screen is shaped", () => {

@@ -36,21 +36,17 @@ export function appendInbox(directory: string, message: Record<string, unknown>)
 }
 
 /**
- * Atomically claim the inbox and return its lines.
+ * Atomically claim a line file and return its lines.
  *
- * The claim is a rename, not a read-then-truncate: lines the orchestrator
- * appends mid-drain land in a fresh inbox and are never lost, and a second
- * concurrent drain loses the rename race and returns empty rather than
- * double-delivering. Returns the raw split — blank lines included — so callers
- * see exactly the file's contents.
+ * The claim is a rename, not a read-then-truncate: lines appended mid-drain
+ * land in a fresh live file and are picked up by the next pass.
  */
-export function drainInbox(directory: string): string[] {
-  const inbox = inboxPath(directory);
-  const claim = `${inbox}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.draining`;
+export function drainClaimedLines(file: string): string[] {
+  const claim = `${file}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.draining`;
   try {
-    renameSync(inbox, claim);
+    renameSync(file, claim);
   } catch {
-    return []; // another drain won the race, or the file does not exist yet
+    return [];
   }
   let chunk = "";
   try {
@@ -61,6 +57,19 @@ export function drainInbox(directory: string): string[] {
     try { unlinkSync(claim); } catch { /* best-effort */ }
   }
   return chunk.split("\n");
+}
+
+/**
+ * Atomically claim the inbox and return its lines.
+ *
+ * The claim is a rename, not a read-then-truncate: lines the orchestrator
+ * appends mid-drain land in a fresh inbox and are never lost, and a second
+ * concurrent drain loses the rename race and returns empty rather than
+ * double-delivering. Returns the raw split — blank lines included — so callers
+ * see exactly the file's contents.
+ */
+export function drainInbox(directory: string): string[] {
+  return drainClaimedLines(inboxPath(directory));
 }
 
 /**

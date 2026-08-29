@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { eventInMineScope, formatEventGap, isNotifyEvent, parseEventsOptions, sinkLabel } from "../src/commands/events.ts";
+import { readFileSync } from "node:fs";
+import { eventInMineScope, eventInScope, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc.ts";
 
 describe("commands/events", () => {
+  test("owned renderers and tool help do not expose the retired workspace term", () => {
+    const files = ["src/commands/results.ts", "src/commands/events.ts", "src/commands/queue.ts", "src/agent/peers.ts", "src/table.ts"];
+    const source = files.map((file) => readFileSync(file, "utf8")).join("\\n");
+    expect(source).not.toMatch(/description:\s*"[^"]*workspace/i);
+    expect(source).not.toContain("workspaceName");
+    expect(source).not.toContain('host: "local"');
+  });
+
   // Bare `orch events` IS the normal use, so it must need no flags to be useful: a readable
   // line per transition, scoped to the agents this session currently leases. Every flag
   // widens or reshapes that. A default that streamed every session's agents as raw JSON made
@@ -18,9 +27,19 @@ describe("commands/events", () => {
     const event = { mineAddress: "me", leaseOwner: "me", eventSpawnedBy: "dead-session" };
     expect(eventInMineScope(event)).toBe(true);
   });
-  test("does not use spawnedBy as a fallback when an agent is unleased", () => {
-    const event = { mineAddress: "me", leaseOwner: null, eventSpawnedBy: "me", recordSpawnedBy: "me" };
+  test("includes an unleased agent spawned by this session", () => {
+    const event = { mineAddress: "me", leaseOwner: null, recordSpawnedBy: "me" };
+    expect(eventInMineScope(event)).toBe(true);
+  });
+  test("excludes an agent spawned by a different session", () => {
+    const event = { mineAddress: "me", leaseOwner: null, recordSpawnedBy: "other" };
     expect(eventInMineScope(event)).toBe(false);
+  });
+  test("--any-agent passes agents from both sessions", () => {
+    const mine = { anyAgent: true, mineAddress: "me", leaseOwner: null, recordSpawnedBy: "me" };
+    const other = { anyAgent: true, mineAddress: "me", leaseOwner: "other", recordSpawnedBy: "other" };
+    expect(eventInScope(mine)).toBe(true);
+    expect(eventInScope(other)).toBe(true);
   });
   test("excludes an agent while another orch holds its lease", () => {
     const event = { mineAddress: "me", leaseOwner: "other", eventSpawnedBy: "me", recordSpawnedBy: "me" };
@@ -45,9 +64,27 @@ describe("commands/events", () => {
     expect(delivered).toEqual([]);
     subscription.close();
   });
+  test("renders opaque plexer coordinates without relabeling them as spaces", () => {
+    const event = { key: "agent", workspace: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
+    const json = renderEvent(event, true, 4);
+    const parsed: unknown = JSON.parse(json);
+    expect(parsed).toMatchObject({ space: "wF", streamSeq: 4 });
+    expect(parsed).not.toHaveProperty("workspace");
+    expect(parsed).not.toHaveProperty("workspaceName");
+    expect(json).not.toContain("Friendly name");
+    const text = renderEvent(event, false, 4);
+    expect(text).toContain("[wF]");
+    expect(text).not.toContain("Friendly name");
+
+    const absent = renderEvent({ ...event, workspace: undefined }, true, 5);
+    expect(absent).not.toContain("space");
+    expect(absent).not.toContain("workspace");
+    expect(absent).not.toContain("local");
+  });
+
   test("rejects malformed event and labels sinks", () => {
     expect(isNotifyEvent({ key: "k", oldState: "idle", newState: "done", ts: "now" })).toBe(true);
     expect(isNotifyEvent({ key: "k" })).toBe(false);
-    expect(sinkLabel({ type: "command", command: ["echo", "ok"] } as Parameters<typeof sinkLabel>[0])).toBe("command echo ok");
+    expect(sinkLabel({ id: "command", command: ["echo", "ok"] })).toBe("command echo ok");
   });
 });

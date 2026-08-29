@@ -1,12 +1,15 @@
 import { mkdirSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { collapse } from "../entities.ts";
-import { notify, type Sink } from "../notify/router.ts";
+import { notify } from "../notify/router.ts";
+import type { NotifyEntry } from "../config.ts";
 import { abstractAgentLabel, workspaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
 import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
 import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus, type PresenceStatus } from "../presence/store.ts";
 import { selectSpawnedRecord } from "../store/spawned-rows.ts";
+import { agentById } from "../store/agent-rows.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { upsertRun, type RunRecord } from "../store/run-rows.ts";
 import { pidAlive, truncate } from "../util.ts";
 import { placementOf } from "../agent/registry.ts";
@@ -32,12 +35,15 @@ export interface PresenceWatchOptions {
   metadataFor?: (key: string) => PresenceMetadata;
   acceptKey?: (key: string) => boolean;
   pollIntervalMs?: number;
+  /** Test seam for verifying every watcher is closed when its directory disappears. */
+  onWatcherClosed?: () => void;
 };
 
 export interface PresenceWatch {
   states: Map<string, string>;
   scan: () => void;
   stop: () => void;
+  readonly watcherCount: () => number;
 };
 
 function property(value: object, key: string): unknown {
@@ -144,6 +150,8 @@ function identityFields(
   metadata: PresenceMetadata,
 ): PresenceIdentityFields {
   const workspace = placementOf(orchDir, key)?.workspace;
+  const normalizedId = tryParseIdentity(key)?.id;
+  const normalizedName = normalizedId ? agentById(orchDir, normalizedId)?.name : null;
   const assignedName = optionalString(property(value, "agent"));
   const label = optionalString(property(value, "label"));
   const tabLabel = optionalString(property(value, "tabLabel"));
@@ -154,7 +162,7 @@ function identityFields(
     workspace,
     // Status supplies the agent's self-reported label; placement comes from orch's registry.
     agent: assignedName ?? label ?? metadata.name ?? abstractAgentLabel(workspace ?? "workspace", key),
-    name: label ?? metadata.name ?? null,
+    name: normalizedName ?? label ?? metadata.name ?? null,
     dispatchId,
     spawnedBy,
     spawnedByLabel,
@@ -276,18 +284,22 @@ function runRecordForTransition(
   // startedAt is optional in the presence protocol. A dispatch still gets a row
   // when it is absent; the transition timestamp is the daemon's observation of
   // when this run was first seen. upsertRun preserves an earlier value on update.
+  const startedAt = typeof status.startedAt === "string" ? Date.parse(status.startedAt) : Date.parse(event.ts);
   const run: RunRecord = {
     dispatchId,
     agentKey: key,
     state: event.newState,
-    startedAt: typeof status.startedAt === "string" ? status.startedAt : event.ts,
+    startedAt,
   };
   const spawned = selectSpawnedRecord(orchDir, key);
   if (spawned?.adapter !== undefined) run.adapter = spawned.adapter;
   if (spawned?.workspace !== undefined) run.workspace = spawned.workspace;
   if (status.model && typeof status.model.id === "string") run.model = status.model.id;
   if (typeof status.task === "string") run.task = status.task;
-  if (TERMINAL_STATES.has(event.newState) && typeof status.finishedAt === "string") run.finishedAt = status.finishedAt;
+  if (TERMINAL_STATES.has(event.newState) && typeof status.finishedAt === "string") {
+    const finishedAt = Date.parse(status.finishedAt);
+    if (Number.isFinite(finishedAt)) run.finishedAt = finishedAt;
+  }
   if (typeof status.tokens?.input === "number") run.tokensIn = status.tokens.input;
   if (typeof status.tokens?.output === "number") run.tokensOut = status.tokens.output;
   if (typeof status.tokens?.cacheRead === "number") run.cacheRead = status.tokens.cacheRead;
@@ -314,10 +326,43 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   let stopped = false;
   let rootWatcher: FSWatcher | undefined;
 
+  const closeWatcher = (key: string): void => {
+    const watcher = watchers.get(key);
+    if (!watcher) return;
+    try {
+      watcher.close();
+      options.onWatcherClosed?.();
+    } finally {
+      watchers.delete(key);
+    }
+  };
+
   const check = (key: string): void => {
     if (stopped) return;
-    const metadata = options.keys?.get(key) ?? options.metadataFor?.(key) ?? { name: null, tab: null };
-    const status = readPresenceStatus(join(presenceAgentDir(key, options.orchDir), STATUS_FILE));
+    const agentDir = presenceAgentDir(key, options.orchDir);
+    try {
+      if (!statSync(agentDir).isDirectory()) {
+        closeWatcher(key);
+        return;
+      }
+    } catch {
+      closeWatcher(key);
+      return;
+    }
+    const status = readPresenceStatus(join(agentDir, STATUS_FILE));
+    const knownMetadata = options.keys?.get(key);
+    const candidateState = statusState(status, knownMetadata?.pid);
+    const previous = states.get(key);
+    if (candidateState === undefined || candidateState === null || previous === candidateState) return;
+    // Seed the initial observation without loading metadata: it is not a
+    // transition and therefore cannot produce an event.
+    if (previous === undefined) {
+      derivePresenceTransition(options.orchDir, key, status, { name: null, tab: null }, states);
+      return;
+    }
+    // Metadata may require database reads. Defer it until a real state transition
+    // is observed; idle scans must not reload the spawned registry.
+    const metadata = knownMetadata ?? options.metadataFor?.(key) ?? { name: null, tab: null };
     const event = derivePresenceTransition(options.orchDir, key, status, metadata, states);
     let resultText: string | undefined;
     if (event?.newState === "done") {
@@ -363,6 +408,10 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
     // Snapshot delivered states, then arm every watcher before reconciliation.
     const lastSeen = new Map(states);
     const keys = selectedKeys();
+    const selected = new Set(keys);
+    for (const key of watchers.keys()) {
+      if (!selected.has(key)) closeWatcher(key);
+    }
     for (const key of keys) attach(key);
     for (const key of keys) {
       // A callback that delivered this state while watchers were arming owns it.
@@ -384,8 +433,9 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
       stopped = true;
       clearInterval(safety);
       rootWatcher?.close();
-      for (const watcher of watchers.values()) watcher.close();
+      for (const key of [...watchers.keys()]) closeWatcher(key);
     },
+    watcherCount: () => watchers.size,
   };
 }
 
@@ -418,7 +468,7 @@ export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolea
 
 /** Publish one event to the RPC stream and every configured sink, stamped with the
  *  agent name and transition ordinal that make it identifiable downstream. */
-export function emitAndNotify(emit: (event: NotifyEvent) => void, sinks: Sink[], event: NotifyEvent, now = Date.now()): void {
+export function emitAndNotify(emit: (event: NotifyEvent) => void, sinks: NotifyEntry[], event: NotifyEvent, now = Date.now()): void {
   if (isRepeatTransition(event, now)) return;
   const workspace = event.workspace ?? workspaceLabelForKey(event.key);
   const seq = (published.get(event.key) ?? 0) + 1;

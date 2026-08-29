@@ -3,7 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
-import { startRpcServer, subscribeEvents, type EventSubscription, type RpcServer } from "../src/daemon/rpc";
+import { createServer, createConnection } from "node:net";
+import { isRpcResponse, readJsonMessages, startRpcServer, subscribeEvents, type EventSubscription, type RpcServer } from "../src/daemon/rpc";
 
 function waitFor<T>(read: () => T[], length: number, timeoutMs = 5_000): Promise<T[]> {
   return new Promise((resolve, reject) => {
@@ -26,6 +27,37 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+describe("RPC JSON framing", () => {
+  test("rejects malformed object that only has an id", () => {
+    expect(isRpcResponse({ id: 1, nope: true })).toBe(false);
+  });
+
+  test("parses split and multiple newline-delimited frames", async () => {
+    const server = createServer((socket) => {
+      socket.on("data", () => {
+        socket.write('{"id":1,"res');
+        setTimeout(() => socket.write('ult":"ok"}\n{"id":2,"result":"yes"}\n'), 5);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("server did not bind TCP");
+    const socket = createConnection({ host: "127.0.0.1", port: address.port });
+    const messages: unknown[] = [];
+    const done = new Promise<void>((resolve) => {
+      readJsonMessages(socket, (message) => {
+        messages.push(message);
+        if (messages.length === 2) resolve();
+      });
+    });
+    socket.write("request\n");
+    await done;
+    expect(messages).toEqual([{ id: 1, result: "ok" }, { id: 2, result: "yes" }]);
+    socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+});
+
 describe("subscribeEvents reconnect", () => {
   test("resubscribes and receives events after the daemon restarts", async () => {
     const orchDir = mkdtempSync(join(tmpdir(), "orchd-rpc-reconnect-"));
@@ -34,7 +66,7 @@ describe("subscribeEvents reconnect", () => {
     const received: unknown[] = [];
     try {
       server = await startRpcServer(orchDir, {});
-      subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event));
+      subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event), undefined, true);
       server.emit({ name: "before-restart" });
       await waitFor(() => received, 1);
       expect(received).toEqual([{ name: "before-restart" }]);

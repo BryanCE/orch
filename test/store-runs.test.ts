@@ -28,8 +28,8 @@ function fullRun(overrides: Partial<RunRecord> = {}): RunRecord {
     workspace: "workspace-1",
     task: "do the work",
     state: "completed",
-    startedAt: "2026-01-01T00:00:00.000Z",
-    finishedAt: "2026-01-01T00:01:00.000Z",
+    startedAt: Date.parse("2026-01-01T00:00:00.000Z"),
+    finishedAt: Date.parse("2026-01-01T00:01:00.000Z"),
     tokensIn: 101,
     tokensOut: 202,
     cacheRead: 303,
@@ -56,27 +56,27 @@ describe("run rows", () => {
     const newer = fullRun({
       agentKey: "agent-2",
       state: "failed",
-      startedAt: "2026-01-02T00:00:00.000Z",
-      finishedAt: "2026-01-02T00:02:00.000Z",
+      startedAt: Date.parse("2026-01-02T00:00:00.000Z"),
+      finishedAt: Date.parse("2026-01-02T00:02:00.000Z"),
       result: { ok: false },
       lastError: "nope",
     });
     upsertRun(orchDir, newer);
-    expect(selectRuns(orchDir)).toEqual([{ ...newer, startedAt: "2026-01-01T00:00:00.000Z" }]);
+    expect(selectRuns(orchDir)).toEqual([{ ...newer, startedAt: Date.parse("2026-01-01T00:00:00.000Z") }]);
   });
 
   test("orders by started time, filters by agent, and honours limit", () => {
     const orchDir = fixture();
-    upsertRun(orchDir, fullRun({ dispatchId: "old", agentKey: "same", startedAt: "2026-01-01T00:00:00.000Z" }));
-    upsertRun(orchDir, fullRun({ dispatchId: "new", agentKey: "same", startedAt: "2026-01-03T00:00:00.000Z" }));
-    upsertRun(orchDir, fullRun({ dispatchId: "other", agentKey: "other", startedAt: "2026-01-02T00:00:00.000Z" }));
+    upsertRun(orchDir, fullRun({ dispatchId: "old", agentKey: "same", startedAt: Date.parse("2026-01-01T00:00:00.000Z") }));
+    upsertRun(orchDir, fullRun({ dispatchId: "new", agentKey: "same", startedAt: Date.parse("2026-01-03T00:00:00.000Z") }));
+    upsertRun(orchDir, fullRun({ dispatchId: "other", agentKey: "other", startedAt: Date.parse("2026-01-02T00:00:00.000Z") }));
     expect(selectRuns(orchDir).map((run) => run.dispatchId)).toEqual(["new", "other", "old"]);
     expect(selectRuns(orchDir, { agentKey: "same", limit: 1 }).map((run) => run.dispatchId)).toEqual(["new"]);
   });
 
   test("omits absent optional fields instead of returning null", () => {
     const orchDir = fixture();
-    const run: RunRecord = { dispatchId: "minimal", agentKey: "agent", state: "running", startedAt: "2026-01-01T00:00:00.000Z" };
+    const run: RunRecord = { dispatchId: "minimal", agentKey: "agent", state: "running", startedAt: Date.parse("2026-01-01T00:00:00.000Z") };
     upsertRun(orchDir, run);
     const selected = selectRuns(orchDir)[0]!;
     expect(selected).toEqual(run);
@@ -87,10 +87,10 @@ describe("run rows", () => {
 
   test("deletes only rows older than the cutoff and returns the count", () => {
     const orchDir = fixture();
-    upsertRun(orchDir, fullRun({ dispatchId: "old-1", startedAt: "2026-01-01T00:00:00.000Z" }));
-    upsertRun(orchDir, fullRun({ dispatchId: "old-2", startedAt: "2026-01-02T00:00:00.000Z" }));
-    upsertRun(orchDir, fullRun({ dispatchId: "new", startedAt: "2026-01-03T00:00:00.000Z" }));
-    expect(deleteRunsBefore(orchDir, "2026-01-02T00:00:00.000Z")).toBe(1);
+    upsertRun(orchDir, fullRun({ dispatchId: "old-1", startedAt: Date.parse("2026-01-01T00:00:00.000Z") }));
+    upsertRun(orchDir, fullRun({ dispatchId: "old-2", startedAt: Date.parse("2026-01-02T00:00:00.000Z") }));
+    upsertRun(orchDir, fullRun({ dispatchId: "new", startedAt: Date.parse("2026-01-03T00:00:00.000Z") }));
+    expect(deleteRunsBefore(orchDir, Date.parse("2026-01-02T00:00:00.000Z"))).toBe(1);
     expect(selectRuns(orchDir).map((run) => run.dispatchId)).toEqual(["new", "old-2"]);
   });
 

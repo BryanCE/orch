@@ -24,6 +24,7 @@ interface EnvironmentServices {
   readonly paneHost: PaneHostRole | null;
   readonly paneInventory: PaneInventoryRole | null;
   readonly paneInput: PaneInputRole | null;
+  readonly paneForeground: PaneForegroundRole | null;
   readonly paneScreen: PaneScreenRole | null;
   readonly paneZoom: PaneZoomRole | null;
   readonly paneNaming: PaneNamingRole | null;
@@ -55,8 +56,8 @@ interface PaneInputRole {
   submit(handle: PlexerHandle, text: string): void;
   sendKeys(handle: PlexerHandle, keys: readonly string[]): void;
   focus(handle: PlexerHandle): void;
-  foreground(handle: PlexerHandle): PaneForeground;
 }
+interface PaneForegroundRole { read(handle: PlexerHandle): PaneForeground; }
 interface PaneScreenRole { read(handle: PlexerHandle, lines: number): string; }
 interface PaneZoomRole { setZoom(handle: PlexerHandle, mode: "on" | "off" | "toggle"): void; }
 interface PaneNamingRole { renamePane(handle: PlexerHandle, name: string): void; }
@@ -98,6 +99,40 @@ port. Their result is a structured diagnosis (`available`, `missing`, `incompati
 not an action-time boolean. Harness variation is composed the same way: the control dispatcher
 receives required strategy roles (`AskStrategy`, `SteerStrategy`, `ModelStrategy`,
 `LifecycleStrategy`) rather than reading adapter capability fields or optional methods.
+
+### Amendment 2026-08-29 — `foreground` is its own axis
+
+`foreground` was originally listed as a fourth method of `PaneInputRole`. That cut was wrong and
+it produced a live bug (`TASKS/10-review-findings.md` finding 1.5): tmux can submit, send keys and
+focus a pane, but it exposes no portable foreground-process query through control mode. Forced to
+supply the whole role, tmux shipped
+
+```ts
+paneForeground(_handle) { throw new Error("tmux does not provide pane foreground process inspection"); }
+```
+
+— precisely the stub this document forbids, and `orch restart <tmux agent>` killed the harness and
+then crashed on it.
+
+**This is not a new rule; it is the existing rules applied.** `02-scope.md` E13 already decided
+that what an environment can do "follows from" where it is and is "never itself recorded: no
+capability rows... **No method-presence check and no loose flags** — Ef10's optional methods and
+Ef12's booleans are both deleted." `03-vocabulary.md` § Capability already says orch "records the
+environment... and knows what a plexer of that kind and version provides", and that behaviour
+"branches on what the environment provides, never on which plexer it is".
+
+So the fix is NOT an optional method — E13 deletes those outright — and finding 1.5's phrase
+"`foreground` must be an optional role" is loose wording for the same thing. A role whose methods
+are not all available from the same providers is a role **cut along the wrong seam**. Recut it:
+
+`PaneForegroundRole` is a separate structural axis. herdr composes it; tmux does not. A caller
+learns that from `paneForeground === null` — which is composition, exactly the "nullable members
+are structural environment axes, not flags" this document already states — never from a thrown
+"not supported" and never from `typeof backend.foreground === "function"`. E14 then governs what
+the human sees: absence is an *answer* at the boundary, not a failure.
+
+The governing rule is unchanged and is what forces the split: **every method in every role is
+required, and a provider composes only roles it implements completely.**
 
 ## Command boundary and errors
 
@@ -189,7 +224,7 @@ path. Only that slice's tests are run.
    required `AgentChannelRole`/`CaptureRole`; remove backend `deliver` and plexer reads used as
    truth.
 3. **Pane input and screen.** Test boundary answers and real failures; extract inventory, input,
-   host, screen, zoom, naming and status roles; migrate panes, lifecycle and control; delete the
+   foreground, host, screen, zoom, naming and status roles; migrate panes, lifecycle and control; delete the
    corresponding `Backend` fields/methods and pane booleans.
 4. **Groups and layout.** Test each composed provider bundle; extract `GroupHomeRole` and
    `GroupLayoutRole`; migrate spawn/tile/tab/move; delete every group optional method.

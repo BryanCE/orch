@@ -45,7 +45,7 @@ export function AgentCard({
   const pulse = usePulse(agent.key);
   // A capless agent has no pane to watch and no input to type into. That is a fact
   // about what its backend can do, not about which backend it happens to be.
-  const watchable = agent.capabilities.panes;
+  const watchable = agent.environment.pane !== null;
 
   return (
     <Card
@@ -64,7 +64,7 @@ export function AgentCard({
             <Badge
               variant="outline"
               className="gap-1 font-mono text-[10px] uppercase text-muted-foreground"
-              title={watchable ? `pane ${agent.pane}` : "no pane — this agent cannot be watched or typed at"}
+              title={watchable ? `pane ${agent.environment.pane}` : "no pane — this agent cannot be watched or typed at"}
             >
               {watchable ? <Terminal className="size-3" /> : <EyeOff className="size-3" />}
               {watchable ? "pane" : "detached"}

@@ -26,8 +26,8 @@ function fixture(): string {
 describe("outbox delivery", () => {
   test("selects pending messages and delivers each message once", async () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "one", target: "agent:one", payload: { text: "a" }, createdAt: "2026-01-01T00:00:00.000Z" });
-    insertOutboxMessage(orchDir, { id: "two", target: "agent:two", payload: { text: "b" }, createdAt: "2026-01-01T00:00:01.000Z" });
+    insertOutboxMessage(orchDir, { id: "one", target: "agent:one", payload: { text: "a" }, createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "two", target: "agent:two", payload: { text: "b" }, createdAt: Date.parse("2026-01-01T00:00:01.000Z") });
     expect(selectPendingOutbox(orchDir, 0).map((message) => message.id)).toEqual(["one", "two"]);
 
     const delivered: string[] = [];
@@ -50,7 +50,7 @@ describe("outbox delivery", () => {
 
   test("keeps failed messages pending until their backoff expires", async () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "retry", target: "agent:retry", payload: "payload", createdAt: "2026-01-01T00:00:00.000Z" });
+    insertOutboxMessage(orchDir, { id: "retry", target: "agent:retry", payload: "payload", createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
     let now = 1_000;
     const deps = { deliver: () => Promise.resolve(false), now: () => now };
 

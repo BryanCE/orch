@@ -17,21 +17,12 @@ import { detectCodexState, extractCodexResult } from "../../src/adapters/codex-e
 import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { isRecord, parsePid, projectRoot, type JsonRecord } from "../../src/util.ts";
+import { ensurePresenceAgentDir, launchKey, launchStamp, parseJsonArgument, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { parsePid, projectRoot, type JsonRecord } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 
 const AGENT_ID = "codex";
 const MAX_TEXT = 400;
-function parsePayload(raw: string | undefined): JsonRecord {
-  try {
-    const parsed: unknown = JSON.parse(raw ?? "{}");
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 // A hook/notify program is short-lived; its parent is the long-lived codex process.
 function agentPid(): number {
   return parsePid(process.env.CODEX_PID) ?? parsePid(process.ppid) ?? process.pid;
@@ -39,17 +30,11 @@ function agentPid(): number {
 
 // No ORCH_AGENT_KEY means a regular (non-orch) codex session — nothing to
 // record, exit silently. Only a present-but-malformed key is a wiring error.
-const key = process.env.ORCH_AGENT_KEY;
+const key = launchKey(parseIdentity);
 if (!key) process.exit(0);
-try {
-  parseIdentity(key);
-} catch (error: unknown) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-}
 
 const raw = process.argv[2];
-const payload = parsePayload(raw);
+const payload = parseJsonArgument(raw);
 
 const directory = ensurePresenceAgentDir(key);
 if (!directory) process.exit(0);
@@ -69,19 +54,10 @@ const resultText = extractCodexResult({ output: raw });
 const sessionPath = textValue(process.env.ORCH_AGENT_LOG) ?? textValue(previous.sessionPath);
 
 const status: JsonRecord = {
-  ...previous,
-  schema: PRESENCE_SCHEMA,
-  agent: AGENT_ID,
-  key,
+  ...launchStamp(previous, AGENT_ID, key),
   paneId,
   pid: agentPid(),
-  // Identity stamped at launch: this agent's display name and its spawner.
-  label: textValue(process.env.ORCH_AGENT_NAME) ?? previous.label,
-  spawnedBy: textValue(process.env.ORCH_SPAWNER) ?? previous.spawnedBy,
-  spawnedByLabel: textValue(process.env.ORCH_SPAWNER_LABEL) ?? previous.spawnedByLabel,
   cwd: textValue(payload.cwd) ?? previous.cwd ?? process.cwd(),
-  worktree: textValue(process.env.ORCH_AGENT_WORKTREE) ?? previous.worktree,
-  branch: textValue(process.env.ORCH_AGENT_BRANCH) ?? previous.branch,
   project: projectRoot(),
   state,
   sessionPath,

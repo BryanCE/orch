@@ -27,6 +27,13 @@ describe("agent ownership", () => {
     expect(getOwner(orchDir, "agent-1")).toBe("orch-A");
   });
 
+  test("replaces an existing owner", () => {
+    const orchDir = makeOrchDir();
+    setOwner(orchDir, "agent-1", "orch-A");
+    setOwner(orchDir, "agent-1", "orch-B");
+    expect(getOwner(orchDir, "agent-1")).toBe("orch-B");
+  });
+
   test("allows unowned and same-owner writes", () => {
     const orchDir = makeOrchDir();
     expect(checkOwnerWrite(orchDir, "agent-1", "orch-A")).toEqual({ ok: true });

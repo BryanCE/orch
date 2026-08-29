@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import {
   acquireDaemonLock,
+  acquireDaemonRegistration,
   clearDaemonRuntime,
   computeCodeHash,
   daemonize,
   provenDaemonPid,
   releaseDaemonLock,
+  releaseDaemonRegistration,
   reexecSelf,
   runForeground,
   readDaemonLock,
@@ -165,6 +167,22 @@ describe("daemon lifecycle", () => {
     expect(readDaemonLock(orchDir)).toBeNull();
     expect(acquireDaemonLock(orchDir, () => false)).toBe(true);
     releaseDaemonLock(orchDir);
+  });
+
+  test("foreign machine registration cannot be signalled for another store", () => {
+    const target = makeOrchDir();
+    const foreign = makeOrchDir();
+    const discovery = makeOrchDir();
+    const previous = process.env.ORCH_DAEMON_DISCOVERY_DIR;
+    process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
+    try {
+      expect(acquireDaemonRegistration(foreign).acquired).toBe(true);
+      expect(provenDaemonPid(target)).toBeUndefined();
+    } finally {
+      releaseDaemonRegistration();
+      if (previous === undefined) delete process.env.ORCH_DAEMON_DISCOVERY_DIR;
+      else process.env.ORCH_DAEMON_DISCOVERY_DIR = previous;
+    }
   });
 
   test("only a provable lock owner may be signalled", () => {

@@ -9,6 +9,8 @@ import { deleteSettledTasksBefore } from "../store/task-rows.ts";
 import { deleteRunsBefore } from "../store/run-rows.ts";
 import { openStore } from "../store/connection.ts";
 import { selectSpawnedRecords } from "../store/spawned-rows.ts";
+import { rmSync, statSync } from "node:fs";
+import { daemonRuntimeFiles } from "./runtime-files.ts";
 
 /** Delete ended agent records only when no descendants remain. */
 function removeExpiredAgentRecords(orchDir: string, cutoff: Date): { count: number; ids: Set<string> } {
@@ -31,6 +33,8 @@ function removeExpiredAgentRecords(orchDir: string, cutoff: Date): { count: numb
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Maximum size for each orch-owned JSONL log before the next retention sweep. */
+export const ORCH_LOG_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface SweepCounts {
   queue: number;
@@ -66,19 +70,31 @@ function removeExpiredAgentDirs(orchDir: string, cutoff: Date): number {
 
 /** Ask each backend that owns logs to prune its stale artifacts. */
 function removeExpiredLogs(orchDir: string, cutoff: Date): number {
+  let removed = 0;
+  for (const file of [daemonRuntimeFiles(orchDir).log, `${orchDir}/orch.log`]) {
+    try {
+      const stat = statSync(file);
+      if (stat.mtimeMs < cutoff.getTime() || stat.size > ORCH_LOG_MAX_BYTES) {
+        rmSync(file);
+        removed += 1;
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+    }
+  }
   const liveKeys = [...loadPresence(orchDir).values()]
     .filter((entry) => entry.alive)
     .map((entry) => entry.key);
-  let removed = 0;
+  let backendRemoved = 0;
   for (const backend of allBackends()) {
     if (!backend.capabilities.canPruneLogs || !backend.pruneLogs) continue;
     try {
-      removed += backend.pruneLogs(cutoff, liveKeys, orchDir);
+      backendRemoved += backend.pruneLogs(cutoff, liveKeys, orchDir);
     } catch (error: unknown) {
       process.stderr.write(`Warning: retention sweep logs failed for backend ${backend.id}: ${errorMessage(error)}\n`);
     }
   }
-  return removed;
+  return removed + backendRemoved;
 }
 
 /** Remove rows and disk artifacts outside each configured retention window.
@@ -89,9 +105,9 @@ export function sweepExpiredRows(orchDir: string, config: OrchConfig, now: Date)
   const cutoff = (days: number): Date => new Date(now.getTime() - days * DAY_MS);
   const entries: SweepEntry[] = [
     { name: "queue", days: config.retention.queue_days, remove: (date) => deleteSettledTasksBefore(orchDir, date.getTime()) },
-    { name: "outbox", days: config.retention.outbox_days, remove: (date) => deleteDeliveredBefore(orchDir, date.toISOString()) },
-    { name: "events", days: config.retention.events_days, remove: (date) => deleteEventsBefore(orchDir, date.toISOString()) },
-    { name: "runs", days: config.retention.runs_days, remove: (date) => deleteRunsBefore(orchDir, date.toISOString()) },
+    { name: "outbox", days: config.retention.outbox_days, remove: (date) => deleteDeliveredBefore(orchDir, date.getTime()) },
+    { name: "events", days: config.retention.events_days, remove: (date) => deleteEventsBefore(orchDir, date.getTime()) },
+    { name: "runs", days: config.retention.runs_days, remove: (date) => deleteRunsBefore(orchDir, date.getTime()) },
     { name: "ended_agents", days: config.retention.ended_agents_days, remove: (date) => removeExpiredAgentDirs(orchDir, date) },
     { name: "logs", days: config.retention.logs_days, remove: (date) => removeExpiredLogs(orchDir, date) },
   ];

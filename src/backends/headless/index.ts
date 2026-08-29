@@ -1,9 +1,9 @@
-import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
-import { PRESENCE_SCHEMA, STATUS_FILE } from "../../presence/schema.ts";
+import { readStatus } from "../../presence/writer.ts";
 import { presenceAgentDir } from "../../presence/store.ts";
 import { errorMessage, pidAlive, projectRoot } from "../../util.ts";
 import type {
@@ -11,6 +11,7 @@ import type {
   BackendCapabilities,
   BackendId,
   BackendSpawnOpts,
+  PaneForegroundRole,
 } from "../backend.ts";
 import { insertSpawnedRecord, selectSpawnedRecords } from "../../store/spawned-rows.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
@@ -80,15 +81,8 @@ function headlessHandles(directory: string): HeadlessHandle[] {
 
 function statusPid(directory: string, key: string): number | undefined {
   if (!safeKey(key)) return undefined;
-  try {
-    const status: unknown = JSON.parse(readFileSync(join(presenceAgentDir(key, directory), STATUS_FILE), "utf8"));
-    if (!status || typeof status !== "object" || Array.isArray(status)) return undefined;
-    if (Reflect.get(status, "schema") !== PRESENCE_SCHEMA) return undefined;
-    const pid: unknown = Reflect.get(status, "pid");
-    return typeof pid === "number" ? pid : undefined;
-  } catch {
-    return undefined;
-  }
+  const status = readStatus(presenceAgentDir(key, directory));
+  return typeof status.pid === "number" ? status.pid : undefined;
 }
 
 function sameHandle(left: HeadlessHandle, right: HeadlessHandle): boolean {
@@ -111,19 +105,13 @@ export interface HeadlessBackendDeps {
 
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
-  // Required by the Backend contract even though headless has no pane UI.
-  // fallow-ignore-next-line unused-class-member
-  readonly panes = false;
-  // Required by the Backend contract even though headless has no pane UI.
-  // fallow-ignore-next-line unused-class-member
-  readonly focusable = false;
-  readonly canSendKeys = false;
-  readonly capabilities: BackendCapabilities = { panes: false, focusable: false, canSendKeys: false, canPruneLogs: true };
+  readonly capabilities: BackendCapabilities = { canPruneLogs: true };
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneHost = null;
   readonly paneInventory = null;
   readonly paneInput = null;
+  readonly paneForeground: PaneForegroundRole<HeadlessHandle> | null = null;
   readonly paneScreen = null;
   readonly paneZoom = null;
   readonly paneNaming = null;

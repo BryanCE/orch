@@ -8,14 +8,16 @@ import { z } from "zod";
 import { ADAPTER_IDS, AGENT_STATES, type AdapterId } from "./adapters/adapter.ts";
 import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.ts";
 import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
+import { THINKING_LEVELS, type ThinkingLevel } from "./policy/thinking.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errorMessage } from "./util.ts";
+import type { LogLevel } from "./log.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is
  * invalid and recreated by `orch setup`. On a shape change, bump this stamp and fix
  * every writer/reader/test in the same commit. */
-export const SETTINGS_SCHEMA = 4;
+export const SETTINGS_SCHEMA = 5;
 
 const PositiveInt = z.number().int().positive();
 
@@ -58,14 +60,20 @@ const NotifyEntrySchema = z.discriminatedUnion("id", [
   }),
   z.strictObject({ id: z.literal(HERDR_SINK_ID), on: NotifyOnSchema }),
 ]);
+
+
+/** Every sink id, read off the schema so nothing re-lists the union. A sink named
+ *  for a plexer must not put that plexer's name in core (Rule 10). */
+export const NOTIFY_IDS: readonly string[] = NotifyEntrySchema.options.map((option) => option.shape.id.value);
 export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 
 export const SETTINGS_DEFAULTS = {
   fleet: { spawn_cap: 8, pack_cap: 10, worker_peer_tools: false, cross_workspace: false },
   queue: { max_retries: 1 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7 },
+  logging: { level: "info" },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
-  defaults: { worktree: false },
+  defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
@@ -94,6 +102,8 @@ const SettingsFileSchema = z.strictObject({
     /** One model per harness: each names models in its own vocabulary, so a single
      *  string can only ever be launchable by one of them. */
     models: z.partialRecord(z.enum(ADAPTER_IDS), z.string()).optional(),
+    thinking: z.enum(THINKING_LEVELS).optional(),
+    thinking_by_harness: z.partialRecord(z.enum(ADAPTER_IDS), z.enum(THINKING_LEVELS)).optional(),
     worktree: z.boolean().optional(),
   }).optional(),
   fleet: z.strictObject({
@@ -126,6 +136,7 @@ const SettingsFileSchema = z.strictObject({
   }).optional(),
   /** Retention windows in days for ended agents, settled queue tasks, stored events,
    * completed runs, delivered outbox messages, and logs. */
+  logging: z.strictObject({ level: z.enum(["error", "warn", "info", "debug", "trace"]).optional() }).optional(),
   retention: z.strictObject({
     /** Ended agent records and presence directories older than this many days. */
     ended_agents_days: PositiveInt.optional(),
@@ -176,12 +187,13 @@ export type HostConfig = z.infer<typeof HostSchema>;
 export interface OrchConfig {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
-  defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; worktree: boolean };
+  defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
   fleet: { spawn_cap: number; pack_cap?: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
   retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; logs_days: number };
+  logging?: { level: LogLevel };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];
   locked_commands: string[];
@@ -323,7 +335,13 @@ function configuredOr<T>(value: T | undefined, fallback: T): T {
 
 /** Extract each settings section independently so adding a field cannot grow one branch ladder. */
 const configValueExtractors = {
-  defaults: (root: Partial<SettingsFile>) => ({ ...root.defaults, models: root.defaults?.models ?? {}, worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree }),
+  defaults: (root: Partial<SettingsFile>) => ({
+    ...root.defaults,
+    models: root.defaults?.models ?? {},
+    thinking: root.defaults?.thinking ?? SETTINGS_DEFAULTS.defaults.thinking,
+    thinking_by_harness: root.defaults?.thinking_by_harness ?? {},
+    worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree,
+  }),
   fleet: (root: Partial<SettingsFile>) => ({
     spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
     pack_cap: root.fleet?.pack_cap ?? SETTINGS_DEFAULTS.fleet.pack_cap,
@@ -340,6 +358,7 @@ const configValueExtractors = {
     allow_tools: root.workers?.allow_tools ?? [],
   }),
   queue: (root: Partial<SettingsFile>) => ({ max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries }),
+  logging: (root: Partial<SettingsFile>) => ({ level: root.logging?.level ?? SETTINGS_DEFAULTS.logging.level }),
   retention: (root: Partial<SettingsFile>) => ({
     ended_agents_days: configuredOr(root.retention?.ended_agents_days, SETTINGS_DEFAULTS.retention.ended_agents_days),
     queue_days: configuredOr(root.retention?.queue_days, SETTINGS_DEFAULTS.retention.queue_days),
@@ -378,6 +397,7 @@ function configValues(root: Partial<SettingsFile>): Omit<OrchConfig, "runtime" |
     workers: configValueExtractors.workers(root),
     queue: configValueExtractors.queue(root),
     retention: configValueExtractors.retention(root),
+    logging: configValueExtractors.logging(root),
     timeouts: configValueExtractors.timeouts(root),
     notify: configValueExtractors.notify(root),
     locked_commands: configValueExtractors.locked_commands(root),
@@ -650,6 +670,35 @@ export function writeSettingsDefault(orchDir: string, key: "adapter" | "backend"
 /** Record the model each enabled harness launches on, replacing any previous set. */
 export function writeSettingsModels(orchDir: string, models: Partial<Record<AdapterId, string>>): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, models: { ...models } } }));
+}
+
+/**
+ * Record the thinking effort a launch uses when nothing overrides it.
+ *
+ * Thinking is its OWN axis (`TASKS/12-thinking.md`): it applies to any model and any
+ * harness, so it is never a suffix on a stored model id. `byHarness` carries a
+ * per-harness override for a ladder that genuinely does not line up; a `null` entry
+ * CLEARS that override and falls back to the global default.
+ */
+export function writeSettingsThinking(
+  orchDir: string,
+  update: { thinking?: ThinkingLevel; byHarness?: Partial<Record<AdapterId, ThinkingLevel | null>> },
+): void {
+  updateSettingsFile(orchDir, (root) => {
+    const current = { ...root.defaults?.thinking_by_harness };
+    for (const [harness, level] of Object.entries(update.byHarness ?? {})) {
+      if (level === null) delete current[harness as AdapterId];
+      else if (level !== undefined) current[harness as AdapterId] = level;
+    }
+    return {
+      ...root,
+      defaults: {
+        ...root.defaults,
+        ...(update.thinking === undefined ? {} : { thinking: update.thinking }),
+        thinking_by_harness: current,
+      },
+    };
+  });
 }
 
 /** Record the user's answer to "may orch write its skills into your harness directories?"

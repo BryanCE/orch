@@ -85,7 +85,7 @@ describe("spawn policy caps", () => {
       fleet: { pack_cap: 1 },
     });
     const key = "headless~workspace~live";
-    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: key, name: "work-1" });
+    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: key });
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));
@@ -120,9 +120,13 @@ describe("spawn policy caps", () => {
       process.stderr.write = originalWrite;
       backend.spawn = originalSpawn;
     }
+    // A refusal THROWS a typed error and prints nothing itself: `die()` belongs to
+    // the CLI boundary, never inside a function another command calls (bug 1.11).
+    // runSetupSmoke catches this; a process.exit here killed setup mid-verdict.
     expect(refusal).toBeInstanceOf(Error);
-    expect((refusal as Error).message).toBe("exit 1");
-    expect(stderr).toMatch(/spawn refused:.*pack cap 1/);
+    if (!(refusal instanceof Error)) throw new Error("refusal was not an Error");
+    expect(refusal.message).toMatch(/spawn refused:.*pack cap 1/);
+    expect(stderr).toBe("");
     expect(backendAllocations).toBe(0);
     // The live registry row above is the injected name claimant; it must remain the sole claim.
     expect([...spawnedRecords().entries()]).toEqual(beforeRegistry);

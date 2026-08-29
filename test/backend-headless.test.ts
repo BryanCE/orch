@@ -94,7 +94,7 @@ describe("HeadlessBackend", () => {
 
   test("spawns a detached process and records its handle", async () => {
     const key = serializeIdentity({ backend: "headless", workspace: "test", id: "fake-1" });
-    expect(backend.capabilities).toEqual({ panes: false, focusable: false, canSendKeys: false, canPruneLogs: true });
+    expect(backend.capabilities).toEqual({ canPruneLogs: true });
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key, prompt: "sleep" });
     handles.push(handle);
 

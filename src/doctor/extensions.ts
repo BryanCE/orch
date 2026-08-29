@@ -10,7 +10,7 @@ import { packageRoot } from "../util.ts";
  * agent whose hash matches omp's bundle is current, and comparing it against pi's
  * would report a fleet-wide failure that is really just "a different harness".
  */
-function shippedBundleHashes(bundlePath?: string): string[] {
+export function shippedBundleHashes(bundlePath?: string): string[] {
   const bundles = bundlePath ? [bundlePath] : EXTENSION_NAMES.map((name) => extensionBundlePath(packageRoot(), name));
   return bundles.flatMap((bundle) => {
     try { return [computeCodeHash(bundle)]; } catch { return []; }
@@ -18,11 +18,11 @@ function shippedBundleHashes(bundlePath?: string): string[] {
 }
 
 /** Compare a bridge presence hash with the bundled bridges currently installed on disk. */
-export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath?: string): boolean {
+export function isBridgeExtensionStale(extensionHash: string | undefined, bundlePath?: string, shippedHashes?: ReadonlySet<string>): boolean {
   if (extensionHash === undefined) return false;
-  const hashes = shippedBundleHashes(bundlePath);
-  if (!hashes.length) return false;
-  return !hashes.includes(extensionHash);
+  const hashes = shippedHashes ?? new Set(shippedBundleHashes(bundlePath));
+  if (!hashes.size) return false;
+  return !hashes.has(extensionHash);
 }
 
 /** Verify Claude's orch hooks are installed and target this checkout's shim. */

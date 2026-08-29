@@ -30,12 +30,12 @@ function fixture(): string {
 describe("outbox store rows", () => {
   test("inserts pending messages and orders them by creation time", () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "later", target: "agent-b", payload: { n: 2 }, createdAt: "2026-01-02T00:00:00.000Z" });
-    insertOutboxMessage(orchDir, { id: "earlier", target: "agent-a", payload: [1, true], createdAt: "2026-01-01T00:00:00.000Z" });
+    insertOutboxMessage(orchDir, { id: "later", target: "agent-b", payload: { n: 2 }, createdAt: Date.parse("2026-01-02T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "earlier", target: "agent-a", payload: [1, true], createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
 
     expect(selectPendingOutbox(orchDir, 0)).toEqual([
-      { id: "earlier", target: "agent-a", payload: [1, true], state: "pending", attempts: 0, createdAt: "2026-01-01T00:00:00.000Z", nextAttemptAt: 0 },
-      { id: "later", target: "agent-b", payload: { n: 2 }, state: "pending", attempts: 0, createdAt: "2026-01-02T00:00:00.000Z", nextAttemptAt: 0 },
+      { id: "earlier", target: "agent-a", payload: [1, true], state: "pending", attempts: 0, createdAt: Date.parse("2026-01-01T00:00:00.000Z"), nextAttemptAt: 0 },
+      { id: "later", target: "agent-b", payload: { n: 2 }, state: "pending", attempts: 0, createdAt: Date.parse("2026-01-02T00:00:00.000Z"), nextAttemptAt: 0 },
     ]);
   });
 
@@ -64,12 +64,12 @@ describe("outbox store rows", () => {
 
   test("deletes delivered messages older than the cutoff", () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "old", target: "agent-a", payload: {}, createdAt: "2026-01-01T00:00:00.000Z" });
-    insertOutboxMessage(orchDir, { id: "new", target: "agent-a", payload: {}, createdAt: "2026-01-02T00:00:00.000Z" });
+    insertOutboxMessage(orchDir, { id: "old", target: "agent-a", payload: {}, createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "new", target: "agent-a", payload: {}, createdAt: Date.parse("2026-01-02T00:00:00.000Z") });
     markOutboxDelivered(orchDir, "old");
     markOutboxDelivered(orchDir, "new");
 
-    expect(deleteDeliveredBefore(orchDir, "2026-01-02T00:00:00.000Z")).toBe(1);
+    expect(deleteDeliveredBefore(orchDir, Date.parse("2026-01-02T00:00:00.000Z"))).toBe(1);
     expect(outboxMessagePending(orchDir, "old")).toBe(false);
     expect(selectPendingOutbox(orchDir, 0)).toEqual([]);
   });

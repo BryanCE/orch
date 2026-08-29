@@ -102,7 +102,7 @@ describe("doctor notification-sink checks", () => {
 
   test("warns when a notifier omits done from its on list", async () => {
     const directory = tempDir();
-    writeConfig(directory, { notify: [{ id: "command", command: [process.execPath] }] });
+    writeConfig(directory, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error"] }] });
 
     const result = notifierResult(await runDoctor(directory));
     expect(result).toMatchObject({

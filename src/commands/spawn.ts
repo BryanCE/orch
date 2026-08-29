@@ -2,41 +2,46 @@ import { bridgeRegistered, loadPresence, orchDir, recordSpawned, spawnedRecords,
 import { recordGrantRequest, spendGrant, type GrantAction } from "../store/grant-rows.ts";
 import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
-import { assertNameFree, liveNamedRecords, nextNameIndex } from "../policy/name.ts";
+import { assertNameFree, assertValidAgentName, liveNamedRecords, nextNameIndex } from "../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
 import { assertModelAllowed } from "../policy/model.ts";
+import { resolveThinking, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
 import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
 import { workerHeaderFor, type WorkerHeaderContext } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity } from "../backends/identity.ts";
-import type { Backend, BackendGroup, BackendHandle, BackendId } from "../backends/backend.ts";
+import type { Backend, BackendGroup, BackendHandle, BackendId, GroupLayoutRole } from "../backends/backend.ts";
 import { detachedBackend, resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout, type TileFirstSplit, type TilePlacement } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
 import * as path from "node:path";
-import { errorMessage } from "../util.ts";
+import { readFileSync } from "node:fs";
+import { dispatchToAgent } from "./control.ts";
+import { errorMessage, sleep } from "../util.ts";
 import { callDaemon, daemonOutage } from "./daemon.ts";
 import { rpcHello } from "../daemon/rpc.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { callerOwnerToken, callerWorkspace, die } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 
-/** Wait for every agent to write its bridge dir; returns the ones that never did. */
+/** Wait for every agent to write its bridge dir; returns only the ones that registered. */
 async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
+  const registered = new Map<string, CreatedAgent>();
   const deadline = Date.now() + 60_000;
   if (!json) process.stdout.write("\nWaiting for agents to register:\n");
   while (pending.size && Date.now() < deadline) {
     for (const [key, agent] of [...pending]) {
       if (bridgeRegistered(key)) {
         pending.delete(key);
+        registered.set(key, agent);
         if (!json) process.stdout.write(`  ok      ${agent.pane}  ${agent.name}\n`);
       }
     }
-    await delay(500);
+    await sleep(500);
   }
   // A stalled agent is a failed spawn: it holds its name and answers no control
   // traffic. Reporting it on stderr while exiting 0 is what let a scripted fleet
@@ -44,7 +49,7 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
   for (const agent of pending.values())
     process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
   if (pending.size) process.exitCode = 1;
-  return [...pending.values()];
+  return [...registered.values()];
 }
 
 /** A launch that placed fewer agents than were asked for FAILED; a warning line
@@ -58,18 +63,18 @@ function reportShortfall(requested: number, placed: number): void {
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<number | null> {
+async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
   if (adapter.capabilities.registersPresenceOnStart) {
-    const stalled = await awaitBridgeRegistration(created, json);
-    return created.length - stalled.length;
+    return await awaitBridgeRegistration(created, json);
   }
   process.stderr.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
   return null;
 }
 
 function printLayout(backend: Backend, group: string, header: string) {
-  const layout = readGroupLayout(backend, group);
-  if (!layout) return;
+  const role = backend.groupLayout;
+  if (!role) return;
+  const layout = readGroupLayout(role, group);
   const names = new Map((backend.paneInventory?.list() ?? []).map((target) => [String(target.handle), target.name ?? "-"]));
   process.stdout.write(header + "\n");
   const rows = layout.panes.map((p) => [
@@ -83,11 +88,18 @@ function printLayout(backend: Backend, group: string, header: string) {
     process.stdout.write(`  ${r[0]!.padEnd(w0)}  ${r[1]!.padEnd(w1)}  ${r[2]!}\n`);
 }
 
+export class SpawnRefusalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SpawnRefusalError";
+  }
+}
+
 export function resolveAdapterOrDie(id: string): AgentAdapter {
   try {
     return resolveRegisteredAdapter(id);
   } catch (error: unknown) {
-    die(errorMessage(error));
+    throw new SpawnRefusalError(errorMessage(error));
   }
 }
 
@@ -97,7 +109,7 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
 export function adapterCommand(
   adapter: string,
   config = loadConfig(orchDir()),
-  launch: { model?: string; preferredModels?: readonly string[] } = {},
+  launch: { model?: string; thinking?: ThinkingLevel; preferredModels?: readonly string[] } = {},
 ): string {
   const resolved = resolveAdapterOrDie(adapter);
   const opts = { ...launch, tools: workerTools(config), workers: workerPolicyFrom(config) };
@@ -128,15 +140,26 @@ async function deliverModelPin(key: string, model: string): Promise<string | nul
  *  A pin is the last step of a launch whose panes already exist and are registered:
  *  its failure is a warning the caller reads, never an exit code that tells an
  *  automated caller to retry a spawn that already created panes. */
-export async function pinModels(created: { key: string; pane: string; name: string }[], model: string): Promise<string[]> {
+export async function pinModels(
+  created: { key: string; pane: string; name: string }[],
+  model: string,
+  thinking?: ThinkingLevel,
+): Promise<string[]> {
+  // The pin must carry the SAME thinking effort the launch resolved. Pinning the
+  // bare model re-set the harness's model and dropped the level, so the agent fell
+  // back to the harness's own default and the fleet silently ran at that effort
+  // however `defaults.thinking` was configured. TASKS/12-thinking.md slice 3:
+  // spawn, `orch model` and reset's re-pin all route through the same resolution.
+  // `model:level` is the control plane's wire spelling, never a stored shape.
+  const spec = thinking === undefined ? model : `${model}:${thinking}`;
   const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
     pane,
     name,
-    failure: await deliverModelPin(key, model),
+    failure: await deliverModelPin(key, spec),
   })));
   const warnings = results
     .filter((result) => result.failure)
-    .map((result) => `could not pin ${result.name} (${result.pane}) to ${model}: ${result.failure}`);
+    .map((result) => `could not pin ${result.name} (${result.pane}) to ${spec}: ${result.failure}`);
   for (const warning of warnings) process.stderr.write(`warning: ${warning}\n`);
   return warnings;
 }
@@ -145,12 +168,14 @@ export interface AgentFlags {
   adapterFlag?: string;
   backendFlag?: string;
   modelFlag?: string;
+  thinkingFlag?: string;
 }
 
 export interface AgentSettings {
   adapter: AdapterId;
   backend: BackendId;
   model: string;
+  thinking: ThinkingLevel;
   /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
   preferredModels: readonly string[];
 }
@@ -173,19 +198,24 @@ export function requestedModel(flags: AgentFlags): string | null {
 /** The model a fresh session runs on: what the caller named, else the configured
  *  default. With neither, refuse — an unpinned session silently runs whatever the
  *  harness happens to default to, which is never what the orchestrator asked for.
- *  Every path that starts a clean session (spawn, tile, reset) resolves it here, and
- *  the gate runs here too: the launch hands this string to the harness CLI, whose own
+ *  Every path that starts a clean session (spawn, tile, reset) resolves it here. Spawn
+ *  validates the model only after policy accepts; the launch hands this string to the harness CLI, whose own
  *  resolver fuzzy-matches a shorthand onto whatever registry entry shares a prefix. A
  *  model the harness does not list must never reach that resolver. */
 export function launchModel(flags: AgentFlags, config: OrchConfig, adapter: AgentAdapter): string {
   const model = requestedModel(flags) ?? config.defaults.models[adapter.id] ?? "";
   if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]>, or record one with: ${repickCommand(adapter.id)}`);
+  return splitThinkingSuffix(model).bare;
+}
+
+/** Enforce orch's model policy at the command's side-effect gate. */
+export function assertLaunchModelAllowed(adapterId: AdapterId, model: string): void {
+  const adapter = resolveAdapterOrDie(adapterId);
   try {
     assertModelAllowed(orchDir(), adapter, model);
   } catch (error: unknown) {
-    die(errorMessage(error));
+    throw new SpawnRefusalError(errorMessage(error));
   }
-  return model;
 }
 
 export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
@@ -206,6 +236,7 @@ export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orch
     adapter,
     backend: backend.id,
     model: launchModel(flags, config, harness),
+    thinking: resolveThinking({ flag: flags.thinkingFlag, modelSuffix: splitThinkingSuffix(requestedModel(flags) ?? config.defaults.models[adapter] ?? "").thinking, harness: adapter, config }),
     preferredModels: config.models.preferred[adapter] ?? [],
   };
 }
@@ -218,14 +249,21 @@ type SpawnFlags = AgentFlags & {
   cmd: string;
   commandFlag: boolean;
   workspace: string | null;
-  namePrefix: string | null;
+  names: string[] | null;
   spawnCapFlag?: number;
   worktreeFlag?: boolean;
   /** Initial task for a detached agent, which runs it and exits. */
-  promptFlag?: string;
+  promptFlags: string[];
+  tasksFile?: string;
   unknownFlags: string[];
   positional: string[];
 };
+
+/** Split a `--name` value into one name per pane. Empty entries are dropped so a
+ *  trailing comma is a typo, not a nameless pane. */
+export function splitNameList(value: string): string[] {
+  return value.split(",").map((name) => name.trim()).filter((name) => name.length > 0);
+}
 
 function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number {
   const argument = args[index];
@@ -233,10 +271,15 @@ function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number
     case "--tab": flags.tabLabel = args[index + 1]!; return 1;
     case "--cwd": flags.cwd = args[index + 1]!; return 1;
     case "--cmd": flags.cmd = args[index + 1]!; flags.commandFlag = true; return 1;
-    case "--name": flags.namePrefix = args[index + 1]!; return 1;
+    // A comma-separated --name gives one name per pane. A single value keeps the
+    // prefix behaviour that numbers "<prefix>-<n>". Naming a per-slice fleet must
+    // not cost N renames afterwards (TASKS/11-usage-bugs.md U6).
+    case "--name": flags.names = splitNameList(args[index + 1]!); return 1;
     case "--workspace": flags.workspace = args[index + 1]!; return 1;
     case "--model": flags.modelFlag = args[index + 1]!; return 1;
-    case "--prompt": flags.promptFlag = args[index + 1]!; return 1;
+    case "--thinking": flags.thinkingFlag = args[index + 1]!; return 1;
+    case "--prompt": flags.promptFlags.push(args[index + 1]!); return 1;
+    case "--tasks": flags.tasksFile = args[index + 1]!; return 1;
     case "--agent":
     case "--adapter": flags.adapterFlag = args[index + 1]!; return 1;
     case "--backend": flags.backendFlag = args[index + 1]!; return 1;
@@ -250,7 +293,7 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
   const flags: SpawnFlags = {
     json: args.includes("--json"),
     label: "work", tabLabel: null, cwd: process.cwd(), cmd: "pi", commandFlag: false,
-    workspace: null, namePrefix: null, unknownFlags: [], positional: [],
+    workspace: null, names: null, promptFlags: [], unknownFlags: [], positional: [],
   };
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--worktree" || args[index] === "--json") { if (args[index] === "--worktree") flags.worktreeFlag = true; continue; }
@@ -277,10 +320,12 @@ type SpawnSettings = AgentSettings & {
   commandFlag: boolean;
   workspace: string | null;
   prefix: string;
+  /** One name per pane, or a single name that numbers into "<prefix>-<n>". */
+  names: string[];
   n: number;
   worktree: boolean;
-  /** Initial task for a detached agent; empty for pane agents, which idle until dispatched. */
-  prompt: string;
+  /** Initial tasks, mapped one-to-one for pane agents; headless agents run their task and exit. */
+  prompts: readonly string[];
   /** Whether the caller supplied the required --name prefix. */
   nameExplicit: boolean;
   unknownFlags: string[];
@@ -297,23 +342,31 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   if (flags.unknownFlags.length > 0) die(`Unknown flag ${flags.unknownFlags.join(", ")}.`);
   const n = parseInt(flags.positional[0]!, 10);
   if (!Number.isFinite(n) || n < 1)
-    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <prefix>] [--model <model[:thinking]>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--spawn-cap <N>] [--worktree]");
+    die("usage: orch spawn <N> [--tab <label>] [--cwd <path>] [--cmd <command>] [--name <name[,name...]>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--spawn-cap <N>] [--worktree]");
   if (n > spawnCap) die(`Refusing to spawn ${n} panes - cap is ${spawnCap}.`);
+  if (flags.promptFlags.length > 1 && flags.promptFlags.length !== n) die(`--prompt accepts one value for all agents or exactly ${n} values`);
+  let prompts: string[] = [...flags.promptFlags];
+  if (flags.tasksFile) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(flags.tasksFile, "utf8")); } catch (error: unknown) { die(`could not read tasks file: ${errorMessage(error)}`); }
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string") || parsed.length !== n) die(`--tasks must be a JSON array of exactly ${n} strings`);
+    prompts = parsed.filter((item): item is string => typeof item === "string");
+  }
+  if (flags.tasksFile && flags.promptFlags.length > 0) die("use --prompt or --tasks, not both");
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(config);
   const workers = workerPolicyFrom(config);
   const cmd = flags.commandFlag
     ? flags.cmd
-    : adapterCommand(settings.adapter, config, { model: settings.model, preferredModels: settings.preferredModels });
+    : adapterCommand(settings.adapter, config, { model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels });
   // --tab names the tab; --name names the agents. Each defaults to the other so
   // one flag still produces a sensibly-labeled tab, but they are never conflated.
-  const tabLabel = flags.tabLabel ?? flags.namePrefix ?? flags.label;
-  const prefix = flags.namePrefix ?? flags.tabLabel ?? flags.label;
+  const names = flags.names ?? (flags.tabLabel !== null ? [flags.tabLabel] : [flags.label]);
+  const tabLabel = flags.tabLabel ?? names[0] ?? flags.label;
+  const prefix = names[0] ?? flags.tabLabel ?? flags.label;
   const backendExplicit = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? null) !== null;
-  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendExplicit, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, prompt: flags.promptFlag ?? "", nameExplicit: flags.namePrefix !== null && flags.namePrefix.trim().length > 0, unknownFlags: flags.unknownFlags, fleet: config.fleet, tiling: config.tiling };
+  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendExplicit, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, workspace: flags.workspace, prefix, n, worktree, prompts, names, nameExplicit: flags.names !== null && flags.names.length > 0, unknownFlags: flags.unknownFlags, fleet: config.fleet, tiling: config.tiling };
 }
-
-interface SpawnRoot { root: string; key: string; workspace: string; tabId: string; tabLabel: string; rootCwd: string; rootName: string }
 
 export interface CreatedAgent { key: string; pane: string; name: string }
 
@@ -385,7 +438,7 @@ export function spawnPolicyError(
 
 function assertSpawnPolicy(settings: Pick<OrchConfig, "fleet">, workspace: string, requested: number): void {
   const refusal = spawnPolicyError(settings, workspace, requested, spawnedRecords(), loadPresence(), spawnerIdentity().key);
-  if (refusal) die(`spawn refused: ${refusal}`);
+  if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
 export function assertSpawnCapacity(
@@ -400,11 +453,11 @@ export function assertSpawnCapacity(
   const workspaceLive = counts.get(workspace) ?? 0;
   const workspaceCap = settings.fleet.workspace_caps[workspace];
   if (workspaceCap !== undefined && workspaceLive + requested > workspaceCap) {
-    die(`spawn refused: would put ${workspace} at ${workspaceLive + requested}/${workspaceCap} agents (${workspaceLive} live + ${requested} requested; fleet.workspace_caps.${workspace})`);
+    throw new SpawnRefusalError(`spawn refused: would put ${workspace} at ${workspaceLive + requested}/${workspaceCap} agents (${workspaceLive} live + ${requested} requested; fleet.workspace_caps.${workspace})`);
   }
   const globalCap = settings.fleet.max_agents;
   if (globalCap !== undefined && live + requested > globalCap) {
-    die(`spawn refused: would put all workspaces at ${live + requested}/${globalCap} agents (${live} live + ${requested} requested; fleet.max_agents)`);
+    throw new SpawnRefusalError(`spawn refused: would put all workspaces at ${live + requested}/${globalCap} agents (${live} live + ${requested} requested; fleet.max_agents)`);
   }
 }
 
@@ -415,7 +468,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
   if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
   // A detached agent has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process.
-  if (!settings.prompt.trim()) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" (a detached agent runs it and exits)`);
+  if (settings.prompts.length === 0 || settings.prompts.some((prompt) => !prompt.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" (a detached agent runs it and exits)`);
   // Detached agents mint their identity under the backend's own workspace (headless → "local"),
   // never the caller's herdr identity; the cap check must match that same bucket, not callerWorkspace().
   const workspace = settings.workspace ?? "local";
@@ -424,7 +477,8 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
   const adapter = resolveAdapterOrDie(settings.adapter);
   const config = loadConfig(orchDir());
   const created: CreatedAgent[] = [];
-  for (const name of claimSpawnNames(settings.prefix, workspace, settings.n)) {
+  const names = claimSpawnNames(settings.names, workspace, settings.n);
+  for (const [index, name] of names.entries()) {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.preTrustWorkspace?.(cwd, settings.cmd);
     try {
@@ -448,28 +502,16 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
           ...(spawnerAgentId ? { ORCH_SPAWNER_AGENT_ID: spawnerAgentId } : {}),
         },
         model: settings.model,
+        thinking: settings.thinking,
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(settings.prompt, false, adapter, { lockedCommands: config.locked_commands, spawnerRepliable: spawner.key !== null }),
+        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { lockedCommands: config.locked_commands, spawnerRepliable: spawner.key !== null }),
         tools: settings.tools,
         workers: settings.workers,
       }, {}, config.timeouts.adapter_command_ms);
       // A detached agent has no pane, so its key is the handle every display uses.
       created.push({ key, pane: key, name });
-      recordSpawned(key, {
-        adapter: settings.adapter,
-        model: settings.model,
-        backend: settings.backend,
-        workspace,
-        name,
-        cwd,
-        worktree: settings.worktree ? cwd : undefined,
-        branch: settings.worktree ? `orch/${name}` : undefined,
-        owner: callerOwnerToken(),
-        spawnedBy: spawner.key ?? undefined,
-        spawnedByLabel: spawner.label,
-      });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
       // Stop asking for more, but report the agents already launched: a caller told
@@ -482,13 +524,15 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
   // written its presence dir, so returning before that hands the caller a key it
   // cannot dispatch to yet.
   reportShortfall(settings.n, created.length);
-  const stalled = adapter.capabilities.steer === "inbox" ? await awaitBridgeRegistration(created, settings.json) : [];
+  const registered = adapter.capabilities.steer === "inbox" ? await awaitBridgeRegistration(created, settings.json) : [];
+  const stalled = created.filter((agent) => !registered.some((candidate) => candidate.key === agent.key));
+  if (stalled.length > 0) process.exitCode = 1;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
     agents: created,
     requested: settings.n,
     created: created.length,
-    registered: created.length - stalled.length,
+    registered: registered.length,
   }) + "\n");
   else {
     process.stdout.write(`\nSpawned ${created.length} detached agent(s) (no panes).\n`);
@@ -537,52 +581,6 @@ function resolveSpawnWorkspace(settings: SpawnSettings, backend: Backend, caller
   }
 }
 
-function createSpawnRoot(settings: SpawnSettings, workspace: string, backend: Backend, adapter: AgentAdapter, rootName: string): SpawnRoot {
-  const rootCwd = settings.worktree ? createAgentWorktree(settings.cwd, rootName) : settings.cwd;
-  adapter.preTrustWorkspace?.(rootCwd, settings.cmd);
-  const groupHome = backend.groupHome;
-  if (!groupHome) die(`backend ${backend.id} does not provide groups.`);
-  // The name is ruled on BEFORE the backend allocates anything: a collision
-  // discovered after createGroup left a phantom tab lingering on screen.
-  try {
-    assertNameFree(rootName, workspace);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
-  // ONE key per agent: the identity passed via ORCH_AGENT_KEY is THE key — the
-  // presence writer, registry, and daemon ack all join on it. The backend pane
-  // handle is recorded as a field, never re-minted into a second key.
-  const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
-  const spawner = spawnerIdentity();
-  // The group is born with a shell pane and the root agent runs IN it. Splitting
-  // off it and closing it instead left an orphan every time the plexer declined
-  // the close, and every later tiling decision balanced against that phantom.
-  const rootEnv = {
-    ...agentIdentityEnv(rootName, spawner),
-    ...worktreeEnv(settings.worktree ? rootCwd : undefined, settings.worktree ? `orch/${rootName}` : undefined),
-    ORCH_AGENT_KEY: key,
-    ORCH_DIR: orchDir(),
-  };
-  let group: BackendGroup;
-  let rootPane: BackendHandle;
-  try {
-    const created = groupHome.create({ workspace, cwd: rootCwd, label: settings.label, env: rootEnv });
-    group = created.group;
-    rootPane = created.rootHandle;
-  } catch (error: unknown) {
-    die(`group create failed: ${errorMessage(error)}`);
-  }
-  let handle: BackendHandle;
-  try {
-    handle = backend.spawn(adapter, { key, env: rootEnv, cwd: rootCwd, name: rootName, workspace, group: group.id, intoPane: rootPane, orchDir: orchDir(), model: settings.model, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined });
-  } catch (error: unknown) {
-    // A tab holding no agent is pure pollution: close it before failing the launch.
-    try { groupHome.close(group.id); } catch { /* the failure below is the report */ }
-    die(`root spawn failed: ${errorMessage(error)}`);
-  }
-  return { root: String(handle), key, workspace, tabId: group.id, tabLabel: group.label ?? settings.label, rootCwd, rootName };
-}
-
 export interface TabSpawnSpec {
   backend: Backend;
   adapter: AgentAdapter;
@@ -592,10 +590,20 @@ export interface TabSpawnSpec {
   workspace: string;
   group: string;
   model: string;
+  /** Thinking effort selected for this launch. */
+  thinking?: ThinkingLevel;
   /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
   preferredModels: readonly string[];
   /** Where the pane lands in the group, from the tiling planner. */
   placement?: TilePlacement;
+  /** Existing pane to launch into (fresh tab root). */
+  intoPane?: BackendHandle;
+  /** The identity already stamped into `intoPane`'s environment when the pane was
+   *  opened ahead of the launch. ONE key per agent: the pane's env and the record
+   *  must name the same id, so a pre-opened pane hands its key in rather than
+   *  letting the launch mint a second one. */
+  key?: string;
+  env?: Readonly<Record<string, string>>;
   tools?: string;
   /** What this worker may load; absent lets the adapter apply no policy. */
   workers?: WorkerPolicy;
@@ -614,36 +622,40 @@ export interface TabSpawnSpec {
 // (warn-and-continue vs die); this throws on backend failure.
 export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   assertNameFree(spec.name, spec.workspace);
-  const key = serializeIdentity({ backend: spec.backend.id, workspace: spec.workspace, id: mintAgentId() });
+  const key = spec.key ?? serializeIdentity({ backend: spec.backend.id, workspace: spec.workspace, id: mintAgentId() });
   const spawner = spawnerIdentity();
-  const handle = spec.backend.spawn(spec.adapter, {
-    key,
-    env: { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch) },
-    cwd: spec.cwd,
-    name: spec.name,
-    workspace: spec.workspace,
-    group: spec.group,
-    split: spec.placement?.split,
-    targetPane: spec.placement?.targetPane,
-    orchDir: orchDir(),
-    model: spec.model,
-    preferredModels: spec.preferredModels,
-    tools: spec.tools,
-    workers: spec.workers,
-    cmd: spec.cmd,
-  });
+  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), ORCH_AGENT_KEY: key, ORCH_DIR: orchDir() };
+  let pane: BackendHandle;
+  if (spec.placement) {
+    if (!spec.backend.paneHost) throw new Error("backend has no pane host");
+    pane = spec.backend.paneHost.open({ cwd: spec.cwd, workspace: spec.workspace, group: spec.group, split: spec.placement.split, targetPane: spec.placement.targetPane, env }).handle;
+  } else {
+    pane = spec.intoPane;
+  }
+  let handle: BackendHandle;
+  try {
+    handle = spec.backend.spawn(spec.adapter, {
+      key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
+      intoPane: pane, orchDir: orchDir(), model: spec.model, preferredModels: spec.preferredModels,
+      tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
+    });
+  } catch (error: unknown) {
+    if ((spec.placement !== undefined || spec.intoPane !== undefined) && spec.backend.paneHost) {
+      try { spec.backend.paneHost.close(pane); } catch { /* best effort */ }
+    }
+    throw error;
+  }
   recordSpawned(key, {
     adapter: spec.adapterId,
     model: spec.model,
     backend: spec.backend.id,
     workspace: spec.workspace,
     handle: String(handle),
-    name: spec.name,
     cwd: spec.cwd,
     worktree: spec.worktree,
     branch: spec.branch,
     owner: callerOwnerToken(),
-    spawnedBy: spawner.key ?? undefined,
+    spawnedBy: spec.spawnerAgentId ?? undefined,
     spawnedByLabel: spawner.label,
   });
   registerSpawnedAgent(orchDir(), {
@@ -659,12 +671,12 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every pane is
  *  placed by the same planner reading the same layout. */
-export function tileAgentIntoGroup(spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit): CreatedAgent {
-  return spawnOneIntoTab({ ...spec, placement: nextTilePlacement(spec.backend, spec.group, firstSplit) });
+export function tileAgentIntoGroup(spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
+  return spawnOneIntoTab({ ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, backend: Backend, spawnerAgentId: string | null): CreatedAgent {
+function placeAgent(settings: SpawnSettings, name: string, workspace: string, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup({
     backend,
@@ -675,6 +687,7 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     workspace,
     group,
     model: settings.model,
+    thinking: settings.thinking,
     preferredModels: settings.preferredModels,
     tools: settings.tools,
     workers: settings.workers,
@@ -682,16 +695,16 @@ function placeAgent(settings: SpawnSettings, name: string, workspace: string, gr
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
     spawnerAgentId,
-  }, settings.tiling.first_split);
+  }, settings.tiling.first_split, role);
 }
 
 /** Fill a group with named agents. A pane that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-function growFleetIntoGroup(settings: SpawnSettings, workspace: string, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null): CreatedAgent[] {
+function growFleetIntoGroup(settings: SpawnSettings, workspace: string, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
   const created: CreatedAgent[] = [];
   for (const name of names) {
     try {
-      created.push(placeAgent(settings, name, workspace, group, backend, spawnerAgentId));
+      created.push(placeAgent(settings, name, workspace, group, backend, spawnerAgentId, role));
     } catch (error: unknown) {
       process.stderr.write(`warning: could not place agent ${name}: ${errorMessage(error)}\n`);
     }
@@ -717,20 +730,35 @@ function groupOfLivePrefix(backend: Backend, prefix: string, workspace: string):
 /** The names this launch will use, every one validated BEFORE any tab, pane, or
  *  worktree exists: numbering continues past live "<prefix>-<n>" agents, so
  *  spawning under a live name grows that fleet instead of colliding with it. */
-function claimSpawnNames(prefix: string, workspace: string, count: number): string[] {
-  const start = nextNameIndex(prefix, workspace);
-  const names = Array.from({ length: count }, (_, offset) => `${prefix}-${start + offset}`);
+export function claimSpawnNames(requested: readonly string[], workspace: string, count: number): string[] {
+  // One name per pane is used verbatim. A single name still numbers, so spawning
+  // under a live "<prefix>-<n>" fleet grows it rather than colliding with it.
+  if (requested.length > 1 && requested.length !== count) {
+    throw new SpawnRefusalError(`--name lists ${requested.length} name(s) but ${count} pane(s) were requested; give one name per pane or a single prefix.`);
+  }
+  const prefix = requested[0] ?? "";
+  const names = requested.length > 1
+    ? [...requested]
+    : (() => {
+        const start = nextNameIndex(prefix, workspace);
+        return Array.from({ length: count }, (_, offset) => `${prefix}-${start + offset}`);
+      })();
+  try {
+    for (const name of names) assertValidAgentName(name);
+  } catch (error: unknown) {
+    throw new SpawnRefusalError(errorMessage(error));
+  }
   try {
     for (const name of names) assertNameFree(name, workspace);
   } catch (error: unknown) {
-    die(errorMessage(error));
+    throw new SpawnRefusalError(errorMessage(error));
   }
   return names;
 }
 
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
-async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null): Promise<void> {
-  const created = growFleetIntoGroup(settings, workspace, group.id, backend, names, spawnerAgentId);
+async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, workspace: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<void> {
+  const created = growFleetIntoGroup(settings, workspace, group.id, backend, names, spawnerAgentId, role);
   await reportSpawnResults(settings, group.id, group.label ?? group.id, created, backend);
 }
 
@@ -753,8 +781,36 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
     printLayout(backend, group, "\nFinal tiling:");
   }
   reportShortfall(settings.n, created.length);
-  const registered = await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
-  const warnings = await pinModels(created, settings.model);
+  const registeredAgents = await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
+  const registered = registeredAgents?.length ?? null;
+  if (registeredAgents) {
+    const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
+    for (const agent of created) {
+      if (!registeredKeys.has(agent.key)) process.stderr.write(`not pinned: ${agent.name} never registered\n`);
+    }
+  }
+  const warnings = await pinModels(registeredAgents ?? [], settings.model, settings.thinking);
+  const dispatches: { name: string; key: string; dispatchId: string }[] = [];
+  if (registeredAgents && settings.prompts.length > 0) {
+    const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
+    for (const [index, agent] of created.entries()) {
+      if (!registeredKeys.has(agent.key)) {
+        process.stdout.write(`not dispatched: ${agent.name} never registered\n`);
+        continue;
+      }
+      const text = settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!;
+      try {
+        const { dispatchId } = await dispatchToAgent(agent.key, text, {
+          adapter: resolveAdapterOrDie(settings.adapter),
+          context: { lockedCommands: loadConfig(orchDir()).locked_commands, spawnerRepliable: true },
+        });
+        dispatches.push({ name: agent.name, key: agent.key, dispatchId });
+        if (!settings.json) process.stdout.write(`dispatched ${agent.name} ${dispatchId}\n`);
+      } catch (error: unknown) {
+        process.stderr.write(`warning: could not dispatch ${agent.name}: ${errorMessage(error)}\n`);
+      }
+    }
+  }
   const outage = warnings.length ? await reportControlPlaneOutage(created.length) : null;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
@@ -764,6 +820,7 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
     created: created.length,
     registered,
     warnings,
+    dispatches,
     daemon: outage ?? "ok",
   }) + "\n");
   else process.stdout.write(`\n'orch status' shows the fleet.\n`);
@@ -791,42 +848,86 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // Enforce provenance depth and pack size before resolving a backend or
   // allocating its workspace; a refused spawn creates nothing and is never queued.
   assertSpawnPolicy(settings, settings.workspace ?? callerWorkspace() ?? "", settings.n);
+  assertLaunchModelAllowed(settings.adapter, settings.model);
+  // Shim refresh is a launch side effect and must happen only after policy accepts.
+  await refreshStaleShims(orchDir());
   if (!settings.nameExplicit) die("spawn requires a name; a name is required (pass --name <name>)");
-  const spawner = spawnerIdentity();
-  const spawnerAgentId = spawner.key ? (await rpcHello(orchDir())).id : null;
+  // Validate the user-supplied prefix before resolving a workspace or creating
+  // any tab. Herdr rejects these names, so no placement side effect may precede it.
+  try {
+    assertValidAgentName(settings.prefix);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  const spawnerAgentId = (await rpcHello(orchDir())).id;
   const backend = spawnBackend(settings);
   // A backend without group creation has no panes to tile into: spawn detached.
   if (!backend.groupHome) {
     await executeDetachedSpawn(settings, backend, spawnerAgentId);
     return;
   }
+  const groupLayout = backend.groupLayout;
+  if (!groupLayout) {
+    const answer = { outcome: "answer", reason: "no-environment-role", text: "this pane environment does not provide group layout" };
+    if (settings.json) process.stdout.write(JSON.stringify(answer) + "\n");
+    else process.stdout.write(`${answer.text}\n`);
+    return;
+  }
   const workspace = resolveSpawnWorkspace(settings, backend, spawnerAgentId);
   assertSpawnCapacity(settings, workspace, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
-  const names = claimSpawnNames(settings.prefix, workspace, settings.n);
+  const names = claimSpawnNames(settings.names, workspace, settings.n);
   // `--tab <existing>` fills that tab instead of opening a new one, and a live
   // "<prefix>-<n>" fleet is grown in its own tab; both auto-balance as they
   // fill, so no follow-up move/tile is needed.
   const existing = (settings.tabExplicit ? findGroupInWorkspace(backend, workspace, settings.label) : undefined)
     ?? groupOfLivePrefix(backend, settings.prefix, workspace);
-  if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend, names, spawnerAgentId);
-  const root = createSpawnRoot(settings, workspace, backend, adapter, names[0]!);
-  const created: CreatedAgent[] = [];
-  recordSpawned(root.key, { adapter: settings.adapter, model: settings.model, backend: backend.id, workspace, handle: root.root, name: root.rootName, cwd: root.rootCwd, worktree: settings.worktree ? root.rootCwd : undefined, branch: settings.worktree ? `orch/${root.rootName}` : undefined, owner: callerOwnerToken(), spawnedBy: spawner.key ?? undefined, spawnedByLabel: spawner.label });
-  registerSpawnedAgent(orchDir(), {
-    key: root.key, harnessId: settings.adapter, backendId: backend.id, pane: backend.paneInventory !== null,
-    handle: root.root, cwd: root.rootCwd, name: root.rootName, model: settings.model,
-    spawner: spawnerAgentId,
-    worktree: settings.worktree ? { path: root.rootCwd, branch: `orch/${root.rootName}` } : undefined,
+  if (existing) return spawnIntoExistingTab(settings, existing, workspace, backend, names, spawnerAgentId, groupLayout);
+  // Fresh-tab launches are deliberately phased: mint all identities/worktrees,
+  // create the tab, open every pane, then launch every agent.
+  const prepared: { name: string; cwd: string; key: string; env: Readonly<Record<string, string>>; branch: string | undefined; pane: BackendHandle }[] = names.map((name) => {
+    const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
+    adapter.preTrustWorkspace?.(cwd, settings.cmd);
+    const key = serializeIdentity({ backend: backend.id, workspace, id: mintAgentId() });
+    const spawnerInfo = spawnerIdentity();
+    const env = { ...agentIdentityEnv(name, spawnerInfo), ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined), ORCH_AGENT_KEY: key, ORCH_DIR: orchDir() };
+    return { name, cwd, key, env, branch: settings.worktree ? `orch/${name}` : undefined, pane: undefined };
   });
-  created.push({ key: root.key, pane: root.root, name: root.rootName });
-  created.push(...growFleetIntoGroup(settings, root.workspace, root.tabId, backend, names.slice(1), spawnerAgentId));
-  await reportSpawnResults(settings, root.tabId, root.tabLabel, created, backend);
+  const groupHome = backend.groupHome;
+  if (!groupHome) die(`backend ${backend.id} does not provide groups.`);
+  let createdGroup: ReturnType<typeof groupHome.create>;
+  try { createdGroup = groupHome.create({ workspace, cwd: prepared[0]!.cwd, label: settings.label, env: prepared[0]!.env }); }
+  catch (error: unknown) { die(`group create failed: ${errorMessage(error)}`); }
+  const group = createdGroup.group;
+  prepared[0]!.pane = createdGroup.rootHandle;
+  for (let index = 1; index < prepared.length; index++) {
+    const item = prepared[index]!;
+    try {
+      const role = backend.groupLayout;
+      if (!role) continue;
+      const placement = nextTilePlacement(role, group.id, settings.tiling.first_split);
+      if (!backend.paneHost) throw new Error("backend has no pane host");
+      item.pane = backend.paneHost.open({ cwd: item.cwd, workspace, group: group.id, split: placement.split, targetPane: placement.targetPane, env: item.env }).handle;
+    } catch (error: unknown) {
+      process.stderr.write(`warning: could not open a pane for ${item.name}: ${errorMessage(error)}\n`);
+      item.pane = undefined;
+    }
+  }
+  const created: CreatedAgent[] = [];
+  for (const item of prepared) {
+    if (item.pane === undefined) continue;
+    try {
+      const agent = spawnOneIntoTab({ backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, workspace, group: group.id, model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined, worktree: settings.worktree ? item.cwd : undefined, branch: item.branch, spawnerAgentId, intoPane: item.pane, key: item.key, env: item.env });
+      created.push(agent);
+    } catch (error: unknown) {
+      process.stderr.write(`warning: could not launch agent ${item.name}: ${errorMessage(error)}\n`);
+    }
+  }
+  if (created.length === 0) { try { groupHome.close(group.id); } catch { /* best effort */ } die("all spawns failed"); }
+  await reportSpawnResults(settings, group.id, group.label ?? settings.label, created, backend);
 }
 
 export async function cmdSpawn(args: string[]) {
-  // A freshly updated orch never launches agents on the last version's bridge.
-  await refreshStaleShims(orchDir());
   await executeSpawn(resolveSpawnSettings(parseSpawnFlags(args)));
 }
 
@@ -843,19 +944,21 @@ export async function cmdTile(args: string[]) {
     return;
   }
   const selectedAdapter = resolveAdapterOrDie(adapter);
+  assertLaunchModelAllowed(adapter, model);
   const target = flags.positional[0];
   if (!target) die("usage: orch tile <tab-or-pane> [--name <name>] [--cmd <command>] [--cwd <path>] [--model <model[:thinking]>");
 
   const tab = resolveTab(target);
-  const layout = readGroupLayout(selectedBackend, tab.id);
+  const role = selectedBackend.groupLayout;
+  if (!role) return;
+  const layout = readGroupLayout(role, tab.id);
   if (!layout) die(`Could not read layout for group "${tab.id}".`);
-  const autoName = flags.namePrefix ?? `tile-${layout.panes.length + 1}`;
+  const autoName = flags.names?.[0] ?? `tile-${layout.panes.length + 1}`;
 
   const workspace = tab.workspace ?? callerWorkspace();
   if (!workspace) die(`Could not determine workspace for group "${tab.id}".`);
   assertSpawnCapacity(config, workspace, 1);
-  const tileSpawner = spawnerIdentity();
-  const spawnerAgentId = tileSpawner.key ? (await rpcHello(orchDir())).id : null;
+  const spawnerAgentId = (await rpcHello(orchDir())).id;
   let agent: CreatedAgent;
   try {
     agent = spawnOneIntoTab({
@@ -897,9 +1000,5 @@ export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter
  *  nothing else — never on its own harness's steer capability. */
 export function spawnerIsRepliable(): boolean {
   return spawnerIdentity().key !== null;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 

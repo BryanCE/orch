@@ -36,10 +36,10 @@ describe("orchd RPC replay buffer", () => {
 
   test("replays from inside the surviving range without a gap", () => {
     const dir = fixture();
-    appendEvent(dir, "2024-01-01T00:00:00.000Z", "one");
-    appendEvent(dir, "2024-01-02T00:00:00.000Z", "two");
-    appendEvent(dir, "2024-01-03T00:00:00.000Z", "three");
-    deleteEventsBefore(dir, "2024-01-02T00:00:00.000Z");
+    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), "one");
+    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), "two");
+    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), "three");
+    deleteEventsBefore(dir, Date.parse("2024-01-02T00:00:00.000Z"));
     const buffer = new ReplayBuffer(dir);
     // Sequence 1 is immediately before the retained range, so no event is missing.
     expect(buffer.since(1)).toEqual({
@@ -52,10 +52,10 @@ describe("orchd RPC replay buffer", () => {
 
   test("reports a gap when the requested sequence predates retained history", () => {
     const dir = fixture();
-    appendEvent(dir, "2024-01-01T00:00:00.000Z", "one");
-    appendEvent(dir, "2024-01-02T00:00:00.000Z", "two");
-    appendEvent(dir, "2024-01-03T00:00:00.000Z", "three");
-    deleteEventsBefore(dir, "2024-01-02T00:00:00.000Z");
+    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), "one");
+    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), "two");
+    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), "three");
+    deleteEventsBefore(dir, Date.parse("2024-01-02T00:00:00.000Z"));
     const replay = new ReplayBuffer(dir).since(0);
     expect(replay).toEqual({
       events: [{ event: "two", seq: 2 }, { event: "three", seq: 3 }],

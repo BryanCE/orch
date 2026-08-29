@@ -11,7 +11,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 /** One backend's probe result. Injected so the verdict is provable without the
  *  suite happening to run inside a herdr or tmux session. */
 function report(id: string, available: boolean, insideSession: boolean): DoctorBackendReport {
-  return { id, available, insideSession, workspace: null, panes: true, focusable: true, canSendKeys: true };
+  return { id, available, insideSession, workspace: null, roles: ["paneInventory"] };
 }
 
 const directories: string[] = [];
@@ -27,15 +27,13 @@ afterEach(() => {
 });
 
 describe("doctor backend and presence checks", () => {
-  test("reports every registered backend and boolean capability fields", () => {
+  test("reports every registered backend and composed roles", () => {
     const result = checkBackendCapabilities();
     expect(result.backends?.map((backend) => backend.id)).toEqual(["herdr", "headless", "tmux"]);
     for (const backend of result.backends ?? []) {
       expect(typeof backend.available).toBe("boolean");
       expect(typeof backend.insideSession).toBe("boolean");
-      expect(typeof backend.panes).toBe("boolean");
-      expect(typeof backend.focusable).toBe("boolean");
-      expect(typeof backend.canSendKeys).toBe("boolean");
+      expect(Array.isArray(backend.roles)).toBe(true);
     }
   });
 

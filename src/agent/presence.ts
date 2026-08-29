@@ -13,6 +13,7 @@ import { mintAgentId, serializeIdentity, tryParseIdentity } from "../backends/id
 import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
   ensurePresenceAgentDir,
+  launchStamp,
   writeResult as writePresenceResult,
   writeStatus as writePresenceStatus,
 } from "../presence/writer.ts";
@@ -160,9 +161,9 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     paneId: options.paneId,
     // The launch stamps the agent's display name and its spawner's identity into
     // env; a plexer HUD may later refine the label, but identity never depends on one.
-    label: optionalString(process.env.ORCH_AGENT_NAME) ?? null,
-    spawnedBy: optionalString(process.env.ORCH_SPAWNER),
-    spawnedByLabel: optionalString(process.env.ORCH_SPAWNER_LABEL),
+    label: null as string | null,
+    spawnedBy: null as string | null,
+    spawnedByLabel: null as string | null,
     tabLabel: null as string | null,
     pid: process.pid,
     cwd: process.cwd(),
@@ -195,6 +196,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     handoffError: undefined as string | undefined,
     asking: undefined as { question: string; id: string; ts: string } | undefined,
   };
+  Object.assign(state, launchStamp(state, options.identity.agentId, ""));
   // Shared with the tool layer: the cmd-lock interception and the plexer's
   // blocked signal both raise/lower this count, and writeStatus reads it.
   const blocked = { count: 0, message: undefined as string | undefined };
@@ -249,7 +251,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
   function updateSessionRef(ctx: HarnessContext): void {
     try {
       const file = ctx.sessionManager.getSessionFile();
-      if (typeof file === "string" && file.startsWith("/")) state.sessionPath = file;
+      if (typeof file === "string" && path.isAbsolute(file)) state.sessionPath = file;
     } catch {}
     try {
       const id = ctx.sessionManager.getSessionId();
@@ -446,7 +448,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     const candidate = ensurePresenceAgentDir(key);
     if (!candidate) return;
     dir = candidate;
-    state.key = key;
+    Object.assign(state, launchStamp(state, options.identity.agentId, key));
     // Subprocesses of this session (the harness's own shell tools running the
     // orch CLI) inherit this, so a spawn made FROM here can hand its workers
     // this session's reply address — whatever harness this happens to be.

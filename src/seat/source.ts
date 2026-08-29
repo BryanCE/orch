@@ -9,6 +9,7 @@
  *   abort     → the orch CLI, so control traffic stays on the one dispatcher
  */
 import { execFile } from "node:child_process";
+import { errorMessage } from "../util.ts";
 import { Context, Effect, Layer, Stream } from "effect";
 import { subscribeEvents } from "../daemon/rpc.ts";
 import { presenceAgentDir, readPresenceStatus } from "../presence/store.ts";
@@ -55,7 +56,7 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
     const subscription = subscribeEvents(config.orchDir, { since: 0 }, (event) => {
       if (!isTransition(event)) return;
       void emit.single({ ...event, name: transitionName(event) });
-    });
+    }, undefined, true);
     return Effect.sync(() => subscription.close());
   });
 
@@ -88,7 +89,7 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
           return outcome;
         },
         catch: (cause) =>
-          new PackSendError({ message: cause instanceof Error ? cause.message : String(cause) }),
+          new PackSendError({ message: errorMessage(cause) }),
       });
     },
     abort(key: string) {

@@ -91,6 +91,8 @@ describe("loadConfig", () => {
         adapter: "claude",
         backend: "headless",
         models: { claude: "sonnet" },
+        thinking: "medium",
+        thinking_by_harness: {},
         worktree: true,
       },
       fleet: { spawn_cap: 4, max_agents: 12, pack_cap: 10, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
@@ -173,7 +175,7 @@ describe("loadConfig", () => {
     expect(loadConfig(directory)).toEqual({
       runtime: "node",
       enabled: { adapters: [], backends: [] },
-      defaults: { models: {}, worktree: false },
+      defaults: { models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
       fleet: { spawn_cap: 8, max_agents: undefined, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false },
       models: { allowed: {}, preferred: {} },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },

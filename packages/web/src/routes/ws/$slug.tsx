@@ -22,7 +22,7 @@ import { NotFoundPage } from "@/components/common/NotFoundPage";
 import { useFleet } from "@/hooks/use-fleet";
 import { sendToAgent } from "@/server/orch";
 import { useDaemonEvents } from "@/lib/daemon-events";
-import { findWorkspace, stateColor, type FleetAgent } from "@/lib/fleet";
+import { findSpace, stateColor, type FleetAgent } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/ws/$slug")({
@@ -32,16 +32,16 @@ export const Route = createFileRoute("/ws/$slug")({
       { label: "Space" },
     ],
   },
-  component: WorkspaceDetail,
+  component: SpaceDetail,
 });
 
-function WorkspaceDetail() {
+function SpaceDetail() {
   const { slug } = Route.useParams();
-  const { data: workspaces = [], isPending } = useFleet();
+  const { data: spaces = [], isPending } = useFleet();
   const { events, status } = useDaemonEvents();
   const [selected, setSelected] = useState<FleetAgent | null>(null);
 
-  const ws = findWorkspace(workspaces, slug);
+  const ws = findSpace(spaces, slug);
 
   if (isPending) {
     return (
@@ -53,7 +53,7 @@ function WorkspaceDetail() {
   if (!ws) return <NotFoundPage />;
 
   const agentKeys = new Set(ws.agents.map((agent) => agent.key));
-  const workspaceEvents = events.filter((event) => typeof event.key === "string" && agentKeys.has(event.key));
+  const spaceEvents = events.filter((event) => typeof event.key === "string" && agentKeys.has(event.key));
   // A missing lease is an explicit, daemon-derived state. Unknown rows stay in
   // the existing fleet until their transitional agents record appears.
   const unleased = ws.agents.filter((agent) => agent.leaseKnown && agent.lease === null);
@@ -126,13 +126,13 @@ function WorkspaceDetail() {
                 <Radio className="size-3" /> {status}
               </Badge>
             </div>
-            {workspaceEvents.length === 0 ? (
+            {spaceEvents.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
                 <Activity className="size-10" />
                 <p className="text-sm">No transitions for this space yet.</p>
               </div>
             ) : (
-              <DaemonEventList events={workspaceEvents} />
+              <DaemonEventList events={spaceEvents} />
             )}
           </div>
         </TabsContent>
@@ -189,8 +189,8 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
             <span className={cn("uppercase", stateColor(agent.state))}>{agent.state}</span>
           </Field>
           <Field label="Runtime">
-            {agent.capabilities.panes && agent.pane
-              ? <span className="font-mono text-xs">pane {agent.pane}</span>
+            {agent.environment.pane
+              ? <span className="font-mono text-xs">pane {agent.environment.pane}</span>
               : "detached — no pane"}
           </Field>
           {agent.model?.id && <Field label="Model">{agent.model.provider}/{agent.model.id}</Field>}
@@ -207,7 +207,7 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
       </ScrollArea>
 
       <SheetFooter className="border-t">
-        {!agent.capabilities.canSendKeys ? (
+        {!agent.environment.answers.includes("message") ? (
           <p className="text-xs text-muted-foreground">
             This agent has no console — it runs one prompt and exits. Spawn a new agent instead of
             steering this one.

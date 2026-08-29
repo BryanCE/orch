@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
-import { deliverToSink } from "../src/notify/router.ts";
+import { deliver } from "../src/notify/router.ts";
 import { notificationText, workspaceColor, type NotifyEvent } from "../src/notify/format.ts";
 import { TASK_MAX } from "../src/agent/presence.ts";
 import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
@@ -91,7 +91,7 @@ describe("notification and presence event formatting", () => {
       return Promise.resolve({ ok: true } as Response);
     }) as typeof fetch;
     try {
-      const delivered = await deliverToSink({ type: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
+      const delivered = await deliver({ id: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
       expect(delivered).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;

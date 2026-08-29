@@ -11,6 +11,7 @@ import { cmdFocus, cmdKeys, cmdMove, cmdPanes, cmdPeek, cmdTab, cmdTabs, cmdWs, 
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
 import { cmdRuns } from "./runs.ts";
 import { cmdEvents, cmdNotify } from "./events.ts";
+import { cmdLogs } from "./logs.ts";
 import { cmdReview, cmdReviewInteractive } from "./review.ts";
 import { cmdQueue } from "./queue.ts";
 import { cmdLock } from "./lock.ts";
@@ -18,7 +19,7 @@ import { cmdClean } from "./clean.ts";
 import { cmdGrant } from "./grant.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, compositionUnrecorded, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
-import { cmdSettings, cmdSettingsModels, cmdSettingsNotify, cmdSettingsSkills } from "./settings.ts";
+import { cmdSettings, cmdSettingsModels, cmdSettingsNotify, cmdSettingsSkills, cmdSettingsThinking } from "./settings.ts";
 import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
@@ -39,6 +40,8 @@ OBSERVE
                                  List durable dispatch history, newest first.
   orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
+  orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
+                                 Query structured diagnosis logs (malformed lines are skipped).
                                  Bare: one readable line per transition, scoped to the agents THIS
                                  session spawned. Flags widen or reshape that.
                                  Notifications are delivered by orchd from settings.json, not by this command.
@@ -262,6 +265,7 @@ function dispatchAsync(task: Promise<unknown>): void {
 const commandHandlers: Record<string, Handler> = {
   status: (args) => dispatchAsync(cmdStatus(args)),
   events: (args) => dispatchAsync(cmdEvents(args)),
+  logs: (args) => cmdLogs(args),
   notify: (args) => dispatchAsync(cmdNotify(args)),
   questions: (args) => dispatchAsync(cmdQuestions(args)),
   runs: (args) => cmdRuns(args),
@@ -314,6 +318,7 @@ const commandHandlers: Record<string, Handler> = {
     if (args[0] === "models") dispatchAsync(cmdSettingsModels(args.slice(1)));
     else if (args[0] === "notify") dispatchAsync(cmdSettingsNotify(args.slice(1)));
     else if (args[0] === "skills") cmdSettingsSkills(args.slice(1));
+    else if (args[0] === "thinking") cmdSettingsThinking(args.slice(1));
     else cmdSettings(args);
   },
   setup: (args) => dispatchAsync(cmdSetup(args)),

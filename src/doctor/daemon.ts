@@ -5,7 +5,7 @@ import { daemonEntrypoint, liveDaemonRegistration, provenDaemonPid, readDaemonCo
 import { daemonDiscoveryFiles, daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import type { CheckResult } from "../check-result.ts";
-import { pidAlive } from "../util.ts";
+import { errorMessage, pidAlive } from "../util.ts";
 
 /** Verify the machine declaration independently from any project's ORCH_DIR. */
 export function checkDaemonRegistration(): CheckResult {
@@ -154,7 +154,7 @@ export async function checkDaemonSocket(orchDir: string): Promise<CheckResult> {
     await rpcCall(orchDir, "daemon-status", undefined, 250);
     return { id: "orchd-socket", label: "orchd socket", status: "ok", detail: `daemon-status answered (pid ${lock.pid})` };
   } catch (error: unknown) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = errorMessage(error);
     return {
       id: "orchd-socket",
       label: "orchd socket",

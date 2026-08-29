@@ -31,7 +31,7 @@ const cockpitNav = [
  */
 export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) {
   const pathname = useLocation({ select: (l) => l.pathname });
-  const { data: workspaces = [] } = useFleet();
+  const { data: spaces = [] } = useFleet();
   const isActive = (path: string, exact: boolean) =>
     exact ? pathname === path : pathname === path || pathname.startsWith(`${path}/`);
 
@@ -69,12 +69,12 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
         <SidebarGroup>
           <SidebarGroupLabel>Spaces</SidebarGroupLabel>
           <SidebarMenu>
-            {workspaces.length === 0 && (
+            {spaces.length === 0 && (
               <p className="px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                 none running
               </p>
             )}
-            {workspaces.map((ws) => (
+            {spaces.map((ws) => (
               <SidebarMenuItem key={ws.slug}>
                 <SidebarMenuButton
                   asChild

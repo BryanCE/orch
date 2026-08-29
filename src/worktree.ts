@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
+import { errorMessage } from "./util.ts";
 
 function git(repoRoot: string, args: string[]): string {
   return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
@@ -108,7 +109,7 @@ export function mergeReviewBranch(repoRoot: string, branch: string): "fast-forwa
       return "merge-commit";
     } catch (mergeError) {
       try { git(root, ["merge", "--abort"]); } catch {}
-      const detail = String(mergeError instanceof Error ? mergeError.message : mergeError).trim();
+      const detail = errorMessage(mergeError).trim();
       throw new Error(`Merge conflict approving ${branch}; merge aborted and both branches were left untouched. Resolve conflicts and retry, or reject with feedback.${detail ? ` Details: ${detail}` : ""}`);
     }
   }

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+import { osSide } from "../util.ts";
 
 /** The files one orchd instance owns while it runs. Orch defines these names, so
  *  they get exactly one definition site — same rule as the presence filenames. */
@@ -14,7 +15,7 @@ export interface DaemonDiscoveryFiles {
 export function daemonDiscoveryFiles(): DaemonDiscoveryFiles {
   const root = process.env.ORCH_DAEMON_DISCOVERY_DIR
     ?? process.env.XDG_RUNTIME_DIR
-    ?? (process.platform === "win32" ? process.env.LOCALAPPDATA : undefined)
+    ?? (osSide() === "windows" ? process.env.LOCALAPPDATA : undefined)
     ?? join(tmpdir(), `orchd-${homedir().replace(/[^a-zA-Z0-9_.-]/g, "_")}`);
   return { registration: join(root, "orchd.registration") };
 }
@@ -28,7 +29,7 @@ export interface DaemonRuntimeFiles {
   readonly port: string;
   /** Owner-readable credential for loopback TCP hello. */
   readonly token: string;
-  /** Where a detached orchd's stdout and stderr land. */
+  /** Where the daemon's structured JSONL diagnostics are written. */
   readonly log: string;
 }
 

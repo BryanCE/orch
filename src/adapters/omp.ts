@@ -103,6 +103,10 @@ function ompModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
 class OmpAdapter implements AgentAdapter {
   readonly id = "omp" as const;
 
+  /** omp exports its session id into subprocesses; it is both marker and identity. */
+  readonly sessionEnvMarker = "OMP_SESSION_ID";
+  readonly sessionIdEnv = "OMP_SESSION_ID";
+
   /** omp supports every D4 capability through its bridge and session files. */
   readonly capabilities = {
     steer: "inbox" as const,
@@ -117,6 +121,10 @@ class OmpAdapter implements AgentAdapter {
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
     return ["omp", ...ompModelArgv(opts, "shell")].join(" ");
+  }
+
+  interactiveArgv(opts: SpawnOpts): readonly string[] {
+    return ["omp", ...ompModelArgv(opts, "argv")];
   }
 
   /** Start omp as an orch worker: orch's bridge always, plus whatever extensions

@@ -11,8 +11,6 @@ import { deleteSpawnedRecord, insertSpawnedRecord, selectSpawnedRecords, type Sp
 import { deleteOwner, setOwner } from "../store/ownership-rows.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
-import type { AdapterId } from "../adapters/adapter.ts";
-import type { BackendId } from "../backends/backend.ts";
 
 export { orchDir, presenceAgentDir };
 
@@ -161,19 +159,22 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
 
 export function recordSpawned(
   pane: string,
-  metadata: { adapter?: AdapterId; model?: string; backend?: BackendId; workspace?: string; handle?: string; name?: string; cwd?: string; worktree?: string; branch?: string; owner?: string; spawnedBy?: string; spawnedByLabel?: string } = {},
+  // Derived from SpawnedRecord, never re-listed: a hand-copied field list drifts
+  // silently from the row it writes, and a dropped field is a column that stops
+  // being persisted with no error at the call site.
+  metadata: Omit<SpawnedRecord, "pane" | "ts"> = {},
 ): void {
   // Never swallowed. An agent whose registry row is missing has no recorded
   // backend handle, so nothing can ever address it again: status shows nothing,
   // dispatch says "no target matches", and the pane is a ghost on screen. A
   // spawn that cannot register must fail at the spawn, not hours later.
-  const record: SpawnedRecord = { pane, ts: new Date().toISOString() };
+  const record: SpawnedRecord = { pane, ts: Date.now() };
   if (metadata.adapter !== undefined) record.adapter = metadata.adapter;
-  if (metadata.name !== undefined) record.name = metadata.name;
   if (metadata.model !== undefined) record.model = metadata.model;
   if (metadata.backend !== undefined) record.backend = metadata.backend;
   if (metadata.workspace !== undefined) record.workspace = metadata.workspace;
   if (metadata.handle !== undefined) record.handle = metadata.handle;
+  if (metadata.name !== undefined) record.name = metadata.name;
   if (metadata.cwd !== undefined) record.cwd = metadata.cwd;
   if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
   if (metadata.branch !== undefined) record.branch = metadata.branch;

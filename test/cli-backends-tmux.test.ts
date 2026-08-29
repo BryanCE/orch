@@ -36,12 +36,12 @@ describe("tmux backend registry and capabilities", () => {
     }
   });
 
-  test("exposes pane capabilities", () => {
+  test("exposes pane roles", () => {
     const backend = new TmuxBackend();
-    expect(backend.panes).toBe(true);
-    expect(backend.focusable).toBe(true);
-    expect(backend.canSendKeys).toBe(true);
-    expect(backend.capabilities).toEqual({ panes: true, focusable: true, canSendKeys: true, canPruneLogs: false });
+    expect(backend.paneHost).not.toBeNull();
+    expect(backend.paneInventory).not.toBeNull();
+    expect(backend.paneInput).not.toBeNull();
+    expect(backend.capabilities).toEqual({ canPruneLogs: false });
   });
 
   test("reflects the TMUX environment", () => {

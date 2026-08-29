@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { ensurePresenceAgentDir, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { ensurePresenceAgentDir, launchKey, launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
 import { isRecord, parsePid, projectRoot, type JsonRecord } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
@@ -36,16 +36,6 @@ function readTranscript(transcriptPath: string | undefined): string | undefined 
     return readFileSync(transcriptPath, "utf8");
   } catch {
     return undefined;
-  }
-}
-
-function readStdin(): JsonRecord {
-  try {
-    const raw = readFileSync(0, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
   }
 }
 
@@ -73,16 +63,10 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
 
 // No ORCH_AGENT_KEY means a regular (non-orch) Claude session — nothing to
 // record, exit silently. Only a present-but-malformed key is a wiring error.
-const key = process.env.ORCH_AGENT_KEY;
+const key = launchKey(parseIdentity);
 if (!key) process.exit(0);
-try {
-  parseIdentity(key);
-} catch (error: unknown) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-}
 
-const input = readStdin();
+const input = readJsonStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const pid = agentPid(input);
@@ -103,27 +87,15 @@ const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath ?? t
 const lastText = truncateOptional(transcriptText ?? existingText, MAX_TEXT);
 
 const status: JsonRecord = {
-  ...previous,
-  schema: PRESENCE_SCHEMA,
-  agent: AGENT_ID,
-  key,
+  ...launchStamp(previous, AGENT_ID, key),
   paneId,
   pid,
-  // Identity stamped at launch: this agent's display name and its spawner.
-  label: textValue(process.env.ORCH_AGENT_NAME) ?? previous.label,
-  spawnedBy: textValue(process.env.ORCH_SPAWNER) ?? previous.spawnedBy,
-  spawnedByLabel: textValue(process.env.ORCH_SPAWNER_LABEL) ?? previous.spawnedByLabel,
   cwd: textValue(input.cwd) ?? previous.cwd ?? process.cwd(),
-  worktree: textValue(process.env.ORCH_AGENT_WORKTREE) ?? previous.worktree,
-  branch: textValue(process.env.ORCH_AGENT_BRANCH) ?? previous.branch,
   project: projectRoot(),
   model,
   task,
   sessionPath: transcriptPath ?? previous.sessionPath,
   sessionId,
-  cost: typeof previous.cost === "number" ? previous.cost : 0,
-  tokens: previous.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  turns: typeof previous.turns === "number" ? previous.turns : 0,
   lastText,
   updatedAt: now,
 };

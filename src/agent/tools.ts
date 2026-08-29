@@ -11,6 +11,7 @@ import * as path from "node:path";
 import type { HarnessApi, HarnessContext, HarnessIdentity } from "./harness.ts";
 import { Type } from "typebox";
 import { workspaceOf } from "../policy/workspace.ts";
+import { errorMessage } from "../util.ts";
 import { loadConfigOrNull } from "../config.ts";
 import { orchDir } from "../presence/writer.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
@@ -511,7 +512,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     } catch (error: unknown) {
       // A failing end-hook operation must not strand the agent as working. Keep
       // the terminal state and retain a useful error for the daemon/event row.
-      state.lastError = error instanceof Error ? error.message : "settle hook failed";
+      state.lastError = errorMessage(error);
       state.state = "error";
     } finally {
       // writeStatus is itself best-effort, but always gets one terminal attempt

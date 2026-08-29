@@ -51,7 +51,7 @@ function seedQueueTask(dir: string, text: string, state: "queued" | "claimed" | 
 }
 
 function run(dispatchId: string, startedAt: string): RunRecord {
-  return { dispatchId, agentKey: "agent", state: "done", startedAt };
+  return { dispatchId, agentKey: "agent", state: "done", startedAt: Date.parse(startedAt) };
 }
 
 const NOW = new Date("2026-02-01T00:00:00.000Z");
@@ -81,12 +81,12 @@ describe("retention sweep", () => {
     seedQueueTask(orchDir, "queue-new", "done", "2026-01-25T00:00:00.000Z");
     seedQueueTask(orchDir, "queued-old", "queued", "2026-01-01T00:00:00.000Z");
     seedQueueTask(orchDir, "claimed-old", "claimed", "2026-01-01T00:00:00.000Z");
-    insertOutboxMessage(orchDir, { id: "out-old", target: "x", payload: {}, createdAt: "2026-01-20T00:00:00.000Z" });
-    insertOutboxMessage(orchDir, { id: "out-new", target: "x", payload: {}, createdAt: "2026-01-28T00:00:00.000Z" });
+    insertOutboxMessage(orchDir, { id: "out-old", target: "x", payload: {}, createdAt: Date.parse("2026-01-20T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "out-new", target: "x", payload: {}, createdAt: Date.parse("2026-01-28T00:00:00.000Z") });
     markOutboxDelivered(orchDir, "out-old");
     markOutboxDelivered(orchDir, "out-new");
-    appendEvent(orchDir, "2026-01-20T00:00:00.000Z", { id: "event-old" });
-    appendEvent(orchDir, "2026-01-30T00:00:00.000Z", { id: "event-new" });
+    appendEvent(orchDir, Date.parse("2026-01-20T00:00:00.000Z"), { id: "event-old" });
+    appendEvent(orchDir, Date.parse("2026-01-30T00:00:00.000Z"), { id: "event-new" });
     upsertRun(orchDir, run("run-old", "2025-12-20T00:00:00.000Z"));
     upsertRun(orchDir, run("run-new", "2026-01-20T00:00:00.000Z"));
     expect(sweepExpiredRows(orchDir, config({ queue_days: 14, events_days: 3, runs_days: 30, outbox_days: 7 }), NOW)).toEqual({
@@ -106,7 +106,7 @@ describe("retention sweep", () => {
 
   test("continues sweeping when one table delete fails", () => {
     const orchDir = fixture();
-    appendEvent(orchDir, "2020-01-01T00:00:00.000Z", { old: true });
+    appendEvent(orchDir, Date.parse("2020-01-01T00:00:00.000Z"), { old: true });
     upsertRun(orchDir, run("old-run", "2020-01-01T00:00:00.000Z"));
     openStore(orchDir).exec("DROP TABLE tasks");
 
@@ -127,7 +127,7 @@ describe("retention sweep", () => {
       .run(agentId, agentId, "pi", "/tmp", "reserved-agent", Date.parse(old));
     db.query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,NULL)").run(agentId, Date.parse(old));
     db.query("INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (?,?,?)").run(agentId, "/tmp/worktree", "orch/expired");
-    insertSpawnedRecord(orchDir, { pane: key, name: "reserved-agent", ts: NOW.toISOString() });
+    insertSpawnedRecord(orchDir, { pane: key, name: "reserved-agent", ts: NOW.getTime() });
     setOwner(orchDir, key, "owner");
 
     expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
@@ -148,7 +148,7 @@ describe("retention sweep", () => {
     db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
       .run(key, key, "pi", "/tmp", key, Date.parse(old));
     db.query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,NULL)").run(key, Date.parse(old));
-    insertSpawnedRecord(orchDir, { pane: key, ts: NOW.toISOString() });
+    insertSpawnedRecord(orchDir, { pane: key, ts: NOW.getTime() });
     setOwner(orchDir, key, "owner");
     utimesSync(dir, NOW, NOW);
     expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);

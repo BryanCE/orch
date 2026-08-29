@@ -19,9 +19,9 @@ function activeBackend(reports: readonly DoctorBackendReport[], configured?: str
     // An absent `enabled` means the backend never declared one, which reads as enabled.
     return (report.enabled ?? true) ? report : null;
   }
-  const live = reports.find((report) => report.panes && (report.detected ?? report.available) && report.insideSession && (report.enabled ?? true));
+  const live = reports.find((report) => report.roles.includes("paneInventory") && (report.detected ?? report.available) && report.insideSession && (report.enabled ?? true));
   if (live) return live;
-  return reports.find((report) => !report.panes && (report.enabled ?? true)) ?? null;
+  return reports.find((report) => !report.roles.includes("paneInventory") && (report.enabled ?? true)) ?? null;
 }
 
 /** Every enabled backend must be detected; only the active one must be inside
@@ -53,7 +53,7 @@ export function backendCapabilitiesVerdict(
     const detected = backend.detected ?? backend.available;
     const enabled = backend.enabled ?? true;
     const isActive = backend === active || backend.active === true;
-    return `${backend.id}${isActive ? " (active)" : ""}: detected=${detected}, enabled=${enabled}, active=${isActive}, insideSession=${backend.insideSession}, panes=${backend.panes}, focusable=${backend.focusable}, canSendKeys=${backend.canSendKeys}`;
+    return `${backend.id}${isActive ? " (active)" : ""}: detected=${detected}, enabled=${enabled}, active=${isActive}, insideSession=${backend.insideSession}, roles=${backend.roles.join(",") || "none"}`;
   });
   const summary = rows.join("\n    ") || "no supported backends";
   const reasons = [...failReasons, ...warnReasons];
@@ -141,9 +141,19 @@ export function checkBackendCapabilities(
       available: probe.detected,
       insideSession: probe.insideSession,
       workspace: backend.currentIdentity?.()?.workspace ?? null,
-      panes: backend.panes,
-      focusable: backend.focusable,
-      canSendKeys: backend.canSendKeys,
+      roles: Object.entries({
+        paneHost: backend.paneHost,
+        paneInventory: backend.paneInventory,
+        paneInput: backend.paneInput,
+        paneForeground: backend.paneForeground,
+        paneScreen: backend.paneScreen,
+        paneZoom: backend.paneZoom,
+        paneNaming: backend.paneNaming,
+        agentNaming: backend.agentNaming,
+        agentStatus: backend.agentStatus,
+        groupHome: backend.groupHome,
+        groupLayout: backend.groupLayout,
+      }).filter((entry) => entry[1] !== null).map(([name]) => name),
     };
   });
   const active = activeBackend(reports, configured);

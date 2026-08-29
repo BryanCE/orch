@@ -1,14 +1,13 @@
-import { loadConfig, type OrchConfig } from "../config.ts";
+import { loadConfig, type NotifyEntry } from "../config.ts";
 import { buildEntities, currentWorkspace, resolveTarget, workspaceOf } from "../entities.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { scopeToWorkspace, workspaceName } from "../policy/workspace.ts";
+import { scopeToWorkspace } from "../policy/workspace.ts";
 import { type PresenceMetadata } from "../daemon/events.ts";
-import { subscribeEvents } from "../daemon/rpc.ts";
-import { deliverToSink, loadSinks, type Sink } from "../notify/router.ts";
+import { rpcHello, subscribeEvents } from "../daemon/rpc.ts";
+import { deliver } from "../notify/router.ts";
 import { notificationText, type NotifyEvent } from "../notify/format.ts";
-import { spawnerIdentity } from "../policy/spawner.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { die } from "./target.ts";
@@ -44,40 +43,53 @@ interface EventsContext {
 }
 
 
-/** Return whether an event's agent is currently leased by this session. Both values
- * are normalized agents.id values; provenance is deliberately not part of this decision. */
-export function eventInMineScope(input: {
+/** Return whether an event belongs to this session by provenance or current lease.
+ * Both values are normalized agents.id values. A live foreign lease always excludes it. */
+export interface EventScopeInput {
+  anyAgent: boolean;
   mineAddress: string | undefined;
   leaseOwner: string | null;
-}): boolean {
-  return input.mineAddress !== undefined
-    && input.mineAddress.length > 0
-    && input.leaseOwner === input.mineAddress;
+  recordSpawnedBy?: string;
+}
+
+export function eventInMineScope(input: Omit<EventScopeInput, "anyAgent">): boolean {
+  if (input.mineAddress === undefined || input.mineAddress.length === 0) return false;
+  // A live foreign lease excludes the agent even when this session originally spawned it.
+  if (input.leaseOwner !== null && input.leaseOwner !== input.mineAddress) return false;
+  return input.leaseOwner === input.mineAddress || input.recordSpawnedBy === input.mineAddress;
+}
+
+export function eventInScope(input: EventScopeInput): boolean {
+  return input.anyAgent || eventInMineScope(input);
 }
 
 export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
   const items = eventsItems(options);
-  const mineKey = options.mine ? spawnerIdentity().key : null;
-  const mineAddress = tryParseIdentity(mineKey)?.id ?? mineKey ?? undefined;
+  const mineIdentity = options.mine ? await rpcHello(orchDir()) : undefined;
+  const mineAddress = mineIdentity?.id;
   const accepts = (key: string): boolean => {
+    const parsed = tryParseIdentity(key);
     const inScope = options.targets.length
       ? items.has(key)
-      : looksLikePaneKey(key)
-        && scopeToWorkspace(orchDir(), [key], (item) => item, currentWorkspace(), { all: options.all }).length > 0;
+      : parsed !== null && (options.all || parsed.workspace === currentWorkspace());
     if (!inScope) return false;
-    if (!options.mine) return true;
     const agentId = tryParseIdentity(key)?.id ?? key;
     const leaseOwner = currentLease(orchDir(), agentId)?.orchId ?? null;
-    return eventInMineScope({ mineAddress, leaseOwner });
+    return eventInScope({
+      anyAgent: !options.mine,
+      mineAddress,
+      leaseOwner,
+      recordSpawnedBy: spawnedRecords().get(key)?.spawnedBy,
+    });
   };
   const context: EventsContext = {
     options,
     items,
     metadata: presenceMetadata,
     accepts,
-    emit: eventWriter(options, loadConfig(orchDir()).workspaces),
+    emit: eventWriter(options),
   };
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
@@ -107,13 +119,13 @@ export async function cmdNotify(args: string[]) {
     task: "orch notify test",
     ts: new Date().toISOString(),
   };
-  const sinks = loadSinks(orchDir());
+  const sinks = loadConfig(orchDir()).notify;
   if (!sinks.length) {
     process.stderr.write("notify test: no sinks configured\n");
     process.exitCode = 1;
     return;
   }
-  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliverToSink(sink, event) })));
+  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(sink, event) })));
   if (json) process.stdout.write(JSON.stringify(results.map(({ sink, ok }) => ({ sink: sinkLabel(sink), ok }))) + "\n");
   else for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
   if (results.some((result) => !result.ok)) process.exitCode = 1;
@@ -138,7 +150,7 @@ export function parseEventsOptions(args: string[]): EventsOptions {
   // noise it has no business acting on, so the lease filter is the default and --any-agent lifts it.
   let mine = true;
   const targets: string[] = [];
-  const usage = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
+  const usage = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--mine] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--status") statusFilter = new Set((args[++index] ?? "").split(",").map((state) => state.trim()).filter(Boolean));
@@ -151,6 +163,7 @@ export function parseEventsOptions(args: string[]): EventsOptions {
       sinceSeq = parsed;
     } else if (argument === "--once") once = true;
     else if (argument === "--any-agent") mine = false;
+    else if (argument === "--mine") mine = true;
     else if (argument.startsWith("--agent=")) targets.push(namedTarget(argument, "--agent=", usage));
     else if (argument.startsWith("--agent-id=")) targets.push(namedTarget(argument, "--agent-id=", usage));
     else targets.push(argument);
@@ -195,7 +208,7 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
       pid: entity.presence.status?.pid,
     });
   }
-  if (!items.size && !options.all) die("No live pane agent dirs to stream.");
+  // An empty fleet is a valid watch: workers may be spawned after this command starts.
   return items;
 }
 
@@ -203,20 +216,29 @@ export function formatEventGap(oldestSeq: number): string {
   return `warning: event history gap; events before sequence ${oldestSeq} were pruned (replay resumes at sequence ${oldestSeq})\n`;
 }
 
-function eventWriter(options: EventsOptions, resolver: OrchConfig["workspaces"]): (event: NotifyEvent, streamSeq: number) => boolean {
+export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number, space = event.workspace ?? null): string {
+  const coordinate = space !== null && space !== undefined && space.length > 0 ? space : null;
+  if (json) {
+    const { workspace: _workspace, ...withoutWorkspace } = event;
+    const payload = coordinate === null
+      ? { ...withoutWorkspace, streamSeq }
+      : { ...withoutWorkspace, space: coordinate, streamSeq };
+    return JSON.stringify(payload);
+  }
+  // The plexer coordinate is opaque: echo it verbatim and never resolve it to a
+  // configured label that could make the coordinate look like an orch-chosen name.
+  const textEvent: NotifyEvent = { ...event, workspace: coordinate ?? "" };
+  const title = notificationText(textEvent, { colorize: true }).title;
+  const transition = `  ${event.oldState}->${event.newState}`;
+  const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
+  return `${title}${transition}${cost}`;
+}
+
+function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
     if (options.statusFilter && !options.statusFilter.has(event.newState)) return false;
-    const id = event.workspace ?? workspaceOf(orchDir(), event.key);
-    const label = workspaceName(id, resolver);
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ...event, workspaceName: label, streamSeq })}\n`);
-      return true;
-    }
-    const rawTitle = notificationText(event, { colorize: true }).title;
-    const title = label && id && label !== id ? rawTitle.replace(`[${id}]`, `[${label} (${id})]`) : rawTitle;
-    const transition = `  ${event.oldState}->${event.newState}`;
-    const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
-    process.stdout.write(`${title}${transition}${cost}\n`);
+    const space = event.workspace ?? workspaceOf(orchDir(), event.key);
+    process.stdout.write(`${renderEvent(event, options.json, streamSeq, space)}\n`);
     return true;
   };
 }
@@ -252,15 +274,15 @@ export function isNotifyEvent(value: unknown): value is NotifyEvent {
     && typeof value.ts === "string";
 }
 
-export function sinkLabel(sink: Sink): string {
-  if (sink.type === "webhook") {
+export function sinkLabel(sink: NotifyEntry): string {
+  if (sink.id === "webhook") {
     const url = sink.url;
     return `webhook ${typeof url === "string" ? url : ""}`;
   }
-  if (sink.type === "command") {
+  if (sink.id === "command") {
     const command = sink.command;
     return `command ${Array.isArray(command) ? command.map((part) => String(part)).join(" ") : ""}`;
   }
-  return sink.type;
+  return sink.id;
 }
 

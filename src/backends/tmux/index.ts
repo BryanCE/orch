@@ -12,6 +12,7 @@ import type {
   BackendWorkspace,
   PaneHostRole,
   PaneInventoryRole,
+  PaneForegroundRole,
   PaneScreenRole,
   PaneZoomRole,
   PaneNamingRole,
@@ -25,7 +26,7 @@ import type {
 } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
-import { sleepMs, type PaneForeground } from "../pane-ready.ts";
+import { sleepMs } from "../pane-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
@@ -36,6 +37,9 @@ export type TmuxHandle = string;
 
 const TMUX_BACKEND: BackendId = "tmux";
 
+function tmuxEnvArgs(env: Readonly<Record<string, string>>): string[] {
+  return Object.entries(env).flatMap(([name, value]) => ["-e", `${name}=${value}`]);
+}
 
 /** Agent status read from the presence protocol for one pane's stamped key. */
 function statusForAgentKey(key: string): string | null {
@@ -87,10 +91,7 @@ function groupPanesBy(panes: readonly TmuxPane[], key: (pane: TmuxPane) => strin
 /** Backend for panes managed by a tmux session. */
 export class TmuxBackend implements Backend<TmuxHandle> {
   readonly id = TMUX_BACKEND;
-  readonly panes = true;
-  readonly focusable = true;
-  readonly canSendKeys = true;
-  readonly capabilities: BackendCapabilities = { panes: true, focusable: true, canSendKeys: true, canPruneLogs: false };
+  readonly capabilities: BackendCapabilities = { canPruneLogs: false };
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneInput = {
@@ -104,9 +105,24 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     focus: (handle: TmuxHandle): void => {
       if (bestEffortTmux(["select-window", "-t", handle]) === null || bestEffortTmux(["select-pane", "-t", handle]) === null) throw new Error(`tmux failed to focus ${handle}`);
     },
-    foreground: (handle: TmuxHandle): PaneForeground => this.paneForeground(handle),
   };
-  readonly paneHost: PaneHostRole<TmuxHandle> | null = null;
+  readonly paneForeground: PaneForegroundRole<TmuxHandle> | null = null;
+  readonly paneHost: PaneHostRole<TmuxHandle> = {
+    open: (request) => {
+      const target = request.targetPane ?? request.group;
+      if (!target) throw new Error("tmux pane placement requires a target pane or group");
+      const orientation = request.split === "right" ? "-h" : "-v";
+      const envArgs = tmuxEnvArgs(request.env ?? {});
+      const output = bestEffortTmux([
+        "split-window", "-t", target, orientation, "-P", "-F", "#{pane_id}",
+        "-c", request.cwd, ...envArgs, "--", "bash",
+      ]);
+      const handle = output?.trim() ?? "";
+      if (!handle) throw new Error("tmux split-window returned no pane id");
+      return { handle };
+    },
+    close: (handle) => { this.close(handle); },
+  };
   readonly paneInventory: PaneInventoryRole<TmuxHandle> = {
     current: () => {
       const handle = process.env.TMUX_PANE;
@@ -120,17 +136,41 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly agentNaming: AgentNamingRole<TmuxHandle> = { renameAgent: (handle, name) => { if (!this.renameAgent(handle, name)) throw new Error(`tmux failed to rename agent ${handle}`); } };
   readonly agentStatus: AgentStatusRole<TmuxHandle> = { wait: (handle, status, timeoutMs) => { if (!this.waitAgentStatus(handle, status, timeoutMs)) throw new Error(`wait for ${handle} -> "${status}" timed out`); } };
   readonly groupHome: GroupHomeRole<TmuxHandle> = {
-    list: () => this.groups(),
-    create: (request: CreateGroupRequest): CreatedGroup<TmuxHandle> => this.createGroup(request),
-    rename: (coordinate, label) => { this.renameGroup(coordinate, label); },
-    close: (coordinate) => { this.closeGroup(coordinate); },
-    focus: (coordinate) => { this.focusGroup(coordinate); },
-    move: (request: MovePaneRequest<TmuxHandle>) => { this.movePane(request); },
+    list: () => {
+      const byWindow = groupPanesBy(orchPanes(), (pane) => pane.windowId);
+      return [...byWindow.entries()].map(([windowId, panes]) => groupFromWindowPanes(windowId, panes));
+    },
+    create: (opts: CreateGroupRequest): CreatedGroup<TmuxHandle> => {
+      const args = ["new-window", "-P", "-F", "#{window_id}\t#{window_index}\t#{pane_id}", "-t", opts.workspace, "-c", opts.cwd];
+      if (opts.label) args.push("-n", opts.label);
+      args.push(...tmuxEnvArgs(opts.env ?? {}));
+      const [windowId, windowIndex, paneId] = execTmux(args).trim().split("\t");
+      if (!windowId || !paneId) throw new Error("tmux new-window returned no window/pane id");
+      const index = Number(windowIndex);
+      return { group: { id: windowId, label: opts.label ?? null, workspace: opts.workspace, focused: false, number: Number.isFinite(index) ? index : null, paneCount: 1, status: null }, rootHandle: paneId };
+    },
+    rename: (coordinate, label) => { execTmux(["rename-window", "-t", coordinate, label]); },
+    close: (coordinate) => { execTmux(["kill-window", "-t", coordinate]); },
+    focus: (coordinate) => { execTmux(["select-window", "-t", coordinate]); },
+    move: (request: MovePaneRequest<TmuxHandle>): void => {
+      if (request.group === null) {
+        const args = ["break-pane", "-d", "-s", request.handle];
+        if (request.label) args.push("-n", request.label);
+        execTmux(args);
+        return;
+      }
+      const orientation = request.split === "right" ? "-h" : "-v";
+      const target = request.against ?? request.targetPane ?? request.group;
+      execTmux(["join-pane", orientation, "-s", request.handle, "-t", target]);
+    },
   };
-  readonly groupLayout: GroupLayoutRole<TmuxHandle> & ((coordinate: string) => BackendGroupLayout<TmuxHandle>) = Object.assign(
-    (coordinate: string) => this.groupLayoutFor(coordinate),
-    { read: (coordinate: string) => this.groupLayoutFor(coordinate) },
-  );
+  readonly groupLayout: GroupLayoutRole<TmuxHandle> = {
+    read: (group: string): BackendGroupLayout<TmuxHandle> => {
+      const panes = windowPaneRects(group);
+      if (!panes.length) throw new Error(`no panes on window ${group}`);
+      return { group, panes: panes.map((pane) => ({ handle: pane.paneId, rect: pane.rect })) };
+    },
+  };
 
   isAvailable(): boolean {
     return binaryOnPath("tmux");
@@ -222,8 +262,11 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
     const cwd = opts.cwd ?? process.cwd();
     const orchDir = opts.orchDir ?? process.env.ORCH_DIR ?? "";
-    const envArgs = ["-e", `ORCH_AGENT_KEY=${opts.key ?? ""}`, "-e", `ORCH_DIR=${orchDir}`];
-    for (const [name, value] of Object.entries(opts.env ?? {})) envArgs.push("-e", `${name}=${value}`);
+    const envArgs = tmuxEnvArgs({
+      ORCH_AGENT_KEY: opts.key ?? "",
+      ORCH_DIR: orchDir,
+      ...(opts.env ?? {}),
+    });
 
     // A planned target pane wins over the group: `-t <window>` splits whatever
     // pane happens to be active there, which makes placement depend on focus.
@@ -253,11 +296,6 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   focus(handle: TmuxHandle): boolean {
     return bestEffortTmux(["select-window", "-t", handle]) !== null
       && bestEffortTmux(["select-pane", "-t", handle]) !== null;
-  }
-
-  /** tmux does not expose a portable foreground-process query through its control mode. */
-  paneForeground(_handle: TmuxHandle): PaneForeground {
-    throw new Error("tmux does not provide pane foreground process inspection");
   }
 
   /** Pass backend key names through to tmux unchanged. */
@@ -311,69 +349,6 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       if (Date.now() >= deadline) return false;
       sleepMs(250);
     }
-  }
-
-  /** Create a window and report it with its root pane. Throws on failure (D4). */
-  createGroup(opts: CreateGroupRequest): { group: BackendGroup; rootHandle: TmuxHandle } {
-    const args = ["new-window", "-P", "-F", "#{window_id}\t#{window_index}\t#{pane_id}", "-t", opts.workspace, "-c", opts.cwd];
-    if (opts.label) args.push("-n", opts.label);
-    for (const [name, value] of Object.entries(opts.env ?? {})) args.push("-e", `${name}=${value}`);
-    const [windowId, windowIndex, paneId] = execTmux(args).trim().split("\t");
-    if (!windowId || !paneId) throw new Error("tmux new-window returned no window/pane id");
-    const index = Number(windowIndex);
-    return {
-      group: {
-        id: windowId,
-        label: opts.label ?? null,
-        workspace: opts.workspace,
-        focused: false,
-        number: Number.isFinite(index) ? index : null,
-        paneCount: 1,
-        status: null,
-      },
-      rootHandle: paneId,
-    };
-  }
-
-  /** Geometry of every pane in a window, orch-spawned or not. Throws on failure. */
-  groupLayoutFor(group: string): BackendGroupLayout<TmuxHandle> {
-    const panes = windowPaneRects(group);
-    if (!panes.length) throw new Error(`no panes on window ${group}`);
-    return { group, panes: panes.map((pane) => ({ handle: pane.paneId, rect: pane.rect })) };
-  }
-
-  /** Move a pane into an existing window, preserving the requested orientation. */
-  private movePane(request: MovePaneRequest<TmuxHandle>): void {
-    if (request.group === null) {
-      const args = ["break-pane", "-d", "-s", request.handle];
-      if (request.label) args.push("-n", request.label);
-      execTmux(args);
-      return;
-    }
-    const orientation = request.split === "right" ? "-h" : "-v";
-    const target = request.against ?? request.targetPane ?? request.group;
-    execTmux(["join-pane", orientation, "-s", request.handle, "-t", target]);
-  }
-
-  renameGroup(group: string, label: string): boolean {
-    execTmux(["rename-window", "-t", group, label]);
-    return true;
-  }
-
-  closeGroup(group: string): boolean {
-    execTmux(["kill-window", "-t", group]);
-    return true;
-  }
-
-  focusGroup(group: string): boolean {
-    execTmux(["select-window", "-t", group]);
-    return true;
-  }
-
-  /** tmux windows containing at least one orch pane (D4). */
-  groups(): BackendGroup[] {
-    const byWindow = groupPanesBy(orchPanes(), (pane) => pane.windowId);
-    return [...byWindow.entries()].map(([windowId, panes]) => groupFromWindowPanes(windowId, panes));
   }
 
   /** tmux sessions containing at least one orch pane; `number` is always null for tmux (D4). */

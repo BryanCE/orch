@@ -10,6 +10,15 @@ import { fileURLToPath } from "node:url";
  * A hardcoded "two levels up from the entry file" breaks the moment the entry
  * moves from `bin/` to `dist/bin/`.
  */
+export type OsSide = "linux" | "windows" | "darwin";
+
+export function osSide(platform: NodeJS.Platform = process.platform): OsSide {
+  if (platform === "win32") return "windows";
+  if (platform === "darwin") return "darwin";
+  if (platform === "linux") return "linux";
+  throw new Error(`unsupported host OS ${platform}`);
+}
+
 export function packageRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 16; i++) {
@@ -79,6 +88,10 @@ export type JsonRecord = Record<string, unknown>;
  */
 export function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function isUnknownArray(value: unknown): value is unknown[] {

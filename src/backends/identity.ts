@@ -155,7 +155,7 @@ export function normalizeControlTarget(target: string): string {
   if (presence.has(target)) return target;
 
   const matches = [...spawnedRecords().values()].filter((record) =>
-    record.pane === target || record.name === target || record.handle === target
+    record.pane === target || record.handle === target
     || tryParseIdentity(record.pane)?.id === target);
 
   const live = matches.filter((record) => presence.get(record.pane)?.alive);

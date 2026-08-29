@@ -2,7 +2,8 @@ import { loadConfig, type HostConfig } from "../config.ts";
 import { getBackend, resolveBackend } from "../backends/registry.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
 import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
-import { buildEntities, parseTarget, resolveTarget, selfActor, type Entity } from "../entities.ts";
+import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
+import { selfId } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/workspace.ts";
 import { runSSH } from "../remote.ts";
@@ -81,12 +82,12 @@ export function remoteWrite(hostName: string, command: string, args: readonly st
 }
 
 export function callerOwnerToken(): string | undefined {
-  // The stamped owner MUST equal the write actor (selfActor), or an orchestrator
-  // cannot steer/answer/reset the agents it spawned. Never the raw backend pane
-  // id: that is unscoped and never string-matches the serialized actor.
+  // The stamped owner is the id orch issued this process - the same id its
+  // leases are held by. Never a plexer coordinate: that names an environment,
+  // matches no stored record, and made orch refuse the fleet it had just spawned.
   const explicit = process.env.ORCH_OWNER;
   if (explicit) return explicit;
-  return selfActor() ?? undefined;
+  return selfId();
 }
 
 /** Refuse bulk operations that cannot identify their calling orchestrator. */
@@ -185,6 +186,21 @@ export function registryTargetMatches(record: SpawnedRecord, target: string): bo
   return tryParseIdentity(record.pane)?.id === target;
 }
 
+export function resolveRegistryRecord(
+  records: readonly SpawnedRecord[],
+  presence: ReadonlyMap<string, PresenceEntry>,
+  target: string,
+): SpawnedRecord | undefined {
+  const candidates = records.filter((record) => registryTargetMatches(record, target));
+  const live = candidates.filter((record) => presence.get(record.pane)?.alive === true);
+  const preferred = live.length > 0 ? live : candidates;
+  if (preferred.length > 1) {
+    const keys = preferred.map((record) => record.pane).join(", ");
+    throw new Error(`Ambiguous target "${target}"; address by key: ${keys}`);
+  }
+  return preferred[0];
+}
+
 /**
  * Resolve lifecycle targets from orch's registry, not the current workspace.
  * Close is cleanup, so it must still resolve a dead or headless record after
@@ -196,8 +212,13 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
   // Prefer the live backend inventory. A registry row can retain an old pane
   // key after a store wipe; its handle/name must not become a malformed identity.
   const direct = entities.filter((entity) => entity.key === target || entity.paneId === target || entity.name === target);
-  if (direct.length > 1) die(`Ambiguous target "${target}".`);
-  let ent = direct[0];
+  const liveDirect = direct.filter((entity) => entity.presence?.alive === true);
+  const directMatches = liveDirect.length > 0 ? liveDirect : direct;
+  if (directMatches.length > 1) {
+    const keys = directMatches.map((entity) => entity.key).join(", ");
+    die(`Ambiguous target "${target}"; address by key: ${keys}`);
+  }
+  let ent = directMatches[0];
   let record = ent ? currentRecords.get(ent.key) : undefined;
   // A stale registry handle can make buildEntities temporarily expose the pane
   // id as its key. Prefer the bridge's canonical presence identity when one is
@@ -212,9 +233,11 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
     }
   }
   if (!ent) {
-    const candidates = [...currentRecords.values()].filter((row) => registryTargetMatches(row, target));
-    if (candidates.length > 1) die(`Ambiguous target "${target}".`);
-    record = candidates[0];
+    try {
+      record = resolveRegistryRecord([...currentRecords.values()], loadPresence(), target);
+    } catch (error: unknown) {
+      die(errorMessage(error));
+    }
     if (record) {
       const linked = entities.filter((candidate) => candidate.key === record!.pane
         || (!!record!.handle && candidate.paneId === record!.handle)

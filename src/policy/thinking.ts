@@ -1,3 +1,5 @@
+import type { OrchConfig } from "../config.ts";
+
 // Orch's ladder token vocabulary: the thinking efforts a model spec may name and
 // how a spec splits into its two halves. A leaf on purpose — it decides nothing
 // about which models are permitted (that is `policy/model.ts`, which reads
@@ -25,4 +27,23 @@ export function splitThinkingSuffix(model: string): { bare: string; thinking?: T
   const suffix = model.slice(colon + 1);
   if (!isThinkingLevel(suffix)) return { bare: model };
   return { bare: model.slice(0, colon), thinking: suffix };
+}
+
+/** Inputs used to resolve one launch's independent thinking effort. */
+export interface ThinkingResolutionInput {
+  readonly flag?: unknown;
+  readonly modelSuffix?: unknown;
+  readonly harness: string;
+  readonly config: Pick<OrchConfig, "defaults">;
+}
+
+/** Resolve effort at orch's command boundary, from explicit input to harness default. */
+export function resolveThinking(input: ThinkingResolutionInput): ThinkingLevel {
+  if (isThinkingLevel(input.flag)) return input.flag;
+  if (isThinkingLevel(input.modelSuffix)) return input.modelSuffix;
+  const override = Object.entries(input.config.defaults.thinking_by_harness ?? {})
+    .find(([harness]) => harness === input.harness)?.[1];
+  if (isThinkingLevel(override)) return override;
+  if (isThinkingLevel(input.config.defaults.thinking)) return input.config.defaults.thinking;
+  return "medium";
 }

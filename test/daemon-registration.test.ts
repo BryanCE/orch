@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireDaemonRegistration, readDaemonRegistration, releaseDaemonRegistration } from "../src/daemon/lifecycle.ts";
 import { checkDaemonRegistration } from "../src/doctor/daemon.ts";
+import { endpointPaths } from "../src/daemon/rpc.ts";
+import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const oldDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
@@ -39,6 +41,7 @@ describe("machine daemon registration", () => {
   test("evicts a registration whose process instance no longer matches", () => {
     const { orchDir, discovery } = setup();
     writeFileSync(join(discovery, "orchd.registration"), JSON.stringify({
+      orchDir,
       pid: process.pid,
       startToken: "recycled-instance",
       socket: join(orchDir, "orchd.sock"),
@@ -49,9 +52,22 @@ describe("machine daemon registration", () => {
     expect(readDaemonRegistration()?.pid).toBe(process.pid);
   });
 
+  test("routes a different orch dir to its own runtime files", () => {
+    const { orchDir } = setup();
+    const otherDir = mkdtempSync(join(tmpdir(), "orch-registration-store-"));
+    roots.push(otherDir);
+    expect(acquireDaemonRegistration(orchDir).acquired).toBe(true);
+    expect(endpointPaths(otherDir)).toEqual({
+      socket: daemonRuntimeFiles(otherDir).socket,
+      port: daemonRuntimeFiles(otherDir).port,
+      token: daemonRuntimeFiles(otherDir).token,
+    });
+  });
+
   test("doctor distinguishes registered-but-dead from live-and-registered", () => {
     const { orchDir, discovery } = setup();
     writeFileSync(join(discovery, "orchd.registration"), JSON.stringify({
+      orchDir,
       pid: process.pid,
       startToken: "recycled-instance",
       socket: join(orchDir, "orchd.sock"),

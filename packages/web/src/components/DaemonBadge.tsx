@@ -4,7 +4,7 @@ import { useDaemonStatus } from "@/hooks/use-daemon-status";
 import type { DaemonHome } from "@/server/orch";
 
 const homeLabel: Record<DaemonHome, { text: string; icon: typeof Cpu }> = {
-  local: { text: "same host", icon: Cpu },
+  "same-host": { text: "same host", icon: Cpu },
   wsl: { text: "WSL", icon: Server },
   remote: { text: "remote", icon: MonitorSmartphone },
 };

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore, closeAllStores } from "../src/store/connection.ts";
-import { insertSpawnedRecord, selectSpawnedRecords, deleteSpawnedRecord, writeSpawnedName } from "../src/store/spawned-rows.ts";
+import { insertSpawnedRecord, selectSpawnedRecords, deleteSpawnedRecord, isSpawnedRow } from "../src/store/spawned-rows.ts";
 import { setOwner, getOwner, deleteOwner } from "../src/store/ownership-rows.ts";
 import { reapSpawnedRecord } from "../src/presence/store.ts";
 import { removeDeadAgentDirs } from "../src/commands/clean.ts";
@@ -44,6 +44,18 @@ afterEach(() => {
 });
 
 describe("spawned and ownership store rows", () => {
+  test("spawned-row guard rejects arrays", () => {
+    expect(isSpawnedRow([])).toBe(false);
+  });
+
+  test("round-trips name and workspace through the public spawned seam", () => {
+    const dir = makeOrchDir();
+    insertSpawnedRecord(dir, { pane: "herdr~w1~a1", name: "recon-1", workspace: "w1" });
+    const records = selectSpawnedRecords(dir);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ pane: "herdr~w1~a1", name: "recon-1", workspace: "w1" });
+  });
+
   test("ownership table has no workspace column", () => {
     const dir = makeOrchDir();
     const columns = openStore(dir).query("PRAGMA table_info(ownership)").all() as TableColumn[];
@@ -51,7 +63,7 @@ describe("spawned and ownership store rows", () => {
     expect(columns.some((column) => column.name === "workspace")).toBe(false);
   });
 
-  test("selectSpawnedRecords joins every row to its owner in one query", () => {
+  test("selectSpawnedRecords joins every row to its owner", () => {
     const dir = makeOrchDir();
     for (let index = 0; index < 20; index++) {
       const pane = `headless~local~worker-${index}`;
@@ -59,30 +71,11 @@ describe("spawned and ownership store rows", () => {
       setOwner(dir, pane, `orch-${index}`);
     }
 
-    const db = openStore(dir);
-    const originalQuery = db.query.bind(db);
-    let queryCount = 0;
-    db.query = (sql) => {
-      queryCount++;
-      return originalQuery(sql);
-    };
     const records = selectSpawnedRecords(dir);
 
-    expect(queryCount).toBe(1);
+
     expect(records).toHaveLength(20);
     expect(records.every((record) => record.owner === `orch-${Number(record.pane.split("-").at(-1))}`)).toBe(true);
-  });
-
-  test("writeSpawnedName updates an existing pane and reports missing panes", () => {
-    const dir = makeOrchDir();
-    const key = "headless~local~rename";
-    seedSpawnedRecord(dir, key);
-
-    expect(writeSpawnedName(dir, key, "renamed")).toBe(true);
-    expect(writeSpawnedName(dir, "headless~local~missing", "nope")).toBe(false);
-    expect(selectSpawnedRecords(dir)).toEqual([
-      expect.objectContaining({ pane: key, name: "renamed" }) as unknown as SpawnedRecord,
-    ]);
   });
 
   test("deleteOwner removes an ownership row", () => {

@@ -56,10 +56,19 @@ These are settled. Work that violates one is wrong regardless of how well it wor
 | `06-schema.md` | **The authoritative DDL.** |
 | `adr/` | Decisions that were hard to reverse and had real alternatives. |
 | `02-scope.md` | Everything this rebuild covers, grouped and status-marked. The inventory that stops work being forgotten because nobody wrote it down. |
+| `07-port-seam.md` | The environment-derived role port. What replaces the `Backend` interface. |
+| `08-identity-registration.md` | How an agent's identity is minted and registered. |
+| `09-consent.md` | The consent model. |
+| `10-review-findings.md` | The verified fix list from the 2026-08-28 review, ranked by blast radius. |
+| `11-usage-bugs.md` | Bugs found by *using* orch to build orch, with the evidence that showed them. |
+| `12-thinking.md` | Thinking effort as its own configurable axis, decoupled from the model string and from any harness. |
+| `13-logging.md` | One structured logger with a correlation id, replacing lifecycle lines plus stray stderr writes. |
+| `14-settings-tui.md` | One settings registry, and `orch settings` as an interactive editor over it. |
 | `NOTES.md` | **Scratchpad, not a document.** Working notes of the thinking. Nothing in it is settled, it goes stale on purpose, and it is never cited as a decision or implemented from. |
 
 **What is authoritative:** `02-scope.md` for what is decided, `06-schema.md` for the DDL,
-`03-vocabulary.md` for what words mean, `adr/` for the hard calls. Everything else supports
+`03-vocabulary.md` for what words mean, `adr/` for the hard calls, and any file marked
+**Status: DECIDED** for its own subject (`07`, `12`, `13`, `14`). Everything else supports
 those. Where any other file disagrees with them, they win.
 
 ## How this proceeds

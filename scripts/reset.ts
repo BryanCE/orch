@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { dirname, join, sep, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";
 import { SETTINGS_DEFAULTS } from "../src/config.ts";
@@ -49,6 +49,12 @@ function pathPresent(target: string): boolean {
   }
 }
 
+function isWithin(target: string, root: string): boolean {
+  const resolvedTarget = resolve(target);
+  const resolvedRoot = resolve(root);
+  return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(`${resolvedRoot}${sep}`);
+}
+
 function readJsonFile(file: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
@@ -59,6 +65,10 @@ function readJsonFile(file: string): Record<string, unknown> | null {
 }
 
 function deletion(target: string): WipeStep | null {
+  // Build cleanup is strictly outside the configured store. Keep this guard at
+  // the wipe-step boundary so future artifact lists cannot accidentally erase
+  // settings, the database, agents, or any other ORCH_DIR state.
+  if (isBuildCleanup && isWithin(target, ORCH_DIR)) return null;
   if (!pathPresent(target)) return null;
   return { describe: `remove ${target}`, execute: () => rmSync(target, { recursive: true, force: true }) };
 }

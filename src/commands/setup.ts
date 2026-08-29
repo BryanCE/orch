@@ -38,6 +38,25 @@ export function readAssignFlag(args: string[], name: string): string | undefined
   return readValueFlag(args, name);
 }
 
+/** Read every repeatable --model value, accepting both `--model value` and `--model=value`. */
+function readModelFlags(args: string[]): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--model") {
+      const value = args[index + 1];
+      if (value !== undefined) {
+        values.push(value);
+        index += 1;
+      }
+    } else if (arg.startsWith("--model=")) {
+      values.push(arg.slice("--model=".length));
+    }
+  }
+  return values;
+}
+
 /** Validate a provided setup flag value against the supported ids, or exit. */
 /** Narrow one flag value to the closed provider set, or exit naming every supported id. */
 export function validateSetupFlag<Id extends string>(kind: string, value: string, supported: readonly Id[]): Id {
@@ -80,21 +99,57 @@ export async function resolveActiveDefault<Id extends string>(
   return pick(selected);
 }
 
-/** A model for EVERY installed harness. Each names models in its own vocabulary, so one
- *  string cannot serve them all — recording only the default harness's is what left
- *  `orch spawn --agent claude` handing a pi model to claude's gate. Null when the user cancels. */
+export class SetupFlagError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SetupFlagError";
+  }
+}
+
+/** Resolve repeatable model flags to the selected harnesses without crossing vocabularies. */
+export function resolveModelAssignments(flags: readonly string[], harnesses: readonly AdapterId[]): Map<AdapterId, string> {
+  const assignments = new Map<AdapterId, string>();
+  const bare = flags.filter((value) => !value.includes("="));
+  if (bare.length > 0 && harnesses.length !== 1) {
+    throw new SetupFlagError(`--model ${bare[0]} is ambiguous across selected harnesses; write --model <harness>=<spec> (selected: ${harnesses.join(", ")}).`);
+  }
+  for (const value of flags) {
+    const separator = value.indexOf("=");
+    if (separator === -1) {
+      const harness = harnesses[0];
+      if (harness !== undefined) assignments.set(harness, value);
+      continue;
+    }
+    const harnessName = value.slice(0, separator);
+    const model = value.slice(separator + 1);
+    const harness = harnesses.find((id) => id === harnessName);
+    if (harness === undefined) {
+      throw new SetupFlagError(`--model ${value} names unselected harness "${harnessName}"; selectable harnesses: ${harnesses.join(", ")}.`);
+    }
+    if (!model) throw new SetupFlagError(`--model ${value} needs a model after "=".`);
+    if (assignments.has(harness)) throw new SetupFlagError(`--model for harness ${harness} was provided more than once.`);
+    assignments.set(harness, model);
+  }
+  return assignments;
+}
+
+/** Resolve a model flag for EVERY selected harness without crossing vocabularies.
+ *  Explicit `harness=model` entries target only that harness; a bare model is used only
+ *  when exactly one harness is selected. Null when the user cancels. */
 export async function resolveHarnessModels(
-  flag: string | undefined,
+  flags: readonly string[] | string | undefined,
   harnesses: readonly AdapterId[],
   interactive: boolean,
 ): Promise<HarnessModelChoices | null> {
   const config = loadConfigOrNull(orchDir());
   const choices: HarnessModelChoices = { defaults: {}, preferred: {}, allowed: {} };
-  warmAdapterCatalogues();
+  const modelFlags = typeof flags === "string" ? [flags] : flags ?? [];
+  const assignments = resolveModelAssignments(modelFlags, harnesses);
   for (const id of harnesses) {
     const harness = resolveAdapter(id);
     const offered = await readHarnessCatalogue(harness, interactive);
-    const chosen = await resolveDefaultModel(flag, harness, offered, interactive);
+    const targeted = assignments.get(id);
+    const chosen = await resolveDefaultModel(targeted, harness, offered, interactive);
     if (chosen === null) return null;
     // Blank means the harness is not ready; leaving it unrecorded is what lets setup finish and
     // `orch settings models --harness=<id>` fill it in once the harness can enumerate.
@@ -540,8 +595,8 @@ function buildSmokePrompt(): string {
 function closeSmokeAgent(key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
-    const handle = backend.list().find((candidate) => (candidate as { key?: string }).key === key);
-    if (handle) backend.close(handle);
+    const handle = backend.handleFor?.(key);
+    if (handle !== undefined) backend.paneHost?.close(handle);
   } catch {
     // A leaked headless process is reaped by `orch clean`; never let teardown mask the verdict.
   }
@@ -621,7 +676,7 @@ interface SetupOptions {
   runtimeFlag: string | undefined;
   adapterFlag: string | undefined;
   backendFlag: string | undefined;
-  modelFlag: string | undefined;
+  modelFlags: string[];
   refresh: boolean;
   noSmoke: boolean;
 }
@@ -645,7 +700,7 @@ function parseSetupOptions(args: string[]): SetupOptions {
     runtimeFlag: readAssignFlag(args, "--runtime"),
     adapterFlag: readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--adapter") ?? readAssignFlag(args, "--harness"),
     backendFlag: readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer"),
-    modelFlag: readAssignFlag(args, "--model"),
+    modelFlags: readModelFlags(args),
     refresh: args.includes("--refresh"),
     noSmoke: args.includes("--no-smoke"),
   };
@@ -664,7 +719,7 @@ async function resolveSetupComposition(options: SetupOptions): Promise<SetupComp
   if (backends === null) return null;
   const defaultBackend = await resolveActiveDefault(backends, options.backendFlag !== undefined, options.interactive, selectDefaultBackend);
   if (defaultBackend === null) return null;
-  const models = await resolveHarnessModels(options.modelFlag, adapters, options.interactive);
+  const models = await resolveHarnessModels(options.modelFlags, adapters, options.interactive);
   return models === null ? null : { runtime, adapters, defaultAdapter, backends, defaultBackend, models };
 }
 

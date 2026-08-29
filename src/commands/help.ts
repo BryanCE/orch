@@ -16,12 +16,21 @@ Glanceable table of the fleet (the default command when none is given).
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
 `,
-  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>]
+  logs: `orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
+Read structured diagnosis records; malformed JSONL lines are skipped.
+  --since      Epoch milliseconds or a date/time.
+  --level      Exact severity to include.
+  --agent      Filter by minted orch agent id.
+  --dispatch   Filter by correlation/dispatch id.
+  --json       Emit raw records.
+`,
+  events: `orch events [--agent=<name>] [--agent-id=<id>] [--mine] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>]
 Continuous stream of pane state transitions; requires a running daemon.
 Bare 'orch events' is the normal use: one readable line per transition, scoped to the
 agents THIS session spawned. Every flag below is a deviation from that.
   --agent       Watch one agent by name.
   --agent-id    Watch one agent by identity key.
+  --mine        Explicitly select the default session scope (spawned or currently leased).
   --any-agent   Every agent, not just the ones this session spawned.
   --all         Every workspace's transitions, not just the caller's.
   --status      Only transitions into these states (comma-separated).
@@ -136,7 +145,7 @@ One heavy command machine-wide (see settings.locked_commands).
   release       Evict the current holder, naming it. Requires --force.
 `,
   spawn: `orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
-          [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]
+          [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--spawn-cap N] [--worktree]
 Fresh tab with N balanced-tiled named agents (2=side-by-side, 3=2+1, 4=2x2, ...; cap 8).
 Names are <prefix>-1..N. Spawning under a live prefix GROWS that fleet: numbering
 continues past the highest live <prefix>-<n> and the new panes land in its tab.
@@ -148,6 +157,8 @@ leaves nothing behind.
   --agent       Adapter id (pi, claude, codex, ...).
   --backend     Plexer id (herdr, tmux, headless). headless requires --prompt: a detached
                 agent runs the prompt and exits.
+  --prompt      One task for every agent, or repeat exactly N times for per-agent tasks.
+  --tasks       JSON file containing exactly N task strings (alternative to --prompt).
   --worktree    Give each agent its own git worktree.
 `,
   tile: `orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
@@ -220,12 +231,13 @@ Check the install: runtime, composition, backends, daemon, presence, sinks, host
 Delete dead agent dirs.
   --worktrees   Also clean orphaned worktrees; --force discards unmerged work.
 `,
-  setup: `orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]>]
+  setup: `orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]> | --model <harness>=<model[:thinking]> ...]
            [--yes] [--no-install] [--copy] [--skills|--no-skills] [--refresh]
 Onboarding wizard: multi-select the adapters and backends you use, record them to
 ~/.orch/settings.json, install missing deps, and wire every selected adapter's shim.
 The first id of each list becomes the active default. Prompts interactively on a TTY
-when a selection is omitted.
+when a selection is omitted. Repeat --model with harness=model to choose per harness;
+a bare model is applied only when that harness lists it.
   --yes         Auto-install missing dependencies.
   --no-install  Report what is missing without installing.
   --copy        Copy shims instead of symlinking.
@@ -238,6 +250,7 @@ answer later with 'orch settings skills'.
 `,
   settings: `orch settings [--json] [--harness=<id>] [--plexer=<id>]
 orch settings models [--harness=<id>] [--model=<model[:thinking]>] [--refresh]
+orch settings thinking [<level>] [--harness=<id>] [--clear]
 orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
 Print each effective setting with its source (flag > env > settings.json > default),
 or switch the active default adapter/plexer among the enabled set.
@@ -245,6 +258,10 @@ or switch the active default adapter/plexer among the enabled set.
                 (models.preferred), and the launchable set (models.allowed).
                 --refresh asks the harnesses again rather than using the stored
                 catalogues, for a model installed since the last refresh.
+  thinking      Thinking effort for every launch, independent of the model: one of
+                off, minimal, low, medium, high, xhigh, max. Bare prints the current
+                value; a level sets the global default; --harness=<id> sets that
+                harness's override and --clear --harness=<id> removes it.
   skills        Turn the skill install on or off and choose its roots. --install writes
                 every packaged skill into them now; --no-install records the refusal and
                 leaves the files already there alone. Roots default to ~/.claude/skills

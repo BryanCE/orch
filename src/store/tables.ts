@@ -26,7 +26,7 @@ import { check, index, integer, primaryKey, real, sqliteTable, sqliteView, text,
 export const ownership = sqliteTable("ownership", {
   agentKey: text("agent_key").primaryKey(),
   owner: text("owner").notNull(),
-  updatedAt: text("updated_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
 });
 
 export const outbox = sqliteTable("outbox", {
@@ -35,13 +35,13 @@ export const outbox = sqliteTable("outbox", {
   payload: text("payload").notNull(),
   state: text("state").notNull(),
   attempts: integer("attempts").notNull().default(0),
-  createdAt: text("created_at").notNull(),
+  createdAt: integer("created_at").notNull(),
   nextAttemptAt: integer("next_attempt_at").notNull().default(0),
 }, (table) => [index("outbox_pending").on(table.state, table.nextAttemptAt)]);
 
 export const spawned = sqliteTable("spawned", {
   pane: text("pane").primaryKey(),
-  ts: text("ts"),
+  ts: integer("ts"),
   adapter: text("adapter"),
   model: text("model"),
   backend: text("backend"),
@@ -63,7 +63,7 @@ export const catalogues = sqliteTable("catalogues", {
 
 export const events = sqliteTable("events", {
   seq: integer("seq").primaryKey({ autoIncrement: true }),
-  ts: text("ts").notNull(),
+  ts: integer("ts").notNull(),
   payload: text("payload").notNull(),
 });
 
@@ -75,8 +75,8 @@ export const runs = sqliteTable("runs", {
   workspace: text("workspace"),
   task: text("task"),
   state: text("state").notNull(),
-  startedAt: text("started_at").notNull(),
-  finishedAt: text("finished_at"),
+  startedAt: integer("started_at").notNull(),
+  finishedAt: integer("finished_at"),
   tokensIn: integer("tokens_in"),
   tokensOut: integer("tokens_out"),
   cacheRead: integer("cache_read"),
@@ -137,10 +137,17 @@ export const agents = sqliteTable("agents", {
   cwd: text("cwd").notNull(),
   name: text("name").notNull(),
   label: text("label"),
+  /** IMMUTABLE. The harness session this agent IS, as that harness names it
+   *  (`AgentAdapter.sessionIdEnv`). It is the only stable key a driving session
+   *  has: the `orch` CLI is short-lived, so anything derived from the process
+   *  tree mints a new identity on every invocation. NULL = not a harness
+   *  session (a spawned worker), never a sentinel. */
+  sessionToken: text("session_token"),
   createdAt: integer("created_at").notNull(),
 }, (table) => [
   index("agents_by_pack").on(table.rootAgentId),
   index("agents_by_spawner").on(table.spawnedBy),
+  uniqueIndex("one_agent_per_session").on(table.sessionToken),
   check("agents_not_self_spawned", sql`${table.spawnedBy} IS NULL OR ${table.spawnedBy} <> ${table.id}`),
   check("agents_root_is_self", sql`${table.spawnedBy} IS NOT NULL OR ${table.rootAgentId} = ${table.id}`),
 ]);

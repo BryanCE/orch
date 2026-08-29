@@ -89,7 +89,7 @@ function mapTask(orchDir: string, row: TaskRow, knownState?: TaskState): TaskRec
   };
 }
 
-function requireTask(orchDir: string, id: string): TaskRec {
+export function requireTask(orchDir: string, id: string): TaskRec {
   const row = taskById(orchDir, id);
   if (!row) throw new Error(`Unknown queue task: ${id}`);
   return mapTask(orchDir, row);
@@ -183,8 +183,8 @@ function scopeIncludesAgent(orchDir: string, task: TaskRec, agentId: string): bo
 }
 
 /** FIFO selection among tasks claimable by this agent under scope and retry policy. */
-export function nextQueuedTask(orchDir: string, agentId: string, maxRetries: number): TaskRec | undefined {
-  return listTasks(orchDir)
+export function nextQueuedTask(orchDir: string, agentId: string, maxRetries: number, knownTasks?: TaskRec[]): TaskRec | undefined {
+  return (knownTasks ?? listTasks(orchDir))
     .filter((task) => (task.state === "queued" || task.state === "failed") && scopeIncludesAgent(orchDir, task, agentId))
     .filter((task) => task.attempts.length < maxRetries + 1)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];

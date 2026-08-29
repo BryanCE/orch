@@ -13,7 +13,8 @@ import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, typ
 import { extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, type ExtensionName } from "../extensions/bundles.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
-import { ANSWER_FILE, INBOX_FILE } from "../presence/schema.ts";
+import { appendInbox } from "../presence/inbox.ts";
+import { writeAnswer } from "../presence/writer.ts";
 import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { AGENT_STATES } from "./adapter.ts";
@@ -33,7 +34,9 @@ import type {
   SpawnOpts,
   StateDetectionInput,
   SteerRequest,
+  ThinkingStrategy,
 } from "./adapter.ts";
+import type { ThinkingLevel } from "../policy/thinking.ts";
 
 /** State input for pi, identified by its orch presence key. */
 export interface PiStateDetectionInput extends StateDetectionInput {
@@ -161,34 +164,24 @@ export function presenceAgentState(key: string): AgentState {
 /** Steer a running agent by appending to the inbox its bridge drains. */
 export function steerViaInbox(request: SteerRequest): AdapterCommand | undefined {
   const presence = presenceFor(request.key);
-  if (presence) appendInboxLine(presence, { id: request.id, text: request.text });
+  if (presence) appendInbox(presence.dir, { id: request.id, text: request.text, ts: new Date().toISOString() });
   return undefined;
 }
 
 /** Unblock an asking agent by writing the answer file its bridge waits on. */
 export function answerViaFile(request: AnswerRequest): AdapterCommand | undefined {
   const presence = presenceFor(request.key);
-  if (presence) writeAnswerFile(presence, request.text);
+  if (presence) writeAnswer(presence.dir, request.text);
   return undefined;
 }
 
 /** Retarget a running agent's model through the same inbox transport as a steer. */
 export function setModelViaInbox(request: ModelRequest): AdapterCommand | undefined {
   const presence = presenceFor(request.key);
-  if (presence) appendInboxLine(presence, { cmd: "model", model: request.model, id: request.id });
+  if (presence) appendInbox(presence.dir, { cmd: "model", model: request.model, id: request.id, ts: new Date().toISOString() });
   return undefined;
 }
 
-/** Append one steer/model line to the inbox.jsonl in the agent's presence dir. */
-function appendInboxLine(presence: PresenceEntry, line: Record<string, unknown>): void {
-  fs.mkdirSync(presence.dir, { recursive: true });
-  fs.appendFileSync(path.join(presence.dir, INBOX_FILE), JSON.stringify({ ...line, ts: new Date().toISOString() }) + "\n");
-}
-
-/** Write pi's blocking answer.json in the agent's presence dir. */
-function writeAnswerFile(presence: PresenceEntry, text: string): void {
-  fs.writeFileSync(path.join(presence.dir, ANSWER_FILE), JSON.stringify({ text, ts: new Date().toISOString() }) + "\n");
-}
 
 /**
  * Parse pi's supported `--list-models` table into orch's provider/id vocabulary.
@@ -238,14 +231,13 @@ function writeTrustEntry(trustFile: string, cwd: string) {
   process.stdout.write(`Pre-trusted ${resolved} in ${trustFile}\n`);
 }
 
-/** The `provider/model:thinking` a pi-flavour build launches on, or nothing when it names no
+/** The `provider/model` a pi-flavour build launches on, or nothing when it names no
  *  model of its own — inventing one hands orch a spec no registry can resolve. */
 export function settingsDefaultModel(agentDir: string): string | undefined {
   const source = readJSON<Record<string, unknown>>(path.join(agentDir, "settings.json")) ?? {};
   if (typeof source.defaultModel !== "string" || !source.defaultModel) return undefined;
   const provider = typeof source.defaultProvider === "string" ? source.defaultProvider : "openai-codex";
-  const thinking = typeof source.defaultThinkingLevel === "string" ? source.defaultThinkingLevel : "medium";
-  return `${provider}/${source.defaultModel}:${thinking}`;
+  return `${provider}/${source.defaultModel}`;
 }
 
 /** The slash-commands a pi-shaped CLI answers for each lifecycle verb. */
@@ -417,10 +409,11 @@ export function piSessionView(input: SessionViewInput): SessionView | undefined 
 
 /** Build one pi launch composition. Worker routes opt into orch's bridge, tools, and
  * inherited user extensions; the ordinary interactive form remains the bare harness. */
-function piLaunchArgv(opts: SpawnOpts, worker: boolean, binary: "pi" | "pif", prompt?: string): string[] {
+function piLaunchArgv(opts: SpawnOpts, worker: boolean, binary: "pi" | "pif", prompt: string | undefined, form: QuicklistForm, thinking?: ThinkingStrategy | null): string[] {
   const argv: string[] = [binary];
   if (worker) argv.push(...piToolArgv(opts), ...piExtensionArgv(opts));
-  argv.push(...piModelArgv(opts, binary === "pi" ? "shell" : "argv"));
+  argv.push(...piModelArgv(opts, form));
+  if (thinking && opts.thinking !== undefined) argv.push(...thinking.launchArgs(opts.thinking));
   if (prompt !== undefined) argv.push(prompt);
   return argv;
 }
@@ -428,6 +421,18 @@ function piLaunchArgv(opts: SpawnOpts, worker: boolean, binary: "pi" | "pif", pr
 /** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's pi-bridge extension. */
 export class PiAdapter implements AgentAdapter {
   readonly id = "pi" as const;
+
+  /** pi exposes a neutral CLI flag for launch-time thinking effort. */
+  readonly thinking: ThinkingStrategy = {
+    launchArgs: (level: ThinkingLevel): readonly string[] => ["--thinking", level],
+    set: (_level: ThinkingLevel): void => {
+      // Running-session changes are delivered by the pi bridge's control plane.
+    },
+  };
+
+  /** pi exports these into every subprocess of an interactive session. */
+  readonly sessionEnvMarker = "PI_CODING_AGENT";
+  readonly sessionIdEnv = "PI_SESSION_ID";
 
   /** Pi supports every D4 capability through the bridge and session files. */
   readonly capabilities = {
@@ -443,23 +448,27 @@ export class PiAdapter implements AgentAdapter {
   /** Start pi directly in an interactive backend session. Worker options use the same
    * composition as restricted launches, so tile/spawn cannot silently drop extensions. */
   interactiveCmd(opts: SpawnOpts): string {
-    return piLaunchArgv(opts, opts.workers !== undefined, "pi").join(" ");
+    return piLaunchArgv(opts, opts.workers !== undefined, "pi", undefined, "shell", this.thinking).join(" ");
+  }
+
+  interactiveArgv(opts: SpawnOpts): readonly string[] {
+    return piLaunchArgv(opts, opts.workers !== undefined, "pi", undefined, "argv", this.thinking);
   }
 
   /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    return piLaunchArgv(opts, true, "pi").join(" ");
+    return piLaunchArgv(opts, true, "pi", undefined, "shell", this.thinking).join(" ");
   }
 
   /** Start the pif wrapper with the initial prompt for headless runs. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return piLaunchArgv(opts, opts.workers !== undefined, "pif", prompt);
+    return piLaunchArgv(opts, opts.workers !== undefined, "pif", prompt, "argv", this.thinking);
   }
 
   /** Start pif under the same worker policy as an interactive pi worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return piLaunchArgv(opts, true, "pif", prompt);
+    return piLaunchArgv(opts, true, "pif", prompt, "argv", this.thinking);
   }
 
   /** Read pi's authoritative status.json through the shared presence helpers. */

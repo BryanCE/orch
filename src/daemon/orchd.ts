@@ -8,12 +8,12 @@ import {
   releaseDaemonRegistration,
 } from "./lifecycle.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "./rpc.ts";
-import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type OrchConfig } from "../config.ts";
-import { loadSinks, type Sink } from "../notify/router.ts";
+import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type NotifyEntry, type OrchConfig } from "../config.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
-import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
-import { errorMessage, errorTrace } from "../util.ts";
+import { loadPresence, orchDir } from "../presence/store.ts";
+import { selectSpawnedRecord } from "../store/spawned-rows.ts";
+import { errorMessage, errorTrace, isRecord } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -31,7 +31,10 @@ import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
+import { agentById } from "../store/agent-rows.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
+import { createLogger, isLogLevel, type Logger, type LogLevel } from "../log.ts";
+import { daemonRuntimeFiles } from "./runtime-files.ts";
 
 export interface LeasePayload {
   readonly holderId: string;
@@ -52,6 +55,30 @@ interface LeasePayloadRow {
   start_token: string | null;
 }
 
+/** The one spelling of "is this lease's holder still running". A start token
+ *  proves the pid is the SAME process instance, not a recycled number. */
+function holderProcessIsAlive(pid: unknown, startToken: unknown): boolean {
+  if (typeof pid !== "number") return false;
+  return typeof startToken === "string" && startToken.length > 0
+    ? processInstanceMatches(pid, startToken)
+    : processIsAlive(pid);
+}
+
+function isHolderProcessRow(value: unknown): value is { pid: number | null; start_token: string | null } {
+  if (!isRecord(value)) return false;
+  return (value.pid === null || typeof value.pid === "number")
+    && (value.start_token === null || typeof value.start_token === "string");
+}
+
+/** Whether the orchestrator holding a lease is still alive. Rule 11: a dead
+ *  holder is not a collision, so its lease must never gate a driving verb. */
+function leaseHolderIsAlive(directory: string, holderId: string): boolean {
+  const row = openStore(directory)
+    .query("SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL")
+    .get(holderId);
+  return isHolderProcessRow(row) && holderProcessIsAlive(row.pid, row.start_token);
+}
+
 /** Derive lease facts from the normalized agent/lease rows, never from presence or ownership files. */
 export function deriveLeasePayload(directory: string, key: string): LeaseStatusPayload {
   const db = openStore(directory);
@@ -68,9 +95,7 @@ export function deriveLeasePayload(directory: string, key: string): LeaseStatusP
       WHERE l.agent_id = ? AND l.until IS NULL`,
   ).get(agentId) as LeasePayloadRow | null;
   if (!row) return { lease: null, leaseKnown: true };
-  const holderAlive = typeof row.pid === "number" && (row.start_token
-    ? processInstanceMatches(row.pid, row.start_token)
-    : processIsAlive(row.pid));
+  const holderAlive = holderProcessIsAlive(row.pid, row.start_token);
   return {
     lease: { holderId: row.holder_id, holderName: row.holder_name || row.holder_id, holderAlive },
     leaseKnown: true,
@@ -87,7 +112,7 @@ let workLoopRunning = false;
 let presenceWatch: PresenceWatch | undefined;
 let configWatch: ConfigWatch | undefined;
 let currentConfig: OrchConfig | undefined;
-let sinks: Sink[] | undefined;
+let sinks: NotifyEntry[] | undefined;
 let lastActivityAt = Date.now();
 
 /** The daemon owes its own exit: with nothing to serve, staying resident only
@@ -115,8 +140,8 @@ function getConfig(directory: string): OrchConfig {
   return currentConfig ??= loadConfig(directory);
 }
 
-function getSinks(directory: string): Sink[] {
-  return sinks ??= loadSinks(directory);
+function getSinks(directory: string): NotifyEntry[] {
+  return sinks ??= loadConfig(directory).notify;
 }
 
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
@@ -160,6 +185,7 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
  *  with no recorded adapter is a bare pane orch never spawned, so keystrokes are all it has. */
 async function deliverWrite(target: string, payload: unknown, id: string): Promise<boolean> {
   const canonicalTarget = normalizeControlTarget(target);
+  const log = createLogger({ file: `${orchDir()}/orchd.log`, level: "info" }).forCorrelation(id);
   const value = isWritePayload(payload) ? payload : {};
   const text = requiredString(value.text, "text");
   const kind = value.action === "dispatch" ? "run" : "steer";
@@ -170,9 +196,15 @@ async function deliverWrite(target: string, payload: unknown, id: string): Promi
     return true;
   }
   try {
-    await deliverControl(canonicalTarget, { kind, text, id });
+    const outcome = await deliverControl(canonicalTarget, { kind, text, id });
+    if (outcome.outcome === "answer") {
+      log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason });
+      process.stderr.write(`${kind} ${canonicalTarget} refused (${outcome.reason}): ${outcome.text}\n`);
+      return false;
+    }
     return true;
   } catch (error) {
+    log.error("dispatch.failed", { target: canonicalTarget, error: errorMessage(error) });
     process.stderr.write(`${kind} ${canonicalTarget} failed: ${errorMessage(error)}\n`);
     return false;
   }
@@ -194,8 +226,9 @@ export function validateWriteParams(params: unknown): { target: string; text: st
 }
 
 /** Enforce the workspace wall, then lease authority and ownership, before a write is
- * accepted. An open lease is mutual exclusion for every driving verb: only its holder
- * may write, whether or not the holder's process is currently live. */
+ * accepted. An open lease is mutual exclusion for every driving verb, but ONLY while
+ * its holder is alive: Rule 11 - a dead holder is not a collision, it is a stale row.
+ * Gating on a dead holder strands a whole fleet with no way to drive it. */
 export function governWrite(directory: string, target: string, params: unknown): void {
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
@@ -210,7 +243,7 @@ export function governWrite(directory: string, target: string, params: unknown):
   const lease = currentLease(directory, targetId);
   const actorId = actor === null ? null : (tryParseIdentity(actor)?.id ?? actor);
   const holderId = lease && (tryParseIdentity(lease.orchId)?.id ?? lease.orchId);
-  if (lease && holderId !== actorId) {
+  if (lease && holderId !== actorId && leaseHolderIsAlive(directory, lease.orchId)) {
     throw new Error(`agent is leased by ${lease.orchId}; only its lease holder may drive it`);
   }
   if (actor === null) {
@@ -229,15 +262,25 @@ export function governWrite(directory: string, target: string, params: unknown):
 async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
   const { target, text } = validateWriteParams(params);
   const id = randomUUID();
-  withTransaction(directory, () => {
-    governWrite(directory, target, params);
-    insertOutboxMessage(directory, { id, target, payload: { action, text } });
-  });
-  await drainOutbox(directory, outboxDeps());
-  if (outboxMessagePending(directory, id)) {
-    throw new Error(`write ${id} was not applied or acknowledged for target ${target}`);
+  const log = createLogger({ file: `${directory}/orchd.log`, level: "info" }).forCorrelation(id);
+  try {
+    withTransaction(directory, () => {
+      governWrite(directory, target, params);
+      insertOutboxMessage(directory, { id, target, payload: { action, text } });
+    });
+    log.info("dispatch.accepted", { target, action });
+    log.info("dispatch.queued", { target, action });
+    await drainOutbox(directory, outboxDeps());
+    if (outboxMessagePending(directory, id)) {
+      log.error("dispatch.failed", { target, error: "not applied or acknowledged" });
+      throw new Error(`write ${id} was not applied or acknowledged for target ${target}`);
+    }
+    log.info("dispatch.delivered", { target, action });
+    return { accepted: true, id };
+  } catch (error: unknown) {
+    log.error("dispatch.failed", { target, error: errorMessage(error) });
+    throw error;
   }
-  return { accepted: true, id };
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -336,47 +379,57 @@ async function answer(directory: string, params: unknown): Promise<{ ok: true }>
   return { ok: true };
 }
 
-/** One orchd lifecycle line into orchd.log. Every start, stop and death gets one:
- *  a daemon that vanishes without a line here is undiagnosable. */
-function logLifecycle(message: string): void {
-  process.stdout.write(`${new Date().toISOString()} orchd ${message}\n`);
+let daemonLogger: Logger | undefined;
+let fatalLogged = false;
+
+function loggerFor(directory: string, level?: LogLevel): Logger {
+  const envLevel = process.env.ORCH_LOG_LEVEL;
+  const selected = envLevel !== undefined && isLogLevel(envLevel)
+    ? envLevel
+    : level ?? "info";
+  return createLogger({ file: daemonRuntimeFiles(directory).log, level: selected });
 }
 
 function logFatalAndExit(kind: string, error: unknown): void {
-  logLifecycle(`${kind}: ${errorTrace(error)}`);
+  fatalLogged = true;
+  const message = errorMessage(error);
+  daemonLogger?.error("daemon.crashed", { kind, message, trace: errorTrace(error) });
   process.exit(1);
 }
 
 async function shutDown(directory: string, reason: string): Promise<void> {
-  logLifecycle(`shutting down on ${reason}`);
+  daemonLogger?.info("daemon.stopping", { reason });
   presenceWatch?.stop();
   configWatch?.stop();
   workController.abort();
   await workLoop;
-  await server?.stop();
+  await server?.close();
   releaseDaemonLock(directory);
   releaseDaemonRegistration();
-  logLifecycle(`stopped pid ${process.pid}`);
+  daemonLogger?.info("daemon.stopped", { pid: process.pid });
   process.exit(0);
 }
 
 async function main(): Promise<void> {
   const directory = orchDir();
+  daemonLogger = loggerFor(directory);
   const answers = await socketAnswers(directory);
   const registration = acquireDaemonRegistration(directory);
   if (!registration.acquired) {
     const live = registration.registration;
-    logLifecycle(`refused: another orchd is registered at ${live?.socket ?? "an undiscoverable endpoint"}`);
+    daemonLogger?.warn("daemon.refused", { socket: live?.socket ?? null });
     return;
   }
   if (!acquireDaemonLock(directory, () => answers)) {
     releaseDaemonRegistration();
-    logLifecycle("exiting: another orchd owns the backing store");
+    daemonLogger?.warn("daemon.refused", { reason: "backing store lock" });
     return;
   }
 
   try {
-    const tcpPort = loadConfig(directory).daemon.tcp_port;
+    const config = loadConfig(directory);
+    daemonLogger = loggerFor(directory, config.logging?.level);
+    const tcpPort = config.daemon.tcp_port;
     server = await startRpcServer(directory, touchOnCall({
       "daemon-status": () => ({
         pid: process.pid,
@@ -407,7 +460,7 @@ async function main(): Promise<void> {
       },
       reload: () => {
         setTimeout(() => {
-          void server?.stop().then(() => reexecSelf(directory));
+          void server?.close().then(() => reexecSelf(directory));
         }, 10);
         return { ok: true };
       },
@@ -439,9 +492,11 @@ async function main(): Promise<void> {
   presenceWatch = startPresenceWatch({
     orchDir: directory,
     metadataFor: (key) => {
-      const record = spawnedRecords().get(key);
+      const record = selectSpawnedRecord(directory, key);
+      const normalized = tryParseIdentity(key)?.id;
+      const agent = normalized ? agentById(directory, normalized) : null;
       return {
-        name: record?.name ?? null,
+        name: agent?.name ?? null,
         tab: null,
         pid: undefined,
         spawnedBy: record?.spawnedBy,
@@ -473,7 +528,7 @@ async function main(): Promise<void> {
   process.once("SIGTERM", () => void shutDown(directory, "SIGTERM"));
   process.once("SIGINT", () => void shutDown(directory, "SIGINT"));
   const tcp = server?.tcpEndpoint;
-  logLifecycle(`started pid ${process.pid} hash ${bootCodeHash} on ${server?.transport ?? "unknown"}${tcp ? ` and ${tcp}` : ""}`);
+  daemonLogger?.info("daemon.started", { pid: process.pid, hash: bootCodeHash, transport: server?.transport ?? "unknown", tcp: tcp ?? null });
 }
 
 function invokedAsMain(): boolean {
@@ -488,6 +543,6 @@ if (invokedAsMain()) {
   // routes nowhere a detached daemon's log can keep — the silent-death report.
   process.on("uncaughtException", (error: unknown) => logFatalAndExit("uncaught exception", error));
   process.on("unhandledRejection", (reason: unknown) => logFatalAndExit("unhandled rejection", reason));
-  process.on("exit", (code) => { if (code !== 0) logLifecycle(`exited with code ${code}`); });
+  process.on("exit", (code) => { if (code !== 0 && !fatalLogged) daemonLogger?.error("daemon.exited", { code }); });
   void main().catch((error: unknown) => logFatalAndExit("startup failed", error));
 }

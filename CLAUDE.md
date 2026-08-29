@@ -1,7 +1,7 @@
 # CLAUDE.md — working rules for this repo (NON-NEGOTIABLE)
 
 # GROUND-TRUTH FILES — READ THESE, NEVER RUN THE GATES YOURSELF
-These files ARE the state of the tree. The USER runs the commands (on Windows); I only READ the result files. Running `bun test`/`bun run check` myself = FIRED.
+These files ARE the state of the tree. The USER runs the gate on Windows; I READ the result files. Running `bun run check` myself = FIRED. **Running `bun test` is FINE and encouraged** — run tests freely while working, especially scoped runs of the files you touched.
 - **`test-results.md`** — full `bun test` output. User regenerates with: `bun run test *> .\test-results.md`
 - **`current-errors.md`** — `bun run check` + `check:bridge` output. User regenerates with: `bun check > .\current-errors.md`
 - **`specview.md`** — openspec status snapshot.
@@ -28,7 +28,7 @@ No debating counts, severity, "warnings vs errors", or whether something matters
 This work should take minutes, not half an hour. The moment work splits, spawn the orch fleet and dispatch EVERY slice in one message. No serial setup, no analysis paralysis, no re-reading state you already have. Never run `bun run check` or delegate it; only the user runs that command. Use the user's provided output as ground truth.
 
 ## Rule 4 — Fleet discipline (see the `orch` skill).
-- Model ladder: `luna:medium` default → escalate luna high/xhigh → `sol:low`→`sol:high` (cap). NEVER terra. `luna:low` for trivially mechanical slices.
+- Model ladder: **`luna:high` is the default.** Escalate `luna:xhigh` → `sol:low` → `sol:high` (cap), and ONLY for the specific agent whose task actually failed — never the whole fleet, never pre-emptively on a fresh slice. NEVER terra. `luna:low` for trivially mechanical slices.
 - MAX 4 agents per tab, tiled. Split bigger fleets across tabs.
 - Lifecycle verbs: `reload` = live-reload code in place; `reset` = new session/context; `restart` = full close + relaunch. Use `reload`, never `restart`, to pick up code changes.
 

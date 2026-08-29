@@ -40,8 +40,8 @@ describe("commands/runs", () => {
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
       seedPresence(root, "headless~runs~one");
-      upsertRun(root, { dispatchId: "old", agentKey: "headless~runs~one", state: "done", startedAt: "2026-01-01T00:00:00Z", task: "old task" });
-      upsertRun(root, { dispatchId: "new", agentKey: "headless~runs~one", state: "done", startedAt: "2026-01-02T00:00:00Z", task: "new task" });
+      upsertRun(root, { dispatchId: "old", agentKey: "headless~runs~one", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), task: "old task" });
+      upsertRun(root, { dispatchId: "new", agentKey: "headless~runs~one", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z"), task: "new task" });
       const output = capture(() => cmdRuns(["-n", "1"])).stdout;
       expect(output).toContain("new task");
       expect(output).not.toContain("old task");
@@ -56,15 +56,15 @@ describe("commands/runs", () => {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
       seedPresence(root, "headless~runs~one");
       seedPresence(root, "headless~runs~two");
-      upsertRun(root, { dispatchId: "one", agentKey: "headless~runs~one", state: "done", startedAt: "2026-01-01T00:00:00Z" });
-      upsertRun(root, { dispatchId: "two", agentKey: "headless~runs~two", state: "done", startedAt: "2026-01-02T00:00:00Z" });
+      upsertRun(root, { dispatchId: "one", agentKey: "headless~runs~one", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z") });
+      upsertRun(root, { dispatchId: "two", agentKey: "headless~runs~two", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z") });
       const output = capture(() => cmdRuns(["headless~runs~one", "--json"])).stdout;
       expect(JSON.parse(output)).toEqual([expect.objectContaining({ dispatchId: "one", agentKey: "headless~runs~one" })]);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 
   test("running rows render as running, not zero duration", () => {
-    expect(renderRuns([{ dispatchId: "x", agentKey: "agent", state: "working", startedAt: "2026-01-01T00:00:00Z", task: "task" }])).toContain("running");
+    expect(renderRuns([{ dispatchId: "x", agentKey: "agent", state: "working", startedAt: Date.parse("2026-01-01T00:00:00Z"), task: "task" }])).toContain("running");
   });
 
   test("result falls back to durable run history after presence reap", () => {
@@ -74,7 +74,7 @@ describe("commands/runs", () => {
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
       const key = "headless~runs~gone";
-      upsertRun(root, { dispatchId: "history", agentKey: key, state: "done", startedAt: "2026-01-01T00:00:00Z", result: { text: "from history" } });
+      upsertRun(root, { dispatchId: "history", agentKey: key, state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), result: { text: "from history" } });
       const output = capture(() => cmdResult([key]));
       expect(output.stdout).toBe("from history\n");
       expect(output.stderr).toContain("run history");

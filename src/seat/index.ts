@@ -9,10 +9,31 @@
  * exists — the pack is discovered from daemon events carrying this session's
  * own identity as spawner, never from the environment.
  */
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { ALERT_STATES, type PackSnapshot } from "./domain.ts";
 import { createPackRuntime, type PackRuntime } from "./runtime.ts";
 import { openPackDashboard } from "./ui/takeover.ts";
+import type { HarnessApi, HarnessContext } from "../agent/harness.ts";
+import { isRecord } from "../util.ts";
+
+/** The pi UI surface this seat actually uses. Declared as what we need rather than
+ *  asserted from the harness type, so a harness that lacks it simply fails the guard
+ *  instead of crashing at the call (TASKS/10 finding 6.4). */
+interface SeatNotifyUi { notify(text: string, level: "error" | "warning"): void }
+interface SeatStatusUi { setStatus(id: string, line: string | undefined): void }
+
+function hasMethod(value: unknown, name: string): boolean {
+  if (!isRecord(value)) return false;
+  return typeof value[name] === "function";
+}
+
+function hasNotify(value: unknown): value is SeatNotifyUi {
+  return hasMethod(value, "notify");
+}
+
+function hasSetStatus(value: unknown): value is SeatStatusUi {
+  return hasMethod(value, "setStatus");
+}
 
 const STATUS_ID = "orch";
 const SQUARE = "■";
@@ -47,6 +68,12 @@ export function formatSeatStatus(theme: Theme, agents: readonly PackSnapshot[]):
   return `${theme.fg("muted", "orch:")} ${parts.join(theme.fg("dim", " · "))}`;
 }
 
+export function hasTheme(ui: unknown): ui is { theme: Theme } {
+  if (typeof ui !== "object" || ui === null || !("theme" in ui)) return false;
+  const theme = ui.theme;
+  return typeof theme === "object" && theme !== null && "fg" in theme && typeof theme.fg === "function";
+}
+
 export interface OrchSeatOptions {
   readonly orchDir: string;
   /** This session's orch identity, once presence has minted it. */
@@ -54,7 +81,18 @@ export interface OrchSeatOptions {
 }
 
 /** Register the orchestrator seat on a pi session. */
-export function registerOrchSeat(pi: ExtensionAPI, options: OrchSeatOptions): void {
+interface SeatRegistrationApi {
+  on: HarnessApi["on"];
+  registerCommand: HarnessApi["registerCommand"];
+}
+
+function isDashboardContext(value: unknown): value is ExtensionCommandContext {
+  if (typeof value !== "object" || value === null || !("ui" in value)) return false;
+  const ui = value.ui;
+  return typeof ui === "object" && ui !== null && "custom" in ui && typeof ui.custom === "function";
+}
+
+export function registerOrchSeat(pi: SeatRegistrationApi, options: OrchSeatOptions): void {
   let runtime: PackRuntime | undefined;
   let unsubscribe: (() => void) | undefined;
   /** Last state seen per agent, for alerting on the transition INTO an alert state. */
@@ -65,10 +103,11 @@ export function registerOrchSeat(pi: ExtensionAPI, options: OrchSeatOptions): vo
     return runtime;
   };
 
-  pi.on("session_start", (_event, ctx) => {
-    if (ctx.mode !== "tui") return;
+  pi.on("session_start", (_event: unknown, ctx: HarnessContext) => {
+    if (!ctx.hasUI) return;
     const view = ensureRuntime().manager.view;
-    const theme = (ctx.ui as unknown as { theme?: Theme }).theme;
+    const ui: unknown = ctx.ui;
+    const theme = hasTheme(ui) ? ui.theme : undefined;
 
     const onChange = (): void => {
       const agents = view.list();
@@ -78,12 +117,12 @@ export function registerOrchSeat(pi: ExtensionAPI, options: OrchSeatOptions): vo
         lastStates.set(agent.key, agent.state);
         if (ALERT_STATES.has(agent.state) && previous !== undefined && !ALERT_STATES.has(previous)) {
           const detail = agent.info.asking?.question ?? agent.lastError ?? agent.task ?? agent.state;
-          ctx.ui.notify(`${agent.name}: ${detail.slice(0, 120)}`, agent.state === "error" ? "error" : "warning");
+          if (hasNotify(ui)) ui.notify(`${agent.name}: ${detail.slice(0, 120)}`, agent.state === "error" ? "error" : "warning");
         }
       }
       // An empty pack renders as NOTHING; this seat stays invisible until it spawns.
       const line = agents.length === 0 || !theme ? undefined : formatSeatStatus(theme, agents);
-      ctx.ui.setStatus(STATUS_ID, line);
+      if (hasSetStatus(ui)) ui.setStatus(STATUS_ID, line);
     };
 
     unsubscribe?.();
@@ -101,8 +140,8 @@ export function registerOrchSeat(pi: ExtensionAPI, options: OrchSeatOptions): vo
 
   pi.registerCommand("orch-view", {
     description: "View and steer the orch agents this session spawned",
-    handler: async (_args, ctx) => {
-      await openPackDashboard(ctx, ensureRuntime().manager.view);
+    handler: async (_args: string | undefined, ctx: HarnessContext) => {
+      if (isDashboardContext(ctx)) await openPackDashboard(ctx, ensureRuntime().manager.view);
     },
   });
 }

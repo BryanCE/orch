@@ -1,5 +1,5 @@
 import { loadConfigOrNull, type OrchConfig } from "../config.ts";
-import { isBridgeExtensionStale } from "../doctor/extensions.ts";
+import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -207,7 +207,7 @@ function viewProvenance(pres: PresenceEntry | null, spawnedRecord: SpawnedRecord
   };
 }
 
-export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): View {
+export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>, staleHashes?: ReadonlySet<string>): View {
   const pres = ent.presence;
   const adapter = entityAdapter(ent, spawned);
   const sview = sessionViewFor(ent, adapter);
@@ -226,7 +226,7 @@ export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>): Vi
     modelFull,
     state,
     stateFallback,
-    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash),
+    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash, undefined, staleHashes),
     cost: deriveCost(pres, sview),
     ctxPercent: deriveContextPercent(pres),
     task: collapse(deriveViewTask(pres, sview)),
@@ -618,8 +618,8 @@ function rowBackend(v: View, workspaces: OrchConfig["workspaces"], names: OrchNa
 }
 
 /** The one status-row shape shared by the local json branch and the merged table rows. */
-export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"]): StatusRow {
-  const drive = deriveDriveState(v.entity.key, v.owner, { currentOrchId: currentOrchId() });
+export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"], orchId: string | null = currentOrchId()): StatusRow {
+  const drive = deriveDriveState(v.entity.key, v.owner, { currentOrchId: orchId });
   const names = orchNames(v.entity.key);
   return { ...rowIdentity(v, drive, names), model: v.modelFull, modelShort: v.model, ...rowRuntime(v), ...rowBackend(v, workspaces, names) };
 }
@@ -629,9 +629,18 @@ export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"])
  * renderer consumes. Unscoped and unfiltered on purpose: the daemon cannot know the
  * caller's workspace, so scoping and visibility belong to the command that renders.
  */
-export function fleetStatusRows(workspaces: OrchConfig["workspaces"], options: { offline?: boolean } = {}): StatusRow[] {
+interface FleetStatusOptions {
+  offline?: boolean;
+  bundleHashes?: () => ReadonlySet<string>;
+  orchId?: () => string | null;
+}
+
+export function fleetStatusRows(workspaces: OrchConfig["workspaces"], options: FleetStatusOptions = {}): StatusRow[] {
   const spawned = spawnedRecords();
-  return sortEntities(buildEntities({ skipBackends: options.offline === true })).map((entity) => statusRowFromView(deriveView(entity, spawned), workspaces));
+  const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
+  const orchId = options.orchId?.() ?? currentOrchId();
+  return sortEntities(buildEntities({ skipBackends: options.offline === true }))
+    .map((entity) => statusRowFromView(deriveView(entity, spawned, staleHashes), workspaces, orchId));
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */

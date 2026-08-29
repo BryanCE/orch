@@ -4,11 +4,12 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { loadConfig } from "../src/config.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 
 const tempDirs: string[] = [];
 
-function nodeCommand(script: string): string[] {
+function nodeCommand(script: string): [string, string, string] {
   return [process.execPath, "-e", script];
 }
 
@@ -52,12 +53,12 @@ describe("orch presence notifications", () => {
       // The presence watch is orch's ONE presence-transition source; the work loop
       // publishes task events only, which is why this exercises the watch.
       const { emitAndNotify, startPresenceWatch } = await import("../src/daemon/events.ts");
-      const { loadSinks } = await import("../src/notify/router.ts");
-      expect(loadSinks(orchDir)).toEqual([{ type: "command", on: ["working"], command, timeoutMs: 3_000 }]);
+      const entries = loadConfig(orchDir).notify;
+      expect(entries).toEqual([{ id: "command", on: ["working"], command }]);
       const watch = startPresenceWatch({
         orchDir,
         pollIntervalMs: 20,
-        onEvent: (event) => emitAndNotify(() => { /* no rpc server in this test */ }, loadSinks(orchDir), event),
+        onEvent: (event) => emitAndNotify(() => { /* no rpc server in this test */ }, entries, event),
       });
       try {
         // startPresenceWatch seeds the initial idle state during its first scan.

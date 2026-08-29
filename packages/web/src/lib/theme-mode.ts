@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, setCookie } from '@tanstack/react-start/server'
 import { z } from 'zod'
+import { includesValue } from './validation'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -10,7 +11,7 @@ const DEFAULT_MODE: ThemeMode = 'system'
 const VALID: readonly ThemeMode[] = ['light', 'dark', 'system']
 
 function isValidMode(value: string | null | undefined): value is ThemeMode {
-  return !!value && (VALID as readonly string[]).includes(value)
+  return includesValue(VALID, value)
 }
 
 export const getThemeModeCookie = createServerFn({ method: 'GET' }).handler((): ThemeMode => {

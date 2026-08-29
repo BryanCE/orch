@@ -12,11 +12,11 @@ import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
-import type { BackendHandle, BackendSpawnOpts } from "../src/backends/backend.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 
 const oldOrchDir = process.env.ORCH_DIR;
 const dirs: string[] = [];

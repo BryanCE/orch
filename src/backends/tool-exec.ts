@@ -1,24 +1,6 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { retryingSync, type RetryPolicy } from "../retry.ts";
 
-/**
- * One exec seam for every external tool orch drives — every plexer, every
- * harness CLI. It names none of them: a binary and its argv go in, output comes
- * out, and the retry policy is the caller's to state.
- *
- * Why it exists: orch's commands fail on TIMING far more often than on being
- * wrong. A pane whose shell has not finished coming up, a plexer server still
- * binding its socket, a loaded machine — each answers with a refusal that would
- * have succeeded moments later. Failing the whole spawn on the first of those is
- * what makes orch feel unreliable on slower hardware, and it is not a per-harness
- * problem, so it does not get a per-harness fix (Rule 9).
- */
-export type ToolExecutor = (
-  binary: string,
-  args: readonly string[],
-  options: ExecFileSyncOptionsWithStringEncoding,
-) => string;
-
 const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   encoding: "utf8",
   timeout: 5000,

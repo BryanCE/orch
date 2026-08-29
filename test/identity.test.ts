@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { isAgentId, mintAgentId, parseIdentity, serializeIdentity, tryParseIdentity, type Identity } from "../src/backends/identity.ts";
+import { isAgentId, mintAgentId, parseIdentity, serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
+import type { Identity } from "../src/types/backend.ts";
 
 /**
  * TASKS/02-scope.md A1 — identity is a minted id and NOTHING else.

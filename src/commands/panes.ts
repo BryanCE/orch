@@ -1,16 +1,16 @@
 import { buildEntities, entitySpace, scopeEntitiesToSpace, sortEntities, resolveTarget } from "../entities.ts";
 import { loadConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
-import type { Backend, BackendGroup, BackendHandle, BackendSplit } from "../backends/backend.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { agentAddress, agentIdOfKey, agentViewIndex, assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent, presenceById, viewForKey } from "./target.ts";
-import { openingPlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
+import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { displaySpace } from "./status.ts";
 import { spaceName } from "../policy/space.ts";
 import { setHandle } from "../store/interval-rows.ts";
 import { commandLogger } from "./logging.ts";
+import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
 
 type BoundaryPlan<T> =
   | { readonly outcome: "invoke"; readonly role: T }

@@ -1,6 +1,5 @@
 import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
-import type { Backend, BackendTarget } from "./backends/backend.ts";
 import { loadPresence, orchDir, type PresenceEntry } from "./presence/store.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { agentById } from "./store/agent-rows.ts";
@@ -14,6 +13,7 @@ import { CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
 export { recipientLabel, type Recipient } from "./recipient.ts";
+import type { Backend, BackendTarget } from "./types/backend.ts";
 
 export interface Entity {
   key: string;

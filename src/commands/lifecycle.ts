@@ -13,18 +13,18 @@ import { selfId } from "../identity/self.ts";
 import { openStore } from "../store/connection.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
-import type { Backend, BackendHandle } from "../backends/backend.ts";
-import type { LifecycleVerb } from "../adapters/adapter.ts";
+import type { BackendHandle, LifecycleVerb } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
-import { NO_PANE_FOREGROUND, paneAtShellPrompt, sleepMs, type PaneForeground } from "../backends/pane-ready.ts";
+import { NO_PANE_FOREGROUND, PaneForeground, agentViewIndex, assertAgentOwned, assertLaunchModelAllowed, backendTarget, die, launchModel, ownsAgent, paneAtShellPrompt, parseTargetPrompt, pickAdapter, pinModels, presenceById, requireCallerOwnerToken, resolveAdapterOrDie, resolveLifecycleTarget, sleepMs } from "../backends/pane-ready.ts";
 
 import { loadConfig } from "../config.ts";
-import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
-import { adapterCommand, assertLaunchModelAllowed, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
+import { resolveThinking, spawnerIsRepliable, splitOptionFlags, splitThinkingSuffix } from "../policy/thinking.ts";
+import { adapterCommand, type AgentFlags } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
-import { parseGovernance, writeRpc } from "./daemon.ts";
-import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";
+import { parseGovernance, viewForKey } from "./target.ts";
 import { commandLogger } from "./logging.ts";
+import type { Backend, workerPrompt, writeRpc } from "./daemon.ts";
+import { agentAddress } from "../types/backend.ts";
 
 function lifecycleLogger(key: string) {
   const agentId = tryParseIdentity(key)?.id;

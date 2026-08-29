@@ -33,29 +33,6 @@ const ID_LENGTH = 10;
  *  identity, whatever produced it. */
 const ID_PATTERN = new RegExp(`^[${ID_ALPHABET}]{${ID_LENGTH}}$`);
 
-/**
- * An agent's identity.
- *
- * One field on purpose. Provenance, ownership and environment are three other
- * facts on three other timelines; welding any of them in here is what this
- * module exists to prevent.
- */
-export interface Identity {
-  /**
-   * Opaque agent id minted BEFORE launch and passed via ORCH_AGENT_KEY.
-   *
-   * Carries no meaning and is never derived from anything the user can change.
-   * It is NOT the agent's name: a name is a mutable label stored beside the
-   * agent, and deriving identity from it made the two inseparable — a name
-   * could not be reused after its agent died, could not be reassigned, and
-   * renaming would have severed every presence/ack join.
-   *
-   * Equally never the backend pane id or OS pid: those exist only after spawn,
-   * so minting a key from one forks the agent into two identities.
-   */
-  readonly id: string;
-}
-
 /** Mint one opaque agent id. Unique per spawn, stable for the agent's life. */
 export function mintAgentId(): string {
   const bytes = randomBytes(ID_LENGTH);

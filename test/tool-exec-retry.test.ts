@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { runTool, setToolExecutor, type ToolExecutor } from "../src/backends/tool-exec.ts";
+import { runTool, setToolExecutor } from "../src/backends/tool-exec.ts";
+import type { ToolExecutor } from "../src/types/backend.ts";
 
 /** A failure shaped like execFileSync's: a code on stderr is how every tool
  *  orch drives reports WHY it refused. */

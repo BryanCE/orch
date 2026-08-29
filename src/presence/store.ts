@@ -13,9 +13,9 @@ import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
-import type { BackendId } from "../backends/backend.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
+import type { BackendId } from "../types/backend.ts";
 
 export { orchDir, presenceAgentDir };
 

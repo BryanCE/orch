@@ -9,13 +9,13 @@ import { cmdClose } from "../src/commands/lifecycle.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { spawnedRecords, recordSpawned } from "../src/presence/store.ts";
 import { openStore } from "../src/store/connection.ts";
-import type { Backend } from "../src/backends/backend.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
+import type { Backend } from "../src/types/backend.ts";
 
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: string[] = [];

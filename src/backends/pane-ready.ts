@@ -1,13 +1,3 @@
-/** What a plexer can see about the processes a pane is running right now. */
-export interface PaneForeground {
-  /** The pane's own shell. Null when the plexer does not report it. */
-  shellPid: number | null;
-  /** Leader of the process group holding the terminal. Null on panes whose OS
-   *  exposes no foreground group — Windows-side panes, where only names remain. */
-  foregroundPid: number | null;
-  processes: readonly string[];
-}
-
 export const NO_PANE_FOREGROUND: PaneForeground = { shellPid: null, foregroundPid: null, processes: [] };
 
 /** What a plexer counts as a pane's own shell. Copied from herdr's

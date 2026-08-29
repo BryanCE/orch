@@ -1,6 +1,5 @@
 import { loadConfig, type HostConfig } from "../config.ts";
 import { getBackend } from "../backends/registry.ts";
-import type { Backend, BackendHandle } from "../backends/backend.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
 import { selfId } from "../identity/self.ts";
@@ -14,6 +13,7 @@ import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
+import type { Backend, BackendHandle } from "../types/backend.ts";
 
 export function die(msg: string): never {
   commandLogger().error("command.failed", { error: msg });

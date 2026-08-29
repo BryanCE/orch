@@ -1,13 +1,6 @@
 import { spawn as spawnProcess } from "node:child_process";
-import type { ProcessRole, RecordedProcess, StartRequest, StartedProcess } from "./backend.ts";
 import { processIsAlive, processStartToken } from "../process-identity.ts";
-
-export interface LocalProcessRoleDeps {
-  readonly isAlive?: (pid: number) => boolean;
-  readonly startToken?: (pid: number) => string | undefined;
-  readonly spawn?: (request: StartRequest) => StartedProcess;
-  readonly signal?: (pid: number, signal: NodeJS.Signals) => void;
-}
+import type { ProcessRole, RecordedProcess, StartRequest, StartedProcess } from "../types/backend.ts";
 
 function startLocalProcess(request: StartRequest): StartedProcess {
   const [executable, ...args] = request.argv;

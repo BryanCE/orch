@@ -1,5 +1,4 @@
 import { mintAgentId } from "../backends/identity.ts";
-import type { SpaceHomeRole } from "../backends/backend.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { loadConfig } from "../config.ts";
 import { selfId } from "../identity/self.ts";
@@ -8,6 +7,7 @@ import { openStore } from "../store/connection.ts";
 import { ensurePlexer } from "../store/agent-rows.ts";
 import { die, splitOptionFlags } from "./target.ts";
 import { errorMessage, isRecord } from "../util.ts";
+import type { SpaceHomeRole } from "../types/backend.ts";
 
 /**
  * `orch space` — orch's OWN grouping of work (`TASKS/adr/0001`).

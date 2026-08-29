@@ -6,12 +6,13 @@ import { z } from "zod";
 // registries — they evaluate every concrete adapter/backend, re-entering this
 // graph mid-initialization. The closed id sets live in the pure port modules.
 import { ADAPTER_IDS, AGENT_STATES, type AdapterId } from "./adapters/adapter.ts";
-import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.ts";
-import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
+import { BACKEND_IDS, HERDR_SINK_ID } from "./backends/backend.ts";
+import { TILE_FIRST_SPLITS } from "./backends/tiling.ts";
 import { THINKING_LEVELS, type ThinkingLevel } from "./policy/thinking.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
 import { ensurePrivateDir, errnoCode, errorMessage, isRecord } from "./util.ts";
 import { isLogLevel, type LogLevel } from "./log.ts";
+import type { BackendId, TileFirstSplit } from "./types/backend.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is

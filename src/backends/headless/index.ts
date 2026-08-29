@@ -7,20 +7,12 @@ import { readStatus } from "../../presence/writer.ts";
 import { presenceAgentDir } from "../../presence/store.ts";
 import { errorMessage, pidAlive, projectRoot } from "../../util.ts";
 import { LocalProcessRole } from "../process.ts";
-import type {
-  Backend,
-  HandleLookupRole,
-  LogPruningRole,
-  ProcessRole,
-  BackendId,
-  BackendSpawnOpts,
-  PaneForegroundRole,
-} from "../backend.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { ensurePlexer } from "../../store/agent-rows.ts";
 import { setAgentPlexer, setHandle } from "../../store/interval-rows.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
+import type { Backend, BackendId, BackendSpawnOpts, HandleLookupRole, LogPruningRole, PaneForegroundRole, ProcessRole } from "../../types/backend.ts";
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {

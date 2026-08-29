@@ -8,7 +8,7 @@ import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup
 import { refreshAdapterCatalogues } from "../adapters/registry.ts";
 import { ADAPTER_IDS, isAdapterId } from "../adapters/adapter.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
-import { BACKEND_IDS } from "../backends/backend.ts";
+import { BACKEND_IDS } from "../types/backend.ts";
 import { isThinkingLevel, THINKING_LEVELS } from "../policy/thinking.ts";
 import { die } from "./target.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";

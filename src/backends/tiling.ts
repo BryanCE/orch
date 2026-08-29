@@ -1,4 +1,4 @@
-import type { BackendGroupLayout, BackendHandle, BackendRect, BackendSplit, GroupLayoutRole } from "./backend.ts";
+import type { BackendGroupLayout, BackendHandle, BackendRect, BackendSplit, GroupLayoutRole } from "../types/backend.ts";
 
 /** A terminal cell is about twice as tall as it is wide, so geometry is compared
  *  in cell-widths: a pane looks square when its columns double its rows. */
@@ -14,20 +14,6 @@ function visualHeight(rect: BackendRect): number {
 function visualArea(rect: BackendRect): number {
   return rect.width * visualHeight(rect);
 }
-
-/**
- * How a tab's FIRST split runs, from `tiling.first_split` in settings.json.
- * Every split after it halves the biggest pane's longer visual side whichever
- * one is set — the opening split is all that differs, and it is what decides
- * whether four agents land as a 2x2 grid or as four of one shape.
- *
- * - `rows` stacks: the new pane goes under the old one (a horizontal divider).
- * - `columns` sits side by side (a vertical divider).
- * - `longest-edge` lets the tab's own shape pick, which on a wide monitor keeps
- *   choosing columns until the fleet is a row of thin strips.
- */
-export const TILE_FIRST_SPLITS = ["rows", "columns", "longest-edge"] as const;
-export type TileFirstSplit = (typeof TILE_FIRST_SPLITS)[number];
 
 /** The split a tab opens with, or null when the policy defers to pane shape. */
 function openingSplit(policy: TileFirstSplit): BackendSplit | null {
@@ -47,14 +33,6 @@ function biggestFirst(a: LayoutPane, b: LayoutPane): number {
     || a.rect.y - b.rect.y
     || a.rect.x - b.rect.x
     || String(a.handle).localeCompare(String(b.handle));
-}
-
-/** Where the next agent lands in a group. */
-export interface TilePlacement {
-  /** Pane to split. Absent on a single-pane group, where every backend's own
-   *  default already splits the one pane there is. */
-  readonly targetPane?: BackendHandle;
-  readonly split: BackendSplit;
 }
 
 /** Split the group's biggest pane across its longer visual side, once the tab's

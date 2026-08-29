@@ -3,42 +3,11 @@ import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
 import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
-import {
-  homeLabel,
-  type Backend,
-  type EnvironmentIdentityRole,
-  type VersionRole,
-  type BackendId,
-  type BackendGroup,
-  type BackendGroupLayout,
-  type BackendRect,
-  type BackendSpawnOpts,
-  type BackendSplit,
-  type BackendTarget,
-  type BackendWorkspace,
-  type BackendZoomMode,
-  type PaneHostRole,
-  type PaneInventoryRole,
-  type PaneForegroundRole,
-  type PaneScreenRole,
-  type PaneZoomRole,
-  type PaneNamingRole,
-  type AgentNamingRole,
-  type AgentStatusRole,
-  type GroupHomeRole,
-  type GroupLayoutRole,
-  type SpaceHomeRole,
-  type PlexerHome,
-  type CreatedHome,
-  type HomeSubject,
-  type OpenPaneRequest,
-  type CreateGroupRequest,
-  type CreatedGroup,
-  type MovePaneRequest,
-} from "../backend.ts";
-import { tryParseIdentity, type Identity } from "../identity.ts";
+import { homeLabel } from "../backend.ts";
+import { tryParseIdentity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendWorkspace, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, OpenPaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 
 /** Handle owned by one herdr pane. */
 export type HerdrHandle = string;

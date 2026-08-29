@@ -18,15 +18,7 @@ import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
 import { commandLogger } from "./logging.ts";
-
-export interface DaemonStatus {
-  pid: number;
-  startedAt: string;
-  uptimeSec: number;
-  codeHash: string;
-  socket: string;
-  tcpEndpoint?: string;
-}
+import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
  *  A pid alone is never authority to signal — see {@link provenDaemonPid}. */
@@ -174,11 +166,6 @@ export async function ensureDaemonOrWarn(directory: string): Promise<void> {
     commandLogger().warn("daemon.unavailable", { error: message });
     process.stderr.write(`warning: ${message}\n`);
   }
-}
-
-export interface WriteGovernance {
-  steal?: boolean;
-  crossSpace?: boolean;
 }
 
 /** Extract governance flags and strip them from the positional args. */

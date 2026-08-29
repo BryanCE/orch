@@ -76,6 +76,8 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
 
   test("a key that is not a minted id resolves to no pane at all", () => {
     tempOrchDir();
+    // A NEGATIVE case, kept verbatim: the dead composite key looks like it
+    // carries a plexer and a handle, and nothing may read them back out of it.
     process.env.ORCH_AGENT_KEY = "herdr~wF~%3";
     expect(herdrPaneHandle()).toBeNull();
     expect(herdrHudActive()).toBe(false);

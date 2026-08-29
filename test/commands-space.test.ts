@@ -2,13 +2,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { cmdSpace, runSpace, type SpaceEnvironment } from "../src/commands/space.ts";
+import { cmdSpace, runSpace } from "../src/commands/space.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { openStore } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 import type { CreateHomeRequest, CreatedHome, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
+import type { SpaceEnvironment } from "../src/types/command.ts";
 
 const originalDir = process.env.ORCH_DIR;
 const originalWrite = process.stdout.write.bind(process.stdout);

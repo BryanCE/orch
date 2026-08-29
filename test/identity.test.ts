@@ -47,6 +47,9 @@ describe("isAgentId", () => {
   test("accepts a minted id", () => expect(isAgentId(mintAgentId())).toBe(true));
 
   test("rejects everything that is not one", () => {
+    // The composite spellings below are NEGATIVE cases and stay verbatim: they
+    // are the dead `<plexer>~<grouping>~<handle>` key, and this is the test that
+    // it is refused as an identity.
     for (const value of ["", "herdr~wF~p2", "headless~local~42", "ABCDEFGHIJ", "short", "eleven_char", "%5", 42, null, undefined, {}]) {
       expect(isAgentId(value)).toBe(false);
     }

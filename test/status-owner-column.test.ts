@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { localStatusTable, type StatusRow } from "../src/commands/status.ts";
+import { localStatusTable } from "../src/commands/status.ts";
+import type { StatusRow } from "../src/types/command.ts";
 
 /** A COMPLETE StatusRow, so a field added to the shape breaks this factory
  *  instead of being silently absent from every fixture (CLAUDE.md Rule 13). */

@@ -9,6 +9,7 @@ import { die } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId, HarnessModel } from "../types/adapter.ts";
 import type { OrchConfig } from "../types/config.ts";
+import type { CatalogueReader, HarnessSection, ModelFilters, ModelRow } from "../types/command.ts";
 
 /**
  * `orch models` — what each installed harness says it can run.
@@ -17,35 +18,6 @@ import type { OrchConfig } from "../types/config.ts";
  * listed here whether or not it is in `models.preferred` or `models.allowed`, so a model outside
  * the picker quicklist stays findable and stays launchable.
  */
-
-/** One model as this command displays it, numbered by its place in the shown list. */
-export interface ModelRow {
-  index: number;
-  spec: string;
-  label?: string;
-  default: boolean;
-  preferred: boolean;
-}
-
-/** One harness section: what it launches on, what its own picker cycles, and its catalogue. */
-export interface HarnessSection {
-  id: AdapterId;
-  default?: string;
-  preferred: string[];
-  models: ModelRow[];
-}
-
-/** What the listing was narrowed to. Neither filter reads or writes settings. */
-export interface ModelFilters {
-  /** Show only the models in that harness's configured quicklist. */
-  quicklistOnly: boolean;
-  /** Case-insensitive substring matched against both spec and label. */
-  search?: string;
-}
-
-/** Asks one harness what it can run. Injected so the listing can be exercised without a
- *  harness binary on PATH. */
-export type CatalogueReader = (id: AdapterId) => readonly HarnessModel[];
 
 const VALUE_FLAGS = ["--agent", "--harness", "--search", "--pick"];
 const BOOLEAN_FLAGS = ["--preferred", "--json"];

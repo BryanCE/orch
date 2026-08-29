@@ -29,6 +29,7 @@ import type { DriveState } from "../types/agent.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchConfig } from "../types/config.ts";
+import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
@@ -466,76 +467,6 @@ function orchNames(key: string, directory = orchDir()): OrchNames {
   }
 }
 
-/** A rendered snapshot of which roles an environment composes. Data for display,
- *  never a thing to branch on — the code reads the role itself. */
-export interface EnvironmentCapabilityView {
-  readonly spaceHome: boolean;
-  readonly identity: boolean;
-  readonly handleLookup: boolean;
-  readonly logPruning: boolean;
-}
-
-export interface StatusRow {
-  key: string;
-  /** Orch-minted id; distinct from every plexer coordinate. */
-  agentId?: string | null;
-  paneId: string | null;
-  /** False for panes orch did not spawn (the orchestrator's own, the user's). */
-  managed: boolean;
-  name: string | null;
-  tab: string | null;
-  agent: string | null;
-  /** Current live lease holder, or an explicit no-driving status when unleased. */
-  owner: string | null;
-  spawnedBy: string | null;
-  spawnedByLabel: string | null;
-  worktree: string | null;
-  branch: string | null;
-  /** Directory the agent works in; the repo boundary a wandering worker crossed. */
-  cwd: string | null;
-  focused: boolean;
-  model: string;
-  modelShort: string;
-  /** What the AGENT reports about itself through its presence record — the only
-   *  field that answers "is the work finished". It moves ahead of `backendStatus`
-   *  by design: an agent is done the moment it says so, whatever its pane shows. */
-  state: string;
-  /** True when no live bridge answered and `state` came from the backend or session. */
-  stateFallback: boolean;
-  staleExtension?: boolean;
-  exited: boolean;
-  /** False once the agent's pid is gone; the visibility filter's only liveness input. */
-  alive: boolean;
-  cost: number;
-  ctxPercent: number | null;
-  task: string | null;
-  /** Id of the dispatch the agent reports running; diff against the id `orch
-   *  dispatch` printed to prove a pane runs the prompt it was sent. */
-  dispatchId: string | null;
-  lastText: string | null;
-  /** What the MULTIPLEXER reports about the pane the agent runs in. It lags `state`
-   *  and is a routing/diagnostic fact, never a completion signal — read `state`. */
-  backendStatus: string | null;
-  /** Backend that supplied this row, when known. */
-  backend: string | null;
-  /** What the owning backend can do with this agent. Every renderer branches on
-   *  these, never on the backend's id (Rule 9). Null when no backend owns it. */
-  capabilities: EnvironmentCapabilityView | null;
-  sessionPath: string | null;
-  presenceDir: string | null;
-  presenceOnly: boolean;
-  tokens: unknown;
-  turns: unknown;
-  /** Orch-owned space identity and display name. */
-  spaceId?: string | null;
-  spaceName?: string | null;
-  /** Immutable provenance root (pack) identity and display name. */
-  rootAgentId?: string | null;
-  rootAgentName?: string | null;
-  host?: string;
-  warning?: string;
-}
-
 /** Format the task cell: a pending question wins, else the presence/session task text, else null. */
 function viewTask(v: View): string | null {
   const question = v.entity.presence?.status?.asking?.question;
@@ -705,7 +636,6 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
   const rows = remoteResults.flatMap(({ result }) => validRemoteValues(result));
   return { rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
 }
-
 
 function remotePaneCell(row: StatusRow): string {
   return row.warning ? "-" : row.paneId ?? row.key;

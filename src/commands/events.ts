@@ -14,6 +14,7 @@ import { commandLogger } from "./logging.ts";
 import type { PresenceMetadata } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/config.ts";
+import type { EventScopeInput } from "../types/command.ts";
 
 interface WatchItem {
   key: string;
@@ -43,16 +44,6 @@ interface EventsContext {
   metadata: (key: string) => PresenceMetadata;
   accepts: (key: string) => boolean;
   emit: (event: NotifyEvent, streamSeq: number) => boolean;
-}
-
-
-/** Return whether an event belongs to this session by provenance or current lease.
- * Both values are normalized agents.id values. A live foreign lease always excludes it. */
-export interface EventScopeInput {
-  anyAgent: boolean;
-  mineAddress: string | undefined;
-  leaseOwner: string | null;
-  recordSpawnedBy?: string;
 }
 
 export function eventInMineScope(input: Omit<EventScopeInput, "anyAgent">): boolean {

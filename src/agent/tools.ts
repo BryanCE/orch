@@ -14,7 +14,7 @@ import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import { loadConfigOrNull } from "../config.ts";
 import { orchDir } from "../presence/writer.ts";
-import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
+import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
 import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
 import { atomicWrite, presenceFile } from "../presence/writer.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
@@ -22,6 +22,7 @@ import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_
 import { isRecord, isUnknownArray, optionalString, readJsonFile, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
 import type { AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeToolResult, HarnessApi, HarnessContext } from "../types/agent.ts";
+import type { CommandLock } from "../types/control.ts";
 
 interface ModelSelectEventLike {
   model: unknown;

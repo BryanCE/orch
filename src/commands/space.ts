@@ -8,6 +8,7 @@ import { ensurePlexer } from "../store/agent-rows.ts";
 import { die, splitOptionFlags } from "./target.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import type { SpaceHomeRole } from "../types/backend.ts";
+import type { SpaceEnvironment } from "../types/command.ts";
 
 /**
  * `orch space` — orch's OWN grouping of work (`TASKS/adr/0001`).
@@ -25,16 +26,6 @@ import type { SpaceHomeRole } from "../types/backend.ts";
  * Only `focus` genuinely needs the home, so only `focus` can be answered with an
  * absence, and that answer names the space and the verb (E14) and exits zero.
  */
-
-/** Where this command runs: orch's store, the plexer it is in, and that plexer's
- *  space-home role when it composes one. */
-export interface SpaceEnvironment {
-  readonly directory: string;
-  readonly plexerId: string;
-  readonly spaceHome: SpaceHomeRole | null;
-  /** The agent asking, recorded as `spaces.created_by`. It grants nothing. */
-  readonly actorId: string | null;
-}
 
 interface SpaceRecord {
   readonly id: string;

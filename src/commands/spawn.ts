@@ -31,6 +31,7 @@ import type { AgentView, GrantAction } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchConfig } from "../types/config.ts";
+import type { AgentFlags, AgentSettings, CreatedAgent, TabSpawnSpec } from "../types/command.ts";
 
 function spawnLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;
@@ -179,22 +180,6 @@ export async function pinModels(
     process.stderr.write(`warning: ${warning}\n`);
   }
   return warnings;
-}
-
-export interface AgentFlags {
-  adapterFlag?: string;
-  backendFlag?: string;
-  modelFlag?: string;
-  thinkingFlag?: string;
-}
-
-export interface AgentSettings {
-  adapter: AdapterId;
-  backend: BackendId;
-  model: string;
-  thinking: ThinkingLevel;
-  /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
-  preferredModels: readonly string[];
 }
 
 /** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
@@ -376,8 +361,6 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   const backendExplicit = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? null) !== null;
   return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendExplicit, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, space: flags.space, prefix, n, worktree, prompts, names, unknownFlags: flags.unknownFlags, fleet: config.fleet, tiling: config.tiling };
 }
-
-export interface CreatedAgent { key: string; pane: string; name: string }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an
  *  environment axis composed onto the agent, and presence answers for the same
@@ -602,40 +585,6 @@ function resolveSpawnSpace(settings: SpawnSettings, backend: Backend, callerAgen
   } catch (error: unknown) {
     die(`could not open a space for this fleet: ${errorMessage(error)}`);
   }
-}
-
-export interface TabSpawnSpec {
-  backend: Backend;
-  adapter: AgentAdapter;
-  adapterId: AdapterId;
-  name: string;
-  cwd: string;
-  space: string;
-  group: string;
-  model: string;
-  /** Thinking effort selected for this launch. */
-  thinking?: ThinkingLevel;
-  /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
-  preferredModels: readonly string[];
-  /** Where the pane lands in the group, from the tiling planner. */
-  placement?: TilePlacement;
-  /** Existing pane to launch into (fresh tab root). */
-  intoPane?: BackendHandle;
-  /** The identity already stamped into `intoPane`'s environment when the pane was
-   *  opened ahead of the launch. ONE key per agent: the pane's env and the record
-   *  must name the same id, so a pre-opened pane hands its key in rather than
-   *  letting the launch mint a second one. */
-  key?: string;
-  env?: Readonly<Record<string, string>>;
-  tools?: string;
-  /** What this worker may load; absent lets the adapter apply no policy. */
-  workers?: WorkerPolicy;
-  /** Verbatim launch command from `--cmd`; absent lets the adapter build it. */
-  cmd?: string;
-  worktree?: string;
-  branch?: string;
-  /** Hello-registered id of the session performing this launch. */
-  spawnerAgentId?: string | null;
 }
 
 // The single spawn-into-a-tab pipeline shared by `orch spawn` (additional panes)

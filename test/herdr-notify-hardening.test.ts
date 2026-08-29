@@ -102,6 +102,8 @@ describe("herdr and notification hardening", () => {
   });
 
   test("falls back to a valid name when the identity key contains herdr-invalid separators", () => {
+    // A NEGATIVE case: orch never mints a key like this, and the pane namer must
+    // still produce a name herdr accepts rather than passing separators through.
     new HerdrBackend().spawn(adapter, { workspace: "ws-test", key: "herdr~ws-test~ABC_123" });
     const name = lastCall("pane", "rename")?.[3] ?? "";
     expect(name).toBe("pi-abc_123");

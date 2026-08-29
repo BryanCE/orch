@@ -5,14 +5,12 @@ import { binaryOnPath } from "../../util.ts";
 import { sleepMs } from "../pane-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
-import { bestEffortTmux, execTmux, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
+import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendWorkspace, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
-
-/** Handle owned by one tmux pane. */
-export type TmuxHandle = string;
+import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
 
 const TMUX_BACKEND: BackendId = "tmux";
 
@@ -65,11 +63,6 @@ function groupPanesBy(panes: readonly TmuxPane[], key: (pane: TmuxPane) => strin
     else groups.set(value, [pane]);
   }
   return groups;
-}
-
-/** Injected home command runner for hermetic provider tests. */
-export interface TmuxBackendDeps {
-  readonly homeExec?: (args: string[]) => string;
 }
 
 /** Backend for panes managed by a tmux session. */

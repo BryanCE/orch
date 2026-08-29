@@ -6,16 +6,17 @@ import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRe
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadConfig } from "../config.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
-import { callDaemon, parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
+import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
-import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
+import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt } from "./spawn.ts";
 import type { WorkerHeaderContext } from "../worker-prompt.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchConfig } from "../types/config.ts";
+import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -39,7 +40,6 @@ interface DispatchSettings {
   prompt: string;
   destination: Entity | null;
 }
-
 
 export async function cmdSteer(args: string[]): Promise<void> {
   const json = args.includes("--json");
@@ -191,13 +191,6 @@ async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGover
     : null;
   await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, unchanged: previous === modelArg };
-}
-
-export interface DispatchToAgentOptions {
-  raw?: boolean;
-  adapter?: AgentAdapter;
-  context?: WorkerHeaderContext;
-  gov?: WriteGovernance;
 }
 
 /** Deliver a prompt through orchd's canonical dispatch path. */

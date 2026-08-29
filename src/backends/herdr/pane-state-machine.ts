@@ -1,30 +1,10 @@
+import type { PaneAgentState, PaneStateMachine, PaneStateMachineConfig } from "../../types/plexer.ts";
 // herdr pane-state decision machine: folds agent lifecycle events (session
 // start, agent start/end, herdr's blocked signal) into a single working/blocked/
 // idle state, with an idle debounce and a retry-grace hold that keeps a retrying
 // agent shown as `working` until it settles to `blocked`. Pure timing/decision
 // logic — it hands each resolved state to the injected sink and never dials a
 // socket itself.
-import type { PaneAgentState } from "./pane-socket.ts";
-
-export interface PaneStateMachineConfig {
-  idleDebounceMs: number;
-  retryGraceMs: number;
-  /** Where a resolved state (deduped) is handed for delivery. */
-  enqueueState: (state: PaneAgentState, message?: string) => void;
-}
-
-export interface PaneStateMachine {
-  /** Session (re)start: adopt the observed activity and force a fresh publish. */
-  openSession(active: boolean): void;
-  /** An agent turn began — clear any pending failure hold and go working. */
-  startRun(): void;
-  /** An agent turn ended; hold working on a retryable error, else debounce idle. */
-  endRun(retryableMessage: string | undefined): void;
-  /** herdr's out-of-band blocked signal toggled for this pane. */
-  setBlocked(active: boolean, label: string | undefined): void;
-  /** Cancel any pending idle/retry timers (session teardown). */
-  clearTimers(): void;
-}
 
 export function createPaneStateMachine(config: PaneStateMachineConfig): PaneStateMachine {
   const { idleDebounceMs, retryGraceMs, enqueueState } = config;

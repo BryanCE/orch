@@ -13,14 +13,7 @@ import { setAgentPlexer, setHandle } from "../../store/interval-rows.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, HandleLookupRole, LogPruningRole, PaneForegroundRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
-
-/** Handle owned by one detached headless process. */
-export interface HeadlessHandle {
-  readonly pid: number;
-  readonly key: string;
-  /** Updated by list(); absent on a freshly spawned handle. */
-  readonly alive?: boolean;
-}
+import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
 
 const HEADLESS_BACKEND: BackendId = "headless";
 
@@ -95,16 +88,6 @@ function sameHandle(left: HeadlessHandle, right: HeadlessHandle): boolean {
 
 function registeredHandle(handle: HeadlessHandle, directory: string): boolean {
   return headlessHandles(directory).some((record) => sameHandle(record, handle));
-}
-
-/**
- * Detached process backend. Dead entries stay observable in the agent store,
- * while close can only signal a registered process with matching presence ownership.
- */
-export interface HeadlessBackendDeps {
-  /** Injected process liveness check and signaler, primarily for hermetic tests. */
-  pidAlive?: (pid: number) => boolean;
-  killer?: (pid: number, signal: "SIGTERM") => void;
 }
 
 export class HeadlessBackend implements Backend<HeadlessHandle> {

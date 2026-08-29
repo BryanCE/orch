@@ -1,4 +1,4 @@
-import type { NotifyEvent } from "../types/notify.ts";
+import type { PaneHud } from "../types/plexer.ts";
 /**
  * The plexer-neutral pane-HUD port.
  *
@@ -26,74 +26,6 @@ import {
   registerBlockedSignalRelay,
   registerPaneStateHud,
 } from "./herdr/hud.ts";
-
-/** Canonical state-change payload a bridge hands to the notifier. */
-export type BridgeNotifyEvent = NotifyEvent;
-
-/**
- * Session/UI surface a HUD handler reads off the harness context. Structural on
- * purpose: the HUD never imports a harness SDK type.
- */
-export interface PaneHudContext {
-  hasUI?: boolean;
-  isIdle?: () => boolean;
-  sessionManager?: {
-    getSessionFile?: () => unknown;
-    getSessionId?: () => unknown;
-  };
-}
-
-/**
- * Harness-neutral lifecycle registrar. The harness composition root adapts its
- * own typed event names onto these four calls.
- */
-export interface PaneHudRegistrar {
-  onSessionStart(handler: (ctx: PaneHudContext) => void): void;
-  onAgentStart(handler: (ctx: PaneHudContext) => void): void;
-  onAgentEnd(handler: (event: { messages?: unknown[] }) => void): void;
-  onSessionShutdown(handler: (event: { reason?: string }) => Promise<void> | void): void;
-}
-
-/** The harness's shared event bus, used for the plexer's own out-of-band signals. */
-export interface PaneHudEventBus {
-  on(channel: string, handler: (data: unknown) => void): unknown;
-}
-
-export interface PaneHudOptions {
-  /** Agent/harness id reported to the plexer (e.g. the harness's own adapter id). */
-  agentId: string;
-  /** Bridge code hash, forwarded so the plexer can detect a stale in-pane bridge. */
-  extensionHash: string;
-}
-
-/** Agent snapshot the custom-status line is derived from. */
-export interface PaneStatusSnapshot {
-  state: string;
-  task?: string;
-  cost: number;
-}
-
-/** Pane and tab display labels as the plexer reports them. */
-export interface PaneLabels {
-  label: string | null;
-  tabLabel: string | null;
-}
-
-/** Everything a harness shim may ask of the pane it is running in. */
-export interface PaneHud {
-  /** This process's pane handle, or null when it is not in a plexer pane. */
-  paneHandle: string | null;
-  /** Mirror agent lifecycle state into the pane's status line. */
-  registerPaneState: (registrar: PaneHudRegistrar, events: PaneHudEventBus, options: PaneHudOptions) => void;
-  /** Build the per-status-write sink that keeps the pane's custom status current. */
-  statusReporter: (paneId: string | null) => (snapshot: PaneStatusSnapshot) => void;
-  /** Raise a desktop notification through the plexer. */
-  notify: (event: BridgeNotifyEvent) => void;
-  /** Pull the pane/tab labels the user set; false when unavailable. */
-  readLabels: (apply: (labels: PaneLabels) => void) => Promise<boolean>;
-  /** Relay the plexer's blocked-state signal into the harness. */
-  registerBlockedRelay: (events: PaneHudEventBus, onBlockedChange: (blocked: boolean, label: string | undefined) => void) => void;
-}
 
 const NO_HUD: PaneHud = {
   paneHandle: null,

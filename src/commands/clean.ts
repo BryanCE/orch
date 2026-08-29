@@ -16,6 +16,7 @@ import { agentViewIndex, callerIsSpawnedAgent, die, presenceById } from "./targe
 import { commandLogger } from "./logging.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
+import type { DeadAgentSweepOptions } from "../types/command.ts";
 
 /** Whether a live agent still runs from this worktree.
  *
@@ -84,13 +85,6 @@ function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean
   if (args.some((arg) => arg !== "--worktrees" && arg !== "--force") || (force && !worktrees))
     die("usage: orch clean [--worktrees [--force]]");
   return { worktrees, force };
-}
-
-export interface DeadAgentSweepOptions {
-  /** Root to inspect; omitted for the operator's configured ORCH_DIR. */
-  root?: string;
-  /** Only reap directories whose mtime is before this cutoff. */
-  olderThan?: Date;
 }
 
 /** Reap dead presence through the same spawned/ownership cleanup path as orch clean.

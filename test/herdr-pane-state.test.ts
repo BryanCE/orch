@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { retryableErrorMessage, type PaneAgentState } from "../src/backends/herdr/pane-socket.ts";
+import { retryableErrorMessage } from "../src/backends/herdr/pane-socket.ts";
 import { createPaneStateMachine } from "../src/backends/herdr/pane-state-machine.ts";
+import type { PaneAgentState } from "../src/types/plexer.ts";
 
 const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

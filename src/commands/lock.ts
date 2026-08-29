@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { loadConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { errnoCode } from "../util.ts";
-import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
+import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock } from "../control/cmd-lock.ts";
+import type { CommandLock } from "../types/control.ts";
 
 function holderName(): string {
   return process.env.ORCH_AGENT_KEY ?? `user:${process.pid}`;

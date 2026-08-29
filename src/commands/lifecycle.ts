@@ -19,7 +19,7 @@ import { NO_PANE_FOREGROUND, paneAtShellPrompt, sleepMs } from "../backends/pane
 
 import { loadConfig } from "../config.ts";
 import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
-import { adapterCommand, assertLaunchModelAllowed, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
+import { adapterCommand, assertLaunchModelAllowed, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt } from "./spawn.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";
@@ -27,6 +27,7 @@ import { commandLogger } from "./logging.ts";
 import type { Backend, BackendHandle, PaneForeground } from "../types/backend.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
+import type { AgentFlags } from "../types/command.ts";
 
 function lifecycleLogger(key: string) {
   const agentId = tryParseIdentity(key)?.id;

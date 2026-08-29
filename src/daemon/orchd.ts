@@ -29,7 +29,7 @@ import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../con
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
-import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
+import { fleetStatusRows } from "../commands/status.ts";
 import { agentView } from "../store/agent-view.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { createLogger, type Logger, type LogContext, type LogLevel } from "../log.ts";
@@ -39,6 +39,7 @@ import type { LifecycleVerb } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
 import type { ConfigWatch, NotifyEntry, OrchConfig } from "../types/config.ts";
+import type { StatusRow } from "../types/command.ts";
 
 interface LeasePayloadRow {
   holder_id: string;

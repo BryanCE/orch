@@ -25,6 +25,7 @@ import { cmdSpawn } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "../types/adapter.ts";
+import type { HarnessModelChoices, ShimBoundaryAnswer, ShimBoundaryInvocation, ShimBoundaryPlan, SmokeSteps } from "../types/command.ts";
 
 const HOME = os.homedir();
 
@@ -168,13 +169,6 @@ export async function resolveHarnessModels(
     choices.preferred[id] = allowed;
   }
   return choices;
-}
-
-/** What each installed harness launches by default, offers in its own picker, and may launch at all. */
-export interface HarnessModelChoices {
-  defaults: Partial<Record<AdapterId, string>>;
-  preferred: Partial<Record<AdapterId, string[]>>;
-  allowed: Partial<Record<AdapterId, string[]>>;
 }
 
 /** Tell the operator how to make an installed-but-signed-out harness usable, and what to
@@ -458,21 +452,6 @@ async function installPrerequisites(
   return installSelectedPrerequisites(missing, interactive, yes, noInstall);
 }
 
-/** Boundary answer when the selected environment has no integration role. */
-export interface ShimBoundaryAnswer {
-  readonly outcome: "answer";
-  readonly reason: "no-environment-role";
-  readonly exitCode: 0;
-  readonly text: string;
-}
-
-export interface ShimBoundaryInvocation {
-  readonly outcome: "invoke";
-  readonly role: ShimRole;
-}
-
-export type ShimBoundaryPlan = ShimBoundaryAnswer | ShimBoundaryInvocation;
-
 export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {
   if (adapter.shim) return { outcome: "invoke", role: adapter.shim };
   return {
@@ -584,24 +563,6 @@ export async function offerReapMalformedRecords(
   for (const record of records) files.rmSync(record.path, { recursive: true, force: true });
   process.stdout.write(`  reaped ${records.length} record${records.length === 1 ? "" : "s"}\n`);
   return true;
-}
-
-/** The four IO steps of the closing smoke round-trip, injected so the orchestration is testable
- * without a live daemon, a model, or a real spawn. Each default is a thin wrapper over the same
- * plumbing `orch spawn`/`orch run`/`orch result` use — the smoke reuses those paths, never
- * reimplements them. */
-export interface SmokeSteps {
-  /** Spawn one headless agent ON the given prompt and return its identity key; throws when none is recorded. */
-  spawnHeadless: (cwd: string, prompt: string) => Promise<string>;
-  /** Build the trivial prompt the agent is launched on. */
-  buildPrompt: () => string;
-  /** The agent's result text once it has produced one, else undefined. */
-  readResultText: (key: string) => string | undefined;
-  /** Best-effort teardown of the smoke agent. */
-  cleanup: (key: string) => void;
-  now: () => number;
-  sleep: (ms: number) => Promise<void>;
-  timeoutMs: number;
 }
 
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */

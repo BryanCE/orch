@@ -17,6 +17,7 @@ import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { HostConfig } from "../types/config.ts";
+import type { LifecycleTarget } from "../types/command.ts";
 
 export function die(msg: string): never {
   commandLogger().error("command.failed", { error: msg });
@@ -252,17 +253,6 @@ export function backendTarget(
   // boundary can return a successful no-pane answer without touching a provider.
   const handle = ent.paneId ?? view?.environment.handle ?? ent.key;
   return { backend, handle, key: ent.key };
-}
-
-export interface LifecycleTarget {
-  readonly entity: Entity;
-  /** The address orch reaches this agent by: its presence key, else its id. */
-  readonly key: string;
-  /** The composed agent, or null for a pane orch never minted an id for. */
-  readonly view: AgentView | null;
-  readonly backend: Backend;
-  /** Backend-native handle, or a headless pid/key signal handle. */
-  readonly handle: BackendHandle;
 }
 
 /** Every spelling that addresses one agent: its minted id, its mutable name, or

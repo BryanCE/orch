@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { runSetupSmoke, type SmokeSteps } from "../src/commands/setup.ts";
+import { runSetupSmoke } from "../src/commands/setup.ts";
+import type { SmokeSteps } from "../src/types/command.ts";
 
 /** Capture everything written to stdout+stderr so the smoke's verdict lines are assertable
  *  without a live daemon, model, or real spawn. */

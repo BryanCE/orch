@@ -9,6 +9,7 @@ import { createAgentWorktree } from "../worktree.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { openStore } from "../store/connection.ts";
 import { die, remoteWrite, splitOptionFlags } from "./target.ts";
+import type { QueueScopeFlags } from "../types/command.ts";
 
 export function renderQueueTasks(tasks: TaskRec[]): void {
   if (tasks.length === 0) {
@@ -46,13 +47,6 @@ function resolveAgent(directory: string, target: string): string {
   if (rows.length === 0) die(`Unknown agent: ${target}`);
   if (rows.length > 1) die(`Ambiguous agent: ${target}; use its id`);
   return rows[0]!.id;
-}
-
-/** The scope flags of `orch queue add`, before any of them is resolved. */
-export interface QueueScopeFlags {
-  agent?: string;
-  pack?: string;
-  space?: string;
 }
 
 /**

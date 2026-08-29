@@ -3,14 +3,7 @@ import { join } from "node:path";
 
 import { processInstanceMatches, processStartToken } from "../process-identity.ts";
 import { ensurePrivateDir, errnoCode, sleep } from "../util.ts";
-
-export interface CommandLock {
-  pid: number;
-  start_token: string;
-  holder: string;
-  note?: string;
-  acquired_at: number;
-}
+import type { CommandLock } from "../types/control.ts";
 
 interface CommandLockOptions {
   holder: string;

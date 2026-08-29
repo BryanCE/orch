@@ -3,8 +3,7 @@ import { join } from "node:path";
 import { orchDir } from "../presence/store.ts";
 import { isLogLevel, isLogRecord, type LogLevel, type LogRecord } from "../log.ts";
 import { die } from "./target.ts";
-
-export interface LogOptions { since?: number; level?: LogLevel; agent?: string; dispatch?: string; json: boolean; }
+import type { LogOptions } from "../types/command.ts";
 
 /** Exported so the filter contract is testable without a process exit: every
  *  invalid flag ends in `die`, and `die` cannot be observed from in-process. */

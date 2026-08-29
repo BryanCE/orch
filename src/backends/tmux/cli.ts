@@ -1,5 +1,6 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { runTool, runToolBestEffort } from "../tool-exec.ts";
+import type { TmuxPane, TmuxPaneRect } from "../../types/plexer.ts";
 
 const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   encoding: "utf8",
@@ -15,22 +16,6 @@ export function bestEffortTmux(args: string[]): string | null {
 /** Run tmux and let a failure throw (matches herdrExec: callers treat it as an error). */
 export function execTmux(args: string[], options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS): string {
   return runTool("tmux", args, undefined, options);
-}
-
-/** One tmux pane row from the shared inventory query (D1). */
-export interface TmuxPane {
-  readonly paneId: string;
-  readonly session: string;
-  readonly windowId: string;
-  readonly windowIndex: string;
-  readonly windowName: string;
-  readonly paneTitle: string;
-  readonly paneActive: boolean;
-  readonly windowActive: boolean;
-  readonly sessionAttached: boolean;
-  readonly agentKey: string;
-  readonly agent: string;
-  readonly agentName: string;
 }
 
 const FIELD_SEP = "\t";
@@ -84,12 +69,6 @@ function tmuxPanes(): TmuxPane[] {
 /** Panes stamped with an orch presence key, i.e. panes orch itself spawned. */
 export function orchPanes(): TmuxPane[] {
   return tmuxPanes().filter((pane) => pane.agentKey.length > 0);
-}
-
-/** One pane's id and cell geometry, for layout planning. */
-export interface TmuxPaneRect {
-  readonly paneId: string;
-  readonly rect: { readonly width: number; readonly height: number; readonly x: number; readonly y: number };
 }
 
 const RECT_FORMAT = ["#{pane_id}", "#{pane_width}", "#{pane_height}", "#{pane_left}", "#{pane_top}"].join(FIELD_SEP);

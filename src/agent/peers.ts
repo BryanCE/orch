@@ -69,17 +69,31 @@ function livePeers(ownKey: string, allSpaces = false): Peer[] {
   }
 }
 
+/**
+ * L6: what to do when the spawner cannot be reached.
+ *
+ * A bare refusal is a dead end, and a worker handed a dead end improvises. It
+ * did, live: two of four research agents spent their whole turn relaying
+ * `orch_send` to each other and returned chatter instead of their report. The
+ * refusal has to carry the answer, and the answer is never another agent — a
+ * sibling has no more access to the spawner than the caller does, so a relay
+ * costs a turn and delivers nothing.
+ */
+const UNREACHABLE_SPAWNER_ADVICE =
+  " Write your result and END the turn - it is collected from your result file."
+  + " Do NOT route your report through another agent; a sibling cannot reach it either.";
+
 /** The caller's own orchestrator, resolved by the address its launch stamped.
  *  The fleet wall never applies here: the spawner handed this worker its own
  *  address at launch, and replying to it is the one always-valid cross-scope edge. */
 function resolveSpawnerPeer(): PeerResolution {
   const key = optionalString(process.env.ORCH_SPAWNER);
   const label = optionalString(process.env.ORCH_SPAWNER_LABEL);
-  if (!key) return { error: `error: no spawner address recorded for this agent${label ? ` (spawned by ${label})` : ""}` };
+  if (!key) return { error: `error: no spawner address recorded for this agent${label ? ` (spawned by ${label})` : ""}.${UNREACHABLE_SPAWNER_ADVICE}` };
   const dir = presenceAgentDir(key);
   const status = readStatus(dir);
   if (!pidAlive(status.pid)) {
-    return { error: `error: spawner ${label ?? key} (${key}) has no live presence inbox to reply to` };
+    return { error: `error: spawner ${label ?? key} (${key}) has no live presence inbox to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
   }
   return { peer: { key, dir, status } };
 }

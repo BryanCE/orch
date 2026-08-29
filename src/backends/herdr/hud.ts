@@ -10,15 +10,6 @@
 // event name, or shell-out ever appears inside a harness directory.
 import { execFile } from "node:child_process";
 import { isAgentId } from "../identity.ts";
-import type {
-  BridgeNotifyEvent,
-  PaneHudContext,
-  PaneHudEventBus,
-  PaneHudOptions,
-  PaneHudRegistrar,
-  PaneLabels,
-  PaneStatusSnapshot,
-} from "../hud.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { environmentOf } from "../../store/agent-view.ts";
@@ -27,6 +18,7 @@ import { createPaneStateMachine } from "./pane-state-machine.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
+import type { BridgeNotifyEvent, PaneHudContext, PaneHudEventBus, PaneHudOptions, PaneHudRegistrar, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
 
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;

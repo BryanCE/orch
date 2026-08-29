@@ -4,14 +4,11 @@
 // (`pane.report_agent` etc.) lives here; the transport is the shared one-shot
 // dialer in `src/presence/socket-client.ts` (node built-ins only).
 import { requestJsonLine } from "../../presence/socket-client.ts";
-import type { PaneHudContext } from "../hud.ts";
 
 /** Working/blocked/idle — the single state herdr shows for this pane's agent. */
 /** The three states a herdr PANE can show. A strict subset of orch's vocabulary,
  *  derived from it so it can never drift into meaning something else. */
-import type { AgentState } from "../../agent-state.ts";
-
-export type PaneAgentState = Extract<AgentState, "working" | "blocked" | "idle">;
+import type { PaneAgentState, PaneHudContext, PaneSocketConfig, PaneStateSocket } from "../../types/plexer.ts";
 
 const RETRYABLE_ERROR_PATTERN =
   /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
@@ -46,25 +43,6 @@ export function retryableErrorMessage(event: { messages?: unknown[] }): string |
     : JSON.stringify(assistant.errorMessage ?? "") ?? "";
   if (!RETRYABLE_ERROR_PATTERN.test(message)) return undefined;
   return message || "retryable provider error";
-}
-
-export interface PaneSocketConfig {
-  socketPath: string;
-  paneId: string;
-  source: string;
-  agentId: string;
-  extensionHash: string;
-}
-
-export interface PaneStateSocket {
-  /** Latch the current session path/id off the harness context for later refs. */
-  updateSessionRef(ctx: PaneHudContext): void;
-  /** Tell herdr which agent session backs this pane (no-op without a ref). */
-  reportSession(): Promise<void>;
-  /** Hand herdr's full-lifecycle authority for this pane back on a real quit. */
-  releaseAgent(): Promise<void>;
-  /** Queue a state report; drains in seq order, one dial in flight at a time. */
-  enqueueState: (state: PaneAgentState, message?: string) => void;
 }
 
 export function createPaneStateSocket(config: PaneSocketConfig): PaneStateSocket {

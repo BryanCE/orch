@@ -43,7 +43,10 @@ describe("lifecycle target resolution", () => {
       [view("key-a", "worker"), view("key-b", "worker")],
       new Map([["key-a", presence("keyaagent1", true)], ["key-b", presence("keybagent1", true)]]),
       "worker",
-    )).toThrow(/Ambiguous target "worker".*key-a.*key-b/);
+      // U3: ONE wording for this refusal, built in `src/refusal.ts`. It names
+      // the failure, the target string, every candidate, and what to send
+      // instead - a list with no advice reads as a listing command's output.
+    )).toThrow(/Ambiguous target "worker"[\s\S]*key-a[\s\S]*key-b[\s\S]*address it by its key/);
   });
 
   test("cleanup can still resolve a dead agent when no live match exists", () => {

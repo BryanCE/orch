@@ -94,7 +94,7 @@ Two further defects fixed with it:
 
 Tests: `test/close-reports-every-target.test.ts` (4).
 
-## U3 — an ambiguous dispatch target prints a bare unlabelled list — OPEN
+## U3 — an ambiguous dispatch target prints a bare unlabelled list — FIXED
 
 `orch dispatch port-roles '<prompt>'` with two agents answering to that name printed only:
 
@@ -111,6 +111,16 @@ the prompt was silently discarded. The caller cannot tell this from a listing co
 **Expected:** name the failure, name the target string that was ambiguous, and tell the caller
 to address by key.
 
+**FIXED.** There were THREE wordings for this one refusal: `entities.ts` (the site an
+ambiguous `orch dispatch` actually hits) printed a bare candidate list with no advice, so it
+read as a listing command's output; `resolveAgentView` said "address by id"; and
+`resolveLifecycleTarget` said "address by key" — two names for a fact A1 settles, since the
+key IS the id. `ambiguousTargetRefusal` (`src/refusal.ts`) is now the one builder and every
+raiser uses it. It says the three things a refusal must say or it costs the caller their
+turn: WHAT failed, WHICH target string, and what to send instead — plus "so nothing was
+done", because the silently-discarded prompt was the real cost. Tests:
+`test/ambiguous-target-says-what-to-do.test.ts` (4).
+
 ## U4 — stale name rows shadow live agents after their pane dies — FIXED
 
 Root cause shared with U1/U2. A rename writes orch's name onto a record whose pane later dies;
@@ -126,7 +136,7 @@ unaddressable.
 (`presence.get(view.id)?.alive === true`), so a dead agent holds no name; what kept the dead
 row LOOKING live was the unconfirmed handle, which `confirmedHandle` now takes away.
 
-## U5 — `orch rename` leaves the pane border showing the OLD name — OPEN
+## U5 — `orch rename` leaves the pane border showing the OLD name — FIXED
 
 **Severity: high for usability.** The screen lies about which worker is which.
 
@@ -161,6 +171,18 @@ never changes whether orch's own name write succeeded. **The response states the
 outcomes separately.**" So the design already says one command, two reported outcomes —
 the implementation instead requires two commands. `--pane` should be for the rare case of
 deliberately giving the border something *different*, never the price of a correct display.
+
+**FIXED.** `orch rename <target> <name>` now sets orch's name, renames the agent, AND
+renames the pane in one command. orch's own registry write commits first and alone; the
+chrome is a separate action whose failure is REPORTED and never rewrites whether the rename
+happened, exactly as `TASKS/07-port-seam.md` specified. The response states the two outcomes
+separately — `--json` carries `renamed` alongside `chrome: "renamed" | "none" | "failed"`
+and `chromeError`, and the plain-text line says `(pane border NOT updated)` when the plexer
+refused. An environment with no pane naming reports `chrome: "none"`: no border to sync is
+an answer, not a failure (E14). `--pane` survives for its real purpose — giving the border
+something DIFFERENT on purpose — and still leaves the name alone. Also fixed here: the
+`as { pid?: unknown; start_token?: unknown }` cast in `recordedProcess` (Rule 13) is now
+`isRecord`. Tests: `test/rename-syncs-the-pane-border.test.ts` (4).
 
 ## U6 — `orch spawn --name` takes only a PREFIX, so a per-slice fleet costs N renames — FIXED
 

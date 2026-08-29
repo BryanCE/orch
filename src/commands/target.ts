@@ -11,7 +11,7 @@ import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { environmentOf } from "../store/agent-view.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
-import { CommandRefusal } from "../refusal.ts";
+import { ambiguousTargetRefusal, CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
@@ -273,8 +273,7 @@ export function resolveAgentView(
   const live = candidates.filter((view) => presence.get(view.id)?.alive === true);
   const preferred = live.length > 0 ? live : candidates;
   if (preferred.length > 1) {
-    const ids = preferred.map((view) => view.id).join(", ");
-    throw new Error(`Ambiguous target "${target}"; address by id: ${ids}`);
+    throw ambiguousTargetRefusal(target, preferred.map((view) => ({ key: view.id, detail: view.name })));
   }
   return preferred[0];
 }
@@ -294,8 +293,7 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
   const liveDirect = direct.filter((entity) => entity.presence?.alive === true);
   const directMatches = liveDirect.length > 0 ? liveDirect : direct;
   if (directMatches.length > 1) {
-    const keys = directMatches.map((entity) => entity.key).join(", ");
-    die(`Ambiguous target "${target}"; address by key: ${keys}`);
+    die(ambiguousTargetRefusal(target, directMatches.map((entity) => ({ key: entity.key, detail: entity.tabLabel }))).message);
   }
   let ent = directMatches[0];
   let view = ent ? viewForKey(views, ent.key) : undefined;

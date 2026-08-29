@@ -174,12 +174,16 @@ describe("orch space — absence is an answer", () => {
   test("focus with no space-home role names the space and what is missing", () => {
     const dir = tempDir();
     capture(() => runSpace(homeless(dir), ["create", "Release"]));
-    const output = capture(() => runSpace(homeless(dir), ["focus", "Release", "--json"]));
-    const answer = json(output);
+    // E14: an absence is an ANSWER, so it RETURNS - it does not throw, and
+    // `cmdSpace` is the only thing that turns a throw into a non-zero exit.
+    // Asserted on the call, not on `process.exitCode`: that is process-global
+    // state and bun shares the process across test files, so any other suite
+    // running a command that sets one races this assertion.
+    let answer: Record<string, unknown> = {};
+    expect(() => { answer = json(capture(() => runSpace(homeless(dir), ["focus", "Release", "--json"]))); }).not.toThrow();
     expect(answer).toMatchObject({ outcome: "answer", reason: "no-environment-role" });
     expect(String(answer.text)).toContain("Release");
     expect(String(answer.text)).toContain("focus");
-    expect(process.exitCode ?? 0).toBe(0);
   });
 
   test("the plain-text answer names the space too", () => {

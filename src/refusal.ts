@@ -17,3 +17,33 @@ export class CommandRefusal extends Error {
     this.name = "CommandRefusal";
   }
 }
+
+/** One candidate an ambiguous target matched, and what distinguishes it. */
+export interface AmbiguousCandidate {
+  readonly key: string;
+  /** Whatever tells a human these apart — a tab label, a harness, both. */
+  readonly detail: string | null;
+}
+
+/**
+ * The ONE wording for "that target matched more than one agent".
+ *
+ * `TASKS/11-usage-bugs.md` U3: this refusal used to have three. `entities.ts`
+ * printed a bare candidate list with no advice, so a caller read it as a
+ * listing command's output and lost the turn; `resolveAgentView` said "address
+ * by id" and `resolveLifecycleTarget` said "address by key" — two names for a
+ * fact A1 settles, since the key IS the id.
+ *
+ * A refusal has to say three things or it costs the caller their turn: WHAT
+ * failed, WHICH target string it was about, and what to send INSTEAD.
+ */
+export function ambiguousTargetRefusal(target: string, candidates: readonly AmbiguousCandidate[]): CommandRefusal {
+  const listed = candidates
+    .map((candidate) => `  ${candidate.key}${candidate.detail ? `  (${candidate.detail})` : ""}`)
+    .join("\n");
+  return new CommandRefusal(
+    `Ambiguous target ${JSON.stringify(target)}: it matches ${candidates.length} agents, so nothing was done.\n`
+    + `${listed}\n`
+    + "Pick one and address it by its key - a key never matches two agents.",
+  );
+}

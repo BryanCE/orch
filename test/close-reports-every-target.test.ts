@@ -35,11 +35,6 @@ const originalWrite = process.stdout.write.bind(process.stdout);
 
 afterEach(() => {
   process.stdout.write = originalWrite;
-  // `cmdClose` signals a partial sweep with `process.exitCode` (never
-  // `process.exit`, which would truncate the buffered JSON). That is
-  // process-wide state, so a test that provokes it must put it back or every
-  // later test in this runner inherits the failure.
-  process.exitCode = 0;
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
   if (oldKey === undefined) delete process.env.ORCH_AGENT_KEY; else process.env.ORCH_AGENT_KEY = oldKey;
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -71,7 +66,16 @@ function seedAgent(dir: string, key: string, handle: string, pid: number): void 
 function capture(action: () => void): Record<string, unknown> {
   let output = "";
   process.stdout.write = (chunk: string | Uint8Array) => { output += chunk.toString(); return true; };
-  try { action(); } finally { process.stdout.write = originalWrite; }
+  try { action(); } finally {
+    process.stdout.write = originalWrite;
+    // `cmdClose` signals a partial sweep with `process.exitCode` (never
+    // `process.exit`, which would truncate the buffered JSON above). That is
+    // process-wide state and bun shares the process across test files, so it is
+    // put back HERE, next to the call that set it - not in an afterEach that
+    // another file's assertion can run before. Undefined, not 0: other suites
+    // assert it is untouched, and 0 is a value.
+    process.exitCode = undefined;
+  }
   const parsed: unknown = JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
   if (!isRecord(parsed)) throw new Error(`expected a JSON object, got ${output}`);
   return parsed;

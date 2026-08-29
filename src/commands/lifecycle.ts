@@ -394,27 +394,58 @@ export async function cmdRestart(args: string[]): Promise<void> {
   if (ok !== targets.length) process.exit(1);
 }
 
-/** Write the new label into orch's registry, then let the backend show it. */
+/** What the plexer did with the name after orch's own write landed (U5). */
+interface ChromeOutcome {
+  readonly chrome: "renamed" | "none" | "failed";
+  readonly chromeError: string | null;
+}
+
+/**
+ * Write the new label into orch's registry, then let the plexer SHOW it.
+ *
+ * `TASKS/11-usage-bugs.md` U5: this used to relabel the agent and leave the pane
+ * BORDER reading the old name, because a separate `--pane` invocation set the
+ * border — two names for one fact, which Rule 9 forbids and
+ * `TASKS/01-agent-model.md` settles (a name is ONE piece of display metadata).
+ * The operator watches the panes; a stale border is worse than an ordinal
+ * because it actively lies about which worker holds which slice.
+ *
+ * orch's own name write commits FIRST and alone. The chrome is a separate action
+ * whose failure is reported and never rewrites whether the rename happened
+ * (`TASKS/07-port-seam.md`: "the response states the two outcomes separately").
+ */
 function renameAgent(
   backend: Backend,
   handle: BackendHandle,
   key: string,
   name: string,
   views: ReadonlyMap<string, AgentView>,
-): boolean {
+): ChromeOutcome | null {
   const view = viewForKey(views, key);
   if (!view) {
     lifecycleLogger(key).error("rename.unmanaged-agent", { target: key });
     process.stderr.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
-    return false;
+    return null;
   }
   assertNameFree(name, view.environment.space ?? "");
   const identity = tryParseIdentity(key);
-  if (!identity || !renameNormalizedAgent(orchDir(), identity.id, name)) return false;
+  if (!identity || !renameNormalizedAgent(orchDir(), identity.id, name)) return null;
   const role = backend.agentNaming;
   if (!role) throw new Error("target environment has no agent naming role");
   role.renameAgent(handle, name);
-  return true;
+  // The border follows the name in the SAME command. An environment with no
+  // pane naming has no border to sync, which is an answer, not a failure (E14).
+  const paneNaming = backend.paneNaming;
+  if (!paneNaming) return { chrome: "none", chromeError: null };
+  try {
+    paneNaming.renamePane(handle, name);
+    return { chrome: "renamed", chromeError: null };
+  } catch (error: unknown) {
+    const message = errorMessage(error);
+    lifecycleLogger(key).warn("rename.chrome-failed", { handle: String(handle), error: message });
+    process.stderr.write(`orch rename: named "${name}", but the pane border was not updated: ${message}\n`);
+    return { chrome: "failed", chromeError: message };
+  }
 }
 
 export function cmdRename(args: string[]) {
@@ -431,19 +462,28 @@ export function cmdRename(args: string[]) {
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.
   // --pane relabels the backend's pane chrome instead and leaves the name alone.
-  let renamed: boolean | undefined;
+  let outcome: ChromeOutcome | null = null;
   try {
     if (paneLabel) {
+      // `--pane` is for deliberately giving the border something DIFFERENT. It
+      // leaves orch's name alone; it is never the price of a correct display.
       if (!backend.paneNaming) throw new Error("target environment has no pane naming role");
       backend.paneNaming.renamePane(handle, name);
-      renamed = true;
-    } else renamed = renameAgent(backend, handle, key, name, views);
+      outcome = { chrome: "renamed", chromeError: null };
+    } else outcome = renameAgent(backend, handle, key, name, views);
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }
-  if (!renamed) die(`Could not rename ${handle}.`);
-  if (json) process.stdout.write(JSON.stringify({ target: handle, key, name, paneLabel, renamed: true }) + "\n");
-  else process.stdout.write(`${handle} -> ${paneLabel ? "pane label" : "named"} "${name}".\n`);
+  if (!outcome) die(`Could not rename ${handle}.`);
+  if (json) {
+    process.stdout.write(JSON.stringify({
+      target: handle, key, name, paneLabel, renamed: true,
+      chrome: outcome.chrome, chromeError: outcome.chromeError,
+    }) + "\n");
+  } else {
+    const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
+    process.stdout.write(`${handle} -> ${paneLabel ? "pane label" : "named"} "${name}"${chrome}.\n`);
+  }
 }
 
 interface RecordedProcess {
@@ -465,8 +505,8 @@ function recordedProcess(key: string): RecordedProcess | null {
   try {
     const row = openStore(orchDir()).query(
       "SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL",
-    ).get(agentIdOf(key)) as { pid?: unknown; start_token?: unknown } | null;
-    if (!row || typeof row.pid !== "number") return null;
+    ).get(agentIdOf(key));
+    if (!isRecord(row) || typeof row.pid !== "number") return null;
     return { pid: row.pid, ...(typeof row.start_token === "string" ? { startToken: row.start_token } : {}) };
   } catch {
     return null;

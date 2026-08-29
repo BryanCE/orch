@@ -8,7 +8,7 @@ import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import { agentView, agentViews } from "./store/agent-view.ts";
 import { selfId } from "./identity/self.ts";
-import { CommandRefusal } from "./refusal.ts";
+import { ambiguousTargetRefusal, CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
 export { recipientLabel } from "./recipient.ts";
@@ -322,10 +322,12 @@ function dedupeEntities(entities: Entity[]): Entity[] {
 }
 
 function ambiguous(target: string, entities: Entity[]): never {
-  const candidates = entities
-    .map((entity) => `  ${entity.key}${entity.tabLabel ? `  (${entity.tabLabel})` : ""}${entity.agent ? `  ${entity.agent}` : ""}`)
-    .join("\n");
-  throw new CommandRefusal(`Ambiguous target "${target}". Candidates:\n${candidates}`);
+  // U3: one wording, built in one place (src/refusal.ts). This site is the one
+  // an ambiguous `orch dispatch` hits, and it used to print a bare list.
+  throw ambiguousTargetRefusal(target, entities.map((entity) => ({
+    key: entity.key,
+    detail: [entity.tabLabel, entity.agent].filter(Boolean).join(" ") || null,
+  })));
 }
 
 function matchInPool(entities: Entity[], localTarget: string, target: string, host?: string | null): Entity | null {

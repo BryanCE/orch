@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { partitionAgents, projectFleet, projectHistory, type FleetProjectionRow } from "../packages/web/src/lib/fleet.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 
+// A1: a row's key is a minted agent id and nothing else. The plexer coordinates
+// below (`paneId`, the `wF` spaceId) stay where they belong — in environment
+// fields the projection must never promote to a name.
 const base = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow => ({
-  key: "herdr~wF~agent1234",
+  key: mintAgentId(),
   agentId: "agent1234",
   paneId: "wF:p1",
   name: null,
@@ -27,7 +31,7 @@ describe("web fleet projection", () => {
   test("uses the orch agent name and falls back to its minted id, never the plexer agent name", () => {
     const [named, unnamed] = projectFleet([
       base({ name: "reviewer" }),
-      base({ key: "herdr~wF~agent5678", agentId: "agent5678", name: null }),
+      base({ agentId: "agent5678", name: null }),
     ])[0]!.agents;
 
     expect(named!.name).toBe("reviewer");
@@ -52,21 +56,23 @@ describe("web fleet projection", () => {
   });
 
   test("history groups ended agents by provenance root, never by their leases", () => {
+    const childAKey = mintAgentId();
+    const childBKey = mintAgentId();
     const rows = [
-      base({ key: "herdr~wF~child-a", agentId: "child-a", rootAgentId: "pack-root", rootAgentName: "Release pack", name: "child-a", exited: true, lease: { holderId: "holder-a", holderName: "A", holderAlive: false }, leaseKnown: true }),
-      base({ key: "herdr~wG~child-b", agentId: "child-b", rootAgentId: "pack-root", rootAgentName: "Release pack", name: "child-b", exited: true, lease: { holderId: "holder-b", holderName: "B", holderAlive: false }, leaseKnown: true }),
+      base({ key: childAKey, agentId: "child-a", rootAgentId: "pack-root", rootAgentName: "Release pack", name: "child-a", exited: true, lease: { holderId: "holder-a", holderName: "A", holderAlive: false }, leaseKnown: true }),
+      base({ key: childBKey, agentId: "child-b", rootAgentId: "pack-root", rootAgentName: "Release pack", name: "child-b", exited: true, lease: { holderId: "holder-b", holderName: "B", holderAlive: false }, leaseKnown: true }),
     ];
 
     const [pack] = projectHistory(rows);
 
     expect(pack!.id).toBe("pack-root");
     expect(pack!.name).toBe("Release pack");
-    expect(pack!.agents.map((agent) => agent.key)).toEqual(["herdr~wF~child-a", "herdr~wG~child-b"]);
+    expect(pack!.agents.map((agent) => agent.key)).toEqual([childAKey, childBKey]);
   });
 
   test("live projection excludes ended rows and keeps unleased live agents out of history", () => {
-    const live = base({ key: "herdr~wF~live", agentId: "live", lease: null, leaseKnown: true });
-    const ended = base({ key: "herdr~wF~ended", agentId: "ended", rootAgentId: "pack-root", exited: true });
+    const live = base({ agentId: "live", lease: null, leaseKnown: true });
+    const ended = base({ agentId: "ended", rootAgentId: "pack-root", exited: true });
 
     expect(projectFleet([live, ended])[0]!.agents.map((agent) => agent.key)).toEqual([live.key]);
     expect(projectHistory([live, ended]).flatMap((pack) => pack.agents).map((agent) => agent.key)).toEqual([ended.key]);
@@ -89,7 +95,7 @@ describe("web fleet projection", () => {
 describe("live views group by lease (C7)", () => {
   const held = (id: string, holderId: string, holderName: string, over: Partial<FleetProjectionRow> = {}) =>
     base({
-      key: `herdr~wF~${id}`, agentId: id, name: id, spaceId: "space-1", spaceName: "Release",
+      agentId: id, name: id, spaceId: "space-1", spaceName: "Release",
       lease: { holderId, holderName, holderAlive: true }, leaseKnown: true, ...over,
     });
 
@@ -139,8 +145,8 @@ describe("live views group by lease (C7)", () => {
 
   test("history does NOT gain a lease level: a pack stays grouped by provenance", () => {
     const [pack] = projectHistory([
-      base({ key: "herdr~wF~e1", agentId: "e1", name: "e1", exited: true, rootAgentId: "pack-root", rootAgentName: "pack", lease: { holderId: "h1", holderName: "h1", holderAlive: false }, leaseKnown: true }),
-      base({ key: "herdr~wF~e2", agentId: "e2", name: "e2", exited: true, rootAgentId: "pack-root", rootAgentName: "pack", lease: { holderId: "h2", holderName: "h2", holderAlive: false }, leaseKnown: true }),
+      base({ agentId: "e1", name: "e1", exited: true, rootAgentId: "pack-root", rootAgentName: "pack", lease: { holderId: "h1", holderName: "h1", holderAlive: false }, leaseKnown: true }),
+      base({ agentId: "e2", name: "e2", exited: true, rootAgentId: "pack-root", rootAgentName: "pack", lease: { holderId: "h2", holderName: "h2", holderAlive: false }, leaseKnown: true }),
     ]);
 
     expect(pack!.id).toBe("pack-root");
@@ -162,7 +168,7 @@ describe("live views group by lease (C7)", () => {
  */
 describe("the orphan bucket holds every undriven agent (G9)", () => {
   const withLease = (id: string, lease: FleetProjectionRow["lease"]) =>
-    base({ key: `herdr~wF~${id}`, agentId: id, name: id, spaceId: "space-1", spaceName: "Release", lease, leaseKnown: true });
+    base({ agentId: id, name: id, spaceId: "space-1", spaceName: "Release", lease, leaseKnown: true });
 
   test("a lease whose holder is DEAD is an orphan, not live work", () => {
     const [space] = projectFleet([

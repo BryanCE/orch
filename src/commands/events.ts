@@ -1,4 +1,4 @@
-import { loadConfig, type NotifyEntry } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { buildEntities, currentSpace, resolveTarget, spaceOf } from "../entities.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
@@ -13,6 +13,7 @@ import { die } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 import type { PresenceMetadata } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
+import type { NotifyEntry } from "../types/config.ts";
 
 interface WatchItem {
   key: string;

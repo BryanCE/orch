@@ -1,8 +1,9 @@
-import { loadConfigOrNull, NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS, type NotifyEntry } from "../config.ts";
+import { loadConfigOrNull, NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../config.ts";
 import { commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
 import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
+import type { NotifyEntry } from "../types/config.ts";
 
 function warning(message: string): void { process.stderr.write(`notify: ${message}\n`); }
 

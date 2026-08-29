@@ -2,10 +2,11 @@
 // import is intentionally side-effect-only: notify.ts stays harness-neutral.
 import "../backends/registry.ts";
 import { createBuiltinNotifiers } from "../notify/sinks.ts";
-import { NOTIFY_STATES, type NotifyEntry, type NotifyState } from "../config.ts";
+import { NOTIFY_STATES } from "../types/config.ts";
 import { HERDR_SINK_ID } from "../backends/backend.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
 import type { Notifier, NotifierChoice, NotifierConfigField } from "../types/notify.ts";
+import type { NotifyEntry, NotifyState } from "../types/config.ts";
 
 const notifiers = createBuiltinNotifiers();
 

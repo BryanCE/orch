@@ -9,7 +9,7 @@ import {
   releaseDaemonRegistration,
 } from "./lifecycle.ts";
 import { rpcCall, startRpcServer } from "./rpc.ts";
-import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type NotifyEntry, type OrchConfig, configuredLogLevel } from "../config.ts";
+import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, configuredLogLevel } from "../config.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
@@ -38,6 +38,7 @@ import { decisionLogger } from "./decision-log.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
+import type { ConfigWatch, NotifyEntry, OrchConfig } from "../types/config.ts";
 
 interface LeasePayloadRow {
   holder_id: string;

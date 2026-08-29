@@ -5,7 +5,6 @@ import { z } from "zod";
 // (notify.ts → config.ts among others). It must never import the provider
 // registries — they evaluate every concrete adapter/backend, re-entering this
 // graph mid-initialization. The closed id sets live in the pure port modules.
-import { AGENT_STATES } from "./adapters/adapter.ts";
 import { ADAPTER_IDS } from "./types/adapter.ts";
 import { HERDR_SINK_ID } from "./backends/backend.ts";
 import { BACKEND_IDS, TILE_FIRST_SPLITS } from "./types/backend.ts";
@@ -13,9 +12,10 @@ import { THINKING_LEVELS } from "./types/policy.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
 import { ensurePrivateDir, errnoCode, errorMessage, isRecord } from "./util.ts";
 import { isLogLevel, type LogLevel } from "./log.ts";
-import type { BackendId, TileFirstSplit } from "./types/backend.ts";
+import type { BackendId } from "./types/backend.ts";
 import type { AdapterId } from "./types/adapter.ts";
 import type { ThinkingLevel } from "./types/policy.ts";
+import { NOTIFY_STATES, type ConfigWatch, type ConfigWatchOptions, type NotifyEntry, type NotifyState, type OrchConfig, type SettingSource } from "./types/config.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is
@@ -26,22 +26,19 @@ export const SETTINGS_SCHEMA = 1;
 
 const PositiveInt = z.number().int().positive();
 
-const HostSchema = z.strictObject({
+export const HostSchema = z.strictObject({
   /** SSH destination (for example, user@example.org). */
   dest: z.string().min(1),
   orch_dir: z.string().optional(),
   timeout_ms: z.number().int().positive().optional(),
 });
 
-/** The shared agent-state vocabulary used by presence, events, and notify sinks. */
-export const NOTIFY_STATES = AGENT_STATES;
-export type NotifyState = (typeof NOTIFY_STATES)[number];
 /** The states a notify entry delivers on when it declares no `on` list of its own:
  *  work needs you, work broke, work finished. A notifier silent on `done` never
  *  tells you the thing you were waiting for. */
 export const NOTIFY_DEFAULT_ON: readonly NotifyState[] = ["blocked", "error", "done"];
 const NotifyOnSchema = z.array(z.enum(NOTIFY_STATES)).optional();
-const NotifyEntrySchema = z.discriminatedUnion("id", [
+export const NotifyEntrySchema = z.discriminatedUnion("id", [
   z.strictObject({ id: z.literal("desktop"), on: NotifyOnSchema }),
   z.strictObject({
     id: z.literal("webhook"),
@@ -66,11 +63,9 @@ const NotifyEntrySchema = z.discriminatedUnion("id", [
   z.strictObject({ id: z.literal(HERDR_SINK_ID), on: NotifyOnSchema }),
 ]);
 
-
 /** Every sink id, read off the schema so nothing re-lists the union. A sink named
  *  for a plexer must not put that plexer's name in core (Rule 10). */
 export const NOTIFY_IDS: readonly string[] = NotifyEntrySchema.options.map((option) => option.shape.id.value);
-export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 
 export const SETTINGS_DEFAULTS = {
   fleet: { spawn_cap: 8, pack_cap: 10, worker_peer_tools: false, cross_space: false },
@@ -186,28 +181,6 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
 });
 
 type SettingsFile = z.infer<typeof SETTINGS_FILE_SCHEMA>;
-export type HostConfig = z.infer<typeof HostSchema>;
-
-/** Settings normalized for consumers: every section present and defaults applied. */
-export interface OrchConfig {
-  runtime: OrchRuntime;
-  enabled: { adapters: AdapterId[]; backends: BackendId[] };
-  defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
-  fleet: { spawn_cap: number; pack_cap?: number; max_agents?: number; space_caps: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
-  models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
-  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
-  queue: { max_retries: number };
-  retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; logs_days: number };
-  logging?: { level: LogLevel };
-  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
-  notify: NotifyEntry[];
-  locked_commands: string[];
-  hosts: Record<string, HostConfig>;
-  spaces: Record<string, string>;
-  daemon: { tcp_port: number; idle_shutdown_minutes: number };
-  tiling: { first_split: TileFirstSplit };
-  skills: { install: boolean; roots: string[] };
-}
 
 /** The settings filename, as a directory watcher sees it. */
 const SETTINGS_FILE = "settings.json";
@@ -468,17 +441,6 @@ export function declaredRuntime(orchDir: string): OrchRuntime {
 /** Manual reload trigger: touching this file reloads config without editing it. */
 const RELOAD_SIGNAL_FILE = "reload.signal";
 
-export interface ConfigWatchOptions {
-  onChange: (config: OrchConfig) => void;
-  onWarn?: (message: string) => void;
-  debounceMs?: number;
-  pollMs?: number;
-};
-
-export interface ConfigWatch {
-  stop: () => void;
-};
-
 function triggersReload(filename: string | Buffer | null | undefined): boolean {
   return namesSettingsFile(filename) || filename?.toString() === RELOAD_SIGNAL_FILE;
 }
@@ -606,9 +568,6 @@ function coerceEnvironment<T>(value: string, fallback: T, name: string): T {
   }
   return converted;
 }
-
-/** Where a resolved setting's winning value came from. */
-export type SettingSource = "flag" | "env" | "settings.json" | "default";
 
 /** Resolve a setting with its winning source. The ONE precedence order — flag > env > settings.json > default; `resolveSetting` delegates here so the two can never drift. */
 export function resolveWithSource<T>(opts: { flag?: T; env?: string; config?: unknown; fallback: T }): { value: T; source: SettingSource } {

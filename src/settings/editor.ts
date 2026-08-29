@@ -1,45 +1,4 @@
-import type { SettingKind, SettingSpec } from "./spec.ts";
-
-/** A declared setting together with the value currently shown by the editor. */
-export interface EditorSetting {
-  readonly spec: SettingSpec;
-  readonly value: unknown;
-  /** Provenance used by the shell when rendering the row. */
-  readonly source?: string;
-  /** A flag or environment value that wins over settings.json, making this row read-only. */
-  readonly override?: string;
-}
-
-export interface PendingWrite {
-  readonly key: string;
-  readonly value: unknown;
-}
-
-export interface BrowsingState {
-  readonly mode: "browsing";
-  readonly settings: readonly EditorSetting[];
-  readonly focusedIndex: number;
-  readonly pendingWrites: readonly PendingWrite[];
-  readonly reason?: string;
-}
-
-export interface EditingState {
-  readonly mode: "editing";
-  readonly settings: readonly EditorSetting[];
-  readonly focusedIndex: number;
-  readonly focused: EditorSetting;
-  readonly draft: unknown;
-  readonly pendingWrites: readonly PendingWrite[];
-  readonly reason?: string;
-}
-
-export type EditorState = BrowsingState | EditingState;
-
-export type EditorAction =
-  | { readonly type: "move"; readonly direction: "up" | "down" }
-  | { readonly type: "open" }
-  | { readonly type: "cancel" }
-  | { readonly type: "commit"; readonly value: unknown };
+import type { BrowsingState, EditorAction, EditorSetting, EditorState, PendingWrite, SettingKind } from "../types/config.ts";
 
 /** Create a browsing editor over a grouped, ordered copy of the declarations. */
 export function createEditorState(settings: readonly EditorSetting[]): BrowsingState {

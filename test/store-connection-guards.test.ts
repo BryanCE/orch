@@ -10,6 +10,9 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 const dirs: string[] = [];
 const originalAgentKey = process.env.ORCH_AGENT_KEY;
 
+/** A1: `ORCH_AGENT_KEY` carries a minted agent id and nothing else. */
+const SPAWNED_AGENT_KEY = "s3p4wn3d01";
+
 afterEach(() => {
   closeAllStores();
   if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
@@ -51,6 +54,10 @@ describe("store migration guards", () => {
     const dir = fixture();
     const path = unmigrated(dir);
     const before = readFileSync(path);
+    // The guard asks only whether a presence record is LIVE, never what shape
+    // its directory name has, so this fixture keeps a name orch would never
+    // mint: a directory on disk can be called anything, and the refusal has to
+    // survive one that is.
     const presenceDir = join(dir, "agents", "herdr~w1~p1");
     mkdirSync(presenceDir, { recursive: true });
     writeFileSync(join(presenceDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, pid: process.pid, state: "working" }));
@@ -83,7 +90,7 @@ describe("a slave never reaps or recreates the store", () => {
     const dir = fixture();
     const path = unmigrated(dir);
     const before = readFileSync(path);
-    process.env.ORCH_AGENT_KEY = "herdr~w1~agent-1";
+    process.env.ORCH_AGENT_KEY = SPAWNED_AGENT_KEY;
 
     const message = refusalMessage(() => openStore(dir));
 
@@ -101,6 +108,8 @@ describe("a slave never reaps or recreates the store", () => {
     const dir = fixture();
     openStore(dir);
     closeAllStores();
+    // Deliberately not a minted id: the refusal names whatever directory it
+    // found, and must not silently skip one whose name it cannot parse.
     seedLivePresence(dir, "herdr~w1~p1", process.pid);
 
     // No ORCH_AGENT_KEY: this is the user, and the living agent's identity is
@@ -115,6 +124,7 @@ describe("a slave never reaps or recreates the store", () => {
     const dir = fixture();
     openStore(dir);
     closeAllStores();
+    // Same unparseable directory name, dead pid: still not a live holder.
     seedLivePresence(dir, "herdr~w1~dead", 999999);
 
     expect(() => assertStoreRecreatable(dir)).not.toThrow();
@@ -124,7 +134,7 @@ describe("a slave never reaps or recreates the store", () => {
     const dir = fixture();
     openStore(dir);
     closeAllStores();
-    process.env.ORCH_AGENT_KEY = "herdr~w1~agent-1";
+    process.env.ORCH_AGENT_KEY = SPAWNED_AGENT_KEY;
 
     expect(refusalMessage(() => assertStoreRecreatable(dir))).toMatch(/spawned agent/i);
   });

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync, utimesSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import { loadConfigOrNull, SETTINGS_SCHEMA, type OrchConfig } from "../src/config.ts";
+import { loadConfigOrNull, SETTINGS_SCHEMA } from "../src/config.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
@@ -16,6 +16,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { writeResult } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { RunRecord } from "../src/types/store.ts";
+import type { OrchConfig } from "../src/types/config.ts";
 
 const directories: string[] = [];
 

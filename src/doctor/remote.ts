@@ -1,9 +1,10 @@
 import * as path from "node:path";
-import { loadConfigOrNull, type HostConfig } from "../config.ts";
+import { loadConfigOrNull } from "../config.ts";
 import { runSSH } from "../remote.ts";
 import { readJson } from "./shared.ts";
 import { isRecord, packageRoot, shellQuote } from "../util.ts";
 import type { CheckResult, SshRunner } from "../types/doctor.ts";
+import type { HostConfig } from "../types/config.ts";
 
 /** The configured remote hosts. An install with no settings.json has none — the subject of these
  * checks is the host list, so its absence is an honest empty answer, not a defect. */

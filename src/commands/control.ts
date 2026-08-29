@@ -4,7 +4,7 @@ import { collapse, recipientFor, recipientLabel, resolveTarget, type Entity } fr
 import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords } from "../presence/store.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
-import { loadConfig, type OrchConfig } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { callDaemon, parseGovernance, writeRpc, type WriteGovernance } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
@@ -15,6 +15,7 @@ import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;

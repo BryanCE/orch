@@ -13,7 +13,7 @@ import {
 import { emitAndNotify } from "./events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, statusForPresence } from "../presence/store.ts";
-import { loadConfig, type OrchConfig } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
@@ -23,6 +23,7 @@ import { sweepExpiredRows } from "./retention.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { NotifyEvent } from "../types/notify.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 export interface WorkOptions {
   orchDir: string;

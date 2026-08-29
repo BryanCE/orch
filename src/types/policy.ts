@@ -1,7 +1,7 @@
-import type { OrchConfig } from "../config.ts";
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { VOCABULARY } from "../policy/vocabulary.ts";
+import type { OrchConfig } from "./config.ts";
 
 export interface WallDecision {
   allowed: boolean;

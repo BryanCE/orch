@@ -1,4 +1,4 @@
-import { loadConfig, type OrchConfig } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
@@ -8,6 +8,7 @@ import { readAssignFlag, validateSetupFlag } from "./setup.ts";
 import { die } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId, HarnessModel } from "../types/adapter.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 /**
  * `orch models` — what each installed harness says it can run.

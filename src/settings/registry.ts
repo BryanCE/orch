@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { SETTINGS_FILE_SCHEMA, writeSettingsValue, type OrchConfig } from "../config.ts";
-import type { SettingKind, SettingSpec } from "./spec.ts";
+import { SETTINGS_FILE_SCHEMA, writeSettingsValue } from "../config.ts";
+import type { OrchConfig, SettingKind, SettingSpec } from "../types/config.ts";
 
 interface JsonSchemaNode {
   readonly type?: string;

@@ -1,5 +1,6 @@
 import * as files from "node:fs";
-import { loadConfig, NOTIFY_DEFAULT_ON, NOTIFY_STATES, resolveWithSource, settingsPath, writeSettingsDefault, SETTINGS_DEFAULTS, type NotifyEntry, type NotifyState, type OrchConfig } from "../config.ts";
+import { loadConfig, NOTIFY_DEFAULT_ON, resolveWithSource, settingsPath, writeSettingsDefault, SETTINGS_DEFAULTS } from "../config.ts";
+import { NOTIFY_STATES } from "../types/config.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
@@ -15,8 +16,8 @@ import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
-import type { SettingKind, SettingSpec } from "../settings/spec.ts";
 import type { NotifierChoice } from "../types/notify.ts";
+import type { NotifyEntry, NotifyState, OrchConfig, SettingKind, SettingSpec } from "../types/config.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */

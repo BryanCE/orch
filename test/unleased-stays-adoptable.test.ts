@@ -7,9 +7,9 @@ import { insertAgent } from "../src/store/agent-rows.ts";
 import { adoptLease, currentLease } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/retention.ts";
-import { type OrchConfig } from "../src/config.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { OrchConfig } from "../src/types/config.ts";
 
 /**
  * TASKS/02-scope.md D3 — "Unleased + idle stays alive and adoptable,

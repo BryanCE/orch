@@ -30,12 +30,17 @@ afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
+/** A1: a presence directory is named by the agent's minted id — 10 lowercase
+ *  alphanumerics, no plexer and no pane handle welded in. */
+const DEAD_KEY = "d3adagnt01";
+const LIVE_KEY = "l1veagnt02";
+
 describe("doctor stale presence safety", () => {
   const DEAD_PID = 2147483646; // no process will hold this pid
 
   test("describes a dead agent by name and project, not a bare key", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, "wD-p1A", {
+    writeDeadAgent(directory, DEAD_KEY, {
       pid: DEAD_PID,
       label: "docs-2",
       agent: "pi",
@@ -46,12 +51,12 @@ describe("doctor stale presence safety", () => {
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("docs-2");
     expect(result.detail).toContain("project orch");
-    expect(result.detail).toContain("wD-p1A");
+    expect(result.detail).toContain(DEAD_KEY);
   });
 
   test("the removal fix is marked destructive so UIs never pre-select it", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, "wD-p1A", { pid: DEAD_PID, label: "docs-2", agent: "pi", cwd: "/x/orch" });
+    writeDeadAgent(directory, DEAD_KEY, { pid: DEAD_PID, label: "docs-2", agent: "pi", cwd: "/x/orch" });
     const result = staleResult(await runDoctor(directory));
     expect(result.fix?.destructive).toBe(true);
     expect(result.fix?.description).toContain("docs-2");
@@ -59,7 +64,7 @@ describe("doctor stale presence safety", () => {
 
   test("no dead agents leaves nothing to remove", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, "wD-p1B", { schema: PRESENCE_SCHEMA, pid: process.pid, label: "alive", agent: "pi", cwd: "/x/orch" });
+    writeDeadAgent(directory, LIVE_KEY, { schema: PRESENCE_SCHEMA, pid: process.pid, label: "alive", agent: "pi", cwd: "/x/orch" });
     const result = staleResult(await runDoctor(directory));
     expect(result.status).toBe("ok");
     expect(result.fix).toBeUndefined();

@@ -1,10 +1,10 @@
-import { loadConfig, settingsPath, type SettingSource } from "../config.ts";
+import { loadConfig, settingsPath } from "../config.ts";
 import { promptMultiselect, promptSelect, promptText } from "../setup/io.ts";
-import { createEditorState, editorReducer, type EditorSetting, type EditorState } from "./editor.ts";
+import { createEditorState, editorReducer } from "./editor.ts";
 import { SETTINGS_REGISTRY } from "./registry.ts";
-import type { SettingKind, SettingSpec } from "./spec.ts";
 import * as files from "node:fs";
 import { isRecord } from "../util.ts";
+import type { EditorSetting, EditorState, SettingKind, SettingSource, SettingSpec } from "../types/config.ts";
 
 function rawValue(root: unknown, key: string): unknown {
   let current = root;

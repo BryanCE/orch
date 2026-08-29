@@ -1,4 +1,4 @@
-import { loadConfigOrNull, type OrchConfig } from "../config.ts";
+import { loadConfigOrNull } from "../config.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
@@ -28,6 +28,7 @@ import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 import type { DriveState } from "../types/agent.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);

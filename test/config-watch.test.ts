@@ -2,9 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { settingsPath, watchConfig, type ConfigWatch, type OrchConfig } from "../src/config.ts";
+import { settingsPath, watchConfig } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { ConfigWatch, OrchConfig } from "../src/types/config.ts";
 
 const directories: string[] = [];
 const watches: ConfigWatch[] = [];

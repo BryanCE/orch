@@ -27,9 +27,17 @@ afterEach(() => {
 
 const PALETTE = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"];
 
+/** A1: an event's key is a minted agent id — 10 lowercase alphanumerics and
+ *  nothing else. The space travels as its own field, never inside the key. */
+const EVENT_KEY = "q7f3m2x9k1";
+
+/** The presence key used for task-shaping cases. It names no registered agent;
+ *  what it must never do is carry a plexer or a handle. */
+const TASK_KEY = "z4b8n1p7r3";
+
 function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   return {
-    key: "herdr~w6~p21",
+    key: EVENT_KEY,
     space: "w6",
     agent: "w-2",
     tab: null,
@@ -56,11 +64,9 @@ describe("notification and presence event formatting", () => {
   });
 
   test("nameless events use an identity-derived agent label", () => {
-    const before = "DONE [w6] herdr~w6~p21: build the thing";
     const after = notificationText(event({ agent: null }), { colorize: false }).title;
-    expect(before).toContain("herdr~w6~p21");
-    expect(after).toContain("herdr~w6~p21");
-    expect(after).toContain("w6/agent-herdr~w6~p21");
+    expect(after).toContain(EVENT_KEY);
+    expect(after).toContain(`w6/agent-${EVENT_KEY}`);
     expect(after).toContain("[w6]");
   });
 
@@ -105,7 +111,7 @@ describe("notification and presence event formatting", () => {
       space: "w6",
       spaceColor: spaceColor("w6"),
       host: null,
-      key: "herdr~w6~p21",
+      key: EVENT_KEY,
       agent: "w-2",
       name: null,
       tab: null,
@@ -125,14 +131,14 @@ describe("notification and presence event formatting", () => {
   test("presence eventTask strips worker preamble, truncates plain tasks, and formats questions", () => {
     const orchDir = tempOrchDir();
     const dispatched = `${workerHeaderFor(undefined)}\n\nbuild the real thing`;
-    expect(transition(orchDir, "herdr~w8~p3", { state: "done", task: dispatched })?.task).toBe("build the real thing");
+    expect(transition(orchDir, TASK_KEY, { state: "done", task: dispatched })?.task).toBe("build the real thing");
 
     const longTask = "x".repeat(100);
-    expect(transition(orchDir, "herdr~w8~p3", { state: "done", task: longTask })?.task).toBe(`${"x".repeat(77)}...`);
+    expect(transition(orchDir, TASK_KEY, { state: "done", task: longTask })?.task).toBe(`${"x".repeat(77)}...`);
     const longDispatched = `${workerHeaderFor(undefined)}\n\n${"x".repeat(TASK_MAX + 20)}`;
     expect(prepareWorkerTask(longDispatched, TASK_MAX)).toBe(`${"x".repeat(TASK_MAX - 3)}...`);
-    expect(transition(orchDir, "herdr~w8~p3", { state: "done", task: longDispatched })?.task).toBe(`${"x".repeat(77)}...`);
-    expect(transition(orchDir, "herdr~w8~p3", { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
+    expect(transition(orchDir, TASK_KEY, { state: "done", task: longDispatched })?.task).toBe(`${"x".repeat(77)}...`);
+    expect(transition(orchDir, TASK_KEY, { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
   });
 
   // A1: the event's space is COMPOSED from the agent's own environment satellite,

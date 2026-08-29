@@ -6,8 +6,8 @@ import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/retention.ts";
-import { type OrchConfig } from "../src/config.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { OrchConfig } from "../src/types/config.ts";
 
 /**
  * TASKS/02-scope.md H3 — "Reap must walk the provenance tree — refusing to

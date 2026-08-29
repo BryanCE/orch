@@ -1,4 +1,4 @@
-import { loadConfig, type HostConfig } from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
 import { loadPresence, orchDir } from "./presence/store.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
@@ -16,6 +16,7 @@ export { recipientLabel, type Recipient } from "./recipient.ts";
 import type { Backend, BackendTarget } from "./types/backend.ts";
 import type { AgentView } from "./types/store.ts";
 import type { PresenceEntry } from "./types/presence.ts";
+import type { HostConfig } from "./types/config.ts";
 
 export interface Entity {
   key: string;

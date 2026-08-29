@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
-import type { HostConfig } from "./config.ts";
 import { osSide, shellQuote } from "./util.ts";
+import type { HostConfig } from "./types/config.ts";
 
 const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
 

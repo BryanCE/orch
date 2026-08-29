@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config.ts";
 import { shouldLaunchSettingsEditor } from "../src/commands/settings.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
-import { createEditorState, editorReducer, type EditorSetting } from "../src/settings/editor.ts";
-import type { SettingSpec } from "../src/settings/spec.ts";
+import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import type { EditorSetting, SettingSpec } from "../src/types/config.ts";
 
 function setting(key: string, value: unknown, env?: string): EditorSetting {
   const spec: SettingSpec = {

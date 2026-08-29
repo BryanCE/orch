@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { workerTools } from "../src/policy/workers.ts";
-import { SETTINGS_DEFAULTS, type OrchConfig } from "../src/config.ts";
+import { SETTINGS_DEFAULTS } from "../src/config.ts";
+import type { OrchConfig } from "../src/types/config.ts";
 
 const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfig => ({
   ...SETTINGS_DEFAULTS,

@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { OrchConfig } from "../src/config.ts";
-import type { SettingKind, SettingSpec } from "../src/settings/spec.ts";
-import {
-  createEditorState,
-  editorReducer,
-  type EditorSetting,
-} from "../src/settings/editor.ts";
+import type { EditorSetting, OrchConfig, SettingKind, SettingSpec } from "../src/types/config.ts";
+import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 
 const configReader = (value: unknown): ((config: OrchConfig) => unknown) =>
   (_config: OrchConfig) => value;

@@ -7,7 +7,7 @@ describe("agent identity shown to an operator", () => {
       name: "snapshot-recon-1",
       harness: "pi",
       multiplexer: "herdr",
-      transportId: "herdr~wF~v4gh24w0af",
+      transportId: "v4gh24w0af",
     });
 
     expect(label).toBe("pi/herdr: snapshot-recon-1");
@@ -20,9 +20,9 @@ describe("agent identity shown to an operator", () => {
   });
 
   test("a nameless agent gets a stable logical name, not its key", () => {
-    const recipient = recipientFromStatus("headless~ws~abc123", "ws", { agent: "pi" });
+    const recipient = recipientFromStatus("abc123def7", "ws", { agent: "pi" });
 
-    expect(recipient.name).toBe("ws/agent-headless~ws~abc123");
-    expect(recipientLabel(recipient)).toBe("pi: ws/agent-headless~ws~abc123");
+    expect(recipient.name).toBe("ws/agent-abc123def7");
+    expect(recipientLabel(recipient)).toBe("pi: ws/agent-abc123def7");
   });
 });

@@ -1,5 +1,5 @@
-import type { OrchConfig } from "../config.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 /** Orch's own tools, always available — they are how a worker talks back. */
 const ORCH_BASE_TOOLS = ["orch_ask"] as const;

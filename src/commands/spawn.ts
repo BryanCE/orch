@@ -1,6 +1,6 @@
 import { bridgeRegistered, orchDir, recordSpawned } from "../presence/store.ts";
 import { recordGrantRequest, spendGrant } from "../store/grant-rows.ts";
-import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
+import { loadConfig, resolveSetting } from "../config.ts";
 import { assertNameFree, assertValidAgentName } from "../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
 import { assertModelAllowed } from "../policy/model.ts";
@@ -30,6 +30,7 @@ import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { AgentView, GrantAction } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 function spawnLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;

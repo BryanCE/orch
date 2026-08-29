@@ -1,4 +1,4 @@
-import { loadConfig, type HostConfig } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { getBackend } from "../backends/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
@@ -16,6 +16,7 @@ import { commandLogger } from "./logging.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
+import type { HostConfig } from "../types/config.ts";
 
 export function die(msg: string): never {
   commandLogger().error("command.failed", { error: msg });

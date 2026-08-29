@@ -5,7 +5,7 @@ import { localStatusTable, type StatusRow } from "../src/commands/status.ts";
  *  instead of being silently absent from every fixture (CLAUDE.md Rule 13). */
 function statusRow(overrides: Partial<StatusRow>): StatusRow {
   const base: StatusRow = {
-    key: "headless~wF~agent00001",
+    key: "agent00001",
     agentId: "agent00001",
     paneId: null,
     managed: true,
@@ -80,7 +80,7 @@ describe("the rendered status table carries the owner column", () => {
   test("each row's OWNER cell holds that row's lease fact", () => {
     const table = localStatusTable([
       statusRow({ name: "held", owner: "orch00001" }),
-      statusRow({ key: "headless~wF~agent00002", name: "loose", owner: "no orch driving it" }),
+      statusRow({ key: "agent00002", agentId: "agent00002", name: "loose", owner: "no orch driving it" }),
     ], false);
 
     expect(cellUnder(table, "OWNER", 2)).toBe("orch00001");

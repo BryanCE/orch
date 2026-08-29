@@ -242,7 +242,9 @@ describe("space policy", () => {
 
   test("a null current space leaves items unscoped", () => {
     const dir = storeDir("orch-space-scope-null-");
-    const items = ["herdr~w1~p1", "herdr~w2~p2", "session-123"];
+    // A1: the items are minted agent ids. With no current space there is
+    // nothing to scope against, so they come back untouched.
+    const items = ["p1agent0001", "p2agent0002", "session-123"];
     expect(scopeToSpace(dir, items, (item) => item, null, { all: false })).toBe(items);
   });
 

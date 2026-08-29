@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SETTINGS_DEFAULTS, loadConfig, type OrchConfig } from "../src/config.ts";
+import { SETTINGS_DEFAULTS, loadConfig } from "../src/config.ts";
 import { cmdSpawn, spawnPolicyError } from "../src/commands/spawn.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { presenceAgentDir, recordSpawned } from "../src/presence/store.ts";
@@ -12,6 +12,7 @@ import { openStore } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
+import type { OrchConfig } from "../src/types/config.ts";
 
 const tempDirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;

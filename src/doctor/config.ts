@@ -1,9 +1,10 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadConfig, loadConfigOrNull, settingsPath, type OrchConfig } from "../config.ts";
+import { loadConfig, loadConfigOrNull, settingsPath } from "../config.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
 import { errorMessage } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();

@@ -1,4 +1,3 @@
-import type { OrchConfig } from "../config.ts";
 import { loadPresence, reapDeadPresenceDirs, reapSpawnedRecord } from "../presence/store.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { allBackends } from "../backends/registry.ts";
@@ -11,6 +10,7 @@ import { openStore } from "../store/connection.ts";
 import { isRecord } from "../util.ts";
 import { rmSync, statSync } from "node:fs";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
+import type { OrchConfig } from "../types/config.ts";
 
 function isEndedAgentRow(value: unknown): value is { agent_id: string } {
   return isRecord(value) && typeof value.agent_id === "string";

@@ -244,7 +244,11 @@ export async function cmdDispatch(args: string[]) {
     registerSpawnedAgent(orchDir(), {
       key,
       harnessId: settings.adapter,
-      backendId: settings.ent.backend ?? "headless",
+      // An entity that names no plexer is in no plexer, and that is the answer —
+      // never a sentinel id standing in for a missing one (Rule 11, and the
+      // `backendId` contract in SpawnRegistration). Absent here means no row in
+      // `agent_plexers`, which is exactly what a capless adopted pane is.
+      ...(settings.ent.backend === null ? {} : { backendId: settings.ent.backend }),
       // An adopted bare pane is a pane orch did not open: the plexer's own
       // address for it is the handle, and an entity with none states none.
       pane: false,

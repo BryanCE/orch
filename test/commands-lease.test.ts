@@ -118,7 +118,7 @@ describe("lease commands", () => {
     agent(dir, key, "abort-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
-    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "abort-handle" });
+    recordSpawned(key, { backend: "headless", space: "space", handle: "abort-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
@@ -141,7 +141,7 @@ describe("lease commands", () => {
     agent(dir, key, "close-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
-    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: "close-handle" });
+    recordSpawned(key, { backend: "headless", space: "space", handle: "close-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));

@@ -18,7 +18,7 @@ export interface DoctorBackendReport {
   available?: boolean;
   insideSession: boolean;
   roles: readonly string[];
-  workspace: string | null;
+  space: string | null;
 }
 
 export interface IgnoredPresenceRecord {

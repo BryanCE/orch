@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deriveDriveState, deriveView, displayStatusState, formatNoRowsMessage, formatWorkspace, normalizeStatusRow, scopeFleetRows, statusRowFromView, warningStatusRow } from "../src/commands/status.ts";
+import { deriveView, displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromView, warningStatusRow } from "../src/commands/status.ts";
+import { deriveDriveState } from "../src/agent/drive-state.ts";
 import type { Entity } from "../src/entities.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -11,7 +12,7 @@ import { processStartToken } from "../src/process-identity.ts";
 
 const seededEntity = {
   key: "herdr~local~app:p1", paneId: "app:p1", name: "worker", tabLabel: "app", agent: "pi",
-  focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, workspace: "local",
+  focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, space: "local",
   presence: {
     key: "herdr~local~app:p1", dir: "/tmp/pres", alive: true, result: { text: "done" },
     status: {
@@ -69,7 +70,7 @@ describe("commands/status", () => {
       focused: true, model: "openai-codex/gpt-5.6:medium", modelShort: "gpt-5.6:medium",
       state: "working", stateFallback: false, exited: false, cost: 2.5, ctxPercent: 33,
       task: "build the thing", lastText: "on it", presenceOnly: false, tokens: { input: 10 },
-      turns: 4, workspace: "local",
+      turns: 4, spaceId: "local",
     });
     expect(row.host).toBeUndefined();
   });
@@ -129,8 +130,8 @@ describe("commands/status", () => {
     expect(jsonRow.host).toBeUndefined();
   });
   test("formats workspace labels and warnings", () => {
-    expect(formatWorkspace("w", "Workspace")).toBe("Workspace (w)");
-    expect(formatWorkspace(null, null)).toBe("-");
+    expect(formatSpace("w", "Workspace")).toBe("Workspace (w)");
+    expect(formatSpace(null, null)).toBe("-");
     expect(warningStatusRow("remote", "down")).toMatchObject({ key: "warning:remote", state: "warning", warning: "down" });
   });
 });

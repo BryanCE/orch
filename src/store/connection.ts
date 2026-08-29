@@ -236,7 +236,12 @@ export function closeAllStores(): void {
     // A WAL-mode database file can stay locked on Windows past close(); leaving
     // WAL first releases the mapping so the file is deletable the moment close
     // returns, which is what lets a test remove its temp dir.
-    try { opened.port.exec("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;"); } catch {}
+    // Two statements, two execs: the checkpoint fails outright while any
+    // statement the migrator prepared is still open, and running both in one
+    // exec let that failure skip the journal-mode reset — which is what left a
+    // `-wal` sidecar beside a store orch had promised not to touch.
+    try { opened.port.exec("PRAGMA wal_checkpoint(TRUNCATE);"); } catch {}
+    try { opened.port.exec("PRAGMA journal_mode = DELETE;"); } catch {}
     opened.port.close();
     connections.delete(path);
   }

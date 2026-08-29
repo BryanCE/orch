@@ -8,14 +8,19 @@ import {
   claimTask,
   listTasks,
   nextQueuedTask,
+  openPackIntake,
+  requireTask,
+  closePackIntake,
+  packIntakes,
   recordTaskFailure,
   taskShouldRetry,
 } from "../src/queue.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
-import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
+import { acquireLease, adoptLease, currentLease } from "../src/store/lease-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
-import { openIntake } from "../src/store/task-rows.ts";
+
 import { isRecord } from "../src/util.ts";
+import { openTasksInScope, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];
@@ -94,8 +99,37 @@ describe("queue facade on tasks and attempts", () => {
     setSpace(dir, "a1", 2, "space-1");
     const spaceTask = addTask(dir, "shared", {}, "a1", { spaceId: "space-1" });
     expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
-    openIntake(dir, "orch-b", "space-1", 3);
+    openPackIntake(dir, "orch-b", "space-1", "orch-b", 3);
     expect(nextQueuedTask(dir, "b1", 1)?.id).toBe(spaceTask.id);
+  });
+
+  test("Cq3: a space-scoped task is an offer, and only an opted-in pack consumes it", () => {
+    const dir = fixture();
+    setSpace(dir, "a1", 2, "space-1");
+    const task = addTask(dir, "offered", {}, "a1", { spaceId: "space-1" });
+    // Publishing is one side. Pack orch-b never agreed, so it sees nothing.
+    expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
+    expect(claimTask(dir, task.id, "b1", "d1")).toBe(false);
+    // Both halves of the gate: the scope query offers it to nobody, and with no
+    // pack consuming the space the derived state is unrunnable, not queued.
+    expect(openTasksInScope(dir, { agentId: "b1" })).toEqual([]);
+    expect(taskState(dir, task.id)).toBe("unrunnable");
+    // The consuming side is the pack holder's act, and nobody else's.
+    expect(() => openPackIntake(dir, "orch-b", "space-1", "orch-a")).toThrow(/hold/i);
+    const opened = openPackIntake(dir, "orch-b", "space-1", "orch-b");
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatchObject({ packId: "orch-b", spaceId: "space-1", until: null });
+    expect(packIntakes(dir, "orch-b")).toEqual(opened);
+    expect(openTasksInScope(dir, { agentId: "b1" }).map((row) => row.id)).toEqual([task.id]);
+    expect(taskState(dir, task.id)).toBe("queued");
+    expect(nextQueuedTask(dir, "b1", 1)?.id).toBe(task.id);
+    expect(claimTask(dir, task.id, "b1", "d2")).toBe(true);
+    // Consent is withdrawable, and withdrawing it stops consumption again.
+    expect(recordTaskFailure(dir, task.id, "boom").state).toBe("failed");
+    expect(closePackIntake(dir, "orch-b", "space-1", "orch-b")[0]).toMatchObject({ packId: "orch-b", spaceId: "space-1" });
+    expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
+    expect(claimTask(dir, task.id, "b1", "d3")).toBe(false);
+    expect(() => closePackIntake(dir, "orch-b", "space-1", "orch-b")).toThrow(/no open intake/i);
   });
 
   test("a failed pack attempt retries on another member, never outside the pack", () => {
@@ -121,6 +155,36 @@ describe("queue facade on tasks and attempts", () => {
     expect(nextQueuedTask(dir, "a1", 1)).toBeUndefined();
   });
 
+  test("Cq5: an agent-scoped binding is to the agent and survives adoption", () => {
+    const dir = fixture();
+    acquireLease(dir, "a1", "orch-a", 2);
+    const task = addTask(dir, "pinned", {}, "orch-a", { agentId: "a1" });
+    // The lease moves; the binding does not follow it, because it was never to
+    // the orch. The new holder drives the same pinned task.
+    adoptLease(dir, "a1", "orch-b", 3);
+    expect(currentLease(dir, "a1")?.orchId).toBe("orch-b");
+    expect(requireTask(dir, task.id)).toMatchObject({ scopeAgentId: "a1", state: "queued" });
+    expect(nextQueuedTask(dir, "a2", 1)).toBeUndefined();
+    expect(nextQueuedTask(dir, "a1", 1)?.id).toBe(task.id);
+    expect(claimTask(dir, task.id, "a2", "wrong")).toBe(false);
+    expect(claimTask(dir, task.id, "a1", "right")).toBe(true);
+  });
+
+  test("Cq13: adoption carries the queue — pack work comes with the agents", () => {
+    const dir = fixture();
+    const task = addTask(dir, "pack work", {}, "a1");
+    openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('orch-a',2,NULL)").run();
+    adoptLease(dir, "a1", "orch-b", 3);
+    adoptLease(dir, "a2", "orch-b", 3);
+    // Nothing to re-parent: the task is scoped to the pack, not to the dead orch.
+    expect(requireTask(dir, task.id)).toMatchObject({ scopePackId: "orch-a", state: "queued" });
+    expect(nextQueuedTask(dir, "a1", 1)?.id).toBe(task.id);
+    // And it does not leak into the adopter's own pack on the way across.
+    expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
+    expect(claimTask(dir, task.id, "b1", "foreign")).toBe(false);
+    expect(claimTask(dir, task.id, "a1", "adopted")).toBe(true);
+  });
+
   test("a claim is an insert and a lost race returns false", () => {
     const dir = fixture();
     const task = addTask(dir, "race", {}, "a1");
@@ -133,7 +197,9 @@ describe("queue facade on tasks and attempts", () => {
     const dir = fixture();
     acquireLease(dir, "a1", "orch-a", 2);
     const own = addTask(dir, "own", {}, "a1");
-    expect(cancelTask(dir, own.id, "orch-b")).toMatchObject({ state: "queued", error: expect.stringContaining("permitted") as unknown as string });
+    const refused = cancelTask(dir, own.id, "orch-b");
+    expect(refused.state).toBe("queued");
+    expect(refused.error).toContain("permitted");
     expect(cancelTask(dir, own.id, "a1")).toMatchObject({ state: "cancelled" });
 
     const targeted = addTask(dir, "targeted", {}, "orch-a", { agentId: "a1" });

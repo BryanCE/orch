@@ -53,7 +53,7 @@ describe("one key per pane spawn (12.1)", () => {
       adapterId: "pi",
       name: "audit-1",
       cwd: "/tmp",
-      workspace: "wsA",
+      space: "wsA",
       group: "tab1",
       model: "openai/gpt-5.6",
       preferredModels: [],
@@ -73,7 +73,7 @@ describe("one key per pane spawn (12.1)", () => {
     expect(record).toBeDefined();
     // Registry row keyed on the env key — never a second identity re-minted from the pane.
     expect(record!.pane).toBe(agent.key);
-    expect(record!.workspace).toBe("wsA");
+    expect(record!.space).toBe("wsA");
     expect(record!.backend).toBe("herdr");
     // Name is normalized on the agent row; spawned rows carry placement only.
     expect(agentById(process.env.ORCH_DIR!, identity.id)?.name).toBe("audit-1");
@@ -88,7 +88,7 @@ describe("one key per pane spawn (12.1)", () => {
       adapterId: "pi",
       name: "audit-1",
       cwd: "/tmp",
-      workspace: "wsC",
+      space: "wsC",
       group: "tab1",
       model: "openai/gpt-5.6",
       preferredModels: [],
@@ -113,7 +113,7 @@ describe("one key per pane spawn (12.1)", () => {
       adapterId: "pi",
       name: "audit-2",
       cwd: "/tmp",
-      workspace: "wsB",
+      space: "wsB",
       group: "tab1",
       model: "openai/gpt-5.6",
       preferredModels: [],

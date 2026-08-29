@@ -10,6 +10,9 @@ import {
   cancelTask as insertCancellation,
   claimTask as insertAttempt,
   enqueueTask,
+  openIntake,
+  closeIntake,
+  intakesOf,
   openTasksInScope,
   settleAttempt,
   taskById,
@@ -161,6 +164,57 @@ function selectedScope(orchDir: string, enqueuedBy: string, selection: TaskScope
     return { scopeSpaceId: selection.spaceId } as const;
   }
   return { scopePackId: enqueuer.rootAgentId } as const;
+}
+
+export interface PackIntakeRec {
+  packId: string;
+  spaceId: string;
+  since: number;
+  until: number | null;
+}
+
+/** Only the pack's own holder may speak for it. Same right as pack-scoped
+ *  enqueue: membership, or a live lease on one of its members. */
+function requirePackRight(orchDir: string, packId: string, byAgentId: string): void {
+  const actor = agentById(orchDir, byAgentId);
+  if (!actor || actor.ending != null) throw new Error(`Unknown live agent: ${byAgentId}`);
+  if (!packsOpenTo(orchDir, actor).has(packId)) {
+    throw new Error(`Recording intake for pack ${packId} requires holding a live agent in it`);
+  }
+}
+
+/** Every intake a pack has ever recorded, open and closed, oldest first. */
+export function packIntakes(orchDir: string, packId: string): PackIntakeRec[] {
+  return intakesOf(orchDir, packId);
+}
+
+/** The consuming half of space scope (Cq3). Publishing into a space is only an
+ *  offer; a pack takes work from that pool only once its holder opts it in. */
+export function openPackIntake(
+  orchDir: string,
+  packId: string,
+  spaceId: string,
+  byAgentId: string,
+  since = Date.now(),
+): PackIntakeRec[] {
+  requirePackRight(orchDir, packId, byAgentId);
+  openIntake(orchDir, packId, spaceId, since);
+  return packIntakes(orchDir, packId);
+}
+
+/** Withdraw a pack's consent. The offer stands; this pack stops consuming it. */
+export function closePackIntake(
+  orchDir: string,
+  packId: string,
+  spaceId: string,
+  byAgentId: string,
+  until = Date.now(),
+): PackIntakeRec[] {
+  requirePackRight(orchDir, packId, byAgentId);
+  const open = packIntakes(orchDir, packId).find((intake) => intake.spaceId === spaceId && intake.until === null);
+  if (!open) throw new Error(`Pack ${packId} has no open intake for space ${spaceId}`);
+  closeIntake(orchDir, packId, spaceId, Math.max(until, open.since + 1));
+  return packIntakes(orchDir, packId);
 }
 
 /** Enqueue into one typed scope. No explicit scope means the enqueuer's pack. */

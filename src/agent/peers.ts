@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { Type } from "typebox";
 import { tryParseIdentity } from "../backends/identity.ts";
+import { deriveDriveState, type DriveState } from "./drive-state.ts";
 import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
@@ -34,6 +35,10 @@ export interface PeerSummary {
   harness?: string;
   space: string | null;
   state: string;
+  /** Ownership, and ownership only (TASKS/01 Rule 11): the LIVE lease on this
+   *  agent. Without it the compact listing an agent actually reads shows an
+   *  unleased peer as ordinary live work belonging to whoever is looking. */
+  drive: DriveState;
   /** True on the row that is the CALLER's own spawner — the reply target. */
   isSpawner?: true;
   /** Who spawned this peer, so the whole fleet graph is readable from any seat. */
@@ -148,13 +153,14 @@ export function resolvePeer(target: string, ownKey: string, allRequested = false
   return { error: `error: target not found. Candidates: ${candidates.map((peer) => peer.key).join(", ")}` };
 }
 
-function summarizePeer(peer: Peer, spawnerKey: string | undefined): PeerSummary {
+function summarizePeer(peer: Peer, spawnerKey: string | undefined, callerOrchId: string | null): PeerSummary {
   return {
     key: peer.key,
     name: optionalString(peer.status.label),
     harness: optionalString(peer.status.agent),
     space: spaceOf(orchDir(), peer.key),
     state: optionalString(peer.status.state) ?? "unknown",
+    drive: deriveDriveState(peer.key, { directory: orchDir(), currentOrchId: callerOrchId }),
     isSpawner: peer.key === spawnerKey ? true : undefined,
     spawnedBy: optionalString(peer.status.spawnedBy),
     spawnedByLabel: optionalString(peer.status.spawnedByLabel),
@@ -170,17 +176,24 @@ function summarizePeer(peer: Peer, spawnerKey: string | undefined): PeerSummary 
 
 /** The caller's spawner as a listable row, when fleet scoping hid it. A worker
  *  must always see who orchestrates it, whatever space shape that session has. */
-function hiddenSpawnerSummary(rows: PeerSummary[], spawnerKey: string | undefined): PeerSummary | null {
+function hiddenSpawnerSummary(rows: PeerSummary[], spawnerKey: string | undefined, callerOrchId: string | null): PeerSummary | null {
   if (!spawnerKey || rows.some((row) => row.key === spawnerKey)) return null;
   const resolved = resolveSpawnerPeer();
   if ("error" in resolved) return null;
-  return summarizePeer(resolved.peer, spawnerKey);
+  return summarizePeer(resolved.peer, spawnerKey, callerOrchId);
+}
+
+/** The caller's own agents.id, so "held by you" is answered by the lease table
+ *  rather than by an environment the caller happens to sit in. */
+function callerAgentId(ownKey: string): string | null {
+  return tryParseIdentity(ownKey)?.id ?? (ownKey.length > 0 ? ownKey : null);
 }
 
 export function peerSummaries(ownKey: string, allSpaces = false): PeerSummary[] {
   const spawnerKey = optionalString(process.env.ORCH_SPAWNER);
-  const rows = livePeers(ownKey, allSpaces).map((peer) => summarizePeer(peer, spawnerKey));
-  const spawner = hiddenSpawnerSummary(rows, spawnerKey);
+  const orchId = callerAgentId(ownKey);
+  const rows = livePeers(ownKey, allSpaces).map((peer) => summarizePeer(peer, spawnerKey, orchId));
+  const spawner = hiddenSpawnerSummary(rows, spawnerKey, orchId);
   return spawner ? [spawner, ...rows] : rows;
 }
 
@@ -204,10 +217,32 @@ export function sendPeerMessage(target: string, text: string, ownKey: string, al
   return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, spaceOf(orchDir(), resolved.peer.key) ?? "", resolved.peer.status))}`;
 }
 
-function formatPeerLines(peers: PeerSummary[]): string {
-  return peers
-    .map((peer) => `${peer.name ?? peer.key}${peer.branch ? ` [${peer.branch}]` : ""} ${peer.state} ${peer.model ?? "-"} ${truncate(String(peer.task ?? ""), 40)}`)
-    .join("\n");
+/** Header of the orphan bucket. G9 wants unleased agents SEPARATED from live
+ *  work, not merely labelled, and D8 wants the adoption offer said out loud. */
+const UNLEASED_HEADING = "unleased (no orch driving these; `orch adopt` takes them):";
+
+function peerLine(peer: PeerSummary): string {
+  return `${peer.name ?? peer.key}${peer.branch ? ` [${peer.branch}]` : ""} ${peer.state} ${peer.model ?? "-"} ${truncate(String(peer.task ?? ""), 40)}`;
+}
+
+/** Who is driving, in the caller's own terms — never "yours" unless the caller
+ *  holds the lease, and a dead holder reads as gone rather than as a driver. */
+function driveSuffix(peer: PeerSummary): string {
+  if (peer.drive.kind === "leased") return peer.drive.mine ? "held by you" : `held by ${peer.drive.owner}`;
+  return peer.drive.owner;
+}
+
+/** The compact listing an agent reads. Two buckets, never one: live work first,
+ *  then everything no live orch is driving. */
+export function formatPeerLines(peers: PeerSummary[]): string {
+  const driven = peers.filter((peer) => peer.drive.kind === "leased");
+  const unleased = peers.filter((peer) => peer.drive.kind !== "leased");
+  const sections: string[] = [];
+  if (driven.length > 0) sections.push(driven.map((peer) => `${peerLine(peer)} — ${driveSuffix(peer)}`).join("\n"));
+  if (unleased.length > 0) {
+    sections.push([UNLEASED_HEADING, ...unleased.map((peer) => `${peerLine(peer)} — ${driveSuffix(peer)}`)].join("\n"));
+  }
+  return sections.join("\n\n");
 }
 
 export interface BridgeToolResult {

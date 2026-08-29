@@ -115,15 +115,15 @@ describe("herdr and notification hardening", () => {
     expect(lastCall("pane", "rename")?.[3]?.trim()).not.toBe("");
   });
 
-  test("nameless notifications use a workspace label, never a bare pane key", () => {
+  test("nameless notifications use a space label, never a bare pane key", () => {
     const title = notificationText(event(), { colorize: false }).title;
-    expect(title).toContain("[workspace]");
-    expect(title).not.toContain("[workspace] p9:");
+    expect(title).toContain("[space]");
+    expect(title).not.toContain("[space] p9:");
 
     let emitted: NotifyEvent | undefined;
     emitAndNotify((value) => { emitted = value; }, [], event());
-    expect(emitted?.workspace).toBe("workspace");
-    expect(emitted?.agent).toBe("workspace/agent-p9");
+    expect(emitted?.space).toBe("space");
+    expect(emitted?.agent).toBe("space/agent-p9");
     expect(emitted?.agent).not.toContain("p9:");
   });
 });

@@ -2,6 +2,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { dirname, join } from "node:path";
 import { liveDaemonRegistration, readDaemonLock } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortPath } from "../presence/socket-client.ts";
@@ -195,7 +196,36 @@ export function announceUnleasedAgents(
   write: (text: string) => void = (text) => { process.stdout.write(text); },
 ): void {
   if (identity.unleased.length === 0) return;
+  if (!claimUnleasedAnnouncement(orchDir, identity.id)) return;
   write(`${identity.unleased.length} unleased agent(s) exist - orch adopt ${identity.unleased[0]!.name} to take one, orch status to see them.\n`);
+}
+
+/** Where one session records that it has already been told about orphans. */
+function announcementMarker(orchDir: string, sessionId: string): string {
+  return join(orchDir, "announced", `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
+}
+
+/**
+ * Claim the one announcement this session gets, or report that it is spent.
+ *
+ * A session outlives a single CLI process — every `orch` invocation is a new one
+ * — so "once per session" cannot be a module variable; it has to be recorded.
+ * Rule 11: the record is an INTEGER epoch instant, because *when* a session was
+ * told is the useful fact, not merely whether.
+ *
+ * A marker that cannot be written announces again rather than going silent:
+ * repeating a notice is a nuisance, swallowing it hides live orphaned work.
+ */
+function claimUnleasedAnnouncement(orchDir: string, sessionId: string): boolean {
+  const marker = announcementMarker(orchDir, sessionId);
+  try {
+    if (existsSync(marker)) return false;
+    mkdirSync(dirname(marker), { recursive: true });
+    writeFileSync(marker, JSON.stringify({ announcedAt: Date.now() }));
+  } catch {
+    return true;
+  }
+  return true;
 }
 
 export function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {

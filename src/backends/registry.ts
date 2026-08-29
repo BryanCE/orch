@@ -9,8 +9,10 @@ export const detachedBackend: Backend<HeadlessHandle> = headlessBackend;
 
 const backends = new Map<string, Backend>();
 
-/** Register a backend by its stable id. Later registrations replace earlier ones. */
-function registerBackend(backend: Backend): void {
+/** Register a backend by its stable id. Later registrations replace earlier ones.
+ *  Registration is the composition seam (`TASKS/07-port-seam.md`): a provider is
+ *  selected by registering it, never by mutating an already-registered one. */
+export function registerBackend(backend: Backend): void {
   backends.set(backend.id, backend);
 }
 

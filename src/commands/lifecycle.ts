@@ -35,8 +35,8 @@ export async function cmdRun(args: string[]): Promise<void> {
   const raw = args.includes("--raw");
   const json = args.includes("--json");
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
-  const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-workspace] [--json]');
-  const { ent, pane } = resolvePane(target, { crossWorkspace: gov.crossWorkspace });
+  const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
+  const { ent, pane } = resolvePane(target, { crossSpace: gov.crossSpace });
   const headerContext = { lockedCommands: loadConfig(orchDir()).locked_commands, spawnerRepliable: spawnerIsRepliable() };
   const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), headerContext) }, gov);
   const recipient = recipientFor(ent.key);
@@ -399,7 +399,7 @@ function renameAgent(
     process.stderr.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return false;
   }
-  assertNameFree(name, record.workspace ?? "");
+  assertNameFree(name, record.space ?? "");
   const identity = tryParseIdentity(key);
   if (!identity || !renameNormalizedAgent(orchDir(), identity.id, name)) return false;
   const role = backend.agentNaming;
@@ -597,7 +597,7 @@ export function cmdAbort(args: string[]) {
   const target = args.find((arg) => arg !== "--json" && arg !== "--force");
   if (!target) die("usage: orch abort <target> [--force] [--json]");
   // Abort is an unconditional ending operation: resolve from orch's registry so
-  // a foreign-workspace target is still reachable, and never apply owner gates.
+  // a foreign-space target is still reachable, and never apply owner gates.
   const { backend, handle, entity } = resolveLifecycleTarget(target);
   const input = backend.paneInput;
   if (!entity.paneId || !input) {

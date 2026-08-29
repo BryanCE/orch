@@ -11,7 +11,7 @@ import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { setOwner } from "../src/store/ownership-rows.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { selectRuns, upsertRun, type RunRecord } from "../src/store/run-rows.ts";
-import { sweepExpiredRows } from "../src/daemon/retention.ts";
+import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -240,5 +240,36 @@ describe("retention sweep", () => {
       Date.now = originalNow;
     }
     expect(selectRuns(orchDir)).toHaveLength(1);
+  });
+
+  test("prunes orch's own logs past the age cap", () => {
+    const orchDir = fixture();
+    const daemonLog = join(orchDir, "orchd.log");
+    const cliLog = join(orchDir, "orch.log");
+    writeFileSync(daemonLog, `${JSON.stringify({ at: 1, level: "info", event: "daemon.started" })}\n`);
+    writeFileSync(cliLog, `${JSON.stringify({ at: 1, level: "info", event: "dispatch.cli-accepted" })}\n`);
+    const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
+    utimesSync(daemonLog, old, old);
+    utimesSync(cliLog, old, old);
+
+    expect(sweepExpiredRows(orchDir, config({ logs_days: 7 }), NOW).logs).toBe(2);
+    expect(existsSync(daemonLog)).toBe(false);
+    expect(existsSync(cliLog)).toBe(false);
+  });
+
+  test("prunes orch's own logs past the size cap even when freshly written", () => {
+    const orchDir = fixture();
+    const daemonLog = join(orchDir, "orchd.log");
+    const cliLog = join(orchDir, "orch.log");
+    // A daemon resident for a month must not have a gigabyte log: the size cap is
+    // the only thing that bounds a file whose mtime is refreshed on every record.
+    writeFileSync(daemonLog, "x".repeat(ORCH_LOG_MAX_BYTES + 1));
+    writeFileSync(cliLog, "x".repeat(16));
+    utimesSync(daemonLog, NOW, NOW);
+    utimesSync(cliLog, NOW, NOW);
+
+    expect(sweepExpiredRows(orchDir, config({ logs_days: 7 }), NOW).logs).toBe(1);
+    expect(existsSync(daemonLog)).toBe(false);
+    expect(existsSync(cliLog)).toBe(true);
   });
 });

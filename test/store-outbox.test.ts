@@ -9,7 +9,7 @@ import {
   deleteDeliveredBefore,
   insertOutboxMessage,
   markOutboxDelivered,
-  outboxMessagePending,
+  outboxMessageUnsent,
   selectPendingOutbox,
 } from "../src/store/outbox-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -45,9 +45,9 @@ describe("outbox store rows", () => {
     insertOutboxMessage(orchDir, { id: "pending", target: "agent-b", payload: "b" });
     markOutboxDelivered(orchDir, "delivered");
 
-    expect(outboxMessagePending(orchDir, "delivered")).toBe(false);
-    expect(outboxMessagePending(orchDir, "pending")).toBe(true);
-    expect(outboxMessagePending(orchDir, "missing")).toBe(false);
+    expect(outboxMessageUnsent(orchDir, "delivered")).toBe(false);
+    expect(outboxMessageUnsent(orchDir, "pending")).toBe(true);
+    expect(outboxMessageUnsent(orchDir, "missing")).toBe(false);
   });
 
   test("bumps attempts and hides a message until its next attempt time", () => {
@@ -70,7 +70,7 @@ describe("outbox store rows", () => {
     markOutboxDelivered(orchDir, "new");
 
     expect(deleteDeliveredBefore(orchDir, Date.parse("2026-01-02T00:00:00.000Z"))).toBe(1);
-    expect(outboxMessagePending(orchDir, "old")).toBe(false);
+    expect(outboxMessageUnsent(orchDir, "old")).toBe(false);
     expect(selectPendingOutbox(orchDir, 0)).toEqual([]);
   });
 });

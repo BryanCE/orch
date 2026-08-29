@@ -8,7 +8,7 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
   enabled: { adapters: [], backends: [] },
   locked_commands: [],
   defaults: { models: {}, worktree: false },
-  fleet: { worker_peer_tools: workerPeerTools ?? false, spawn_cap: 8, cross_workspace: false, workspace_caps: {} },
+  fleet: { worker_peer_tools: workerPeerTools ?? false, spawn_cap: 8, cross_space: false, space_caps: {} },
   models: { allowed: {}, preferred: {} },
   workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: allowTools },
   queue: { max_retries: 1 },
@@ -16,7 +16,7 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   notify: [],
   hosts: {},
-  workspaces: {},
+  spaces: {},
   tiling: { first_split: "rows" },
   skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
 });

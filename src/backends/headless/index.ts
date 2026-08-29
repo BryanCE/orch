@@ -223,7 +223,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       backend: HEADLESS_BACKEND,
       adapter: adapter.id,
       model: opts.model,
-      workspace: opts.workspace,
+      space: opts.workspace,
       handle: JSON.stringify(handle),
       name: opts.name,
       cwd: opts.cwd,

@@ -125,7 +125,7 @@ describe("presence status schema", () => {
   });
 
   test("rejects a current-schema record carrying placement fields", () => {
-    writeStatus("placement-copy", { schema: PRESENCE_SCHEMA, agent: "pi", workspace: "wrong", pid: process.pid, state: "idle" });
+    writeStatus("placement-copy", { schema: PRESENCE_SCHEMA, agent: "pi", space: "wrong", pid: process.pid, state: "idle" });
 
     expect(readStatuses()["placement-copy"]).toBeUndefined();
   });

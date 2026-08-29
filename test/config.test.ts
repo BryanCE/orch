@@ -71,7 +71,7 @@ describe("loadConfig", () => {
     writeSettingsFixture(directory, {
       enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: { adapter: "claude", backend: "headless", models: { claude: "sonnet" }, worktree: true },
-      fleet: { spawn_cap: 4, max_agents: 12, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
+      fleet: { spawn_cap: 4, max_agents: 12, space_caps: { wD: 4 }, worker_peer_tools: true, cross_space: true },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
@@ -79,7 +79,7 @@ describe("loadConfig", () => {
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
-      workspaces: { wD: "Design" },
+      spaces: { wD: "Design" },
       daemon: { tcp_port: 4321 },
       tiling: { first_split: "columns" },
       logging: { level: "debug" },
@@ -96,7 +96,7 @@ describe("loadConfig", () => {
         thinking_by_harness: {},
         worktree: true,
       },
-      fleet: { spawn_cap: 4, max_agents: 12, pack_cap: 10, workspace_caps: { wD: 4 }, worker_peer_tools: true, cross_workspace: true },
+      fleet: { spawn_cap: 4, max_agents: 12, pack_cap: 10, space_caps: { wD: 4 }, worker_peer_tools: true, cross_space: true },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
@@ -105,7 +105,7 @@ describe("loadConfig", () => {
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       locked_commands: [],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
-      workspaces: { wD: "Design" },
+      spaces: { wD: "Design" },
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30 },
       tiling: { first_split: "columns" },
       logging: { level: "debug" },
@@ -178,7 +178,7 @@ describe("loadConfig", () => {
       runtime: "node",
       enabled: { adapters: [], backends: [] },
       defaults: { models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
-      fleet: { spawn_cap: 8, max_agents: undefined, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false },
+      fleet: { spawn_cap: 8, max_agents: undefined, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false },
       models: { allowed: {}, preferred: {} },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 1 },
@@ -187,7 +187,7 @@ describe("loadConfig", () => {
       notify: [],
       locked_commands: [],
       hosts: {},
-      workspaces: {},
+      spaces: {},
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
       tiling: { first_split: "rows" },
       logging: { level: "info" },
@@ -210,7 +210,7 @@ describe("loadConfig", () => {
 
     expect(loadConfig(directory)).toMatchObject({
       defaults: { models: {}, worktree: true },
-      fleet: { spawn_cap: 3, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false },
+      fleet: { spawn_cap: 3, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: ["read"] },
       retention: { logs_days: 2, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, ended_agents_days: 90 },
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000 },
@@ -401,7 +401,7 @@ describe("writeSettingsFullTree", () => {
     const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as {
       fleet?: Record<string, unknown>;
     };
-    expect(raw.fleet).toEqual({ spawn_cap: 8, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false });
+    expect(raw.fleet).toEqual({ spawn_cap: 8, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false });
     expect(Object.hasOwn(raw.fleet ?? {}, "max_agents")).toBe(false);
     expect(loadConfig(directory).fleet.max_agents).toBeUndefined();
   });

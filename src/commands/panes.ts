@@ -1,4 +1,4 @@
-import { buildEntities, entityWorkspace, scopeEntitiesToWorkspace, sortEntities, resolveTarget } from "../entities.ts";
+import { buildEntities, entitySpace, scopeEntitiesToSpace, sortEntities, resolveTarget } from "../entities.ts";
 import { loadConfig } from "../config.ts";
 import { orchDir, spawnedRecords } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit } from "../backends/backend.ts";
@@ -8,8 +8,8 @@ import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent } from "./target.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout, type TilePlacement } from "../backends/tiling.ts";
-import { displayWorkspace } from "./status.ts";
-import { workspaceName } from "../policy/workspace.ts";
+import { displaySpace } from "./status.ts";
+import { spaceName } from "../policy/space.ts";
 import { writeSpawnedHandle } from "../store/spawned-rows.ts";
 import { commandLogger } from "./logging.ts";
 
@@ -33,20 +33,20 @@ export function cmdPanes(args: string[]) {
   const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
   const json = enabled.has("--json");
-  const entities = scopeEntitiesToWorkspace(sortEntities(buildEntities()), { all });
-  const workspaces = loadConfig(orchDir()).workspaces;
+  const entities = scopeEntitiesToSpace(sortEntities(buildEntities()), { all });
+  const spaces = loadConfig(orchDir()).spaces;
   if (json) {
     process.stdout.write(JSON.stringify(entities.map((e) => ({ key: e.key, paneId: e.paneId, name: e.name,
       tab: e.tabLabel, agent: e.agent, focused: e.focused, state: e.backendStatus ?? e.presence?.status?.state ?? null,
       backendStatus: e.backendStatus, sessionPath: e.sessionPath, presenceOnly: e.presenceOnly,
-      workspace: entityWorkspace(e), workspaceName: workspaceName(entityWorkspace(e), workspaces) })), null, 2) + "\n");
+      space: entitySpace(e), spaceName: spaceName(entitySpace(e), spaces) })), null, 2) + "\n");
     return;
   }
-  const showWorkspace = all && new Set(entities.map((e) => entityWorkspace(e) ?? "-")).size > 1;
+  const showSpace = all && new Set(entities.map((e) => entitySpace(e) ?? "-")).size > 1;
   for (const e of entities) {
     const parts = [
       e.paneId ?? e.key,
-      showWorkspace ? `${displayWorkspace(entityWorkspace(e), workspaces)} / ${e.name ?? "-"}` : (e.name ?? "-"),
+      showSpace ? `${displaySpace(entitySpace(e), spaces)} / ${e.name ?? "-"}` : (e.name ?? "-"),
       e.tabLabel ?? "-",
       e.agent ?? "-",
       e.backendStatus ?? (e.presence?.status?.state ?? "-"),
@@ -154,6 +154,7 @@ export function cmdTabs(args: string[]) {
     process.stdout.write(JSON.stringify(tabs, null, 2) + "\n");
     return;
   }
+  // The plexer's own grouping, echoed verbatim: its word, never orch's.
   const showWorkspace = all && new Set(tabs.map((t) => t.workspace ?? "-")).size > 1;
   const headers = showWorkspace ? ["TAB", "LABEL", "NUM", "PANES", "STATUS", "WS"] : ["TAB", "LABEL", "NUM", "PANES", "STATUS"];
   const rows = tabs.map((t) => [

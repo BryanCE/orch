@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cmdNotify } from "../src/commands/events.ts";
-import { cmdLogs } from "../src/commands/logs.ts";
-import { isLogRecord } from "../src/log.ts";
+import { cmdLogs, parseLogOptions } from "../src/commands/logs.ts";
+import { createLogger, isLogRecord } from "../src/log.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const dirs: string[] = [];
@@ -16,36 +16,108 @@ afterEach(() => {
   else process.env.ORCH_DIR = oldDir;
 });
 
-describe("command logging", () => {
-  test("readable logs include both dispatch and agent correlation", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-command-logs-"));
-    dirs.push(directory);
-    process.env.ORCH_DIR = directory;
-    writeSettingsFixture(directory, { notify: [] });
-    const events = ["dispatch.accepted", "dispatch.queued", "dispatch.delivering", "dispatch.delivered"] as const;
-    writeFileSync(join(directory, "orchd.log"), `${events.map((event, index) => JSON.stringify({
-      at: 1_700_000_000_000 + index,
-      level: "info",
-      event,
-      correlationId: "dispatch-7",
-      agentId: "agent-1",
-      fields: { target: "headless~local~agent-1" },
-    })).join("\n")}\n`);
-    const oldStdout = process.stdout.write.bind(process.stdout);
-    let stdout = "";
-    process.stdout.write = (chunk: string | Uint8Array) => { stdout += chunk.toString(); return true; };
-    try {
-      cmdLogs(["--dispatch", "dispatch-7"]);
-    } finally {
-      process.stdout.write = oldStdout;
-    }
-    const lines = stdout.trim().split("\n");
-    expect(lines).toHaveLength(events.length);
+function captureStdout(run: () => void): string {
+  const oldStdout = process.stdout.write.bind(process.stdout);
+  let stdout = "";
+  process.stdout.write = (chunk: string | Uint8Array) => { stdout += chunk.toString(); return true; };
+  try {
+    run();
+  } finally {
+    process.stdout.write = oldStdout;
+  }
+  return stdout;
+}
+
+/** Seed both sinks through the real logger, so a change to the record shape
+ *  breaks the reader test instead of leaving it agreeing with a stale fixture. */
+function seedLogs(directory: string): void {
+  const daemon = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_000_000 });
+  daemon.forCorrelation("dispatch-7").forAgent("agent-1").info("dispatch.accepted", { target: "headless~local~agent-1" });
+  const later = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_005_000 });
+  later.forCorrelation("dispatch-7").forAgent("agent-1").error("dispatch.failed", { error: "no channel accepted the write" });
+  later.forCorrelation("dispatch-9").forAgent("agent-2").info("dispatch.accepted", { target: "headless~local~agent-2" });
+  const cli = createLogger({ file: join(directory, "orch.log"), level: "trace", now: () => 1_700_000_002_000 });
+  cli.forCorrelation("dispatch-7").forAgent("agent-1").info("dispatch.cli-accepted", { target: "headless~local~agent-1" });
+}
+
+function fixture(): string {
+  const directory = mkdtempSync(join(tmpdir(), "orch-command-logs-"));
+  dirs.push(directory);
+  process.env.ORCH_DIR = directory;
+  writeSettingsFixture(directory, { notify: [] });
+  return directory;
+}
+
+describe("orch logs", () => {
+  test("--dispatch selects one dispatch across both sinks, oldest first", () => {
+    seedLogs(fixture());
+    const lines = captureStdout(() => { cmdLogs(["--dispatch", "dispatch-7"]); }).trim().split("\n");
+    expect(lines.map((line) => line.split(" ")[2])).toEqual([
+      "dispatch.accepted",
+      "dispatch.cli-accepted",
+      "dispatch.failed",
+    ]);
     expect(lines.every((line) => line.includes("dispatch-7"))).toBe(true);
     expect(lines.every((line) => line.includes("agent=agent-1"))).toBe(true);
-    for (const event of events) expect(stdout).toContain(event);
   });
 
+  test("--agent selects one agent's records", () => {
+    seedLogs(fixture());
+    const lines = captureStdout(() => { cmdLogs(["--agent", "agent-2"]); }).trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("dispatch-9");
+  });
+
+  test("--level selects one severity", () => {
+    seedLogs(fixture());
+    const lines = captureStdout(() => { cmdLogs(["--level", "error"]); }).trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("dispatch.failed");
+    expect(lines[0]).toContain("no channel accepted the write");
+  });
+
+  test("--since drops everything older than the instant given", () => {
+    seedLogs(fixture());
+    const lines = captureStdout(() => { cmdLogs(["--since", "1700000002000"]); }).trim().split("\n");
+    expect(lines.map((line) => line.split(" ")[2])).toEqual([
+      "dispatch.cli-accepted",
+      "dispatch.failed",
+      "dispatch.accepted",
+    ]);
+  });
+
+  test("--since 0 keeps every record instead of being read as a missing value", () => {
+    expect(parseLogOptions(["--since", "0"]).since).toBe(0);
+    seedLogs(fixture());
+    const lines = captureStdout(() => { cmdLogs(["--since", "0"]); }).trim().split("\n");
+    expect(lines).toHaveLength(4);
+  });
+
+  test("renders a readable line: instant, level, event, correlation, agent, fields", () => {
+    seedLogs(fixture());
+    const lines = captureStdout(() => { cmdLogs(["--dispatch", "dispatch-9"]); }).trim().split("\n");
+    expect(lines[0]).toBe(
+      `${new Date(1_700_000_005_000).toISOString()} info dispatch.accepted [dispatch-9] [agent=agent-2] {"target":"headless~local~agent-2"}`,
+    );
+  });
+
+  test("--json emits the records themselves", () => {
+    seedLogs(fixture());
+    const lines = captureStdout(() => { cmdLogs(["--dispatch", "dispatch-9", "--json"]); }).trim().split("\n");
+    const parsed: unknown = JSON.parse(lines[0]!);
+    expect(isLogRecord(parsed)).toBe(true);
+    expect(parsed).toEqual({
+      at: 1_700_000_005_000,
+      level: "info",
+      event: "dispatch.accepted",
+      correlationId: "dispatch-9",
+      agentId: "agent-2",
+      fields: { target: "headless~local~agent-2" },
+    });
+  });
+});
+
+describe("command logging", () => {
   test("notify test records the diagnosis and keeps user output on stdout", async () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-command-logging-"));
     dirs.push(directory);

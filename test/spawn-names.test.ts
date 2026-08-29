@@ -19,8 +19,8 @@ function tempOrchDir(): string {
 }
 
 /** A live named agent: a spawn record plus a presence status naming this pid. */
-function seedLiveAgent(orchDir: string, key: string, name: string, workspace: string): void {
-  recordSpawned(key, { workspace, handle: key });
+function seedLiveAgent(orchDir: string, key: string, name: string, space: string): void {
+  recordSpawned(key, { space, handle: key });
   registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: key, cwd: orchDir, name, model: "test", spawner: null });
   seedStatus(orchDir, key, { agent: "pi", pid: process.pid, state: "idle" });
 }
@@ -63,7 +63,7 @@ describe("a live name is claimed and a dead one is released", () => {
 
   test("a dead agent frees its name", () => {
     const orchDir = tempOrchDir();
-    recordSpawned("herdr~w1~dead", { workspace: "w1", handle: "herdr~w1~dead" });
+    recordSpawned("herdr~w1~dead", { space: "w1", handle: "herdr~w1~dead" });
     registerSpawnedAgent(orchDir, { key: "herdr~w1~dead", harnessId: "pi", backendId: "herdr", pane: true, handle: "herdr~w1~dead", cwd: orchDir, name: "recon", model: "test", spawner: null });
     seedStatus(orchDir, "herdr~w1~dead", { agent: "pi", state: "idle" }); // no pid: process gone
 

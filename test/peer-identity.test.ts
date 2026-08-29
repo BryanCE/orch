@@ -78,7 +78,7 @@ describe("spawner identity", () => {
   test("an orch-spawned orchestrator acts as the id orch minted for it", () => {
     const orchDir = tempOrchDir();
     const key = "headless~wF~lead0000ab";
-    recordSpawned(key, { workspace: "wF", adapter: "pi" });
+    recordSpawned(key, { space: "wF", adapter: "pi" });
     seedStatus(orchDir, key, { agent: "pi", label: "lead-1", pid: process.pid, state: "working" });
     process.env.ORCH_AGENT_KEY = key;
     // Identity is the minted id and nothing else: the plexer and workspace
@@ -116,7 +116,7 @@ describe("spawner identity", () => {
     const key = "headless~wF~stamp0001a";
     recordSpawned(key, {
       name: "fix-1",
-      workspace: "wF",
+      space: "wF",
       owner: "herdr~wF~operator",
       spawnedBy: "claude-session-e2277e83-74d9",
       spawnedByLabel: "claude session",

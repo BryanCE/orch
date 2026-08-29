@@ -13,7 +13,7 @@ import { isThinkingLevel, THINKING_LEVELS } from "../policy/thinking.ts";
 import { die } from "./target.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
-import type { SettingSpec } from "../settings/spec.ts";
+import type { SettingKind, SettingSpec } from "../settings/spec.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */
@@ -41,8 +41,17 @@ function rawSetting(orchDirPath: string, ...keys: string[]): unknown {
 }
 
 /** Switch the active default adapter/backend; writeSettingsDefault throws when the id is not installed. */
+/** Read an env override according to the setting's DECLARED kind, never by
+ *  sniffing whatever the fallback happened to be. */
+function envSettingValue(environment: string, type: SettingKind): unknown {
+  if (type.kind === "boolean") return environment === "true" || environment === "1";
+  if (type.kind === "integer") return Number(environment);
+  return environment;
+}
+
 function formatValue(value: unknown): string {
-  if (value === undefined) return "(none)";
+  // Rule 11: NULL is not-applicable. An unset setting is not the literal "null".
+  if (value === undefined || value === null) return "(none)";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -368,48 +377,20 @@ export async function cmdSettings(args: string[]): Promise<void> {
 
   interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string }
   const provenance: ProvenanceRow[] = [];
-  // Print order comes from the registry's own declaration order — the registry is
-  // the single source of truth for a setting, and that includes where it appears
-  // (TASKS/14-settings-tui.md). A hand-kept rank table beside it was a second list
-  // to forget: a new setting silently sorted to the bottom.
-  const printableSpecs = SETTINGS_REGISTRY;
-  for (const spec of printableSpecs) {
-    let key: string | undefined;
-    let fallback: unknown;
-    switch (spec.key) {
-      case "defaults.worktree": key = spec.key; fallback = config.defaults.worktree; break;
-      case "defaults.thinking": key = spec.key; fallback = config.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking; break;
-      case "defaults.adapter": key = "adapter"; fallback = "(none)"; break;
-      case "defaults.backend": key = "backend"; fallback = "(auto)"; break;
-      case "daemon.tcp_port": key = spec.key; fallback = config.daemon.tcp_port; break;
-      case "daemon.idle_shutdown_minutes": key = spec.key; fallback = config.daemon.idle_shutdown_minutes; break;
-      case "fleet.spawn_cap": key = spec.key; fallback = config.fleet.spawn_cap; break;
-      case "fleet.max_agents": key = spec.key; fallback = config.fleet.max_agents ?? "(none)"; break;
-      case "fleet.workspace_caps": key = spec.key; fallback = config.fleet.workspace_caps; break;
-      case "fleet.worker_peer_tools": key = spec.key; fallback = config.fleet.worker_peer_tools; break;
-      case "fleet.cross_workspace": key = spec.key; fallback = config.fleet.cross_workspace; break;
-      case "queue.max_retries": key = spec.key; fallback = config.queue.max_retries; break;
-      case "tiling.first_split": key = spec.key; fallback = config.tiling.first_split; break;
-      case "skills.install": key = spec.key; fallback = config.skills.install; break;
-      case "skills.roots": key = spec.key; fallback = config.skills.roots; break;
-      case "timeouts.dispatch_ack_ms": key = spec.key; fallback = config.timeouts.dispatch_ack_ms; break;
-      case "timeouts.wait_ms": key = spec.key; fallback = config.timeouts.wait_ms; break;
-      case "timeouts.adapter_command_ms": key = spec.key; fallback = config.timeouts.adapter_command_ms; break;
-      case "timeouts.notify_ms": key = spec.key; fallback = config.timeouts.notify_ms; break;
-      default: break;
-    }
-    if (key === undefined) continue;
+  // Every declared setting, in the registry's own declaration order. The registry
+  // is the single source of truth for a setting (TASKS/14-settings-tui.md), and
+  // that includes whether the CLI shows it at all and what it is called. The
+  // hand-written switch that used to stand here dropped 23 of the 42 declared
+  // keys out of both the table and --json — every retention.*, every workers.*,
+  // logging.level, fleet.pack_cap, locked_commands — and gave two of them a
+  // second name. A setting nobody can print is a setting nobody can find.
+  for (const spec of SETTINGS_REGISTRY) {
     const configured = spec.read(config);
     const raw = rawSetting(orchDir(), ...spec.key.split("."));
     const environment = spec.env === undefined ? undefined : process.env[spec.env];
-    let value = configured === undefined ? fallback : configured;
-    if (environment !== undefined) {
-      if (typeof fallback === "boolean") value = environment === "true" || environment === "1";
-      else if (typeof fallback === "number") value = Number(environment);
-      else value = environment;
-    }
+    const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
     const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
-    provenance.push({ key, value, source });
+    provenance.push({ key: spec.key, value, source });
   }
   provenance.push(...modelRows);
 
@@ -438,7 +419,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
     process.stdout.write(modelListRow("allowed", harness, config.models.allowed[harness] ?? [], "(all offered)"));
   }
   process.stdout.write(`  hosts               ${Object.keys(config.hosts).length}\n`);
-  process.stdout.write(`  workspaces          ${Object.keys(config.workspaces).length}\n`);
+  process.stdout.write(`  spaces              ${Object.keys(config.spaces).length}\n`);
   process.stdout.write(`  notify              ${config.notify.length}\n`);
 }
 

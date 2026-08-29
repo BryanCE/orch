@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { deriveDriveState, deriveView, formatOwnerCell, statusRowFromView } from "../src/commands/status.ts";
+import { deriveView, formatOwnerCell, statusRowFromView } from "../src/commands/status.ts";
+import { deriveDriveState } from "../src/agent/drive-state.ts";
 import type { Entity } from "../src/entities.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -39,7 +40,7 @@ function entity(): Entity {
     key, paneId: null, managed: true, name: "worker", tabLabel: null, agent: "pi", focused: false,
     backendStatus: null, backend: "headless", presence: {
       key, dir: "/tmp", alive: true, result: null, status: { schema: 1, state: "idle" },
-    }, sessionPath: null, presenceOnly: false, workspace: "local",
+    }, sessionPath: null, presenceOnly: false, space: "local",
   };
 }
 

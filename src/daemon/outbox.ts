@@ -1,6 +1,5 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { createLogger } from "../log.ts";
 import { decisionLogger } from "./decision-log.ts";
 import { ACK_FILE } from "../presence/schema.ts";
 import { drainClaimedLines } from "../presence/inbox.ts";
@@ -9,12 +8,30 @@ import { isRecord } from "../util.ts";
 import {
   bumpOutboxAttempt,
   markOutboxDelivered,
-  outboxMessagePending,
+  markOutboxAwaiting,
+  outboxMessageOpen,
   selectPendingOutbox,
 } from "../store/outbox-rows.ts";
 
+/**
+ * What a channel can promise about one write.
+ *
+ * `acked`  the message reached its reader, or reached a channel that HAS no
+ *          separate reader to hear from — a pane keystroke, a boundary answer.
+ *          Terminal either way.
+ * `queued` the message was handed to a channel whose reader acknowledges
+ *          separately: the inbox. This is NOT delivery. The agent's own marker
+ *          in `ack.jsonl` is what settles the row (TASKS/02-scope.md L7).
+ * `failed` the write did not happen. Retry with backoff.
+ *
+ * A boolean cannot carry this: it collapses "handed to the channel" into
+ * "read by the agent", which settled every inbox row at write time and made the
+ * ack reader below unreachable in the daemon.
+ */
+export type OutboxDelivery = "acked" | "queued" | "failed";
+
 export interface OutboxDeps {
-  deliver(target: string, payload: unknown, id: string): Promise<boolean>;
+  deliver(target: string, payload: unknown, id: string): Promise<OutboxDelivery>;
   now(): number;
 }
 
@@ -53,9 +70,9 @@ export function consumeOutboxAcks(orchDir: string): number {
       }
       if (!isRecord(parsed) || typeof parsed.id !== "string" || !parsed.id
         || parsed.key !== key) continue;
-      if (!outboxMessagePending(orchDir, parsed.id)) continue;
+      if (!outboxMessageOpen(orchDir, parsed.id)) continue;
       markOutboxDelivered(orchDir, parsed.id);
-      createLogger({ file: join(orchDir, "orchd.log"), level: "info" }).forCorrelation(parsed.id).info("dispatch.acked", { target: key });
+      decisionLogger(orchDir).forCorrelation(parsed.id).info("dispatch.acked", { target: key });
       acknowledged += 1;
     }
   }
@@ -79,10 +96,11 @@ function retryAt(now: number, attempts: number): number {
 export async function drainOutbox(
   orchDir: string,
   deps: OutboxDeps,
-): Promise<{ delivered: number; retried: number }> {
+): Promise<{ delivered: number; retried: number; awaiting: number }> {
   let delivered = consumeOutboxAcks(orchDir);
   const messages = selectPendingOutbox(orchDir, deps.now());
   let retried = 0;
+  let awaiting = 0;
 
   for (const message of messages) {
     const key = `${orchDir}\u0000${message.id}`;
@@ -91,20 +109,29 @@ export async function drainOutbox(
     try {
       const log = decisionLogger(orchDir).forCorrelation(message.id);
       log.info("dispatch.delivering", { target: message.target, attempt: message.attempts });
-      let acknowledged = false;
+      let outcome: OutboxDelivery;
       try {
-        acknowledged = await deps.deliver(message.target, message.payload, message.id);
+        outcome = await deps.deliver(message.target, message.payload, message.id);
       } catch {
-        acknowledged = false;
+        outcome = "failed";
       }
-      if (acknowledged) {
+      if (outcome === "acked") {
         markOutboxDelivered(orchDir, message.id);
         delivered += 1;
         continue;
       }
 
+      // Both remaining outcomes leave the row pending and schedule the next
+      // look. A queued message is re-delivered only if no marker ever lands,
+      // which is what makes the inbox at-least-once instead of fire-and-forget.
       const delay = retryDelay(message.attempts);
       bumpOutboxAttempt(orchDir, message.id, retryAt(deps.now(), message.attempts));
+      if (outcome === "queued") {
+        markOutboxAwaiting(orchDir, message.id);
+        log.debug("dispatch.awaiting-ack", { target: message.target, attempt: message.attempts, delay });
+        awaiting += 1;
+        continue;
+      }
       log.debug("retry.attempt", { target: message.target, attempt: message.attempts + 1, delay });
       retried += 1;
     } finally {
@@ -112,5 +139,5 @@ export async function drainOutbox(
     }
   }
 
-  return { delivered, retried };
+  return { delivered, retried, awaiting };
 }

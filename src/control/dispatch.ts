@@ -102,8 +102,17 @@ function refuseSteerWhileAsking(target: string, action: PromptAction): void {
  * happens to be running in. The keystroke path is the sole point where a backend
  * is touched, and only an adapter declaring `steer: "keys"` ever reaches it.
  */
+/**
+ * Whether the caller should wait for the agent to acknowledge this write.
+ * `expected` means the text went into the agent's inbox and its bridge will
+ * append the marker once it actually reads it; `none` means the channel has no
+ * reader that will ever ack — a pane keystroke, or a local adapter command.
+ * The outbox needs this to tell a handoff apart from a delivery (L7).
+ */
+export type ControlAck = "expected" | "none";
+
 export type ControlBoundaryOutcome =
-  | { readonly outcome: "invoke" }
+  | { readonly outcome: "invoke"; readonly ack: ControlAck }
   | { readonly outcome: "answer"; readonly text: string; readonly reason: "no-pane" | "no-environment-role" };
 
 async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
@@ -112,18 +121,18 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
     requireLiveAgent(target, adapter, action.kind);
     const command = adapter.inboxSteering.steer({ key: target, text: action.text, id: action.id });
     if (command) await runAdapterCommand(command, timeoutMs);
-    return { outcome: "invoke" };
+    return { outcome: "invoke", ack: "expected" };
   }
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
   if (command) {
     await runAdapterCommand(command, timeoutMs);
-    return { outcome: "invoke" };
+    return { outcome: "invoke", ack: "none" };
   }
   const route = resolveTargetRoute(target);
   if (!route?.backend.paneInventory) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${action.kind} does not apply.` };
   if (!route.backend.paneInput) return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${action.kind}` };
   route.backend.paneInput.submit(route.handle, action.text);
-  return { outcome: "invoke" };
+  return { outcome: "invoke", ack: "none" };
 }
 
 async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
@@ -135,7 +144,7 @@ async function deliverAnswer(target: string, adapter: AgentAdapter, text: string
   requireLiveAgent(target, adapter, "answer");
   const command = adapter.question.answer({ key: target, text });
   if (command) await runAdapterCommand(command, timeoutMs);
-  return { outcome: "invoke" };
+  return { outcome: "invoke", ack: "none" };
 }
 
 /**
@@ -156,7 +165,7 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
   const dir = loadPresence().get(target)?.dir;
   if (!dir) throw new Error(`cannot confirm model on ${target}: presence dir vanished`);
   await awaitControlOutcome(dir, id, timeoutMs);
-  return { outcome: "invoke" };
+  return { outcome: "invoke", ack: "none" };
 }
 
 /** The backend holding a target, and its current handle. Reads the registry pane
@@ -191,7 +200,7 @@ function deliverLifecycle(target: string, adapter: AgentAdapter, verb: Lifecycle
   const command = adapter.lifecycleControl.lifecycleCmd(verb);
   if (!command) throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} returned no ${verb} command`);
   route.backend.paneInput.submit(route.handle, command.text);
-  return { outcome: "invoke" };
+  return { outcome: "invoke", ack: "none" };
 }
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */

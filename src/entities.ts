@@ -10,6 +10,7 @@ import { abstractAgentLabel } from "./notify/format.ts";
 import type { Recipient } from "./recipient.ts";
 import type { SpawnedRecord } from "./store/spawned-rows.ts";
 import { selfId } from "./identity/self.ts";
+import { CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
 export { recipientLabel, type Recipient } from "./recipient.ts";
@@ -259,8 +260,7 @@ export function sortEntities(entities: Entity[]): Entity[] {
 }
 
 function die(message: string): never {
-  process.stderr.write(message + "\n");
-  process.exit(1);
+  throw new CommandRefusal(message);
 }
 
 function dedupeEntities(entities: Entity[]): Entity[] {
@@ -269,9 +269,10 @@ function dedupeEntities(entities: Entity[]): Entity[] {
 }
 
 function ambiguous(target: string, entities: Entity[]): never {
-  process.stderr.write(`Ambiguous target "${target}". Candidates:\n`);
-  for (const entity of entities) process.stderr.write(`  ${entity.key}${entity.tabLabel ? `  (${entity.tabLabel})` : ""}${entity.agent ? `  ${entity.agent}` : ""}\n`);
-  process.exit(1);
+  const candidates = entities
+    .map((entity) => `  ${entity.key}${entity.tabLabel ? `  (${entity.tabLabel})` : ""}${entity.agent ? `  ${entity.agent}` : ""}`)
+    .join("\n");
+  throw new CommandRefusal(`Ambiguous target "${target}". Candidates:\n${candidates}`);
 }
 
 function matchInPool(entities: Entity[], localTarget: string, target: string, host?: string | null): Entity | null {

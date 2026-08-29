@@ -26,7 +26,7 @@ function capture(run: () => void): { stdout: string; stderr: string } {
 function seedPresence(root: string, key: string): void {
   const dir = presenceAgentDir(key, root);
   mkdirSync(dir, { recursive: true });
-  insertSpawnedRecord(root, { pane: key, backend: "headless", workspace: "runs", handle: key });
+  insertSpawnedRecord(root, { pane: key, backend: "headless", space: "runs", handle: key });
   writeFileSync(join(dir, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done",
   }));

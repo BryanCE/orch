@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
-import { headlessBackend } from "../src/backends/headless/index.ts";
 import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { openStore } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
-import { checkWall } from "../src/policy/workspace.ts";
+import { checkWall } from "../src/policy/space.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -77,7 +77,7 @@ afterEach(async () => {
 });
 
 describe("close always works", () => {
-  test("closes a foreign-workspace target by name, key, or pane id", () => {
+  test("closes a foreign-space target by name, key, or pane id", () => {
     const dir = makeDir();
     const records = [
       ["headless~foreign~pane-name", "pane-name", "worker-name"],
@@ -85,34 +85,21 @@ describe("close always works", () => {
       ["headless~foreign~pane-id", "pane-id", null],
     ] as const;
     for (const [key, handle] of records) {
-      recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle, owner: "caller" });
+      recordSpawned(key, { backend: "headless", space: "foreign-space", handle, owner: "caller" });
       writeStatus(dir, key, handle, 99999999);
     }
 
-    const backend = headlessBackend as typeof headlessBackend & {
-      capabilities: { panes: boolean };
-      inventory?: () => { handle: string; workspace: string; name: string | null }[];
-    };
-    // Exercise the in-process backend seam explicitly; headless normally has no pane capability.
-    const oldPanes = backend.capabilities.panes;
-    const oldInventory = backend.inventory?.bind(backend);
-    const oldClose = backend.close.bind(backend);
-    const closed: string[] = [];
-    backend.capabilities.panes = true;
-    backend.inventory = () => records
-      .filter(([, handle]) => !closed.includes(handle))
-      .map(([, handle, name]) => ({ handle, workspace: "foreign-workspace", name }));
-    backend.close = (handle) => { closed.push(typeof handle === "string" ? handle : handle.key); return true; };
-    try {
+    // A paned environment is COMPOSED, never switched on: this provider owns a
+    // pane host and a pane inventory, which headless does not. Registration is
+    // the seam; the shipped headless provider is never mutated.
+    const backend = new FakePanedBackend({
+      panes: records.map(([, handle, name]) => fakePane(handle, { space: "foreign-space", name })),
+    });
+    withRegisteredBackend(backend, () => {
       cmdClose(["worker-name", "headless~foreign~pane-key", "pane-id", "--json"]);
-    } finally {
-      backend.capabilities.panes = oldPanes;
-      if (oldInventory) backend.inventory = oldInventory;
-      else delete backend.inventory;
-      backend.close = oldClose;
-    }
+    });
 
-    expect(closed).toEqual(["pane-name", "pane-key", "pane-id"]);
+    expect(backend.closed).toEqual(["pane-name", "pane-key", "pane-id"]);
     for (const [key] of records) {
       expect(spawnedRecords().has(key)).toBe(false);
       expect(existsSync(join(dir, "agents", key))).toBe(false);
@@ -126,36 +113,26 @@ describe("close always works", () => {
     children.push(child);
     const pid = child.pid!;
     recordProcess(dir, key, pid, processStartToken(pid)!);
-    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "caller" });
+    recordSpawned(key, { backend: "headless", space: "foreign-space", handle: key, owner: "caller" });
     writeStatus(dir, key, key, pid);
-    const backend = headlessBackend as typeof headlessBackend & {
-      capabilities: { panes: boolean };
-      inventory?: () => { handle: string }[];
-    };
-    const oldPanes = backend.capabilities.panes;
-    const oldInventory = backend.inventory?.bind(backend);
-    const oldClose = backend.close.bind(backend);
+    // The pane host is never asked to close here — the recorded process is
+    // signalled instead — so the inventory keeps listing the pane afterwards,
+    // and a pane that is still listed must fail the close.
+    const backend = new FakePanedBackend({ panes: [fakePane(key, { space: "foreign-space" })] });
     const oldExit = process.exit.bind(process);
     const oldExitCode = process.exitCode;
-    backend.capabilities.panes = true;
-    backend.inventory = () => [{ handle: key }];
-    backend.close = () => true;
     const replacementExit: (code?: string | number | null) => void = (code) => {
       process.exitCode = typeof code === "number" ? code : 0;
     };
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
-      cmdClose([key, "--json"]);
+      withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
       expect(process.exitCode).toBe(1);
       expect(spawnedRecords().has(key)).toBe(true);
       expect(existsSync(join(dir, "agents", key))).toBe(true);
     } finally {
       Object.defineProperty(process, "exit", { value: oldExit });
       process.exitCode = oldExitCode;
-      backend.capabilities.panes = oldPanes;
-      if (oldInventory) backend.inventory = oldInventory;
-      else delete backend.inventory;
-      backend.close = oldClose;
     }
   });
 
@@ -171,7 +148,7 @@ describe("close always works", () => {
       .run(key, key, "pi", dir, key, 1);
     db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
       .run(key, 1, "test-host", pid, startToken);
-    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "other" });
+    recordSpawned(key, { backend: "headless", space: "foreign-space", handle: key, owner: "other" });
     writeStatus(dir, key, key, pid);
 
     const originalKill = process.kill.bind(process);
@@ -203,23 +180,18 @@ describe("close always works", () => {
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
     children.push(child);
     const pid = child.pid!;
-    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "caller" });
+    recordSpawned(key, { backend: "headless", space: "foreign-space", handle: key, owner: "caller" });
     writeStatus(dir, key, key, pid);
 
-    const backend = headlessBackend as typeof headlessBackend & { capabilities: { panes: boolean } };
-    const oldPanes = backend.capabilities.panes;
-    const oldClose = backend.close.bind(backend);
-    let paneClosed = false;
+    const backend = new FakePanedBackend({ panes: [fakePane(key, { space: "foreign-space" })] });
     const oldExitCode = process.exitCode;
-    backend.capabilities.panes = true;
-    backend.close = () => { paneClosed = true; return true; };
-    try { cmdClose([key, "--json"]); } finally {
+    try {
+      withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
+    } finally {
       process.exitCode = oldExitCode;
-      backend.capabilities.panes = oldPanes;
-      backend.close = oldClose;
     }
 
-    expect(paneClosed).toBe(true);
+    expect(backend.closed).toEqual([key]);
     expect(processIsAlive(pid)).toBe(true);
     expect(spawnedRecords().has(key)).toBe(false);
     expect(existsSync(join(dir, "agents", key))).toBe(false);
@@ -228,25 +200,17 @@ describe("close always works", () => {
   test("close ignores owner and spawnedBy gates", () => {
     makeDir();
     const key = "headless~foreign~owned";
-    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "other", spawnedBy: "other-session" });
-    const backend = headlessBackend as typeof headlessBackend & { capabilities: { panes: boolean } };
-    const oldPanes = backend.capabilities.panes;
-    const oldClose = backend.close.bind(backend);
-    let closed = false;
-    backend.capabilities.panes = true;
-    backend.close = () => { closed = true; return true; };
-    try { cmdClose([key, "--json"]); } finally {
-      backend.capabilities.panes = oldPanes;
-      backend.close = oldClose;
-    }
-    expect(closed).toBe(true);
+    recordSpawned(key, { backend: "headless", space: "foreign-space", handle: key, owner: "other", spawnedBy: "other-session" });
+    const backend = new FakePanedBackend({ panes: [fakePane(key, { space: "foreign-space" })] });
+    withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
+    expect(backend.closed).toEqual([key]);
     expect(spawnedRecords().has(key)).toBe(false);
   });
 
   test("abort ignores owner gate", () => {
     makeDir();
     const key = "headless~foreign~abort";
-    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "other", spawnedBy: "other-session" });
+    recordSpawned(key, { backend: "headless", space: "foreign-space", handle: key, owner: "other", spawnedBy: "other-session" });
     cmdAbort([key, "--json"]);
     expect(spawnedRecords().has(key)).toBe(true);
   });
@@ -254,7 +218,7 @@ describe("close always works", () => {
   test("duplicate close targets count once", () => {
     makeDir();
     const key = "headless~foreign~duplicate";
-    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle: key, owner: "caller" });
+    recordSpawned(key, { backend: "headless", space: "foreign-space", handle: key, owner: "caller" });
     const oldExitCode = process.exitCode;
     const originalExit = process.exit.bind(process);
     const replacementExit: (code?: string | number | null) => void = (code) => {
@@ -275,7 +239,7 @@ describe("close always works", () => {
     const dir = makeDir();
     const key = "headless~foreign~dead-pane";
     const handle = "99999999";
-    recordSpawned(key, { backend: "headless", workspace: "foreign-workspace", handle, owner: "caller" });
+    recordSpawned(key, { backend: "headless", space: "foreign-space", handle, owner: "caller" });
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "status.json"), JSON.stringify({
@@ -289,12 +253,12 @@ describe("close always works", () => {
     expect(existsSync(agentDir)).toBe(false);
   }, 15_000);
 
-  test("steer remains blocked by the workspace wall", () => {
+  test("steer remains blocked by the space wall", () => {
     const dir = makeDir();
-    recordSpawned("headless~workspace-a~operator", { backend: "headless", workspace: "workspace-a", handle: "operator" });
-    recordSpawned("headless~workspace-b~pane", { backend: "headless", workspace: "workspace-b", handle: "pane" });
-    const decision = checkWall(dir, "headless~workspace-a~operator", "headless~workspace-b~pane", { crossWorkspace: false });
+    recordSpawned("headless~space-a~operator", { backend: "headless", space: "space-a", handle: "operator" });
+    recordSpawned("headless~space-b~pane", { backend: "headless", space: "space-b", handle: "pane" });
+    const decision = checkWall(dir, "headless~space-a~operator", "headless~space-b~pane", { crossSpace: false });
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain("workspace wall");
+    expect(decision.reason).toContain("space wall");
   });
 });

@@ -130,7 +130,7 @@ function isPresenceStatus(value: unknown): value is PresenceStatus {
   return isRecord(value)
     && value.schema === PRESENCE_SCHEMA
     && !("backend" in value)
-    && !("workspace" in value)
+    && !("space" in value)
     && !("handle" in value);
 }
 
@@ -172,7 +172,7 @@ export function recordSpawned(
   if (metadata.adapter !== undefined) record.adapter = metadata.adapter;
   if (metadata.model !== undefined) record.model = metadata.model;
   if (metadata.backend !== undefined) record.backend = metadata.backend;
-  if (metadata.workspace !== undefined) record.workspace = metadata.workspace;
+  if (metadata.space !== undefined) record.space = metadata.space;
   if (metadata.handle !== undefined) record.handle = metadata.handle;
   if (metadata.name !== undefined) record.name = metadata.name;
   if (metadata.cwd !== undefined) record.cwd = metadata.cwd;

@@ -131,7 +131,10 @@ describe("deliverControl", () => {
       outcome: "answer", reason: "no-pane", text: `${key} has no pane; steer does not apply.`,
     });
     expect(await deliverControl(key, { kind: "model", model: "provider/new-model", id: "req-1" })).toEqual({
-      outcome: "answer", reason: "no-environment-role", text: "this environment does not provide model control",
+      // E14: an absence is an ANSWER to a human, so it has to be usable — it
+      // names the target and the harness that cannot take the verb.
+      outcome: "answer", reason: "no-environment-role",
+      text: `cannot set the model on ${key}: adapter claude has no running-session model control`,
     });
   });
 

@@ -140,7 +140,7 @@ export function checkBackendCapabilities(
       active: false,
       available: probe.detected,
       insideSession: probe.insideSession,
-      workspace: backend.identity?.current()?.workspace ?? null,
+      space: backend.identity?.current()?.workspace ?? null,
       roles: Object.entries({
         paneHost: backend.paneHost,
         paneInventory: backend.paneInventory,

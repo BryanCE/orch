@@ -450,13 +450,45 @@ const ENVIRONMENT_ID_EQUALITY = new RegExp(
 const ENVIRONMENT_SWITCH = new RegExp(`\\bswitch\\s*\\(\\s*(?:${ENVIRONMENT_REFERENCE})(?:\\.id)?\\s*\\)`);
 const ENVIRONMENT_KEY_PREFIX = new RegExp(`\\b(?:key|identity\\.key)\\s*\\.\\s*startsWith\\s*\\(\\s*["'](?:${ENVIRONMENT_ID_ALTERNATION})~`);
 const METHOD_OWNER = "(?:provider|backend|adapter|resolvedBackend|resolvedAdapter)";
-const ENVIRONMENT_ROLE_NAMES: readonly string[] = [
-  "channel", "paneHost", "paneInventory", "paneInput", "paneForeground", "paneScreen", "paneZoom", "paneNaming",
-  "agentNaming", "agentStatus", "groupHome", "groupLayout", "notification", "capabilities", "id",
-  "workerLaunch", "modelControl", "lifecycleControl", "sessionView", "workspaceTrust", "shim", "defaultModel", "models", "modelWarm",
-  "question", "inboxSteering", "presenceRegistration", "commandLocks", "createWorkspace", "currentIdentity", "pruneLogs", "handleFor", "workspaces", "focusWorkspace", "version",
-  "sessionEnvMarker", "sessionIdEnv", "sessionPidEnv", "spaceHome",
-];
+/**
+ * Role members declared on the two ports, read FROM the ports.
+ *
+ * These are the names a core module may legitimately null-check: E13 made
+ * composition the capability, so `if (adapter.inboxSteering)` is the prescribed
+ * shape and must not trip the method-presence rule. Everything else still does.
+ *
+ * Derived, never hand-kept. The copy that used to stand here still named
+ * `capabilities`, `createWorkspace`, `handleFor`, `pruneLogs`, `workspaces`,
+ * `focusWorkspace` and `version` long after E13 deleted them — so the rule
+ * exempted the exact shapes it exists to forbid. A list beside the thing it
+ * describes is a second list to forget, in both directions.
+ */
+function portRoleMembers(): readonly string[] {
+  const names = new Set<string>();
+  for (const file of ["src/backends/backend.ts", "src/adapters/adapter.ts"]) {
+    const source = readFileSync(file, "utf8");
+    // A composed role is a member whose TYPE is a Role or a Strategy — `readonly
+    // paneHost: PaneHostRole<Handle> | null`, `readonly thinking: ThinkingStrategy
+    // | null` (TASKS/07 names both). Matching on the type, not on the interface
+    // name, survives the port being renamed or split, and deliberately does NOT
+    // exempt plain nullable data (`readonly paneCount: number | null`), which is
+    // not a capability and must never be null-checked as one.
+    for (const member of source.matchAll(/^\s*readonly\s+([A-Za-z_$][\w$]*)\s*:\s*[^;]*[A-Za-z](?:Role|Strategy)\b[^;]*;/gm)) {
+      names.add(member[1]!);
+    }
+  }
+  // The adapter port's declared-optional fields are an absence the core reads
+  // directly too. Scoped to that interface: an optional field on a REQUEST type
+  // is not a capability, and exempting those would gut the rule.
+  const adapter = readFileSync("src/adapters/adapter.ts", "utf8");
+  const port = /^export interface AgentAdapter\b[^{]*\{([\s\S]*?)^\}/m.exec(adapter)?.[1] ?? "";
+  for (const member of port.matchAll(/^\s*readonly\s+([A-Za-z_$][\w$]*)\s*\?\s*:/gm)) names.add(member[1]!);
+  if (names.size === 0) throw new Error("check-bridge: found no role members on the ports - the port shape changed under this rule");
+  names.add("id");
+  return [...names];
+}
+
+export const ENVIRONMENT_ROLE_NAMES: readonly string[] = portRoleMembers();
 const ENVIRONMENT_ROLE_ALTERNATION = ENVIRONMENT_ROLE_NAMES.join("|");
 const METHOD_TYPEOF = /\btypeof\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+\s*(?:===|!==|==|!=)\s*["']function["']/;
 const METHOD_IN = new RegExp(`["'][^"']+["']\\s+in\\s+${METHOD_OWNER}\\b`);

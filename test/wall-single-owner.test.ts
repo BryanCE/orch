@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-const canonicalWallModule = "src/policy/workspace.ts";
+const canonicalWallModule = "src/policy/space.ts";
 const wallMarkers = [
-  /opts:\s*\{\s*crossWorkspace/,
-  /opts\.crossWorkspace\b/,
+  /opts:\s*\{\s*crossSpace/,
+  /opts\.crossSpace\b/,
   /allowed:\s*false/,
-  /workspace wall:/,
+  /space wall:/,
 ] as const;
 
 async function sourceFiles(): Promise<string[]> {
@@ -15,7 +15,7 @@ async function sourceFiles(): Promise<string[]> {
   return files.sort();
 }
 
-describe("workspace wall ownership", () => {
+describe("space wall ownership", () => {
   test("keeps the wall decision primitive in one source module", async () => {
     const files = await sourceFiles();
     const sources = await Promise.all(files.map(async (path) => [path, await Bun.file(path).text()] as const));

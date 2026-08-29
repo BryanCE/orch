@@ -45,13 +45,13 @@ export async function cmdSteer(args: string[]): Promise<void> {
   const { gov, rest: cleanArgs } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const target = cleanArgs[0];
   const text = cleanArgs.slice(1).join(" ");
-  if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-workspace] [--json]');
+  if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]');
   const remote = targetHost(target);
   if (remote) {
     remoteWrite(remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
     return;
   }
-  const entity = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  const entity = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, entity, gov.steal);
   if (!entity.paneId) {
     if (!entity.presence) die(`Target "${target}" has no agent presence.`);
@@ -143,13 +143,13 @@ export async function cmdAnswer(args: string[]): Promise<void> {
   const force = args.includes("--force");
   const json = args.includes("--json");
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
-  const { target, prompt: text } = parseTargetPrompt(rest, "--force", 'usage: orch answer <target> "<text>" [--force] [--steal] [--cross-workspace] [--json]');
+  const { target, prompt: text } = parseTargetPrompt(rest, "--force", 'usage: orch answer <target> "<text>" [--force] [--steal] [--cross-space] [--json]');
   const remote = targetHost(target);
   if (remote) {
-    remoteWrite(remote.host, "answer", [remote.target, text, ...(force ? ["--force"] : []), ...(gov.steal ? ["--steal"] : []), ...(gov.crossWorkspace ? ["--cross-workspace"] : []), ...(json ? ["--json"] : [])]);
+    remoteWrite(remote.host, "answer", [remote.target, text, ...(force ? ["--force"] : []), ...(gov.steal ? ["--steal"] : []), ...(gov.crossSpace ? ["--cross-space"] : []), ...(json ? ["--json"] : [])]);
     return;
   }
-  const ent = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   const questionPath = ent.presence ? path.join(ent.presence.dir, QUESTION_FILE) : null;
   if (!force && (!questionPath || !files.existsSync(questionPath)))
     die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
@@ -167,8 +167,8 @@ export async function cmdModel(args: string[]): Promise<void> {
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--no-wait" && arg !== "--json"));
   const target = rest[0];
   const modelArg = rest[1];
-  if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-workspace] [--no-wait]");
-  const ent = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-space] [--no-wait]");
+  const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, ent, gov.steal);
   const pane = ent.paneId ?? ent.key;
   const result = await setAgentModel(ent.key, modelArg, gov);
@@ -207,13 +207,19 @@ export async function dispatchToAgent(key: string, text: string, options: Dispat
     options.gov,
   );
   if (!isRecord(delivered) || typeof delivered.id !== "string") throw new Error("dispatch response missing dispatch id");
+  // The CLI end of the correlation chain (TASKS/13 section 3). The id is minted by
+  // the daemon, so this is the first moment the CLI can name the dispatch it just
+  // made — without this record half the system writes nothing anywhere, ever.
+  const identity = tryParseIdentity(key);
+  const log = commandLogger().forCorrelation(delivered.id);
+  (identity ? log.forAgent(identity.id) : log).info("dispatch.cli-accepted", { target: key });
   return { dispatchId: delivered.id };
 }
 
 export async function cmdDispatch(args: string[]) {
   const { gov, rest } = parseGovernance(args);
   const flags = parseDispatchFlags(rest);
-  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-workspace]');
+  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-space]');
   const target = flags.positional[0];
   if (target) {
     const remote = targetHost(target);
@@ -271,7 +277,7 @@ function resolveDispatchSettings(flags: DispatchFlags, config: OrchConfig, gov: 
   const target = flags.positional[0];
   const prompt = flags.positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
-  const ent = resolveTarget(target, { crossWorkspace: gov.crossWorkspace });
+  const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, ent, gov.steal);
   const pane = ent.paneId ?? ent.key;
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;

@@ -15,7 +15,7 @@ import { checkHarnessModels } from "./models.ts";
 import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./config.ts";
 import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
-import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons } from "./daemon.ts";
+import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons, checkOsExecutors } from "./daemon.ts";
 import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion, type SshRunner } from "./remote.ts";
 import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
@@ -126,6 +126,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),
     isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(orchDir)),
     isolated("orphan-daemons", "Orphaned daemons", () => checkOrphanDaemons(orchDir)),
+    isolated("os-executors", "OS-side executors", checkOsExecutors),
     isolated("remote-ssh", "Remote SSH reachability", () => checkRemoteReachability(orchDir, sshRunner)),
     isolated("remote-orch-version", "Remote orch version/schema", () => checkRemoteVersion(orchDir, sshRunner)),
     isolated("remote-orch-dir", "Remote ORCH_DIR", () => checkRemoteOrchDir(orchDir, sshRunner)),

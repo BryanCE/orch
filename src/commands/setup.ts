@@ -815,7 +815,7 @@ async function finishSetup(options: SetupOptions, gaps: readonly string[]): Prom
   } else {
     process.stdout.write("Smoke test skipped (--no-smoke).\n");
   }
-  const doneMessage = "Done. Open a backend workspace and try: orch spawn 2 --tab Team1";
+  const doneMessage = "Done. Open a plexer workspace and try: orch spawn 2 --tab Team1";
   if (options.interactive) setupOutro(doneMessage);
   else process.stdout.write(`${doneMessage}\n`);
 }

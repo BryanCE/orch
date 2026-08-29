@@ -30,7 +30,7 @@ function makeOrchDir(): string {
 
 function seedSpawnedRecord(dir: string, pane: string): void {
   deleteSpawnedRecord(dir, pane);
-  insertSpawnedRecord(dir, { pane, backend: "headless", workspace: "local" });
+  insertSpawnedRecord(dir, { pane, backend: "headless", space: "local" });
 }
 
 afterEach(() => {
@@ -48,12 +48,12 @@ describe("spawned and ownership store rows", () => {
     expect(isSpawnedRow([])).toBe(false);
   });
 
-  test("round-trips name and workspace through the public spawned seam", () => {
+  test("round-trips name and space through the public spawned seam", () => {
     const dir = makeOrchDir();
-    insertSpawnedRecord(dir, { pane: "herdr~w1~a1", name: "recon-1", workspace: "w1" });
+    insertSpawnedRecord(dir, { pane: "herdr~w1~a1", name: "recon-1", space: "w1" });
     const records = selectSpawnedRecords(dir);
     expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ pane: "herdr~w1~a1", name: "recon-1", workspace: "w1" });
+    expect(records[0]).toMatchObject({ pane: "herdr~w1~a1", name: "recon-1", space: "w1" });
   });
 
   test("ownership table has no workspace column", () => {

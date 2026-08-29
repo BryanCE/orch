@@ -5,7 +5,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/outbox-rows.ts";
-import { drainOutbox } from "../src/daemon/outbox.ts";
+import { drainOutbox, type OutboxDelivery } from "../src/daemon/outbox.ts";
 import { validateWriteParams } from "../src/daemon/orchd.ts";
 import { ReplayBuffer, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
 
@@ -49,10 +49,10 @@ describe("broker daemon hardening", () => {
       deliver: (target) => {
         if (target === "a") return Promise.reject(new Error("backend down"));
         delivered.push(target);
-        return Promise.resolve(true);
+        return Promise.resolve<OutboxDelivery>("acked");
       },
     });
-    expect(result).toEqual({ delivered: 1, retried: 1 });
+    expect(result).toEqual({ delivered: 1, retried: 1, awaiting: 0 });
     expect(delivered).toEqual(["b"]);
     expect(selectPendingOutbox(dir, 1_501).map((message) => message.id)).toEqual(["throws"]);
   });
@@ -63,7 +63,7 @@ describe("broker daemon hardening", () => {
     let deliveries = 0;
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => { release = resolve; });
-    const deps = { now: () => 0, deliver: async () => { deliveries += 1; await blocked; return true; } };
+    const deps = { now: () => 0, deliver: async () => { deliveries += 1; await blocked; return "acked" as const; } };
     const first = drainOutbox(dir, deps);
     await Bun.sleep(0);
     const second = drainOutbox(dir, deps);

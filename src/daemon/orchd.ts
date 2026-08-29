@@ -5,10 +5,11 @@ import {
   reexecSelf,
   releaseDaemonLock,
   acquireDaemonRegistration,
+  daemonStartRefusal,
   releaseDaemonRegistration,
 } from "./lifecycle.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "./rpc.ts";
-import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type NotifyEntry, type OrchConfig } from "../config.ts";
+import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type NotifyEntry, type OrchConfig, configuredLogLevel } from "../config.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
@@ -19,11 +20,11 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { openStore, withTransaction } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
-import { insertOutboxMessage, markOutboxDelivered, outboxMessagePending } from "../store/outbox-rows.ts";
+import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
 import { checkOwnerWrite, getOwner } from "../store/ownership-rows.ts";
-import { checkWall, operatorControls } from "../policy/workspace.ts";
+import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
-import { drainOutbox, type OutboxDeps } from "./outbox.ts";
+import { drainOutbox, type OutboxDeps, type OutboxDelivery } from "./outbox.ts";
 import { normalizeControlTarget, tryParseIdentity } from "../backends/identity.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
@@ -33,7 +34,7 @@ import type { WorkerPolicy } from "../policy/workers.ts";
 import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
-import { createLogger, isLogLevel, type Logger, type LogContext, type LogLevel } from "../log.ts";
+import { createLogger, type Logger, type LogContext, type LogLevel } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
 
@@ -148,7 +149,7 @@ function getSinks(directory: string): NotifyEntry[] {
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
  *  second shape here is what left the method unusable and every client reading files. */
 function fleetStatus(directory: string): { rows: StatusRow[] } {
-  const rows = fleetStatusRows(getConfig(directory).workspaces);
+  const rows = fleetStatusRows(getConfig(directory).spaces);
   return {
     rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key) })),
   };
@@ -184,17 +185,19 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
 /** Send one outbox write into its target's text channel. New work and a mid-run steer
  *  differ only in the action kind; both go through the one control dispatcher. A target
  *  with no recorded adapter is a bare pane orch never spawned, so keystrokes are all it has. */
-export async function deliverWrite(target: string, payload: unknown, id: string): Promise<boolean> {
+export async function deliverWrite(target: string, payload: unknown, id: string): Promise<OutboxDelivery> {
   const canonicalTarget = normalizeControlTarget(target);
-  const log = createLogger({ file: `${orchDir()}/orchd.log`, level: "info" }).forCorrelation(id);
+  const log = decisionLogger(orchDir()).forCorrelation(id);
   const value = isWritePayload(payload) ? payload : {};
   const text = requiredString(value.text, "text");
   const kind = value.action === "dispatch" ? "run" : "steer";
   if (!resolveTargetAdapter(canonicalTarget)) {
     const route = resolveTargetRoute(canonicalTarget);
-    if (!route?.backend.paneInput) return false;
+    if (!route?.backend.paneInput) return "failed";
+    // Keystrokes into a pane: nothing will ever append a marker for this, so the
+    // write itself is the whole delivery.
     route.backend.paneInput.submit(String(route.handle), text);
-    return true;
+    return "acked";
   }
   try {
     const outcome = await deliverControl(canonicalTarget, { kind, text, id });
@@ -207,13 +210,15 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
       process.stderr.write(`${kind} ${canonicalTarget} refused (${outcome.reason}): ${outcome.text}\n`);
       // A boundary answer is a successful human-facing outcome, not a failed
       // delivery. Ack it so the outbox does not retry or escalate it as error.
-      return true;
+      return "acked";
     }
-    return true;
+    // An inbox write is a handoff, not a read: the row stays pending until the
+    // bridge appends its marker to ack.jsonl (TASKS/02-scope.md L7).
+    return outcome.ack === "expected" ? "queued" : "acked";
   } catch (error) {
     log.error("dispatch.failed", { target: canonicalTarget, error: errorMessage(error) });
     process.stderr.write(`${kind} ${canonicalTarget} failed: ${errorMessage(error)}\n`);
-    return false;
+    return "failed";
   }
 }
 
@@ -232,7 +237,7 @@ export function validateWriteParams(params: unknown): { target: string; text: st
   };
 }
 
-/** Enforce the workspace wall, then lease authority and ownership, before a write is
+/** Enforce the space wall, then lease authority and ownership, before a write is
  * accepted. An open lease is mutual exclusion for every driving verb, but ONLY while
  * its holder is alive: Rule 11 - a dead holder is not a collision, it is a stale row.
  * Gating on a dead holder strands a whole fleet with no way to drive it. */
@@ -240,29 +245,31 @@ export function governWrite(directory: string, target: string, params: unknown, 
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
   const steal = value.steal === true;
-  const actorWorkspace = typeof value.actorWorkspace === "string" ? value.actorWorkspace : null;
+  const actorSpace = typeof value.actorSpace === "string" ? value.actorSpace : null;
   const actorIsOperator = value.actorIsOperator === true;
-  const configuredCrossWorkspace = loadConfigOrNull(directory)?.fleet.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace;
-  const crossWorkspace = value.crossWorkspace === true || configuredCrossWorkspace;
-  const wall = checkWall(directory, actor, target, { crossWorkspace });
-  if (!wall.allowed) throw new Error(wall.reason ?? "workspace wall denied the write");
+  const configuredCrossSpace = loadConfigOrNull(directory)?.fleet.cross_space ?? SETTINGS_DEFAULTS.fleet.cross_space;
+  const crossSpace = value.crossSpace === true || configuredCrossSpace;
+  const wall = checkWall(directory, actor, target, { crossSpace });
+  if (!wall.allowed) throw new Error(wall.reason ?? "space wall denied the write");
   const targetId = tryParseIdentity(target)?.id ?? target;
   const lease = currentLease(directory, targetId);
   const actorId = actor === null ? null : (tryParseIdentity(actor)?.id ?? actor);
   const holderId = lease && (tryParseIdentity(lease.orchId)?.id ?? lease.orchId);
   const holderAlive = lease === null ? false : leaseHolderIsAlive(directory, lease.orchId);
   const foreignLease = lease !== null && holderId !== actorId;
+  // Every grant is part of the decision trail, not just the interesting ones: a
+  // dispatch whose lease step left no record cannot be told apart from one that
+  // never reached the lease step at all (TASKS/13 slice 5).
   const logLeaseGrant = (): void => {
-    if (!foreignLease || lease === null) return;
     decisionLogger(directory, { ...context, agentId: targetId }).debug("lease.granted", {
-      target: targetId,
-      holderId: holderId ?? lease.orchId,
-      holderAlive: false,
+      target,
+      holderId: lease === null ? null : (holderId ?? lease.orchId),
+      holderAlive,
     });
   };
   if (foreignLease && lease !== null && holderAlive) {
     decisionLogger(directory, { ...context, agentId: targetId }).debug("lease.refused", {
-      target: targetId,
+      target,
       holderId: holderId ?? lease.orchId,
       holderAlive: true,
     });
@@ -274,10 +281,10 @@ export function governWrite(directory: string, target: string, params: unknown, 
     logLeaseGrant();
     return;
   }
-  // The workspace's human operator keeps control of every fleet keyed into it;
+  // The space's human operator keeps control of every fleet keyed into it;
   // spawned agents carry their own key, never the operator id, so this grants
   // an agent nothing beyond what it spawned.
-  if (operatorControls(directory, actor, target, actorWorkspace, actorIsOperator)) {
+  if (operatorControls(directory, actor, target, actorSpace, actorIsOperator)) {
     logLeaseGrant();
     return;
   }
@@ -289,7 +296,7 @@ export function governWrite(directory: string, target: string, params: unknown, 
 async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
   const { target, text } = validateWriteParams(params);
   const id = randomUUID();
-  const log = createLogger({ file: `${directory}/orchd.log`, level: "info" }).forCorrelation(id);
+  const log = decisionLogger(directory).forCorrelation(id);
   try {
     withTransaction(directory, () => {
       governWrite(directory, target, params, { correlationId: id });
@@ -298,11 +305,16 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
     log.info("dispatch.accepted", { target, action });
     log.info("dispatch.queued", { target, action });
     await drainOutbox(directory, outboxDeps());
-    if (outboxMessagePending(directory, id)) {
-      log.error("dispatch.failed", { target, error: "not applied or acknowledged" });
-      throw new Error(`write ${id} was not applied or acknowledged for target ${target}`);
+    // Only a write no channel would take is a failure. A queued one is open on
+    // purpose: the agent has not read its inbox yet (L7).
+    if (outboxMessageUnsent(directory, id)) {
+      log.error("dispatch.failed", { target, error: "no channel accepted the write" });
+      throw new Error(`write ${id} reached no channel for target ${target}`);
     }
-    log.info("dispatch.delivered", { target, action });
+    // Terminal state, and only when the row actually settled. An awaiting row is a
+    // handoff the agent has not read yet, and calling that "delivered" put a second,
+    // contradictory terminal record in the trail ahead of the bridge's own ack.
+    if (!outboxMessageOpen(directory, id)) log.info("dispatch.delivered", { target, action });
     return { accepted: true, id };
   } catch (error: unknown) {
     log.error("dispatch.failed", { target, error: errorMessage(error) });
@@ -409,12 +421,14 @@ async function answer(directory: string, params: unknown): Promise<{ ok: true }>
 let daemonLogger: Logger | undefined;
 let fatalLogged = false;
 
+/** `level` is an explicit override (a flag); everything else resolves the same
+ *  way every other logger does, through `configuredLogLevel`. */
 function loggerFor(directory: string, level?: LogLevel): Logger {
   const envLevel = process.env.ORCH_LOG_LEVEL;
-  const selected = envLevel !== undefined && isLogLevel(envLevel)
-    ? envLevel
-    : level ?? "info";
-  return createLogger({ file: daemonRuntimeFiles(directory).log, level: selected });
+  if (envLevel === undefined && level !== undefined) {
+    return createLogger({ file: daemonRuntimeFiles(directory).log, level });
+  }
+  return createLogger({ file: daemonRuntimeFiles(directory).log, level: configuredLogLevel(directory) });
 }
 
 function logFatalAndExit(kind: string, error: unknown): void {
@@ -444,7 +458,9 @@ async function main(): Promise<void> {
   const registration = acquireDaemonRegistration(directory);
   if (!registration.acquired) {
     const live = registration.registration;
-    daemonLogger?.warn("daemon.refused", { socket: live?.socket ?? null });
+    // The refused daemon exits silently, so its log line is the only record of
+    // why: name the live one the same way the CLI's refusal does.
+    daemonLogger?.warn("daemon.refused", { reason: live ? daemonStartRefusal(live) : "machine registration", pid: live?.pid ?? null, socket: live?.socket ?? null });
     return;
   }
   if (!acquireDaemonLock(directory, () => answers)) {

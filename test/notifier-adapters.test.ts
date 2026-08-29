@@ -4,7 +4,7 @@ import { createNotifierRegistry } from "../src/notify/router.ts";
 import type { NotifyEvent } from "../src/notify/format.ts";
 
 const event: NotifyEvent = {
-  key: "demo:worker", workspace: "demo", agent: "worker", tab: "tab-1", model: "model-1",
+  key: "demo:worker", space: "demo", agent: "worker", tab: "tab-1", model: "model-1",
   oldState: "working", newState: "blocked", task: "Q: approve deployment", ts: "2026-01-01T00:00:00.000Z",
 };
 
@@ -30,7 +30,7 @@ describe("notifier registry and built-in adapters", () => {
       expect(request).toBe("https://example.test/hook");
       expect(init?.method).toBe("POST");
       const body: unknown = JSON.parse(typeof init?.body === "string" ? init.body : JSON.stringify(init?.body));
-      expect(body).toMatchObject({ workspace: "demo" });
+      expect(body).toMatchObject({ space: "demo" });
     } finally {
       Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
     }

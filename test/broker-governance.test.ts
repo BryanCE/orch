@@ -16,8 +16,8 @@ function freshDir(): string {
   return dir;
 }
 
-function registerPlacement(dir: string, pane: string, workspace: string): void {
-  insertSpawnedRecord(dir, { pane, workspace });
+function registerPlacement(dir: string, pane: string, space: string): void {
+  insertSpawnedRecord(dir, { pane, space });
 }
 
 afterEach(() => {
@@ -49,18 +49,18 @@ describe("daemon governWrite enforcement", () => {
     expect(() => governWrite(dir, "herdr~wA~p1", { actor: "herdr~wA~p2", text: "hi" })).toThrow(/owned by herdr~wA~p9/);
   });
 
-  test("a cross-workspace write is refused by the wall before ownership", () => {
+  test("a cross-space write is refused by the wall before ownership", () => {
     const dir = freshDir();
     registerPlacement(dir, "herdr~wB~p1", "wB");
     registerPlacement(dir, "herdr~wA~p9", "wA");
     setOwner(dir, "herdr~wB~p1", "herdr~wB~p9");
-    expect(() => governWrite(dir, "herdr~wB~p1", { actor: "herdr~wA~p9", text: "hi" })).toThrow(/workspace wall/);
+    expect(() => governWrite(dir, "herdr~wB~p1", { actor: "herdr~wA~p9", text: "hi" })).toThrow(/space wall/);
   });
 
-  test("--cross-workspace clears the wall but ownership still applies", () => {
+  test("--cross-space clears the wall but ownership still applies", () => {
     const dir = freshDir();
     setOwner(dir, "herdr~wB~p1", "herdr~wB~p9");
-    expect(() => governWrite(dir, "herdr~wB~p1", { actor: "herdr~wA~p9", text: "hi", crossWorkspace: true })).toThrow(/owned by herdr~wB~p9/);
+    expect(() => governWrite(dir, "herdr~wB~p1", { actor: "herdr~wA~p9", text: "hi", crossSpace: true })).toThrow(/owned by herdr~wB~p9/);
   });
 
   test("--steal transfers ownership to the actor", () => {
@@ -114,7 +114,7 @@ describe("daemon governWrite enforcement", () => {
     setOwner(dir, "herdr~wA~p1", "herdr~wA~worker-9");
     expect(() => governWrite(dir, "herdr~wA~p1", {
       actor: "herdr~wA~operator",
-      actorWorkspace: "wA",
+      actorSpace: "wA",
       actorIsOperator: true,
       text: "hi",
     })).not.toThrow();
@@ -122,16 +122,16 @@ describe("daemon governWrite enforcement", () => {
     expect(getOwner(dir, "herdr~wA~p1")).toBe("herdr~wA~worker-9");
   });
 
-  test("a foreign workspace's operator still hits the wall", () => {
+  test("a foreign space's operator still hits the wall", () => {
     const dir = freshDir();
     registerPlacement(dir, "herdr~wB~p1", "wB");
     registerPlacement(dir, "herdr~wA~operator", "wA");
     setOwner(dir, "herdr~wB~p1", "herdr~wB~worker-9");
     expect(() => governWrite(dir, "herdr~wB~p1", {
       actor: "herdr~wA~operator",
-      actorWorkspace: "wA",
+      actorSpace: "wA",
       actorIsOperator: true,
       text: "hi",
-    })).toThrow(/workspace wall/);
+    })).toThrow(/space wall/);
   });
 });

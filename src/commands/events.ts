@@ -1,9 +1,9 @@
 import { loadConfig, type NotifyEntry } from "../config.ts";
-import { buildEntities, currentWorkspace, resolveTarget, workspaceOf } from "../entities.ts";
+import { buildEntities, currentSpace, resolveTarget, spaceOf } from "../entities.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { scopeToWorkspace } from "../policy/workspace.ts";
+import { scopeToSpace } from "../policy/space.ts";
 import { type PresenceMetadata } from "../daemon/events.ts";
 import { rpcHello, subscribeEvents } from "../daemon/rpc.ts";
 import { deliver } from "../notify/router.ts";
@@ -74,7 +74,7 @@ export async function cmdEvents(args: string[]) {
     const parsed = tryParseIdentity(key);
     const inScope = options.targets.length
       ? items.has(key)
-      : parsed !== null && (options.all || parsed.workspace === currentWorkspace());
+      : parsed !== null && (options.all || parsed.workspace === currentSpace());
     if (!inScope) return false;
     const agentId = tryParseIdentity(key)?.id ?? key;
     const leaseOwner = currentLease(orchDir(), agentId)?.orchId ?? null;
@@ -181,11 +181,11 @@ function presenceMetadata(key: string): PresenceMetadata {
 function eventsItems(options: EventsOptions): Map<string, WatchItem> {
   const items = new Map<string, WatchItem>();
   if (!options.targets.length) {
-    const presences = scopeToWorkspace(
+    const presences = scopeToSpace(
       orchDir(),
       [...loadPresence().values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
-      currentWorkspace(),
+      currentSpace(),
       { all: options.all },
     );
     for (const presence of presences) {
@@ -218,18 +218,18 @@ export function formatEventGap(oldestSeq: number): string {
   return `warning: event history gap; events before sequence ${oldestSeq} were pruned (replay resumes at sequence ${oldestSeq})\n`;
 }
 
-export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number, space = event.workspace ?? null): string {
+export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number, space = event.space ?? null): string {
   const coordinate = space !== null && space !== undefined && space.length > 0 ? space : null;
   if (json) {
-    const { workspace: _workspace, ...withoutWorkspace } = event;
+    const { space: _space, ...withoutSpace } = event;
     const payload = coordinate === null
-      ? { ...withoutWorkspace, streamSeq }
-      : { ...withoutWorkspace, space: coordinate, streamSeq };
+      ? { ...withoutSpace, streamSeq }
+      : { ...withoutSpace, space: coordinate, streamSeq };
     return JSON.stringify(payload);
   }
   // The plexer coordinate is opaque: echo it verbatim and never resolve it to a
   // configured label that could make the coordinate look like an orch-chosen name.
-  const textEvent: NotifyEvent = { ...event, workspace: coordinate ?? "" };
+  const textEvent: NotifyEvent = { ...event, space: coordinate ?? "" };
   const title = notificationText(textEvent, { colorize: true }).title;
   const transition = `  ${event.oldState}->${event.newState}`;
   const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
@@ -239,7 +239,7 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
 function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
     if (options.statusFilter && !options.statusFilter.has(event.newState)) return false;
-    const space = event.workspace ?? workspaceOf(orchDir(), event.key);
+    const space = event.space ?? spaceOf(orchDir(), event.key);
     process.stdout.write(`${renderEvent(event, options.json, streamSeq, space)}\n`);
     return true;
   };

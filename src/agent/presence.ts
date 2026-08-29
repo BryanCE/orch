@@ -65,7 +65,7 @@ export interface AssistantMessageLike {
  */
 export interface BridgeNotification {
   key: string;
-  workspace?: string;
+  space?: string;
   agent: string | null;
   tab: string | null;
   model: string | null;

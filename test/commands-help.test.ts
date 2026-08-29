@@ -16,12 +16,18 @@ describe("per-command help topics", () => {
     expect(helpTopic("-V")).toBe(helpTopic("version"));
   });
 
+  test("logs help names every filter the command accepts", () => {
+    const topic = helpTopic("logs");
+    expect(topic).not.toBeNull();
+    for (const flag of ["--since", "--level", "--agent", "--dispatch", "--json"]) expect(topic).toContain(flag);
+  });
+
   test("an unknown name has no topic", () => {
     expect(helpTopic("frobnicate")).toBeNull();
   });
 
   test("every topic is printable text ending in a newline", () => {
-    for (const name of ["status", "spawn", "dispatch", "queue", "lock", "review", "settings", "doctor", "setup", "close", "reset", "help"]) {
+    for (const name of ["status", "spawn", "dispatch", "queue", "lock", "review", "settings", "doctor", "setup", "close", "reset", "logs", "help"]) {
       const topic = helpTopic(name);
       expect(topic).not.toBeNull();
       expect(topic!.endsWith("\n")).toBe(true);

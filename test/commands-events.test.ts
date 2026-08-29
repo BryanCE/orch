@@ -9,7 +9,7 @@ describe("commands/events", () => {
     const files = ["src/commands/results.ts", "src/commands/events.ts", "src/commands/queue.ts", "src/agent/peers.ts", "src/table.ts"];
     const source = files.map((file) => readFileSync(file, "utf8")).join("\\n");
     expect(source).not.toMatch(/description:\s*"[^"]*workspace/i);
-    expect(source).not.toContain("workspaceName");
+    expect(source).not.toContain("spaceName");
     expect(source).not.toContain('host: "local"');
   });
 
@@ -65,18 +65,18 @@ describe("commands/events", () => {
     subscription.close();
   });
   test("renders opaque plexer coordinates without relabeling them as spaces", () => {
-    const event = { key: "agent", workspace: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
+    const event = { key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
     const json = renderEvent(event, true, 4);
     const parsed: unknown = JSON.parse(json);
     expect(parsed).toMatchObject({ space: "wF", streamSeq: 4 });
     expect(parsed).not.toHaveProperty("workspace");
-    expect(parsed).not.toHaveProperty("workspaceName");
+    expect(parsed).not.toHaveProperty("spaceName");
     expect(json).not.toContain("Friendly name");
     const text = renderEvent(event, false, 4);
     expect(text).toContain("[wF]");
     expect(text).not.toContain("Friendly name");
 
-    const absent = renderEvent({ ...event, workspace: undefined }, true, 5);
+    const absent = renderEvent({ ...event, space: undefined }, true, 5);
     expect(absent).not.toContain("space");
     expect(absent).not.toContain("workspace");
     expect(absent).not.toContain("local");

@@ -11,7 +11,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 /** One backend's probe result. Injected so the verdict is provable without the
  *  suite happening to run inside a herdr or tmux session. */
 function report(id: string, available: boolean, insideSession: boolean): DoctorBackendReport {
-  return { id, available, insideSession, workspace: null, roles: ["paneInventory"] };
+  return { id, available, insideSession, space: null, roles: ["paneInventory"] };
 }
 
 const directories: string[] = [];

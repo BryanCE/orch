@@ -35,7 +35,13 @@ describe("commands/index", () => {
     try {
       runCommand(["version"]);
       runCommand(["help"]);
-      expect(() => runCommand(["not-a-command"])).toThrow("exit 1");
+      // An unknown command prints usage and marks the run failed through the
+      // exit CODE; it does not sever the process mid-write (src/refusal.ts).
+      const previousCode = process.exitCode ?? 0;
+      process.exitCode = 0;
+      runCommand(["not-a-command"]);
+      expect(process.exitCode).toBe(1);
+      process.exitCode = previousCode;
       expect(stdout).toContain("orch ");
       expect(stdout).toContain("orch - the single controller");
       expect(stderr).toContain("Unknown command: not-a-command");

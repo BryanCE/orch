@@ -25,7 +25,7 @@ function fullRun(overrides: Partial<RunRecord> = {}): RunRecord {
     agentKey: "agent-1",
     adapter: "pi",
     model: "model-1",
-    workspace: "workspace-1",
+    space: "workspace-1",
     task: "do the work",
     state: "completed",
     startedAt: Date.parse("2026-01-01T00:00:00.000Z"),

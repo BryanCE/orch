@@ -65,8 +65,8 @@ describe("orch presence notifications", () => {
         seedStatusInDir(agentsDir, { state: "working", label: "Test agent", pid: process.pid });
         const payload: Record<string, unknown> = await waitForFile(output);
         expect(payload).toMatchObject({
-          title: expect.stringContaining("WORKING [workspace] Test agent") as unknown as string,
-          workspace: "workspace",
+          title: expect.stringContaining("WORKING [space] Test agent") as unknown as string,
+          space: "space",
           newState: "working",
         });
       } finally {

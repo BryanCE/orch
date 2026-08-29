@@ -14,10 +14,10 @@ export function assertValidAgentName(name: string): void {
   }
 }
 
-export function assertNameFree(name: string, workspace: string): void {
+export function assertNameFree(name: string, space: string): void {
   assertValidAgentName(name);
   const presence = loadPresence();
   const taken = [...spawnedRecords().values()].find((record) =>
-    agentName(record.pane) === name && record.workspace === workspace && presence.get(record.pane)?.alive);
+    agentName(record.pane) === name && record.space === space && presence.get(record.pane)?.alive);
   if (taken) throw new Error(`name "${name}" is already live as ${taken.pane}; close it or pick another name`);
 }

@@ -31,11 +31,11 @@ const ID_LENGTH = 8;
 
 /** Every action requiring consent. A union, so adding one fails to compile until
  *  it has a sentence a human can read. */
-export type GrantKind = "spawn.new-workspace";
+export type GrantKind = "spawn.new-space";
 
 /** What a human is shown for each action, in orch's words and never a caller's. */
 const ACTION_SENTENCE: Record<GrantKind, string> = {
-  "spawn.new-workspace": "open a NEW workspace on your screen and spawn agents into it",
+  "spawn.new-space": "open a NEW space on your screen and spawn agents into it",
 };
 
 /**

@@ -125,7 +125,7 @@ function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newSta
   return {
     // Cq4: the lifecycle/result event belongs to the enqueuer, not the runner.
     key: task.enqueuedBy,
-    workspace: task.scopeSpaceId ?? undefined,
+    space: task.scopeSpaceId ?? undefined,
     agent: status?.label ?? status?.agent ?? currentAttempt(task)?.agentId ?? null,
     tab: status?.tabLabel ?? null,
     model: null,

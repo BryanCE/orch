@@ -1,8 +1,7 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { PRESENCE_SCHEMA, STATUS_FILE } from "../../src/presence/schema.ts";
-import { presenceRoot } from "../../src/presence/writer.ts";
-import { pidAlive } from "../../src/util.ts";
+import { assertStoreRecreatable, livePresenceHolders } from "../../src/store/connection.ts";
+import { errorMessage } from "../../src/util.ts";
 import { buildStore, reportStore } from "./build.ts";
 import { assertHostOwnsStore, targetStoreDir } from "./store.ts";
 
@@ -20,29 +19,6 @@ const ORCH_DIR = targetStoreDir();
  *  hands the next open a journal describing a file that no longer exists. */
 const STORE_FILES = ["orch.db", "orch.db-wal", "orch.db-shm"];
 const BACKUPS = join(ORCH_DIR, "backups");
-
-/** An agent still running owns rows in this store, and its identity is only
- *  written here - deleting under it strands a live process no row describes. */
-function livePresenceHolders(): string[] {
-  let entries: { name: string; isDirectory(): boolean }[];
-  try {
-    entries = readdirSync(presenceRoot(ORCH_DIR), { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const live: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    try {
-      const status: unknown = JSON.parse(readFileSync(join(presenceRoot(ORCH_DIR), entry.name, STATUS_FILE), "utf8"));
-      const record = status as { schema?: unknown; pid?: unknown };
-      if (record.schema === PRESENCE_SCHEMA && pidAlive(record.pid)) live.push(entry.name);
-    } catch {
-      // A malformed status is not a live presence record.
-    }
-  }
-  return live;
-}
 
 function describe(file: string): string {
   const path = join(ORCH_DIR, file);
@@ -82,11 +58,16 @@ function restoreStore(copies: readonly StoreCopy[]): void {
 }
 
 
-const holders = livePresenceHolders();
-if (holders.length && !isDryRun) {
-  process.stderr.write(`refusing to reset the store while ${holders.length} agent(s) are live: ${holders.join(", ")}\n`);
-  process.stderr.write(`close them first ('orch close --all'), then re-run.\n`);
-  process.exit(1);
+// One guard for every rebuild of this store, wherever it is asked from: a slave
+// never rebuilds it at all, and nobody rebuilds it under a live agent.
+const holders = livePresenceHolders(ORCH_DIR);
+if (!isDryRun) {
+  try {
+    assertStoreRecreatable(ORCH_DIR);
+  } catch (error: unknown) {
+    process.stderr.write(`${errorMessage(error)}\n`);
+    process.exit(1);
+  }
 }
 
 const present = STORE_FILES.filter((file) => existsSync(join(ORCH_DIR, file)));

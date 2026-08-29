@@ -26,6 +26,7 @@ import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
 import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
+import { CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
 
 function usage() {
@@ -105,8 +106,8 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
                    [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
                                  3=2+1, 4=2x2, ...; cap 8). Names <prefix>-1..N.
-                                 Run from outside a pane, opening a workspace is REFUSED until a
-                                 human approves it with 'orch grant'; --workspace <id> uses an open one.
+                                 Run from outside a pane, opening a space is REFUSED until a
+                                 human approves it with 'orch grant'; --space <id> uses an open one.
                                  --backend headless needs --prompt: a detached agent runs it and exits.
   orch grant [<hash>|--list]     Approve actions an agent was refused. Needs a terminal:
                                  there is no flag that answers the prompt for you.
@@ -138,10 +139,10 @@ TABS
 
 SPACES
   orch space list                List orch spaces by their names.
-  orch space new <name>          Create a named space and its environment home.
+  orch space create <name>       Create a named space, and its home where one can be held.
   orch space rename <space> <name>
-                                 Rename a space and its home.
-  orch space close <space>       Close an empty space and its home.
+                                 Rename a space, and its home where it has one.
+  orch space delete <space>      Delete an empty space, closing its home.
   orch space focus <space>       Focus a space's home.
 
 MAINTENANCE
@@ -264,8 +265,24 @@ function requestedHelpTopic(cmd: string | undefined, rest: string[]): string | n
 
 type Handler = (args: string[]) => void | Promise<void>;
 
+/**
+ * The CLI boundary: report a failure and set the process's exit code.
+ *
+ * `process.exitCode` rather than `process.exit()` so buffered stdout still
+ * flushes and no work is severed mid-write; the process ends on its own once the
+ * command unwinds. A refusal has already been logged by `die`, so it is only
+ * rendered here; anything else is an unexpected failure and gets a log record.
+ */
+export function reportCommandFailure(error: unknown): void {
+  if (!(error instanceof CommandRefusal)) {
+    commandLogger().error("command.failed", { error: errorMessage(error) });
+  }
+  process.stderr.write(errorMessage(error) + "\n");
+  process.exitCode = 1;
+}
+
 function dispatchAsync(task: Promise<unknown>): void {
-  void task.catch((error: unknown) => die(errorMessage(error)));
+  void task.catch(reportCommandFailure);
 }
 
 const commandHandlers: Record<string, Handler> = {
@@ -374,6 +391,6 @@ export function runCommand(argv: string[]): void {
     commandLogger().error("command.unknown", { command: cmd });
     process.stderr.write(`Unknown command: ${cmd}\n\n`);
     usage();
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

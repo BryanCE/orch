@@ -116,18 +116,18 @@ describe("answer over the daemon control socket", () => {
     expect(line.text).toBe("delivered");
   });
 
-  test("refuses a cross-workspace answer at the daemon wall", async () => {
+  test("refuses a cross-space answer at the daemon wall", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const foreign = key("wB", "foreign");
     const actor = key("wA", "boss");
-    insertSpawnedRecord(directory, { pane: foreign, workspace: "wB" });
-    insertSpawnedRecord(directory, { pane: actor, workspace: "wA" });
+    insertSpawnedRecord(directory, { pane: foreign, space: "wB" });
+    insertSpawnedRecord(directory, { pane: actor, space: "wA" });
     seedStatus(directory, foreign, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
     expect(await refusalOf(rpcCall(directory, "answer", { target: foreign, text: "yes", actor })))
-      .toMatch(/workspace wall/);
+      .toMatch(/space wall/);
     expect(fs.existsSync(answerFile(directory, foreign))).toBe(false);
   });
 

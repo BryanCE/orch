@@ -167,7 +167,7 @@ describe("headless common path: identity key -> presence", () => {
     expect(piAdapter.interactiveCmd({ key })).toBe("pi");
   });
 
-  test("workspaceOf reads the workspace from the structured key, not a regex", () => {
+  test("spaceOf reads the workspace from the structured key, not a regex", () => {
     expect(tryParseIdentity("headless~local~123-1")?.workspace).toBe("local");
     // A legacy ws:pane key no longer parses -> unscoped.
     expect(tryParseIdentity("wD:p1")).toBeNull();

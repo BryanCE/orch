@@ -3,7 +3,6 @@ import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { LocalProcessRole } from "../src/backends/process.ts";
-import { dispatchStrategies, type HarnessStrategies } from "../src/backends/strategies.ts";
 
 const children: number[] = [];
 
@@ -41,23 +40,5 @@ describe("ProcessRole", () => {
     token = "second";
     expect(role.state(started)).toBe("replaced");
     expect(() => role.kill(started, "SIGTERM")).toThrow(/replaced/);
-  });
-});
-
-describe("harness strategy dispatcher", () => {
-  test("dispatches one control path across harness and environment combinations", () => {
-    const seen: string[] = [];
-    const bundles: HarnessStrategies[] = [
-      { steer: { steer: () => { seen.push("pi-headless"); } }, ask: null, model: null, lifecycle: null },
-      { steer: { steer: () => { seen.push("claude-tmux"); } }, ask: { answer: () => { seen.push("ask"); } }, model: null, lifecycle: null },
-      { steer: { steer: () => { seen.push("codex-herdr"); } }, ask: null, model: { setModel: () => { seen.push("model"); } }, lifecycle: null },
-    ];
-    for (const strategies of bundles) dispatchStrategies(strategies, { kind: "steer" });
-    expect(seen).toEqual(["pi-headless", "claude-tmux", "codex-herdr"]);
-  });
-
-  test("returns a successful boundary answer when a strategy role is absent", () => {
-    const result = dispatchStrategies({ steer: null, ask: null, model: null, lifecycle: null }, { kind: "steer" });
-    expect(result).toEqual({ outcome: "answer", reason: "no-environment-role", exitCode: 0 });
   });
 });

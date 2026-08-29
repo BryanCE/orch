@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { addTask, cancelTask, editTask, listTasks, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
+import { addTask, cancelTask, closePackIntake, editTask, listTasks, openPackIntake, packIntakes, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { rpcHello } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
@@ -53,6 +53,7 @@ interface QueueInvocation {
   positional: string[];
   json: boolean;
   worktree: boolean;
+  close: boolean;
 }
 
 function parseQueueInvocation(args: string[]): QueueInvocation {
@@ -60,7 +61,7 @@ function parseQueueInvocation(args: string[]): QueueInvocation {
   const host = takeValue(args.slice(1), "--host");
   const agent = takeValue(host.rest, "--agent");
   const space = takeValue(agent.rest, "--space");
-  const { enabled, positional } = splitOptionFlags(space.rest, ["--json", "--worktree"]);
+  const { enabled, positional } = splitOptionFlags(space.rest, ["--json", "--worktree", "--close"]);
   if (host.value && subcommand !== "add") die("--host is only supported for orch queue add");
   return {
     subcommand,
@@ -70,6 +71,7 @@ function parseQueueInvocation(args: string[]): QueueInvocation {
     positional,
     json: enabled.has("--json"),
     worktree: enabled.has("--worktree"),
+    close: enabled.has("--close"),
   };
 }
 
@@ -168,6 +170,40 @@ async function queueReap(invocation: QueueInvocation): Promise<void> {
   }
 }
 
+/** The pack whose consent is being recorded: the caller's own, or that of an
+ *  agent it names. Only its holder may speak for it, which the facade enforces. */
+function packOfCaller(directory: string, invocation: QueueInvocation, callerId: string): string {
+  const target = invocation.agent ? resolveAgent(directory, invocation.agent) : callerId;
+  const agent = agentById(directory, target);
+  if (!agent) die(`Unknown agent: ${target}`);
+  return agent.rootAgentId;
+}
+
+/** `orch queue intake` — the consuming half of space scope (Cq3). Publishing a
+ *  task into a space is an offer; this is the pack saying it will take them. */
+async function queueIntake(invocation: QueueInvocation): Promise<void> {
+  const space = invocation.positional[0];
+  if (invocation.positional.length > 1 || invocation.worktree || invocation.space || (!space && invocation.close)) {
+    die("usage: orch queue intake [<space id>] [--close] [--agent <target>] [--json]");
+  }
+  try {
+    const directory = orchDir();
+    await ensureDaemon(directory);
+    const identity = await rpcHello(directory);
+    const pack = packOfCaller(directory, invocation, identity.id);
+    const intakes = space === undefined
+      ? packIntakes(directory, pack)
+      : invocation.close
+        ? closePackIntake(directory, pack, space, identity.id)
+        : openPackIntake(directory, pack, space, identity.id);
+    if (invocation.json) process.stdout.write(JSON.stringify(intakes, null, 2) + "\n");
+    else if (intakes.length === 0) process.stdout.write("No space intakes.\n");
+    else for (const intake of intakes) process.stdout.write(`${intake.spaceId} ${intake.until === null ? "open" : "closed"}\n`);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
 async function queueCancel(invocation: QueueInvocation): Promise<void> {
   const id = invocation.positional[0];
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.space) {
@@ -207,7 +243,10 @@ export async function cmdQueue(args: string[]): Promise<void> {
     case "reap":
       await queueReap(invocation);
       return;
+    case "intake":
+      await queueIntake(invocation);
+      return;
     default:
-      die("usage: orch queue <add|list|history|cancel|edit|take-on|reap> ...");
+      die("usage: orch queue <add|list|history|cancel|edit|take-on|reap|intake> ...");
   }
 }

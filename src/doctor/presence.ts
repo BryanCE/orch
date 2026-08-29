@@ -27,11 +27,11 @@ function describePresenceDir(entry: PresenceEntry, orchDir?: string): string {
   const cwd = description.cwd ?? null;
   const project = cwd ? path.basename(cwd) : null;
   const agent = description.agent ?? null;
-  const workspace = orchDir ? placementOf(orchDir, key)?.workspace ?? null : null;
+  const space = orchDir ? placementOf(orchDir, key)?.space ?? null : null;
   const stamp = description.updatedAt ?? description.finishedAt ?? null;
   const seen = stamp ? `last seen ${humanAge(Date.now() - Date.parse(stamp))}` : null;
   const head = label ? `${label} (${key})` : key;
-  return [head, project ? `project ${project}` : null, workspace ? `ws ${workspace}` : null, agent, seen]
+  return [head, project ? `project ${project}` : null, space ? `space ${space}` : null, agent, seen]
     .filter(Boolean)
     .join(" | ");
 }

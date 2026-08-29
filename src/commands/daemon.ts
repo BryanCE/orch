@@ -3,6 +3,7 @@ import * as path from "node:path";
 import {
   clearDaemonRuntime,
   daemonEntrypoint,
+  daemonStartRefusal,
   liveDaemonRegistration,
   daemonize,
   provenDaemonPid,
@@ -15,7 +16,7 @@ import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, rpcCall } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
-import { actorWorkspace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
+import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 
 export interface DaemonStatus {
@@ -177,7 +178,7 @@ export async function ensureDaemonOrWarn(directory: string): Promise<void> {
 
 export interface WriteGovernance {
   steal?: boolean;
-  crossWorkspace?: boolean;
+  crossSpace?: boolean;
 }
 
 /** Extract governance flags and strip them from the positional args. */
@@ -186,13 +187,13 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
   const rest: string[] = [];
   for (const arg of args) {
     if (arg === "--steal") gov.steal = true;
-    else if (arg === "--cross-workspace") gov.crossWorkspace = true;
+    else if (arg === "--cross-space") gov.crossSpace = true;
     else rest.push(arg);
   }
   // Refused at parse time so the message names the flag, before any wall or
   // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
   if (gov.steal) forbidAgentOverride("--steal");
-  if (gov.crossWorkspace) forbidAgentOverride("--cross-workspace");
+  if (gov.crossSpace) forbidAgentOverride("--cross-space");
   return { gov, rest };
 }
 
@@ -209,18 +210,18 @@ export function translateDaemonError(directory: string, error: unknown): unknown
 export async function callDaemon(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
   const directory = orchDir();
   if (gov.steal) forbidAgentOverride("--steal");
-  if (gov.crossWorkspace) forbidAgentOverride("--cross-workspace");
+  if (gov.crossSpace) forbidAgentOverride("--cross-space");
   // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
   // the id orch issued); anything else and an orchestrator cannot steer its own fleet.
   const actor = callerOwnerToken() ?? null;
   const enriched: Record<string, unknown> = { ...params };
   if (actor !== null) {
     enriched.actor = actor;
-    enriched.actorWorkspace = actorWorkspace(actor);
+    enriched.actorSpace = actorSpace(actor);
     enriched.actorIsOperator = !callerIsSpawnedAgent();
   }
   if (gov.steal) enriched.steal = true;
-  if (gov.crossWorkspace) enriched.crossWorkspace = true;
+  if (gov.crossSpace) enriched.crossSpace = true;
   try {
     await ensureDaemon(directory);
     return await rpcCall(directory, method, enriched, timeoutMs);
@@ -280,7 +281,7 @@ async function startDaemon(foreground: boolean, json = false): Promise<void> {
   const directory = orchDir();
   const global = liveDaemonRegistration();
   if (global && path.resolve(global.orchDir) !== path.resolve(directory)) {
-    die(`orchd is already running; start refused. Live daemon socket: ${global.socket}; token: ${global.token}`);
+    die(daemonStartRefusal(global));
   }
   const livePid = liveDaemonPid(directory);
   // A live lock pid might be a daemon still binding its socket; grace-poll it

@@ -40,7 +40,7 @@ describe("work reaches an agent through orch's channel, with the pane only a sho
 
     const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-1" });
 
-    expect(outcome.outcome).toBe("invoke");
+    expect(outcome).toEqual({ outcome: "invoke", ack: "expected" });
     const inbox = path.join(directory, "agents", target, "inbox.jsonl");
     expect(fs.existsSync(inbox)).toBe(true);
     expect(fs.readFileSync(inbox, "utf8")).toContain("do the work");
@@ -53,7 +53,9 @@ describe("work reaches an agent through orch's channel, with the pane only a sho
 
     const outcome = await deliverControl(target, { kind: "steer", text: "adjust course", id: "steer-1" });
 
-    expect(outcome.outcome).toBe("invoke");
+    // "expected" is what stops the outbox settling the row before the bridge
+    // has read a thing; a pane shortcut would report "none" (L7).
+    expect(outcome).toEqual({ outcome: "invoke", ack: "expected" });
     expect(fs.readFileSync(path.join(directory, "agents", target, "inbox.jsonl"), "utf8")).toContain("adjust course");
   });
 });

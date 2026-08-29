@@ -99,7 +99,9 @@ describe("daemon decision trail", () => {
 
     // Await the promise itself rather than `.resolves`: the linter does not see
     // matcher chains as Thenable, and awaiting the call is the same assertion.
-    expect(await deliverWrite(target, { action: "steer", text: "hello" }, "dispatch-1")).toBe(true);
+    // A boundary answer is terminal: it is a reply to a human, and no bridge
+    // will ever append a marker for it, so it settles on the write (L7).
+    expect(await deliverWrite(target, { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
 
     const [record] = records(directory);
     if (record === undefined) throw new Error("missing boundary answer record");

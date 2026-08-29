@@ -5,17 +5,17 @@ import { parseIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
 import { selfId } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
-import { operatorControls } from "../policy/workspace.ts";
+import { operatorControls } from "../policy/space.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
+import { CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
 
 export function die(msg: string): never {
   commandLogger().error("command.failed", { error: msg });
-  process.stderr.write(msg + "\n");
-  process.exit(1);
+  throw new CommandRefusal(msg);
 }
 
 export function firstNonEmptyText(...values: (string | null | undefined)[]): string {
@@ -110,11 +110,11 @@ export function forbidAgentOverride(flag: string): void {
   if (callerIsSpawnedAgent()) die(`${flag} is operator-only: a spawned agent may only touch agents it spawned.`);
 }
 
-/** Where the caller acts: the pane it is sitting in, else the workspace its own
+/** Where the caller acts: the pane it is sitting in, else the space its own
  *  owner token names. An operator driving orch from outside any pane still
- *  operates a workspace, and losing that made its own fleet foreign to it. */
-export function actorWorkspace(token: string): string | null {
-  return callerWorkspace() ?? tryParseIdentity(token)?.workspace ?? null;
+ *  operates a space, and losing that made its own fleet foreign to it. */
+export function actorSpace(token: string): string | null {
+  return callerSpace() ?? tryParseIdentity(token)?.workspace ?? null;
 }
 
 export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
@@ -122,7 +122,7 @@ export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
   if (!token) return false;
   if (record.owner === token) return true;
   return !callerIsSpawnedAgent()
-    && operatorControls(orchDir(), token, record.pane ?? null, actorWorkspace(token), true);
+    && operatorControls(orchDir(), token, record.pane ?? null, actorSpace(token), true);
 }
 
 /** Return the exact session address that spawned this caller. */
@@ -151,7 +151,7 @@ export function assertAgentOwned(
   }
 }
 
-export function callerWorkspace(): string | null {
+export function callerSpace(): string | null {
   const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
   return backend.identity?.current()?.workspace ?? null;
 }
@@ -204,7 +204,7 @@ export function resolveRegistryRecord(
 }
 
 /**
- * Resolve lifecycle targets from orch's registry, not the current workspace.
+ * Resolve lifecycle targets from orch's registry, not the current space.
  * Close is cleanup, so it must still resolve a dead or headless record after
  * the backend has stopped reporting the pane.
  */
@@ -253,7 +253,7 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
   ent ??= { key: record!.pane, paneId: record!.handle ?? null, managed: true, name: record!.name ?? null,
     tabLabel: null, agent: record!.adapter ?? null, focused: false, backendStatus: null,
     backend: record!.backend ?? null, presence: loadPresence().get(record!.pane) ?? null,
-    sessionPath: null, presenceOnly: true, workspace: record!.workspace ?? null };
+    sessionPath: null, presenceOnly: true, space: record!.space ?? null };
   record = record ?? currentRecords.get(ent.key);
   const parsed = tryParseIdentity(ent.key) ?? (record ? tryParseIdentity(record.pane) : null);
   const backendId = record?.backend ?? ent.backend ?? parsed?.backend;

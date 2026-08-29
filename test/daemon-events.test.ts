@@ -39,7 +39,7 @@ function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   return {
     host: undefined,
     key: "",
-    workspace: undefined,
+    space: undefined,
     agent: null,
     name: undefined,
     dispatchId: undefined,
@@ -131,7 +131,7 @@ describe("daemon presence events", () => {
     const startedAtMs = Date.parse(startedAt);
     const finishedAtMs = Date.parse(finishedAt);
     const resultText = "x".repeat(3_000);
-    insertSpawnedRecord(orchDir, { pane: key, adapter: "pi", workspace: "workspace-full" });
+    insertSpawnedRecord(orchDir, { pane: key, adapter: "pi", space: "space-full" });
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-full", startedAt });
     const events: unknown[] = [];
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
@@ -157,7 +157,7 @@ describe("daemon presence events", () => {
       agentKey: key,
       adapter: "pi",
       model: "model-full",
-      workspace: "workspace-full",
+      space: "space-full",
       task: "the complete task",
       state: "done",
       startedAt: startedAtMs,
@@ -271,7 +271,7 @@ describe("daemon presence events", () => {
   test("presence transitions resolve the human name before emission", () => {
     const orchDir = tempOrchDir();
     const key = "w6:p-name";
-    insertSpawnedRecord(orchDir, { pane: key, workspace: "w6" });
+    insertSpawnedRecord(orchDir, { pane: key, space: "w6" });
     const states = new Map([[key, "working"]]);
     const event = derivePresenceTransition(
       orchDir,

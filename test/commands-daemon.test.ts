@@ -7,7 +7,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 
 describe("commands/daemon", () => {
   test("parses governance and validates daemon status", () => {
-    expect(parseGovernance(["--steal", "x", "--cross-workspace"])).toEqual({ gov: { steal: true, crossWorkspace: true }, rest: ["x"] });
+    expect(parseGovernance(["--steal", "x", "--cross-space"])).toEqual({ gov: { steal: true, crossSpace: true }, rest: ["x"] });
     expect(validDaemonStatus({ pid: 1, startedAt: "now", uptimeSec: 1, codeHash: "h", socket: "s" })).toBe(true);
     expect(validDaemonStatus({ pid: "1" })).toBe(false);
   });

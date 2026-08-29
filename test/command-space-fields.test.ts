@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildEntities, entityWorkspace, type Entity } from "../src/entities.ts";
+import { buildEntities, entitySpace, type Entity } from "../src/entities.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 
@@ -18,12 +18,12 @@ afterEach(() => {
 });
 
 function presenceFixture(): { orchDir: string; key: string } {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-command-workspace-"));
+  const orchDir = mkdtempSync(join(tmpdir(), "orch-command-space-"));
   directories.push(orchDir);
   const key = "headless~key-workspace~999999";
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
-  insertSpawnedRecord(orchDir, { pane: key, backend: "headless", workspace: "reported-workspace", handle: "999999" });
+  insertSpawnedRecord(orchDir, { pane: key, backend: "headless", space: "reported-space", handle: "999999" });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA,
     key,
@@ -35,28 +35,28 @@ function presenceFixture(): { orchDir: string; key: string } {
   return { orchDir, key };
 }
 
-function writePresence(orchDir: string, key: string, agent: string, workspace: string, handle: string): void {
+function writePresence(orchDir: string, key: string, agent: string, space: string, handle: string): void {
   const directory = presenceAgentDir(key, orchDir);
   mkdirSync(directory, { recursive: true });
-  insertSpawnedRecord(orchDir, { pane: key, backend: "headless", workspace, handle });
+  insertSpawnedRecord(orchDir, { pane: key, backend: "headless", space, handle });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA, key, paneId: handle,
     pid: process.pid, agent, state: "idle",
   }));
 }
 
-describe("command workspace fields", () => {
-  test("status and wall entities use persisted workspace instead of serialized-key text", () => {
+describe("command space fields", () => {
+  test("status and wall entities use the persisted space instead of serialized-key text", () => {
     const { orchDir, key } = presenceFixture();
     process.env.ORCH_DIR = orchDir;
 
     const entity = buildEntities().find((candidate) => candidate.key === key);
-    expect(entityWorkspace(entity!)).toBe("reported-workspace");
+    expect(entitySpace(entity!)).toBe("reported-space");
 
     const current = buildEntities().find((candidate) => candidate.key === key)!;
-    expect(current).toMatchObject({ key, paneId: "999999", agent: "pi", workspace: "reported-workspace" });
-    expect(entityWorkspace(current)).toBe("reported-workspace");
-    expect(entityWorkspace(current)).not.toBe("key-workspace");
+    expect(current).toMatchObject({ key, paneId: "999999", agent: "pi", space: "reported-space" });
+    expect(entitySpace(current)).toBe("reported-space");
+    expect(entitySpace(current)).not.toBe("key-workspace");
   }, 30_000);
 
   test("skipBackends keeps the authoritative presence entity shape", () => {
@@ -70,7 +70,7 @@ describe("command workspace fields", () => {
     expect(entity?.paneId).toBe("999999");
     expect(entity?.presenceOnly).toBe(true);
     expect(entity?.backend).toBe("headless");
-    expect(entity?.workspace).toBe("reported-workspace");
+    expect(entity?.space).toBe("reported-space");
   });
 
   test("status reports a mixed pi and Claude fleet with the same identity fields", () => {
@@ -81,8 +81,8 @@ describe("command workspace fields", () => {
 
     const entities: Entity[] = buildEntities();
     const expected: Partial<Entity>[] = [
-      expect.objectContaining({ key: "headless~key-workspace~999999", agent: "pi", workspace: "reported-workspace" }) as Partial<Entity>,
-      expect.objectContaining({ key: claudeKey, agent: "claude", workspace: "reported-claude" }) as Partial<Entity>,
+      expect.objectContaining({ key: "headless~key-workspace~999999", agent: "pi", space: "reported-space" }) as Partial<Entity>,
+      expect.objectContaining({ key: claudeKey, agent: "claude", space: "reported-claude" }) as Partial<Entity>,
     ];
     expect(entities).toEqual(expect.arrayContaining(expected) as unknown as Entity[]);
   }, 30_000);

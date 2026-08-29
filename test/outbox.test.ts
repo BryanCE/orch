@@ -6,10 +6,10 @@ import { join } from "node:path";
 import {
   insertOutboxMessage,
   markOutboxDelivered,
-  outboxMessagePending,
+  outboxMessageUnsent,
   selectPendingOutbox,
 } from "../src/store/outbox-rows.ts";
-import { drainOutbox } from "../src/daemon/outbox.ts";
+import { drainOutbox, type OutboxDelivery } from "../src/daemon/outbox.ts";
 
 const tempDirs: string[] = [];
 
@@ -31,9 +31,9 @@ describe("outbox delivery", () => {
     expect(selectPendingOutbox(orchDir, 0).map((message) => message.id)).toEqual(["one", "two"]);
 
     const delivered: string[] = [];
-    const deps = { deliver: (target: string) => { delivered.push(target); return Promise.resolve(true); }, now: () => 0 };
-    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 2, retried: 0 });
-    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 0, retried: 0 });
+    const deps = { deliver: (target: string) => { delivered.push(target); return Promise.resolve<OutboxDelivery>("acked"); }, now: () => 0 };
+    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 2, retried: 0, awaiting: 0 });
+    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 0, retried: 0, awaiting: 0 });
     expect(delivered).toEqual(["agent:one", "agent:two"]);
   });
 
@@ -43,24 +43,24 @@ describe("outbox delivery", () => {
     insertOutboxMessage(orchDir, { id: "pending", target: "agent:pending", payload: "y" });
     markOutboxDelivered(orchDir, "delivered");
 
-    expect(outboxMessagePending(orchDir, "delivered")).toBe(false);
-    expect(outboxMessagePending(orchDir, "pending")).toBe(true);
-    expect(outboxMessagePending(orchDir, "missing")).toBe(false);
+    expect(outboxMessageUnsent(orchDir, "delivered")).toBe(false);
+    expect(outboxMessageUnsent(orchDir, "pending")).toBe(true);
+    expect(outboxMessageUnsent(orchDir, "missing")).toBe(false);
   });
 
   test("keeps failed messages pending until their backoff expires", async () => {
     const orchDir = fixture();
     insertOutboxMessage(orchDir, { id: "retry", target: "agent:retry", payload: "payload", createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
     let now = 1_000;
-    const deps = { deliver: () => Promise.resolve(false), now: () => now };
+    const deps = { deliver: () => Promise.resolve<OutboxDelivery>("failed"), now: () => now };
 
-    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 0, retried: 1 });
+    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 0, retried: 1, awaiting: 0 });
     const pending = selectPendingOutbox(orchDir, now);
     expect(pending).toHaveLength(0);
     const afterFailure = selectPendingOutbox(orchDir, 1_501)[0];
     expect(afterFailure?.attempts).toBe(1);
     expect(afterFailure?.nextAttemptAt).toBe(1_500);
     now = 1_501;
-    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 0, retried: 1 });
+    expect(await drainOutbox(orchDir, deps)).toEqual({ delivered: 0, retried: 1, awaiting: 0 });
   });
 });

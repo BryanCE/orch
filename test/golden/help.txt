@@ -80,10 +80,10 @@ TABS
 
 SPACES
   orch space list                List orch spaces by their names.
-  orch space new <name>          Create a named space and its environment home.
+  orch space create <name>       Create a named space, and its home where one can be held.
   orch space rename <space> <name>
-                                 Rename a space and its home.
-  orch space close <space>       Close an empty space and its home.
+                                 Rename a space, and its home where it has one.
+  orch space delete <space>      Delete an empty space, closing its home.
   orch space focus <space>       Focus a space's home.
 
 MAINTENANCE

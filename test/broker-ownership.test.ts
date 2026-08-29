@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkWall } from "../src/policy/workspace.ts";
+import { checkWall } from "../src/policy/space.ts";
 import { checkOwnerWrite, getOwner, setOwner } from "../src/store/ownership-rows.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 
@@ -36,19 +36,19 @@ describe("broker ownership and workspace governance", () => {
     expect(checkOwnerWrite(orchDir, "pane-9", "orchB", {})).toEqual({ ok: true });
   });
 
-  test("refuses cross-workspace writes unless explicitly overridden", () => {
+  test("refuses cross-space writes unless explicitly overridden", () => {
     const orchDir = makeOrchDir();
-    insertSpawnedRecord(orchDir, { pane: "herdr~w1~p1", workspace: "w1" });
-    insertSpawnedRecord(orchDir, { pane: "herdr~w1~p3", workspace: "w1" });
-    insertSpawnedRecord(orchDir, { pane: "herdr~w2~p2", workspace: "w2" });
-    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w1~p3", { crossWorkspace: false })).toEqual({ allowed: true });
+    insertSpawnedRecord(orchDir, { pane: "herdr~w1~p1", space: "w1" });
+    insertSpawnedRecord(orchDir, { pane: "herdr~w1~p3", space: "w1" });
+    insertSpawnedRecord(orchDir, { pane: "herdr~w2~p2", space: "w2" });
+    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w1~p3", { crossSpace: false })).toEqual({ allowed: true });
 
-    const refused = checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: false });
+    const refused = checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossSpace: false });
     expect(refused.allowed).toBe(false);
     expect(refused.reason).toContain("w1");
     expect(refused.reason).toContain("w2");
 
-    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossWorkspace: true })).toEqual({ allowed: true });
+    expect(checkWall(orchDir, "herdr~w1~p1", "herdr~w2~p2", { crossSpace: true })).toEqual({ allowed: true });
   });
 
 });

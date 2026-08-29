@@ -6,7 +6,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { appendAck, drainInbox } from "../src/presence/inbox.ts";
 import { presenceAgentDir, writeResult, writeStatus } from "../src/presence/writer.ts";
 import { createAgentChannelRole, createCaptureRole } from "../src/presence/roles.ts";
-import { insertOutboxMessage, outboxMessagePending } from "../src/store/outbox-rows.ts";
+import { insertOutboxMessage, outboxMessageOpen } from "../src/store/outbox-rows.ts";
 import { consumeOutboxAcks } from "../src/daemon/outbox.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 
@@ -43,7 +43,7 @@ describe("orch channel and capture roles", () => {
     // This is the bridge side of inbox -> bridge -> ack. No pane or plexer is involved.
     appendAck(agentDir, id, key);
     expect(consumeOutboxAcks(orchDir)).toBe(1);
-    expect(outboxMessagePending(orchDir, id)).toBe(false);
+    expect(outboxMessageOpen(orchDir, id)).toBe(false);
   });
 
   test("capture reads status and result from the orch presence record", () => {

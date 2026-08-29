@@ -113,14 +113,14 @@ describe("tmux backend registry and capabilities", () => {
     }
   });
 
-  test("refuses cross-session tmux steer without --cross-workspace", async () => {
-    const { checkWall } = await import("../src/policy/workspace.ts");
+  test("refuses cross-session tmux steer without --cross-space", async () => {
+    const { checkWall } = await import("../src/policy/space.ts");
     const orchDir = mkdtempSync(join(tmpdir(), "orch-tmux-wall-"));
-    insertSpawnedRecord(orchDir, { pane: "tmux~main~operator", workspace: "main" });
-    insertSpawnedRecord(orchDir, { pane: "tmux~side~%25foreign", workspace: "side" });
-    const decision = checkWall(orchDir, "tmux~main~operator", "tmux~side~%25foreign", { crossWorkspace: false });
+    insertSpawnedRecord(orchDir, { pane: "tmux~main~operator", space: "main" });
+    insertSpawnedRecord(orchDir, { pane: "tmux~side~%25foreign", space: "side" });
+    const decision = checkWall(orchDir, "tmux~main~operator", "tmux~side~%25foreign", { crossSpace: false });
     removeTempDir(orchDir);
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toBe("workspace wall: actor workspace main cannot write to target workspace side (tmux~side~%25foreign)");
+    expect(decision.reason).toBe("space wall: actor space main cannot write to target space side (tmux~side~%25foreign)");
   });
 });

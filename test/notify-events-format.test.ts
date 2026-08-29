@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { deliver } from "../src/notify/router.ts";
-import { notificationText, workspaceColor, type NotifyEvent } from "../src/notify/format.ts";
+import { notificationText, spaceColor, type NotifyEvent } from "../src/notify/format.ts";
 import { TASK_MAX } from "../src/agent/presence.ts";
 import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -27,7 +27,7 @@ const PALETTE = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2
 function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   return {
     key: "herdr~w6~p21",
-    workspace: "w6",
+    space: "w6",
     agent: "w-2",
     tab: null,
     model: null,
@@ -45,9 +45,9 @@ function transition(orchDir: string, key: string, status: object, previous = "wo
 }
 
 describe("notification and presence event formatting", () => {
-  test("workspaceColor is stable and returns a palette hex", () => {
-    const first = workspaceColor("w6");
-    expect(workspaceColor("w6")).toBe(first);
+  test("spaceColor is stable and returns a palette hex", () => {
+    const first = spaceColor("w6");
+    expect(spaceColor("w6")).toBe(first);
     expect(PALETTE).toContain(first);
     expect(first).toMatch(/^#[0-9a-f]{6}$/);
   });
@@ -69,20 +69,20 @@ describe("notification and presence event formatting", () => {
   test("notificationText pins the canonical done, error, and blocked golden vectors", () => {
     expect(notificationText(event({ lastText: "reported result" }), { colorize: false })).toEqual({
       title: "DONE [w6] w-2: reported result",
-      body: "DONE [w6] w-2: reported result\nWorkspace: w6 (#2563eb)\nTask: build the thing",
+      body: "DONE [w6] w-2: reported result\nSpace: w6 (#2563eb)\nTask: build the thing",
     });
     expect(notificationText(event(), { colorize: false }).title).toBe("DONE [w6] w-2: build the thing");
     expect(notificationText(event({ newState: "error", task: "old task", lastError: "build exploded" }), { colorize: false })).toEqual({
       title: "ERROR [w6] w-2: build exploded",
-      body: "ERROR [w6] w-2: build exploded\nWorkspace: w6 (#2563eb)\nTask: old task",
+      body: "ERROR [w6] w-2: build exploded\nSpace: w6 (#2563eb)\nTask: old task",
     });
     expect(notificationText(event({ newState: "blocked", task: "Q: need approval" }), { colorize: false })).toEqual({
       title: "BLOCKED [w6] w-2: need approval",
-      body: "BLOCKED [w6] w-2: need approval\nWorkspace: w6 (#2563eb)",
+      body: "BLOCKED [w6] w-2: need approval\nSpace: w6 (#2563eb)",
     });
   });
 
-  test("webhook payload includes workspace and workspaceColor", async () => {
+  test("webhook payload includes space and spaceColor", async () => {
     let body = "";
     const originalFetch = globalThis.fetch;
     globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
@@ -98,9 +98,9 @@ describe("notification and presence event formatting", () => {
     }
     expect(JSON.parse(body)).toEqual({
       title: "DONE [w6] w-2: build the thing",
-      body: "DONE [w6] w-2: build the thing\nWorkspace: w6 (#2563eb)\nTask: build the thing",
-      workspace: "w6",
-      workspaceColor: workspaceColor("w6"),
+      body: "DONE [w6] w-2: build the thing\nSpace: w6 (#2563eb)\nTask: build the thing",
+      space: "w6",
+      spaceColor: spaceColor("w6"),
       host: null,
       key: "herdr~w6~p21",
       agent: "w-2",
@@ -135,10 +135,10 @@ describe("notification and presence event formatting", () => {
   test("derivePresenceTransition leaves workspace to the registry", () => {
     const orchDir = tempOrchDir();
     const registeredKey = "herdr~w8~p3";
-    insertSpawnedRecord(orchDir, { pane: registeredKey, workspace: "registry-workspace" });
+    insertSpawnedRecord(orchDir, { pane: registeredKey, space: "registry-workspace" });
     const withWorkspace = transition(orchDir, registeredKey, { state: "done" });
-    expect(withWorkspace?.workspace).toBe("registry-workspace");
+    expect(withWorkspace?.space).toBe("registry-workspace");
     const withoutWorkspace = transition(orchDir, "p3", { state: "done" });
-    expect(withoutWorkspace?.workspace).toBeUndefined();
+    expect(withoutWorkspace?.space).toBeUndefined();
   });
 });

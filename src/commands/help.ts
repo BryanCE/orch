@@ -12,7 +12,7 @@ const TOPICS: Record<string, string> = {
   status: `orch status [--json] [--all] [--all-panes] [--offline]
 Glanceable table of the fleet (the default command when none is given).
   --json        Machine-readable rows instead of the table.
-  --all         Include every workspace, not just the caller's.
+  --all         Include every space, not just the caller's.
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
 `,
@@ -32,7 +32,7 @@ agents THIS session spawned. Every flag below is a deviation from that.
   --agent-id    Watch one agent by identity key.
   --mine        Explicitly select the default session scope (spawned or currently leased).
   --any-agent   Every agent, not just the ones this session spawned.
-  --all         Every workspace's transitions, not just the caller's.
+  --all         Every space's transitions, not just the caller's.
   --status      Only transitions into these states (comma-separated).
   --json        Raw event records, one per line, for a caller that parses them.
   --since-seq <n> Resume after this durable sequence; it survives daemon restarts, but
@@ -88,7 +88,7 @@ agent runs that prompt, proving the pane runs what THIS command sent.
   --raw         Send the exact prompt, no worker header.
   --model       Pin the model (and optional thinking effort) for this dispatch.
   --agent       Route through a specific adapter instead of the recorded one.
-Governance flags (--force, --steal, --cross-workspace) are operator-only; a spawned agent's are refused.
+Governance flags (--force, --steal, --cross-space) are operator-only; a spawned agent's are refused.
 `,
   answer: `orch answer <target> "<text>" [--force]
 Answer a target's pending question.
@@ -210,11 +210,14 @@ orch tab focus <tab_id|label>
 Tab management. 'new' prints the root pane id and never steals focus; 'focus' does.
 `,
   space: `orch space list
-orch space new <name>
+orch space create <name>
 orch space rename <space> <name>
-orch space close <space>
+orch space delete <space>
 orch space focus <space>
-Manage orch spaces and their environment homes. Names are owned by orch; a home coordinate is never displayed.
+A space is orch's own grouping of related work, created by you and named by you.
+list/create/rename/delete are orch's own and work in every environment; 'focus'
+needs a plexer holding a home for the space and answers plainly when none does.
+A home coordinate belongs to the plexer and is never displayed.
 `,
   daemon: `orch daemon start [--fg|--foreground] [--json]
 orch daemon stop [--json]

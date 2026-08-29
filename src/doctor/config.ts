@@ -11,13 +11,13 @@ export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   const globalCap = fleet?.max_agents;
   const violations = globalCap === undefined || fleet === undefined
     ? []
-    : Object.entries(fleet.workspace_caps).filter(([, cap]) => cap > globalCap);
+    : Object.entries(fleet.space_caps).filter(([, cap]) => cap > globalCap);
   if (!violations.length) return { id: "spawn-limits", label: "Spawn limits", status: "ok", detail: "spawn limits are satisfiable" };
   return {
     id: "spawn-limits",
     label: "Spawn limits",
     status: "warn",
-    detail: violations.map(([workspace, cap]) => `fleet.workspace_caps.${workspace} (${cap}) exceeds fleet.max_agents (${globalCap})`).join("; "),
+    detail: violations.map(([space, cap]) => `fleet.space_caps.${space} (${cap}) exceeds fleet.max_agents (${globalCap})`).join("; "),
   };
 }
 

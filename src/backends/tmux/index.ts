@@ -209,7 +209,10 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     },
     rename: (coordinate, label): void => { this.homeExec(["rename-session", "-t", coordinate, label]); },
     close: (coordinate): void => { this.homeExec(["kill-session", "-t", coordinate]); },
-    focus: (coordinate): void => { this.homeExec(["select-window", "-t", coordinate]); },
+    // A space's home here IS a tmux session, so focusing it moves the attached
+    // client to that session. `select-window` addresses a window inside one and
+    // left `orch space focus` silently landing on the wrong home.
+    focus: (coordinate): void => { this.homeExec(["switch-client", "-t", coordinate]); },
   };
 
   isAvailable(): boolean {

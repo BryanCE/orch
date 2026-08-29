@@ -23,7 +23,7 @@ afterEach(() => {
 
 const fleet = (pack_cap = 10): OrchConfig["fleet"] => ({
   ...SETTINGS_DEFAULTS.fleet,
-  workspace_caps: {},
+  space_caps: {},
   pack_cap,
 });
 
@@ -36,17 +36,17 @@ function policy(pack_cap: number, records: SpawnedRecord[], spawnerKey = "root",
     result: null,
     alive: true,
   }]));
-  return spawnPolicyError({ fleet: fleet(pack_cap) }, "workspace", requested, registry, presence, spawnerKey);
+  return spawnPolicyError({ fleet: fleet(pack_cap) }, "space", requested, registry, presence, spawnerKey);
 }
 
 describe("spawn policy caps", () => {
   test("allows a pack spawn while under the cap", () => {
-    const records = Array.from({ length: 8 }, (_, index) => ({ pane: `slave-${index}`, spawnedBy: "root", workspace: "workspace" }));
+    const records = Array.from({ length: 8 }, (_, index) => ({ pane: `slave-${index}`, spawnedBy: "root", space: "space" }));
     expect(policy(10, records)).toBeNull();
   });
 
   test("blocks an at-cap spawn and offers dispatch or the pack queue", () => {
-    const records = Array.from({ length: 9 }, (_, index) => ({ pane: `slave-${index}`, spawnedBy: "root", workspace: "workspace" }));
+    const records = Array.from({ length: 9 }, (_, index) => ({ pane: `slave-${index}`, spawnedBy: "root", space: "space" }));
     const error = policy(10, records);
     expect(error).toContain("pack cap 10");
     expect(error).toContain("orch dispatch <name>");
@@ -55,8 +55,8 @@ describe("spawn policy caps", () => {
 
   test("blocks a spawn that would create depth three", () => {
     const error = policy(10, [
-      { pane: "child", spawnedBy: "root", workspace: "workspace" },
-      { pane: "grandchild", spawnedBy: "child", workspace: "workspace" },
+      { pane: "child", spawnedBy: "root", space: "space" },
+      { pane: "grandchild", spawnedBy: "child", space: "space" },
     ], "grandchild");
     expect(error).toContain("depth 2");
     expect(error).toContain("orch dispatch <name>");
@@ -69,10 +69,10 @@ describe("spawn policy caps", () => {
     writeSettingsFixture(dir, { fleet: { pack_cap: 2 } });
     const config = loadConfig(dir);
     expect(config.fleet.pack_cap).toBe(2);
-    const records = [{ pane: "slave", spawnedBy: "root", workspace: "workspace" }];
+    const records = [{ pane: "slave", spawnedBy: "root", space: "space" }];
     const registry = new Map(records.map((record) => [record.pane, record]));
     const presence = new Map(records.map((record): [string, PresenceEntry] => [record.pane, { key: record.pane, dir: "", status: null, result: null, alive: true }]));
-    expect(spawnPolicyError(config, "workspace", 1, registry, presence, "root")).toContain("pack cap 2");
+    expect(spawnPolicyError(config, "space", 1, registry, presence, "root")).toContain("pack cap 2");
   });
 
   test("a refused cmdSpawn makes no name, worktree, registry, or queue mutation", async () => {
@@ -85,7 +85,7 @@ describe("spawn policy caps", () => {
       fleet: { pack_cap: 1 },
     });
     const key = "headless~workspace~live";
-    recordSpawned(key, { backend: "headless", workspace: "workspace", handle: key });
+    recordSpawned(key, { backend: "headless", space: "space", handle: key });
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));

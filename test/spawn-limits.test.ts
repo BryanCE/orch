@@ -31,9 +31,9 @@ function presence(key: string, workspace: string, pid = process.pid): PresenceEn
 function records(entries: [string, string, number?][]): { records: Map<string, SpawnedRecord>; presence: Map<string, PresenceEntry> } {
   const registry = new Map<string, SpawnedRecord>();
   const live = new Map<string, PresenceEntry>();
-  for (const [key, workspace, pid] of entries) {
-    registry.set(key, { pane: key, workspace });
-    live.set(key, presence(key, workspace, pid));
+  for (const [key, space, pid] of entries) {
+    registry.set(key, { pane: key, space });
+    live.set(key, presence(key, space, pid));
   }
   return { records: registry, presence: live };
 }
@@ -65,8 +65,8 @@ function capacityRefusal(
 describe("spawn limits", () => {
   test("schema loads global and workspace caps", () => {
     const dir = tempDir();
-    writeSettingsFixture(dir, { fleet: { max_agents: 12, workspace_caps: { wD: 4 } } });
-    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: 12, pack_cap: 10, workspace_caps: { wD: 4 }, worker_peer_tools: false, cross_workspace: false });
+    writeSettingsFixture(dir, { fleet: { max_agents: 12, space_caps: { wD: 4 } } });
+    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: 12, pack_cap: 10, space_caps: { wD: 4 }, worker_peer_tools: false, cross_space: false });
   });
 
   test.each([0, -1, 1.5])("rejects invalid cap %s with file and key", (value) => {
@@ -79,7 +79,7 @@ describe("spawn limits", () => {
   test("omitted fleet caps normalize to defaults", () => {
     const dir = tempDir();
     writeSettingsFixture(dir);
-    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: undefined, pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false });
+    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: undefined, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false });
   });
 
   test("global boundary refusal data counts the whole request", () => {
@@ -89,7 +89,7 @@ describe("spawn limits", () => {
     writeSettingsFixture(dir, { fleet: { max_agents: 6 } });
     const settings = loadConfig(dir);
     expect(settings.fleet.max_agents).toBe(6);
-    expect(capacityRefusal(settings, "wA", 2, data)).toBe("spawn refused: would put all workspaces at 7/6 agents (5 live + 2 requested; fleet.max_agents)");
+    expect(capacityRefusal(settings, "wA", 2, data)).toBe("spawn refused: would put all spaces at 7/6 agents (5 live + 2 requested; fleet.max_agents)");
   });
 
   test("one workspace may use the full global allotment", () => {
@@ -103,19 +103,19 @@ describe("spawn limits", () => {
 
   test("workspace cap is independent of global headroom", () => {
     const dir = tempDir();
-    writeSettingsFixture(dir, { fleet: { max_agents: 12, workspace_caps: { wD: 4 } } });
+    writeSettingsFixture(dir, { fleet: { max_agents: 12, space_caps: { wD: 4 } } });
     const settings = loadConfig(dir);
     const data = records([["a", "wD"], ["b", "wD"], ["c", "wD"]]);
-    expect(capacityRefusal(settings, "wD", 2, data)).toBe("spawn refused: would put wD at 5/4 agents (3 live + 2 requested; fleet.workspace_caps.wD)");
+    expect(capacityRefusal(settings, "wD", 2, data)).toBe("spawn refused: would put wD at 5/4 agents (3 live + 2 requested; fleet.space_caps.wD)");
   });
 
-  test("uncapped workspace is bounded only by global count", () => {
+  test("uncapped space is bounded only by global count", () => {
     const dir = tempDir();
     writeSettingsFixture(dir, { fleet: { max_agents: 6 } });
     const settings = loadConfig(dir);
     const data = records([["a", "wD"], ["b", "wX"]]);
     expect(() => assertSpawnCapacity(settings, "wX", 4, data.records, data.presence)).not.toThrow();
-    expect(capacityRefusal(settings, "wX", 5, data)).toBe("spawn refused: would put all workspaces at 7/6 agents (2 live + 5 requested; fleet.max_agents)");
+    expect(capacityRefusal(settings, "wX", 5, data)).toBe("spawn refused: would put all spaces at 7/6 agents (2 live + 5 requested; fleet.max_agents)");
   });
 
   test("foreign pack members do not consume the caller's pack cap", () => {
@@ -128,7 +128,7 @@ describe("spawn limits", () => {
       data.records.get(key)!.spawnedBy = "root";
     data.records.get("foreign-1")!.spawnedBy = "other-root";
     data.records.get("foreign-2")!.spawnedBy = "other-root";
-    expect(spawnPolicyError({ fleet: { pack_cap: 10, workspace_caps: {}, worker_peer_tools: false, cross_workspace: false, spawn_cap: 8 } }, "wD", 1, data.records, data.presence, "root")).toBeNull();
+    expect(spawnPolicyError({ fleet: { pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false, spawn_cap: 8 } }, "wD", 1, data.records, data.presence, "root")).toBeNull();
   });
 
   test("dead pid records free capacity", () => {
@@ -144,18 +144,18 @@ describe("spawn limits", () => {
 
   test("doctor reports an unsatisfiable workspace cap without a fix", async () => {
     const dir = tempDir();
-    writeSettingsFixture(dir, { fleet: { max_agents: 4, workspace_caps: { wX: 8 } } });
+    writeSettingsFixture(dir, { fleet: { max_agents: 4, space_caps: { wX: 8 } } });
     const result = (await runDoctor(dir)).find((entry) => entry.id === "spawn-limits")!;
     expect(result.status).toBe("warn");
     expect(result.fix).toBeUndefined();
-    expect(result.detail).toContain("fleet.workspace_caps.wX");
+    expect(result.detail).toContain("fleet.space_caps.wX");
     expect(result.detail).toContain("fleet.max_agents");
     expect(applyFixes([result])).toEqual({ applied: [] });
   });
 
   test("doctor accepts satisfiable limits", async () => {
     const dir = tempDir();
-    writeSettingsFixture(dir, { fleet: { max_agents: 8, workspace_caps: { wX: 4 } } });
+    writeSettingsFixture(dir, { fleet: { max_agents: 8, space_caps: { wX: 4 } } });
     expect((await runDoctor(dir)).find((entry) => entry.id === "spawn-limits")).toMatchObject({ status: "ok" });
   });
 });

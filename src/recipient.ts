@@ -4,7 +4,7 @@ import { optionalString } from "./util.ts";
 /**
  * Who a control message reached, split into what an operator reads and what routed it.
  *
- * Panes move, workspaces are renamed and a plexer can be swapped without any of it
+ * Panes move, spaces are renamed and a plexer can be swapped without any of it
  * changing the agent, so `transportId` is a debug field and never a display name. This
  * module is a LEAF on purpose: the in-harness peer tools render the same identity as
  * the CLI, and importing the spawn registry there would drag the store into a bundle
@@ -25,12 +25,12 @@ export function recipientLabel(recipient: Recipient): string {
 
 /** The recipient an agent's own presence record describes — everything a caller
  *  inside a harness can see without reading orch's spawn registry. */
-export function recipientFromStatus(key: string, workspace: string, status: Record<string, unknown>): Recipient {
+export function recipientFromStatus(key: string, space: string, status: Record<string, unknown>): Recipient {
   // The harness id is routing, never a name: "pi" as a display name collapses
   // every nameless agent into one label. A nameless agent gets its logical name.
   const name = optionalString(status.label);
   return {
-    name: name ?? abstractAgentLabel(workspace, key),
+    name: name ?? abstractAgentLabel(space, key),
     harness: optionalString(status.agent) ?? null,
     multiplexer: null,
     transportId: key,

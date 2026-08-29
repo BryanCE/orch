@@ -12,7 +12,7 @@ import {
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
-import { errnoCode, packageRoot } from "../util.ts";
+import { errnoCode, isRecord, osSide, packageRoot, type OsSide } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 
 const HASH_LENGTH = 12;
@@ -27,11 +27,14 @@ interface LockRecord {
 export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
 
 /** The machine-wide rendezvous record. Its endpoint paths are the only address
- *  clients discover; orchDir scopes those endpoints to the owning store. */
+ *  clients discover; orchDir scopes those endpoints to the owning store, and
+ *  osSide records which side of an OS boundary the daemon is hosted on — the one
+ *  fact a client on the other side cannot work out from the paths alone. */
 export interface DaemonRegistration {
   readonly orchDir: string;
   readonly pid: number;
   readonly startToken: string;
+  readonly osSide: OsSide;
   readonly socket: string;
   readonly token: string;
   readonly port: string;
@@ -71,23 +74,34 @@ function registrationPath(): string {
   return daemonDiscoveryFiles().registration;
 }
 
+/** The OS sides orch knows how to name. A record naming anything else was not
+ *  written by this build, so it names no daemon this build can reason about. */
+const OS_SIDES: readonly OsSide[] = ["linux", "windows", "darwin"];
+
+function parsedOsSide(value: unknown): OsSide | undefined {
+  return OS_SIDES.find((side) => side === value);
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 function parseRegistration(value: unknown): DaemonRegistration | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const record = value as Partial<DaemonRegistration>;
-  if (typeof record.orchDir !== "string" || record.orchDir.length === 0
-    || typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0
-    || typeof record.startToken !== "string" || record.startToken.length === 0
-    || typeof record.socket !== "string" || record.socket.length === 0
-    || typeof record.token !== "string" || record.token.length === 0
-    || typeof record.port !== "string" || record.port.length === 0) return undefined;
-  const orchDir = record.orchDir;
-  const pid = record.pid;
-  const startToken = record.startToken;
-  const socket = record.socket;
-  const token = record.token;
-  const port = record.port;
-  if (orchDir === undefined || pid === undefined || startToken === undefined || socket === undefined || token === undefined || port === undefined) return undefined;
-  return { orchDir, pid, startToken, socket, token, port };
+  if (!isRecord(value)) return undefined;
+  const orchDir = nonEmptyString(value.orchDir);
+  const pid = positiveInteger(value.pid);
+  const startToken = nonEmptyString(value.startToken);
+  const side = parsedOsSide(value.osSide);
+  const socket = nonEmptyString(value.socket);
+  const token = nonEmptyString(value.token);
+  const port = nonEmptyString(value.port);
+  if (orchDir === undefined || pid === undefined || startToken === undefined || side === undefined
+    || socket === undefined || token === undefined || port === undefined) return undefined;
+  return { orchDir, pid, startToken, osSide: side, socket, token, port };
 }
 
 /** Read registration without interpreting liveness; doctor needs to distinguish
@@ -117,6 +131,7 @@ export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationRe
     orchDir: path.resolve(orchDir),
     pid: process.pid,
     startToken,
+    osSide: osSide(),
     socket: runtime.socket,
     token: runtime.token,
     port: runtime.port,
@@ -141,6 +156,19 @@ export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationRe
     }
   }
   return { acquired: false };
+}
+
+/**
+ * Why a second daemon is refused, in the one wording every caller prints.
+ *
+ * There is one daemon per machine — two would be two lease tables, two identity
+ * spaces and two answers to *who holds this* — so a refusal has to name the live
+ * one precisely enough to go look at it: its pid, the store it is backed by, and
+ * the socket to dial instead of starting anything.
+ */
+export function daemonStartRefusal(live: DaemonRegistration): string {
+  return `orchd is already running on this machine (pid ${live.pid} on the ${live.osSide} side, store ${live.orchDir}); start refused. `
+    + `Dial it at socket ${live.socket} with token ${live.token}, or stop it with 'orch daemon stop'.`;
 }
 
 export function releaseDaemonRegistration(): void {
@@ -286,6 +314,64 @@ export async function terminateDaemon(pid: number, graceMs: number): Promise<voi
   while (Date.now() < deadline && processIsAlive(pid)) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+/**
+ * What starts, checks and stops a process on ONE OS side.
+ *
+ * Windows and WSL are one machine and get one daemon: two would be two lease
+ * tables, two identity spaces and two answers to who holds an agent. What
+ * genuinely differs across the boundary is execution, not truth — so the far
+ * side gets an executor behind the backend port, never a peer daemon.
+ */
+export interface OsExecutor {
+  readonly osSide: OsSide;
+  /** Start a detached process from `entrypoint`, answering with its pid. */
+  start(entrypoint: string, args?: string[], orchDir?: string): number;
+  /** Whether that process is still the instance it claims to be. */
+  isAlive(pid: number, startToken?: string): boolean;
+  /** Stop it and wait for the OS to reap it, up to `graceMs`. */
+  kill(pid: number, graceMs: number): Promise<void>;
+}
+
+/** The side orch itself runs on. Its three questions are the ones this process
+ *  can already answer directly: spawn, signal 0, and SIGTERM. */
+const localExecutor: OsExecutor = {
+  osSide: osSide(),
+  start: (entrypoint, args = [], orchDir = resolveOrchDir()) => daemonize(entrypoint, args, orchDir),
+  isAlive: (pid, startToken) => startToken === undefined ? processIsAlive(pid) : processInstanceMatches(pid, startToken),
+  kill: (pid, graceMs) => terminateDaemon(pid, graceMs),
+};
+
+/**
+ * The executor for one OS side, or null when nothing can run there from here.
+ *
+ * Only the local side has one: this build ships no cross-boundary executor, and
+ * a side with none is an honest declared missing capability, not a defect to
+ * discover at the moment something tries to run.
+ */
+export function executorFor(side: OsSide): OsExecutor | null {
+  return side === localExecutor.osSide ? localExecutor : null;
+}
+
+/** Ran the body on that side, or the answer that nothing can run there. */
+export type OsSideExecution<T> =
+  | { readonly outcome: "ran"; readonly value: T }
+  | { readonly outcome: "answer"; readonly reason: "no-environment-role"; readonly exitCode: 0; readonly text: string };
+
+/**
+ * Do something on one OS side, through that side's executor.
+ *
+ * An OS side with no executor is one nothing can run on. That is a fact about
+ * the environment and therefore an ANSWER with exit code zero — never a thrown
+ * error, and never a silently empty result the caller reads as "nothing there".
+ */
+export function onOsSide<T>(side: OsSide, body: (executor: OsExecutor) => T): OsSideExecution<T> {
+  const executor = executorFor(side);
+  if (!executor) {
+    return { outcome: "answer", reason: "no-environment-role", exitCode: 0, text: `nothing runs on the ${side} side from here: it declares no executor.` };
+  }
+  return { outcome: "ran", value: body(executor) };
 }
 
 /** Why orch will not signal a live lock pid it cannot tie to its own daemon. */

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdSpawn, parseSpawnFlags, workerPrompt } from "../src/commands/spawn.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
+import { CommandRefusal } from "../src/refusal.ts";
+import { errorMessage } from "../src/util.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { openStore } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -42,8 +44,8 @@ describe("commands/spawn", () => {
       process.exit = originalExit;
       process.stderr.write = originalWrite;
     }
-    expect(refusal).toBeInstanceOf(Error);
-    expect(stderr).toMatch(/invalid agent name.*must match/i);
+    expect(refusal).toBeInstanceOf(CommandRefusal);
+    expect(errorMessage(refusal)).toMatch(/invalid agent name.*must match/i);
     expect([...spawnedRecords().entries()]).toEqual([]);
   });
 
@@ -79,8 +81,8 @@ describe("commands/spawn", () => {
       process.stderr.write = originalWrite;
       backend.spawn = originalSpawn;
     }
-    expect(refusal).toBeInstanceOf(Error);
-    expect(stderr).toMatch(/must be named at creation/i);
+    expect(refusal).toBeInstanceOf(CommandRefusal);
+    expect(errorMessage(refusal)).toMatch(/must be named at creation/i);
     expect(backendAllocations).toBe(0);
     expect([...spawnedRecords().entries()]).toEqual(before);
     expect((openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(beforeTasks);
@@ -109,8 +111,8 @@ describe("commands/spawn", () => {
       process.exit = originalExit;
       process.stderr.write = originalWrite;
     }
-    expect(refusal).toBeInstanceOf(Error);
-    expect(stderr).toMatch(/unknown flag.*--detached/i);
+    expect(refusal).toBeInstanceOf(CommandRefusal);
+    expect(errorMessage(refusal)).toMatch(/unknown flag.*--detached/i);
     expect([...spawnedRecords().entries()]).toEqual([]);
   });
 

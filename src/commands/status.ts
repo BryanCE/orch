@@ -2,20 +2,20 @@ import { loadConfigOrNull, type OrchConfig } from "../config.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
+import { deriveDriveState, NO_ORCH_DRIVER, type DriveState } from "../agent/drive-state.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { currentSpace } from "../store/interval-rows.ts";
 import { openStore } from "../store/connection.ts";
-import { currentLease } from "../store/lease-rows.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
-import { collapse, buildEntities, entityWorkspace, sortEntities, type Entity } from "../entities.ts";
+import { collapse, buildEntities, entitySpace, sortEntities, type Entity } from "../entities.ts";
 import type {  } from "../backends/backend.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { renderTable } from "../table.ts";
-import { workspaceName } from "../policy/workspace.ts";
+import { spaceName as resolveSpaceName } from "../policy/space.ts";
 import { ensureDaemonOrWarn } from "./daemon.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import {
@@ -24,18 +24,17 @@ import {
   splitOptionFlags,
 } from "./target.ts";
 import { isRecord, truncate } from "../util.ts";
-import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
 
-export function formatWorkspace(id: string | null | undefined, name: string | null | undefined): string {
+export function formatSpace(id: string | null | undefined, name: string | null | undefined): string {
   if (!id) return "-";
   return name && name !== id ? `${name} (${id})` : name ?? id;
 }
 
-export function displayWorkspace(id: string | null | undefined, resolver: OrchConfig["workspaces"]): string {
-  return formatWorkspace(id, workspaceName(id, resolver));
+export function displaySpace(id: string | null | undefined, resolver: OrchConfig["spaces"]): string {
+  return formatSpace(id, resolveSpaceName(id, resolver));
 }
 
 interface View {
@@ -73,59 +72,6 @@ interface View {
 /** Resolve the adapter recorded for one entity (spawn registry, then presence, then backend report). */
 export function entityAdapter(ent: Entity, spawned = spawnedRecords()): AgentAdapter | undefined {
   return getAdapter(spawned.get(ent.key)?.adapter ?? ent.presence?.status?.agent ?? ent.agent ?? "");
-}
-
-/** Resolve the driver for a status row from the one authoritative lease table. */
-export interface DriveState {
-  kind: "leased" | "unleased";
-  owner: string;
-  mine: boolean;
-}
-
-export interface DriveStateOptions {
-  directory?: string;
-  /** Raw agents.id for the caller, supplied by the current session identity. */
-  currentOrchId?: string | null;
-}
-
-interface HolderProcessRow {
-  pid: number;
-  start_token: string | null;
-}
-
-function isHolderProcessRow(value: unknown): value is HolderProcessRow {
-  return isRecord(value)
-    && typeof value.pid === "number"
-    && (value.start_token === null || typeof value.start_token === "string");
-}
-
-function holderIsAlive(directory: string, holderId: string): boolean {
-  const row = openStore(directory)
-    .query("SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL")
-    .get(holderId);
-  if (!isHolderProcessRow(row)) return false;
-  if (row.start_token !== null && row.start_token.length > 0) return processInstanceMatches(row.pid, row.start_token);
-  return processIsAlive(row.pid);
-}
-
-const NO_ORCH_DRIVER = "no orch driving it";
-const DEAD_HOLDER_DRIVER = `${NO_ORCH_DRIVER} (holder gone)`;
-
-export function deriveDriveState(key: string, options: DriveStateOptions = {}): DriveState {
-  const identity = tryParseIdentity(key);
-  if (!identity) return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
-  const directory = options.directory ?? orchDir();
-  let agent: ReturnType<typeof agentById>;
-  try {
-    agent = agentById(directory, identity.id);
-  } catch {
-    return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
-  }
-  if (!agent) return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
-  const lease = currentLease(directory, agent.id);
-  if (!lease) return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
-  if (!holderIsAlive(directory, lease.orchId)) return { kind: "unleased", owner: DEAD_HOLDER_DRIVER, mine: false };
-  return { kind: "leased", owner: lease.orchId, mine: options.currentOrchId != null && lease.orchId === options.currentOrchId };
 }
 
 function currentOrchId(): string | null {
@@ -287,9 +233,9 @@ function snapshot(rows: StatusRow[], backendAnswered: boolean): FleetSnapshot {
   };
 }
 
-async function readFleetRows(workspaces: OrchConfig["workspaces"], offline: boolean): Promise<FleetSnapshot> {
+async function readFleetRows(spaces: OrchConfig["spaces"], offline: boolean): Promise<FleetSnapshot> {
   if (offline) {
-    const rows = fleetStatusRows(workspaces, { offline: true });
+    const rows = fleetStatusRows(spaces, { offline: true });
     return snapshot(rows, rows.some((row) => row.backend != null));
   }
   try {
@@ -302,19 +248,19 @@ async function readFleetRows(workspaces: OrchConfig["workspaces"], offline: bool
   } catch {
     // Daemon absent or refusing: fall through to the file protocol.
   }
-  const rows = fleetStatusRows(workspaces);
+  const rows = fleetStatusRows(spaces);
   return snapshot(rows, rows.some((row) => row.backend != null));
 }
 
 /**
- * The rows this caller should see: every workspace by default, and the agents orch spawned
+ * The rows this caller should see: every space by default, and the agents orch spawned
  * unless `--all-panes`. `--all` retains its historical meaning of including unmanaged panes.
  * A backend reports every pane it owns — the orchestrator's own included — and listing those
  * made "is anyone idle?" count the asker.
  */
-export function scopeFleetRows(rows: readonly StatusRow[], opts: { all: boolean; allPanes: boolean; workspace?: string }): StatusRow[] {
+export function scopeFleetRows(rows: readonly StatusRow[], opts: { all: boolean; allPanes: boolean; space?: string }): StatusRow[] {
   return rows.filter((row) => {
-    if (opts.workspace !== undefined && row.workspace !== opts.workspace) return false;
+    if (opts.space !== undefined && row.spaceId !== opts.space) return false;
     if (!opts.allPanes && !row.managed) return false;
     if (opts.all) return true;
     return !(row.presenceOnly && (row.exited || !row.alive));
@@ -329,20 +275,20 @@ export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exi
   return row.exited || !row.alive ? "exited" : row.state;
 }
 
-function parseWorkspace(args: readonly string[]): string | undefined {
+function parseSpace(args: readonly string[]): string | undefined {
   for (let index = 0; index < args.length; index++) {
-    if (args[index] === "--workspace") return args[index + 1];
+    if (args[index] === "--space") return args[index + 1];
   }
   return undefined;
 }
 
 interface TableFlags {
-  showWorkspace: boolean;
+  showSpace: boolean;
   showOwner: boolean;
   showBranch: boolean;
 }
 
-function localStatusOptions(args: readonly string[]): { json: boolean; all: boolean; allPanes: boolean; local: boolean; offline: boolean; workspace?: string } {
+function localStatusOptions(args: readonly string[]): { json: boolean; all: boolean; allPanes: boolean; local: boolean; offline: boolean; space?: string } {
   const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline"]);
   return {
     json: enabled.has("--json"),
@@ -350,13 +296,13 @@ function localStatusOptions(args: readonly string[]): { json: boolean; all: bool
     allPanes: enabled.has("--all-panes"),
     local: enabled.has("--local"),
     offline: enabled.has("--offline"),
-    workspace: parseWorkspace(args),
+    space: parseSpace(args),
   };
 }
 
 function tableFlags(rows: readonly StatusRow[], all: boolean): TableFlags {
   return {
-    showWorkspace: all && new Set(rows.map((row) => row.workspace ?? "-")).size > 1,
+    showSpace: all && new Set(rows.map((row) => row.spaceId ?? "-")).size > 1,
     // A known lease fact must remain visible even when every row shares it.
     showOwner: rows.some((row) => row.owner !== null),
     showBranch: rows.some((row) => row.branch),
@@ -376,7 +322,7 @@ function localPaneCell(row: StatusRow): string {
 
 function localNameCell(row: StatusRow, flags: TableFlags): string {
   const name = row.name ?? "";
-  return flags.showWorkspace ? `${formatWorkspace(row.workspace, row.workspaceName)} / ${name}` : name;
+  return flags.showSpace ? `${formatSpace(row.spaceId, row.spaceName)} / ${name}` : name;
 }
 
 function tableStateCell(row: StatusRow, includeFallback: boolean): string {
@@ -408,7 +354,10 @@ function ownerBranchHeaders(flags: TableFlags): string[] {
 
 function ownerBranchCaps(flags: TableFlags): number[] {
   const caps: number[] = [];
-  if (flags.showOwner) caps.push(20);
+  // Wide enough for the whole unleased sentence: F6 says the row must READ as
+  // "no orch driving it (holder gone)", and "no orch driving i..." does not.
+  // The column only grows to the cap when a value needs it.
+  if (flags.showOwner) caps.push(32);
   if (flags.showBranch) caps.push(24);
   return caps;
 }
@@ -420,20 +369,33 @@ function localTableColumns(flags: TableFlags): { headers: string[]; caps: number
   };
 }
 
-function renderLocalTable(visible: readonly StatusRow[], flags: TableFlags): void {
+/**
+ * The local status table as text: header, rule, one line per row.
+ *
+ * Exported because the ASSEMBLY is the thing worth guarding — a column that the
+ * header announces must carry its cell in every row. Verifying the owner FACT on
+ * a row said nothing about whether the rendered table still shows it.
+ */
+export function localStatusTable(visible: readonly StatusRow[], all: boolean): string {
+  const flags = tableFlags(visible, all);
   const rows = visible.map((row) => localTableRow(row, flags));
-  const rawExited = visible.map((row) => row.exited);
-  if (!rows.length) return;
+  if (!rows.length) return "";
   const { headers, caps } = localTableColumns(flags);
   const lines = renderTable(headers, rows, caps).split("\n");
   const out: string[] = [lines[0] ?? "", lines[1] ?? ""];
-  for (let i = 0; i < rows.length; i++) out.push(rawExited[i] ? dim(lines[i + 2] ?? "") : lines[i + 2] ?? "");
-  process.stdout.write(out.join("\n") + "\n");
+  for (let i = 0; i < rows.length; i++) out.push(visible[i]?.exited ? dim(lines[i + 2] ?? "") : lines[i + 2] ?? "");
+  return out.join("\n");
 }
 
-async function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces"]): Promise<void> {
+function renderLocalTable(visible: readonly StatusRow[], all: boolean): void {
+  const table = localStatusTable(visible, all);
+  if (!table) return;
+  process.stdout.write(table + "\n");
+}
+
+async function cmdStatusLocal(args: string[], spaces: OrchConfig["spaces"]): Promise<void> {
   const options = localStatusOptions(args);
-  const fleet = await readFleetRows(workspaces, options.offline);
+  const fleet = await readFleetRows(spaces, options.offline);
   const visible = scopeFleetRows(fleet.rows, options);
   if (options.json) {
     process.stdout.write(JSON.stringify(visible, null, 2) + "\n");
@@ -443,7 +405,7 @@ async function cmdStatusLocal(args: string[], workspaces: OrchConfig["workspaces
     process.stdout.write(formatNoRowsMessage(fleet));
     return;
   }
-  renderLocalTable(visible, tableFlags(visible, options.all));
+  renderLocalTable(visible, options.all);
 }
 
 interface OrchNames {
@@ -555,8 +517,6 @@ export interface StatusRow {
   presenceOnly: boolean;
   tokens: unknown;
   turns: unknown;
-  workspace?: string | null;
-  workspaceName?: string | null;
   /** Orch-owned space identity and display name. */
   spaceId?: string | null;
   spaceName?: string | null;
@@ -638,8 +598,10 @@ function rowTurns(v: View): unknown {
   return v.entity.presence?.status?.turns ?? v.sview?.turns ?? null;
 }
 
-function rowBackend(v: View, workspaces: OrchConfig["workspaces"], names: OrchNames): Pick<StatusRow, "backendStatus" | "backend" | "capabilities" | "sessionPath" | "presenceDir" | "presenceOnly" | "tokens" | "turns" | "workspace" | "workspaceName" | "spaceId" | "spaceName" | "staleExtension"> {
-  const workspace = entityWorkspace(v.entity);
+function rowBackend(v: View, spaces: OrchConfig["spaces"], names: OrchNames): Pick<StatusRow, "backendStatus" | "backend" | "capabilities" | "sessionPath" | "presenceDir" | "presenceOnly" | "tokens" | "turns" | "spaceId" | "spaceName" | "staleExtension"> {
+  // One space identity per row: orch's own when the agent has been put in a
+  // space, else the grouping its environment was recorded under.
+  const spaceId = names.spaceId ?? entitySpace(v.entity);
   return {
     backendStatus: v.entity.backendStatus,
     backend: v.entity.backend,
@@ -649,25 +611,23 @@ function rowBackend(v: View, workspaces: OrchConfig["workspaces"], names: OrchNa
     presenceOnly: v.entity.presenceOnly,
     tokens: rowTokens(v),
     turns: rowTurns(v),
-    workspace,
-    workspaceName: workspaceName(workspace, workspaces),
-    spaceId: names.spaceId,
-    spaceName: names.spaceName,
+    spaceId,
+    spaceName: names.spaceName ?? resolveSpaceName(spaceId, spaces),
     staleExtension: v.staleExtension,
   };
 }
 
 /** The one status-row shape shared by the local json branch and the merged table rows. */
-export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"], orchId: string | null = currentOrchId(), directory: string = orchDir()): StatusRow {
+export function statusRowFromView(v: View, spaces: OrchConfig["spaces"], orchId: string | null = currentOrchId(), directory: string = orchDir()): StatusRow {
   const drive = deriveDriveState(v.entity.key, { currentOrchId: orchId, directory });
   const names = orchNames(v.entity.key, directory);
-  return { ...rowIdentity(v, drive, names), model: v.modelFull, modelShort: v.model, ...rowRuntime(v), ...rowBackend(v, workspaces, names) };
+  return { ...rowIdentity(v, drive, names), model: v.modelFull, modelShort: v.model, ...rowRuntime(v), ...rowBackend(v, spaces, names) };
 }
 
 /**
  * Every agent orch knows about, in the ONE row shape the daemon serves and every
  * renderer consumes. Unscoped and unfiltered on purpose: the daemon cannot know the
- * caller's workspace, so scoping and visibility belong to the command that renders.
+ * caller's space, so scoping and visibility belong to the command that renders.
  */
 interface FleetStatusOptions {
   offline?: boolean;
@@ -675,22 +635,22 @@ interface FleetStatusOptions {
   orchId?: () => string | null;
 }
 
-export function fleetStatusRows(workspaces: OrchConfig["workspaces"], options: FleetStatusOptions = {}): StatusRow[] {
+export function fleetStatusRows(spaces: OrchConfig["spaces"], options: FleetStatusOptions = {}): StatusRow[] {
   const spawned = spawnedRecords();
   const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
   const orchId = options.orchId?.() ?? currentOrchId();
   return sortEntities(buildEntities({ skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromView(deriveView(entity, spawned, staleHashes), workspaces, orchId));
+    .map((entity) => statusRowFromView(deriveView(entity, spawned, staleHashes), spaces, orchId));
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
-async function localStatusRows(args: string[], workspaces: OrchConfig["workspaces"]): Promise<FleetSnapshot> {
+async function localStatusRows(args: string[], spaces: OrchConfig["spaces"]): Promise<FleetSnapshot> {
   const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes", "--offline"]);
-  const snapshot = await readFleetRows(workspaces, enabled.has("--offline"));
+  const snapshot = await readFleetRows(spaces, enabled.has("--offline"));
   const scoped = scopeFleetRows(snapshot.rows, {
     all: enabled.has("--all"),
     allPanes: enabled.has("--all-panes"),
-    workspace: parseWorkspace(args),
+    space: parseSpace(args),
   });
   return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
@@ -720,16 +680,16 @@ function validRemoteValues(result: RemoteStatusResult): StatusRow[] {
   return result.value.filter((value) => Boolean(value) && typeof value === "object") as StatusRow[];
 }
 
-function remoteRowsFromResult(name: string, result: RemoteStatusResult, workspace?: string): StatusRow[] {
+function remoteRowsFromResult(name: string, result: RemoteStatusResult, space?: string): StatusRow[] {
   if (!result.ok) return [warningStatusRow(name, result.failure.message)];
   if (!Array.isArray(result.value)) return [warningStatusRow(name, `Host "${name}" returned an invalid status payload.`)];
   return validRemoteValues(result).map((value) => normalizeStatusRow(value))
-    .filter((row) => workspace === undefined || row.workspace === workspace)
+    .filter((row) => space === undefined || row.spaceId === space)
     .map((row) => ({ ...row, host: name }));
 }
 
-function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], workspace?: string): StatusRow[] {
-  return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, workspace))];
+function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], space?: string): StatusRow[] {
+  return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, space))];
 }
 
 function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { rows: StatusRow[]; alive: number; backendAnswered: boolean } {
@@ -748,7 +708,7 @@ function remoteNameCell(row: StatusRow): string {
 
 function remoteTableRow(row: StatusRow, flags: TableFlags): string[] {
   return [
-    row.host ?? "local", remotePaneCell(row), ...(flags.showWorkspace ? [formatWorkspace(row.workspace, row.workspaceName)] : []), remoteNameCell(row), ...tableOptionalCells(row, flags),
+    row.host ?? "local", remotePaneCell(row), ...(flags.showSpace ? [formatSpace(row.spaceId, row.spaceName)] : []), remoteNameCell(row), ...tableOptionalCells(row, flags),
     row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", tableStateCell(row, false),
     tableCostCell(row), tableContextCell(row), truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),
   ];
@@ -756,8 +716,8 @@ function remoteTableRow(row: StatusRow, flags: TableFlags): string[] {
 
 function remoteTableColumns(flags: TableFlags): { headers: string[]; caps: number[] } {
   return {
-    headers: ["HOST", "PANE", ...(flags.showWorkspace ? ["WORKSPACE"] : []), "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [10, 14, ...(flags.showWorkspace ? [20] : []), 14, ...ownerBranchCaps(flags), 10, 8, 30, 12, 8, 5, 40, 50],
+    headers: ["HOST", "PANE", ...(flags.showSpace ? ["WORKSPACE"] : []), "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
+    caps: [10, 14, ...(flags.showSpace ? [20] : []), 14, ...ownerBranchCaps(flags), 10, 8, 30, 12, 8, 5, 40, 50],
   };
 }
 
@@ -771,14 +731,14 @@ export async function cmdStatus(args: string[]): Promise<void> {
   if (!options.offline) await ensureDaemonOrWarn(orchDir());
   const config = loadConfigOrNull(orchDir());
   const hosts = config?.hosts ?? {};
-  const workspaces = config?.workspaces ?? {};
+  const spaces = config?.spaces ?? {};
   if (options.local || Object.keys(hosts).length === 0) {
-    await cmdStatusLocal(args, workspaces);
+    await cmdStatusLocal(args, spaces);
     return;
   }
-  const localSnapshot = await localStatusRows(args, workspaces);
+  const localSnapshot = await localStatusRows(args, spaces);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
-  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, options.workspace);
+  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, options.space);
   if (options.json) {
     process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
     return;

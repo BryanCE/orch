@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { collapse } from "../entities.ts";
 import { notify } from "../notify/router.ts";
 import type { NotifyEntry } from "../config.ts";
-import { abstractAgentLabel, workspaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
+import { abstractAgentLabel, spaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
 import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
 import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus, type PresenceStatus } from "../presence/store.ts";
@@ -134,7 +134,7 @@ function statusObject(status: unknown): object {
 }
 
 interface PresenceIdentityFields {
-  workspace: string | undefined;
+  space: string | undefined;
   agent: string;
   name: string | null;
   dispatchId: string | undefined;
@@ -150,7 +150,7 @@ function identityFields(
   value: object,
   metadata: PresenceMetadata,
 ): PresenceIdentityFields {
-  const workspace = placementOf(orchDir, key)?.workspace;
+  const space = placementOf(orchDir, key)?.space;
   const normalizedId = tryParseIdentity(key)?.id;
   const normalizedName = normalizedId ? agentById(orchDir, normalizedId)?.name : null;
   const assignedName = optionalString(property(value, "agent"));
@@ -160,9 +160,9 @@ function identityFields(
   const spawnedBy = optionalString(property(value, "spawnedBy")) ?? metadata.spawnedBy;
   const spawnedByLabel = optionalString(property(value, "spawnedByLabel")) ?? metadata.spawnedByLabel;
   return {
-    workspace,
+    space,
     // Status supplies the agent's self-reported label; placement comes from orch's registry.
-    agent: assignedName ?? label ?? metadata.name ?? abstractAgentLabel(workspace ?? "workspace", key),
+    agent: assignedName ?? label ?? metadata.name ?? abstractAgentLabel(space ?? "space", key),
     name: normalizedName ?? label ?? metadata.name ?? null,
     dispatchId,
     spawnedBy,
@@ -233,7 +233,7 @@ export function derivePresenceTransition(
   const activity = activityFields(value, transition.state);
   return {
     key,
-    workspace: identity.workspace,
+    space: identity.space,
     agent: identity.agent,
     name: identity.name,
     dispatchId: identity.dispatchId,
@@ -294,7 +294,7 @@ function runRecordForTransition(
   };
   const spawned = selectSpawnedRecord(orchDir, key);
   if (spawned?.adapter !== undefined) run.adapter = spawned.adapter;
-  if (spawned?.workspace !== undefined) run.workspace = spawned.workspace;
+  if (spawned?.space !== undefined) run.space = spawned.space;
   if (status.model && typeof status.model.id === "string") run.model = status.model.id;
   if (typeof status.task === "string") run.task = status.task;
   if (TERMINAL_STATES.has(event.newState) && typeof status.finishedAt === "string") {
@@ -471,10 +471,10 @@ export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolea
  *  agent name and transition ordinal that make it identifiable downstream. */
 export function emitAndNotify(emit: (event: NotifyEvent) => void, sinks: NotifyEntry[], event: NotifyEvent, now = Date.now()): void {
   if (isRepeatTransition(event, now)) return;
-  const workspace = event.workspace ?? workspaceLabelForKey(event.key);
+  const space = event.space ?? spaceLabelForKey(event.key);
   const seq = (published.get(event.key) ?? 0) + 1;
   published.set(event.key, seq);
-  const named = event.agent?.trim() ? event : { ...event, agent: abstractAgentLabel(workspace, event.key), workspace };
+  const named = event.agent?.trim() ? event : { ...event, agent: abstractAgentLabel(space, event.key), space };
   const canonical: NotifyEvent = { ...named, seq };
   emit(canonical);
   notify(sinks, canonical);

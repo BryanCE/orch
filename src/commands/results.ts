@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { loadConfig } from "../config.ts";
-import { buildEntities, collapse, resolveTarget, scopeEntitiesToWorkspace, workspaceOf, type Entity } from "../entities.ts";
+import { buildEntities, collapse, resolveTarget, scopeEntitiesToSpace, spaceOf, type Entity } from "../entities.ts";
 import { loadPresence, orchDir, readJSON, type PresenceEntry } from "../presence/store.ts";
 import { QUESTION_FILE } from "../presence/schema.ts";
 import { isRecord, truncate } from "../util.ts";
@@ -25,7 +25,9 @@ interface QuestionPayload { ts?: unknown; question: string }
 function writeHistoricalResult(run: { result?: unknown }, json: boolean, key?: string): boolean {
   if (run.result === undefined) return false;
   resultLogger(key).info("result.history-fallback");
-  process.stdout.write("(result from run history)\n");
+  // TASKS/13 §1: stdout carries what the human asked for — here, the result
+  // text itself. A provenance notice on stdout corrupts `orch result … | …`.
+  process.stderr.write("(result from run history)\n");
   if (json) {
     process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
     return true;
@@ -90,7 +92,8 @@ function writeAdapterResult(ent: Entity, json: boolean): boolean {
   const text = adapterResultText(ent, adapter);
   if (!text) return false;
   resultLogger(ent.key).info("result.adapter-fallback");
-  process.stdout.write("(no result.json - falling back to adapter-extracted session text)\n");
+  // Same rule: where the text came from is diagnosis, not the result.
+  process.stderr.write("(no result.json - falling back to adapter-extracted session text)\n");
   if (json) writeAdapterJson(ent, adapter, text);
   else process.stdout.write(text + "\n");
   return true;
@@ -170,7 +173,7 @@ interface PendingQuestion { pres: PresenceEntry; question: QuestionPayload }
 function collectPendingQuestions(args: string[]): { pending: PendingQuestion[]; names: Map<string, string> } {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
-  const scopedEntities = scopeEntitiesToWorkspace(buildEntities(), { all });
+  const scopedEntities = scopeEntitiesToSpace(buildEntities(), { all });
   const names = new Map<string, string>();
   const scopedKeys = new Set<string>();
   for (const ent of scopedEntities) {
@@ -208,17 +211,17 @@ function cmdQuestionsLocal(args: string[]) {
       name: names.get(pres.key) ?? null,
       age: formatAge(question.ts),
       question: questionText(question),
-      space: workspaceOf(orchDir(), pres.key) ?? "-",
+      space: spaceOf(orchDir(), pres.key) ?? "-",
     })), null, 2) + "\n");
     return;
   }
-  const spaces = pending.map(({ pres }) => workspaceOf(orchDir(), pres.key) ?? "-");
+  const spaces = pending.map(({ pres }) => spaceOf(orchDir(), pres.key) ?? "-");
   const showSpace = all && new Set(spaces).size > 1;
   process.stdout.write(
     pending
       .map(({ pres, question }) => {
         const label = names.get(pres.key) ?? "-";
-        const spaceLabel = workspaceOf(orchDir(), pres.key) ?? "-";
+        const spaceLabel = spaceOf(orchDir(), pres.key) ?? "-";
         const name = showSpace ? `${spaceLabel} / ${label}` : label;
         return `${pres.key}  ${name}  ${formatAge(question.ts)}\n${question.question}`;
       })
@@ -248,7 +251,7 @@ function localQuestionRows(args: string[]): QuestionRow[] {
   const { pending, names } = collectPendingQuestions(args);
   return pending.map(({ pres, question }) => ({
     key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
-    question: questionText(question), space: workspaceOf(orchDir(), pres.key) ?? "-",
+    question: questionText(question), space: spaceOf(orchDir(), pres.key) ?? "-",
   }));
 }
 

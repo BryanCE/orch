@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { drainOutbox } from "../src/daemon/outbox.ts";
+import { drainOutbox, type OutboxDelivery } from "../src/daemon/outbox.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 
 const tempDirs: string[] = [];
@@ -40,12 +40,12 @@ describe("outbox restart replay", () => {
     const crashedDaemon = {
       deliver: (target: string) => {
         calls.push(target);
-        return Promise.resolve(false);
+        return Promise.resolve<OutboxDelivery>("failed");
       },
       now: () => now,
     };
 
-    expect(await drainOutbox(orchDir, crashedDaemon)).toEqual({ delivered: 0, retried: 2 });
+    expect(await drainOutbox(orchDir, crashedDaemon)).toEqual({ delivered: 0, retried: 2, awaiting: 0 });
     expect(selectPendingOutbox(orchDir, now)).toHaveLength(0);
 
     // A restarted daemon scans the same persisted SQLite outbox after backoff.
@@ -54,14 +54,14 @@ describe("outbox restart replay", () => {
       deliver: (target: string) => {
         calls.push(target);
         deliveredIds.push(target);
-        return Promise.resolve(true);
+        return Promise.resolve<OutboxDelivery>("acked");
       },
       now: () => now,
     };
-    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ delivered: 2, retried: 0 });
+    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ delivered: 2, retried: 0, awaiting: 0 });
     expect(deliveredIds).toEqual(["message:one", "message:two"]);
 
-    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ delivered: 0, retried: 0 });
+    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ delivered: 0, retried: 0, awaiting: 0 });
     expect(selectPendingOutbox(orchDir, now)).toEqual([]);
     expect(new Set(deliveredIds).size).toBe(deliveredIds.length);
     expect(calls).toEqual(["message:one", "message:two", "message:one", "message:two"]);

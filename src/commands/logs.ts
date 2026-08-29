@@ -4,16 +4,18 @@ import { orchDir } from "../presence/store.ts";
 import { isLogLevel, isLogRecord, type LogLevel, type LogRecord } from "../log.ts";
 import { die } from "./target.ts";
 
-interface LogOptions { since?: number; level?: LogLevel; agent?: string; dispatch?: string; json: boolean; }
+export interface LogOptions { since?: number; level?: LogLevel; agent?: string; dispatch?: string; json: boolean; }
 
-function parseOptions(args: string[]): LogOptions {
+/** Exported so the filter contract is testable without a process exit: every
+ *  invalid flag ends in `die`, and `die` cannot be observed from in-process. */
+export function parseLogOptions(args: string[]): LogOptions {
   const out: LogOptions = { json: false };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--json") out.json = true;
     else if (arg === "--since" || arg === "--level" || arg === "--agent" || arg === "--dispatch") {
       const value = args[++i];
-      if (!value) die("usage: orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]");
+      if (value === undefined) die("usage: orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]");
       if (arg === "--since") {
         const parsed = Number(value);
         const when = Number.isFinite(parsed) ? parsed : Date.parse(value);
@@ -64,7 +66,7 @@ function render(record: LogRecord): string {
 }
 
 export function cmdLogs(args: string[]): void {
-  const options = parseOptions(args);
+  const options = parseLogOptions(args);
   const selected = records(orchDir()).filter((record) => matches(record, options));
   if (options.json) for (const record of selected) process.stdout.write(`${JSON.stringify(record)}\n`);
   else for (const record of selected) process.stdout.write(`${render(record)}\n`);

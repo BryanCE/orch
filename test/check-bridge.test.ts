@@ -13,6 +13,7 @@ import {
   checkSpawnerReplyFallbackLine,
   checkLeaseProvenanceLine,
   checkEnvironmentCapabilityLine,
+  ENVIRONMENT_ROLE_NAMES,
 } from "../scripts/check-bridge.ts";
 
 // The static-enforcement rules added for group 10 of fix-audit-findings.
@@ -237,6 +238,42 @@ describe("10.6 per-harness session parser banned from commands (checkCommandsPar
 });
 
 describe("10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine)", () => {
+  // E13 deleted the capability bag and every optional port method. The rule's
+  // allow-list still named them, so `if (backend.capabilities…)` and
+  // `if (adapter.createWorkspace)` — the exact shapes E13 forbids — were exempt
+  // from the check that exists to forbid them. Rule 8: one current shape, and a
+  // name that no longer exists on either port is not a role.
+  test("a deleted capability bag or optional method is not exempt", () => {
+    // `backend.capabilities.panes` is not asserted here: it is a property CHAIN,
+    // which this rule deliberately leaves alone, and tsc already rejects it now
+    // that `capabilities` is gone from the port. The three below are true
+    // presence checks on names E13 deleted, and they must trip.
+    expect(checkEnvironmentCapabilityLine("  if (adapter.createWorkspace) return adapter.createWorkspace(name);", "src/commands/space.ts")).toContain("method-presence");
+    expect(checkEnvironmentCapabilityLine("  if (backend.handleFor) return backend.handleFor(key);", "src/control/dispatch.ts")).toContain("method-presence");
+    expect(checkEnvironmentCapabilityLine("  if (backend.pruneLogs) return backend.pruneLogs(cutoff);", "src/daemon/retention.ts")).toContain("method-presence");
+  });
+
+  // A hand-kept list beside the ports is a second list to forget, in both
+  // directions: a role added to a port is not exempt and trips the rule, and a
+  // role DELETED from a port keeps its exemption forever. The list is derived
+  // from the port declarations, so both directions fix themselves.
+  test("the exempted names are the roles the ports actually declare", () => {
+    for (const deleted of ["capabilities", "createWorkspace", "currentIdentity", "handleFor", "pruneLogs", "workspaces", "focusWorkspace", "version"]) {
+      expect(ENVIRONMENT_ROLE_NAMES).not.toContain(deleted);
+    }
+    for (const composed of ["paneInventory", "paneInput", "spaceHome", "identity", "handleLookup", "logPruning", "inboxSteering", "question", "modelControl", "thinking"]) {
+      expect(ENVIRONMENT_ROLE_NAMES).toContain(composed);
+    }
+  });
+
+  // Plain nullable DATA on the port is not a capability. Exempting it would let
+  // `if (backend.paneCount)` pass as a capability read.
+  test("nullable data on the port is not exempted as a role", () => {
+    expect(ENVIRONMENT_ROLE_NAMES).not.toContain("paneCount");
+    expect(ENVIRONMENT_ROLE_NAMES).not.toContain("sessionPath");
+    expect(checkEnvironmentCapabilityLine("  if (backend.paneCount) return countPanes();", "src/commands/panes.ts")).toContain("method-presence");
+  });
+
   test("flags plexer and harness identity branches", () => {
     expect(checkEnvironmentCapabilityLine('  if (plexer === "herdr") return focus();', "src/commands/panes.ts")).toContain("environment identity");
     expect(checkEnvironmentCapabilityLine('  if (adapter.id === "pi") return run();', "src/commands/spawn.ts")).toContain("environment identity");

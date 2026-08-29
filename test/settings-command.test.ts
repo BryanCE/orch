@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
+import { isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
@@ -42,7 +44,49 @@ function runSettingsExpectingFailure(orchDir: string, ...args: string[]): { stat
   return { status: ran.exitCode, stderr: ran.stderr.toString() };
 }
 
+interface SettingReport { readonly value: unknown; readonly source: string }
+
+/** `orch settings --json` read back through a guard rather than a cast: the CLI's
+ *  stdout is external data, and a cast here would hide a shape change instead of
+ *  reporting it (Rule 13). */
+function settingsReport(output: string): Record<string, SettingReport> {
+  const parsed: unknown = JSON.parse(output);
+  if (!isRecord(parsed)) throw new Error("settings --json did not return an object");
+  const report: Record<string, SettingReport> = {};
+  for (const [key, entry] of Object.entries(parsed)) {
+    if (!isRecord(entry) || !("value" in entry) || !("source" in entry)) {
+      throw new Error(`settings --json entry ${key} has no value/source`);
+    }
+    const source = entry.source;
+    if (typeof source !== "string") throw new Error(`settings --json entry ${key} has a non-string source`);
+    report[key] = { value: entry.value, source };
+  }
+  return report;
+}
+
 describe("orch settings", () => {
+
+  // TASKS/14-settings-tui.md: the registry is the single source of truth for a
+  // setting, and a setting the CLI cannot show is a setting nobody can find. A
+  // hand-written switch beside the registry loop dropped 23 of the 42 declared
+  // keys from both the table and --json — every retention.*, every workers.*,
+  // logging.level, fleet.pack_cap, locked_commands — which is exactly the
+  // invisibility this file exists to prevent.
+  test("every registered setting is reachable through --json", () => {
+    const dir = tempDir();
+    writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
+    const shown = new Set(Object.keys(settingsReport(runSettings(dir, {}, "--json"))));
+    const missing = SETTINGS_REGISTRY.map((spec) => spec.key).filter((key) => !shown.has(key));
+    expect(missing).toEqual([]);
+  });
+
+  test("every registered setting is printed in the table", () => {
+    const dir = tempDir();
+    writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
+    const output = runSettings(dir, {});
+    const missing = SETTINGS_REGISTRY.map((spec) => spec.key).filter((key) => !output.includes(key));
+    expect(missing).toEqual([]);
+  });
   test("--json reports value + source per setting, settings.json winning over defaults", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
@@ -50,9 +94,9 @@ describe("orch settings", () => {
       defaults: { adapter: "pi", backend: "headless" },
     });
 
-    const report = JSON.parse(runSettings(directory, {}, "--json")) as Record<string, { value: unknown; source: string }>;
-    expect(report.adapter).toEqual({ value: "pi", source: "settings.json" });
-    expect(report.backend).toEqual({ value: "headless", source: "settings.json" });
+    const report = settingsReport(runSettings(directory, {}, "--json"));
+    expect(report["defaults.adapter"]).toEqual({ value: "pi", source: "settings.json" });
+    expect(report["defaults.backend"]).toEqual({ value: "headless", source: "settings.json" });
     expect(report["model (pi)"]!.source).toBe("default");
     expect(report["model (claude)"]!.source).toBe("default");
     expect(report["fleet.spawn_cap"]).toEqual({ value: 8, source: "default" });
@@ -66,8 +110,8 @@ describe("orch settings", () => {
       defaults: { adapter: "pi" },
     });
 
-    const report = JSON.parse(runSettings(directory, { ORCH_ADAPTER: "claude" }, "--json")) as Record<string, { value: unknown; source: string }>;
-    expect(report.adapter).toEqual({ value: "claude", source: "env" });
+    const report = settingsReport(runSettings(directory, { ORCH_ADAPTER: "claude" }, "--json"));
+    expect(report["defaults.adapter"]).toEqual({ value: "claude", source: "env" });
   }, 30_000);
 
   test("--harness switches defaults.adapter between enabled ids and rejects a non-enabled id", () => {
@@ -78,8 +122,8 @@ describe("orch settings", () => {
     });
 
     expect(runSettings(directory, {}, "--harness=claude")).toContain("default adapter = claude");
-    const report = JSON.parse(runSettings(directory, {}, "--json")) as Record<string, { value: unknown }>;
-    expect(report.adapter!.value).toBe("claude");
+    const report = settingsReport(runSettings(directory, {}, "--json"));
+    expect(report["defaults.adapter"]!.value).toBe("claude");
 
     const rejected = runSettingsExpectingFailure(directory, "--harness=codex");
     expect(rejected.status).not.toBe(0);

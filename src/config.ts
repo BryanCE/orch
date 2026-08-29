@@ -11,7 +11,7 @@ import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
 import { THINKING_LEVELS, type ThinkingLevel } from "./policy/thinking.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
 import { errnoCode, errorMessage, isRecord } from "./util.ts";
-import type { LogLevel } from "./log.ts";
+import { isLogLevel, type LogLevel } from "./log.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is
@@ -794,4 +794,23 @@ export function writeSettingsNotify(orchDir: string, entries: readonly NotifyEnt
 /** Drop the `notify` entry for one sink id. Callers gate on it being configured. */
 export function deleteSettingsNotify(orchDir: string, id: NotifyEntry["id"]): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, notify: (root.notify ?? []).filter((entry) => entry.id !== id) }));
+}
+
+/**
+ * The log level every logger must use: ORCH_LOG_LEVEL, else `logging.level` from
+ * settings.json, else the default. One resolver, because four call sites had
+ * hardcoded `"info"` and the setting was accepted, displayed by `orch settings`
+ * and then ignored. An unrecognised env value is not a level, so it does not get
+ * to outrank the file the user actually wrote.
+ */
+export function configuredLogLevel(directory: string): LogLevel {
+  const env = process.env.ORCH_LOG_LEVEL;
+  if (env !== undefined && isLogLevel(env)) return env;
+  let configured: OrchConfig | null;
+  try {
+    configured = loadConfigOrNull(directory);
+  } catch {
+    configured = null;
+  }
+  return configured?.logging?.level ?? SETTINGS_DEFAULTS.logging.level;
 }

@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { orm } from "./connection.ts";
-import { ownership } from "./tables.ts";
+import { ownership } from "../db/schema.ts";
 
 /** Record which orchestrator controls an agent, replacing any prior owner. */
 export function setOwner(orchDir: string, agentKey: string, owner: string): void {

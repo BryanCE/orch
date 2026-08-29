@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { isAdapterId, type AdapterId } from "../adapters/adapter.ts";
 import { isBackendId, type BackendId } from "../backends/backend.ts";
 import { orm } from "./connection.ts";
-import { spawned, ownership } from "./tables.ts";
+import { spawned, ownership } from "../db/schema.ts";
 import { setNonNullField } from "./row-values.ts";
 import { isRecord } from "../util.ts";
 export interface SpawnedRecord { pane:string;ts?:number;adapter?:AdapterId;model?:string;backend?:BackendId;space?:string;handle?:string;name?:string;cwd?:string;worktree?:string;branch?:string;owner?:string;spawnedBy?:string;spawnedByLabel?:string }

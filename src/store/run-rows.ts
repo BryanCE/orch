@@ -1,6 +1,6 @@
 import { desc, eq, lt } from "drizzle-orm";
 import { orm } from "./connection.ts";
-import { runs } from "./tables.ts";
+import { runs } from "../db/schema.ts";
 import { nullableJsonText, setNonNullField } from "./row-values.ts";
 export interface RunRecord { dispatchId:string; agentKey:string; adapter?:string; model?:string; space?:string; task?:string; state:string; startedAt:number; finishedAt?:number; tokensIn?:number; tokensOut?:number; cacheRead?:number; cacheWrite?:number; cost?:number; turns?:number; result?:unknown; lastError?:string }
 type RunRow=typeof runs.$inferSelect;

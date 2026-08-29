@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, gt, type SQL } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
-import { grantApprovals, grantDenials, grantRequestParams, grantRequests, grantSpends, grantStates } from "./tables.ts";
+import { grantApprovals, grantDenials, grantRequestParams, grantRequests, grantSpends, grantStates } from "../db/schema.ts";
 
 /**
  * Human consent for actions an agent may not take on its own.

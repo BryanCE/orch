@@ -2,7 +2,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
 import { isRecord } from "../util.ts";
 import { openStore, orm, withTransaction } from "./connection.ts";
-import { agentEndings, agentWorktrees, agents, hostPlexers as hostPlexerTable } from "./tables.ts";
+import { agentEndings, agentWorktrees, agents, hostPlexers as hostPlexerTable } from "../db/schema.ts";
 
 export type HostOs = "linux" | "windows" | "darwin";
 

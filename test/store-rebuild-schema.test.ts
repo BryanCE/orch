@@ -29,7 +29,7 @@ function base(d: ReturnType<typeof openStore>) {
 }
 
 // This is the complete current sqlite_master inventory from TASKS/06-schema.md.
-// Keep it independent of src/store/schema.ts: a missing or superseded object must
+// Keep it independent of src/db/schema.ts: a missing or superseded object must
 // make this test fail rather than being silently excluded as a legacy name.
 const expectedInventory = new Set([
   ...["ownership", "outbox", "spawned", "catalogues", "events", "runs", "harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes", "grant_requests", "grant_request_params", "grant_approvals", "grant_denials", "grant_spends", "__drizzle_migrations"].map(name => `table:${name}`),

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { assertHostOwnsStore } from "./store.ts";
 
 /**
- * Generate the migration folder from `src/store/tables.ts`, from scratch.
+ * Generate the migration folder from `src/db/schema.ts`, from scratch.
  *
  * Nothing has published (Rule 14): there is no installed base whose store has to
  * be walked forward, so orch keeps ONE migration describing the current schema
@@ -43,7 +43,7 @@ function existingMigrations(): string[] {
 
 const previous = existingMigrations();
 report("");
-report(`db:gen  ${isDryRun ? "preview - " : ""}regenerating drizzle/ from src/store/tables.ts`);
+report(`db:gen  ${isDryRun ? "preview - " : ""}regenerating drizzle/ from src/db/schema.ts`);
 if (previous.length) report(`  replacing        ${String(previous.length).padStart(2)}  ${previous.join(", ")}`);
 else report("  replacing         0  (empty folder)");
 
@@ -71,7 +71,7 @@ function run(step: string, argv: readonly string[]): void {
 }
 
 // Tables only. The views and triggers drizzle-kit cannot build are created at
-// store open from src/store/schema.ts, so nothing post-processes what it wrote.
+// store open from the generated migrations, so nothing post-processes what it wrote.
 run("drizzle-kit generate", [process.execPath, join(REPO, "node_modules/drizzle-kit/bin.cjs"), "generate"]);
 
 const written = existingMigrations();

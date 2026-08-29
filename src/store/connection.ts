@@ -4,8 +4,7 @@ import { join } from "node:path";
 import { defineRelations } from "drizzle-orm";
 import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
-import * as tables from "./tables.ts";
-import { UNEMITTED_DDL } from "./schema.ts";
+import * as tables from "../db/schema.ts";
 import { presenceRoot, readStatus } from "../presence/writer.ts";
 import { pidAlive } from "../util.ts";
 
@@ -92,21 +91,6 @@ function databasePath(orchDir: string): string {
  *  package root, which is also where this file sits under the checkout. */
 function migrationsFolder(): string {
   return join(import.meta.dirname, "..", "..", "drizzle");
-}
-
-/**
- * Create the views and triggers drizzle-kit has no builder for.
- *
- * They are DERIVED definitions — they hold no data — so they are dropped and
- * recreated on every open. That makes `src/store/schema.ts` the one place they
- * are written, and makes a changed definition take effect by editing it, with
- * nothing to regenerate and no generated file to rewrite afterwards.
- */
-function applyDerivedObjects(port: DatabaseLike): void {
-  for (const statement of UNEMITTED_DDL) {
-    port.exec(`DROP ${statement.sql.startsWith("CREATE VIEW") ? "VIEW" : "TRIGGER"} IF EXISTS ${statement.name};`);
-    port.exec(statement.sql);
-  }
 }
 
 /** Every agent whose status record still names a live pid. A current-schema
@@ -209,7 +193,6 @@ function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): v
   try {
     if (predatesMigrations(opened.port)) throw new Error("it has orch's tables but no record of the migrations that create them");
     migrate(opened.orm, { migrationsFolder: migrationsFolder() });
-    applyDerivedObjects(opened.port);
   } catch (error) {
     opened.port.close();
     const reason = error instanceof Error ? error.message : String(error);

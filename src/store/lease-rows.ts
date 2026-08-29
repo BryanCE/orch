@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
-import { agentLeases } from "./tables.ts";
+import { agentLeases } from "../db/schema.ts";
 
 export type LeaseReleaseReason = "released" | "handoff" | "adopted" | "expired";
 export interface Lease { readonly id:number; readonly agentId:string; readonly orchId:string; readonly since:number; readonly until:number|null; readonly releaseReason:LeaseReleaseReason|null; }

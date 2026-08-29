@@ -1,6 +1,6 @@
 import { asc } from "drizzle-orm";
 import { orm } from "./connection.ts";
-import { catalogues } from "./tables.ts";
+import { catalogues } from "../db/schema.ts";
 
 export interface StoredCatalogue {
   at: number;

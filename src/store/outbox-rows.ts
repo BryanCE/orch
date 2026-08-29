@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, lte, lt, ne } from "drizzle-orm";
 import { orm } from "./connection.ts";
-import { outbox } from "./tables.ts";
+import { outbox } from "../db/schema.ts";
 export interface OutboxMessageInput{id:string;target:string;payload:unknown;createdAt?:number}
 /**
  * `pending`   no channel has taken it yet.

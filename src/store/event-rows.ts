@@ -1,6 +1,6 @@
 import { asc, gt, lt } from "drizzle-orm";
 import { orm } from "./connection.ts";
-import { events } from "./tables.ts";
+import { events } from "../db/schema.ts";
 
 export interface StoredEvent {
   seq: number;

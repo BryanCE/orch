@@ -37,7 +37,7 @@ describe("epoch-millisecond store instants", () => {
   });
 
   test("all time-named columns use integer declarations", () => {
-    const source = readFileSync(join(import.meta.dir, "../src/store/tables.ts"), "utf8");
+    const source = readFileSync(join(import.meta.dir, "../src/db/schema.ts"), "utf8");
     const lines = source.split("\n");
     const timeName = /(?:At$|^ts$|^since$|^until$|^started|^finished|_at\")/i;
     const violations = lines.filter((line) => timeName.test(line) && /:\s*text\(/.test(line));

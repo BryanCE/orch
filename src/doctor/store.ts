@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { is } from "drizzle-orm";
 import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
-import * as tables from "../store/tables.ts";
+import * as tables from "../db/schema.ts";
 import type { CheckResult } from "../check-result.ts";
 import { errorMessage } from "../util.ts";
 

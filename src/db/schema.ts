@@ -1,15 +1,14 @@
-import { sql } from "drizzle-orm";
+import { and, eq, exists, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
-import { check, index, integer, primaryKey, real, sqliteTable, sqliteView, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { QueryBuilder, alias, check, index, integer, primaryKey, real, sqliteTable, sqliteView, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * Every table, typed.
  *
- * This is the QUERY surface, not the creation DDL. `schema.ts` still creates the
- * store because drizzle's SQLite dialect cannot emit views. Tables are ordinary
- * SQLite. Creation is a one-time act here anyway — Rule 8 gives
- * orch one live shape with no migrations, so a generated migration would have
- * nothing to migrate.
+ * The ONE definition of the store: every table, index, check and view. Nothing
+ * is declared on top of this file and nothing is applied beside it — drizzle-kit
+ * generates the whole schema from here, and `connection.ts` only applies what it
+ * generated.
  *
  * What this file buys is the thing raw sqlite cannot: results that are typed
  * instead of `unknown`, so no store module has to cast a row into shape. Rule 13
@@ -356,19 +355,82 @@ export const grantSpends = sqliteTable("grant_spends", {
 
 // ── derived states ───────────────────────────────────────────────────────────
 
-export const taskStates = sqliteView("task_states", {
-  taskId: text("task_id").notNull(),
-  state: text("state").notNull(),
-}).existing();
+/** Every agent whose ending row is absent — the only definition of "still
+ *  running" this schema has. Both scope checks below are the same question
+ *  asked of a different set of agents. */
+function stillRunning(agent: typeof agents): ReturnType<typeof notExists> {
+  return notExists(new QueryBuilder().select({ one: sql`1` }).from(agentEndings).where(eq(agentEndings.agentId, agent.id)));
+}
 
-/** Expiry is absent on purpose: it depends on the clock, and a view that reads
+/**
+ * The state of a task, read off the rows that record what happened to it.
+ *
+ * Cancellation wins over everything. A task whose scope has no agent left alive
+ * is unrunnable rather than queued: nothing can ever claim it, and saying so is
+ * the difference between a queue that drains and one that looks busy forever.
+ */
+export const taskStates = sqliteView("task_states").as((qb) => {
+  const attempt = alias(taskAttempts, "attempt");
+  const latest = alias(taskAttempts, "latest");
+  const packed = alias(agents, "packed");
+  const intaken = alias(agents, "intaken");
+
+  const unclaimable = or(isNull(attempt.taskId), isNull(attempt.until), eq(attempt.outcome, "failed"));
+  const scopeIsGone = or(
+    and(isNotNull(tasks.scopeAgentId), exists(
+      new QueryBuilder().select({ one: sql`1` }).from(agentEndings).where(eq(agentEndings.agentId, tasks.scopeAgentId)),
+    )),
+    and(isNotNull(tasks.scopePackId), notExists(
+      new QueryBuilder().select({ one: sql`1` }).from(packed)
+        .where(and(eq(packed.rootAgentId, tasks.scopePackId), stillRunning(packed))),
+    )),
+    and(isNotNull(tasks.scopeSpaceId), notExists(
+      new QueryBuilder().select({ one: sql`1` }).from(intaken)
+        .innerJoin(packIntakes, and(
+          eq(packIntakes.packId, intaken.rootAgentId),
+          eq(packIntakes.spaceId, tasks.scopeSpaceId),
+          isNull(packIntakes.until),
+        ))
+        .where(stillRunning(intaken)),
+    )),
+  );
+
+  return qb.select({
+    taskId: tasks.id,
+    state: sql<string>`CASE
+      WHEN ${taskCancellations.taskId} IS NOT NULL THEN 'cancelled'
+      WHEN ${unclaimable} AND ${scopeIsGone} THEN 'unrunnable'
+      WHEN ${attempt.taskId} IS NULL THEN 'queued'
+      WHEN ${attempt.until} IS NULL THEN 'claimed'
+      ELSE ${attempt.outcome}
+    END`.as("state"),
+  })
+    .from(tasks)
+    .leftJoin(taskCancellations, eq(taskCancellations.taskId, tasks.id))
+    .leftJoin(attempt, and(
+      eq(attempt.taskId, tasks.id),
+      eq(attempt.since, sql`(SELECT MAX(${latest.since}) FROM ${taskAttempts} ${latest} WHERE ${latest.taskId} = ${tasks.id})`),
+    ));
+});
+
+/** The state of a grant request, read off the approval, denial and spend rows.
+ *  Expiry is absent on purpose: it depends on the clock, and a view that reads
  *  the clock answers differently for unchanged rows. Callers compare
- *  `expires_at` at the instant they spend. */
-export const grantStates = sqliteView("grant_states", {
-  requestId: text("request_id").notNull(),
-  actionHash: text("action_hash").notNull(),
-  kind: text("kind").notNull(),
-  requestedAt: integer("requested_at").notNull(),
-  expiresAt: integer("expires_at"),
-  state: text("state").notNull(),
-}).existing();
+ *  `expires_at` themselves at the instant they spend. */
+export const grantStates = sqliteView("grant_states").as((qb) => qb.select({
+  requestId: grantRequests.id,
+  actionHash: grantRequests.actionHash,
+  kind: grantRequests.kind,
+  requestedAt: grantRequests.requestedAt,
+  expiresAt: grantApprovals.expiresAt,
+  state: sql<string>`CASE
+    WHEN ${grantSpends.requestId} IS NOT NULL THEN 'spent'
+    WHEN ${grantDenials.requestId} IS NOT NULL THEN 'denied'
+    WHEN ${grantApprovals.requestId} IS NULL THEN 'pending'
+    ELSE 'approved'
+  END`.as("state"),
+})
+  .from(grantRequests)
+  .leftJoin(grantApprovals, eq(grantApprovals.requestId, grantRequests.id))
+  .leftJoin(grantDenials, eq(grantDenials.requestId, grantRequests.id))
+  .leftJoin(grantSpends, eq(grantSpends.requestId, grantRequests.id)));

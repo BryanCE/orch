@@ -10,7 +10,7 @@ mkdirSync(storeDir, { recursive: true });
 
 export default defineConfig({
   dialect: "sqlite",
-  schema: "./src/store/tables.ts",
+  schema: "./src/db/schema.ts",
   out: "./drizzle",
   dbCredentials: { url: join(storeDir, "orch.db") },
   strict: true,

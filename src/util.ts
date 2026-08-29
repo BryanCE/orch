@@ -1,6 +1,6 @@
 import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JsonRecord, OsSide } from "./types/core.ts";
 
@@ -232,6 +232,27 @@ export function createFileExclusively(path: string, content: string, mode = 0o60
       if (errnoCode(error) !== "ENOENT") throw error;
     }
   }
+}
+
+/**
+ * A session file path, or undefined when the harness handed back something that
+ * is not one.
+ *
+ * The test is ABSOLUTE, on either convention. `path.isAbsolute` answers for the
+ * convention THIS PROCESS runs on, and orch spans both sides of one machine — a
+ * WSL daemon routinely reports for a Windows-side session — so on Linux
+ * `path.isAbsolute("C:\\Users\\...")` is false and a host-local check drops
+ * exactly the paths this exists to keep. `startsWith("/")` is the same mistake
+ * spelled shorter: TASKS/10-review-findings.md 1.12 is the win32 agent that got
+ * no session tail, model or cost fallback because of it.
+ *
+ * One decision, imported: it is made where a harness context is read (the
+ * presence writer) and where a pane reports to herdr, and those two must never
+ * disagree about whether a given string is a path.
+ */
+export function sessionFilePath(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  return posix.isAbsolute(value) || win32.isAbsolute(value) ? value : undefined;
 }
 
 export function ensurePrivateDir(path: string): void {

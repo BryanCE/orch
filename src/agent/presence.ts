@@ -22,7 +22,7 @@ import {
   isInboxFilename,
   resetInbox,
 } from "../presence/inbox.ts";
-import { isRecord, isUnknownArray, optionalString, projectRoot } from "../util.ts";
+import { isRecord, isUnknownArray, optionalString, projectRoot, sessionFilePath } from "../util.ts";
 import { createModelControl, isControlCommand } from "./model-control.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
@@ -246,8 +246,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   function updateSessionRef(ctx: HarnessContext): void {
     try {
-      const file = ctx.sessionManager.getSessionFile();
-      if (typeof file === "string" && path.isAbsolute(file)) state.sessionPath = file;
+      const file = sessionFilePath(ctx.sessionManager.getSessionFile());
+      if (file !== undefined) state.sessionPath = file;
     } catch {}
     try {
       const id = ctx.sessionManager.getSessionId();

@@ -4,6 +4,7 @@
 // (`pane.report_agent` etc.) lives here; the transport is the shared one-shot
 // dialer in `src/presence/socket-client.ts` (node built-ins only).
 import { requestJsonLine } from "../../presence/socket-client.ts";
+import { sessionFilePath } from "../../util.ts";
 
 /** Working/blocked/idle — the single state herdr shows for this pane's agent. */
 /** The three states a herdr PANE can show. A strict subset of orch's vocabulary,
@@ -70,8 +71,7 @@ export function createPaneStateSocket(config: PaneSocketConfig): PaneStateSocket
 
   function updateSessionRef(ctx: PaneHudContext): void {
     try {
-      const file = ctx?.sessionManager?.getSessionFile?.();
-      sessionPath = typeof file === "string" && file.startsWith("/") ? file : undefined;
+      sessionPath = sessionFilePath(ctx?.sessionManager?.getSessionFile?.());
     } catch {
       sessionPath = undefined;
     }

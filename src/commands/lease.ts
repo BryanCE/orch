@@ -8,22 +8,8 @@ import { agentById, childrenOf, liveAgents, renameAgent } from "../store/agent-r
 import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../store/lease-rows.ts";
 import { assertValidAgentName } from "../policy/name.ts";
 import type { AgentRow } from "../types/store.ts";
-
-export interface LeaseCommandResult {
-  readonly id: string;
-  readonly name: string;
-  readonly released?: boolean;
-  readonly adopted?: boolean;
-  readonly reaped?: boolean;
-  readonly renamed?: boolean;
-}
-
-/** Every lease operation takes the same two options: when it happened, and
- *  whether the caller is deliberately taking the agent from a LIVE orch (C4). */
-export interface LeaseOptions {
-  readonly now?: number;
-  readonly steal?: boolean;
-}
+import type { LeaseCommandResult, LeaseOptions } from "../types/command.ts";
+export type { LeaseCommandResult, LeaseOptions };
 
 /** Transitional seam: the daemon hello identity is the caller's orch identity.
  * The agent hello rework should only need to replace this one function. */

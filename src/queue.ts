@@ -24,53 +24,10 @@ import {
   type TaskRow,
 } from "./store/task-rows.ts";
 
-import type { TaskState } from "./store/task-rows.ts";
 import type { AgentRow } from "./types/store.ts";
-export type { TaskState };
+import type { PackIntakeRec, TaskAttemptRec, TaskOptions, TaskRec, TaskScopeSelection, TaskState } from "./types/queue.ts";
+export type { PackIntakeRec, TaskOptions, TaskRec, TaskScopeSelection };
 export const STALE_TASK_AGE_MS = 24 * 60 * 60 * 1000;
-
-export interface TaskOptions {
-  agent?: string;
-  model?: string;
-  cwd?: string;
-  worktree?: boolean;
-  constraints?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export interface TaskAttemptRec {
-  since: number;
-  until: number | null;
-  agentId: string;
-  dispatchId: string;
-  outcome: "done" | "failed" | null;
-  result: unknown;
-  error: string | null;
-}
-
-export interface TaskRec {
-  id: string;
-  text: string;
-  opts: TaskOptions;
-  enqueuedBy: string;
-  scopeAgentId: string | null;
-  scopePackId: string | null;
-  scopeSpaceId: string | null;
-  createdAt: string;
-  updatedAt: string;
-  state: TaskState;
-  /** Queued beyond the notification threshold, while still claimable. */
-  stale: boolean;
-  attempts: TaskAttemptRec[];
-  /** A command error is returned without inventing another persisted state. */
-  error?: string;
-}
-
-export interface TaskScopeSelection {
-  agentId?: string;
-  packId?: string;
-  spaceId?: string;
-}
 
 function mapAttempt(row: AttemptRow): TaskAttemptRec {
   return {
@@ -166,13 +123,6 @@ function selectedScope(orchDir: string, enqueuedBy: string, selection: TaskScope
     return { scopeSpaceId: selection.spaceId } as const;
   }
   return { scopePackId: enqueuer.rootAgentId } as const;
-}
-
-export interface PackIntakeRec {
-  packId: string;
-  spaceId: string;
-  since: number;
-  until: number | null;
 }
 
 /** Only the pack's own holder may speak for it. Same right as pack-scoped

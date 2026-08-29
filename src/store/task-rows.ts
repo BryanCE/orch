@@ -1,42 +1,7 @@
 import { openStore, storeExists } from "./connection.ts";
 import { isRecord } from "../util.ts";
-
-export type TaskScope =
-  | { scopeAgentId: string; scopePackId?: never; scopeSpaceId?: never }
-  | { scopePackId: string; scopeAgentId?: never; scopeSpaceId?: never }
-  | { scopeSpaceId: string; scopeAgentId?: never; scopePackId?: never };
-
-export type NewTask = TaskScope & {
-  id: string;
-  text: string;
-  opts: unknown;
-  enqueuedBy: string;
-  createdAt?: number;
-};
-
-export interface TaskRow {
-  id: string;
-  text: string;
-  opts: unknown;
-  enqueuedBy: string;
-  scopeAgentId: string | null;
-  scopePackId: string | null;
-  scopeSpaceId: string | null;
-  createdAt: number;
-}
-
-export interface AttemptRow {
-  taskId: string;
-  since: number;
-  until: number | null;
-  agentId: string;
-  dispatchId: string;
-  outcome: "done" | "failed" | null;
-  result: unknown;
-  error: string | null;
-}
-
-export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled" | "unrunnable";
+import type { AttemptRow, NewTask, ScopeQuery, TaskRow, TaskState } from "../types/queue.ts";
+export type { AttemptRow, NewTask, ScopeQuery, TaskRow, TaskState };
 
 interface RawTaskRow {
   id: string;
@@ -312,11 +277,6 @@ export function attemptsOf(dir: string, taskId: string): AttemptRow[] {
   const rows = rowsOf(openStore(dir).query("SELECT task_id,since,until,agent_id,dispatch_id,outcome,result,error FROM task_attempts WHERE task_id=? ORDER BY since").all(taskId), isRawAttemptRow, "task attempt");
   return rows.map(attempt);
 }
-
-export type ScopeQuery =
-  | { agentId: string; packId?: never; spaceId?: never }
-  | { packId: string; agentId?: never; spaceId?: never }
-  | { spaceId: string; agentId?: never; packId?: never };
 
 export function openTasksInScope(dir: string, query: ScopeQuery): TaskRow[] {
   const db = openStore(dir);

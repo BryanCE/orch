@@ -1,6 +1,9 @@
 import type { SessionAgentIdentity } from "./store.ts";
 import type { NotifyEvent } from "./notify.ts";
 import type { OsSide } from "./core.ts";
+import type { OrchConfig } from "./config.ts";
+import type { PresenceEntry } from "./presence.ts";
+import type { TaskRec } from "./queue.ts";
 
 export interface LockRecord {
   pid: number;
@@ -201,4 +204,29 @@ export interface DaemonRuntimeFiles {
   readonly token: string;
   /** Where the daemon's structured JSONL diagnostics are written. */
   readonly log: string;
+}
+
+export interface SweepCounts {
+  queue: number;
+  outbox: number;
+  events: number;
+  runs: number;
+  ended_agents: number;
+  logs: number;
+}
+
+export interface WorkOptions {
+  orchDir: string;
+  pollIntervalMs: number;
+  signal?: AbortSignal;
+  once?: boolean;
+  continuous?: boolean;
+  /** Suppress human progress output for machine-readable callers. */
+  json?: boolean;
+  maxRetries?: number;
+  /** Return the latest config for each loop iteration. */
+  getConfig?: () => OrchConfig;
+  dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
+  /** Emit canonical work lifecycle events through the daemon fan-out. */
+  onEvent?: (event: NotifyEvent) => void;
 }

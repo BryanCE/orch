@@ -1,7 +1,9 @@
 import { openStore } from "./connection.ts";
 import { ensurePlexer } from "./agent-rows.ts";
 import { isRecord } from "../util.ts";
-import type { HomeSubject, SpaceHomeRole } from "../types/backend.ts";
+import type { HomeSubject } from "../types/backend.ts";
+import type { OpenHomeRequest } from "../types/store.ts";
+export type { OpenHomeRequest };
 
 /**
  * The one reader and writer of a plexer HOME for orch's own structure.
@@ -74,20 +76,6 @@ export function recordHome(
 export function clearHome(directory: string, subject: HomeSubject): void {
   const { table, column } = tableFor(subject);
   openStore(directory).query(`DELETE FROM ${table} WHERE ${column} = ?`).run(subject.id);
-}
-
-export interface OpenHomeRequest {
-  readonly directory: string;
-  readonly subject: HomeSubject;
-  readonly plexerId: string;
-  /** `null` IS the answer that this environment holds nothing (E13) — there is
-   *  no probe here and no unsupported-operation path (E14). */
-  readonly home: SpaceHomeRole | null;
-  readonly cwd: string;
-  /** orch's own name for the thing being grouped. It is MARKED before it reaches
-   *  the plexer; the plexer never sees a bare directory basename. */
-  readonly label: string;
-  readonly env?: Readonly<Record<string, string>>;
 }
 
 /**

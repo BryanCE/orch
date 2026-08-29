@@ -307,3 +307,19 @@ export interface SpawnPlacementRequest {
    *  the gate stays testable. Throws or exits when not granted. */
   readonly grantNewHome: () => void;
 }
+
+export interface LeaseCommandResult {
+  readonly id: string;
+  readonly name: string;
+  readonly released?: boolean;
+  readonly adopted?: boolean;
+  readonly reaped?: boolean;
+  readonly renamed?: boolean;
+}
+
+/** Every lease operation takes the same two options: when it happened, and
+ *  whether the caller is deliberately taking the agent from a LIVE orch (C4). */
+export interface LeaseOptions {
+  readonly now?: number;
+  readonly steal?: boolean;
+}

@@ -1,6 +1,7 @@
 // Type-only: `typeof` over a runtime binding, erased at compile time, so this
 // creates no runtime edge out of the types layer.
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
+import type { HomeSubject, SpaceHomeRole } from "./backend.ts";
 
 export type HostOs = "linux" | "windows" | "darwin";
 
@@ -207,4 +208,29 @@ export interface SpawnRegistration {
   spawner: string | null;
   worktree?: { path: string; branch: string };
   now?: number;
+}
+
+export type LeaseReleaseReason = "released" | "handoff" | "adopted" | "expired";
+
+export interface Lease {
+  readonly id: number;
+  readonly agentId: string;
+  readonly orchId: string;
+  readonly since: number;
+  readonly until: number | null;
+  readonly releaseReason: LeaseReleaseReason | null;
+}
+
+export interface OpenHomeRequest {
+  readonly directory: string;
+  readonly subject: HomeSubject;
+  readonly plexerId: string;
+  /** `null` IS the answer that this environment holds nothing (E13) — there is
+   *  no probe here and no unsupported-operation path (E14). */
+  readonly home: SpaceHomeRole | null;
+  readonly cwd: string;
+  /** orch's own name for the thing being grouped. It is MARKED before it reaches
+   *  the plexer; the plexer never sees a bare directory basename. */
+  readonly label: string;
+  readonly env?: Readonly<Record<string, string>>;
 }

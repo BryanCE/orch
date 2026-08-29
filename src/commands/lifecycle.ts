@@ -9,7 +9,7 @@ import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir }
 import { assertNameFree } from "../policy/name.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
-import type { CloseAuthority } from "../policy/close-authority.ts";
+import type { CloseAuthority } from "../types/policy.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId } from "../identity/self.ts";
 import { openStore } from "../store/connection.ts";

@@ -11,18 +11,14 @@
  * This module is a leaf on purpose: `src/entities.ts` and `src/commands/` both
  * raise refusals, and neither may import the other.
  */
+import type { AmbiguousCandidate } from "./types/core.ts";
+export type { AmbiguousCandidate };
+
 export class CommandRefusal extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CommandRefusal";
   }
-}
-
-/** One candidate an ambiguous target matched, and what distinguishes it. */
-export interface AmbiguousCandidate {
-  readonly key: string;
-  /** Whatever tells a human these apart — a tab label, a harness, both. */
-  readonly detail: string | null;
 }
 
 /**

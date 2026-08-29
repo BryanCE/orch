@@ -1,4 +1,5 @@
 import { agentView } from "../store/agent-view.ts";
+import type { CloseAuthority } from "../types/policy.ts";
 
 /**
  * Who may END an agent.
@@ -21,11 +22,9 @@ import { agentView } from "../store/agent-view.ts";
  * provenance subtree.
  */
 
-export type CloseAuthority =
-  | { readonly kind: "human" }
-  | { readonly kind: "agent"; readonly agentId: string };
-
 /** The human may end anything. An agent's reach is what it spawned. */
+export type { CloseAuthority };
+
 export function callerAuthority(agentKey: string | undefined): CloseAuthority {
   const key = agentKey?.trim();
   return key === undefined || key.length === 0 ? { kind: "human" } : { kind: "agent", agentId: key };

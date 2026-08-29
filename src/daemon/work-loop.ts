@@ -23,23 +23,8 @@ import { sweepExpiredRows } from "./retention.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { NotifyEvent } from "../types/notify.ts";
-import type { OrchConfig } from "../types/config.ts";
-
-export interface WorkOptions {
-  orchDir: string;
-  pollIntervalMs: number;
-  signal?: AbortSignal;
-  once?: boolean;
-  continuous?: boolean;
-  /** Suppress human progress output for machine-readable callers. */
-  json?: boolean;
-  maxRetries?: number;
-  /** Return the latest config for each loop iteration. */
-  getConfig?: () => OrchConfig;
-  dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
-  /** Emit canonical work lifecycle events through the daemon fan-out. */
-  onEvent?: (event: NotifyEvent) => void;
-}
+import type { WorkOptions } from "../types/daemon.ts";
+export type { WorkOptions };
 
 function agentIdle(entry: PresenceEntry): boolean {
   const state = entry.status?.state;
@@ -76,7 +61,6 @@ function runnersByAgent(orchDir: string, presence: Map<string, PresenceEntry>): 
   }
   return runners;
 }
-
 
 /** True when the agent's reported status speaks for THIS task's dispatch: the ids
  *  match, or the bridge reports none at all (hook-based harnesses cannot attribute

@@ -31,18 +31,12 @@ function removeExpiredAgentRecords(orchDir: string, cutoff: Date): { count: numb
   return { count: rows.length, ids: new Set(rows.map((row) => row.agent_id)) };
 }
 
+import type { SweepCounts } from "../types/daemon.ts";
+export type { SweepCounts };
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Maximum size for each orch-owned JSONL log before the next retention sweep. */
 export const ORCH_LOG_MAX_BYTES = 10 * 1024 * 1024;
-
-export interface SweepCounts {
-  queue: number;
-  outbox: number;
-  events: number;
-  runs: number;
-  ended_agents: number;
-  logs: number;
-}
 
 interface SweepEntry {
   name: keyof SweepCounts;

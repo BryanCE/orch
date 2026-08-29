@@ -63,3 +63,7 @@ export interface WorkerPolicy {
   /** The exact tool allowlist, or empty for no restriction. Orch's own tools are always in it. */
   readonly allowTools: readonly string[];
 }
+
+export type CloseAuthority =
+  | { readonly kind: "human" }
+  | { readonly kind: "agent"; readonly agentId: string };

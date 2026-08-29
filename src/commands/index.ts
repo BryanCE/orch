@@ -28,11 +28,12 @@ import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
 import { CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
+import { term } from "../policy/vocabulary.ts";
 
 function usage() {
   process.stdout.write(
     `orch - the single controller for agents in backend targets.
-The orchestrator routes control through the backend port.
+The ${term("orch")} routes control through the backend port.
 
 OBSERVE
   orch status [--json] [--all] [--all-panes] [--offline]
@@ -85,7 +86,7 @@ DISPATCH WORK
                                  Block until the pane reaches a status (default done, 300000ms).
   orch result <target> [--force] [--json]
                                  Print a target's result (result.json or session fallback).
-                                 --force reads an agent another orchestrator owns.
+                                 --force reads an agent another ${term("orch")} owns.
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.
   orch reload <target>... | --all   Reload panes, signal watchers via reload.signal, and report each outcome.

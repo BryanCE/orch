@@ -6,6 +6,7 @@ import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entit
 import { selfId } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
+import { term } from "../policy/vocabulary.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import { environmentOf, type AgentView } from "../store/agent-view.ts";
@@ -149,7 +150,7 @@ export function callerOwnerToken(): string | undefined {
 /** Refuse bulk operations that cannot identify their calling orchestrator. */
 export function requireCallerOwnerToken(): string {
   const token = callerOwnerToken();
-  if (!token) die("Bulk operation refused: set ORCH_OWNER to identify this orchestrator.");
+  if (!token) die(`Bulk operation refused: set ORCH_OWNER to identify this ${term("orch")}.`);
   return token;
 }
 

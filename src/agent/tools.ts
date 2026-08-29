@@ -11,6 +11,7 @@ import * as path from "node:path";
 import type { HarnessApi, HarnessContext, HarnessIdentity } from "./harness.ts";
 import { Type } from "typebox";
 import { spaceOf } from "../policy/space.ts";
+import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import { loadConfigOrNull } from "../config.ts";
 import { orchDir } from "../presence/writer.ts";
@@ -96,7 +97,7 @@ function isToolExecutionEndEvent(value: unknown): value is ToolExecutionEndEvent
 }
 
 function noOrchestratorAnswer(): BridgeToolResult {
-  return toolResult("no answer from orchestrator (timeout) - proceed with your best judgment and note the open question in your final reply.");
+  return toolResult(`no answer from ${term("orch")} (timeout) - proceed with your best judgment and note the open question in your final reply.`);
 }
 
 function waitForOrchestratorAnswer(
@@ -170,12 +171,12 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
 
   harness.registerTool({
     name: "orch_ask",
-    label: "Ask Orchestrator",
-    description: "Ask the orchestrator a blocking question and wait for its answer.",
-    promptSnippet: "Ask the orchestrator a blocking decision question and wait for its answer",
-    promptGuidelines: ["Use orch_ask when blocked on a decision the orchestrator must make (ambiguous spec, missing file, risky choice) - it blocks until the orchestrator answers; do not use it for things you can verify yourself."],
+    label: `Ask ${term("orch")}`,
+    description: `Ask the ${term("orch")} a blocking question and wait for its answer.`,
+    promptSnippet: `Ask the ${term("orch")} a blocking decision question and wait for its answer`,
+    promptGuidelines: [`Use orch_ask when blocked on a decision the ${term("orch")} must make (ambiguous spec, missing file, risky choice) - it blocks until the ${term("orch")} answers; do not use it for things you can verify yourself.`],
     parameters: Type.Object({
-      question: Type.String({ description: "Decision question for the orchestrator" }),
+      question: Type.String({ description: `Decision question for the ${term("orch")}` }),
     }),
     async execute(_toolCallId, params: OrchAskParams, signal, _onUpdate, ctx: HarnessContext) {
       try {

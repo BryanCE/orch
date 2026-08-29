@@ -1,5 +1,6 @@
 import type { AgentAdapter } from "./adapters/adapter.ts";
 import { truncate } from "./util.ts";
+import { term } from "./policy/vocabulary.ts";
 
 /** Always-on worker header: the pane is unattended. */
 const WORKER_HEADER_BASE =
@@ -10,7 +11,7 @@ const WORKER_HEADER_BASE =
 
 /** Appended only for adapters that support orch's blocking ask flow. */
 const WORKER_HEADER_ASK_CLAUSE =
-  " For any decision you cannot make yourself, call orch_ask and wait for the orchestrator. NEVER use ask-user/question tools.";
+  ` For any decision you cannot make yourself, call orch_ask and wait for the ${term("orch")}. NEVER use ask-user/question tools.`;
 
 /**
  * Appended only when BOTH sides of the reply can carry it: this worker's bridge
@@ -34,7 +35,7 @@ const WORKER_HEADER_NO_SPAWNER_CLAUSE =
 function lockedCommandsClause(lockedCommands: readonly string[]): string {
   if (lockedCommands.length === 0) return "";
   return ` These commands are locked machine-wide: ${lockedCommands.join(", ")}.` +
-    " Report rather than run them; the orchestrator verifies.";
+    ` Report rather than run them; the ${term("orch")} verifies.`;
 }
 
 export interface WorkerHeaderContext {

@@ -5,6 +5,7 @@ import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree, assertValidAgentName } from "../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
 import { assertModelAllowed } from "../policy/model.ts";
+import { roleOf, term } from "../policy/vocabulary.ts";
 import { resolveThinking, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
 import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
@@ -391,7 +392,12 @@ export function liveSpawnCounts(
   return counts;
 }
 
-const SPAWN_POLICY_OFFERS = "bind the task to a live slave (orch dispatch <name>) or put it on the pack queue (orch queue add)";
+// A8/A11: the role noun is never spelled here. A member whose provenance root
+// is not itself is a driven member, so `roleOf` yields the key and the one map
+// spells it -- rename the term and this message renames with it.
+const MEMBER_TERM = term(roleOf({ id: "member", rootAgentId: "root" }));
+
+const SPAWN_POLICY_OFFERS = `bind the task to a live ${MEMBER_TERM} (orch dispatch <name>) or put it on the pack queue (orch queue add)`;
 
 /** Return a spawn policy refusal without allocating a pane, tab, worktree, or queue entry. */
 export function spawnPolicyError(

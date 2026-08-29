@@ -12,6 +12,7 @@ import { Type } from "typebox";
 import { isAgentId } from "../backends/identity.ts";
 import { deriveDriveState, type DriveState } from "./drive-state.ts";
 import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
+import { term } from "../policy/vocabulary.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
@@ -323,9 +324,9 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
 
   harness.registerTool({
     name: "orch_agents",
-    label: "Orchestrator Agents",
-    description: "List live peer agents managed by the orchestrator.",
-    promptSnippet: "Discover live orchestrator peer agents and their compact status",
+    label: `${term("orch")} Agents`,
+    description: `List live peer agents managed by the ${term("orch")}.`,
+    promptSnippet: `Discover live ${term("orch")} peer agents and their compact status`,
     promptGuidelines: ["Use orch_agents to discover live peer agents before sending or reading peer messages."],
     parameters: Type.Object({
       all_spaces: Type.Optional(Type.Boolean({ description: "Include agents in every space" })),
@@ -344,9 +345,9 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
 
   harness.registerTool({
     name: "orch_send",
-    label: "Send to Orchestrator Agent",
+    label: `Send to ${term("orch")} Agent`,
     description: "Send a coordination message to a live peer agent.",
-    promptSnippet: "Send a finding or request to a live orchestrator peer agent",
+    promptSnippet: `Send a finding or request to a live ${term("orch")} peer agent`,
     promptGuidelines: ["Use orch_send to hand findings, requests, or coordination notes to another agent. Target \"spawner\" reaches the session that spawned you."],
     parameters: Type.Object({
       target: Type.String({ description: "Peer name, key, unique key suffix, or \"spawner\" (the session that spawned this agent)" }),
@@ -365,9 +366,9 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
 
   harness.registerTool({
     name: "orch_read",
-    label: "Read Orchestrator Agent",
+    label: `Read ${term("orch")} Agent`,
     description: "Read a live peer agent's latest result or status text.",
-    promptSnippet: "Read a live orchestrator peer agent's latest result or status",
+    promptSnippet: `Read a live ${term("orch")} peer agent's latest result or status`,
     promptGuidelines: ["Use orch_read to inspect a peer agent's latest result or status text."],
     parameters: Type.Object({
       target: Type.String({ description: "Peer name, key, unique key suffix, or \"spawner\"" }),

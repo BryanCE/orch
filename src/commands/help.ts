@@ -1,6 +1,8 @@
 /** Detailed per-command help, served by `orch <command> -h|--help` and `orch help <command>`.
  *  The global `orch help` stays the one-line map; these topics carry the flag detail. */
 
+import { term } from "../policy/vocabulary.ts";
+
 const ALIASES: Record<string, string> = {
   kill: "close",
   new: "reset",
@@ -114,7 +116,7 @@ Block until the pane reaches a status.
 `,
   result: `orch result <target> [--force] [--json]
 Print a target's result (result.json, else the session's last assistant text).
-  --force       Read an agent another orchestrator owns.
+  --force       Read an agent another ${term("orch")} owns.
 `,
   tail: `orch tail <target> [-n N]
 Last N session entries (default 20), rendered human-readable through the target's adapter.

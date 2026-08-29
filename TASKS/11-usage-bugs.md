@@ -9,7 +9,7 @@ Status legend: `OPEN` (recorded, not yet sliced) · `SLICED` (dispatched) · `FI
 
 ---
 
-## U1 — `orch status` reports `alive: true` for panes the plexer no longer has — OPEN
+## U1 — `orch status` reports `alive: true` for panes the plexer no longer has — FIXED
 
 **Severity: high.** orch confidently vouches for agents that do not exist.
 
@@ -49,6 +49,18 @@ fails with that reason — not with an unexplained non-acknowledgement.
 **Lesson for this file:** reproduce before accusing. The first version of this entry was
 written from a correlation (`reset` ran, then panes were missing) instead of a test.
 
+**FIXED.** `confirmedHandle` (`src/entities.ts`) is the one place a handle becomes a
+`paneId`, and it asks the ENVIRONMENT. A plexer with a pane inventory that this process is
+inside of ANSWERS the question; a handle it does not list is gone and `paneId` is null, so
+`peek`/`zoom` give the E14 absence answer instead of a raw plexer error. Both stale sources
+go through it — the store's recorded handle (`entitiesFromStore`) and the agent's own claim
+in `status.json` (`presenceOnlyEntity`), which was the same coordinate one layer up. A
+plexer that was NOT asked (no inventory, or orch is not inside a session of it, e.g.
+`--offline`) says nothing either way and the recorded handle stands. The AGENT is untouched:
+Rule 11 — a pane is an optimisation, losing one costs a shortcut and never a life, so the
+row stays listed, managed and reachable through its inbox. Tests:
+`test/a-row-is-not-a-pane.test.ts` (3).
+
 ## U2 — `orch close --all` leaves rows it just failed to close, and says so only in prose — OPEN
 
 ```
@@ -81,7 +93,7 @@ the prompt was silently discarded. The caller cannot tell this from a listing co
 **Expected:** name the failure, name the target string that was ambiguous, and tell the caller
 to address by key.
 
-## U4 — stale name rows shadow live agents after their pane dies — OPEN
+## U4 — stale name rows shadow live agents after their pane dies — FIXED
 
 Root cause shared with U1/U2. A rename writes orch's name onto a record whose pane later dies;
 the dead record keeps the name and competes with a live agent for it. `orch clean` is the only
@@ -90,6 +102,11 @@ recovery, and nothing points the operator at it.
 **Expected** (`TASKS/01-agent-model.md`): a name is mutable display metadata on an agent, and
 name resolution is a lookup over LIVE agents. A dead agent's name must not make a live agent
 unaddressable.
+
+**FIXED with U1** — the shared root cause was that a row was treated as evidence of a pane.
+`assertNameFree` (`src/policy/name.ts:20`) already resolves names over LIVE agents only
+(`presence.get(view.id)?.alive === true`), so a dead agent holds no name; what kept the dead
+row LOOKING live was the unconfirmed handle, which `confirmedHandle` now takes away.
 
 ## U5 — `orch rename` leaves the pane border showing the OLD name — OPEN
 
@@ -127,7 +144,7 @@ outcomes separately.**" So the design already says one command, two reported out
 the implementation instead requires two commands. `--pane` should be for the rare case of
 deliberately giving the border something *different*, never the price of a correct display.
 
-## U6 — `orch spawn --name` takes only a PREFIX, so a per-slice fleet costs N renames — OPEN
+## U6 — `orch spawn --name` takes only a PREFIX, so a per-slice fleet costs N renames — FIXED
 
 `orch spawn 4 --name fix` produces `fix-1 … fix-4`. There is no way to name the four panes
 individually at spawn, so every fleet where each pane holds a different slice needs:
@@ -150,3 +167,12 @@ that worker holds". The tool makes the recommended practice the expensive path.
 — spawning one pane per name, with the existing prefix behaviour kept for when a single
 name is given and N > 1. Validate every name BEFORE creating any pane, as spawn already
 does today ("a refused spawn leaves nothing").
+
+**FIXED, and better than proposed.** The names are the POSITIONALS, not a flag value:
+`orch spawn <name> [<name>...]`, and how many you give is how many panes you get
+(`resolveSpawnSettings`, `src/commands/spawn.ts:335`). `--tab` names the tab and the
+positionals name the agents, so the two are never conflated; a tab left unnamed borrows the
+first agent's name. Every name is resolved and validated BEFORE a tab, a pane or a worktree
+exists, so a refused spawn still leaves nothing. `TASKS/02-scope.md` F4 states the rule:
+names are per-slice and unnumbered, and there is no implicit "grow the fleet under this
+prefix" path.

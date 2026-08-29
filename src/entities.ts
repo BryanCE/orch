@@ -209,15 +209,21 @@ function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "paneId" | "ag
 function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
   const view = viewForKey(fleet.views, entry.key);
   const statusFields = presenceStatusFields(entry);
+  // U1: the AGENT's own claim about its pane is not the plexer's answer either.
+  // It is the same stale coordinate one layer up, and it reached `peek` as a
+  // handle no plexer had.
+  const plexer = view?.environment.plexer ?? null;
+  const backend = plexer === null ? undefined : allBackends().find((candidate) => candidate.id === plexer);
   return {
     key: entry.key,
     ...statusFields,
+    paneId: confirmedHandle(backend, statusFields.paneId),
     managed: view !== undefined,
     name: normalizedAgentName(entry.key) ?? null,
     tabLabel: null,
     focused: false,
     backendStatus: null,
-    backend: view?.environment.plexer ?? null,
+    backend: plexer,
     presence: entry,
     presenceOnly: true,
     space: view?.environment.space ?? spaceOf(orchDir(), entry.key),
@@ -228,6 +234,29 @@ function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[]
   return [...fleet.presence.values()]
     .filter((entry) => !usedPresence.has(entry.key))
     .map((entry) => presenceOnlyEntity(entry, fleet));
+}
+
+/**
+ * The handle the ENVIRONMENT confirms it still has, or null.
+ *
+ * `TASKS/11-usage-bugs.md` U1: a row is not evidence that a pane exists. orch
+ * listed four agents with pane ids herdr answered `pane_not_found` for, so
+ * `dispatch` accepted the target and failed unexplained and `peek` crashed with
+ * a raw plexer error. `TASKS/07-port-seam.md`: the environment is what says
+ * whether a pane is there, and the inventory IS that answer.
+ *
+ * A plexer that was not asked — no inventory role, or this process is not inside
+ * a session of it — says nothing either way, so the recorded handle stands. Only
+ * an inventory that ANSWERED and did not list the handle takes it away.
+ *
+ * Losing the handle is not losing the agent (Rule 11): it becomes an agent with
+ * no shortcut, still orch's and still reachable through its inbox.
+ */
+function confirmedHandle(backend: Backend | undefined, handle: string | null): string | null {
+  if (handle === null) return null;
+  const inventory = backend?.paneInventory;
+  if (!inventory || backend?.isInsideSession() !== true) return handle;
+  return inventory.list().some((target) => String(target.handle) === handle) ? handle : null;
 }
 
 /** Agents the store knows that neither a pane nor a presence directory surfaced.
@@ -243,7 +272,7 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
     const backend = plexer === null ? undefined : allBackends().find((candidate) => candidate.id === plexer);
     found.push({
       key,
-      paneId: backend?.paneInventory ? handle : null,
+      paneId: confirmedHandle(backend, handle),
       managed: true,
       name: view.name,
       tabLabel: null,

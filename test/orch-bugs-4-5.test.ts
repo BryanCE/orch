@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { piAdapter, bridgeExtensionArgv } from "../src/adapters/pi.ts";
-import type { WorkerPolicy } from "../src/policy/workers.ts";
+import type { WorkerPolicy } from "../src/types/policy.ts";
 
 const inherited: WorkerPolicy = {
   inheritExtensions: true,

@@ -3,10 +3,9 @@ import * as path from "node:path";
 import { loadConfigOrNull, NOTIFY_DEFAULT_ON, type NotifyEntry } from "../config.ts";
 import { createNotifierRegistry } from "../notify/router.ts";
 import { allBackends } from "../backends/registry.ts";
-import type { CheckResult } from "../check-result.ts";
-import type { BinaryStatus } from "./bins.ts";
 import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
+import type { BinaryStatus, CheckResult } from "../types/doctor.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {

@@ -9,30 +9,15 @@ import { readPortPath } from "../presence/socket-client.ts";
 import { ensurePrivateDir, errorMessage } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
 import { callerSession } from "../identity/self.ts";
-import { currentHostOs, getOrCreateSessionAgent, isLiveAgentIdentity, type HostOs, type SessionAgentIdentity } from "../store/agent-rows.ts";
+import { currentHostOs, getOrCreateSessionAgent, isLiveAgentIdentity } from "../store/agent-rows.ts";
 import { processStartToken } from "../process-identity.ts";
 import { openStore } from "../store/connection.ts";
 import { allBackends } from "../backends/registry.ts";
 import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
 import { ensureDaemon, translateDaemonError } from "../commands/daemon.ts";
 import { decisionLogger } from "./decision-log.ts";
-
-export type RpcParams = unknown;
-export type RpcEventEmitter = (event: unknown) => void;
-export interface RpcRequestContext {
-  readonly transport: "unix" | "tcp";
-  readonly identity?: SessionAgentIdentity;
-}
-
-export interface UnleasedAgent {
-  readonly id: string;
-  readonly name: string;
-}
-
-/** The hello identity retains its existing fields and appends the adoptable agents summary. */
-export type HelloResponse = SessionAgentIdentity & { readonly unleased: readonly UnleasedAgent[]; readonly registrationWarning?: string };
-export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter, context: RpcRequestContext) => unknown;
-export type RpcHandlers = Record<string, RpcHandler>;
+import type { HostOs, SessionAgentIdentity } from "../types/store.ts";
+import type { BufferedEvent, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandler, RpcHandlers, RpcParams, RpcRequestContext, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
 
 /** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
 export class DaemonAbsentError extends Error {
@@ -67,26 +52,6 @@ export class RpcError extends Error {
   }
 }
 
-export interface RpcServerOptions {
-  /** Allow one stale unix endpoint to be removed during daemon boot. */
-  holdsDaemonLock?: boolean;
-  /** TCP port to bind on loopback alongside the unix socket. */
-  tcpPort?: number;
-  /** Report a TCP bind failure without taking down the unix listener. */
-  onTcpError?: (error: unknown, port: number) => void;
-};
-
-export interface BufferedEvent {
-  seq: number;
-  event: unknown;
-}
-
-export interface ReplayResult {
-  events: BufferedEvent[];
-  gap: boolean;
-  oldestSeq?: number;
-}
-
 /** Maximum number of durable events returned by one replay request. Retention is configured
  * separately; this bound prevents a subscriber from being flooded by an unbounded replay. */
 export const REPLAY_WINDOW = 1_000;
@@ -110,19 +75,6 @@ export class ReplayBuffer {
       ...(oldestSeq === undefined ? {} : { oldestSeq }),
     };
   }
-}
-
-export interface RpcServer {
-  /** Stop accepting connections and remove the endpoint files. */
-  close(): Promise<void>;
-  /** Push an event to every connection subscribed with subscribe-events. */
-  emit(event: unknown): void;
-  /** How many connections currently hold a subscribe-events subscription. */
-  subscriberCount(): number;
-  readonly transport: "unix" | "tcp";
-  readonly socketPath: string;
-  readonly portFile: string;
-  readonly tcpEndpoint?: string;
 }
 
 interface RpcResponse {
@@ -907,11 +859,6 @@ export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFA
   } catch (error: unknown) {
     throw translateDaemonError(orchDir, error);
   }
-}
-
-export interface EventSubscription {
-  close(): void;
-  readonly lastSeq: () => number;
 }
 
 /**

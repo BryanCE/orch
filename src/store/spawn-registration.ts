@@ -3,31 +3,7 @@ import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { acquireLease } from "./lease-rows.ts";
-
-export interface SpawnRegistration {
-  key: string;
-  harnessId: string;
-  backendId: string;
-  /** Whether this backend exposes the agent in a pane. */
-  pane: boolean;
-  handle?: string;
-  cwd: string;
-  name: string;
-  /**
-   * Environment: orch's own grouping for this agent.
-   *
-   * A7 — a space is USER-CREATED and optional, never minted from a path — so
-   * this is the id of a space that already exists, and a spawn into none states
-   * nothing. Absent means NO ROW in `agent_spaces`: a missing axis is a missing
-   * row, never a NULL and never an invented place called "local".
-   */
-  space?: string;
-  model: string;
-  /** The hello-registered agent id of the spawning session, when it has one. */
-  spawner: string | null;
-  worktree?: { path: string; branch: string };
-  now?: number;
-}
+import type { SpawnRegistration } from "../types/store.ts";
 
 /**
  * Write the normalized agent model for one successfully spawned process.

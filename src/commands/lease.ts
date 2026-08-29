@@ -4,9 +4,10 @@ import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir }
 import { rpcHello } from "../daemon/rpc.ts";
 import { join } from "node:path";
 import { openStore } from "../store/connection.ts";
-import { agentById, childrenOf, liveAgents, renameAgent, type AgentRow } from "../store/agent-rows.ts";
+import { agentById, childrenOf, liveAgents, renameAgent } from "../store/agent-rows.ts";
 import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../store/lease-rows.ts";
 import { assertValidAgentName } from "../policy/name.ts";
+import type { AgentRow } from "../types/store.ts";
 
 export interface LeaseCommandResult {
   readonly id: string;

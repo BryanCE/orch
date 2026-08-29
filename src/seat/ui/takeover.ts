@@ -11,9 +11,9 @@
 import type { ExtensionCommandContext, ExtensionUIContext, KeybindingsManager, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable } from "@earendil-works/pi-tui";
 import { Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { ALERT_STATES, formatElapsed, type PackSnapshot } from "../domain.ts";
-import type { PackReadView } from "../manager.ts";
-import { transcriptLines, type TranscriptCache } from "./transcript.ts";
+import { ALERT_STATES, formatElapsed } from "../domain.ts";
+import { transcriptLines } from "./transcript.ts";
+import type { PackReadView, PackSnapshot, TranscriptCache } from "../../types/seat.ts";
 
 const SQUARE = "■";
 type TUI = Parameters<Parameters<ExtensionUIContext["custom"]>[0]>[0];

@@ -1,20 +1,12 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { placementOf } from "../agent/registry.ts";
-
-export interface WallDecision {
-  allowed: boolean;
-  reason?: string;
-}
+import type { SpaceResolver, WallDecision } from "../types/policy.ts";
 
 export function spaceOf(orchDir: string, id: string | null | undefined): string | null {
   if (id === null || id === undefined) return null;
   return placementOf(orchDir, id)?.space ?? null;
 }
-
-export type SpaceResolver =
-  | Readonly<Record<string, string>>
-  | ((id: string) => string | null | undefined);
 
 /** Resolve a raw space id without coupling policy to config or a plexer. */
 export function spaceName(id: string | null | undefined, resolver: SpaceResolver): string | null {

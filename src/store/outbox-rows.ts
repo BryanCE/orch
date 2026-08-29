@@ -1,18 +1,8 @@
 import { and, asc, eq, inArray, lte, lt, ne } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { outbox } from "../db/schema.ts";
-export interface OutboxMessageInput{id:string;target:string;payload:unknown;createdAt?:number}
-/**
- * `pending`   no channel has taken it yet.
- * `awaiting`  handed to a channel whose reader acks separately; open, but sent.
- * `delivered` settled.
- * The middle state is what tells "nothing would take this write" apart from
- * "the agent has not read it yet" — collapsing them failed every inbox dispatch
- * back to the caller as unapplied (TASKS/02-scope.md L7).
- */
-export type OutboxState = "pending" | "awaiting" | "delivered";
+import type { OutboxMessage, OutboxMessageInput, OutboxState } from "../types/store.ts";
 export const OPEN_OUTBOX_STATES: readonly OutboxState[] = ["pending", "awaiting"];
-export interface OutboxMessage{id:string;target:string;payload:unknown;state:OutboxState;attempts:number;createdAt:number;nextAttemptAt:number}
 type OutboxRow=typeof outbox.$inferSelect;
 function isState(value:string):value is OutboxState { return value === "pending" || value === "awaiting" || value === "delivered"; }
 function toMessage(row:OutboxRow):OutboxMessage { if(!isState(row.state)) throw new Error("invalid outbox state"); return {id:row.id,target:row.target,payload:JSON.parse(row.payload),state:row.state,attempts:Number(row.attempts),createdAt:row.createdAt,nextAttemptAt:Number(row.nextAttemptAt)}; }

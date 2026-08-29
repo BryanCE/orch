@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createNotifierRegistry } from "../src/notify/router.ts";
 import { createBuiltinNotifiers } from "../src/notify/sinks.ts";
-import type { NotifyEvent } from "../src/notify/format.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 const event: NotifyEvent = { key: "k", agent: null, tab: null, model: null, oldState: "working", newState: "done", ts: "2026-01-01T00:00:00.000Z" };
 

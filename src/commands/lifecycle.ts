@@ -7,7 +7,7 @@ import { tryParseIdentity } from "../backends/identity.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
-import { liveAgentViews, type AgentView } from "../store/agent-view.ts";
+import { liveAgentViews } from "../store/agent-view.ts";
 import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId } from "../identity/self.ts";
@@ -26,6 +26,7 @@ import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendHandle, PaneForeground } from "../types/backend.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
+import type { AgentView } from "../types/store.ts";
 
 function lifecycleLogger(key: string) {
   const agentId = tryParseIdentity(key)?.id;

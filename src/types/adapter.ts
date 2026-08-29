@@ -1,7 +1,6 @@
 import type { AgentState } from "../agent-state.ts";
-import type { CheckResult } from "../check-result.ts";
-import type { ThinkingLevel } from "../policy/thinking.ts";
-import type { WorkerPolicy } from "../policy/workers.ts";
+import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { CheckResult } from "./doctor.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
 export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;

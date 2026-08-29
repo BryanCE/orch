@@ -3,16 +3,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
-import type { OutboxMessage } from "../src/store/outbox-rows.ts";
-import {
-  bumpOutboxAttempt,
-  deleteDeliveredBefore,
-  insertOutboxMessage,
-  markOutboxDelivered,
-  outboxMessageUnsent,
-  selectPendingOutbox,
-} from "../src/store/outbox-rows.ts";
+import { bumpOutboxAttempt, deleteDeliveredBefore, insertOutboxMessage, markOutboxDelivered, outboxMessageUnsent, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { OutboxMessage } from "../src/types/store.ts";
 
 const tempDirs: string[] = [];
 

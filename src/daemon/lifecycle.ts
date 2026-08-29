@@ -14,6 +14,7 @@ import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot, type OsSide } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
+import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
 
 const HASH_LENGTH = 12;
 
@@ -22,32 +23,6 @@ interface LockRecord {
   codeHash: string;
   startedAt: string;
   startToken?: string;
-}
-
-export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
-
-/** The machine-wide rendezvous record. Its endpoint paths are the only address
- *  clients discover; orchDir scopes those endpoints to the owning store, and
- *  osSide records which side of an OS boundary the daemon is hosted on — the one
- *  fact a client on the other side cannot work out from the paths alone. */
-export interface DaemonRegistration {
-  readonly orchDir: string;
-  readonly pid: number;
-  readonly startToken: string;
-  readonly osSide: OsSide;
-  readonly socket: string;
-  readonly token: string;
-  readonly port: string;
-}
-
-export interface DaemonRegistrationResult {
-  readonly acquired: boolean;
-  readonly registration?: DaemonRegistration;
-}
-
-export interface DaemonCodeSkew {
-  daemonHash: string;
-  diskHash: string;
 }
 
 /** Read the exact live-daemon code-hash skew used by doctor. */
@@ -62,9 +37,6 @@ export function readDaemonCodeSkew(orchDir: string, entrypoint: string): DaemonC
   const diskHash = computeCodeHash(entrypoint);
   return lock.codeHash === diskHash ? null : { daemonHash: lock.codeHash, diskHash };
 }
-
-/** A synchronous socket answer check supplied by the RPC layer (and by tests). */
-export type SocketProbe = (socketPath: string) => boolean;
 
 function lockPath(orchDir: string): string {
   return daemonRuntimeFiles(orchDir).lock;
@@ -316,24 +288,6 @@ export async function terminateDaemon(pid: number, graceMs: number): Promise<voi
   }
 }
 
-/**
- * What starts, checks and stops a process on ONE OS side.
- *
- * Windows and WSL are one machine and get one daemon: two would be two lease
- * tables, two identity spaces and two answers to who holds an agent. What
- * genuinely differs across the boundary is execution, not truth — so the far
- * side gets an executor behind the backend port, never a peer daemon.
- */
-export interface OsExecutor {
-  readonly osSide: OsSide;
-  /** Start a detached process from `entrypoint`, answering with its pid. */
-  start(entrypoint: string, args?: string[], orchDir?: string): number;
-  /** Whether that process is still the instance it claims to be. */
-  isAlive(pid: number, startToken?: string): boolean;
-  /** Stop it and wait for the OS to reap it, up to `graceMs`. */
-  kill(pid: number, graceMs: number): Promise<void>;
-}
-
 /** The side orch itself runs on. Its three questions are the ones this process
  *  can already answer directly: spawn, signal 0, and SIGTERM. */
 const localExecutor: OsExecutor = {
@@ -353,11 +307,6 @@ const localExecutor: OsExecutor = {
 export function executorFor(side: OsSide): OsExecutor | null {
   return side === localExecutor.osSide ? localExecutor : null;
 }
-
-/** Ran the body on that side, or the answer that nothing can run there. */
-export type OsSideExecution<T> =
-  | { readonly outcome: "ran"; readonly value: T }
-  | { readonly outcome: "answer"; readonly reason: "no-environment-role"; readonly exitCode: 0; readonly text: string };
 
 /**
  * Do something on one OS side, through that side's executor.

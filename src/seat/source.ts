@@ -17,20 +17,8 @@ import { sendPeerMessage } from "../agent/peers.ts";
 import { isRecord } from "../util.ts";
 import * as path from "node:path";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { PackAbortError, PackSendError, type PackEnrichment, type PackTransition } from "./domain.ts";
-
-export interface PackSourceShape {
-  /** Every daemon transition, unfiltered; the manager applies the identity wall. */
-  readonly transitions: Stream.Stream<PackTransition>;
-  /** This session's own identity; the pack is the agents THIS key spawned. */
-  ownKey(): string | undefined;
-  /** Presence facts for one agent, straight off disk. */
-  enrich(key: string): PackEnrichment;
-  /** Steer or continue one agent through its inbox. */
-  send(key: string, text: string): Effect.Effect<string, PackSendError>;
-  /** Cancel one agent's current turn via the CLI dispatcher. */
-  abort(key: string): Effect.Effect<void, PackAbortError>;
-}
+import { PackAbortError, PackSendError } from "./domain.ts";
+import type { PackEnrichment, PackSourceConfig, PackSourceShape, PackTransition } from "../types/seat.ts";
 
 export class PackSource extends Context.Tag("orch/seat/PackSource")<PackSource, PackSourceShape>() {}
 
@@ -44,11 +32,6 @@ function isTransition(value: unknown): value is PackTransition & Record<string, 
 function transitionName(value: PackTransition & Record<string, unknown>): string {
   const name = value.name ?? value.agent;
   return typeof name === "string" && name !== "" ? name : value.key;
-}
-
-export interface PackSourceConfig {
-  readonly orchDir: string;
-  readonly ownKey: () => string | undefined;
 }
 
 function makePackSource(config: PackSourceConfig): PackSourceShape {

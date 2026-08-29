@@ -4,14 +4,15 @@ import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { sameSpace, scopeToSpace } from "../policy/space.ts";
-import { type PresenceMetadata } from "../daemon/events.ts";
 import { rpcHello, subscribeEvents } from "../daemon/rpc.ts";
 import { deliver } from "../notify/router.ts";
-import { notificationText, type NotifyEvent } from "../notify/format.ts";
+import { notificationText } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { die } from "./target.ts";
 import { commandLogger } from "./logging.ts";
+import type { PresenceMetadata } from "../types/daemon.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 
 interface WatchItem {
   key: string;

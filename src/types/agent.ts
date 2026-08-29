@@ -1,9 +1,9 @@
-import type { ThinkingLevel } from "../policy/thinking.ts";
 import type { JsonRecord } from "../util.ts";
 // Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
 import type { subscribeEvents } from "../daemon/rpc.ts";
+import type { ThinkingLevel } from "./policy.ts";
 
 /**
  * The harness surface orch's in-agent control plane runs against.
@@ -19,8 +19,6 @@ import type { subscribeEvents } from "../daemon/rpc.ts";
  * mirror a harness's full ExtensionAPI would re-couple every consumer to whichever
  * harness the extra members were copied from.
  */
-import type { ThinkingLevel } from "../policy/thinking.ts";
-import type { HarnessApi, HarnessCommandHandler, HarnessContext, HarnessContextUsage, HarnessEventBus, HarnessEventHandler, HarnessIdentity, HarnessModelRegistry, HarnessResolvedModel, HarnessSessionManager, HarnessTool, HarnessUi } from "../types/agent.ts";
 
 /** A model as the harness's own registry hands it back; orch reads two fields and never constructs one. */
 export interface HarnessResolvedModel {

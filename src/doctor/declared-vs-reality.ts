@@ -4,16 +4,7 @@ import { getBackend } from "../backends/registry.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord } from "../util.ts";
-import type { CheckResult } from "../check-result.ts";
-
-export interface PlexerInventoryEntry {
-  readonly handle: unknown;
-}
-
-export interface DeclaredVsRealityDependencies {
-  readonly processAlive: (pid: number, startToken: string | null) => boolean;
-  readonly plexerInventory: (plexerId: string) => readonly PlexerInventoryEntry[] | null;
-}
+import type { CheckResult, DeclaredVsRealityDependencies, PlexerInventoryEntry } from "../types/doctor.ts";
 
 interface ProcessRow {
   readonly pid: number;

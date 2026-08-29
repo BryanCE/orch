@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
-import { startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
+import { startRpcServer } from "../src/daemon/rpc.ts";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
@@ -13,6 +13,7 @@ import { isDrvFsPath } from "../src/doctor/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];

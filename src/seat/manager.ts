@@ -10,14 +10,9 @@
  * scope owns only the subscription and fibers, never a pane.
  */
 import { Context, Effect, Fiber, Layer, Runtime, Stream } from "effect";
-import {
-  SETTLED_STATES,
-  type PackEnrichment,
-  type PackSendError,
-  type PackSnapshot,
-  type PackTransition,
-} from "./domain.ts";
-import { PackSource, type PackSourceShape } from "./source.ts";
+import { SETTLED_STATES, type PackSendError } from "./domain.ts";
+import { PackSource } from "./source.ts";
+import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape, PackTransition } from "../types/seat.ts";
 
 const MAX_TRACKED = 128;
 const TASK_MAX_LENGTH = 4_096;
@@ -49,30 +44,7 @@ const ENRICH_TTL_MS = 1_000;
 
 // --- Read model ----------------------------------------------------------------
 
-/** Synchronous bridge for the TUI. Snapshots are live objects; do not mutate. */
-export interface PackReadView {
-  list(): readonly PackSnapshot[];
-  get(key: string): PackSnapshot | undefined;
-  size(): number;
-  /** Any-change notification (status line, dashboard). */
-  subscribe(listener: () => void): () => void;
-  /** Per-agent notification (takeover view). */
-  subscribeTo(key: string, listener: () => void): () => void;
-  /** Fire-and-forget: steer/continue an agent (takeover input). */
-  requestSend(key: string, text: string): void;
-  /** Fire-and-forget: abort an agent's current turn (dashboard `x`, takeover). */
-  requestAbort(key: string): void;
-  /** Refresh one agent's presence facts now (takeover open). */
-  refresh(key: string): void;
-}
-
 // --- Service --------------------------------------------------------------------
-
-export interface PackManagerShape {
-  send(key: string, text: string): Effect.Effect<string, PackSendError>;
-  readonly view: PackReadView;
-  readonly disposeAll: Effect.Effect<void>;
-}
 
 export class PackManager extends Context.Tag("orch/seat/PackManager")<PackManager, PackManagerShape>() {}
 

@@ -11,8 +11,7 @@ import { collapse, buildEntities, entitySpace, sortEntities, type Entity } from 
 import type {  } from "../backends/backend.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
-import { orchDir, type PresenceEntry } from "../presence/store.ts";
-import type { AgentView } from "../store/agent-view.ts";
+import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName } from "../policy/space.ts";
 import { ensureDaemonOrWarn } from "./daemon.ts";
@@ -27,6 +26,8 @@ import {
 import { isRecord, truncate } from "../util.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 import type { DriveState } from "../types/agent.ts";
+import type { AgentView } from "../types/store.ts";
+import type { PresenceEntry } from "../types/presence.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);

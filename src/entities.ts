@@ -1,19 +1,21 @@
 import { loadConfig, type HostConfig } from "./config.ts";
 import { allBackends, resolveBackend } from "./backends/registry.ts";
-import { loadPresence, orchDir, type PresenceEntry } from "./presence/store.ts";
+import { loadPresence, orchDir } from "./presence/store.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import type { Recipient } from "./recipient.ts";
-import { agentView, agentViews, type AgentView } from "./store/agent-view.ts";
+import { agentView, agentViews } from "./store/agent-view.ts";
 import { selfId } from "./identity/self.ts";
 import { CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
 export { recipientLabel, type Recipient } from "./recipient.ts";
 import type { Backend, BackendTarget } from "./types/backend.ts";
+import type { AgentView } from "./types/store.ts";
+import type { PresenceEntry } from "./types/presence.ts";
 
 export interface Entity {
   key: string;

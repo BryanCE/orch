@@ -4,9 +4,9 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { backendCapabilitiesVerdict, checkBackendCapabilities } from "../src/doctor/backends.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
-import type { DoctorBackendReport } from "../src/check-result.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { DoctorBackendReport } from "../src/types/doctor.ts";
 
 /** One backend's probe result. Injected so the verdict is provable without the
  *  suite happening to run inside a herdr or tmux session. */

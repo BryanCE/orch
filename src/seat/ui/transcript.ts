@@ -11,6 +11,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry } from "../../session.ts";
+import type { TranscriptCache } from "../../types/seat.ts";
 
 const ANSI_PATTERN =
   // eslint-disable-next-line no-control-regex
@@ -80,13 +81,6 @@ function renderEntry(theme: Theme, entry: SessionEntry, width: number, out: stri
     const label = message.isError ? theme.fg("error", "  error: ") : theme.fg("dim", "  output: ");
     out.push(truncateToWidth(label + theme.fg("dim", firstLine || "(no output)"), width));
   }
-}
-
-export interface TranscriptCache {
-  path?: string;
-  lines: string[];
-  readAt: number;
-  width: number;
 }
 
 const READ_TTL_MS = 1_000;

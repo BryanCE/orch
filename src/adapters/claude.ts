@@ -3,16 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { declaredRuntime } from "../config.ts";
 import type { OrchRuntime } from "../runtime.ts";
-import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "../presence/store.ts";
+import { loadPresence, orchDir, statusForPresence } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
-import type { CheckResult } from "../check-result.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { PresenceEntry } from "../types/presence.ts";
+import type { CheckResult } from "../types/doctor.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {

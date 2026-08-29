@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { agentTargetMatches, resolveAgentView } from "../src/commands/target.ts";
-import type { PresenceEntry } from "../src/presence/store.ts";
-import type { AgentView } from "../src/store/agent-view.ts";
+import type { AgentView } from "../src/types/store.ts";
+import type { PresenceEntry } from "../src/types/presence.ts";
 
 /**
  * TASKS/02-scope.md A1 — identity is the minted id and nothing else. A target

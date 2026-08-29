@@ -1,13 +1,14 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { isAgentId } from "../backends/identity.ts";
-import { loadPresence, presenceDir, type PresenceEntry } from "../presence/store.ts";
+import { loadPresence, presenceDir } from "../presence/store.ts";
 import { placementOf } from "../agent/registry.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
-import type { CheckResult, IgnoredPresenceRecord } from "../check-result.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
 export { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
+import type { PresenceEntry } from "../types/presence.ts";
+import type { CheckResult, IgnoredPresenceRecord } from "../types/doctor.ts";
 
 function humanAge(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "unknown";

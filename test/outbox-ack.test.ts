@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { appendAck } from "../src/presence/inbox.ts";
 import { ensurePresenceAgentDir } from "../src/presence/writer.ts";
-import { drainOutbox, type OutboxDelivery } from "../src/daemon/outbox.ts";
+import { drainOutbox } from "../src/daemon/outbox.ts";
 import { insertOutboxMessage, outboxMessageOpen, outboxMessageUnsent, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { OutboxDelivery } from "../src/types/daemon.ts";
 
 const dirs: string[] = [];
 

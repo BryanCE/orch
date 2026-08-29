@@ -2,7 +2,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, recipientFor, recipientLabel, resolveTarget, type Entity } from "../entities.ts";
 import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords } from "../presence/store.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
@@ -14,6 +14,7 @@ import type { WorkerHeaderContext } from "../worker-prompt.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
+import type { PresenceEntry } from "../types/presence.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;

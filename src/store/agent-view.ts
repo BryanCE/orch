@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { ormForRead } from "./connection.ts";
+import type { AgentEnvironment, AgentHolder, AgentTuning, AgentView, EnvironmentAxisKey } from "../types/store.ts";
 import {
   agentEndings,
   agentHandles,
@@ -29,55 +30,9 @@ import {
  * read {@link AgentView.environment} as a whole.
  */
 
-/** Where an agent is — DERIVED from {@link ENVIRONMENT_AXES}, never written out
- *  a second time. Every field is nullable because an axis that has no row is
- *  genuinely absent: a headless agent has no handle, and that is an answer, not
- *  a missing value to paper over. */
-export type AgentEnvironment = Readonly<Record<EnvironmentAxisKey, string | null>>;
-
-type EnvironmentAxisKey = typeof ENVIRONMENT_AXES[number]["key"];
-
 /** The accumulator {@link environmentOf} fills: same keys, writable and not yet
  *  complete. Derived from the same union, so it can never list a different set. */
 type ComposingEnvironment = Partial<Record<EnvironmentAxisKey, string | null>>;
-
-/** How an agent is configured. Not environment: it survives a move. */
-export interface AgentTuning {
-  readonly model: string | null;
-  readonly thinking: string | null;
-}
-
-/** Who holds an agent right now, and since when. `null` is unheld — and an
- *  unheld agent is not a dead one (Rule 11: work survives its spawner). */
-export interface AgentHolder {
-  readonly orchId: string;
-  readonly since: number;
-}
-
-/** The four facts, side by side but never merged. */
-export interface AgentView {
-  /** Identity — minted once, immutable. */
-  readonly id: string;
-  readonly name: string;
-  readonly label: string | null;
-  readonly harnessId: string;
-  readonly cwd: string;
-  readonly createdAt: number;
-  /** Provenance — who spawned it, immutable. */
-  readonly spawnedBy: string | null;
-  /** The spawner's CURRENT name, read as a join. Never stored beside the child:
-   *  a copy goes stale the moment the spawner is renamed, and a name is mutable
-   *  by design while provenance is not. `null` when nothing spawned this agent. */
-  readonly spawnedByName: string | null;
-  readonly rootAgentId: string;
-  /** Ownership — a lease, mutable, and never authorization. */
-  readonly heldBy: AgentHolder | null;
-  /** Environment — where it is, mutable. */
-  readonly environment: AgentEnvironment;
-  readonly tuning: AgentTuning;
-  /** When it ended. An ending is an instant, never a lifetime column (A1). */
-  readonly endedAt: number | null;
-}
 
 /**
  * One environment axis: the satellite it reads and how to pull its current

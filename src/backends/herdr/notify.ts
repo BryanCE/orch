@@ -2,9 +2,9 @@ import { loadConfigOrNull } from "../../config.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { herdrAnswer, herdrReachable } from "./cli.ts";
 import { HERDR_SINK_ID } from "../backend.ts";
-import type { Notifier } from "../../notify/sinks.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
+import type { NotificationIo, Notifier } from "../../types/notify.ts";
 
 /** True when herdr is one of the plexers orch launches agents into. */
 function herdrRunsAgents(): boolean {
@@ -63,13 +63,6 @@ function readNotificationAnswer(output: string): NotificationAnswer | null {
   const { shown, reason } = parsed.result;
   if (typeof shown !== "boolean") return null;
   return { shown, reason: typeof reason === "string" ? reason : null };
-}
-
-/** The transport a delivery needs, injected so the retry loop is testable without
- *  a running herdr and without sleeping on the real clock. */
-export interface NotificationIo {
-  send: (args: readonly string[]) => string;
-  wait: (ms: number) => void;
 }
 
 const realIo: NotificationIo = {

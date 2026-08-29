@@ -15,10 +15,11 @@
 // The subscription is orch's transport (src/daemon/rpc.ts) and survives daemon
 // restarts on its own. Nothing here is plexer-aware: the view is built purely
 // from the events, so no pane, tab or socket concept enters this file.
-import { subscribeEvents, type EventSubscription } from "../daemon/rpc.ts";
-import type { NotifyEvent } from "../notify/format.ts";
+import { subscribeEvents } from "../daemon/rpc.ts";
 import { isRecord, truncate } from "../util.ts";
 import type { FleetAgentRow, FleetMonitor, FleetMonitorOptions, FleetReadModel, HarnessApi, HarnessContext } from "../types/agent.ts";
+import type { EventSubscription } from "../types/daemon.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 
 /** Status-line key; one writer, cleared by the same key. */
 const STATUS_ID = "orch-fleet";

@@ -9,10 +9,11 @@
 // harness never re-litigates it. Orch's ladder token names a model AND a
 // thinking effort ("provider/id:medium"); the registry keys on the bare id, so
 // the suffix is split off before lookup and applied through pi's own mechanism.
-import { isThinkingLevel, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
+import { isThinkingLevel, splitThinkingSuffix } from "../policy/thinking.ts";
 import { atomicWrite } from "../presence/writer.ts";
 import { isRecord, type JsonRecord } from "../util.ts";
 import type { ControlCommand, FindRegistryModel, ModelControlDeps, RegistryRetry, ResolvedModel } from "../types/agent.ts";
+import type { ThinkingLevel } from "../types/policy.ts";
 
 export type { ThinkingLevel };
 

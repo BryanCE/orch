@@ -11,8 +11,9 @@ import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.
 import { setSpace } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "../src/daemon/rpc.ts";
+import { rpcCall, startRpcServer } from "../src/daemon/rpc.ts";
 import { refusalOf } from "./helpers/refusal.ts";
+import type { RpcHandlers, RpcServer } from "../src/types/daemon.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];

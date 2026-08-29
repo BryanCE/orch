@@ -2,15 +2,9 @@ import { hostname } from "node:os";
 import { confirm, isCancel } from "@clack/prompts";
 import { orchDir } from "../presence/store.ts";
 import { currentHostOs, ensureHost } from "../store/agent-rows.ts";
-import {
-  approveGrantRequest,
-  denyGrantRequest,
-  pendingGrantRequest,
-  pendingGrantRequests,
-  renderGrantRequest,
-  type GrantRequest,
-} from "../store/grant-rows.ts";
+import { approveGrantRequest, denyGrantRequest, pendingGrantRequest, pendingGrantRequests, renderGrantRequest } from "../store/grant-rows.ts";
 import { die } from "./target.ts";
+import type { GrantRequest } from "../types/store.ts";
 
 /**
  * Approve actions an agent asked for and was refused.

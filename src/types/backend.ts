@@ -1,6 +1,6 @@
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
-import type { WorkerPolicy } from "../policy/workers.ts";
 import type { AgentAdapter } from "./adapter.ts";
+import type { WorkerPolicy } from "./policy.ts";
 
 /** A pane coordinate returned by a pane inventory. */
 export interface PaneCoordinate {

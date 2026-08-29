@@ -6,13 +6,9 @@
  * them the manager's synchronous read view and a dispose for shutdown.
  */
 import { ManagedRuntime, Layer } from "effect";
-import { PackManager, PackManagerLive, type PackManagerShape } from "./manager.ts";
-import { packSourceLayer, type PackSourceConfig } from "./source.ts";
-
-export interface PackRuntime {
-  readonly manager: PackManagerShape;
-  dispose(): Promise<void>;
-}
+import { PackManager, PackManagerLive } from "./manager.ts";
+import { packSourceLayer } from "./source.ts";
+import type { PackManagerShape, PackRuntime, PackSourceConfig } from "../types/seat.ts";
 
 export function createPackRuntime(config: PackSourceConfig): PackRuntime {
   const runtime = ManagedRuntime.make(

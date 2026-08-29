@@ -5,12 +5,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/config.ts";
 import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
 import { SpawnRefusalError, assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn.ts";
-import { presenceAgentDir, type PresenceEntry } from "../src/presence/store.ts";
-import type { AgentView } from "../src/store/agent-view.ts";
+import { presenceAgentDir } from "../src/presence/store.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { AgentView } from "../src/types/store.ts";
+import type { PresenceEntry } from "../src/types/presence.ts";
 
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;

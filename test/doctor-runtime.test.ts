@@ -2,9 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { checkRuntime, runningRuntime, shebangRuntime, type RuntimeObservations } from "../src/doctor/runtime.ts";
+import { checkRuntime, runningRuntime, shebangRuntime } from "../src/doctor/runtime.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { RuntimeObservations } from "../src/types/doctor.ts";
 
 const directories: string[] = [];
 

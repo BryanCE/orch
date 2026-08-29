@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { agentById, type AgentRow } from "./store/agent-rows.ts";
+import { agentById } from "./store/agent-rows.ts";
 import { currentSpace } from "./store/interval-rows.ts";
 import { currentLease, leasesByOrch } from "./store/lease-rows.ts";
 import { isRecord } from "./util.ts";
@@ -25,6 +25,7 @@ import {
 } from "./store/task-rows.ts";
 
 import type { TaskState } from "./store/task-rows.ts";
+import type { AgentRow } from "./types/store.ts";
 export type { TaskState };
 export const STALE_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 

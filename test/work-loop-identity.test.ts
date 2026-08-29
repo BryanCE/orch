@@ -7,10 +7,10 @@ import { runWorkLoop } from "../src/daemon/work-loop.ts";
 import { addTask, listTasks } from "../src/queue.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { attemptsOf } from "../src/store/task-rows.ts";
-import type { NotifyEvent } from "../src/notify/format.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 const directories: string[] = [];
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });

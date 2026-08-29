@@ -7,13 +7,15 @@ import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { runSSH } from "../remote.ts";
-import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import { environmentOf, type AgentView } from "../store/agent-view.ts";
+import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
+import { environmentOf } from "../store/agent-view.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
+import type { AgentView } from "../types/store.ts";
+import type { PresenceEntry } from "../types/presence.ts";
 
 export function die(msg: string): never {
   commandLogger().error("command.failed", { error: msg });

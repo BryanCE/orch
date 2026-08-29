@@ -6,11 +6,12 @@ import { SETTINGS_DEFAULTS, loadConfig, type OrchConfig } from "../src/config.ts
 import { cmdSpawn, spawnPolicyError } from "../src/commands/spawn.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { presenceAgentDir, recordSpawned } from "../src/presence/store.ts";
-import { agentViews, type AgentView } from "../src/store/agent-view.ts";
+import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { openStore } from "../src/store/connection.ts";
-import type { PresenceEntry } from "../src/presence/store.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import type { AgentView } from "../src/types/store.ts";
+import type { PresenceEntry } from "../src/types/presence.ts";
 
 const tempDirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;

@@ -7,18 +7,7 @@ import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { presenceRoot, readStatus } from "../presence/writer.ts";
 import { ensurePrivateDir, pidAlive } from "../util.ts";
-
-interface StatementLike {
-  run(...params: unknown[]): { changes: number };
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown;
-}
-
-export interface DatabaseLike {
-  exec(sql: string): void;
-  query(sql: string): StatementLike;
-  close(): void;
-}
+import type { DatabaseLike, StatementLike } from "../types/store.ts";
 
 /** SQLite stores five kinds of value, and every caller of this port builds its
  *  arguments from a row shape the schema already fixes. Anything else is a bug

@@ -8,18 +8,13 @@ import { insertAgent, renameAgent, ensureHarness } from "../src/store/agent-rows
 import { setSpace } from "../src/store/interval-rows.ts";
 import { isRecord } from "../src/util.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
-import {
-  derivePresenceTransition,
-  emitAndNotify,
-  isRepeatTransition,
-  startPresenceWatch,
-  type PresenceWatch,
-} from "../src/daemon/events.ts";
-import { startRpcServer, subscribeEvents, type RpcServer } from "../src/daemon/rpc.ts";
+import { derivePresenceTransition, emitAndNotify, isRepeatTransition, startPresenceWatch } from "../src/daemon/events.ts";
+import { startRpcServer, subscribeEvents } from "../src/daemon/rpc.ts";
 import type { NotifyEntry } from "../src/config.ts";
-import type { NotifyEvent } from "../src/notify/format.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { PresenceWatch, RpcServer } from "../src/types/daemon.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];

@@ -8,13 +8,14 @@ import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
-import { selectRuns, upsertRun, type RunRecord } from "../src/store/run-rows.ts";
+import { selectRuns, upsertRun } from "../src/store/run-rows.ts";
 import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeResult } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import type { RunRecord } from "../src/types/store.ts";
 
 const directories: string[] = [];
 

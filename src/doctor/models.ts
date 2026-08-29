@@ -2,8 +2,8 @@ import { loadConfigOrNull } from "../config.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { repickCommand, signedOutFix } from "../adapters/prerequisites.ts";
-import type { CheckResult } from "../check-result.ts";
 import type { AdapterId } from "../types/adapter.ts";
+import type { CheckResult } from "../types/doctor.ts";
 
 /** Confirm a harness still enumerates models and still offers the one orch records as its default.
  *  A harness signed out of its provider enumerates nothing, which is what silently strips every

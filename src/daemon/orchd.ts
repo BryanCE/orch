@@ -8,10 +8,10 @@ import {
   daemonStartRefusal,
   releaseDaemonRegistration,
 } from "./lifecycle.ts";
-import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "./rpc.ts";
+import { rpcCall, startRpcServer } from "./rpc.ts";
 import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type NotifyEntry, type OrchConfig, configuredLogLevel } from "../config.ts";
 import { runWorkLoop } from "./work-loop.ts";
-import { emitAndNotify, startPresenceWatch, type PresenceMetadata, type PresenceWatch } from "./events.ts";
+import { emitAndNotify, startPresenceWatch } from "./events.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
 import { errorMessage, errorTrace, isRecord } from "../util.ts";
 import { realpathSync } from "node:fs";
@@ -22,14 +22,13 @@ import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
-import { drainOutbox, type OutboxDeps, type OutboxDelivery } from "./outbox.ts";
+import { drainOutbox } from "./outbox.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
-import type { WorkerPolicy } from "../policy/workers.ts";
 import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
 import { agentView } from "../store/agent-view.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
@@ -37,18 +36,8 @@ import { createLogger, type Logger, type LogContext, type LogLevel } from "../lo
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
-
-export interface LeasePayload {
-  readonly holderId: string;
-  readonly holderName: string;
-  readonly holderAlive: boolean;
-}
-
-export interface LeaseStatusPayload {
-  readonly lease: LeasePayload | null;
-  /** False means the status key has no corresponding row in agents yet. */
-  readonly leaseKnown: boolean;
-}
+import type { WorkerPolicy } from "../types/policy.ts";
+import type { LeasePayload, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
 
 interface LeasePayloadRow {
   holder_id: string;

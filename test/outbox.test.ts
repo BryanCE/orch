@@ -9,7 +9,8 @@ import {
   outboxMessageUnsent,
   selectPendingOutbox,
 } from "../src/store/outbox-rows.ts";
-import { drainOutbox, type OutboxDelivery } from "../src/daemon/outbox.ts";
+import { drainOutbox } from "../src/daemon/outbox.ts";
+import type { OutboxDelivery } from "../src/types/daemon.ts";
 
 const tempDirs: string[] = [];
 

@@ -4,8 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import { is } from "drizzle-orm";
 import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
 import * as tables from "../db/schema.ts";
-import type { CheckResult } from "../check-result.ts";
 import { errorMessage } from "../util.ts";
+import type { CheckResult } from "../types/doctor.ts";
 
 /** drizzle records what it has applied here; a store built before orch adopted
  *  migrations has the tables and no record of them. */

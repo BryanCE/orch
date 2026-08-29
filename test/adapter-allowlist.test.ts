@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { ompAdapter } from "../src/adapters/omp.ts";
-import type { WorkerPolicy } from "../src/policy/workers.ts";
+import type { WorkerPolicy } from "../src/types/policy.ts";
 
 const INHERIT: WorkerPolicy = {
   inheritExtensions: true,

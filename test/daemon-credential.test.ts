@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { endpointPaths, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
+import { endpointPaths, startRpcServer } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 /**
  * TASKS/02-scope.md B2 — "Credential is the `0600` token file in `$ORCH_DIR`;

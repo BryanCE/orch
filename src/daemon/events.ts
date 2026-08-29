@@ -3,47 +3,22 @@ import { join } from "node:path";
 import { collapse } from "../entities.ts";
 import { notify } from "../notify/router.ts";
 import type { NotifyEntry } from "../config.ts";
-import { abstractAgentLabel, spaceLabelForKey, type NotifyEvent } from "../notify/format.ts";
+import { abstractAgentLabel, spaceLabelForKey } from "../notify/format.ts";
 import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
-import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus, type PresenceStatus } from "../presence/store.ts";
+import { presenceAgentDir, presenceKeyFromDirectoryName, readJSON, readPresenceStatus } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { upsertRun, type RunRecord } from "../store/run-rows.ts";
+import { upsertRun } from "../store/run-rows.ts";
 import { pidAlive, truncate } from "../util.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import { isAgentState } from "../agent-state.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
 import { optionalString } from "../util.ts";
-
-export interface PresenceMetadata {
-  name: string | null;
-  tab: string | null;
-  pid?: number;
-  /** Address of the session that spawned this agent. */
-  spawnedBy?: string;
-  /** Human description of the session that spawned this agent. */
-  spawnedByLabel?: string;
-};
-
-export interface PresenceWatchOptions {
-  orchDir: string;
-  onEvent: (event: NotifyEvent) => void;
-  initialStates?: Map<string, string>;
-  keys?: Map<string, PresenceMetadata>;
-  metadataFor?: (key: string) => PresenceMetadata;
-  acceptKey?: (key: string) => boolean;
-  pollIntervalMs?: number;
-  /** Test seam for verifying every watcher is closed when its directory disappears. */
-  onWatcherClosed?: () => void;
-};
-
-export interface PresenceWatch {
-  states: Map<string, string>;
-  scan: () => void;
-  stop: () => void;
-  readonly watcherCount: () => number;
-};
+import type { RunRecord } from "../types/store.ts";
+import type { PresenceStatus } from "../types/presence.ts";
+import type { PresenceMetadata, PresenceWatch, PresenceWatchOptions } from "../types/daemon.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 
 function property(value: object, key: string): unknown {
   return Reflect.get(value, key) as unknown;

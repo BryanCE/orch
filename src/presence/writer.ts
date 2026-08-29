@@ -18,9 +18,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ANSWER_FILE, PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 import { errorMessage, isRecord, type JsonRecord } from "../util.ts";
-
-/** A presence protocol record. Domain name for the shared JSON record shape. */
-export type PresenceRecord = JsonRecord;
+import type { LaunchEnvFacts, LaunchStampable, PresenceRecord } from "../types/presence.ts";
 
 /** $ORCH_DIR, defaulting to ~/.orch. Read per call so tests can repoint the env. */
 export function orchDir(): string {
@@ -109,15 +107,6 @@ export function writeStatus(directory: string, status: PresenceRecord): void {
   atomicWrite(presenceFile(directory, STATUS_FILE), status);
 }
 
-export interface LaunchEnvFacts {
-  label: string | null;
-  spawnedBy: string | null;
-  spawnedByLabel: string | null;
-  worktree: string | null;
-  branch: string | null;
-  tabLabel: string | null;
-}
-
 /** Read the launch vocabulary once, at the presence boundary. */
 export function launchKey(validate: (key: string) => void): string | undefined {
   const key = process.env.ORCH_AGENT_KEY;
@@ -162,25 +151,6 @@ export function launchEnvFacts(): LaunchEnvFacts {
     branch: value("ORCH_AGENT_BRANCH"),
     tabLabel: null,
   };
-}
-
-/**
- * Exactly the fields `launchStamp` carries forward from a prior record. Stating
- * them means a caller holding a DECLARED status shape (an interface, which has no
- * index signature) passes it without a cast, AND the compiler checks that this
- * function only reads what it says it reads — which `Record<string, unknown>`
- * never could.
- */
-export interface LaunchStampable {
-  readonly label?: unknown;
-  readonly spawnedBy?: unknown;
-  readonly spawnedByLabel?: unknown;
-  readonly worktree?: unknown;
-  readonly branch?: unknown;
-  readonly tabLabel?: unknown;
-  readonly cost?: unknown;
-  readonly tokens?: unknown;
-  readonly turns?: unknown;
 }
 
 /** Merge the one canonical launch stamp into a status record. */

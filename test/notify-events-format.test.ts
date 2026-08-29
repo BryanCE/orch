@@ -7,10 +7,11 @@ import { openStore } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { deliver } from "../src/notify/router.ts";
-import { notificationText, spaceColor, type NotifyEvent } from "../src/notify/format.ts";
+import { notificationText, spaceColor } from "../src/notify/format.ts";
 import { TASK_MAX } from "../src/agent/presence.ts";
 import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 const orchDirs: string[] = [];
 

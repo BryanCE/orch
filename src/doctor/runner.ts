@@ -3,7 +3,6 @@ import { errorMessage } from "../util.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { checkBackendCapabilities, checkBackendVersions } from "./backends.ts";
 import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
@@ -15,13 +14,14 @@ import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits,
 import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
 import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons, checkOsExecutors } from "./daemon.ts";
-import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion, type SshRunner } from "./remote.ts";
+import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion } from "./remote.ts";
 import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
 import { placementOf } from "../agent/registry.ts";
 
 export type { CheckResult } from "../check-result.ts";
 import type { AdapterId } from "../types/adapter.ts";
+import type { CheckResult, DoctorOptions, SshRunner } from "../types/doctor.ts";
 
 async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   try {
@@ -53,12 +53,6 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
       return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: errorMessage(error) };
     }
   }));
-}
-
-/** Run independent environment diagnostics; individual check failures never reject this function. */
-export interface DoctorOptions {
-  readonly yes?: boolean;
-  readonly sshRunner?: SshRunner;
 }
 
 export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner | DoctorOptions = runSSH): Promise<CheckResult[]> {

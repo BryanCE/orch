@@ -1,13 +1,12 @@
-import { bridgeRegistered, orchDir, recordSpawned, type PresenceEntry } from "../presence/store.ts";
-import { recordGrantRequest, spendGrant, type GrantAction } from "../store/grant-rows.ts";
-import type { AgentView } from "../store/agent-view.ts";
+import { bridgeRegistered, orchDir, recordSpawned } from "../presence/store.ts";
+import { recordGrantRequest, spendGrant } from "../store/grant-rows.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";
 import { assertNameFree, assertValidAgentName } from "../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { term } from "../policy/vocabulary.ts";
-import { resolveThinking, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
-import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
+import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
+import { workerPolicyFrom, workerTools } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
 import { workerHeaderFor, type WorkerHeaderContext } from "../worker-prompt.ts";
@@ -28,6 +27,9 @@ import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendId, GroupLayoutRole, TileFirstSplit, TilePlacement } from "../types/backend.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
+import type { AgentView, GrantAction } from "../types/store.ts";
+import type { PresenceEntry } from "../types/presence.ts";
+import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 
 function spawnLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;

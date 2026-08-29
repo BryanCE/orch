@@ -9,12 +9,13 @@ import { AGENT_STATES } from "./adapters/adapter.ts";
 import { ADAPTER_IDS } from "./types/adapter.ts";
 import { HERDR_SINK_ID } from "./backends/backend.ts";
 import { BACKEND_IDS, TILE_FIRST_SPLITS } from "./types/backend.ts";
-import { THINKING_LEVELS, type ThinkingLevel } from "./policy/thinking.ts";
+import { THINKING_LEVELS } from "./types/policy.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
 import { ensurePrivateDir, errnoCode, errorMessage, isRecord } from "./util.ts";
 import { isLogLevel, type LogLevel } from "./log.ts";
 import type { BackendId, TileFirstSplit } from "./types/backend.ts";
 import type { AdapterId } from "./types/adapter.ts";
+import type { ThinkingLevel } from "./types/policy.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is

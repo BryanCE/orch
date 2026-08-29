@@ -4,8 +4,9 @@ import { createConnection } from "node:net";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { endpointPaths, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
+import { endpointPaths, startRpcServer } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 /**
  * TASKS/02-scope.md B4 — "Peer credentials rejected — node exposes neither

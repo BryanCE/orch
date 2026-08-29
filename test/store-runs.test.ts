@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
-import { deleteRunsBefore, selectRuns, upsertRun, type RunRecord } from "../src/store/run-rows.ts";
+import { deleteRunsBefore, selectRuns, upsertRun } from "../src/store/run-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { RunRecord } from "../src/types/store.ts";
 
 const tempDirs: string[] = [];
 

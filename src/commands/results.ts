@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { loadConfig } from "../config.ts";
 import { buildEntities, collapse, resolveTarget, scopeEntitiesToSpace, spaceOf, type Entity } from "../entities.ts";
-import { loadPresence, orchDir, readJSON, type PresenceEntry } from "../presence/store.ts";
+import { loadPresence, orchDir, readJSON } from "../presence/store.ts";
 import { QUESTION_FILE } from "../presence/schema.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
@@ -12,6 +12,7 @@ import { latestRunForKey } from "./runs.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
+import type { PresenceEntry } from "../types/presence.ts";
 
 function resultLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;

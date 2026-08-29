@@ -1,6 +1,5 @@
 import * as path from "node:path";
-import { orchDir, reapDeadPresenceDirs, type PresenceEntry } from "../presence/store.ts";
-import type { AgentView } from "../store/agent-view.ts";
+import { orchDir, reapDeadPresenceDirs } from "../presence/store.ts";
 import { errorMessage } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import {
@@ -15,6 +14,8 @@ import {
 } from "../worktree.ts";
 import { agentViewIndex, callerIsSpawnedAgent, die, presenceById } from "./target.ts";
 import { commandLogger } from "./logging.ts";
+import type { AgentView } from "../types/store.ts";
+import type { PresenceEntry } from "../types/presence.ts";
 
 /** Whether a live agent still runs from this worktree.
  *

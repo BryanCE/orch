@@ -1,9 +1,10 @@
-import { selectRuns, type RunRecord } from "../store/run-rows.ts";
+import { selectRuns } from "../store/run-rows.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { collapse, resolveTarget } from "../entities.ts";
 import { truncate } from "../util.ts";
 import { die } from "./target.ts";
+import type { RunRecord } from "../types/store.ts";
 
 const USAGE = "usage: orch runs [<target>] [-n <count>] [--json]";
 

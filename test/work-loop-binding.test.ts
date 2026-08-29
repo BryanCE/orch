@@ -6,10 +6,10 @@ import { serializeIdentity } from "../src/backends/identity.ts";
 import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/work-loop.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
-import type { NotifyEvent } from "../src/notify/format.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 function claimedTask(): TaskRec {
   return {

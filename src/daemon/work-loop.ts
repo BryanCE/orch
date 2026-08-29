@@ -11,9 +11,8 @@ import {
   type TaskRec,
 } from "../queue.ts";
 import { emitAndNotify } from "./events.ts";
-import { type NotifyEvent } from "../notify/format.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
-import { loadPresence, statusForPresence, type PresenceEntry } from "../presence/store.ts";
+import { loadPresence, statusForPresence } from "../presence/store.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
@@ -22,6 +21,8 @@ import { agentById } from "../store/agent-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
 import { decisionLogger } from "./decision-log.ts";
+import type { PresenceEntry } from "../types/presence.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 
 export interface WorkOptions {
   orchDir: string;

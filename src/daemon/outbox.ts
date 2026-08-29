@@ -5,6 +5,7 @@ import { ACK_FILE } from "../presence/schema.ts";
 import { drainClaimedLines } from "../presence/inbox.ts";
 import { presenceRoot } from "../presence/writer.ts";
 import { isRecord } from "../util.ts";
+import type { OutboxDelivery, OutboxDeps } from "../types/daemon.ts";
 import {
   bumpOutboxAttempt,
   markOutboxDelivered,
@@ -12,28 +13,6 @@ import {
   outboxMessageOpen,
   selectPendingOutbox,
 } from "../store/outbox-rows.ts";
-
-/**
- * What a channel can promise about one write.
- *
- * `acked`  the message reached its reader, or reached a channel that HAS no
- *          separate reader to hear from — a pane keystroke, a boundary answer.
- *          Terminal either way.
- * `queued` the message was handed to a channel whose reader acknowledges
- *          separately: the inbox. This is NOT delivery. The agent's own marker
- *          in `ack.jsonl` is what settles the row (TASKS/02-scope.md L7).
- * `failed` the write did not happen. Retry with backoff.
- *
- * A boolean cannot carry this: it collapses "handed to the channel" into
- * "read by the agent", which settled every inbox row at write time and made the
- * ack reader below unreachable in the daemon.
- */
-export type OutboxDelivery = "acked" | "queued" | "failed";
-
-export interface OutboxDeps {
-  deliver(target: string, payload: unknown, id: string): Promise<OutboxDelivery>;
-  now(): number;
-}
 
 const inFlight = new Set<string>();
 

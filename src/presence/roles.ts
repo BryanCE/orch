@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { loadPresence, type PresenceEntry } from "./store.ts";
+import { loadPresence } from "./store.ts";
 import { appendInbox } from "./inbox.ts";
 import { orchDir } from "./writer.ts";
 import type { AgentChannelRole, AgentMessage, CaptureRequest, CaptureRole, CapturedOutput, DeliveryReceipt } from "../types/backend.ts";
+import type { PresenceEntry } from "../types/presence.ts";
 
 type RootSource = string | (() => string);
 

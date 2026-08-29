@@ -5,8 +5,7 @@ import { openStore, orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentWorktrees, agents, hostPlexers as hostPlexerTable } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setSpace } from "./interval-rows.ts";
-
-export type HostOs = "linux" | "windows" | "darwin";
+import type { AgentInput, AgentRow, AgentWorktree, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 
 /** This machine's OS as the store names it. Throws rather than guess: an
  *  unsupported platform is a host orch cannot record, not a host it may mislabel. */
@@ -15,67 +14,6 @@ export function currentHostOs(): HostOs {
   if (process.platform === "darwin") return "darwin";
   if (process.platform === "linux") return "linux";
   throw new Error(`unsupported host OS ${process.platform}`);
-}
-
-export interface AgentInput {
-  id: string;
-  spawnedBy?: string | null;
-  harnessId: string;
-  cwd: string;
-  name: string;
-  label?: string | null;
-  createdAt: number;
-}
-
-export interface AgentEnding { endedAt: number; closedBy: string | null }
-export interface SessionAgentIdentity {
-  readonly id: string;
-  readonly label: string;
-  readonly kind: "session";
-}
-export interface SessionAgentInput {
-  pid: number;
-  startToken: string;
-  /** The harness's own stable session token, when it exports one. It, not the
-   *  process pair, is what keeps ONE session on ONE agent id for its whole life. */
-  sessionToken?: string | null;
-  harnessId: string;
-  cwd: string;
-  label: string;
-  hostId: string;
-  hostName: string;
-  hostOs: HostOs;
-  /** Plexer observed by the registering session, when it runs in one. */
-  plexerId?: string | null;
-  plexerVersion?: string | null;
-  /** The space the caller registered in. Optional (A7): a session in no space
-   *  records no row, which is an answer and not a missing value. */
-  space?: string | null;
-  now: number;
-}
-export interface AgentRow {
-  id: string;
-  spawnedBy: string | null;
-  rootAgentId: string;
-  harnessId: string;
-  cwd: string;
-  name: string;
-  label: string | null;
-  createdAt: number;
-  ending?: AgentEnding | null;
-}
-
-export interface AgentWorktree {
-  path: string;
-  branch: string;
-}
-
-export interface HostPlexerRow {
-  hostId: string;
-  plexerId: string;
-  since: number;
-  until: number | null;
-  version: string;
 }
 
 /** An agent joined to the ending it may not have. The join is left, so `ending`

@@ -3,8 +3,8 @@ import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { allBackends } from "../backends/registry.ts";
 import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
-import type { NotifierChoice } from "./notifiers.ts";
 import type { HarnessModel } from "../types/adapter.ts";
+import type { NotifierChoice } from "../types/notify.ts";
 
 const MODEL_PICKER_MAX_ITEMS = 15;
 

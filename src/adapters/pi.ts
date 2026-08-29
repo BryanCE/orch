@@ -2,12 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
-import {
-  loadPresence,
-  readJSON,
-  statusForPresence,
-  type PresenceEntry,
-} from "../presence/store.ts";
+import { loadPresence, readJSON, statusForPresence } from "../presence/store.ts";
 import { errnoCode, isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, type ExtensionName } from "../extensions/bundles.ts";
@@ -15,13 +10,13 @@ import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { appendInbox } from "../presence/inbox.ts";
 import { writeAnswer } from "../presence/writer.ts";
-import type { CheckResult, FixDescriptor } from "../check-result.ts";
-import type { WorkerPolicy } from "../policy/workers.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
-import type { ThinkingLevel } from "../policy/thinking.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { PresenceEntry } from "../types/presence.ts";
+import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
+import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 
 /** pi's own config root, and the files under it orch reads or writes. */
 const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");

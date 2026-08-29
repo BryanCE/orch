@@ -7,9 +7,9 @@ import { orchDir } from "../presence/store.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
 import type { AgentState } from "./adapter.ts";
-import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, AnswerRequest, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 
 const CODEX_MODELS_CACHE = join(homedir(), ".codex", "models_cache.json");
 

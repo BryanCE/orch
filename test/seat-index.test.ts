@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { countStates, formatSeatStatus, hasTheme } from "../src/seat/index.ts";
-import type { PackSnapshot } from "../src/seat/domain.ts";
 import { reconcileDashboardSelection } from "../src/seat/ui/takeover.ts";
 import { errorMessage } from "../src/util.ts";
+import type { PackSnapshot } from "../src/types/seat.ts";
 
 function snapshot(state: string, key = state): PackSnapshot {
   return {

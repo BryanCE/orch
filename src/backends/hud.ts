@@ -1,3 +1,4 @@
+import type { NotifyEvent } from "../types/notify.ts";
 /**
  * The plexer-neutral pane-HUD port.
  *
@@ -27,7 +28,6 @@ import {
 } from "./herdr/hud.ts";
 
 /** Canonical state-change payload a bridge hands to the notifier. */
-import type { NotifyEvent } from "../notify/format.ts";
 export type BridgeNotifyEvent = NotifyEvent;
 
 /**

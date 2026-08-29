@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { emitAndNotify } from "../src/daemon/events.ts";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import type { NotifyEvent } from "../src/notify/format.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 const directories: string[] = [];
 

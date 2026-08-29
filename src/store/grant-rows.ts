@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, gt, type SQL } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { grantApprovals, grantDenials, grantRequestParams, grantRequests, grantSpends, grantStates } from "../db/schema.ts";
+import type { GrantAction, GrantKind, GrantRequest } from "../types/store.ts";
 
 /**
  * Human consent for actions an agent may not take on its own.
@@ -29,35 +30,10 @@ const GRANT_TTL_MS = 10 * 60 * 1000;
 const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 const ID_LENGTH = 8;
 
-/** Every action requiring consent. A union, so adding one fails to compile until
- *  it has a sentence a human can read. */
-export type GrantKind = "spawn.new-space";
-
 /** What a human is shown for each action, in orch's words and never a caller's. */
 const ACTION_SENTENCE: Record<GrantKind, string> = {
   "spawn.new-space": "open a NEW space on your screen and spawn agents into it",
 };
-
-/**
- * One consequential action. `params` is the whole truth of what will execute:
- * the approval renders from it and the binding hash covers it, so a field left
- * out is a field the human never saw and the gate never checked.
- */
-export interface GrantAction {
-  readonly kind: GrantKind;
-  readonly params: Readonly<Record<string, string>>;
-}
-
-/** A refused action, recorded so a human can read what was actually asked for. */
-export interface GrantRequest {
-  readonly id: string;
-  readonly actionHash: string;
-  readonly kind: GrantKind;
-  readonly params: Record<string, string>;
-  /** Which agent asked, for provenance only — never rendered as the action. */
-  readonly requestedBy: string | null;
-  readonly requestedAt: number;
-}
 
 function isGrantKind(value: string): value is GrantKind {
   return value in ACTION_SENTENCE;

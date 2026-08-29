@@ -1,7 +1,5 @@
-import type { CheckResult } from "../check-result.ts";
 import { binaryOnPath } from "../util.ts";
-
-export type BinaryStatus = Record<string, boolean>;
+import type { BinaryStatus, CheckResult } from "../types/doctor.ts";
 
 export function binaryStatus(ids: readonly string[]): BinaryStatus {
   return Object.fromEntries(ids.map((id) => [id, binaryOnPath(id)]));

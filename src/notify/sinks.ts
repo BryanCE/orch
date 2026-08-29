@@ -6,37 +6,8 @@ import { spawn, execFile } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { packageRoot } from "../util.ts";
-import { notificationText, payload, type NotifyEvent } from "./format.ts";
-
-/** A required configuration value collected for a notifier. */
-export interface NotifierConfigField {
-  /** Config key used by the notifier. */
-  name: string;
-  /** Human-readable prompt/label for the key. */
-  label: string;
-  description?: string;
-  /** Whether setup and doctor should redact this value. */
-  secret?: boolean;
-};
-
-/** Host-integration metadata kept separate from delivery behavior. */
-export interface NotifierMetadata {
-  /** Rich fields are used by setup; bare names remain contract-compatible. */
-  requiredConfig: readonly (NotifierConfigField | string)[];
-  description?: string;
-};
-
-/** Canonical host-integration contract. */
-export interface Notifier {
-  id: string;
-  label: string;
-  remediation?: string;
-  metadata: NotifierMetadata;
-  /** A rejected availability probe is treated as unavailable by the registry. */
-  available(config?: Record<string, unknown>): boolean | Promise<boolean>;
-  /** Config is optional so phase-1 custom notifiers remain source-compatible. */
-  deliver(event: NotifyEvent, config?: Record<string, unknown>): Promise<boolean>;
-};
+import { notificationText, payload } from "./format.ts";
+import type { Notifier, NotifierConfigField, NotifierMetadata, NotifyEvent } from "../types/notify.ts";
 
 const registeredNotifiers = new Map<string, Notifier>();
 

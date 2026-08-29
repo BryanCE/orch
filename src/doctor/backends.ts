@@ -1,6 +1,6 @@
 import { allBackends, detectBackends, getBackend } from "../backends/registry.ts";
 import { SUPPORTED_RANGES, supportedRange, versionInRange } from "../backends/versions.ts";
-import type { CheckResult, DoctorBackendReport } from "../check-result.ts";
+import type { BackendVersionObservation, CheckResult, DoctorBackendReport } from "../types/doctor.ts";
 
 /** The backend orch would actually pick, given the configured default. Mirrors
  *  resolveBackend's probe order without throwing: doctor reports on a broken
@@ -65,16 +65,6 @@ export function backendCapabilitiesVerdict(
     detail: reasons.length ? `${reasons.join("; ")}\n    ${summary}` : summary,
     backends: [...backends],
   };
-}
-
-/** What this host can say about one plexer right now: whether its binary is
- *  here at all, and the version that binary reports. A plexer orch supports but
- *  the user never installed is a choice, not a defect — `installed` is only
- *  meaningful once `detected` is true. */
-export interface BackendVersionObservation {
-  plexerId: string;
-  detected: boolean;
-  installed: string | null;
 }
 
 /** Render the support-matrix comparison separately from host discovery so it is

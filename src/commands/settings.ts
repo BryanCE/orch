@@ -1,6 +1,6 @@
 import * as files from "node:fs";
 import { loadConfig, NOTIFY_DEFAULT_ON, NOTIFY_STATES, resolveWithSource, settingsPath, writeSettingsDefault, SETTINGS_DEFAULTS, type NotifyEntry, type NotifyState, type OrchConfig } from "../config.ts";
-import { buildSelectedNotifyEntries, probeNotifiers, type NotifierChoice } from "../setup/notifiers.ts";
+import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
@@ -10,11 +10,13 @@ import { isAdapterId } from "../adapters/adapter.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
 import { BACKEND_IDS } from "../types/backend.ts";
-import { isThinkingLevel, THINKING_LEVELS } from "../policy/thinking.ts";
+import { isThinkingLevel } from "../policy/thinking.ts";
+import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
 import type { SettingKind, SettingSpec } from "../settings/spec.ts";
+import type { NotifierChoice } from "../types/notify.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */

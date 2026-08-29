@@ -1,3 +1,4 @@
+import type { Role, Term } from "../types/policy.ts";
 /**
  * The ONE place orch's own words are spelled.
  *
@@ -21,11 +22,6 @@ export const VOCABULARY = {
   /** The user's grouping of work, and the reachability boundary (A7, ADR 0001). */
   space: "space",
 } as const satisfies Readonly<Record<string, string>>;
-
-export type Term = keyof typeof VOCABULARY;
-
-/** A11: orch = pack root, slave = any non-root member. */
-export type Role = Extract<Term, "orch" | "slave">;
 
 /** How a term is spelled for a human. The only way to render one. */
 export function term(key: Term): string {

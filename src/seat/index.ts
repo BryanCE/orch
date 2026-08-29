@@ -10,11 +10,12 @@
  * own identity as spawner, never from the environment.
  */
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { ALERT_STATES, type PackSnapshot } from "./domain.ts";
-import { createPackRuntime, type PackRuntime } from "./runtime.ts";
+import { ALERT_STATES } from "./domain.ts";
+import { createPackRuntime } from "./runtime.ts";
 import { openPackDashboard } from "./ui/takeover.ts";
 import { isRecord } from "../util.ts";
 import type { HarnessApi, HarnessContext } from "../types/agent.ts";
+import type { OrchSeatOptions, PackRuntime, PackSnapshot } from "../types/seat.ts";
 
 /** The pi UI surface this seat actually uses. Declared as what we need rather than
  *  asserted from the harness type, so a harness that lacks it simply fails the guard
@@ -72,12 +73,6 @@ export function hasTheme(ui: unknown): ui is { theme: Theme } {
   if (typeof ui !== "object" || ui === null || !("theme" in ui)) return false;
   const theme = ui.theme;
   return typeof theme === "object" && theme !== null && "fg" in theme && typeof theme.fg === "function";
-}
-
-export interface OrchSeatOptions {
-  readonly orchDir: string;
-  /** This session's orch identity, once presence has minted it. */
-  readonly ownKey: () => string | undefined;
 }
 
 /** Register the orchestrator seat on a pi session. */
@@ -145,5 +140,4 @@ export function registerOrchSeat(pi: SeatRegistrationApi, options: OrchSeatOptio
     },
   });
 }
-
 

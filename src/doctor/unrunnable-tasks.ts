@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { openStore } from "../store/connection.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { isRecord, truncate } from "../util.ts";
-import type { CheckResult } from "../check-result.ts";
+import type { CheckResult } from "../types/doctor.ts";
 
 interface MissingScope {
   readonly taskId: string;

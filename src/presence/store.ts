@@ -7,15 +7,15 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
-import { liveAgentViews, environmentOf, holderOf, tuningOf, type AgentView } from "../store/agent-view.ts";
+import { liveAgentViews, environmentOf, holderOf, tuningOf } from "../store/agent-view.ts";
 import { adoptLease } from "../store/lease-rows.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "../store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
-import type { BackendId } from "../types/backend.ts";
-import type { AdapterId } from "../types/adapter.ts";
+import type { AgentView } from "../types/store.ts";
+import type { AgentFacts, DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
 
 export { orchDir, presenceAgentDir };
 
@@ -44,73 +44,6 @@ export function presenceKeyFromDirectoryName(name: string): string {
 
 export function removePresenceAgentDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
-}
-
-export interface PresenceStatus {
-  /** Must equal PRESENCE_SCHEMA (src/presence/schema.ts); anything else is malformed. */
-  schema: number;
-  agent?: string;
-  key?: string;
-  paneId?: string | null;
-  pid?: number;
-  cwd?: string;
-  /** Git worktree the launch isolated this agent into; absent when it shares the fleet's tree. */
-  worktree?: string;
-  /** Branch of that worktree. */
-  branch?: string;
-  state?: string;
-  lastError?: string;
-  model?: { provider?: string; id?: string };
-  thinking?: string;
-  task?: string;
-  /** Id of the orch dispatch whose prompt the agent is running; absent on a
-   *  human-typed run or a bridge that cannot attribute one (hook-based). */
-  dispatchId?: string;
-  lastText?: string;
-  currentFile?: string;
-  /** Files the agent's writing tools touched this run, when its bridge tracks them. */
-  filesTouched?: string[];
-  tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-  cost?: number;
-  context?: { tokens?: number; percent?: number };
-  turns?: number;
-  sessionPath?: string;
-  sessionId?: string;
-  startedAt?: string;
-  finishedAt?: string;
-  updatedAt?: string;
-  extensionHash?: string;
-  label?: string | null;
-  /** Address of the session that spawned this agent (its presence key, else its
-   *  governance token); absent for agents nothing spawned. */
-  spawnedBy?: string;
-  /** Human description of the spawner: "lead-1 (pi)", "claude session", "operator". */
-  spawnedByLabel?: string;
-  tabLabel?: string | null;
-  asking?: { question: string; id: string; ts: string };
-  blockedMessage?: string;
-}
-
-/** Safe, descriptive fields retained from every status.json, including records
- * that fail the live schema gate. This is intentionally not PresenceStatus:
- * callers can identify malformed dirs without ever treating them as live. */
-export interface PresenceDescription {
-  label?: string;
-  cwd?: string;
-  agent?: string;
-  updatedAt?: string;
-  finishedAt?: string;
-}
-
-export interface PresenceEntry {
-  key: string;
-  dir: string;
-  /** Current-schema status only. Malformed or unstamped records are null. */
-  status: PresenceStatus | null;
-  /** Descriptive metadata from disk; never used to establish liveness. */
-  description?: PresenceDescription;
-  result: unknown;
-  alive: boolean;
 }
 
 function presencePath(key: string, file: string): string {
@@ -160,39 +93,6 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
   // guard and the asserted type cannot drift apart.
   const status = readJSON<unknown>(file);
   return isPresenceStatus(status) ? status : null;
-}
-
-/**
- * What a caller may state about an agent orch is registering or adopting.
- *
- * A1: the old `spawned` table welded identity, provenance, ownership and
- * environment into one wide row whose primary key was the PANE, so moving an
- * agent minted a new identity. These are the same facts as an argument list,
- * fanned out to the table that owns each one; nothing stores them together.
- * Reads go through {@link AgentView}, never back through a flat row.
- */
-export interface AgentFacts {
-  /** Harness the agent runs (`agents.harness_id`). */
-  adapter?: AdapterId;
-  /** Tuning — survives a move, so never environment. */
-  model?: string;
-  /** Environment: the plexer the agent is in. */
-  backend?: BackendId;
-  /** Environment: orch's own grouping. */
-  space?: string;
-  /** Environment: the plexer's shortcut to it. An agent without one is an agent
-   *  without a shortcut, never one orch cannot reach. */
-  handle?: string;
-  name?: string;
-  cwd?: string;
-  worktree?: string;
-  branch?: string;
-  /** Ownership: the orch to lease it to. A lease, never a second id space. */
-  owner?: string;
-  /** Provenance: the agent that spawned it. Immutable once written. */
-  spawnedBy?: string;
-  /** Ignored: a spawner's label is READ from the spawner, never copied here. */
-  spawnedByLabel?: string;
 }
 
 /**
@@ -310,11 +210,6 @@ export function reapSpawnedRecord(key: string, root = orchDir(), options: { agen
     try { openStore(root).query("DELETE FROM agents WHERE id = ?").run(agentId); } catch {}
   }
   removePresenceAgentDir(presenceAgentDir(key, root));
-}
-
-export interface DeadPresenceReapResult {
-  removed: PresenceEntry[];
-  failed: { entry: PresenceEntry; error: unknown }[];
 }
 
 /** Return the newest valid orch timestamp recorded in an agent's presence files. */

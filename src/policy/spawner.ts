@@ -1,19 +1,7 @@
 import { callerSession, selfIdentity } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { agentById } from "../store/agent-rows.ts";
-
-/**
- * Who launched a spawn, as every spawned agent should know it. Identity is
- * orch's own layer: it survives whichever harness or plexer either side runs
- * in, and both directions stay addressable — the spawner knows the worker by
- * name, and the worker knows exactly which session is orchestrating it.
- */
-export interface SpawnerIdentity {
-  /** Reply address when the spawner has a presence inbox; null when it has none. */
-  key: string | null;
-  /** Human description: "lead-1 (pi)", "pi session", "claude session", "operator". */
-  label: string;
-}
+import type { SpawnerIdentity } from "../types/policy.ts";
 
 /**
  * The launching session's identity: the id orch issued it, plus a label to show.

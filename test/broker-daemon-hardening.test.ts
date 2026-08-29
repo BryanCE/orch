@@ -5,9 +5,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/outbox-rows.ts";
-import { drainOutbox, type OutboxDelivery } from "../src/daemon/outbox.ts";
+import { drainOutbox } from "../src/daemon/outbox.ts";
 import { validateWriteParams } from "../src/daemon/orchd.ts";
-import { ReplayBuffer, startRpcServer, type RpcServer } from "../src/daemon/rpc.ts";
+import { ReplayBuffer, startRpcServer } from "../src/daemon/rpc.ts";
+import type { OutboxDelivery, RpcServer } from "../src/types/daemon.ts";
 
 const dirs: string[] = [];
 const servers: RpcServer[] = [];

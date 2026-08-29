@@ -38,10 +38,10 @@ function runSettingsCli(env: Record<string, string | undefined>, args: readonly 
   });
 }
 
-function runSettingsExpectingFailure(orchDir: string, ...args: string[]): { status: number; stderr: string } {
+function runSettingsExpectingFailure(orchDir: string, ...args: string[]): { status: number; stdout: string } {
   const ran = runSettingsCli({ ...process.env, ORCH_DIR: orchDir }, args);
   if (ran.success) throw new Error("orch settings exited 0, expected a failure");
-  return { status: ran.exitCode, stderr: ran.stderr.toString() };
+  return { status: ran.exitCode, stdout: ran.stdout.toString() };
 }
 
 interface SettingReport { readonly value: unknown; readonly source: string }
@@ -124,11 +124,13 @@ describe("orch settings", () => {
     expect(runSettings(directory, {}, "--harness=claude")).toContain("default adapter = claude");
     const report = settingsReport(runSettings(directory, {}, "--json"));
     expect(report["defaults.adapter"]!.value).toBe("claude");
+    const settingsSource = fs.readFileSync(path.join(import.meta.dir, "../src/commands/settings.ts"), "utf8");
+    expect(settingsSource.replaceAll("writeRegisteredSetting", "")).not.toContain("writeSettings");
 
     const rejected = runSettingsExpectingFailure(directory, "--harness=codex");
     expect(rejected.status).not.toBe(0);
-    expect(rejected.stderr).toContain("codex");
-    expect(rejected.stderr).toContain("enabled");
+    expect(rejected.stdout).toContain("codex");
+    expect(rejected.stdout).toContain("enabled");
   }, 60_000);
 
   test("reports each harness's picker quicklist and launch gate as separate rows", () => {
@@ -154,8 +156,8 @@ describe("orch settings", () => {
 
     const failed = runSettingsExpectingFailure(directory, "--json");
     expect(failed.status).not.toBe(0);
-    expect(failed.stderr).toContain("config.toml");
-    expect(failed.stderr).toContain("orch setup");
+    expect(failed.stdout).toContain("config.toml");
+    expect(failed.stdout).toContain("orch setup");
   }, 30_000);
 
   test("sets a boolean through its registry entry", () => {
@@ -192,55 +194,55 @@ describe("orch settings", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     const failed = runSettingsExpectingFailure(directory, "defaults.worktree", "maybe");
-    expect(failed.stderr).toContain("defaults.worktree");
-    expect(failed.stderr).toContain("true or false");
+    expect(failed.stdout).toContain("defaults.worktree");
+    expect(failed.stdout).toContain("true or false");
   }, 30_000);
 
   test("refuses an invalid integer and names the allowed range", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     const failed = runSettingsExpectingFailure(directory, "fleet.spawn_cap", "zero");
-    expect(failed.stderr).toContain("fleet.spawn_cap");
-    expect(failed.stderr).toContain("integer");
+    expect(failed.stdout).toContain("fleet.spawn_cap");
+    expect(failed.stdout).toContain("integer");
   }, 30_000);
 
   test("refuses an invalid choice and names the allowed choices", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     const failed = runSettingsExpectingFailure(directory, "tiling.first_split", "diagonal");
-    expect(failed.stderr).toContain("tiling.first_split");
-    expect(failed.stderr).toContain("rows");
+    expect(failed.stdout).toContain("tiling.first_split");
+    expect(failed.stdout).toContain("rows");
   }, 30_000);
 
   test("refuses an invalid multi value and names the allowed choices", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     const failed = runSettingsExpectingFailure(directory, "enabled.adapters", "bogus");
-    expect(failed.stderr).toContain("enabled.adapters");
-    expect(failed.stderr).toContain("pi");
+    expect(failed.stdout).toContain("enabled.adapters");
+    expect(failed.stdout).toContain("pi");
   }, 30_000);
 
   test("refuses an invalid list and names JSON as the allowed format", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     const failed = runSettingsExpectingFailure(directory, "skills.roots", "not-json");
-    expect(failed.stderr).toContain("skills.roots");
-    expect(failed.stderr).toContain("JSON array");
+    expect(failed.stdout).toContain("skills.roots");
+    expect(failed.stdout).toContain("JSON array");
   }, 30_000);
 
   test("refuses an unknown key and suggests nearest valid keys", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     const failed = runSettingsExpectingFailure(directory, "fleet.spawn_cpa", "5");
-    expect(failed.stderr).toContain("fleet.spawn_cpa");
-    expect(failed.stderr).toContain("fleet.spawn_cap");
+    expect(failed.stdout).toContain("fleet.spawn_cpa");
+    expect(failed.stdout).toContain("fleet.spawn_cap");
   }, 30_000);
 
   test("refuses read-only runtime and names the editing subcommand", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     const failed = runSettingsExpectingFailure(directory, "runtime", "node");
-    expect(failed.stderr).toContain("runtime");
-    expect(failed.stderr).toContain("orch setup");
+    expect(failed.stdout).toContain("runtime");
+    expect(failed.stdout).toContain("orch setup");
   }, 30_000);
 });

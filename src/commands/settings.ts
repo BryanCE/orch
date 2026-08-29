@@ -1,5 +1,5 @@
 import * as files from "node:fs";
-import { loadConfig, NOTIFY_DEFAULT_ON, resolveWithSource, settingsPath, writeSettingsDefault, SETTINGS_DEFAULTS } from "../config.ts";
+import { loadConfig, NOTIFY_DEFAULT_ON, resolveWithSource, settingsPath, SETTINGS_DEFAULTS } from "../config.ts";
 import { NOTIFY_STATES } from "../types/config.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
@@ -44,7 +44,7 @@ function rawSetting(orchDirPath: string, ...keys: string[]): unknown {
   }
 }
 
-/** Switch the active default adapter/backend; writeSettingsDefault throws when the id is not installed. */
+/** Switch the active default adapter/backend through its registry declaration. */
 /** Read an env override according to the setting's DECLARED kind, never by
  *  sniffing whatever the fallback happened to be. */
 function envSettingValue(environment: string, type: SettingKind): unknown {
@@ -159,8 +159,8 @@ function setSingleSetting(args: string[]): boolean {
 
 function switchDefault(key: "adapter" | "backend", value: string): void {
   try {
-    if (key === "adapter") writeSettingsDefault(orchDir(), key, validateSetupFlag(key, value, ADAPTER_IDS));
-    else writeSettingsDefault(orchDir(), key, validateSetupFlag(key, value, BACKEND_IDS));
+    if (key === "adapter") writeRegisteredSetting(orchDir(), "defaults.adapter", validateSetupFlag(key, value, ADAPTER_IDS));
+    else writeRegisteredSetting(orchDir(), "defaults.backend", validateSetupFlag(key, value, BACKEND_IDS));
   } catch (error: unknown) {
     die(errorMessage(error));
   }

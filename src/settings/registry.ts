@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { SETTINGS_FILE_SCHEMA, writeSettingsValue } from "../config.ts";
+import { SETTINGS_FILE_SCHEMA, writeSettingsDefault, writeSettingsValue } from "../config.ts";
+import { isAdapterId } from "../adapters/adapter.ts";
+import { isBackendId } from "../backends/backend.ts";
 import type { OrchConfig, SettingKind, SettingSpec } from "../types/config.ts";
 
 interface JsonSchemaNode {
@@ -82,14 +84,32 @@ function readAt(config: OrchConfig, key: string): unknown {
   return current;
 }
 
-function setting(key: string, group: string, help: string, env?: string, writable = true): SettingSpec {
+type SettingWriter = (orchDir: string, value: unknown) => void;
+
+function writeDefaultAdapter(orchDir: string, value: unknown): void {
+  if (!isAdapterId(value)) throw new Error(`defaults.adapter must be a known adapter id`);
+  writeSettingsDefault(orchDir, "adapter", value);
+}
+
+function writeDefaultBackend(orchDir: string, value: unknown): void {
+  if (!isBackendId(value)) throw new Error(`defaults.backend must be a known backend id`);
+  writeSettingsDefault(orchDir, "backend", value);
+}
+
+function writerFor(key: string): SettingWriter | undefined {
+  if (key === "defaults.adapter") return writeDefaultAdapter;
+  if (key === "defaults.backend") return writeDefaultBackend;
+  return undefined;
+}
+
+function setting(key: string, group: string, help: string, env?: string, writable = true, writer?: SettingWriter): SettingSpec {
   return {
     key,
     group,
     help,
     type: kindFor(key),
     read: (config) => readAt(config, key),
-    ...(writable ? { write: (orchDir: string, value: unknown) => writeSettingsValue(orchDir, key, value) } : {}),
+    ...(writable ? { write: writer ?? ((orchDir: string, value: unknown) => writeSettingsValue(orchDir, key, value)) } : {}),
     ...(env === undefined ? {} : { env }),
   };
 }
@@ -162,7 +182,7 @@ const ENV_OVERRIDES: Readonly<Record<string, string>> = {
 const READ_ONLY_KEYS: readonly string[] = ["runtime"];
 
 export const SETTINGS_REGISTRY: readonly SettingSpec[] = Object.entries(HELP).map(([key, help]) =>
-  setting(key, key.split(".")[0] ?? key, help, ENV_OVERRIDES[key], !READ_ONLY_KEYS.includes(key)));
+  setting(key, key.split(".")[0] ?? key, help, ENV_OVERRIDES[key], !READ_ONLY_KEYS.includes(key), writerFor(key)));
 
 /** Find one declared setting or throw a plain configuration error. */
 export function registeredSetting(key: string): SettingSpec {

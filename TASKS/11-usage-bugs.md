@@ -271,3 +271,12 @@ coordinate rides in its own `TabSpawnSpec.workspace` and is the only thing the p
 receives; `orch tile` uses `callerSpace()` for orch's space and `tab.workspace` for the
 coordinate. Proven by `test/one-writer-records-a-spawned-agent.test.ts` "a spawn into NO
 space records no space and hands the plexer only its coordinate".
+
+## U9 — bare `orch events` (default `--mine` scope) emits NOTHING for the fleet this session spawned — OPEN
+
+From the Claude pane that spawned `b1-*` (rows carry `spawnedBy: b10z3xket4`, this session's
+id), `orch events --status done,error,blocked,asking` stayed silent through four `working->done`
+transitions. `orch events --all --since-seq 0 --status done` shows all four. So the caller-space
+wall (`--all` lifts it) drops events whose space matches the caller's — both are NULL (no space,
+A7) and NULL never equals NULL in the filter. Expected: no space on both sides IS the same place;
+the default scope must deliver them. Workaround in the orch skill: arm the watch with `--all`.

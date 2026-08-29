@@ -541,3 +541,11 @@ cannot be stated that way, it is depth-dependent and it is wrong.
 - Reads are never gated.
 - A transfer must not disturb the agent: no reset, no re-attach, no context loss. If a handoff
   requires touching the agent, ownership is still welded to identity or environment.
+
+## 2026-08-29 — TO DISCUSS after the burndown (user's note, verbatim intent)
+
+Why aren't notifications sent THROUGH `orch events`? Today `orch help events` says
+"Notifications are delivered by orchd from settings.json sinks, not by this command", and
+`orch events --notify` only renders them locally. The user's position: the event stream IS the
+notification channel and sinks should hang off it — one stream, sinks are subscribers. Discuss
+before touching `src/notify/` or `src/daemon/events.ts`. Not part of `TASKS/15-burndown.md`.

@@ -1,13 +1,13 @@
 import { loadConfig } from "./config.ts";
-import { allBackends, resolveBackend } from "./backends/registry.ts";
+import { allBackends } from "./backends/registry.ts";
 import { loadPresence, orchDir } from "./presence/store.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
-import { agentView, agentViews } from "./store/agent-view.ts";
-import { selfId } from "./identity/self.ts";
+import { agentViews } from "./store/agent-view.ts";
+import { callerSpace, selfId } from "./identity/self.ts";
 import { ambiguousTargetRefusal, CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
@@ -115,22 +115,8 @@ export function entitySpace(e: Entity): string | null {
   return e.space ?? spaceOf(orchDir(), e.key);
 }
 
-export function currentSpace(): string | null {
-  // Where the calling process sits is ENVIRONMENT, read from the agent it IS —
-  // never a field on its identity, which is the minted id and nothing else.
-  // `null` is a real answer: a caller in no space is unscoped, and inventing a
-  // place for it is exactly what produced the fictional "local".
-  const id = resolveBackend({}).identity?.current()?.id;
-  if (id === undefined) return null;
-  try {
-    return agentView(orchDir(), id)?.environment.space ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export function scopeEntitiesToSpace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
-  const current = currentSpace();
+  const current = callerSpace();
   if (opts?.all === true || current === null) return entities;
   return entities.filter((entity) => sameSpace(entitySpace(entity), current));
 }

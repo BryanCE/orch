@@ -2,13 +2,12 @@ import { loadConfig } from "../config.ts";
 import { getBackend } from "../backends/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget } from "../entities.ts";
-import { selfId } from "../identity/self.ts";
+import { callerSpace, selfId, spaceOfAgent } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
-import { environmentOf } from "../store/agent-view.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { ambiguousTargetRefusal, CommandRefusal } from "../refusal.ts";
@@ -172,14 +171,6 @@ export function forbidAgentOverride(flag: string): void {
 
 /** The space one agent is composed into. A space is an ENVIRONMENT axis read
  *  from the composer, never a segment sliced out of an identity (A1). */
-function spaceOfAgent(id: string): string | null {
-  try {
-    return environmentOf(orchDir(), id).space;
-  } catch {
-    return null;
-  }
-}
-
 /** Where the caller acts: its own space, else the space its owner token names.
  *  An operator driving orch from outside any pane still operates a space, and
  *  losing that made its own fleet foreign to it. */
@@ -226,14 +217,6 @@ export function assertAgentOwned(
   if (holder !== null && !ownsAgent({ id: entity.key, heldBy: { orchId: holder, since: 0 } })) {
     die(`Target "${target}" is owned by ${holder}. Use --force to override.`);
   }
-}
-
-/** The caller's own space, read off the caller's own agent record. Asking the
- *  plexer "which workspace am I in" answered with a plexer coordinate, which is
- *  environment wearing identity's hat (Rule 11). */
-export function callerSpace(): string | null {
-  const id = selfId();
-  return id === null || id === undefined ? null : spaceOfAgent(id);
 }
 
 export function backendTarget(

@@ -1,5 +1,6 @@
 import { loadConfig } from "../config.ts";
-import { buildEntities, currentSpace, resolveTarget, spaceOf } from "../entities.ts";
+import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
+import { callerSpace } from "../identity/self.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
@@ -81,7 +82,7 @@ export async function cmdEvents(args: string[]) {
     const agentId = tryParseIdentity(key)?.id ?? null;
     const inScope = options.targets.length
       ? items.has(key)
-      : agentId !== null && eventInSpaceScope(orchDir(), agentId, currentSpace(), options.all);
+      : agentId !== null && eventInSpaceScope(orchDir(), agentId, callerSpace(), options.all);
     if (!inScope) return false;
     const leaseOwner = currentLease(orchDir(), agentId ?? key)?.orchId ?? null;
     return eventInScope({
@@ -191,7 +192,7 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
       orchDir(),
       [...loadPresence().values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
-      currentSpace(),
+      callerSpace(),
       { all: options.all },
     );
     for (const presence of presences) {

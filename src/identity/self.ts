@@ -1,5 +1,6 @@
 import { isAgentId } from "../backends/identity.ts";
 import { agentIdBySessionToken } from "../store/agent-rows.ts";
+import { environmentOf } from "../store/agent-view.ts";
 import { allAdapters } from "../adapters/registry.ts";
 import { optionalString } from "../util.ts";
 import { orchDir } from "../presence/writer.ts";
@@ -34,4 +35,30 @@ export function selfIdentity(): SelfIdentity | null {
 /** The id to stamp as owner/actor on a write, or undefined when unregistered. */
 export function selfId(): string | undefined {
   return selfIdentity()?.id;
+}
+
+/** The space one agent is composed into. A missing row is a real ANSWER: an
+ *  agent in no space is unscoped, and inventing a place for it is exactly what
+ *  produced the fictional "local" (Rule 11, A7). */
+export function spaceOfAgent(id: string): string | null {
+  try {
+    return environmentOf(orchDir(), id).space;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The caller's own space, read off the caller's own agent record.
+ *
+ * It lives beside {@link selfId} because it is the same question — where the
+ * calling process sits is ENVIRONMENT, read from the agent it IS, never a field
+ * on its identity. Asking the PLEXER "which workspace am I in" answers with a
+ * plexer coordinate, which is environment wearing identity's hat (Rule 11); and
+ * a second copy that asked the backend instead of resolving the minted id could
+ * not see a driving session, which carries no ORCH_AGENT_KEY at all.
+ */
+export function callerSpace(): string | null {
+  const id = selfId();
+  return id === undefined ? null : spaceOfAgent(id);
 }

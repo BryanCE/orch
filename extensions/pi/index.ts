@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
 import { orchDir } from "../../src/presence/writer.ts";
 import { registerOrchSeat } from "../../src/seat/index.ts";
-import type { HarnessApi, HarnessIdentity } from "../../src/agent/harness.ts";
+import type { HarnessApi, HarnessIdentity } from "../../src/types/agent.ts";
 
 /** pi calls itself `pi`, and fires `agent_settled` when a run will not auto-continue. */
 const PI_IDENTITY: HarnessIdentity = { agentId: "pi", settleEvent: "agent_settled" };

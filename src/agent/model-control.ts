@@ -9,34 +9,15 @@
 // harness never re-litigates it. Orch's ladder token names a model AND a
 // thinking effort ("provider/id:medium"); the registry keys on the bare id, so
 // the suffix is split off before lookup and applied through pi's own mechanism.
-import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { isThinkingLevel, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
 import { atomicWrite } from "../presence/writer.ts";
 import { isRecord, type JsonRecord } from "../util.ts";
+import type { ControlCommand, FindRegistryModel, HarnessApi, HarnessContext, ModelControlDeps, RegistryRetry, ResolvedModel } from "../types/agent.ts";
 
-export type ResolvedModel = NonNullable<HarnessContext["model"]>;
 export type { ThinkingLevel };
-
-/** A raw inbox control command; `cmd` selects which of `model`/`level` is meaningful. */
-export interface ControlCommand {
-  cmd: string;
-  /** Dispatcher-minted request id, echoed into the control outcome so the waiter matches its own command. */
-  id?: unknown;
-  model?: unknown;
-  level?: unknown;
-}
 
 export function isControlCommand(value: unknown): value is ControlCommand {
   return isRecord(value) && typeof value.cmd === "string";
-}
-
-/** Look up a registry model by bare provider + id; a fresh value each call so a retry sees a just-loaded registry. */
-export type FindRegistryModel = (provider: string, id: string) => ResolvedModel | undefined;
-
-/** Bounded retry while a fresh session's model registry finishes loading. */
-export interface RegistryRetry {
-  attempts: number;
-  delayMs: number;
 }
 
 const DEFAULT_REGISTRY_RETRY: RegistryRetry = { attempts: 8, delayMs: 250 };
@@ -71,16 +52,6 @@ export async function resolveRegistryModel(
   }
   if (!model) throw new Error(`Model not in registry (session still booting?): ${bare}`);
   return { model, thinking };
-}
-
-export interface ModelControlDeps {
-  harness: HarnessApi;
-  /** The running agent's context, read fresh so a retry sees a registry that just loaded. */
-  context: () => HarnessContext | undefined;
-  /** Absolute path of the presence control-outcome record; resolved lazily (set at presence init). */
-  controlFile: () => string;
-  /** Re-read the applied model into presence state and flush status.json. */
-  refreshPresence: () => void;
 }
 
 /** pi's control-command applier: resolves+applies a model or thinking change and records the outcome. */

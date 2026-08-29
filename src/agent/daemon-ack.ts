@@ -11,16 +11,7 @@ import * as fs from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { readPortFile, requestJsonLine } from "../presence/socket-client.ts";
 import { isRecord } from "../util.ts";
-
-/** Ack transport + dedupe set handed to the inbox drain. */
-export interface DaemonAck {
-  /** Message id carried by a parsed inbox line, when it has one. */
-  messageIdOf(parsed: unknown): string | undefined;
-  isAcked(id: string): boolean;
-  markAcked(id: string): void;
-  /** Posts the ack to orchd; false means the caller should fall back to ack.jsonl. */
-  post(id: string): Promise<boolean>;
-}
+import type { DaemonAck } from "../types/agent.ts";
 
 export function createDaemonAck(orchDir: string): DaemonAck {
   const ackedMessageIds = new Set<string>();

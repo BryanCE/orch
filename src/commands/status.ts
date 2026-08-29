@@ -2,7 +2,7 @@ import { loadConfigOrNull, type OrchConfig } from "../config.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
-import { deriveDriveState, NO_ORCH_DRIVER, type DriveState } from "../agent/drive-state.ts";
+import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { currentSpace } from "../store/interval-rows.ts";
 import { openStore } from "../store/connection.ts";
@@ -26,6 +26,7 @@ import {
 } from "./target.ts";
 import { isRecord, truncate } from "../util.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
+import type { DriveState } from "../types/agent.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);

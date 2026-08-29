@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
 import { orchDir } from "../../src/presence/writer.ts";
 import { registerOrchSeat } from "../../src/seat/index.ts";
-import type { HarnessApi, HarnessIdentity } from "../../src/agent/harness.ts";
+import type { HarnessApi, HarnessIdentity } from "../../src/types/agent.ts";
 
 /** omp calls itself `omp`, and fires `session_stop` when a run will not auto-continue. */
 const OMP_IDENTITY: HarnessIdentity = { agentId: "omp", settleEvent: "session_stop" };

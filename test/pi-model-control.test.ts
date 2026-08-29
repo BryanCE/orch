@@ -2,12 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  createModelControl,
-  resolveRegistryModel,
-  type ResolvedModel,
-} from "../src/agent/model-control.ts";
+import { createModelControl, resolveRegistryModel } from "../src/agent/model-control.ts";
 import { splitThinkingSuffix } from "../src/policy/thinking.ts";
+import type { ResolvedModel } from "../src/types/agent.ts";
 
 const tempDirs: string[] = [];
 function tempDir(): string {

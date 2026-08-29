@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/agent/harness.ts";
 import { readStatus } from "../src/presence/writer.ts";
+import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
 
 interface FakeHarness extends HarnessApi {
   fire(name: string, event?: unknown, context?: HarnessContext): void;

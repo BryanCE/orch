@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import type { HarnessApi, HarnessEventHandler } from "../src/agent/harness.ts";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
@@ -16,6 +15,7 @@ import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
 
 /**
  * A1 ripple — the agent-side readers of an identity key.

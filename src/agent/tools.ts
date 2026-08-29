@@ -8,7 +8,6 @@
 // backend-agnostic.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { HarnessApi, HarnessContext, HarnessIdentity } from "./harness.ts";
 import { Type } from "typebox";
 import { spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
@@ -18,20 +17,11 @@ import { orchDir } from "../presence/writer.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
 import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
 import { atomicWrite, presenceFile } from "../presence/writer.ts";
-import { registerPeerTools, toolResult, type BridgeToolResult } from "./peers.ts";
-import {
-  extractText,
-  isAssistantMessageLike,
-  HEARTBEAT_MS,
-  LAST_TEXT_MAX,
-  TASK_MAX,
-  type AssistantMessageLike,
-  type BridgeNotification,
-  type BridgeNotifier,
-  type AgentPresence,
-} from "./presence.ts";
+import { registerPeerTools, toolResult } from "./peers.ts";
+import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
 import { isRecord, isUnknownArray, optionalString, readJsonFile, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
+import type { AgentPresence, AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeNotifier, BridgeToolResult, HarnessApi, HarnessContext, HarnessIdentity } from "../types/agent.ts";
 
 interface ModelSelectEventLike {
   model: unknown;
@@ -137,16 +127,6 @@ function waitForOrchestratorAnswer(
     } catch {}
     if (signal?.aborted) onAbort();
   });
-}
-
-export interface AgentToolsOptions {
-  presence: AgentPresence;
-  /** Which harness build this session is, and what it calls its settle signal. */
-  identity: HarnessIdentity;
-  /** Delivers a state-change notification (wired to the plexer HUD, if any). */
-  notify: BridgeNotifier;
-  /** Refreshes this agent's pane/tab labels and writes status when they apply. */
-  refreshLabels: () => Promise<void>;
 }
 
 /**

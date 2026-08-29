@@ -10,25 +10,16 @@ import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import { activePaneHud } from "../backends/hud.ts";
 import { createDaemonAck } from "./daemon-ack.ts";
-import { registerFleetMonitor, type FleetReadModel, type FleetStatusRenderer } from "./monitor.ts";
+import { registerFleetMonitor } from "./monitor.ts";
 import { createAgentPresence } from "./presence.ts";
 import { orchDir } from "../presence/writer.ts";
 import { registerAgentTools } from "./tools.ts";
-import type { HarnessApi, HarnessIdentity } from "./harness.ts";
 import { isRecord } from "../util.ts";
+import type { FleetReadModel, FleetStatusRenderer, HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
 
 /** The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two. */
 export function hashExtensionFile(file: string): string {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 12);
-}
-
-/** What a composition root gets back: the live fleet model (when the generic
- * monitor is wired), and this session's own orch identity for richer seats. */
-export interface HarnessBridge {
-  fleet: FleetReadModel | undefined;
-  /** This session's presence key, once minted; a harness-specific orchestrator
-   *  seat (extensions/pi/fleet) keys its identity wall on this. */
-  ownKey: () => string | undefined;
 }
 
 /** Bind one harness session to orch: its pane, its presence, its tools, its fleet view. */

@@ -11,20 +11,7 @@ import { openStore } from "../store/connection.ts";
 import { orchDir } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
-
-/** What a reader is told about who drives an agent. `owner` is the human
- *  spelling for both cases, so no renderer has to compose the sentence. */
-export interface DriveState {
-  kind: "leased" | "unleased";
-  owner: string;
-  mine: boolean;
-}
-
-export interface DriveStateOptions {
-  directory?: string;
-  /** Raw agents.id for the caller, supplied by the current session identity. */
-  currentOrchId?: string | null;
-}
+import type { DriveState, DriveStateOptions } from "../types/agent.ts";
 
 interface HolderProcessRow {
   pid: number;

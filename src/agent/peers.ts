@@ -7,10 +7,9 @@
 // by subject, not by mechanism. All filesystem access goes through the shared
 // presence writer (src/presence/writer.ts) per CLAUDE.md Rule 10.
 import * as fs from "node:fs";
-import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { Type } from "typebox";
 import { isAgentId } from "../backends/identity.ts";
-import { deriveDriveState, type DriveState } from "./drive-state.ts";
+import { deriveDriveState } from "./drive-state.ts";
 import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
@@ -20,38 +19,12 @@ import { orchDir } from "../presence/store.ts";
 import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate, type JsonRecord } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
-import type { AgentPresence } from "./presence.ts";
+import type { AgentPresence, BridgeToolResult, DriveState, HarnessApi, HarnessContext, PeerResolution, PeerSummary } from "../types/agent.ts";
 
 interface Peer {
   key: string;
   dir: string;
   status: JsonRecord;
-}
-
-export interface PeerSummary {
-  key: string;
-  /** Display name stamped at launch (or by the plexer); the human spelling of this peer. */
-  name?: string;
-  /** Harness this peer runs (pi, claude, codex, omp). */
-  harness?: string;
-  space: string | null;
-  state: string;
-  /** Ownership, and ownership only (TASKS/01 Rule 11): the LIVE lease on this
-   *  agent. Without it the compact listing an agent actually reads shows an
-   *  unleased peer as ordinary live work belonging to whoever is looking. */
-  drive: DriveState;
-  /** True on the row that is the CALLER's own spawner — the reply target. */
-  isSpawner?: true;
-  /** Who spawned this peer, so the whole fleet graph is readable from any seat. */
-  spawnedBy?: string;
-  spawnedByLabel?: string;
-  worktree?: string;
-  branch?: string;
-  model?: string;
-  task?: string;
-  lastText: string;
-  cost?: number;
-  updatedAt?: string;
 }
 
 interface PeerResolutionError {
@@ -61,8 +34,6 @@ interface PeerResolutionError {
 interface PeerResolutionPeer {
   peer: Peer;
 }
-
-export type PeerResolution = PeerResolutionError | PeerResolutionPeer;
 
 function peerModel(status: unknown): string | undefined {
   if (!isRecord(status) || !isRecord(status.model)) return undefined;
@@ -251,11 +222,6 @@ export function formatPeerLines(peers: PeerSummary[]): string {
     sections.push([UNLEASED_HEADING, ...unleased.map((peer) => `${peerLine(peer)} — ${driveSuffix(peer)}`)].join("\n"));
   }
   return sections.join("\n\n");
-}
-
-export interface BridgeToolResult {
-  content: [{ type: "text"; text: string }];
-  details: undefined;
 }
 
 export function toolResult(text: string): BridgeToolResult {

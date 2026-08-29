@@ -493,7 +493,7 @@ const METHOD_OWNER = "(?:provider|backend|adapter|resolvedBackend|resolvedAdapte
  */
 function portRoleMembers(): readonly string[] {
   const names = new Set<string>();
-  for (const file of ["src/types/backend.ts", "src/adapters/adapter.ts"]) {
+  for (const file of ["src/types/backend.ts", "src/types/adapter.ts"]) {
     const source = readFileSync(file, "utf8");
     // A composed role is a member whose TYPE is a Role or a Strategy — `readonly
     // paneHost: PaneHostRole<Handle> | null`, `readonly thinking: ThinkingStrategy
@@ -508,7 +508,7 @@ function portRoleMembers(): readonly string[] {
   // The adapter port's declared-optional fields are an absence the core reads
   // directly too. Scoped to that interface: an optional field on a REQUEST type
   // is not a capability, and exempting those would gut the rule.
-  const adapter = readFileSync("src/adapters/adapter.ts", "utf8");
+  const adapter = readFileSync("src/types/adapter.ts", "utf8");
   const port = /^export interface AgentAdapter\b[^{]*\{([\s\S]*?)^\}/m.exec(adapter)?.[1] ?? "";
   for (const member of port.matchAll(/^\s*readonly\s+([A-Za-z_$][\w$]*)\s*\?\s*:/gm)) names.add(member[1]!);
   if (names.size === 0) throw new Error("check-bridge: found no role members on the ports - the port shape changed under this rule");

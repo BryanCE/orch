@@ -139,29 +139,63 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Which members a line actually carries. `hasOwnProperty`, not `in` and not an
+ * `undefined` check: an explicitly-null `id` or an event whose payload is
+ * `undefined` are both present-but-malformed, and the two must stay tellable
+ * apart from a member that was never sent.
+ */
+function presentMembers(value: Record<string, unknown>): {
+  id: boolean; result: boolean; error: boolean; event: boolean; gap: boolean;
+} {
+  const present = (name: string): boolean => Object.prototype.hasOwnProperty.call(value, name);
+  return { id: present("id"), result: present("result"), error: present("error"), event: present("event"), gap: present("gap") };
+}
+
+type PresentMembers = ReturnType<typeof presentMembers>;
+
+/** The `error` member of a reply: bare text, or `{ code, message, data? }`. */
+function isRpcErrorField(error: unknown): boolean {
+  if (typeof error === "string") return true;
+  if (!isObject(error)) return false;
+  return (typeof error.code === "string" || typeof error.code === "number") && typeof error.message === "string";
+}
+
+/** A request id is absent, null (a notification), or a number. Never anything else. */
+function wellFormedId(value: Record<string, unknown>, has: PresentMembers): boolean {
+  return !has.id || value.id === null || typeof value.id === "number";
+}
+
+/** `seq` and `oldestSeq` may appear on any line, but never with the wrong type. */
+function wellFormedSequenceFields(value: Record<string, unknown>): boolean {
+  if ("seq" in value && (typeof value.seq !== "number" || !Number.isSafeInteger(value.seq))) return false;
+  return !("oldestSeq" in value) || typeof value.oldestSeq === "number";
+}
+
+/** A gap notice carries `gap: true` AND the oldest sequence still replayable. */
+function wellFormedGap(value: Record<string, unknown>, has: PresentMembers): boolean {
+  return !has.gap || (value.gap === true && typeof value.oldestSeq === "number");
+}
+
+/** Every payload member that IS present is well formed, and a reply carries
+ *  exactly one of result/error — never both, never neither. */
+function wellFormedPayload(value: Record<string, unknown>, has: PresentMembers): boolean {
+  if (has.result && has.error) return false;
+  if (has.id && !has.result && !has.error) return false;
+  if (has.event && value.event === undefined) return false;
+  if (!wellFormedGap(value, has)) return false;
+  return !has.error || isRpcErrorField(value.error);
+}
+
 export function isRpcResponse(value: unknown): value is RpcResponse {
   if (!isObject(value)) return false;
-  const hasId = Object.prototype.hasOwnProperty.call(value, "id");
-  const hasResult = Object.prototype.hasOwnProperty.call(value, "result");
-  const hasError = Object.prototype.hasOwnProperty.call(value, "error");
-  const hasEvent = Object.prototype.hasOwnProperty.call(value, "event");
-  const hasGap = Object.prototype.hasOwnProperty.call(value, "gap");
-  if (!hasId && !hasEvent && !hasGap) return false;
-  if (hasId && value.id !== null && typeof value.id !== "number") return false;
-  if (hasResult && hasError) return false;
-  if (hasId && !hasResult && !hasError) return false;
-  if (hasEvent && value.event === undefined) return false;
-  if ("seq" in value && (typeof value.seq !== "number" || !Number.isSafeInteger(value.seq))) return false;
-  if (hasGap && (value.gap !== true || typeof value.oldestSeq !== "number")) return false;
-  if ("oldestSeq" in value && typeof value.oldestSeq !== "number") return false;
-  if (hasError) {
-    const error = value.error;
-    if (typeof error === "string") return true;
-    if (!isObject(error)) return false;
-    if (typeof error.code !== "string" && typeof error.code !== "number") return false;
-    if (typeof error.message !== "string") return false;
-  }
-  return hasEvent || hasGap || hasResult || hasError;
+  const has = presentMembers(value);
+  // A line is one of three things: a reply (id), an event push, or a gap notice.
+  if (!has.id && !has.event && !has.gap) return false;
+  if (!wellFormedId(value, has)) return false;
+  if (!wellFormedSequenceFields(value)) return false;
+  if (!wellFormedPayload(value, has)) return false;
+  return has.event || has.gap || has.result || has.error;
 }
 
 function isUnleasedAgent(value: unknown): value is UnleasedAgent {
@@ -320,9 +354,12 @@ function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
   return rows.filter(isUnleasedAgentRow).map(({ id, name }) => ({ id, name }));
 }
 
-function helloIdentity(orchDir: string, params: unknown, daemonToken: string): HelloResponse {
-  const claim = isObject(params) ? params : {};
-  if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "hello requires the daemon token");
+/**
+ * The caller's session process, proven. A pid alone is not proof: `orch` is
+ * short-lived and pids are reused, so the OS start token is what makes the pair
+ * name one process instance and not merely one number.
+ */
+function verifiedSessionProcess(claim: Record<string, unknown>): { pid: number; startToken: string; harness: string; cwd: string } {
   const pid = typeof claim.pid === "number" ? claim.pid : Number.NaN;
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's session pid");
   const harness = typeof claim.harness === "string" ? claim.harness.trim() : "";
@@ -330,44 +367,75 @@ function helloIdentity(orchDir: string, params: unknown, daemonToken: string): H
   if (!harness || !cwd) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's harness and cwd");
   const startToken = processStartToken(pid);
   if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "hello could not verify the caller's session process");
-  // A CLI invocation is short-lived, while its parent session is not. Detect the
-  // first hello for that process instance so the startup hint cannot repeat on
-  // every subsequent `orch` command from the same session.
-  const alreadyRegistered = openStore(orchDir).query(
+  return { pid, startToken, harness, cwd };
+}
+
+/**
+ * The environment facts a caller reports about itself. The daemon runs in ONE
+ * place and the caller may be in another, so it never observes these on the
+ * caller's behalf (TASKS/01-agent-model.md, B9) — it only normalizes what
+ * arrived. An absent or blank fact is `null`, never a sentinel string.
+ */
+function claimedEnvironment(claim: Record<string, unknown>): {
+  sessionToken: string | null; label: string; host: string;
+  plexerId: string | null; plexerVersion: string | null; space: string | null;
+} {
+  return {
+    sessionToken: typeof claim.sessionToken === "string" && claim.sessionToken.length > 0 ? claim.sessionToken : null,
+    label: typeof claim.label === "string" ? claim.label.trim() : "",
+    host: typeof claim.hostName === "string" && claim.hostName.trim().length > 0 ? claim.hostName.trim() : hostname(),
+    plexerId: typeof claim.plexer === "string" ? claim.plexer.trim() : null,
+    plexerVersion: typeof claim.plexerVersion === "string" ? claim.plexerVersion.trim() : null,
+    space: typeof claim.space === "string" && claim.space.trim().length > 0 ? claim.space.trim() : null,
+  };
+}
+
+/** Warn once, at registration, when the caller's plexer is outside the range orch supports. */
+function plexerRegistrationWarning(plexerId: string | null, plexerVersion: string | null): string | undefined {
+  if (!plexerId || !plexerVersion) return undefined;
+  const range = supportedRange(plexerId);
+  if (!range || supportedPlexerVersion(plexerId, plexerVersion)) return undefined;
+  return `plexer ${plexerId} ${plexerVersion} is outside orch's supported ${range}; update orch`;
+}
+
+/**
+ * Whether this process instance has said hello before. A CLI invocation is
+ * short-lived while its parent session is not, so the first hello for a process
+ * instance is what the startup hint keys on — otherwise it repeats on every
+ * subsequent `orch` command from the same session.
+ */
+function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: string): boolean {
+  return openStore(orchDir).query(
     `SELECT a.id FROM agents a
        JOIN agent_processes p ON p.agent_id = a.id AND p.until IS NULL
        LEFT JOIN agent_endings e ON e.agent_id = a.id
       WHERE p.pid = ? AND p.start_token = ? AND e.agent_id IS NULL
       LIMIT 1`,
   ).get(pid, startToken) != null;
-  const sessionToken = typeof claim.sessionToken === "string" && claim.sessionToken.length > 0
-    ? claim.sessionToken
-    : null;
-  const claimed = typeof claim.label === "string" ? claim.label.trim() : "";
-  const host = typeof claim.hostName === "string" && claim.hostName.trim().length > 0
-    ? claim.hostName.trim()
-    : hostname();
-  const plexerId = typeof claim.plexer === "string" ? claim.plexer.trim() : null;
-  const plexerVersion = typeof claim.plexerVersion === "string" ? claim.plexerVersion.trim() : null;
-  const space = typeof claim.space === "string" && claim.space.trim().length > 0 ? claim.space.trim() : null;
+}
+
+function helloIdentity(orchDir: string, params: unknown, daemonToken: string): HelloResponse {
+  const claim = isObject(params) ? params : {};
+  if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "hello requires the daemon token");
+  const { pid, startToken, harness, cwd } = verifiedSessionProcess(claim);
+  const alreadyRegistered = sessionAlreadyRegistered(orchDir, pid, startToken);
+  const environment = claimedEnvironment(claim);
   const identity = getOrCreateSessionAgent(orchDir, {
     pid,
     startToken,
-    sessionToken,
+    sessionToken: environment.sessionToken,
     harnessId: harness,
     cwd,
-    label: claimed || `${harness} session ${pid}`,
-    hostId: host,
-    hostName: host,
+    label: environment.label || `${harness} session ${pid}`,
+    hostId: environment.host,
+    hostName: environment.host,
     hostOs: claimedHostOs(claim),
-    plexerId,
-    plexerVersion,
-    space,
+    plexerId: environment.plexerId,
+    plexerVersion: environment.plexerVersion,
+    space: environment.space,
     now: Date.now(),
   });
-  const registrationWarning = plexerId && plexerVersion && supportedRange(plexerId) && !supportedPlexerVersion(plexerId, plexerVersion)
-    ? `plexer ${plexerId} ${plexerVersion} is outside orch's supported ${supportedRange(plexerId)}; update orch`
-    : undefined;
+  const registrationWarning = plexerRegistrationWarning(environment.plexerId, environment.plexerVersion);
   return {
     ...identity,
     ...(registrationWarning ? { registrationWarning } : {}),

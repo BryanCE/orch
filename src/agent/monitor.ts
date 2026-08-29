@@ -15,10 +15,10 @@
 // The subscription is orch's transport (src/daemon/rpc.ts) and survives daemon
 // restarts on its own. Nothing here is plexer-aware: the view is built purely
 // from the events, so no pane, tab or socket concept enters this file.
-import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { subscribeEvents, type EventSubscription } from "../daemon/rpc.ts";
 import type { NotifyEvent } from "../notify/format.ts";
 import { isRecord, truncate } from "../util.ts";
+import type { FleetAgentRow, FleetMonitor, FleetMonitorOptions, FleetReadModel, FleetStatusRenderer, HarnessApi, HarnessContext } from "../types/agent.ts";
 
 /** Status-line key; one writer, cleared by the same key. */
 const STATUS_ID = "orch-fleet";
@@ -27,28 +27,6 @@ const STATUS_ID = "orch-fleet";
 const ALERT_STATES = new Set(["blocked", "error", "aborted"]);
 
 const TASK_WIDTH = 60;
-
-/** One agent as the orchestrator currently understands it, from events alone. */
-export interface FleetAgentRow {
-  key: string;
-  name: string;
-  state: string;
-  model: string | null;
-  task: string;
-  cost?: number;
-  ts: string;
-}
-
-/** Live, read-only view of this session's own fleet, for a harness UI to render. */
-export interface FleetReadModel {
-  list(): readonly FleetAgentRow[];
-  size(): number;
-  /** Fires on every accepted transition; returns an unsubscribe. */
-  subscribe(listener: () => void): () => void;
-}
-
-/** How the status line spells the fleet; a harness with a themed UI substitutes its own. */
-export type FleetStatusRenderer = (context: HarnessContext, agents: readonly FleetAgentRow[]) => string;
 
 function countFleetStates(agents: readonly FleetAgentRow[]): { working: number; blocked: number; done: number; failed: number } {
   let working = 0, blocked = 0, done = 0, failed = 0;
@@ -81,23 +59,6 @@ function isNotifyEvent(value: unknown): value is NotifyEvent {
 /** Short display name for an agent, falling back to its opaque key. */
 function agentLabel(event: NotifyEvent): string {
   return event.name ?? event.agent ?? event.key;
-}
-
-export interface FleetMonitor {
-  /** Bind the monitor to a live session's UI and start rendering. */
-  attach(context: HarnessContext): void;
-  stop(): void;
-  readonly model: FleetReadModel;
-}
-
-export interface FleetMonitorOptions {
-  /** This session's own identity, once a context can compute it. */
-  ownKey(context: HarnessContext): string | undefined;
-  /** Themed spelling of the status line; plain text by default. */
-  renderStatus?: FleetStatusRenderer;
-  /** Where transitions arrive from; the daemon's event stream by default. A test
-   *  pushes its own so the monitor's seam can be driven without a daemon. */
-  subscribe?: typeof subscribeEvents;
 }
 
 /**

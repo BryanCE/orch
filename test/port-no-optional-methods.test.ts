@@ -30,8 +30,8 @@ describe("the environment port declares capability by composition, never by opti
     expect(source).not.toMatch(/readonly canPruneLogs\s*:/);
   });
 
-  test("src/adapters/adapter.ts has no optional methods on the harness port either", () => {
-    const source = readFileSync(join(import.meta.dir, "../src/adapters/adapter.ts"), "utf8");
+  test("src/types/adapter.ts has no optional methods on the harness port either", () => {
+    const source = readFileSync(join(import.meta.dir, "../src/types/adapter.ts"), "utf8");
     const optionalMethods = source
       .split("\n")
       .map((line, index) => ({ line: line.trim(), number: index + 1 }))

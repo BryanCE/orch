@@ -8,7 +8,6 @@
 // transport are all injected by the composition root.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { isAgentId, mintAgentId } from "../backends/identity.ts";
 import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
@@ -27,9 +26,7 @@ import { isRecord, isUnknownArray, optionalString, projectRoot, type JsonRecord 
 import { createModelControl, isControlCommand } from "./model-control.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
-import type { DaemonAck } from "./daemon-ack.ts";
-import type { HarnessIdentity } from "./harness.ts";
-
+import type { AgentPresence, AgentPresenceOptions, AssistantMessageLike, BridgeNotification, BridgeNotifier, DaemonAck, HarnessApi, HarnessContext, HarnessIdentity, UsageLike } from "../types/agent.ts";
 
 export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */
@@ -41,43 +38,6 @@ interface TextBlockLike {
   type: unknown;
   text: string;
 }
-
-export interface UsageLike {
-  input?: number;
-  output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  cost?: { total?: number };
-}
-
-export interface AssistantMessageLike {
-  role: string;
-  content: unknown;
-  usage?: UsageLike;
-  stopReason?: string;
-  errorMessage?: string;
-}
-
-/**
- * State-change payload handed to the composition root's notification sink.
- * Declared here, not imported from a backend, so the harness never depends on
- * which plexer (if any) delivers it.
- */
-export interface BridgeNotification {
-  key: string;
-  space?: string;
-  agent: string | null;
-  tab: string | null;
-  model: string | null;
-  oldState: string;
-  newState: string;
-  task?: string;
-  cost?: number;
-  ts: string;
-  lastError?: string;
-}
-
-export type BridgeNotifier = (event: BridgeNotification) => void;
 
 function isTextBlock(value: unknown): value is TextBlockLike {
   return isRecord(value) && value.type === "text" && typeof value.text === "string";
@@ -131,23 +91,6 @@ export function extractText(content: unknown): string {
   if (!isUnknownArray(content)) return "";
   return content.filter(isTextBlock).map((block) => block.text).join("\n");
 }
-
-export interface AgentPresenceOptions {
-  harness: HarnessApi;
-  /** Which harness build this session is, and what it calls its settle signal. */
-  identity: HarnessIdentity;
-  /** Plexer pane handle for this process, or null when the backend has no panes. */
-  paneId: string | null;
-  /** Bridge code hash stamped into status.json for the doctor staleness check. */
-  extensionHash: string;
-  /** Daemon-socket ack transport for consumed inbox messages. */
-  ack: DaemonAck;
-  /** Sink invoked after every status write so a HUD can mirror the agent state. */
-  reportStatus: (snapshot: { state: string; task?: string; cost: number }) => void;
-}
-
-/** The live presence binding returned by {@link createAgentPresence}. */
-export type AgentPresence = ReturnType<typeof createAgentPresence>;
 
 /**
  * The live presence state one agent keeps about itself. Declared as a TYPE rather

@@ -13,8 +13,8 @@ import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-a
 import { ALERT_STATES, type PackSnapshot } from "./domain.ts";
 import { createPackRuntime, type PackRuntime } from "./runtime.ts";
 import { openPackDashboard } from "./ui/takeover.ts";
-import type { HarnessApi, HarnessContext } from "../agent/harness.ts";
 import { isRecord } from "../util.ts";
+import type { HarnessApi, HarnessContext } from "../types/agent.ts";
 
 /** The pi UI surface this seat actually uses. Declared as what we need rather than
  *  asserted from the harness type, so a harness that lacks it simply fails the guard

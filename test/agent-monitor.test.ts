@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HarnessApi, HarnessContext } from "../src/agent/harness.ts";
-import { createFleetMonitor, registerFleetMonitor, type FleetMonitorOptions } from "../src/agent/monitor.ts";
+import { createFleetMonitor, registerFleetMonitor } from "../src/agent/monitor.ts";
+import type { FleetMonitorOptions, HarnessApi, HarnessContext } from "../src/types/agent.ts";
 
 interface Subscription {
   callback: (event: unknown, seq: number) => void;

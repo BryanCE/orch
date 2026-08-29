@@ -361,7 +361,7 @@ const SPAWN_POLICY_OFFERS = `bind the task to a live ${term("slave")} (orch disp
 /** Return a spawn policy refusal without allocating a pane, tab, worktree, or queue entry. */
 export function spawnPolicyError(
   settings: Pick<OrchConfig, "fleet">,
-  _space: string,
+  _space: string | null,
   requested: number,
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
@@ -413,22 +413,22 @@ export function spawnPolicyError(
   return null;
 }
 
-function assertSpawnPolicy(settings: Pick<OrchConfig, "fleet">, space: string, requested: number): void {
+function assertSpawnPolicy(settings: Pick<OrchConfig, "fleet">, space: string | null, requested: number): void {
   const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(), presenceById(), spawnerIdentity().key);
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
 export function assertSpawnCapacity(
   settings: Pick<OrchConfig, "fleet">,
-  space: string,
+  space: string | null,
   requested: number,
   views: ReadonlyMap<string, AgentView> = agentViewIndex(),
   presence: ReadonlyMap<string, PresenceEntry> = presenceById(),
 ): void {
   const counts = liveSpawnCounts(views, presence);
   const live = [...counts.values()].reduce((total, count) => total + count, 0);
-  const spaceLive = counts.get(space) ?? 0;
-  const spaceCap = settings.fleet.space_caps[space];
+  const spaceLive = space === null ? 0 : counts.get(space) ?? 0;
+  const spaceCap = space === null ? undefined : settings.fleet.space_caps[space];
   if (spaceCap !== undefined && spaceLive + requested > spaceCap) {
     throw new SpawnRefusalError(`spawn refused: would put ${space} at ${spaceLive + requested}/${spaceCap} agents (${spaceLive} live + ${requested} requested; fleet.space_caps.${space})`);
   }
@@ -599,14 +599,14 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   let pane: BackendHandle;
   if (spec.placement) {
     if (!spec.backend.paneHost) throw new Error("backend has no pane host");
-    pane = spec.backend.paneHost.open({ cwd: spec.cwd, workspace: spec.space, group: spec.group, split: spec.placement.split, targetPane: spec.placement.targetPane, env }).handle;
+    pane = spec.backend.paneHost.open({ cwd: spec.cwd, workspace: spec.workspace, group: spec.group, split: spec.placement.split, targetPane: spec.placement.targetPane, env }).handle;
   } else {
     pane = spec.intoPane;
   }
   let handle: BackendHandle;
   try {
     handle = spec.backend.spawn(spec.adapter, {
-      key, env, cwd: spec.cwd, name: spec.name, workspace: spec.space, group: spec.group,
+      key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
       intoPane: pane, orchDir: orchDir(), model: spec.model, preferredModels: spec.preferredModels,
       tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
     });
@@ -622,7 +622,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   // record was authoritative.
   registerSpawnedAgent(orchDir(), {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, pane: spec.backend.paneInventory !== null,
-    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, space: spec.space,
+    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, space: spec.space ?? undefined,
     spawner: spec.spawnerAgentId ?? null,
     owner: callerOwnerToken(),
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
@@ -639,7 +639,7 @@ export function tileAgentIntoGroup(spec: Omit<TabSpawnSpec, "placement">, firstS
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(settings: SpawnSettings, name: string, space: string, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
+function placeAgent(settings: SpawnSettings, name: string, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup({
     backend,
@@ -648,6 +648,7 @@ function placeAgent(settings: SpawnSettings, name: string, space: string, group:
     name,
     cwd,
     space,
+    workspace,
     group,
     model: settings.model,
     thinking: settings.thinking,
@@ -663,11 +664,11 @@ function placeAgent(settings: SpawnSettings, name: string, space: string, group:
 
 /** Fill a group with named agents. A pane that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-function growFleetIntoGroup(settings: SpawnSettings, space: string, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
+function growFleetIntoGroup(settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
   const created: CreatedAgent[] = [];
   for (const name of names) {
     try {
-      created.push(placeAgent(settings, name, space, group, backend, spawnerAgentId, role));
+      created.push(placeAgent(settings, name, space, workspace, group, backend, spawnerAgentId, role));
     } catch (error: unknown) {
       const message = errorMessage(error);
       commandLogger().warn("spawn.place-failed", { backend: backend.id, name, error: message });
@@ -724,7 +725,7 @@ export function resolveSpawnNames(positional: readonly string[]): string[] {
 
 /** Assert every already-resolved name is free in this space, before anything
  *  is created. Separate from resolution because freeness reads live state. */
-export function claimSpawnNames(requested: readonly string[], space: string): string[] {
+export function claimSpawnNames(requested: readonly string[], space: string | null): string[] {
   const names = resolveSpawnNames(requested);
   try {
     for (const name of names) assertNameFree(name, space);
@@ -735,8 +736,8 @@ export function claimSpawnNames(requested: readonly string[], space: string): st
 }
 
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
-async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, space: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<void> {
-  const created = growFleetIntoGroup(settings, space, group.id, backend, names, spawnerAgentId, role);
+async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup, space: string | null, workspace: string | undefined, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<void> {
+  const created = growFleetIntoGroup(settings, space, workspace, group.id, backend, names, spawnerAgentId, role);
   await reportSpawnResults(settings, group.id, group.label ?? group.id, created, backend);
 }
 
@@ -834,7 +835,7 @@ function spawnBackend(settings: SpawnSettings): Backend {
 async function admitSpawn(settings: SpawnSettings): Promise<void> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
-  assertSpawnPolicy(settings, settings.space ?? callerSpace() ?? "", settings.n);
+  assertSpawnPolicy(settings, settings.space ?? callerSpace(), settings.n);
   assertLaunchModelAllowed(settings.adapter, settings.model);
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harness actually being launched.
@@ -918,15 +919,15 @@ function openPanesForGroup(
  *  agent; the caller rules on what an empty result means. */
 function launchPrepared(
   prepared: readonly PreparedAgent[],
-  context: { settings: SpawnSettings; backend: Backend; adapter: AgentAdapter; space: string; groupId: string; spawnerAgentId: string | null },
+  context: { settings: SpawnSettings; backend: Backend; adapter: AgentAdapter; space: string | null; workspace: string | undefined; groupId: string; spawnerAgentId: string | null },
 ): CreatedAgent[] {
-  const { settings, backend, adapter, space, groupId, spawnerAgentId } = context;
+  const { settings, backend, adapter, space, workspace, groupId, spawnerAgentId } = context;
   const created: CreatedAgent[] = [];
   for (const item of prepared) {
     if (item.pane === undefined) continue;
     try {
       created.push(spawnOneIntoTab({
-        backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, group: groupId,
+        backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined,
         worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
@@ -950,14 +951,16 @@ function placeSpawn(
   settings: SpawnSettings,
   backend: Backend,
   spawnerAgentId: string | null,
-): { space: string; workspace: string | undefined } {
+): { space: string | null; workspace: string | undefined } {
   const placement = resolveSpawnPlacement({
     directory: orchDir(), backend, space: settings.space ?? callerSpace(),
     packRootId: spawnerAgentId === null ? null : agentById(orchDir(), spawnerAgentId)?.rootAgentId ?? null,
     cwd: settings.cwd, label: settings.label,
     grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawnerAgentId); },
   });
-  const space = placement.space ?? "";
+  // A7/Rule 11: no space is NULL, never "" — a sentinel string is a space name
+  // nobody created, and registration rightly refuses it.
+  const space = placement.space;
   assertSpawnCapacity(settings, space, settings.n);
   return { space, workspace: placement.workspace };
 }
@@ -978,12 +981,12 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // "grow the fleet under this prefix" path: names are per-slice and unnumbered
   // (TASKS/02-scope.md F4), so the tab is named explicitly or it is a new one.
   const existing = settings.tabExplicit ? findGroupInSpace(backend, workspace, settings.label) : undefined;
-  if (existing) return spawnIntoExistingTab(settings, existing, space, backend, names, spawnerAgentId, groupLayout);
+  if (existing) return spawnIntoExistingTab(settings, existing, space, workspace, backend, names, spawnerAgentId, groupLayout);
   const groupHome = backend.groupHome;
   const prepared = prepareAgents(settings, adapter, names);
   const group = createSpawnGroup(groupHome, workspace, settings.label, prepared);
   openPanesForGroup(backend, prepared, group.id, workspace, settings.tiling.first_split);
-  const created = launchPrepared(prepared, { settings, backend, adapter, space, groupId: group.id, spawnerAgentId });
+  const created = launchPrepared(prepared, { settings, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
     die("all spawns failed");
@@ -1022,8 +1025,10 @@ export async function cmdTile(args: string[]) {
   if (!layout) die(`Could not read layout for group "${tab.id}".`);
   const autoName = resolveSpawnNames([requestedName])[0]!;
 
-  const space = tab.workspace ?? callerSpace();
-  if (!space) die(`Could not determine the space for group "${tab.id}".`);
+  // E10: `tab.workspace` is the plexer's coordinate; orch's space is the caller's
+  // own (A7: optional), and the two are never interchanged.
+  const space = callerSpace();
+  const workspace = tab.workspace ?? undefined;
   assertSpawnCapacity(config, space, 1);
   const spawnerAgentId = (await rpcHello(orchDir())).id;
   let agent: CreatedAgent;
@@ -1035,6 +1040,7 @@ export async function cmdTile(args: string[]) {
       name: autoName,
       cwd: flags.cwd,
       space,
+      workspace,
       group: tab.id,
       // Same planner `spawn` uses, off the same tab-wide geometry.
       placement: planTilePlacement(layout, config.tiling.first_split),

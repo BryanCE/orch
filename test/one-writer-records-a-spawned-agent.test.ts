@@ -85,6 +85,36 @@ describe("one writer records a spawned agent (2.1)", () => {
     expect(view?.heldBy?.orchId).toBe(owner);
   });
 
+  // A7: a space is optional. Rule 11: NULL means not-applicable, never a sentinel
+  // string. 2026-08-29: `placeSpawn` turned "no space" into `""`, registration then
+  // demanded a space named "" and every spawn from a human's pane failed with
+  // `no space named ""`. The plexer coordinate rides in its OWN field (E10) and
+  // is what the pane host receives; orch's space is never handed to the plexer.
+  test("a spawn into NO space records no space and hands the plexer only its coordinate", () => {
+    const dir = tempOrchDir();
+    process.env.ORCH_OWNER = mintAgentId();
+    const backend = new FakePanedBackend({ id: "herdr" });
+
+    const agent = spawnOneIntoTab({
+      backend,
+      adapter: piAdapter,
+      adapterId: "pi",
+      name: "solo-3",
+      cwd: "/tmp",
+      space: null,
+      workspace: "w7",
+      group: "tab1",
+      model: "openai/gpt-5.6",
+      preferredModels: [],
+      placement: { split: "right", targetPane: "fake-pane-0" },
+    });
+
+    const view = agentView(dir, agent.key);
+    expect(view).toBeDefined();
+    expect(view?.environment.space).toBeNull();
+    expect(backend.opened.map((request) => request.workspace)).toEqual(["w7"]);
+  });
+
   test("the presence store no longer offers a second way to record an agent", async () => {
     const store: Record<string, unknown> = await import("../src/presence/store.ts");
     expect("recordSpawned" in store).toBe(false);

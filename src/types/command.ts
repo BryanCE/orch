@@ -152,7 +152,12 @@ export interface TabSpawnSpec {
   adapterId: AdapterId;
   name: string;
   cwd: string;
-  space: string;
+  /** orch's own grouping (A7: user-created and OPTIONAL). Null means the agent is
+   *  filed in no space — a missing axis, never a sentinel string (Rule 11). */
+  space: string | null;
+  /** The plexer's coordinate the pane opens in (E10). Orch's space is never
+   *  handed to the plexer; absent means the plexer places it on its own default. */
+  workspace?: string;
   group: string;
   model: string;
   /** Thinking effort selected for this launch. */

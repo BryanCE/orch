@@ -17,7 +17,7 @@ export function assertValidAgentName(name: string): void {
  * space it actually occupied open to a duplicate. The name itself is the
  * agent's mutable label on the hub row, read through the same composed view.
  */
-export function assertNameFree(name: string, space: string): void {
+export function assertNameFree(name: string, space: string | null): void {
   assertValidAgentName(name);
   const presence = loadPresence();
   const taken = [...spawnedRecords(orchDir()).values()].find((view) =>

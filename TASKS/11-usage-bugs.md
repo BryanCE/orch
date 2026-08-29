@@ -251,3 +251,23 @@ The recurrence the user saw all day was NOT a revert: the installed `orch` (buil
 `77c8e17` (11:51) and nine later commits. A fix in the tree reaches the installed binary only
 through the user's `bun run build:dev` + `orch daemon reload` (Rule 12) — after every landed
 fix to `src/commands/` or `src/backends/`, say so in the hand-off line.
+
+## U8 — after U7, `orch spawn` from a human's pane fails with `no space named ""` — FIXED
+
+Same command as U7, on the U7 build. Every agent: `orch: no space named "". Create it first
+with 'orch space create '.`
+
+**Cause:** `placeSpawn` turned "no space" into the sentinel `""` (`placement.space ?? ""`),
+carried it as `TabSpawnSpec.space: string`, and `registerSpawnedAgent` — correctly — refused
+to file an agent in a space nobody created. Rule 11: NULL means not-applicable, never a
+sentinel string. `spawnOneIntoTab` also handed orch's space to the plexer as its workspace
+coordinate (`workspace: spec.space`) — E10's mix-up on the other side — and `orch tile` read
+`tab.workspace` (a plexer coordinate) as orch's space.
+
+**FIXED.** `space: string | null` end to end (`TabSpawnSpec`, `placeSpawn`, `placeAgent`,
+`growFleetIntoGroup`, `claimSpawnNames`, `assertNameFree`, `assertSpawnCapacity`,
+`assertSpawnPolicy`); registration receives `space ?? undefined` = no row. The plexer
+coordinate rides in its own `TabSpawnSpec.workspace` and is the only thing the pane host
+receives; `orch tile` uses `callerSpace()` for orch's space and `tab.workspace` for the
+coordinate. Proven by `test/one-writer-records-a-spawned-agent.test.ts` "a spawn into NO
+space records no space and hands the plexer only its coordinate".

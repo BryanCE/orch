@@ -1,7 +1,7 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
 import { agentChannel, capture } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
-import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, OpenedPane, EnvironmentIdentityRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
+import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, OpenedPane, OpenPaneRequest, EnvironmentIdentityRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own
@@ -48,8 +48,11 @@ export class FakePanedBackend implements Backend {
   readonly id: BackendId;
   /** Handles this environment was asked to close, in call order. */
   readonly closed: string[] = [];
+  /** Every pane-open request this environment received, in call order — so a
+   *  test can assert WHICH coordinate the plexer was handed (E10). */
+  readonly opened: OpenPaneRequest[] = [];
   private readonly panes: FakePane[];
-  private opened = 0;
+  private openedCount = 0;
 
   readonly process: ProcessRole = new LocalProcessRole();
   readonly channel = agentChannel;
@@ -78,8 +81,9 @@ export class FakePanedBackend implements Backend {
     this.id = options.id ?? "headless";
     this.panes = [...(options.panes ?? [])];
     this.paneHost = {
-      open: (): OpenedPane => {
-        const pane = fakePane(`fake-pane-${++this.opened}`);
+      open: (request: OpenPaneRequest): OpenedPane => {
+        this.opened.push(request);
+        const pane = fakePane(`fake-pane-${++this.openedCount}`);
         this.panes.push(pane);
         return { handle: pane.handle };
       },
@@ -105,7 +109,7 @@ export class FakePanedBackend implements Backend {
   }
 
   spawn(_adapter: AgentAdapter, opts: BackendSpawnOpts): BackendHandle {
-    const pane = fakePane(opts.key ?? `fake-pane-${++this.opened}`, { name: opts.name ?? null });
+    const pane = fakePane(opts.key ?? `fake-pane-${++this.openedCount}`, { name: opts.name ?? null });
     this.panes.push(pane);
     return pane.handle;
   }

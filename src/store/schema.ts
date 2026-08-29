@@ -9,30 +9,6 @@ export interface UnemittedStatement {
   readonly sql: string;
 }
 
-/** Reject a new interval that overlaps a live one for the same key. `[since, until)`
- *  is half-open, so touching endpoints do not collide and an open interval runs to
- *  the end of time. */
-function noOverlapTrigger(table: string, keys: string): UnemittedStatement {
-  const sameKey = keys.split(", ").map((key) => `${key} = NEW.${key}`).join(" AND ");
-  return {
-    name: `${table}_no_overlap`,
-    sql: `CREATE TRIGGER ${table}_no_overlap BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'overlapping interval') WHERE EXISTS (SELECT 1 FROM ${table} WHERE ${sameKey} AND NEW.since < COALESCE(until, 9223372036854775807) AND COALESCE(NEW.until, 9223372036854775807) > since); END;`,
-  };
-}
-
-const NO_OVERLAP_TRIGGERS: readonly UnemittedStatement[] = [
-  noOverlapTrigger("agent_handles", "agent_id"),
-  noOverlapTrigger("agent_processes", "agent_id"),
-  noOverlapTrigger("agent_spaces", "agent_id"),
-  noOverlapTrigger("agent_tunings", "agent_id"),
-  noOverlapTrigger("agent_leases", "agent_id"),
-  noOverlapTrigger("space_plexers", "space_id"),
-  noOverlapTrigger("pack_plexers", "pack_id"),
-  noOverlapTrigger("host_plexers", "host_id, plexer_id"),
-  noOverlapTrigger("task_attempts", "task_id"),
-  noOverlapTrigger("pack_intakes", "pack_id, space_id"),
-];
-
 const TASK_STATES: UnemittedStatement = {
   name: "task_states",
   sql: `CREATE VIEW task_states AS SELECT t.id AS task_id, CASE WHEN c.task_id IS NOT NULL THEN 'cancelled' WHEN (a.task_id IS NULL OR a.until IS NULL OR a.outcome = 'failed') AND ((t.scope_agent_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_endings e WHERE e.agent_id = t.scope_agent_id)) OR (t.scope_pack_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a_live WHERE a_live.root_agent_id = t.scope_pack_id AND NOT EXISTS (SELECT 1 FROM agent_endings e_live WHERE e_live.agent_id = a_live.id))) OR (t.scope_space_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a_live JOIN pack_intakes i ON i.pack_id = a_live.root_agent_id AND i.space_id = t.scope_space_id AND i.until IS NULL WHERE NOT EXISTS (SELECT 1 FROM agent_endings e_live WHERE e_live.agent_id = a_live.id)))) THEN 'unrunnable' WHEN a.task_id IS NULL THEN 'queued' WHEN a.until IS NULL THEN 'claimed' ELSE a.outcome END AS state FROM tasks t LEFT JOIN task_cancellations c ON c.task_id = t.id LEFT JOIN task_attempts a ON a.task_id = t.id AND a.since = (SELECT MAX(since) FROM task_attempts WHERE task_id = t.id);`,
@@ -48,4 +24,14 @@ const GRANT_STATES: UnemittedStatement = {
 
 /** Appended to the generated migration in this order: views first, so a trigger
  *  may read one, then the interval guards. */
-export const UNEMITTED_DDL: readonly UnemittedStatement[] = [TASK_STATES, GRANT_STATES, ...NO_OVERLAP_TRIGGERS];
+/**
+ * The objects drizzle-kit has no builder for. Views only.
+ *
+ * There were also ten `<table>_no_overlap` triggers here, rejecting an interval
+ * that overlapped a live one. Every table they guarded already carries a
+ * `uniqueIndex(...).where(until IS NULL)` that drizzle-kit emits natively, and
+ * that index IS the guarantee (TASKS/02-scope.md I7). All the triggers added was
+ * rejection of two overlapping CLOSED intervals, which no writer can produce:
+ * `until` is stamped when the event happens and nothing back-dates it.
+ */
+export const UNEMITTED_DDL: readonly UnemittedStatement[] = [TASK_STATES, GRANT_STATES];

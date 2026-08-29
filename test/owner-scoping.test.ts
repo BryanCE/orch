@@ -10,7 +10,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { spawnedRecords, recordSpawned } from "../src/presence/store.ts";
 import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { openStore } from "../src/store/connection.ts";
-import type { Backend, BackendTarget } from "../src/backends/backend.ts";
+import type { Backend } from "../src/backends/backend.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";

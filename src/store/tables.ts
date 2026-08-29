@@ -6,9 +6,8 @@ import { check, index, integer, primaryKey, real, sqliteTable, sqliteView, text,
  * Every table, typed.
  *
  * This is the QUERY surface, not the creation DDL. `schema.ts` still creates the
- * store because drizzle's SQLite dialect cannot emit three things orch's schema
- * mandates (`TASKS/06-schema.md`): `STRICT`, `WITHOUT ROWID`, and the
- * `no_overlap` triggers. Creation is a one-time act here anyway — Rule 8 gives
+ * store because drizzle's SQLite dialect cannot emit views. Tables are ordinary
+ * SQLite. Creation is a one-time act here anyway — Rule 8 gives
  * orch one live shape with no migrations, so a generated migration would have
  * nothing to migrate.
  *

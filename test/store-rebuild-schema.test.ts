@@ -36,7 +36,9 @@ const expectedInventory = new Set([
   ...["outbox_pending", "runs_agent_started", "one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running", "grants_by_action", "one_agent_per_session"].map(name => `index:${name}`),
   `view:task_states`,
   `view:grant_states`,
-  ...["agent_handles", "agent_processes", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "host_plexers", "task_attempts", "pack_intakes"].map(name => `trigger:${name}_no_overlap`),
+  // No triggers. Every interval table's "one live row" rule is the
+  // `uniqueIndex(...).where(until IS NULL)` above, which drizzle-kit emits
+  // natively; the `<table>_no_overlap` triggers only duplicated it.
 ]);
 
 function addDeps(d: ReturnType<typeof openStore>) {

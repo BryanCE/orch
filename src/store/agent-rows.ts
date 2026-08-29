@@ -225,7 +225,7 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
     if (isAgentIdRow(existing)) {
       db.query("UPDATE agents SET label = ? WHERE id = ?").run(input.label, existing.id);
       // The session outlives any one process instance. An agent may hold only ONE
-      // open process interval (the agent_processes_no_overlap trigger), so a
+      // open process interval (the `one_live_process` unique index), so a
       // superseded one is CLOSED before the current instance opens its own -
       // inserting beside it aborts the whole registration.
       const open = db.query(

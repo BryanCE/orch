@@ -73,7 +73,6 @@ describe("task and attempt rows", () => {
     const d = fixture(); seed(d); addTask(d, "t", { scopePackId: "a" });
     // The interval trigger also rejects overlapping open rows. Remove it for
     // this probe so the expected loser must come from one_open_attempt.
-    openStore(d).exec("DROP TRIGGER task_attempts_no_overlap");
     const first = new Database(join(d, "orch.db"));
     const second = new Database(join(d, "orch.db"));
     try {

@@ -122,7 +122,6 @@ describe("queue scope invariants", () => {
       scopePackId: "pack",
     });
     // Remove the interval trigger so the loser must come from one_open_attempt.
-    openStore(dir).exec("DROP TRIGGER task_attempts_no_overlap");
     const first = new Database(join(dir, "orch.db"));
     const second = new Database(join(dir, "orch.db"));
     try {

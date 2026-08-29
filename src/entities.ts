@@ -4,14 +4,14 @@ import type { Backend, BackendTarget } from "./backends/backend.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "./presence/store.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { agentById } from "./store/agent-rows.ts";
-import { checkWall, sameWorkspace, workspaceOf } from "./policy/workspace.ts";
+import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import type { Recipient } from "./recipient.ts";
 import type { SpawnedRecord } from "./store/spawned-rows.ts";
 import { selfId } from "./identity/self.ts";
 
-export { workspaceOf } from "./policy/workspace.ts";
+export { spaceOf } from "./policy/space.ts";
 export { recipientLabel, type Recipient } from "./recipient.ts";
 
 export interface Entity {
@@ -30,8 +30,8 @@ export interface Entity {
   presence: PresenceEntry | null;
   sessionPath: string | null;
   presenceOnly: boolean;
-  /** Workspace from the backend view or orch's spawned registry. */
-  workspace: string | null;
+  /** Space from the backend view or orch's spawned registry. */
+  space: string | null;
   /** Set when this entity was addressed with a configured host prefix. */
   host?: string;
 }
@@ -68,8 +68,8 @@ function normalizedAgentName(key: string): string | null {
   try { return agentById(orchDir(), id)?.name ?? null; } catch { return null; }
 }
 
-function recipientName(_record: SpawnedRecord | undefined, status: PresenceEntry["status"], workspace: string, key: string): string {
-  return normalizedAgentName(key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(workspace, key);
+function recipientName(_record: SpawnedRecord | undefined, status: PresenceEntry["status"], space: string, key: string): string {
+  return normalizedAgentName(key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(space, key);
 }
 
 function recipientHarness(record: SpawnedRecord | undefined, status: PresenceEntry["status"]): string | null {
@@ -79,9 +79,9 @@ function recipientHarness(record: SpawnedRecord | undefined, status: PresenceEnt
 export function recipientFor(key: string, spawned = spawnedRecords()): Recipient {
   const record = spawned.get(key);
   const status = loadPresence().get(key)?.status ?? null;
-  const workspace = record?.workspace ?? workspaceOf(orchDir(), key) ?? "workspace";
+  const space = record?.space ?? spaceOf(orchDir(), key) ?? "space";
   return {
-    name: recipientName(record, status, workspace, key),
+    name: recipientName(record, status, space, key),
     harness: recipientHarness(record, status),
     multiplexer: record?.backend ?? null,
     transportId: record?.handle ?? key,
@@ -97,18 +97,20 @@ function naturalPaneOrder(id: string): [string, number] {
   return match ? [match[1]!, parseInt(match[2]!, 10)] : [id, 0];
 }
 
-export function entityWorkspace(e: Entity): string | null {
-  return e.workspace ?? workspaceOf(orchDir(), e.key);
+export function entitySpace(e: Entity): string | null {
+  return e.space ?? spaceOf(orchDir(), e.key);
 }
 
-export function currentWorkspace(): string | null {
-  return resolveBackend({}).currentIdentity?.()?.workspace ?? null;
+export function currentSpace(): string | null {
+  // The plexer's own grouping is what orch has stood a space up on so far; the
+  // word stays on the port's side of the boundary and never crosses it.
+  return resolveBackend({}).identity?.current()?.workspace ?? null;
 }
 
-export function scopeEntitiesToWorkspace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
-  const currentWs = currentWorkspace();
-  if (opts?.all === true || currentWs === null) return entities;
-  return entities.filter((entity) => sameWorkspace(entityWorkspace(entity), currentWs));
+export function scopeEntitiesToSpace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
+  const current = currentSpace();
+  if (opts?.all === true || current === null) return entities;
+  return entities.filter((entity) => sameSpace(entitySpace(entity), current));
 }
 
 function handlesByKey(records: Map<string, SpawnedRecord>, backend: Backend): Map<string, string> {
@@ -151,7 +153,7 @@ function entityFromBackendTarget(
     // and goes stale, which is what makes mid-run `tail` read an empty session.
     sessionPath: pres?.status?.sessionPath ?? null,
     presenceOnly: false,
-    workspace: target.workspace ?? workspaceOf(orchDir(), key),
+    space: target.workspace ?? spaceOf(orchDir(), key),
   };
 }
 
@@ -193,7 +195,7 @@ function presenceOnlyEntity(
     backend: record?.backend ?? null,
     presence: entry,
     presenceOnly: true,
-    workspace: record?.workspace ?? workspaceOf(orchDir(), entry.key),
+    space: record?.space ?? spaceOf(orchDir(), entry.key),
   };
 }
 
@@ -228,7 +230,7 @@ function entitiesFromRecords(
         presence: null,
         sessionPath: null,
         presenceOnly: true,
-        workspace: record.workspace ?? null,
+        space: record.space ?? null,
       };
     });
 }
@@ -248,9 +250,9 @@ export function sortEntities(entities: Entity[]): Entity[] {
   const live = entities.filter((entity) => !entity.presenceOnly);
   const only = entities.filter((entity) => entity.presenceOnly);
   live.sort((left, right) => {
-    const [leftWorkspace, leftNumber] = naturalPaneOrder(left.paneId ?? left.key);
-    const [rightWorkspace, rightNumber] = naturalPaneOrder(right.paneId ?? right.key);
-    return leftWorkspace === rightWorkspace ? leftNumber - rightNumber : leftWorkspace < rightWorkspace ? -1 : 1;
+    const [leftGroup, leftNumber] = naturalPaneOrder(left.paneId ?? left.key);
+    const [rightGroup, rightNumber] = naturalPaneOrder(right.paneId ?? right.key);
+    return leftGroup === rightGroup ? leftNumber - rightNumber : leftGroup < rightGroup ? -1 : 1;
   });
   only.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
   return [...live, ...only];
@@ -293,11 +295,11 @@ function matchInPool(entities: Entity[], localTarget: string, target: string, ho
   return null;
 }
 
-// Every control/read target resolves within the caller's own workspace by
+// Every control/read target resolves within the caller's own space by
 // default — crossing the wall is never an accident of typing a foreign key.
 // A host-prefixed (<host>/<target>) or --all target opts out; headless runs
-// (no current workspace) are unscoped.
-export function resolveTarget(target: string, opts?: { all?: boolean; crossWorkspace?: boolean }): Entity {
+// (no current space) are unscoped.
+export function resolveTarget(target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
   let ref: TargetRef;
   try {
     ref = parseTarget(target);
@@ -306,9 +308,9 @@ export function resolveTarget(target: string, opts?: { all?: boolean; crossWorks
   }
   const localTarget = ref.target;
   const everything = buildEntities();
-  const crossWorkspace = opts?.crossWorkspace === true;
-  const crossWall = opts?.all === true || crossWorkspace || ref.host !== null;
-  const pool = scopeEntitiesToWorkspace(everything, { all: crossWall });
+  const crossSpace = opts?.crossSpace === true;
+  const crossWall = opts?.all === true || crossSpace || ref.host !== null;
+  const pool = scopeEntitiesToSpace(everything, { all: crossWall });
 
   const match = matchInPool(pool, localTarget, target, ref.host);
   if (match) return match;
@@ -316,15 +318,15 @@ export function resolveTarget(target: string, opts?: { all?: boolean; crossWorks
   if (!crossWall) {
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
-      // The wall decision lives in policy/workspace.ts alone; this only relays it.
-      const decision = checkWall(orchDir(), selfId() ?? null, foreign.key, { crossWorkspace: false });
-      if (!decision.allowed) die(decision.reason ?? "workspace-wall denied the write");
+      // The wall decision lives in policy/space.ts alone; this only relays it.
+      const decision = checkWall(orchDir(), selfId() ?? null, foreign.key, { crossSpace: false });
+      if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
     }
   }
   die(`No target matches "${target}". Run 'orch panes' to list.`);
 }
 
-export function resolvePane(target: string, opts?: { all?: boolean; crossWorkspace?: boolean }): { ent: Entity; pane: string } {
+export function resolvePane(target: string, opts?: { all?: boolean; crossSpace?: boolean }): { ent: Entity; pane: string } {
   const ent = resolveTarget(target, opts);
   if (!ent.paneId) die(`Target "${target}" has no pane.`);
   return { ent, pane: ent.paneId };

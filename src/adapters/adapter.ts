@@ -9,7 +9,7 @@ export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;
 export type AdapterId = (typeof ADAPTER_IDS)[number];
 
 export function isAdapterId(value: unknown): value is AdapterId {
-  return typeof value === "string" && (ADAPTER_IDS as readonly string[]).includes(value);
+  return typeof value === "string" && ADAPTER_IDS.some((id) => id === value);
 }
 
 /** Ways an adapter can deliver a mid-run steering message. */
@@ -21,7 +21,7 @@ const LIFECYCLE_VERBS = ["reset", "reload", "restart"] as const;
 export type LifecycleVerb = (typeof LIFECYCLE_VERBS)[number];
 
 export function isLifecycleVerb(value: unknown): value is LifecycleVerb {
-  return typeof value === "string" && (LIFECYCLE_VERBS as readonly string[]).includes(value);
+  return typeof value === "string" && LIFECYCLE_VERBS.some((verb) => verb === value);
 }
 
 /** States an adapter may expose through orch's presence protocol. */
@@ -200,35 +200,82 @@ export interface ThinkingStrategy {
   set(level: ThinkingLevel): void;
 }
 
+export interface WorkerLaunchRole {
+  restrictedInteractiveCmd(opts: SpawnOpts): string;
+  restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[];
+}
+
+export interface ModelControlRole {
+  setModel(request: ModelRequest): AdapterCommand | undefined;
+}
+
+export interface LifecycleControlRole {
+  lifecycleCmd(verb: LifecycleVerb): { text: string } | undefined;
+}
+
+export interface SessionViewRole {
+  readSessionView(input: SessionViewInput): SessionView | undefined;
+}
+
+export interface WorkspaceTrustRole {
+  preTrustWorkspace(cwd: string, cmd: string): void;
+}
+
+export interface ShimRole {
+  installShim(opts?: ShimInstallOpts): void | Promise<void>;
+  diagnoseShim(): CheckResult | Promise<CheckResult>;
+}
+
+export interface DefaultModelRole {
+  defaultModelString(): string | undefined;
+}
+
+export interface ModelCatalogueRole {
+  listModels(): readonly HarnessModel[];
+}
+
+export interface ModelWarmRole {
+  warmModels(): Promise<void>;
+}
+
+export interface QuestionRole {
+  answer(request: AnswerRequest): AdapterCommand | undefined;
+}
+
+export interface InboxSteeringRole {
+  steer(request: SteerRequest): AdapterCommand | undefined;
+}
+
+export interface PresenceRegistrationRole {
+  isRegistered(key: string): boolean;
+}
+
 export interface AgentAdapter {
   /** Stable adapter id recorded in the spawn registry and presence status. */
   readonly id: AdapterId;
   /** Harness-specific thinking control, absent when that harness exposes none. */
-  readonly thinking?: ThinkingStrategy | null;
-  /**
-   * Declared behavior limits used by commands to choose safe fallbacks or fail clearly.
-   */
-  readonly capabilities: {
-    /** Steering mechanism: inbox is lossless, keys/resume are degraded, none is unsupported. */
-    readonly steer: SteerMechanism;
-    /** Whether the adapter can participate in orch's blocking question/answer flow. */
-    readonly ask: boolean;
-    /** Whether `orch model` can change this adapter's active model. */
-    readonly setModel: boolean;
-    /** Whether native session output can be tailed for supplementary state/result data. */
-    readonly sessionTail: boolean;
-    /**
-     * Whether the harness writes a presence status record as its session starts.
-     * True is what lets a launch VERIFY the agent came up instead of trusting that
-     * the backend returned a handle; false makes an unverifiable spawn, and a
-     * launch must say so rather than report a success it never confirmed.
-     */
-    readonly registersPresenceOnStart: boolean;
-    /** Session-lifecycle verbs (reset/reload/restart) this adapter declares a native mechanism for; empty when none. */
-    readonly lifecycle: readonly LifecycleVerb[];
-    /** Whether the adapter has a pre-tool seam that can transparently wrap locked commands in the machine-wide lock (pi bridge); false adapters get the worker-prompt clause only, and doctor/setup report the gap. */
-    readonly enforcesCommandLocks: boolean;
-  };
+  readonly thinking: ThinkingStrategy | null;
+  /** Complete worker launch commands, absent when this harness cannot restrict workers. */
+  readonly workerLaunch: WorkerLaunchRole | null;
+  /** Complete running-session model control, absent when unsupported. */
+  readonly modelControl: ModelControlRole | null;
+  /** Complete lifecycle command control, absent when unsupported. */
+  readonly lifecycleControl: LifecycleControlRole | null;
+  /** Native session-tail reader, absent when this harness has no native transcript. */
+  readonly sessionView: SessionViewRole | null;
+  /** Trust-store preparation, absent when this harness has no trust store. */
+  readonly workspaceTrust: WorkspaceTrustRole | null;
+  /** Integration install and diagnosis, absent when this harness has no shim. */
+  readonly shim: ShimRole | null;
+  /** Persisted default model reader, absent when this harness has none. */
+  readonly defaultModel: DefaultModelRole | null;
+  /** Harness model catalogue, absent when it exposes no catalogue. */
+  readonly models: ModelCatalogueRole | null;
+  /** Background catalogue warm-up, absent when listing is synchronous. */
+  readonly modelWarm: ModelWarmRole | null;
+  readonly question: QuestionRole | null;
+  readonly inboxSteering: InboxSteeringRole | null;
+  readonly presenceRegistration: PresenceRegistrationRole | null;
   /**
    * Env var this harness's interactive session exports into its subprocesses,
    * letting orch name the session KIND a spawn came from when the caller is not
@@ -261,66 +308,14 @@ export interface AgentAdapter {
    * pre-quoted string exports the quotes as part of the value.
    */
   interactiveArgv(opts: SpawnOpts): readonly string[];
-  /**
-   * Build the restricted shell command used for worker launches.
-   * Adapters that cannot enforce a tool allowlist return their normal command;
-   * this is an explicit capability gap rather than an implicit global discovery.
-   * Omit this method when the adapter cannot restrict launches.
-   */
-  restrictedInteractiveCmd?(opts: SpawnOpts): string;
   /** Build argv for a detached backend, including the initial prompt. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[];
-  /**
-   * Build restricted argv for a detached worker, including the initial prompt.
-   * Adapters without allowlist support may omit this method or return headlessCmd(prompt, opts).
-   */
-  restrictedHeadlessCmd?(prompt: string, opts: SpawnOpts): string[];
   /** Translate native process/session signals into a presence-protocol state. */
   detectState(input: StateDetectionInput): AgentState;
   /** Build the command or presence action used to deliver a steering message. */
   steer(request: SteerRequest): AdapterCommand | undefined;
   /** Build the command or presence action used to answer a blocking question. */
   answer(request: AnswerRequest): AdapterCommand | undefined;
-  /** Build the command or presence action used to switch the active model; present only when capabilities.setModel is true. */
-  setModel?(request: ModelRequest): AdapterCommand | undefined;
-  /** Build the delivery text for a lifecycle verb; called only when capabilities.lifecycle includes that verb. */
-  lifecycleCmd?(verb: LifecycleVerb): { text: string } | undefined;
   /** Extract the final assistant text that should be written to `result.json`. */
   extractResult(input: ResultExtractionInput): string | undefined;
-  /**
-   * Read supplementary state/model/cost/task/result data from the adapter's
-   * native session output. Declared only by adapters with `capabilities.sessionTail`;
-   * callers must gate on that capability, never on method presence.
-   */
-  readSessionView?(input: SessionViewInput): SessionView | undefined;
-  /**
-   * Seed the adapter's own trust/approval store for `cwd` before a launch.
-   * `cmd` is the shell command the launcher will actually run, so an adapter
-   * can skip seeding when a custom --cmd does not start its CLI.
-   * Omit this method when the adapter has no trust store.
-   */
-  preTrustWorkspace?(cwd: string, cmd: string): void;
-  /** Install adapter-specific hooks/shims without removing unrelated user setup. */
-  installShim?(opts?: ShimInstallOpts): void | Promise<void>;
-  /**
-   * Verify exactly the integration artifacts written by installShim for this adapter.
-   * Omit this method when the adapter declares no integration shim.
-   */
-  diagnoseShim?(): CheckResult | Promise<CheckResult>;
-  /** The adapter's persisted default model, for display; undefined if it has none. */
-  defaultModelString?(): string | undefined;
-  /**
-   * Every model this harness can run, read from ITS OWN registry and reported in
-   * orch's `provider/id` vocabulary. orch never parses a harness registry itself —
-   * that format is the adapter's only knowledge — and orch still owns which model
-   * is chosen. Omit when the harness exposes no enumerable model list.
-   */
-  listModels?(): readonly HarnessModel[];
-  /**
-   * Start enumerating in the background so a later `listModels` answers from cache.
-   * Callers fire this for every selected harness at once and await it just before
-   * they need the list, turning a sum of cold registry queries into one wait.
-   * Omit when the harness enumerates from memory or a local file.
-   */
-  warmModels?(): Promise<void>;
 }

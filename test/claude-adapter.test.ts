@@ -55,9 +55,17 @@ afterAll(() => {
 });
 
 describe("Claude adapter", () => {
-  test("declares its identity and capabilities", () => {
+  test("declares its identity, and composes only the roles it fully implements", () => {
     expect(claudeAdapter.id).toBe("claude");
-    expect(claudeAdapter.capabilities).toEqual({ steer: "keys", ask: false, setModel: false, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: false, lifecycle: [] });
+    // Claude reads a native transcript and registers presence on start...
+    expect(claudeAdapter.sessionView).not.toBeNull();
+    expect(claudeAdapter.presenceRegistration).not.toBeNull();
+    // ...and composes NOTHING for what it cannot do. An absent role is the whole
+    // capability statement: no stub, no "unsupported" return, no boolean (E13).
+    expect(claudeAdapter.inboxSteering).toBeNull();
+    expect(claudeAdapter.question).toBeNull();
+    expect(claudeAdapter.modelControl).toBeNull();
+    expect(claudeAdapter.lifecycleControl).toBeNull();
   });
 
   test("builds the interactive Claude launch command", () => {

@@ -10,14 +10,22 @@ import type { AgentAdapter, SessionView, SessionViewEntry } from "../adapters/ad
 import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
+import { commandLogger } from "./logging.ts";
+
+function resultLogger(key?: string) {
+  const agentId = key ? tryParseIdentity(key)?.id : undefined;
+  return agentId ? commandLogger().forAgent(agentId) : commandLogger();
+}
 
 interface QuestionRow { key: string; name: string | null; age: string; question: string; space?: string; host?: string; warning?: string }
 
 interface QuestionPayload { ts?: unknown; question: string }
 
-function writeHistoricalResult(run: { result?: unknown }, json: boolean): boolean {
+function writeHistoricalResult(run: { result?: unknown }, json: boolean, key?: string): boolean {
   if (run.result === undefined) return false;
-  process.stderr.write("(result from run history)\n");
+  resultLogger(key).info("result.history-fallback");
+  process.stdout.write("(result from run history)\n");
   if (json) {
     process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
     return true;
@@ -58,8 +66,8 @@ function adapterResultText(ent: Entity, adapter: AgentAdapter): string | undefin
 }
 
 function adapterSessionView(ent: Entity, adapter: AgentAdapter): SessionView | undefined {
-  if (!adapter.capabilities.sessionTail) return undefined;
-  return adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined });
+  if (!adapter.sessionView) return undefined;
+  return adapter.sessionView.readSessionView({ sessionPath: ent.sessionPath ?? undefined });
 }
 
 function sessionViewValue(view: SessionView | undefined, key: keyof SessionView): unknown {
@@ -81,7 +89,8 @@ function writeAdapterResult(ent: Entity, json: boolean): boolean {
   if (!adapter) return false;
   const text = adapterResultText(ent, adapter);
   if (!text) return false;
-  process.stderr.write("(no result.json - falling back to adapter-extracted session text)\n");
+  resultLogger(ent.key).info("result.adapter-fallback");
+  process.stdout.write("(no result.json - falling back to adapter-extracted session text)\n");
   if (json) writeAdapterJson(ent, adapter, text);
   else process.stdout.write(text + "\n");
   return true;
@@ -90,7 +99,7 @@ function writeAdapterResult(ent: Entity, json: boolean): boolean {
 function tryHistoricalTarget(target: string, json: boolean): boolean {
   if (loadPresence().has(target)) return false;
   const historical = latestRunForKey(target);
-  return historical ? writeHistoricalResult(historical, json) : false;
+  return historical ? writeHistoricalResult(historical, json, target) : false;
 }
 
 export function cmdResult(args: string[]) {
@@ -108,7 +117,7 @@ export function cmdResult(args: string[]) {
   assertAgentOwned(target, ent, options.force);
   if (writePresenceResult(ent.presence?.result, options.json)) return;
   const historical = latestRunForKey(ent.key);
-  if (historical && writeHistoricalResult(historical, options.json)) return;
+  if (historical && writeHistoricalResult(historical, options.json, ent.key)) return;
   if (writeAdapterResult(ent, options.json)) return;
   die(`No result available for "${target}" (no result.json and no adapter-extractable session text).`);
 }
@@ -250,7 +259,7 @@ function warningQuestionRow(host: string, warning: string): QuestionRow {
 /** Resolve the target's adapter and require a declared session-tail capability, or die. */
 function resolveSessionTailAdapter(target: string, ent: Entity): AgentAdapter {
   const adapter = entityAdapter(ent);
-  if (!adapter?.capabilities.sessionTail) {
+  if (!adapter?.sessionView) {
     die(`Target "${target}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.`);
   }
   return adapter;
@@ -352,7 +361,7 @@ export function cmdTail(args: string[]) {
   if (!target) die("usage: orch tail <target> [-n N] [--json]");
   const ent = resolveTarget(target);
   const adapter = resolveSessionTailAdapter(target, ent);
-  const view = adapter.readSessionView?.({ sessionPath: ent.sessionPath ?? undefined });
+  const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath ?? undefined });
   if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
   if (options.json) writeTailJson(target, ent, view, options.lines);
   else writeTailText(ent, view, options.lines);
@@ -393,7 +402,7 @@ export function cmdSession(args: string[]) {
   const ent = resolveTarget(target);
   if (!ent.sessionPath) die(`No session path known for "${target}".`);
   const adapter = resolveSessionTailAdapter(target, ent);
-  const view = adapter.readSessionView?.({ sessionPath: ent.sessionPath });
+  const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath });
   if (options.json) writeSessionJson(ent, view);
   else writeSessionText(ent, view);
 }

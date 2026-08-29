@@ -7,7 +7,7 @@ const EXTENSION_SOURCE_DIR = {
 } as const;
 
 /** Basenames of the extensions shipped as prebuilt ESM bundles. */
-export const EXTENSION_NAMES = Object.keys(EXTENSION_SOURCE_DIR) as readonly ExtensionName[];
+export const EXTENSION_NAMES = ["pi-bridge", "omp-bridge"] as const;
 
 /** Bundle names orch no longer ships. A leftover link is reaped on install. */
 export const RETIRED_EXTENSION_NAMES = ["orchestrator-bridge"] as const;

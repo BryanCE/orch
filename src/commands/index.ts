@@ -7,7 +7,8 @@ import { cmdStatus } from "./status.ts";
 import { cmdSpawn, cmdTile } from "./spawn.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
 import { cmdAbort, cmdClose, cmdNew, cmdReload, cmdRename, cmdRestart, cmdRun, cmdWait } from "./lifecycle.ts";
-import { cmdFocus, cmdKeys, cmdMove, cmdPanes, cmdPeek, cmdTab, cmdTabs, cmdWs, cmdZoom } from "./panes.ts";
+import { cmdFocus, cmdKeys, cmdMove, cmdPanes, cmdPeek, cmdTab, cmdTabs, cmdZoom } from "./panes.ts";
+import { cmdSpace } from "./space.ts";
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
 import { cmdRuns } from "./runs.ts";
 import { cmdEvents, cmdNotify } from "./events.ts";
@@ -25,6 +26,7 @@ import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
 import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
+import { commandLogger } from "./logging.ts";
 
 function usage() {
   process.stdout.write(
@@ -134,9 +136,13 @@ TABS
   orch tab close <tab_id|label>
   orch tab focus <tab_id|label>  Jump the user's view to that tab.
 
-WORKSPACES
-  orch ws [list]                 List workspaces: id, label, tab/pane counts, status.
-  orch ws focus <workspace_id>   Jump the user's view to that workspace.
+SPACES
+  orch space list                List orch spaces by their names.
+  orch space new <name>          Create a named space and its environment home.
+  orch space rename <space> <name>
+                                 Rename a space and its home.
+  orch space close <space>       Close an empty space and its home.
+  orch space focus <space>       Focus a space's home.
 
 MAINTENANCE
   orch daemon start [--fg|--foreground] | stop | status [--json] | reload
@@ -215,7 +221,7 @@ const VERSION = readOrchVersion();
 
 const STALE_GUARD_COMMANDS = new Set([
   "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
-  "queue", "work", "model", "broadcast", "detach", "adopt", "reap",
+  "queue", "work", "model", "broadcast", "detach", "adopt", "reap", "space",
 ]);
 
 /** Refuse writes sent to a live daemon from a stale installed CLI. */
@@ -311,7 +317,7 @@ const commandHandlers: Record<string, Handler> = {
   focus: (args) => cmdFocus(args),
   zoom: (args) => cmdZoom(args),
   move: (args) => cmdMove(args),
-  ws: (args) => cmdWs(args),
+  space: (args) => cmdSpace(args),
   clean: (args) => cmdClean(args),
   grant: (args) => dispatchAsync(cmdGrant(args)),
   settings: (args) => {
@@ -319,7 +325,7 @@ const commandHandlers: Record<string, Handler> = {
     else if (args[0] === "notify") dispatchAsync(cmdSettingsNotify(args.slice(1)));
     else if (args[0] === "skills") cmdSettingsSkills(args.slice(1));
     else if (args[0] === "thinking") cmdSettingsThinking(args.slice(1));
-    else cmdSettings(args);
+    else dispatchAsync(cmdSettings(args));
   },
   setup: (args) => dispatchAsync(cmdSetup(args)),
   "--version": () => { void process.stdout.write(`orch ${VERSION}\n`); },
@@ -365,6 +371,7 @@ export function runCommand(argv: string[]): void {
   }
   if (cmd.startsWith("--")) dispatchAsync(cmdStatus(argv));
   else {
+    commandLogger().error("command.unknown", { command: cmd });
     process.stderr.write(`Unknown command: ${cmd}\n\n`);
     usage();
     process.exit(1);

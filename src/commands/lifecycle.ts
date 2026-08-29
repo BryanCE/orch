@@ -23,6 +23,12 @@ import { adapterCommand, assertLaunchModelAllowed, launchModel, pickAdapter, pin
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, ownsAgent, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget } from "./target.ts";
+import { commandLogger } from "./logging.ts";
+
+function lifecycleLogger(key: string) {
+  const agentId = tryParseIdentity(key)?.id;
+  return agentId ? commandLogger().forAgent(agentId) : commandLogger();
+}
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
 export async function cmdRun(args: string[]): Promise<void> {
@@ -245,6 +251,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
     if (paneAtShellPrompt(paneForeground(backend, pane))) { shellSeen = true; break; }
   }
   if (!shellSeen) {
+    lifecycleLogger(presenceKey).warn("lifecycle.restart-exit-timeout", { handle: pane, command: quitText });
     process.stderr.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
@@ -254,6 +261,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
     const st = readPresenceStatus(statusPath);
     if (typeof st?.pid === "number" && st.pid !== oldPid && pidAlive(st.pid)) return true;
   }
+  lifecycleLogger(presenceKey).warn("lifecycle.restart-bridge-timeout", { handle: pane });
   process.stderr.write(`${pane}: relaunched but bridge status.json did not refresh within 20s.\n`);
   return false;
 }
@@ -273,22 +281,36 @@ export async function cmdReload(args: string[]): Promise<void> {
   // reload.signal (SIGNALED) for config/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
-  // A reload exists to pick up new code, so stale deployments redeploy first.
-  await refreshStaleShims(orchDir());
+  // Resolve every target BEFORE touching a shim: an unresolvable target must not
+  // leave a redeployed integration behind, and the refresh below can only be
+  // scoped to the harnesses in play once they are known.
+  type Planned = ReturnType<typeof resolveLifecycleTarget> & { target: string; agentId: string; reloadText: string };
+  const planned: Planned[] = [];
   const results: ReloadResult[] = [];
   for (const target of targets) {
     try {
-      const { entity: ent, backend, handle } = resolveLifecycleTarget(target);
-      assertAgentOwned(target, ent, force);
-      const agentId = ent.agent ?? ent.presence?.status?.agent;
+      const resolved = resolveLifecycleTarget(target);
+      assertAgentOwned(target, resolved.entity, force);
+      const agentId = resolved.entity.agent ?? resolved.entity.presence?.status?.agent;
       if (!agentId) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(agentId);
-      const reloadCmd = adapter.capabilities.lifecycle.includes("reload") ? adapter.lifecycleCmd?.("reload") : undefined;
+      const reloadCmd = adapter.lifecycleControl?.lifecycleCmd("reload");
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
+      planned.push({ ...resolved, target, agentId: adapter.id, reloadText: reloadCmd.text });
+    } catch (error: unknown) {
+      results.push({ pane: target, ok: false, reason: errorMessage(error) });
+    }
+  }
+  // A reload exists to pick up new code, so stale deployments redeploy first —
+  // but only for the harnesses being reloaded. `orch reload <pi agent>` has no
+  // business rewriting another harness's integration.
+  if (planned.length) await refreshStaleShims(orchDir(), [...new Set(planned.map((p) => p.agentId))]);
+  for (const { target, entity: ent, backend, handle, reloadText } of planned) {
+    try {
       // No console to type `/reload` into leaves only the daemon, which owns
       // every lifecycle mechanism a backend does or does not have.
       results.push(backend.paneInput
-        ? reloadPaneAndAwaitBridge(backend, String(handle), ent.key, reloadCmd.text)
+        ? reloadPaneAndAwaitBridge(backend, String(handle), ent.key, reloadText)
         : await lifecycleThroughDaemon("reload", ent.key, String(handle)));
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
@@ -332,14 +354,18 @@ export async function cmdRestart(args: string[]): Promise<void> {
     const agentId = ent.agent ?? ent.presence?.status?.agent;
     if (!agentId) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
     const adapter = resolveAdapterOrDie(agentId);
-    const quitCmd = adapter.capabilities.lifecycle.includes("restart") ? adapter.lifecycleCmd?.("restart") : undefined;
+    const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
     if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
     // A pane is quit and relaunched by typing into its shell; a detached agent
     // has no shell, so the daemon rules on what restart means for it.
     if (!backend.paneInput) {
       const restarted = await lifecycleThroughDaemon("restart", ent.key, String(handle));
       if (restarted.ok) { ok++; if (!json) process.stdout.write(`${restarted.pane}: bridge live.\n`); }
-      else process.stderr.write(`${restarted.pane}: ${restarted.reason ?? "restart failed"}\n`);
+      else {
+        const reason = restarted.reason ?? "restart failed";
+        lifecycleLogger(ent.key).error("lifecycle.restart-failed", { handle: String(restarted.pane), error: reason });
+        process.stderr.write(`${restarted.pane}: ${reason}\n`);
+      }
       continue;
     }
     // Restart is a fresh harness launch, so resolve its model exactly like spawn
@@ -369,6 +395,7 @@ function renameAgent(
 ): boolean {
   const record = records.get(key);
   if (!record) {
+    lifecycleLogger(key).error("rename.unmanaged-agent", { target: key });
     process.stderr.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return false;
   }
@@ -459,7 +486,10 @@ export function cmdClose(args: string[]) {
       // Every registry row is orch-managed, regardless of which session spawned it.
       // Ending is never gated by ownership or provenance; unmanaged panes have no row.
       const backend = getBackend(record.backend ?? "") ?? null;
-      if (!backend) process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
+      if (!backend) {
+        lifecycleLogger(record.pane).warn("close.unknown-backend", { backend: record.backend ?? null, handle: record.pane });
+        process.stderr.write(`skipping ${record.pane}: unknown backend ${JSON.stringify(record.backend)} (reaping the record)\n`);
+      }
       targets.push({
         backend,
         handle: record.handle ?? record.pane,
@@ -537,6 +567,7 @@ export function cmdClose(args: string[]) {
     }
 
     if (closeFailed) {
+      lifecycleLogger(target.key).error("close.failed", { handle: String(target.handle) });
       process.stderr.write(`Could not close ${String(target.handle)}; process or pane remains registered.\n`);
       continue;
     }

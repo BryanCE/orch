@@ -23,12 +23,12 @@ run `orch doctor` — with `-y` it applies every fix unattended.
 
 ## Fleet model
 
-- **Tab = domain** (`server`, `client`). First need in a domain: `orch spawn 2 --name
-  <domain>` → new tab, panes stacked. Cap 4 panes per tab.
+- **Tab = domain** (`server`, `client`). First need in a domain: `orch spawn <name> <name>
+  --tab <domain>` → new tab, panes stacked. Cap 4 panes per tab.
 - **Pane = a named worker for one subtask** of that domain. `--tab <label>` FILLS a tab that
   already carries the label, and spawning under a live `<prefix>` grows that fleet in ITS
   tab (numbering continues past the highest live `<prefix>-<n>`), so a second spawn for the
-  same domain lands where it belongs without a move. `orch tile <tab|pane> --name <x>` adds
+  same domain lands where it belongs without a move. `orch tile <tab|pane> <name>` adds
   exactly ONE pane. Use `orch move <pane> --tab <tab_id from orch tabs> --split down` only
   when a pane is already in the wrong tab — there, pass the tab ID, never the label.
 - **A tab is one real domain and every pane in it belongs to that domain. FILL a tab to its
@@ -98,7 +98,7 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
 ## Spawn
 
 ```bash
-orch spawn 2 --name api --cwd "$(git rev-parse --show-toplevel)"
+orch spawn api-types api-routes --cwd "$(git rev-parse --show-toplevel)"
 ```
 
 Told to use orch → spawn is your first tool call. No status preflight, no asking. Opens one
@@ -113,7 +113,12 @@ tab of N balanced-tiled agents named `<prefix>-1..N`. Never steals focus. Cap is
   no error to hit. `--cwd` is the only sandbox orch offers; a spawn without it is unscoped.
   (Real cost: a fleet spawned for one repo edited a different repo's source instead. Every
   dispatch named the right repo; none of them were confined to it.)
-- `--tab` names the *tab*, `--name` names the *agents*; each falls back to the other.
+- **Naming is part of creating.** The positional arguments ARE the agent names, one per
+  pane, and how many you give is how many panes you get. There is no `--name` flag, no
+  default name and no `<prefix>-<n>` numbering: name each pane for the SLICE it holds
+  (`mcp-types`, `mcp-tools`, `mcp-guards`), and you never pay for a rename afterwards.
+  Renaming is for when the WORK changes, never for creation.
+- `--tab` names the *tab*; an unnamed tab borrows the first agent's name.
 - Every name is validated before any tab or pane is created: a refused spawn leaves nothing.
 - `--worktree` only when parallel agents would otherwise edit the same files; collect with
   `orch review`.
@@ -275,7 +280,7 @@ same agent. Names are the readable option, so keep them meaningful (see renaming
 this session's events stream at the same time.
 
 Arrange panes without stealing focus: `orch tile`, `orch move`, `orch zoom`,
-`orch tab new|rename|close`, `orch ws`. Only the `focus` commands jump the user's view.
+`orch tab new|rename|close`, `orch space`. Only the `focus` commands jump the user's view.
 
 Steer a running agent **at most once** with `orch steer <target> "<text>"`; it arrives
 mid-turn. A doctrine change big enough to need explaining twice is a `reset` plus a new

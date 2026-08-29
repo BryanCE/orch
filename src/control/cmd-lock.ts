@@ -2,7 +2,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } f
 import { join } from "node:path";
 
 import { processInstanceMatches, processStartToken } from "../process-identity.ts";
-import { sleep } from "../util.ts";
+import { errnoCode, sleep } from "../util.ts";
 
 export interface CommandLock {
   pid: number;
@@ -61,7 +61,7 @@ function createLock(path: string, record: CommandLock): boolean {
     }
     return true;
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    if (errnoCode(error) === "EEXIST") return false;
     throw error;
   }
 }
@@ -72,7 +72,7 @@ function reapLock(path: string, lock: CommandLock): boolean {
     unlinkSync(path);
     return true;
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if (errnoCode(error) === "ENOENT") return false;
     throw error;
   }
 }
@@ -95,7 +95,7 @@ export async function acquireCommandLock(orchDir: string, options: CommandLockOp
         unlinkSync(path);
         continue;
       } catch (error: unknown) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        if (errnoCode(error) !== "ENOENT") throw error;
       }
     }
     if (Date.now() - started >= timeoutMs) break;
@@ -114,7 +114,7 @@ export function releaseCommandLock(orchDir: string, pid = process.pid, startToke
     unlinkSync(path);
     return true;
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if (errnoCode(error) === "ENOENT") return false;
     throw error;
   }
 }

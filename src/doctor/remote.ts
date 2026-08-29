@@ -3,7 +3,7 @@ import { loadConfigOrNull, type HostConfig } from "../config.ts";
 import { runSSH, type SshResult } from "../remote.ts";
 import type { CheckResult } from "../check-result.ts";
 import { readJson } from "./shared.ts";
-import { packageRoot, shellQuote } from "../util.ts";
+import { isRecord, packageRoot, shellQuote } from "../util.ts";
 
 export type SshRunner = (destination: string, command: string, options?: { timeoutMs?: number }) => SshResult;
 
@@ -42,7 +42,8 @@ export async function checkRemoteVersion(orchDir: string, runner: SshRunner = ru
   await Promise.resolve();
   const hosts = configuredHosts(orchDir);
   const failures: string[] = [];
-  const local = (readJson(path.join(packageRoot(), "package.json")) as { version?: string }).version ?? "unknown";
+  const packageJson = readJson(path.join(packageRoot(), "package.json"));
+  const local = isRecord(packageJson) && typeof packageJson.version === "string" ? packageJson.version : "unknown";
   for (const [name, host] of hosts) {
     const destination = hostDestination(name, host);
     const result = runner(destination, "orch --version", { timeoutMs: host.timeout_ms });

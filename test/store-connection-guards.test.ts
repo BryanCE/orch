@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { assertStoreRecreatable, closeAllStores, openStore } from "../src/store/connection.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -58,5 +58,74 @@ describe("store migration guards", () => {
     expect(() => openStore(dir)).toThrow(/live agents/i);
     expect(readFileSync(path)).toEqual(before);
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
+  });
+});
+
+/** The message a refusal carried, so a test can assert what it named AND what it
+ *  did not — a remedy handed to the wrong caller is the defect H10 records. */
+function refusalMessage(body: () => unknown): string {
+  try {
+    body();
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error("expected a refusal, got none");
+}
+
+function seedLivePresence(dir: string, key: string, pid: number): void {
+  const presenceDir = join(dir, "agents", key);
+  mkdirSync(presenceDir, { recursive: true });
+  writeFileSync(join(presenceDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, pid, state: "working" }));
+}
+
+describe("a slave never reaps or recreates the store", () => {
+  test("a spawned agent hitting a schema-mismatched store errors and mutates nothing", () => {
+    const dir = fixture();
+    const path = unmigrated(dir);
+    const before = readFileSync(path);
+    process.env.ORCH_AGENT_KEY = "herdr~w1~agent-1";
+
+    const message = refusalMessage(() => openStore(dir));
+
+    // The skew, named.
+    expect(message).toContain("does not match orch's migrations");
+    // The fix, addressed to whoever may actually apply it - never a rebuild
+    // instruction handed to the agent that must not run one.
+    expect(message).toMatch(/spawned agent/i);
+    expect(message).not.toContain("db:reset");
+    expect(readFileSync(path)).toEqual(before);
+    expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
+  });
+
+  test("a recreate is refused while a live presence dir exists, for the user too", () => {
+    const dir = fixture();
+    openStore(dir);
+    closeAllStores();
+    seedLivePresence(dir, "herdr~w1~p1", process.pid);
+
+    // No ORCH_AGENT_KEY: this is the user, and the living agent's identity is
+    // still not collateral.
+    const message = refusalMessage(() => assertStoreRecreatable(dir));
+
+    expect(message).toMatch(/live/i);
+    expect(message).toContain("herdr~w1~p1");
+  });
+
+  test("the user may recreate once nothing is live", () => {
+    const dir = fixture();
+    openStore(dir);
+    closeAllStores();
+    seedLivePresence(dir, "herdr~w1~dead", 999999);
+
+    expect(() => assertStoreRecreatable(dir)).not.toThrow();
+  });
+
+  test("a spawned agent is refused a recreate even with nothing live", () => {
+    const dir = fixture();
+    openStore(dir);
+    closeAllStores();
+    process.env.ORCH_AGENT_KEY = "herdr~w1~agent-1";
+
+    expect(refusalMessage(() => assertStoreRecreatable(dir))).toMatch(/spawned agent/i);
   });
 });

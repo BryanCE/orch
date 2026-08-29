@@ -14,7 +14,12 @@ interface DaemonWhere {
   endpoint: DaemonEndpoint;
 }
 type DaemonStatus = DaemonDown | (DaemonUp & { running: true; startedAt?: string; where: DaemonWhere });
-type FleetResult = DaemonDown | { daemon: "up"; spaces: Space[]; history: Space[] };
+export interface FleetSnapshot {
+  daemon: "up";
+  spaces: Space[];
+  history: Space[];
+}
+type FleetResult = DaemonDown | FleetSnapshot;
 
 /**
  * Which machine orchd sits on, relative to this web server. A unix socket is one

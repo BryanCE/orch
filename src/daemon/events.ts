@@ -13,7 +13,8 @@ import { tryParseIdentity } from "../backends/identity.ts";
 import { upsertRun, type RunRecord } from "../store/run-rows.ts";
 import { pidAlive, truncate } from "../util.ts";
 import { placementOf } from "../agent/registry.ts";
-import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
+import type { AgentState } from "../adapters/adapter.ts";
+import { isAgentState } from "../agent-state.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
 import { optionalString } from "../util.ts";
 
@@ -89,7 +90,7 @@ function statusState(status: unknown, fallbackPid?: number): AgentState | null {
   if (property(status, "asking")) state = "asking";
   else if (property(status, "state")) {
     const candidate = String(property(status, "state"));
-    state = AGENT_STATES.includes(candidate as AgentState) ? candidate as AgentState : "unknown";
+    state = isAgentState(candidate) ? candidate : "unknown";
   }
   if (!pidAlive(pid)) state = "exited";
   return state;

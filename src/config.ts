@@ -10,14 +10,15 @@ import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.t
 import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
 import { THINKING_LEVELS, type ThinkingLevel } from "./policy/thinking.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
-import { errorMessage } from "./util.ts";
+import { errnoCode, errorMessage, isRecord } from "./util.ts";
 import type { LogLevel } from "./log.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is
- * invalid and recreated by `orch setup`. On a shape change, bump this stamp and fix
- * every writer/reader/test in the same commit. */
-export const SETTINGS_SCHEMA = 5;
+ * invalid and recreated by `orch setup`. This stamp is 1 and DOES NOT MOVE (CLAUDE.md
+ * Rule 14): nothing has published, so there is no installed base to version against.
+ * On a shape change, fix every writer/reader/test — never the number. */
+export const SETTINGS_SCHEMA = 1;
 
 const PositiveInt = z.number().int().positive();
 
@@ -68,7 +69,7 @@ export const NOTIFY_IDS: readonly string[] = NotifyEntrySchema.options.map((opti
 export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 
 export const SETTINGS_DEFAULTS = {
-  fleet: { spawn_cap: 8, pack_cap: 10, worker_peer_tools: false, cross_workspace: false },
+  fleet: { spawn_cap: 8, pack_cap: 10, worker_peer_tools: false, cross_space: false },
   queue: { max_retries: 1 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7 },
   logging: { level: "info" },
@@ -85,7 +86,7 @@ export const SETTINGS_DEFAULTS = {
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
  * JSON round-trip, schemaVersion-stamped, validated loudly on every load. */
-const SettingsFileSchema = z.strictObject({
+export const SETTINGS_FILE_SCHEMA = z.strictObject({
   schemaVersion: z.literal(SETTINGS_SCHEMA),
   /** The JS runtime this install executes under — a REQUIRED top-level scalar, chosen at
    * `orch setup`. Not a member of `defaults` (no spawn may pick its own runtime) and not
@@ -110,9 +111,9 @@ const SettingsFileSchema = z.strictObject({
     spawn_cap: PositiveInt.optional(),
     pack_cap: PositiveInt.optional(),
     max_agents: PositiveInt.optional(),
-    workspace_caps: z.record(z.string(), PositiveInt).optional(),
+    space_caps: z.record(z.string(), PositiveInt).optional(),
     worker_peer_tools: z.boolean().optional(),
-    cross_workspace: z.boolean().optional(),
+    cross_space: z.boolean().optional(),
   }).optional(),
   models: z.strictObject({
     /** The launch gate PER HARNESS: a spawn is refused unless its model matches one of
@@ -160,7 +161,7 @@ const SettingsFileSchema = z.strictObject({
   notify: z.array(NotifyEntrySchema).optional(),
   locked_commands: z.array(z.string()).optional(),
   hosts: z.record(z.string(), HostSchema).optional(),
-  workspaces: z.record(z.string(), z.string()).optional(),
+  spaces: z.record(z.string(), z.string()).optional(),
   daemon: z.strictObject({
     tcp_port: PositiveInt.optional(),
     /** Minutes of no live agents, no subscribers, and no RPC before orchd exits; 0 = never. */
@@ -180,7 +181,7 @@ const SettingsFileSchema = z.strictObject({
   }).optional(),
 });
 
-type SettingsFile = z.infer<typeof SettingsFileSchema>;
+type SettingsFile = z.infer<typeof SETTINGS_FILE_SCHEMA>;
 export type HostConfig = z.infer<typeof HostSchema>;
 
 /** Settings normalized for consumers: every section present and defaults applied. */
@@ -188,7 +189,7 @@ export interface OrchConfig {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
-  fleet: { spawn_cap: number; pack_cap?: number; max_agents?: number; workspace_caps: Record<string, number>; worker_peer_tools: boolean; cross_workspace: boolean };
+  fleet: { spawn_cap: number; pack_cap?: number; max_agents?: number; space_caps: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
@@ -198,7 +199,7 @@ export interface OrchConfig {
   notify: NotifyEntry[];
   locked_commands: string[];
   hosts: Record<string, HostConfig>;
-  workspaces: Record<string, string>;
+  spaces: Record<string, string>;
   daemon: { tcp_port: number; idle_shutdown_minutes: number };
   tiling: { first_split: TileFirstSplit };
   skills: { install: boolean; roots: string[] };
@@ -235,7 +236,7 @@ function valueAtPath(root: unknown, path: readonly PropertyKey[]): unknown {
   let cursor: unknown = root;
   for (const step of path) {
     if (cursor === null || typeof cursor !== "object") return undefined;
-    cursor = (cursor as Record<PropertyKey, unknown>)[step];
+    cursor = Object.getOwnPropertyDescriptor(cursor, step)?.value;
   }
   return cursor;
 }
@@ -247,11 +248,17 @@ function unknownProviderId(root: unknown, path: readonly PropertyKey[]):
   const supported = { adapter: ADAPTER_IDS, adapters: ADAPTER_IDS, backend: BACKEND_IDS, backends: BACKEND_IDS };
   const key = String(path[1] ?? "");
   if (!Object.hasOwn(supported, key)) return null;
+  const supportedIds = key === "adapter" || key === "adapters"
+    ? supported.adapter
+    : key === "backend" || key === "backends"
+      ? supported.backend
+      : undefined;
+  if (supportedIds === undefined) return null;
   return {
     noun: key.replace(/s$/, ""),
     at: path.join("."),
     found: valueAtPath(root, path),
-    supported: supported[key as keyof typeof supported],
+    supported: supportedIds,
   };
 }
 
@@ -261,7 +268,7 @@ function readSettingsFile(file: string): SettingsFile | null {
   try {
     text = filesystem.readFileSync(file, "utf8");
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (errnoCode(error) === "ENOENT") return null;
     throw error;
   }
   let parsed: unknown;
@@ -270,11 +277,11 @@ function readSettingsFile(file: string): SettingsFile | null {
   } catch (error: unknown) {
     throw new Error(`${file}: expected valid JSON, found ${errorMessage(error)}`);
   }
-  const result = SettingsFileSchema.safeParse(parsed);
+  const result = SETTINGS_FILE_SCHEMA.safeParse(parsed);
   if (!result.success) {
     // Every rejection below is rendered as plain guidance naming the file, what is wrong, and
     // the exact command that fixes it. A raw zod issue dump never reaches the operator.
-    const root = parsed as Record<string, unknown> | null;
+    const root = isRecord(parsed) ? parsed : null;
     if (result.error.issues.some((issue) => issue.path[0] === "schemaVersion")) {
       throw new Error(`${file}: this settings file was written by an older orch (schemaVersion ${JSON.stringify(root?.schemaVersion)}; this orch reads ${SETTINGS_SCHEMA}) and cannot be read.\nRun: orch setup`);
     }
@@ -346,9 +353,9 @@ const configValueExtractors = {
     spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
     pack_cap: root.fleet?.pack_cap ?? SETTINGS_DEFAULTS.fleet.pack_cap,
     max_agents: root.fleet?.max_agents,
-    workspace_caps: root.fleet?.workspace_caps ?? {},
+    space_caps: root.fleet?.space_caps ?? {},
     worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
-    cross_workspace: root.fleet?.cross_workspace ?? SETTINGS_DEFAULTS.fleet.cross_workspace,
+    cross_space: root.fleet?.cross_space ?? SETTINGS_DEFAULTS.fleet.cross_space,
   }),
   models: (root: Partial<SettingsFile>) => ({ allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} }),
   workers: (root: Partial<SettingsFile>) => ({
@@ -376,7 +383,7 @@ const configValueExtractors = {
   notify: (root: Partial<SettingsFile>) => root.notify ?? [],
   locked_commands: (root: Partial<SettingsFile>) => root.locked_commands ?? [],
   hosts: (root: Partial<SettingsFile>) => root.hosts ?? {},
-  workspaces: (root: Partial<SettingsFile>) => root.workspaces ?? {},
+  spaces: (root: Partial<SettingsFile>) => root.spaces ?? {},
   daemon: (root: Partial<SettingsFile>) => ({
     tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
     idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
@@ -402,7 +409,7 @@ function configValues(root: Partial<SettingsFile>): Omit<OrchConfig, "runtime" |
     notify: configValueExtractors.notify(root),
     locked_commands: configValueExtractors.locked_commands(root),
     hosts: configValueExtractors.hosts(root),
-    workspaces: configValueExtractors.workspaces(root),
+    spaces: configValueExtractors.spaces(root),
     daemon: configValueExtractors.daemon(root),
     tiling: configValueExtractors.tiling(root),
     skills: configValueExtractors.skills(root),
@@ -570,30 +577,45 @@ function statSignature(file: string): string {
   }
 }
 
-function coerceEnvironment(value: string, fallback: unknown, name: string): unknown {
+function hasFallbackShape<T>(value: unknown, fallback: T): value is T {
+  if (typeof fallback === "number") return typeof value === "number";
+  if (typeof fallback === "boolean") return typeof value === "boolean";
+  if (typeof fallback === "string") return typeof value === "string";
+  if (Array.isArray(fallback)) return Array.isArray(value);
+  return isRecord(fallback) && isRecord(value);
+}
+
+function coerceEnvironment<T>(value: string, fallback: T, name: string): T {
+  let converted: unknown = value;
   if (typeof fallback === "number") {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) throw new Error(`${name}: expected number, found ${JSON.stringify(value)}`);
-    return parsed;
+    converted = parsed;
+  } else if (typeof fallback === "boolean") {
+    if (value === "true" || value === "1") converted = true;
+    else if (value === "false" || value === "0") converted = false;
+    else throw new Error(`${name}: expected boolean, found ${JSON.stringify(value)}`);
   }
-  if (typeof fallback === "boolean") {
-    if (value === "true" || value === "1") return true;
-    if (value === "false" || value === "0") return false;
-    throw new Error(`${name}: expected boolean, found ${JSON.stringify(value)}`);
+  if (!hasFallbackShape(converted, fallback)) {
+    const expected = fallback === null ? "null" : typeof fallback;
+    throw new Error(`${name}: expected ${expected}, found ${JSON.stringify(value)}`);
   }
-  return value;
+  return converted;
 }
 
 /** Where a resolved setting's winning value came from. */
 export type SettingSource = "flag" | "env" | "settings.json" | "default";
 
 /** Resolve a setting with its winning source. The ONE precedence order — flag > env > settings.json > default; `resolveSetting` delegates here so the two can never drift. */
-export function resolveWithSource<T>(opts: { flag?: T; env?: string; config?: T; fallback: T }): { value: T; source: SettingSource } {
+export function resolveWithSource<T>(opts: { flag?: T; env?: string; config?: unknown; fallback: T }): { value: T; source: SettingSource } {
   if (opts.flag !== undefined) return { value: opts.flag, source: "flag" };
-  if (opts.env && process.env[opts.env] !== undefined) {
-    return { value: coerceEnvironment(process.env[opts.env]!, opts.fallback, opts.env) as T, source: "env" };
+  if (opts.env) {
+    const value = process.env[opts.env];
+    if (value !== undefined) return { value: coerceEnvironment(value, opts.fallback, opts.env), source: "env" };
   }
-  if (opts.config !== undefined) return { value: opts.config, source: "settings.json" };
+  if (opts.config !== undefined && hasFallbackShape(opts.config, opts.fallback)) {
+    return { value: opts.config, source: "settings.json" };
+  }
   return { value: opts.fallback, source: "default" };
 }
 
@@ -623,7 +645,8 @@ export function allowedModelPatterns(orchDir: string, harness: AdapterId): strin
  *  thing as no entry, and recording `[]` leaves settings.json claiming a selection nobody made. */
 function withoutEmptyLists(lists: Partial<Record<AdapterId, string[]>>): Partial<Record<AdapterId, string[]>> {
   const kept: Partial<Record<AdapterId, string[]>> = {};
-  for (const [harness, models] of Object.entries(lists) as [AdapterId, string[] | undefined][]) {
+  for (const harness of ADAPTER_IDS) {
+    const models = lists[harness];
     if (models?.length) kept[harness] = models;
   }
   return kept;
@@ -645,12 +668,39 @@ function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile
   // The seed for a brand-new file is deliberately incomplete: `runtime` is required and has
   // no default, so setup must record it (writeSettingsRuntime) before any other write lands.
   const root: Partial<SettingsFile> = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
-  const updated = SettingsFileSchema.parse(mutate(root));
+  const updated = SETTINGS_FILE_SCHEMA.parse(mutate(root));
   requireEnabledComposition(file, updated);
   filesystem.mkdirSync(orchDir, { recursive: true });
   const tmp = settingsTemporaryPath(file);
   filesystem.writeFileSync(tmp, JSON.stringify(updated, null, 2) + "\n");
   filesystem.renameSync(tmp, file);
+}
+
+function setSettingsPath(root: Partial<SettingsFile>, segments: readonly string[], value: unknown): Partial<SettingsFile> {
+  const candidate: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(root)) candidate[key] = entry;
+  const first = segments[0];
+  if (first === undefined) throw new Error("settings key must not be empty");
+  let cursor = candidate;
+  for (const segment of segments.slice(0, -1)) {
+    const existing = cursor[segment];
+    const next: Record<string, unknown> = {};
+    if (existing !== null && typeof existing === "object" && !Array.isArray(existing)) {
+      for (const [key, entry] of Object.entries(existing)) next[key] = entry;
+    }
+    cursor[segment] = next;
+    cursor = next;
+  }
+  const last = segments.at(-1);
+  if (last === undefined) throw new Error("settings key must not be empty");
+  cursor[last] = value;
+  return SETTINGS_FILE_SCHEMA.parse(candidate);
+}
+
+/** Write one schema setting through the same whole-file validator as every specialised writer. */
+export function writeSettingsValue(orchDir: string, key: string, value: unknown): void {
+  const segments = key.split(".");
+  updateSettingsFile(orchDir, (root) => setSettingsPath(root, segments, value));
 }
 
 /** Record the declared JS runtime as the top-level `runtime` key. Idempotent: re-recording the
@@ -686,9 +736,10 @@ export function writeSettingsThinking(
 ): void {
   updateSettingsFile(orchDir, (root) => {
     const current = { ...root.defaults?.thinking_by_harness };
-    for (const [harness, level] of Object.entries(update.byHarness ?? {})) {
-      if (level === null) delete current[harness as AdapterId];
-      else if (level !== undefined) current[harness as AdapterId] = level;
+    for (const harness of ADAPTER_IDS) {
+      const level = update.byHarness?.[harness];
+      if (level === null) delete current[harness];
+      else if (level !== undefined) current[harness] = level;
     }
     return {
       ...root,

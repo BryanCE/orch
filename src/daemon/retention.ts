@@ -87,9 +87,10 @@ function removeExpiredLogs(orchDir: string, cutoff: Date): number {
     .map((entry) => entry.key);
   let backendRemoved = 0;
   for (const backend of allBackends()) {
-    if (!backend.capabilities.canPruneLogs || !backend.pruneLogs) continue;
+    const pruning = backend.logPruning;
+    if (pruning === null) continue;
     try {
-      backendRemoved += backend.pruneLogs(cutoff, liveKeys, orchDir);
+      backendRemoved += pruning.prune(cutoff, liveKeys, orchDir);
     } catch (error: unknown) {
       process.stderr.write(`Warning: retention sweep logs failed for backend ${backend.id}: ${errorMessage(error)}\n`);
     }

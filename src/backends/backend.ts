@@ -83,7 +83,97 @@ export interface GroupLayoutRole<Handle = BackendHandle> {
   read(coordinate: string): GroupLayout<Handle>;
 }
 
+/** One plexer home coordinate belonging to a space or pack. */
+export interface PlexerHome {
+  readonly coordinate: string;
+  readonly label: string | null;
+}
+
+/** Request to create a plexer home for a space or pack. */
+export interface CreateHomeRequest {
+  readonly cwd: string;
+  readonly label?: string | null;
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+/** Result of creating a plexer home, including its root pane handle. */
+export interface CreatedHome<Handle = BackendHandle> {
+  readonly coordinate: string;
+  readonly rootHandle: Handle;
+}
+
+/** Home inventory and mutation role for spaces and packs. */
+export interface SpaceHomeRole<Handle = BackendHandle> {
+  list(): readonly PlexerHome[];
+  create(subject: { kind: "space" | "pack"; id: string }, request: CreateHomeRequest): CreatedHome<Handle>;
+  rename(coordinate: string, label: string): void;
+  close(coordinate: string): void;
+  focus(coordinate: string): void;
+}
+
+/**
+ * Where the calling process itself is. Composed by an environment a process can be
+ * INSIDE — a pane in a plexer. A detached agent is in no space, so headless
+ * composes nothing here and callers get the absence as their answer
+ * (`TASKS/02-scope.md` E13 — nullness is the capability, never a method probe).
+ */
+export interface EnvironmentIdentityRole {
+  /** Where the calling process sits, or null when it is not inside one at all. */
+  current(): Identity | null;
+}
+
+/** Turning an agent key into this environment's native handle. A separate role
+ *  from identity on purpose: knowing where YOU are and being able to address
+ *  SOMEONE ELSE are different capabilities, and welding them would force an
+ *  environment to fake whichever half it lacks. */
+export interface HandleLookupRole<Handle = BackendHandle> {
+  handleFor(key: string): Handle | undefined;
+}
+
+/** Reporting an environment's installed integration version. */
+export interface VersionRole {
+  installed(): string | null;
+}
+
+/** Pruning this environment's own logs. Absent when it keeps none — which is an
+ *  answer, not a failure, and replaces the `canPruneLogs` boolean Ef12 declared
+ *  alongside the method (`TASKS/02-scope.md` E13 deletes both). */
+export interface LogPruningRole {
+  prune(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number;
+}
+
+/** Request to launch one process in an environment. */
+export interface StartRequest {
+  readonly argv: readonly string[];
+  readonly cwd?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly detached?: boolean;
+}
+
+/** Process identity returned at launch; pid alone is never sufficient. */
+export interface StartedProcess {
+  readonly pid: number;
+  readonly startToken: string;
+}
+
+/** Process identity recorded for a running agent. */
+export interface RecordedProcess {
+  readonly pid: number;
+  readonly startToken: string;
+}
+
+export type ProcessState = "alive" | "dead" | "replaced";
+
+export interface ProcessRole {
+  start(request: StartRequest): StartedProcess;
+  state(process: RecordedProcess): ProcessState;
+  kill(process: RecordedProcess, signal: NodeJS.Signals): void;
+}
+
 export interface EnvironmentServices<Handle = BackendHandle> {
+  readonly process: ProcessRole;
+  readonly channel: AgentChannelRole;
+  readonly capture: CaptureRole;
   readonly paneHost: PaneHostRole<Handle> | null;
   readonly paneInventory: PaneInventoryRole<Handle> | null;
   readonly paneInput: PaneInputRole<Handle> | null;
@@ -95,6 +185,7 @@ export interface EnvironmentServices<Handle = BackendHandle> {
   readonly agentStatus: AgentStatusRole<Handle> | null;
   readonly groupHome: GroupHomeRole<Handle> | null;
   readonly groupLayout: GroupLayoutRole<Handle> | null;
+  readonly spaceHome: SpaceHomeRole<Handle> | null;
 }
 
 /** The closed backend-id set, importable without pulling any provider code. */
@@ -142,12 +233,6 @@ export interface AgentChannelRole {
 /** The orch-owned captured status/result channel. */
 export interface CaptureRole {
   read(agentId: string, request: CaptureRequest): CapturedOutput;
-}
-
-/** Capabilities exposed by a backend. */
-export interface BackendCapabilities {
-  /** Whether the backend owns logs and can prune its stale log artifacts. */
-  readonly canPruneLogs: boolean;
 }
 
 /** Options common to backend launches. */
@@ -278,8 +363,6 @@ export type GroupLayout<Handle = BackendHandle> = BackendGroupLayout<Handle>;
  */
 export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Handle> {
   readonly id: BackendId;
-  /** Declared backend capabilities. */
-  readonly capabilities: BackendCapabilities;
   /** Orch-owned channels composed for this environment. */
   readonly channel: AgentChannelRole;
   readonly capture: CaptureRole;
@@ -289,8 +372,6 @@ export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Han
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
   isInsideSession(): boolean;
-  /** Installed integration version, when this backend exposes one. */
-  version?(): string | null;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   /**
    * Workspace id → human display name for the workspaces the backend can
@@ -304,15 +385,16 @@ export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Han
    * not a pane the spawn registry can record — a detached process handle changes
    * every relaunch, so only the backend knows the current one.
    */
-  handleFor?(key: string): Handle | undefined;
+  readonly identity: EnvironmentIdentityRole | null;
+  readonly handleLookup: HandleLookupRole<Handle> | null;
   /** Identity of the calling process's own target, when inside a session. */
-  currentIdentity?(): Identity | null;
   /** Remove stale backend-owned logs, retaining logs for live presence keys. */
-  pruneLogs?(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number;
-  workspaces?(): BackendWorkspace[];
+  readonly logPruning: LogPruningRole | null;
+  /** Reports this environment's installed integration version. Absent when the
+   *  environment exposes no version to report — which is an ANSWER for the doctor
+   *  to print, not a missing method to probe for (TASKS/02-scope.md E13). */
+  readonly versionInfo: VersionRole | null;
   /** Open a workspace of orch's own and report it with its root handle. Throws on
    *  failure. A caller outside the plexer has no workspace to borrow, and taking
    *  someone else's is what put orch's agents in another person's space. */
-  createWorkspace?(opts: { cwd: string; label?: string | null }): { workspace: string; rootHandle: Handle };
-  focusWorkspace?(workspace: string): boolean;
 }

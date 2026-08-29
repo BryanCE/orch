@@ -160,6 +160,13 @@ export function herdrAck(args: string[], timeoutMs?: number): void {
   herdrOutput(args, timeoutMs);
 }
 
+/** Run a herdr command and hand back what it ANSWERED. Exit code alone is not the
+ *  answer: herdr reports a refused notification as `{"shown":false}` and still
+ *  exits 0, so a caller that reads only the exit code reports a drop as a delivery. */
+export function herdrAnswer(args: string[], timeoutMs?: number): string {
+  return herdrOutput(args, timeoutMs);
+}
+
 /** herdr reports why a start failed as a JSON error code on stderr. */
 function herdrErrorCode(error: unknown): string | null {
   if (!isRecord(error) || error.stderr === undefined) return null;

@@ -139,7 +139,9 @@ describe("HerdrBackend", () => {
     expect(backend.paneInput).not.toBeNull();
     expect(backend.paneForeground).not.toBeNull();
     expect(backend.paneScreen).not.toBeNull();
-    expect(backend.capabilities).toEqual({ canPruneLogs: false });
+    expect(backend.logPruning).toBeNull();
+    expect(backend.identity).not.toBeNull();
+    expect(backend.spaceHome).not.toBeNull();
 
     // No caller pane, so the agent gets its own tab in the workspace it was
     // handed — never one this process went looking for.

@@ -78,9 +78,13 @@ TABS
   orch tab close <tab_id|label>
   orch tab focus <tab_id|label>  Jump the user's view to that tab.
 
-WORKSPACES
-  orch ws [list]                 List workspaces: id, label, tab/pane counts, status.
-  orch ws focus <workspace_id>   Jump the user's view to that workspace.
+SPACES
+  orch space list                List orch spaces by their names.
+  orch space new <name>          Create a named space and its environment home.
+  orch space rename <space> <name>
+                                 Rename a space and its home.
+  orch space close <space>       Close an empty space and its home.
+  orch space focus <space>       Focus a space's home.
 
 MAINTENANCE
   orch daemon start [--fg|--foreground] | stop | status [--json] | reload

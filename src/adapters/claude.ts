@@ -4,9 +4,9 @@ import * as path from "node:path";
 import { declaredRuntime } from "../config.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "../presence/store.ts";
-import { errorMessage, isRecord, packageRoot } from "../util.ts";
+import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
-import { AGENT_STATES } from "./adapter.ts";
+import { isAgentState } from "../agent-state.ts";
 import type {
   HarnessModel,
   AdapterCommand,
@@ -44,9 +44,7 @@ function readTextFile(file: string | undefined): string | undefined {
 }
 
 function stateFrom(value: unknown): AgentState {
-  return typeof value === "string" && AGENT_STATES.includes(value as AgentState)
-    ? value as AgentState
-    : "unknown";
+  return isAgentState(value) ? value : "unknown";
 }
 
 function presenceFor(key: string): PresenceEntry | undefined {
@@ -146,19 +144,6 @@ function installClaudeHooks(pkgRoot: string): void {
   }
 }
 
-/** Copy the packaged Claude Code agent definitions into ~/.claude/agents. */
-function installClaudeAgents(pkgRoot: string): void {
-  const agentsSrc = path.join(pkgRoot, "agents");
-  if (!fs.existsSync(agentsSrc)) return;
-  process.stdout.write("Claude Code agents:\n");
-  for (const a of fs.readdirSync(agentsSrc)) {
-    const dest = path.join(HOME, ".claude", "agents", a);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.cpSync(path.join(agentsSrc, a), dest);
-    process.stdout.write(`  ${dest}\n`);
-  }
-}
-
 /**
  * Claude Code adapter. Presence fidelity is coarse by design: `working` on
  * SessionStart, `blocked` on Notification, `done`/`idle` on Stop, and nothing
@@ -186,16 +171,22 @@ function staleHookEvents(settings: Record<string, unknown>, shim: string, runtim
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 
-  /** Claude has no inbox or answer protocol; hooks provide state/session tails. */
-  readonly capabilities = {
-    steer: "keys" as const,
-    ask: false,
-    setModel: false,
-    sessionTail: true,
-    registersPresenceOnStart: true,
-    lifecycle: [] as const,
-    enforcesCommandLocks: false,
+  readonly thinking = null;
+  readonly workerLaunch = null;
+  readonly modelControl = null;
+  readonly lifecycleControl = null;
+  readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
+  readonly workspaceTrust = null;
+  readonly shim = {
+    installShim: (): void => this.installShim(),
+    diagnoseShim: (): CheckResult => this.diagnoseShim(),
   };
+  readonly defaultModel = null;
+  readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
+  readonly modelWarm = null;
+  readonly question = null;
+  readonly inboxSteering = null;
+  readonly presenceRegistration = { isRegistered: (key: string): boolean => loadPresence().has(key) };
 
   /** State is authoritative only when the Claude settings hooks are installed. */
   readonly hookDriven = true;
@@ -281,13 +272,12 @@ class ClaudeAdapter implements AgentAdapter {
     return text === undefined ? undefined : { lastText: text };
   }
 
-  /** Install the settings.json presence hooks and copy the packaged subagent definitions.
-   *  Skills are not installed here: they are read by every harness, so setup writes them
-   *  once into the configured roots rather than once per adapter. */
+  /** Install the settings.json presence hooks. orch ships no Claude subagent
+   *  definitions — every dispatch goes through orch itself. Skills are not installed
+   *  here either: they are read by every harness, so setup writes them once into the
+   *  configured roots rather than once per adapter. */
   installShim(): void {
-    const root = packageRoot();
-    installClaudeHooks(root);
-    installClaudeAgents(root);
+    installClaudeHooks(packageRoot());
   }
 
   /** Verify the same Claude hook entries written by installShim. */
@@ -299,7 +289,7 @@ class ClaudeAdapter implements AgentAdapter {
     try {
       raw = fs.readFileSync(settingsPath, "utf8");
     } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (errnoCode(error) === "ENOENT") {
         return { id, label, status: "ok", detail: "Claude is not set up (no settings.json)" };
       }
       return { id, label, status: "warn", detail: `could not read ${settingsPath}; fix: run orch setup` };

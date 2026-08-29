@@ -11,6 +11,7 @@ import {
   PI_LIFECYCLE_TEXT,
   piSessionView,
   presenceAgentState,
+  presenceFor,
   resultFromPresenceOrSession,
   setModelViaInbox,
   settingsDefaultModel,
@@ -107,16 +108,25 @@ class OmpAdapter implements AgentAdapter {
   readonly sessionEnvMarker = "OMP_SESSION_ID";
   readonly sessionIdEnv = "OMP_SESSION_ID";
 
-  /** omp supports every D4 capability through its bridge and session files. */
-  readonly capabilities = {
-    steer: "inbox" as const,
-    ask: true,
-    setModel: true,
-    sessionTail: true,
-    registersPresenceOnStart: true,
-    lifecycle: ["reset", "reload", "restart"] as const,
-    enforcesCommandLocks: true,
+  readonly thinking = null;
+  readonly workerLaunch = {
+    restrictedInteractiveCmd: (opts: SpawnOpts): string => this.restrictedInteractiveCmd(opts),
+    restrictedHeadlessCmd: (prompt: string, opts: SpawnOpts): string[] => this.restrictedHeadlessCmd(prompt, opts),
   };
+  readonly modelControl = { setModel: (request: ModelRequest): AdapterCommand | undefined => this.setModel(request) };
+  readonly lifecycleControl = { lifecycleCmd: (verb: LifecycleVerb): { text: string } | undefined => this.lifecycleCmd(verb) };
+  readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
+  readonly workspaceTrust = null;
+  readonly shim = {
+    installShim: (opts?: ShimInstallOpts): void => this.installShim(opts),
+    diagnoseShim: (): CheckResult => this.diagnoseShim(),
+  };
+  readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
+  readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
+  readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
+  readonly question = { answer: (request: AnswerRequest): AdapterCommand | undefined => this.answer(request) };
+  readonly inboxSteering = { steer: (request: SteerRequest): AdapterCommand | undefined => this.steer(request) };
+  readonly presenceRegistration = { isRegistered: (key: string): boolean => presenceFor(key) !== undefined };
 
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {

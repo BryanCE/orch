@@ -74,3 +74,18 @@ Nothing but the user's own `bun run build:dev` writes to `~/.local/lib/node_modu
 ## Rule 13 — NO `as` casts, NO `any`. Fix the type, never the symptom.
 `as X` is forbidden unless there is genuinely no other way, and `as unknown as X` is forbidden outright — it is a lie to the compiler wearing two hats. `any` (explicit or implicit) is forbidden everywhere. A test fixture that doesn't satisfy a type gets a typed factory that builds the COMPLETE value; a value of the wrong shape gets narrowed with a real type guard; a wrong signature gets its signature fixed. A gate error is never "fixed" by casting past it — that's the compiler telling you the code is wrong, and casting deletes the message, not the bug.
 **Why:** 2026-08-28 — a gate-sweep worker "fixed" a typecheck error by rewriting `as Partial<NotifyEvent>` to `as unknown as NotifyEvent`.
+
+## Rule 14 — ☢️ NEVER BUMP A SCHEMA VERSION. NOTHING HAS PUBLISHED. ☢️
+**NOTHING IS PUBLISHED. There is no installed base. Every version number in this repo is frozen
+until Bryan removes this rule.** A bump versions the shape against nobody and only breaks the tree.
+Frozen, no exceptions:
+- `SETTINGS_SCHEMA` (`src/config.ts`) — **1**
+- `PRESENCE_SCHEMA` (`src/presence/schema.ts`) — **1**
+- the `version` in `package.json` (and any workspace package.json) — publishing has not happened
+- every future schema/version/stamp constant added to this repo
+Rules:
+- When a shape changes, **change the shape and every writer, reader, fixture and test. Do NOT touch the number.**
+- Never bump "to be safe", never bump for a release/publish, never bump as part of a wave, never bump because a fixture disagrees.
+- A version mismatch in a test is the FIXTURE being wrong, never a reason to move the constant.
+**Why:** 2026-08-29 — a build wave walked `SETTINGS_SCHEMA` to 5 for an added `logging` section
+and left three fixtures stamped 3 and 4, breaking six tests for a version that guards nothing.

@@ -42,7 +42,7 @@ function isTransition(value: unknown): value is PackTransition & Record<string, 
 }
 
 function transitionName(value: PackTransition & Record<string, unknown>): string {
-  const name = value.name ?? (value as { agent?: unknown }).agent;
+  const name = value.name ?? value.agent;
   return typeof name === "string" && name !== "" ? name : value.key;
 }
 

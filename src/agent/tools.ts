@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { HarnessApi, HarnessContext, HarnessIdentity } from "./harness.ts";
 import { Type } from "typebox";
-import { workspaceOf } from "../policy/workspace.ts";
+import { spaceOf } from "../policy/space.ts";
 import { errorMessage } from "../util.ts";
 import { loadConfigOrNull } from "../config.ts";
 import { orchDir } from "../presence/writer.ts";
@@ -196,7 +196,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         presence.writeStatus();
         const notificationEvent: BridgeNotification = {
           key: state.key,
-          workspace: workspaceOf(orchDir(), state.key) ?? undefined,
+          space: spaceOf(orchDir(), state.key) ?? undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
@@ -543,7 +543,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const notificationSummary = label ?? "";
         notify({
           key: state.key,
-          workspace: workspaceOf(orchDir(), state.key) ?? undefined,
+          space: spaceOf(orchDir(), state.key) ?? undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,

@@ -7,7 +7,7 @@ import { allAdapters, refreshAdapterCatalogues, resolveAdapter, warmAdapterCatal
 import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
 import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsNotify, writeSettingsRuntime, writeSettingsSkills } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
-import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel } from "../adapters/adapter.ts";
+import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel, type ShimRole } from "../adapters/adapter.ts";
 import { PREREQUISITES, signedOutFix } from "../adapters/prerequisites.ts";
 import { BACKEND_IDS, type BackendId } from "../backends/backend.ts";
 import { assertModelListed } from "../policy/model.ts";
@@ -189,10 +189,10 @@ function emptyCatalogueHint(harnessId: string): string {
  *  so they can never disagree about what the harness offers. Resolves against the stored
  *  catalogue, so a harness asked before answers without shelling out at all. */
 async function readHarnessCatalogue(harness: AgentAdapter, interactive: boolean): Promise<readonly HarnessModel[]> {
-  await harness.warmModels?.();
-  if (!interactive) return harness.listModels?.() ?? [];
+  if (harness.modelWarm) await harness.modelWarm.warmModels();
+  if (!interactive) return harness.models?.listModels() ?? [];
   logStep(`asking ${harness.id} which models it can run...`);
-  const offered = harness.listModels?.() ?? [];
+  const offered = harness.models?.listModels() ?? [];
   if (offered.length) logStep(`${harness.id} lists ${offered.length} models`);
   else logWarning(emptyCatalogueHint(harness.id));
   return offered;
@@ -212,7 +212,7 @@ export async function resolveDefaultModel(
   // A harness listing nothing is not signed in. readHarnessCatalogue already said so; asking for
   // a model it cannot resolve would only record a broken one.
   if (flag === undefined && !offered.length) return "";
-  const suggested = harness.defaultModelString?.();
+  const suggested = harness.defaultModel?.defaultModelString();
   const chosen = flag ?? (interactive ? await pick(harness.id, offered, suggested) : suggested ?? offered[0]?.spec);
   if (chosen === null) return null;
   if (!chosen) return "";
@@ -455,6 +455,31 @@ async function installPrerequisites(
   return installSelectedPrerequisites(missing, interactive, yes, noInstall);
 }
 
+/** Boundary answer when the selected environment has no integration role. */
+export interface ShimBoundaryAnswer {
+  readonly outcome: "answer";
+  readonly reason: "no-environment-role";
+  readonly exitCode: 0;
+  readonly text: string;
+}
+
+export interface ShimBoundaryInvocation {
+  readonly outcome: "invoke";
+  readonly role: ShimRole;
+}
+
+export type ShimBoundaryPlan = ShimBoundaryAnswer | ShimBoundaryInvocation;
+
+export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {
+  if (adapter.shim) return { outcome: "invoke", role: adapter.shim };
+  return {
+    outcome: "answer",
+    reason: "no-environment-role",
+    exitCode: 0,
+    text: `${adapter.id}: no environment integration role - agents will lack presence reporting`,
+  };
+}
+
 /** Install every selected adapter's integration through its own provider port (L4 Builder —
  * no identity branch). Returns the gaps: an adapter expected to install a shim but unable to. */
 async function installAdapterShims(adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
@@ -465,18 +490,18 @@ async function installAdapterShims(adapters: readonly AdapterId[], copy: boolean
   const gaps: string[] = [];
   for (const id of adapters) {
     const adapter = resolveAdapter(id);
-    if (adapter.installShim) {
+    const plan = planShimInstall(adapter);
+    if (plan.outcome === "invoke") {
       try {
-        await adapter.installShim({ copy });
+        await plan.role.installShim({ copy });
       } catch (error: unknown) {
         const gap = `${id}: integration install failed - ${errorMessage(error)}`;
         process.stderr.write(`  WARNING ${gap}\n`);
         gaps.push(gap);
       }
-    } else if (adapter.diagnoseShim) {
-      const gap = `${id}: no integration installer available yet - ${id} agents will lack presence reporting`;
-      process.stderr.write(`  WARNING ${gap}\n`);
-      gaps.push(gap);
+    } else {
+      process.stderr.write(`  ANSWER ${plan.text}\n`);
+      gaps.push(plan.text);
     }
   }
   return gaps;
@@ -595,7 +620,7 @@ function buildSmokePrompt(): string {
 function closeSmokeAgent(key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
-    const handle = backend.handleFor?.(key);
+    const handle = backend.handleLookup?.handleFor(key);
     if (handle !== undefined) backend.paneHost?.close(handle);
   } catch {
     // A leaked headless process is reaped by `orch clean`; never let teardown mask the verdict.
@@ -756,8 +781,8 @@ async function diagnoseAdapters(adapters: readonly AdapterId[]): Promise<void> {
   // Validate each selected (installed) adapter through its own provider port.
   for (const id of adapters) {
     const adapter = resolveAdapter(id);
-    if (!adapter.diagnoseShim) continue;
-    const result = await adapter.diagnoseShim();
+    if (!adapter.shim) continue;
+    const result = await adapter.shim.diagnoseShim();
     process.stdout.write(`  ${result.status.toUpperCase()} ${result.label}: ${result.detail}\n`);
   }
 }

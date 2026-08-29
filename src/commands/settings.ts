@@ -1,5 +1,5 @@
 import * as files from "node:fs";
-import { deleteSettingsNotify, loadConfig, NOTIFY_DEFAULT_ON, NOTIFY_STATES, resolveWithSource, settingsPath, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsModels, writeSettingsNotify, writeSettingsPreferredModels, writeSettingsSkills, writeSettingsThinking, SETTINGS_DEFAULTS, type NotifyEntry, type NotifyState, type OrchConfig } from "../config.ts";
+import { loadConfig, NOTIFY_DEFAULT_ON, NOTIFY_STATES, resolveWithSource, settingsPath, writeSettingsDefault, SETTINGS_DEFAULTS, type NotifyEntry, type NotifyState, type OrchConfig } from "../config.ts";
 import { buildSelectedNotifyEntries, probeNotifiers, type NotifierChoice } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
@@ -11,6 +11,9 @@ import { signedOutFix } from "../adapters/prerequisites.ts";
 import { BACKEND_IDS } from "../backends/backend.ts";
 import { isThinkingLevel, THINKING_LEVELS } from "../policy/thinking.ts";
 import { die } from "./target.ts";
+import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
+import { runSettingsEditor } from "../settings/shell.ts";
+import type { SettingSpec } from "../settings/spec.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */
@@ -23,14 +26,14 @@ function currentConfig(): OrchConfig {
 }
 
 /** Read a raw nested setting so normalized defaults do not claim settings.json provenance. */
-function rawSetting<T>(orchDirPath: string, ...keys: string[]): T | undefined {
+function rawSetting(orchDirPath: string, ...keys: string[]): unknown {
   try {
     let value: unknown = JSON.parse(files.readFileSync(settingsPath(orchDirPath), "utf8"));
     for (const key of keys) {
       if (!isRecord(value) || !(key in value)) return undefined;
       value = value[key];
     }
-    return value as T;
+    return value;
   } catch {
     // Absent or invalid — loadConfig already surfaced any real error before this ran.
     return undefined;
@@ -49,6 +52,96 @@ function formatValue(value: unknown): string {
 /** One harness's model list as a settings row: its count and specs, or what empty means for it. */
 function modelListRow(label: string, harness: string, models: readonly string[], empty: string): string {
   return `  ${`${label} (${harness})`.padEnd(20)}${models.length ? `${models.length}: ${models.join(", ")}` : empty}\n`;
+}
+
+function editDistance(left: string, right: string): number {
+  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    let diagonal = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const above = row[j]!;
+      row[j] = left[i - 1] === right[j - 1]
+        ? diagonal
+        : Math.min(diagonal + 1, above + 1, row[j - 1]! + 1);
+      diagonal = above;
+    }
+  }
+  return row[right.length]!;
+}
+
+function nearestSettingKeys(key: string): string {
+  return SETTINGS_REGISTRY
+    .map((setting) => ({ key: setting.key, distance: editDistance(key, setting.key) }))
+    .sort((left, right) => left.distance - right.distance || left.key.localeCompare(right.key))
+    .slice(0, 3)
+    .map((entry) => entry.key)
+    .join(", ");
+}
+
+interface ParsedSettingValue { readonly ok: true; readonly value: unknown }
+interface RejectedSettingValue { readonly ok: false; readonly reason: string }
+type SettingValueResult = ParsedSettingValue | RejectedSettingValue;
+
+function parseSettingValue(spec: SettingSpec, input: string): SettingValueResult {
+  const kind = spec.type;
+  switch (kind.kind) {
+    case "boolean":
+      if (input === "true") return { ok: true, value: true };
+      if (input === "false") return { ok: true, value: false };
+      return { ok: false, reason: "expected true or false" };
+    case "integer": {
+      if (!/^-?\d+$/.test(input)) return { ok: false, reason: "expected an integer" };
+      const value = Number(input);
+      if (!Number.isSafeInteger(value)) return { ok: false, reason: "expected a safe integer" };
+      if (kind.min !== undefined && value < kind.min) return { ok: false, reason: `expected an integer >= ${kind.min}` };
+      if (kind.max !== undefined && value > kind.max) return { ok: false, reason: `expected an integer <= ${kind.max}` };
+      return { ok: true, value };
+    }
+    case "choice":
+      return kind.choices.includes(input)
+        ? { ok: true, value: input }
+        : { ok: false, reason: `expected one of: ${kind.choices.join(", ")}` };
+    case "multi": {
+      const values = input.split(",").map((value) => value.trim()).filter(Boolean);
+      const invalid = values.filter((value) => !kind.choices.includes(value));
+      if (!values.length || invalid.length) return { ok: false, reason: `expected comma-separated values from: ${kind.choices.join(", ")}` };
+      return { ok: true, value: values };
+    }
+    case "text":
+      return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
+    case "list": {
+      let value: unknown;
+      try { value = JSON.parse(input); } catch { return { ok: false, reason: "expected a JSON array or object" }; }
+      if (value === null || typeof value !== "object") return { ok: false, reason: "expected a JSON array or object" };
+      return { ok: true, value };
+    }
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
+  }
+}
+
+/** Bare settings opens the editor only when attached to a TTY; flags and JSON stay non-interactive. */
+export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = process.stdin.isTTY === true): boolean {
+  return isTTY && args.length === 0;
+}
+
+function setSingleSetting(args: string[]): boolean {
+  const [key, input, ...extra] = args;
+  if (key === undefined || key.startsWith("--") || input === undefined || extra.length > 0) return false;
+  const spec = SETTINGS_REGISTRY.find((setting) => setting.key === key);
+  if (spec === undefined) die(`Unknown setting ${JSON.stringify(key)}. Nearest valid keys: ${nearestSettingKeys(key)}.`);
+  if (spec.write === undefined) die(`${key} is read-only; edit it with orch setup.`);
+  if (spec.env !== undefined && process.env[spec.env] !== undefined) {
+    die(`${key} is overridden by ${spec.env}; remove the override before writing it.`);
+  }
+  const parsed = parseSettingValue(spec, input);
+  if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
+  try { spec.write(orchDir(), parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
+  process.stdout.write(`${key} = ${formatValue(parsed.value)}\n`);
+  return true;
 }
 
 function switchDefault(key: "adapter" | "backend", value: string): void {
@@ -81,9 +174,9 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
   if (chosen === null) return;
   // Only the targeted harnesses were prompted, so each map merges over what is already
   // recorded; a harness this run never asked about keeps every list it had.
-  writeSettingsModels(orchDir(), { ...config.defaults.models, ...chosen.defaults });
-  writeSettingsPreferredModels(orchDir(), { ...config.models.preferred, ...chosen.preferred });
-  writeSettingsAllowedModels(orchDir(), { ...config.models.allowed, ...chosen.allowed });
+  writeRegisteredSetting(orchDir(), "defaults.models", { ...config.defaults.models, ...chosen.defaults });
+  writeRegisteredSetting(orchDir(), "models.preferred", { ...config.models.preferred, ...chosen.preferred });
+  writeRegisteredSetting(orchDir(), "models.allowed", { ...config.models.allowed, ...chosen.allowed });
   for (const id of targets) {
     const recorded = chosen.defaults[id];
     if (!recorded) {
@@ -115,7 +208,8 @@ export function cmdSettingsSkills(args: string[]): void {
 
   const current = currentConfig().skills;
   const wanted = install ?? current.install;
-  writeSettingsSkills(orchDir(), { install: wanted, roots });
+  writeRegisteredSetting(orchDir(), "skills.install", wanted);
+  if (roots !== undefined) writeRegisteredSetting(orchDir(), "skills.roots", roots);
   const target = roots ?? current.roots;
   process.stdout.write(`skills.install = ${wanted}\nskills.roots   = ${target.join(", ")}\n`);
   if (!wanted) return;
@@ -154,9 +248,10 @@ function readNotifyStates(args: string[]): NotifyState[] | undefined {
   const flag = readAssignFlag(args, "--on");
   if (flag === undefined) return undefined;
   const states = flag.split(",").map((state) => state.trim()).filter(Boolean);
-  const unsupported = states.filter((state) => !NOTIFY_STATES.includes(state as NotifyState));
+  const isNotifyState = (state: string): state is NotifyState => NOTIFY_STATES.some((known) => known === state);
+  const unsupported = states.filter((state) => !isNotifyState(state));
   if (!states.length || unsupported.length) die(`--on takes a comma-separated list of: ${NOTIFY_STATES.join(", ")}.`);
-  return states as NotifyState[];
+  return states.filter(isNotifyState);
 }
 
 function notifyEntryTarget(entry: NotifyEntry): string {
@@ -194,7 +289,10 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   rejectUndeclaredFlags(flags, choice.requiredFields);
 
   const recorded = currentConfig().notify.find((entry) => entry.id === id);
-  const recordedFields = { ...recorded } as Record<string, unknown>;
+  const recordedFields: Record<string, unknown> = {};
+  if (recorded !== undefined) {
+    for (const [key, value] of Object.entries(recorded)) recordedFields[key] = value;
+  }
   const config = {
     ...pickDeclaredFields(choice.requiredFields, (name) => recordedFields[name]),
     ...pickDeclaredFields(choice.requiredFields, (name) => readAssignFlag(flags, `--${name}`)),
@@ -205,7 +303,13 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   const missing = written.errors.flatMap((error) => error.missing);
   if (missing.length) die(`${id} needs ${missing.map((field) => `--${field}=<value>`).join(" ")}.`);
 
-  writeSettingsNotify(orchDir(), written.entries);
+  const configured = currentConfig().notify;
+  const replacement = written.entries[0];
+  if (replacement === undefined) die(`${id} produced no settings entry.`);
+  const merged = configured.some((entry) => entry.id === id)
+    ? configured.map((entry) => entry.id === id ? replacement : entry)
+    : [...configured, replacement];
+  writeRegisteredSetting(orchDir(), "notify", merged);
   process.stdout.write(`notify  ${settingsPath(orchDir())}\n\n`);
   for (const entry of written.entries) process.stdout.write(notifyEntryRow(entry));
   if (!choice.available) process.stdout.write(`\n  ${choice.remediation}\n`);
@@ -218,7 +322,7 @@ function removeNotifyEntry(args: string[]): void {
   const configured = currentConfig().notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
-  deleteSettingsNotify(orchDir(), entry.id);
+  writeRegisteredSetting(orchDir(), "notify", configured.filter((candidate) => candidate.id !== entry.id));
   process.stdout.write(`removed notify sink ${id} from ${settingsPath(orchDir())}\n`);
 }
 
@@ -235,7 +339,16 @@ export async function cmdSettingsNotify(args: string[]): Promise<void> {
 }
 
 /** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
-export function cmdSettings(args: string[]): void {
+export async function cmdSettings(args: string[]): Promise<void> {
+  if (shouldLaunchSettingsEditor(args)) {
+    try {
+      await runSettingsEditor(orchDir());
+    } catch (error: unknown) {
+      die(errorMessage(error));
+    }
+    return;
+  }
+  if (setSingleSetting(args)) return;
   const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
   const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
   const json = args.includes("--json");
@@ -253,30 +366,52 @@ export function cmdSettings(args: string[]): void {
     ...resolveWithSource<string>({ config: config.defaults.models[harness], fallback: "(none)" }),
   }));
 
-  const provenance = [
-    { key: "defaults.worktree", ...resolveWithSource<boolean>({ env: "ORCH_WORKTREE", config: rawSetting<boolean>(orchDir(), "defaults", "worktree"), fallback: config.defaults.worktree }) },
-    // Thinking is its own axis (TASKS/12), so it is listed as its own setting and
-    // never as part of a model id.
-    { key: "defaults.thinking", ...resolveWithSource<string>({ env: "ORCH_THINKING", config: rawSetting<string>(orchDir(), "defaults", "thinking"), fallback: config.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking }) },
-    { key: "adapter", ...resolveWithSource<string>({ env: "ORCH_ADAPTER", config: rawSetting<string>(orchDir(), "defaults", "adapter"), fallback: "(none)" }) },
-    { key: "backend", ...resolveWithSource<string>({ env: "ORCH_BACKEND", config: rawSetting<string>(orchDir(), "defaults", "backend"), fallback: "(auto)" }) },
-    { key: "daemon.tcp_port", ...resolveWithSource<number>({ env: "ORCH_DAEMON_PORT", config: rawSetting<number>(orchDir(), "daemon", "tcp_port"), fallback: config.daemon.tcp_port }) },
-    { key: "daemon.idle_shutdown_minutes", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "daemon", "idle_shutdown_minutes"), fallback: config.daemon.idle_shutdown_minutes }) },
-    { key: "fleet.spawn_cap", ...resolveWithSource<number>({ env: "ORCH_SPAWN_CAP", config: rawSetting<number>(orchDir(), "fleet", "spawn_cap"), fallback: config.fleet.spawn_cap }) },
-    { key: "fleet.max_agents", ...resolveWithSource<number | string>({ config: rawSetting<number>(orchDir(), "fleet", "max_agents"), fallback: config.fleet.max_agents ?? "(none)" }) },
-    { key: "fleet.workspace_caps", ...resolveWithSource<Record<string, number>>({ config: rawSetting<Record<string, number>>(orchDir(), "fleet", "workspace_caps"), fallback: config.fleet.workspace_caps }) },
-    { key: "fleet.worker_peer_tools", ...resolveWithSource<boolean>({ config: rawSetting<boolean>(orchDir(), "fleet", "worker_peer_tools"), fallback: config.fleet.worker_peer_tools }) },
-    { key: "fleet.cross_workspace", ...resolveWithSource<boolean>({ config: rawSetting<boolean>(orchDir(), "fleet", "cross_workspace"), fallback: config.fleet.cross_workspace }) },
-    { key: "queue.max_retries", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "queue", "max_retries"), fallback: config.queue.max_retries }) },
-    { key: "tiling.first_split", ...resolveWithSource<string>({ config: rawSetting<string>(orchDir(), "tiling", "first_split"), fallback: config.tiling.first_split }) },
-    { key: "skills.install", ...resolveWithSource<boolean>({ config: rawSetting<boolean>(orchDir(), "skills", "install"), fallback: config.skills.install }) },
-    { key: "skills.roots", ...resolveWithSource<string[]>({ config: rawSetting<string[]>(orchDir(), "skills", "roots"), fallback: config.skills.roots }) },
-    { key: "timeouts.dispatch_ack_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "dispatch_ack_ms"), fallback: config.timeouts.dispatch_ack_ms }) },
-    { key: "timeouts.wait_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "wait_ms"), fallback: config.timeouts.wait_ms }) },
-    { key: "timeouts.adapter_command_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "adapter_command_ms"), fallback: config.timeouts.adapter_command_ms }) },
-    { key: "timeouts.notify_ms", ...resolveWithSource<number>({ config: rawSetting<number>(orchDir(), "timeouts", "notify_ms"), fallback: config.timeouts.notify_ms }) },
-    ...modelRows,
-  ];
+  interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string }
+  const provenance: ProvenanceRow[] = [];
+  // Print order comes from the registry's own declaration order — the registry is
+  // the single source of truth for a setting, and that includes where it appears
+  // (TASKS/14-settings-tui.md). A hand-kept rank table beside it was a second list
+  // to forget: a new setting silently sorted to the bottom.
+  const printableSpecs = SETTINGS_REGISTRY;
+  for (const spec of printableSpecs) {
+    let key: string | undefined;
+    let fallback: unknown;
+    switch (spec.key) {
+      case "defaults.worktree": key = spec.key; fallback = config.defaults.worktree; break;
+      case "defaults.thinking": key = spec.key; fallback = config.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking; break;
+      case "defaults.adapter": key = "adapter"; fallback = "(none)"; break;
+      case "defaults.backend": key = "backend"; fallback = "(auto)"; break;
+      case "daemon.tcp_port": key = spec.key; fallback = config.daemon.tcp_port; break;
+      case "daemon.idle_shutdown_minutes": key = spec.key; fallback = config.daemon.idle_shutdown_minutes; break;
+      case "fleet.spawn_cap": key = spec.key; fallback = config.fleet.spawn_cap; break;
+      case "fleet.max_agents": key = spec.key; fallback = config.fleet.max_agents ?? "(none)"; break;
+      case "fleet.workspace_caps": key = spec.key; fallback = config.fleet.workspace_caps; break;
+      case "fleet.worker_peer_tools": key = spec.key; fallback = config.fleet.worker_peer_tools; break;
+      case "fleet.cross_workspace": key = spec.key; fallback = config.fleet.cross_workspace; break;
+      case "queue.max_retries": key = spec.key; fallback = config.queue.max_retries; break;
+      case "tiling.first_split": key = spec.key; fallback = config.tiling.first_split; break;
+      case "skills.install": key = spec.key; fallback = config.skills.install; break;
+      case "skills.roots": key = spec.key; fallback = config.skills.roots; break;
+      case "timeouts.dispatch_ack_ms": key = spec.key; fallback = config.timeouts.dispatch_ack_ms; break;
+      case "timeouts.wait_ms": key = spec.key; fallback = config.timeouts.wait_ms; break;
+      case "timeouts.adapter_command_ms": key = spec.key; fallback = config.timeouts.adapter_command_ms; break;
+      case "timeouts.notify_ms": key = spec.key; fallback = config.timeouts.notify_ms; break;
+      default: break;
+    }
+    if (key === undefined) continue;
+    const configured = spec.read(config);
+    const raw = rawSetting(orchDir(), ...spec.key.split("."));
+    const environment = spec.env === undefined ? undefined : process.env[spec.env];
+    let value = configured === undefined ? fallback : configured;
+    if (environment !== undefined) {
+      if (typeof fallback === "boolean") value = environment === "true" || environment === "1";
+      else if (typeof fallback === "number") value = Number(environment);
+      else value = environment;
+    }
+    const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
+    provenance.push({ key, value, source });
+  }
+  provenance.push(...modelRows);
 
   const enabledSet = config.enabled.adapters.length > 0 || config.enabled.backends.length > 0;
   if (json) {
@@ -325,7 +460,10 @@ export function cmdSettingsThinking(args: string[]): void {
   }
   if (clear) {
     if (harnessFlag === undefined) throw new Error("--clear needs --harness=<id>: the global default always has a value");
-    writeSettingsThinking(orchDir(), { byHarness: { [harnessFlag]: null } });
+    const current = currentConfig().defaults.thinking_by_harness ?? {};
+    const byHarness = { ...current };
+    delete byHarness[harnessFlag];
+    writeRegisteredSetting(orchDir(), "defaults.thinking_by_harness", byHarness);
     process.stdout.write(`cleared the thinking override for ${harnessFlag}\n`);
     return;
   }
@@ -341,10 +479,11 @@ export function cmdSettingsThinking(args: string[]): void {
     throw new Error(`unknown thinking level ${JSON.stringify(level)}; valid levels: ${THINKING_LEVELS.join(", ")}`);
   }
   if (harnessFlag === undefined) {
-    writeSettingsThinking(orchDir(), { thinking: level });
+    writeRegisteredSetting(orchDir(), "defaults.thinking", level);
     process.stdout.write(`thinking  ${level}\n`);
   } else {
-    writeSettingsThinking(orchDir(), { byHarness: { [harnessFlag]: level } });
+    const current = currentConfig().defaults.thinking_by_harness ?? {};
+    writeRegisteredSetting(orchDir(), "defaults.thinking_by_harness", { ...current, [harnessFlag]: level });
     process.stdout.write(`thinking (${harnessFlag})  ${level}\n`);
   }
 }

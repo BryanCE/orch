@@ -41,7 +41,8 @@ describe("tmux backend registry and capabilities", () => {
     expect(backend.paneHost).not.toBeNull();
     expect(backend.paneInventory).not.toBeNull();
     expect(backend.paneInput).not.toBeNull();
-    expect(backend.capabilities).toEqual({ canPruneLogs: false });
+    expect(backend.logPruning).toBeNull();
+    expect(backend.identity).not.toBeNull();
   });
 
   test("reflects the TMUX environment", () => {

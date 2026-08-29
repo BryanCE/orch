@@ -15,6 +15,7 @@ import {
   openIntake,
   openTasksInScope,
   settleAttempt,
+  taskById,
   taskState,
 } from "../src/store/task-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -36,6 +37,19 @@ function addTask(d: string, id: string, scope: { scopeAgentId: string } | { scop
 }
 
 describe("task and attempt rows", () => {
+  test("malformed task rows are refused instead of handed back as typed data", () => {
+    const d = fixture(); seed(d); addTask(d, "bad-task", { scopeAgentId: "a" });
+    openStore(d).query("UPDATE tasks SET opts='not-json' WHERE id='bad-task'").run();
+    expect(() => taskById(d, "bad-task")).toThrow(/malformed task row/i);
+  });
+
+  test("malformed attempt rows are refused instead of handing back NaN", () => {
+    const d = fixture(); seed(d); addTask(d, "bad-attempt", { scopeAgentId: "a" });
+    claimTask(d, "bad-attempt", "a", "dispatch", 10);
+    openStore(d).query("UPDATE task_attempts SET result='not-json' WHERE task_id='bad-attempt'").run();
+    expect(() => attemptsOf(d, "bad-attempt")).toThrow(/malformed task attempt row/i);
+  });
+
   test("enqueue accepts exactly one typed scope and round-trips JSON opts", () => {
     const d = fixture(); seed(d);
     addTask(d, "t", { scopeAgentId: "a" });

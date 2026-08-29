@@ -26,17 +26,22 @@ describe("worker prompt capability composition", () => {
     expect(workerPrompt("task", false, getAdapter("pi"))).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ntask`);
   });
 
-  test("pi worker header permits only locked heavy commands through orch", () => {
+  // `orch lock` did not serialize anything: agents ran heavy commands concurrently
+  // regardless, so the instruction cost tokens on every dispatch and bought nothing.
+  // A rule the tool cannot enforce is worse than no rule — it teaches the worker
+  // that orch's instructions are advisory.
+  test("the worker header does not instruct a lock that does not lock", () => {
     const header = workerHeaderFor(getAdapter("pi"));
-    expect(header).toContain("orch lock run -- ");
-    expect(header).toContain("every other orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden");
+    expect(header).not.toContain("orch lock run");
+    expect(header).toContain("Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden");
+    expect(header).toContain("Run your own tests and typechecks directly in this pane");
     expect(header).toContain("never spawn subagents");
   });
 
-  test("locked-commands clause names the commands when the list is non-empty", () => {
+  test("locked-commands clause names the commands, and asks for a report rather than a lock", () => {
     const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: ["bun test", "bun run check"] });
     expect(header).toContain("locked machine-wide: bun test, bun run check");
-    expect(header).toContain("orch lock run -- <cmd>");
+    expect(header).not.toContain("orch lock run");
   });
 
   test("no locked-commands clause when the list is empty", () => {

@@ -3,6 +3,7 @@ import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
+import { errnoCode } from "../util.ts";
 import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock, type CommandLock } from "../control/cmd-lock.ts";
 
 function holderName(): string {
@@ -50,7 +51,7 @@ function forceRelease(directory: string): void {
     unlinkSync(join(directory, "cmd-lock.json"));
     process.stdout.write(`evicted ${lock.holder} (pid ${lock.pid})\n`);
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (errnoCode(error) === "ENOENT") {
       process.stdout.write("unlocked\n");
       return;
     }

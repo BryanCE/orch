@@ -10,8 +10,10 @@ import { runSSH } from "../remote.ts";
 import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
+import { commandLogger } from "./logging.ts";
 
 export function die(msg: string): never {
+  commandLogger().error("command.failed", { error: msg });
   process.stderr.write(msg + "\n");
   process.exit(1);
 }
@@ -151,7 +153,7 @@ export function assertAgentOwned(
 
 export function callerWorkspace(): string | null {
   const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
-  return backend.currentIdentity?.()?.workspace ?? null;
+  return backend.identity?.current()?.workspace ?? null;
 }
 
 export function backendTarget(

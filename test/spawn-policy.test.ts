@@ -112,7 +112,7 @@ describe("spawn policy caps", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["1", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"]);
+      await cmdSpawn(["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

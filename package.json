@@ -63,7 +63,6 @@
     "scripts/wsl-toast.ps1",
     "dist/",
     "skills/",
-    "agents/",
     "README.md"
   ],
   "engines": {

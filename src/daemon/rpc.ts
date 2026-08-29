@@ -14,6 +14,7 @@ import { openStore } from "../store/connection.ts";
 import { allBackends } from "../backends/registry.ts";
 import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
 import { ensureDaemon, translateDaemonError } from "../commands/daemon.ts";
+import { decisionLogger } from "./decision-log.ts";
 
 export type RpcParams = unknown;
 export type RpcEventEmitter = (event: unknown) => void;
@@ -756,7 +757,7 @@ export function helloClaim(orchDir: string, label?: string): Record<string, unkn
   const harness = configuredHarness ?? session?.harnessId ?? "cli";
   // Registration carries the plexer fact observed by this session. Herdr is
   // the only versioned integration today; unknown environments simply omit it.
-  const callerBackend = allBackends().find((backend) => backend.currentIdentity?.());
+  const callerBackend = allBackends().find((backend) => backend.identity?.current());
   return {
     token,
     pid: session?.pid ?? process.pid,
@@ -765,7 +766,7 @@ export function helloClaim(orchDir: string, label?: string): Record<string, unkn
     cwd: process.cwd(),
     label,
     plexer: callerBackend?.id,
-    plexerVersion: callerBackend?.version?.() ?? undefined,
+    plexerVersion: callerBackend?.versionInfo?.installed() ?? undefined,
   };
 }
 
@@ -817,10 +818,13 @@ export function subscribeEvents(
   let connectedBefore = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let backoffMs = RECONNECT_BASE_MS;
+  let retryAttempt = 0;
 
   const scheduleReconnect = (): void => {
     if (closed || retryTimer) return;
     const delay = backoffMs;
+    retryAttempt += 1;
+    decisionLogger(orchDir).debug("retry.attempt", { attempt: retryAttempt, delay });
     backoffMs = Math.min(backoffMs * 2, RECONNECT_CAP_MS);
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
@@ -846,6 +850,7 @@ export function subscribeEvents(
         }
         socket = connected;
         backoffMs = RECONNECT_BASE_MS; // a healthy dial resets the climb
+        retryAttempt = 0;
         readJsonMessages(connected, (parsed) => {
           if (parsed.gap === true && typeof parsed.oldestSeq === "number") {
             onGap?.(parsed.oldestSeq);

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync, utimesSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import { loadConfigOrNull, type OrchConfig } from "../src/config.ts";
+import { loadConfigOrNull, SETTINGS_SCHEMA, type OrchConfig } from "../src/config.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
@@ -65,7 +65,7 @@ describe("retention sweep", () => {
   test("retention windows are independently configurable", () => {
     const orchDir = fixture();
     writeFileSync(join(orchDir, "settings.json"), JSON.stringify({
-      schemaVersion: 4, runtime: "node", retention: { runs_days: 3 },
+      schemaVersion: SETTINGS_SCHEMA, runtime: "node", retention: { runs_days: 3 },
     }));
     const retention = loadConfigOrNull(orchDir)!.retention;
     expect(retention.runs_days).toBe(3);

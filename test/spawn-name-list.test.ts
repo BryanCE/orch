@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claimSpawnNames } from "../src/commands/spawn.ts";
+import { claimSpawnNames, resolveSpawnNames, parseSpawnFlags } from "../src/commands/spawn.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -23,28 +23,43 @@ afterEach(() => {
   else process.env.ORCH_DIR = oldDir;
 });
 
-// A fleet where each pane holds a different slice must be namable AT SPAWN.
-// Naming afterwards costs N extra commands and leaves the pane border stale
-// until a second `--pane` rename lands (TASKS/11-usage-bugs.md U5, U6).
-describe("spawn names a fleet at creation", () => {
-  test("one name per pane, used verbatim and unnumbered", () => {
-    makeDir();
-    expect(claimSpawnNames(["api", "worker", "checker"], "", 3))
+// TASKS/02-scope.md F4: `orch spawn <name>` — naming is REQUIRED and there is no
+// default name. Naming an agent is part of creating it, not an option alongside
+// it: the names ARE the positional arguments, and how many you give is how many
+// panes you get. A count is not a name, and an ordinal like `fix-1` says nothing
+// about the slice that pane holds.
+describe("spawn names every agent positionally, at creation", () => {
+  test("the positional arguments are the names, one per pane", () => {
+    expect(resolveSpawnNames(["api", "worker", "checker"]))
       .toEqual(["api", "worker", "checker"]);
   });
 
-  test("a single name with N > 1 still grows the numbered fleet", () => {
-    makeDir();
-    expect(claimSpawnNames(["fix"], "", 3)).toEqual(["fix-1", "fix-2", "fix-3"]);
+  test("the pane count is how many names were given", () => {
+    expect(resolveSpawnNames(["only-one"]).length).toBe(1);
   });
 
-  test("a name list whose length does not match N is refused before anything is created", () => {
-    makeDir();
-    expect(() => claimSpawnNames(["api", "worker"], "", 3)).toThrow(/3/);
+  test("spawning with no name at all is refused", () => {
+    expect(() => resolveSpawnNames([])).toThrow(/name/i);
   });
 
-  test("every name in the list is validated, so one bad name creates nothing", () => {
+  test("a bare count is not a name and is refused", () => {
+    expect(() => resolveSpawnNames(["4"])).toThrow(/name/i);
+  });
+
+  test("the same name twice would collide, so it is refused before anything is created", () => {
+    expect(() => resolveSpawnNames(["api", "api"])).toThrow(/api/);
+  });
+
+  test("every name is validated, so one bad name creates nothing", () => {
+    expect(() => resolveSpawnNames(["api", "not a valid name!"])).toThrow();
+  });
+
+  test("--name is gone: naming is positional, so the flag is an unknown flag", () => {
+    expect(parseSpawnFlags(["--name", "api"]).unknownFlags).toContain("--name");
+  });
+
+  test("claimSpawnNames takes the resolved names and asserts each is free", () => {
     makeDir();
-    expect(() => claimSpawnNames(["api", "not a valid name!"], "", 2)).toThrow();
+    expect(claimSpawnNames(["api", "worker"], "")).toEqual(["api", "worker"]);
   });
 });

@@ -144,11 +144,14 @@ One heavy command machine-wide (see settings.locked_commands).
   status        Show the current holder (pid, note, age) or 'unlocked'.
   release       Evict the current holder, naming it. Requires --force.
 `,
-  spawn: `orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
+  spawn: `orch spawn <name> [<name> ...] [--tab L] [--cwd P] [--cmd C] [--model M]
           [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--spawn-cap N] [--worktree]
-Fresh tab with N balanced-tiled named agents (2=side-by-side, 3=2+1, 4=2x2, ...; cap 8).
-Names are <prefix>-1..N. Spawning under a live prefix GROWS that fleet: numbering
-continues past the highest live <prefix>-<n> and the new panes land in its tab.
+Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...; cap 8).
+NAMING AN AGENT IS PART OF CREATING IT: the positional arguments ARE the names,
+one per agent, and how many you give is how many panes you get. There is no
+default name, no prefix numbering, and no --name flag — name each pane for the
+SLICE it holds, so you never pay for a rename afterwards.
+  orch spawn api-types api-routes api-guards
 Every name is validated before any tab or pane is created — a refused spawn
 leaves nothing behind.
   --tab         Label for the new tab; an existing tab's label fills that tab.
@@ -161,8 +164,9 @@ leaves nothing behind.
   --tasks       JSON file containing exactly N task strings (alternative to --prompt).
   --worktree    Give each agent its own git worktree.
 `,
-  tile: `orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
-Add ONE pane to an existing tab: splits into the tab's largest cell and pins the model.
+  tile: `orch tile <tab|pane> <name> [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
+Add ONE named pane to an existing tab: splits into the tab's largest cell and pins
+the model. Tile creates an agent, so it names one too.
 `,
   rename: `orch rename <target> <name> [--pane]
 Set the agent name (the NAME column). --pane sets the pane border label instead.
@@ -205,9 +209,12 @@ orch tab close <tab_id|label>
 orch tab focus <tab_id|label>
 Tab management. 'new' prints the root pane id and never steals focus; 'focus' does.
 `,
-  ws: `orch ws [list]
-orch ws focus <workspace_id>
-List workspaces (id, label, tab/pane counts, status) or jump the user's view to one.
+  space: `orch space list
+orch space new <name>
+orch space rename <space> <name>
+orch space close <space>
+orch space focus <space>
+Manage orch spaces and their environment homes. Names are owned by orch; a home coordinate is never displayed.
 `,
   daemon: `orch daemon start [--fg|--foreground] [--json]
 orch daemon stop [--json]

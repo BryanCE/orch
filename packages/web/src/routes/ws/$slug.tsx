@@ -22,12 +22,12 @@ import { NotFoundPage } from "@/components/common/NotFoundPage";
 import { useFleet } from "@/hooks/use-fleet";
 import { sendToAgent } from "@/server/orch";
 import { useDaemonEvents } from "@/lib/daemon-events";
-import { findSpace, stateColor, type FleetAgent } from "@/lib/fleet";
+import { findSpace, partitionAgents, stateColor, type FleetAgent } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/ws/$slug")({
   staticData: {
-    crumbs: (params) => [
+    crumbs: () => [
       { label: "God-view", to: "/" },
       { label: "Space" },
     ],
@@ -37,11 +37,11 @@ export const Route = createFileRoute("/ws/$slug")({
 
 function SpaceDetail() {
   const { slug } = Route.useParams();
-  const { data: spaces = [], isPending } = useFleet();
+  const { data, isPending } = useFleet();
   const { events, status } = useDaemonEvents();
   const [selected, setSelected] = useState<FleetAgent | null>(null);
 
-  const ws = findSpace(spaces, slug);
+  const space = findSpace(data?.spaces ?? [], slug);
 
   if (isPending) {
     return (
@@ -50,20 +50,17 @@ function SpaceDetail() {
       </div>
     );
   }
-  if (!ws) return <NotFoundPage />;
+  if (!space) return <NotFoundPage />;
 
-  const agentKeys = new Set(ws.agents.map((agent) => agent.key));
+  const agentKeys = new Set(space.agents.map((agent) => agent.key));
   const spaceEvents = events.filter((event) => typeof event.key === "string" && agentKeys.has(event.key));
-  // A missing lease is an explicit, daemon-derived state. Unknown rows stay in
-  // the existing fleet until their transitional agents record appears.
-  const unleased = ws.agents.filter((agent) => agent.leaseKnown && agent.lease === null);
-  const liveFleet = ws.agents.filter((agent) => !(agent.leaseKnown && agent.lease === null));
+  const [liveFleet, orphans] = partitionAgents(space.agents);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-baseline gap-2 px-6 pt-4">
-        <h1 className="text-xl font-semibold">{ws.name}</h1>
-        <Badge variant="outline" className="ml-2">{ws.agents.length} agents</Badge>
+        <h1 className="text-xl font-semibold">{space.name}</h1>
+        <Badge variant="outline" className="ml-2">{space.agents.length} agents</Badge>
       </div>
 
       <Tabs defaultValue="fleet" className="flex min-h-0 flex-1 flex-col">
@@ -75,7 +72,7 @@ function SpaceDetail() {
 
         <TabsContent value="fleet" className="min-h-0 flex-1">
           <div className="p-6">
-            {ws.agents.length === 0 ? (
+            {space.agents.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
                 <Inbox className="size-10" />
                 <p className="text-sm">No agents in this space.</p>
@@ -94,14 +91,14 @@ function SpaceDetail() {
                     ))}
                   </div>
                 )}
-                {unleased.length > 0 && (
-                  <section className={cn("mt-8 space-y-3", "opacity-60")}>
+                {orphans.length > 0 && (
+                  <section className={cn("mt-8 space-y-3", "opacity-70")}>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Unleased</h2>
-                      <Badge variant="outline" className="font-mono text-[10px]">{unleased.length}</Badge>
+                      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Orphans — unleased</h2>
+                      <Badge variant="outline" className="font-mono text-[10px]">{orphans.length}</Badge>
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {unleased.map((a) => (
+                      {orphans.map((a) => (
                         <AgentCard
                           key={a.key}
                           agent={a}
@@ -139,7 +136,7 @@ function SpaceDetail() {
 
         <TabsContent value="overview" className="min-h-0 flex-1 p-6">
           <div className="grid max-w-md grid-cols-2 gap-3 text-sm">
-            {ws.agents.map((a) => (
+            {space.agents.map((a) => (
               <div key={a.key} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
                 <span className="truncate font-mono">{a.name}</span>
                 <span className={cn("text-xs uppercase", stateColor(a.state))}>{a.state}</span>
@@ -180,7 +177,7 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
     <>
       <SheetHeader className="border-b">
         <SheetTitle className="truncate font-mono text-sm">{agent.name}</SheetTitle>
-        <SheetDescription className="font-mono text-xs">{agent.key}</SheetDescription>
+        <SheetDescription>Agent details from orch</SheetDescription>
       </SheetHeader>
 
       <ScrollArea className="min-h-0 flex-1">

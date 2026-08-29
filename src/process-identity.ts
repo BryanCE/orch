@@ -4,7 +4,7 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { osSide } from "./util.ts";
+import { errnoCode, osSide } from "./util.ts";
 
 const FIELD_READ_TIMEOUT_MS = 5_000;
 
@@ -13,7 +13,7 @@ export function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
   } catch (error: unknown) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    return errnoCode(error) !== "ESRCH";
   }
   if (process.platform === "linux") {
     try {

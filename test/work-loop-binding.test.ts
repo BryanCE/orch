@@ -6,7 +6,7 @@ function claimedTask(): TaskRec {
   return {
     id: "t1", text: "x", opts: {}, enqueuedBy: "orch", scopeAgentId: null,
     scopePackId: "orch", scopeSpaceId: null, createdAt: "", updatedAt: "",
-    state: "claimed", attempts: [{ since: 1, until: null, agentId: "worker", dispatchId: "mine", outcome: null, result: null, error: null }],
+    state: "claimed", stale: false, attempts: [{ since: 1, until: null, agentId: "worker", dispatchId: "mine", outcome: null, result: null, error: null }],
   };
 }
 

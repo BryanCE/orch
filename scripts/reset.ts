@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, sep, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,13 +152,6 @@ function readdirSafe(dir: string): string[] {
   }
 }
 
-/** Whatever the repo packages is exactly what an install copied in, so it is
- *  also exactly what may be removed from the shared Claude directories. */
-function packagedCopyRemovals(sourceDir: string, claudeDir: string): WipeStep[] {
-  if (!existsSync(sourceDir)) return [];
-  return readdirSync(sourceDir).map((entry) => deletion(join(HOME, ".claude", claudeDir, entry))).filter(nonNull);
-}
-
 /** The roots the install actually wrote skills to: what settings.json records, else the
  *  shipped defaults. Reading the raw file keeps the wipe working on a settings.json too
  *  malformed for the config loader — the exact state a reset exists to clear. */
@@ -263,7 +256,6 @@ const steps: WipeStep[] = [
   ...binShimRemovals(),
   ...harnessExtensionRemovals(),
   ...skillRemovals(),
-  ...packagedCopyRemovals(join(REPO, "agents"), "agents"),
   claudeHookRemoval(),
   codexNotifyRemoval(),
   deletion(join(REPO, "dist")),

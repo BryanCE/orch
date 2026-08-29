@@ -122,7 +122,7 @@ describe("daemon RPC", () => {
     }
   }, 15_000);
 
-  test("a control refusal is not accepted and remains pending in the outbox", async () => {
+  test("an unreachable agent yields a boundary answer, and the outbox is not left pending", async () => {
     const dir = tempOrchDir();
     const discovery = tempOrchDir();
     const previousDir = process.env.ORCH_DIR;
@@ -136,10 +136,13 @@ describe("daemon RPC", () => {
     seedStatus(dir, target, { agent: "claude", pid: process.pid, state: "working" });
     try {
       await rpcHello(dir);
-      const failure = await rejectionOf(rpcCall(dir, "dispatch", { target, text: "should remain pending" }));
-      if (!(failure instanceof RpcError)) throw new Error("refused dispatch did not return an RPC error");
-      expect(failure.message).toContain("was not applied or acknowledged");
-      expect(selectPendingOutbox(dir, Number.MAX_SAFE_INTEGER)).toHaveLength(1);
+      // TASKS/02-scope.md E14: an environment that offers no way to reach this agent
+      // is an ABSENCE, and an absence is an answer to a human, never a failure path.
+      // Claude composes no inbox steering and headless has no pane, so the dispatch
+      // is ANSWERED — and the outbox acks it rather than leaving a phantom pending
+      // row the daemon would retry forever.
+      await rpcCall(dir, "dispatch", { target, text: "cannot be reached" });
+      expect(selectPendingOutbox(dir, Number.MAX_SAFE_INTEGER)).toHaveLength(0);
     } finally {
       const pid = provenDaemonPid(dir);
       if (pid !== undefined && pid !== process.pid) await terminateDaemon(pid, 5_000);

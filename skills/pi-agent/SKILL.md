@@ -161,7 +161,7 @@ injects this same verdict every time you invoke `/pi-agent` or `/codex`.
 
 Everything you need is here; you do not need to go read another skill first. pi/codex
 run in herdr PANES; **`orch` is the single controller** — the whole loop needs no raw
-`herdr` subcommands. NEVER the `pi-dispatch` wrapper.
+`herdr` subcommands and no wrapper sub-agent.
 
 **HARD MODEL-TIER ROUTING GATE:** first read the task-shape row in
 `reference/model-matrix.md`, then run `orch status` and read the `NAME`, `TAB` and
@@ -191,8 +191,8 @@ stream reports all panes.
 **The dispatch loop, in order every time. No alternatives to weigh:**
 ```bash
 orch status                                          # 1. instant fleet context: NAME/TAB/MODEL/STATE/COST/CTX/TASK/LAST
-orch spawn <N> --tab work --name job                 # 2. only if panes are needed: fresh tab, N NAMED agents, balanced auto-tiling
-orch tile <tab> --name extra                         #    (or add ONE balanced pane to an existing tab)
+orch spawn <name> <name> --tab work                  # 2. only if panes are needed: fresh tab, one pane per NAME, balanced auto-tiling
+orch tile <tab> <name>                              #    (or add ONE balanced named pane to an existing tab)
 orch model <target> "openai-codex/<exact-id>:<effort>"  # 3. per the matrix; verified old → new
 orch dispatch <target> 'FULL PROMPT: exact files, helpers, DON-Ts'  # 4. ALL slices in ONE turn
 # 5. (nothing to arm per fan-out — the session-long `orch events` Monitor pings every transition)
@@ -287,9 +287,10 @@ dispatch, not "done".
 ## PATH B — no herdr: background sub-agent wrapper
 
 pi is verbose; sitting in the main loop waiting burns your own context on pi's
-transcript. **Default (off-herdr):** spawn the **`pi-dispatch`** agent
-(`run_in_background: true`) to run the pif command in FOREGROUND Bash and return a
-distilled few-line answer. EVERY pif dispatch MUST include an explicit combined
+transcript. **Default (off-herdr):** spawn a **`general-purpose`** agent
+(`run_in_background: true`) with the relay prompt from `reference/orchestration.md`,
+so it runs the pif command in FOREGROUND Bash and returns a distilled few-line
+answer. EVERY pif dispatch MUST include an explicit combined
 `--model "openai-codex/<id>:<thinking>"`. Never rely on the saved model and never
 use a standalone `--thinking` flag as a substitute. Read the task-shape row in
 `reference/model-matrix.md` and apply its DRAFT setting exactly; the Claude

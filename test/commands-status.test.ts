@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveDriveState, deriveView, displayStatusState, formatNoRowsMessage, formatWorkspace, normalizeStatusRow, scopeFleetRows, statusRowFromView, warningStatusRow } from "../src/commands/status.ts";
 import type { Entity } from "../src/entities.ts";
-import { closeAllStores } from "../src/store/connection.ts";
+import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
+import { processStartToken } from "../src/process-identity.ts";
 
 const seededEntity = {
   key: "herdr~local~app:p1", paneId: "app:p1", name: "worker", tabLabel: "app", agent: "pi",
@@ -77,25 +78,25 @@ describe("commands/status", () => {
   // what the backend DECLARES — a new plexer changes no renderer.
   test("row carries the owning backend's declared capabilities", () => {
     const paned = statusRowFromView(deriveView(seededEntity, new Map()), {});
-    expect(paned.capabilities).toEqual({ canPruneLogs: false });
+    expect(paned.capabilities).toEqual({ spaceHome: true, identity: true, handleLookup: false, logPruning: false });
 
-    const detached = { ...seededEntity, key: "headless~local~1", backend: "headless" } as unknown as Entity;
-    expect(statusRowFromView(deriveView(detached, new Map()), {}).capabilities).toEqual({ canPruneLogs: true });
+    const detached: Entity = { ...seededEntity, key: "headless~local~1", backend: "headless" };
+    expect(statusRowFromView(deriveView(detached, new Map()), {}).capabilities).toEqual({ spaceHome: false, identity: false, handleLookup: true, logPruning: true });
   });
 
   test("an agent whose backend orch cannot name reports no capabilities", () => {
-    const orphan = { ...seededEntity, backend: null } as unknown as Entity;
+    const orphan: Entity = { ...seededEntity, backend: null };
     expect(statusRowFromView(deriveView(orphan, new Map()), {}).capabilities).toBeNull();
   });
-  // Two orchestrators share one flat name namespace, so the owner has to be
-  // readable from status or a collision is invisible until work lands wrong.
-  test("row carries the spawning orchestrator, null for panes orch never recorded", () => {
+  // Provenance remains visible on the internal view, while the status OWNER
+  // column answers the current driving lease and never falls back to provenance.
+  test("status owner ignores spawning provenance when no lease exists", () => {
     const owned = new Map([["herdr~local~app:p1", { owner: "orch-a" } as never]]);
     expect(deriveView(seededEntity, owned).owner).toBe("orch-a");
-    expect(statusRowFromView(deriveView(seededEntity, owned), {}).owner).toBe("orch-a");
-    expect(statusRowFromView(deriveView(seededEntity, new Map()), {}).owner).toBeNull();
+    expect(statusRowFromView(deriveView(seededEntity, owned), {}).owner).toBe("no orch driving it");
+    expect(statusRowFromView(deriveView(seededEntity, new Map()), {}).owner).toBe("no orch driving it");
   });
-  test("lease-backed status attribution distinguishes my lease, another lease, unleased, and legacy rows", () => {
+  test("lease-backed status attribution distinguishes my lease, another lease, and unleased rows", () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-status-"));
     try {
       ensureHarness(dir, "pi", "pi", 1);
@@ -103,13 +104,18 @@ describe("commands/status", () => {
       insertAgent(dir, { id: "worker", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
       insertAgent(dir, { id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
       const key = "headless~local~worker";
+      const db = openStore(dir);
+      db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
+      const token = processStartToken(process.pid);
+      if (!token) throw new Error("test process has no start token");
+      db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
+        .run("me", 1, "host", process.pid, token);
       acquireLease(dir, "worker", "me", 2);
-      expect(deriveDriveState(key, "legacy", { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "me", mine: true });
+      expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "me", mine: true });
       releaseLease(dir, "worker", "me", 3);
-      expect(deriveDriveState(key, "legacy", { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "unleased", mine: false });
+      expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it", mine: false });
       acquireLease(dir, "worker", "other", 4);
-      expect(deriveDriveState(key, "legacy", { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "other", mine: false });
-      expect(deriveDriveState("headless~local~missing", "legacy", { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "legacy", owner: "legacy" });
+      expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it (holder gone)", mine: false });
     } finally {
       closeAllStores();
       rmSync(dir, { recursive: true, force: true });

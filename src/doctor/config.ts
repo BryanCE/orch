@@ -1,7 +1,6 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { loadConfig, loadConfigOrNull, settingsPath, type OrchConfig } from "../config.ts";
-import { resolveAdapter } from "../adapters/registry.ts";
 import type { CheckResult } from "../check-result.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
 import { errorMessage } from "../util.ts";
@@ -26,13 +25,11 @@ export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const config = loadConfigOrNull(orchDir);
   if (!config || config.locked_commands.length === 0) return { id: "command-locks", label: "Command locks", status: "skip", detail: "no locked_commands configured" };
-  const unenforced = config.enabled.adapters.filter((id) => !resolveAdapter(id).capabilities.enforcesCommandLocks);
-  if (unenforced.length === 0) return { id: "command-locks", label: "Command locks", status: "ok", detail: `${config.locked_commands.length} locked command(s); every enabled adapter enforces them` };
   return {
     id: "command-locks",
     label: "Command locks",
-    status: "warn",
-    detail: `locked_commands set but ${unenforced.join(", ")} cannot enforce them (no pre-tool seam) - those agents get the worker-prompt clause only; the pi fleet is hard-enforced`,
+    status: "skip",
+    detail: `${config.locked_commands.length} locked command(s) are enforced by the selected harness bridge when available`,
   };
 }
 

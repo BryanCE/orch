@@ -1,4 +1,5 @@
 import { openStore } from "./connection.ts";
+import { isRecord } from "../util.ts";
 
 export type TaskScope =
   | { scopeAgentId: string; scopePackId?: never; scopeSpaceId?: never }
@@ -80,28 +81,89 @@ function encodeJson(value: unknown): string {
   return encoded;
 }
 
+function isTaskState(value: unknown): value is TaskState {
+  return value === "queued" || value === "claimed" || value === "done"
+    || value === "failed" || value === "cancelled" || value === "unrunnable";
+}
+
+function isRawTaskRow(value: unknown): value is RawTaskRow {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.text === "string"
+    && typeof value.opts === "string"
+    && typeof value.enqueued_by === "string"
+    && (value.scope_agent_id === null || typeof value.scope_agent_id === "string")
+    && (value.scope_pack_id === null || typeof value.scope_pack_id === "string")
+    && (value.scope_space_id === null || typeof value.scope_space_id === "string")
+    && typeof value.created_at === "number" && Number.isSafeInteger(value.created_at);
+}
+
+function isRawAttemptRow(value: unknown): value is RawAttemptRow {
+  return isRecord(value)
+    && typeof value.task_id === "string"
+    && typeof value.since === "number" && Number.isSafeInteger(value.since)
+    && (value.until === null || (typeof value.until === "number" && Number.isSafeInteger(value.until)))
+    && typeof value.agent_id === "string"
+    && typeof value.dispatch_id === "string"
+    && (value.outcome === null || value.outcome === "done" || value.outcome === "failed")
+    && (value.result === null || typeof value.result === "string")
+    && (value.error === null || typeof value.error === "string");
+}
+
+function isRawIntakeRow(value: unknown): value is RawIntakeRow {
+  return isRecord(value)
+    && typeof value.pack_id === "string"
+    && typeof value.space_id === "string"
+    && typeof value.since === "number" && Number.isSafeInteger(value.since)
+    && (value.until === null || (typeof value.until === "number" && Number.isSafeInteger(value.until)));
+}
+
+function isRawTaskStateRow(value: unknown): value is RawTaskStateRow {
+  return isRecord(value) && (value.state === null || isTaskState(value.state));
+}
+
+function isRawTaskWithState(value: unknown): value is RawTaskWithState {
+  return isRecord(value) && isRawTaskRow(value) && isTaskState(value.state);
+}
+
+function rowsOf<T>(values: unknown[], guard: (value: unknown) => value is T, label: string): T[] {
+  return values.map((value, index) => {
+    if (!guard(value)) throw new Error(`Malformed ${label} row at index ${index}`);
+    return value;
+  });
+}
+
+function parseStoredJson(value: string, label: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed;
+  } catch {
+    throw new Error(`Malformed ${label} row: invalid JSON`);
+  }
+}
+
 function task(row: RawTaskRow): TaskRow {
   return {
     id: row.id,
     text: row.text,
-    opts: JSON.parse(row.opts) as unknown,
+    opts: parseStoredJson(row.opts, "task"),
     enqueuedBy: row.enqueued_by,
     scopeAgentId: row.scope_agent_id,
     scopePackId: row.scope_pack_id,
     scopeSpaceId: row.scope_space_id,
-    createdAt: Number(row.created_at),
+    createdAt: row.created_at,
   };
 }
 
 function attempt(row: RawAttemptRow): AttemptRow {
   return {
     taskId: row.task_id,
-    since: Number(row.since),
-    until: row.until == null ? null : Number(row.until),
+    since: row.since,
+    until: row.until,
     agentId: row.agent_id,
     dispatchId: row.dispatch_id,
     outcome: row.outcome,
-    result: row.result == null ? null : JSON.parse(row.result) as unknown,
+    result: row.result == null ? null : parseStoredJson(row.result, "task attempt"),
     error: row.error,
   };
 }
@@ -138,9 +200,27 @@ export function editTask(dir: string, taskId: string, byAgentId: string, changes
   if (assignments.length === 0) return;
   values.push(taskId, byAgentId);
   const result = openStore(dir)
-    .query(`UPDATE tasks SET ${assignments.join(", ")} WHERE id=? AND enqueued_by=? AND NOT EXISTS (SELECT 1 FROM task_attempts WHERE task_id=tasks.id)`)
+    .query(`UPDATE tasks SET ${assignments.join(", ")} WHERE id=? AND enqueued_by=? AND EXISTS (SELECT 1 FROM task_states s WHERE s.task_id=tasks.id AND s.state='queued')`)
     .run(...values);
   if (result.changes !== 1) throw new Error("task is not editable by this enqueuer");
+}
+
+/** Re-scope an unrunnable task to a live taker's pack. */
+export function takeOnTask(dir: string, taskId: string, packId: string): void {
+  const changes = openStore(dir).query(
+    `UPDATE tasks SET scope_agent_id=NULL, scope_pack_id=?, scope_space_id=NULL
+     WHERE id=? AND EXISTS (SELECT 1 FROM task_states s WHERE s.task_id=tasks.id AND s.state='unrunnable')`,
+  ).run(packId, taskId).changes;
+  if (changes !== 1) throw new Error("task is not unrunnable");
+}
+
+/** Explicitly remove an unrunnable task; queued/claimable work is never reapable. */
+export function reapTask(dir: string, taskId: string): boolean {
+  const changes = openStore(dir).query(
+    `DELETE FROM tasks WHERE id=? AND EXISTS (SELECT 1 FROM task_states s WHERE s.task_id=tasks.id AND s.state='unrunnable')`,
+  ).run(taskId).changes;
+  if (changes !== 1) throw new Error("task is not unrunnable");
+  return true;
 }
 
 export function claimTask(dir: string, taskId: string, agentId: string, dispatchId: string, since = Date.now()): void {
@@ -167,23 +247,63 @@ export function cancelTask(dir: string, taskId: string, cancelledBy: string, can
   openStore(dir).query("INSERT INTO task_cancellations (task_id,cancelled_at,cancelled_by) VALUES (?,?,?)").run(taskId, cancelledAt, cancelledBy);
 }
 
+function spaceHasLiveAgent(dir: string, spaceId: string): boolean {
+  return openStore(dir).query(`
+    SELECT a.id FROM agents a
+    JOIN pack_intakes i ON i.pack_id=a.root_agent_id AND i.space_id=? AND i.until IS NULL
+    WHERE NOT EXISTS (SELECT 1 FROM agent_endings e WHERE e.agent_id=a.id)
+    LIMIT 1
+  `).get(spaceId) !== null;
+}
+
+function effectiveState(dir: string, row: TaskRow, state: TaskState): TaskState {
+  if ((state === "queued" || state === "failed") && row.scopeSpaceId !== null && !spaceHasLiveAgent(dir, row.scopeSpaceId)) {
+    return "unrunnable";
+  }
+  return state;
+}
+
 export function taskState(dir: string, taskId: string): TaskState | undefined {
-  const row = openStore(dir).query("SELECT state FROM task_states WHERE task_id=?").get(taskId) as RawTaskStateRow | null;
-  return row?.state ?? undefined;
+  const rawStateRow = openStore(dir).query("SELECT state FROM task_states WHERE task_id=?").get(taskId);
+  if (rawStateRow === null) return undefined;
+  if (!isRawTaskStateRow(rawStateRow)) throw new Error("Malformed task state row");
+  const stateRow = rawStateRow;
+  if (stateRow.state === null) return undefined;
+  const row = taskById(dir, taskId);
+  return row ? effectiveState(dir, row, stateRow.state) : stateRow.state;
 }
 
 export function taskById(dir: string, taskId: string): TaskRow | undefined {
-  const row = openStore(dir).query("SELECT * FROM tasks WHERE id=?").get(taskId) as RawTaskRow | null;
-  return row ? task(row) : undefined;
+  const rawRow = openStore(dir).query("SELECT * FROM tasks WHERE id=?").get(taskId);
+  if (rawRow === null) return undefined;
+  if (!isRawTaskRow(rawRow)) throw new Error("Malformed task row");
+  return task(rawRow);
+}
+
+/** Agents currently targeted by a task's scope, used for lease-gated cancellation. */
+export function agentsInTaskScope(dir: string, taskId: string): string[] {
+  const row = taskById(dir, taskId);
+  if (!row) return [];
+  const db = openStore(dir);
+  const rows: unknown[] = row.scopeAgentId !== null
+    ? [{ id: row.scopeAgentId }]
+    : row.scopePackId !== null
+      ? db.query("SELECT id FROM agents WHERE root_agent_id=?").all(row.scopePackId)
+      : db.query(`SELECT DISTINCT a.id FROM agents a JOIN pack_intakes i ON i.pack_id=a.root_agent_id
+                  WHERE i.space_id=? AND i.until IS NULL`).all(row.scopeSpaceId);
+  return rows.filter((value): value is { id: string } => isRecord(value) && typeof value.id === "string").map((value) => value.id);
 }
 
 export function allTasks(dir: string): (TaskRow & { state: TaskState })[] {
-  const rows = openStore(dir).query(`
+  const rows = rowsOf(openStore(dir).query(`
     SELECT t.*, s.state FROM tasks t
     JOIN task_states s ON s.task_id=t.id
     ORDER BY t.created_at, t.id
-  `).all() as RawTaskWithState[];
-  return rows.map((row) => ({ ...task(row), state: row.state }));
+  `).all(), isRawTaskWithState, "task");
+  return rows.map((row) => {
+    const mapped = task(row);
+    return { ...mapped, state: effectiveState(dir, mapped, row.state) };
+  });
 }
 
 /** Retention is based on the last settlement clock. Queued and open attempts
@@ -205,7 +325,7 @@ export function deleteSettledTasksBefore(dir: string, cutoff: number): number {
 }
 
 export function attemptsOf(dir: string, taskId: string): AttemptRow[] {
-  const rows = openStore(dir).query("SELECT task_id,since,until,agent_id,dispatch_id,outcome,result,error FROM task_attempts WHERE task_id=? ORDER BY since").all(taskId) as RawAttemptRow[];
+  const rows = rowsOf(openStore(dir).query("SELECT task_id,since,until,agent_id,dispatch_id,outcome,result,error FROM task_attempts WHERE task_id=? ORDER BY since").all(taskId), isRawAttemptRow, "task attempt");
   return rows.map(attempt);
 }
 
@@ -218,7 +338,7 @@ export function openTasksInScope(dir: string, query: ScopeQuery): TaskRow[] {
   const db = openStore(dir);
   let rows: RawTaskRow[];
   if ("agentId" in query) {
-    rows = db.query(`
+    rows = rowsOf(db.query(`
       SELECT DISTINCT t.* FROM tasks t
       LEFT JOIN agents a ON a.id=?
       WHERE (t.scope_agent_id=? OR t.scope_pack_id=a.root_agent_id
@@ -227,18 +347,18 @@ export function openTasksInScope(dir: string, query: ScopeQuery): TaskRow[] {
           WHERE i.pack_id=a.root_agent_id AND i.space_id=t.scope_space_id AND i.until IS NULL
         )))
         AND NOT EXISTS (SELECT 1 FROM task_cancellations c WHERE c.task_id=t.id)
-    `).all(query.agentId, query.agentId) as RawTaskRow[];
+    `).all(query.agentId, query.agentId), isRawTaskRow, "task");
   } else if ("packId" in query) {
-    rows = db.query(`
+    rows = rowsOf(db.query(`
       SELECT t.* FROM tasks t
       WHERE (t.scope_pack_id=? OR (t.scope_space_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM pack_intakes i
         WHERE i.pack_id=? AND i.space_id=t.scope_space_id AND i.until IS NULL
       )))
         AND NOT EXISTS (SELECT 1 FROM task_cancellations c WHERE c.task_id=t.id)
-    `).all(query.packId, query.packId) as RawTaskRow[];
+    `).all(query.packId, query.packId), isRawTaskRow, "task");
   } else {
-    rows = db.query("SELECT t.* FROM tasks t WHERE t.scope_space_id=? AND NOT EXISTS (SELECT 1 FROM task_cancellations c WHERE c.task_id=t.id)").all(query.spaceId) as RawTaskRow[];
+    rows = rowsOf(db.query("SELECT t.* FROM tasks t WHERE t.scope_space_id=? AND NOT EXISTS (SELECT 1 FROM task_cancellations c WHERE c.task_id=t.id)").all(query.spaceId), isRawTaskRow, "task");
   }
   return rows.filter((row) => {
     const state = taskState(dir, row.id);
@@ -255,6 +375,6 @@ export function closeIntake(dir: string, packId: string, spaceId: string, until 
 }
 
 export function intakesOf(dir: string, packId: string): { packId: string; spaceId: string; since: number; until: number | null }[] {
-  const rows = openStore(dir).query("SELECT pack_id,space_id,since,until FROM pack_intakes WHERE pack_id=? ORDER BY since").all(packId) as RawIntakeRow[];
-  return rows.map((row) => ({ packId: row.pack_id, spaceId: row.space_id, since: Number(row.since), until: row.until == null ? null : Number(row.until) }));
+  const rows = rowsOf(openStore(dir).query("SELECT pack_id,space_id,since,until FROM pack_intakes WHERE pack_id=? ORDER BY since").all(packId), isRawIntakeRow, "pack intake");
+  return rows.map((row) => ({ packId: row.pack_id, spaceId: row.space_id, since: row.since, until: row.until }));
 }

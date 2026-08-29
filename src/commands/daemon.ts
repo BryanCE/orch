@@ -16,6 +16,7 @@ import { DaemonAbsentError, DaemonUnreachableError, RpcError, rpcCall } from "..
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
 import { actorWorkspace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
+import { commandLogger } from "./logging.ts";
 
 export interface DaemonStatus {
   pid: number;
@@ -129,6 +130,7 @@ export async function daemonOutage(directory = orchDir()): Promise<string | null
 async function terminateWedgedDaemon(directory: string, lockPid: number, graceMs: number): Promise<void> {
   const wedged = provenDaemonPid(directory);
   if (wedged === undefined) throw new Error(unprovenLockRefusal(directory, lockPid));
+  commandLogger().warn("daemon.wedged-stopping", { pid: wedged });
   process.stderr.write(`orchd pid ${wedged} holds the lock but did not answer; stopping it\n`);
   await terminateDaemon(wedged, graceMs);
 }
@@ -167,7 +169,9 @@ export async function ensureDaemonOrWarn(directory: string): Promise<void> {
   try {
     await ensureDaemon(directory);
   } catch (error: unknown) {
-    process.stderr.write(`warning: ${errorMessage(error)}\n`);
+    const message = errorMessage(error);
+    commandLogger().warn("daemon.unavailable", { error: message });
+    process.stderr.write(`warning: ${message}\n`);
   }
 }
 

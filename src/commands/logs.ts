@@ -57,9 +57,10 @@ function matches(record: LogRecord, options: LogOptions): boolean {
 }
 
 function render(record: LogRecord): string {
-  const context = record.correlationId ? ` [${record.correlationId}]` : "";
+  const correlation = record.correlationId ? ` [${record.correlationId}]` : "";
+  const agent = record.agentId ? ` [agent=${record.agentId}]` : "";
   const fields = record.fields ? ` ${JSON.stringify(record.fields)}` : "";
-  return `${new Date(record.at).toISOString()} ${record.level} ${record.event}${context}${fields}`;
+  return `${new Date(record.at).toISOString()} ${record.level} ${record.event}${correlation}${agent}${fields}`;
 }
 
 export function cmdLogs(args: string[]): void {

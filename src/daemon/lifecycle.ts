@@ -12,7 +12,7 @@ import {
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
-import { packageRoot } from "../util.ts";
+import { errnoCode, packageRoot } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 
 const HASH_LENGTH = 12;
@@ -128,7 +128,7 @@ export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationRe
       writeFileSync(file, `${JSON.stringify(registration)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
       return { acquired: true, registration };
     } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (errnoCode(error) !== "EEXIST") throw error;
       const existing = readDaemonRegistration();
       if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
         return { acquired: false, registration: existing };
@@ -136,7 +136,7 @@ export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationRe
       try {
         unlinkSync(file);
       } catch (unlinkError: unknown) {
-        if ((unlinkError as NodeJS.ErrnoException).code !== "ENOENT") return { acquired: false };
+        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false };
       }
     }
   }
@@ -149,7 +149,7 @@ export function releaseDaemonRegistration(): void {
   try {
     unlinkSync(registrationPath());
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (errnoCode(error) !== "ENOENT") throw error;
   }
 }
 
@@ -243,12 +243,12 @@ export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = ()
       writeFileSync(file, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
       return true;
     } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (errnoCode(error) !== "EEXIST") throw error;
       if (!canReclaim(readLock(file), socketProbe, orchDir)) return false;
       try {
         unlinkSync(file);
       } catch (unlinkError: unknown) {
-        if ((unlinkError as NodeJS.ErrnoException).code !== "ENOENT") return false;
+        if (errnoCode(unlinkError) !== "ENOENT") return false;
       }
     }
   }
@@ -260,7 +260,7 @@ export function releaseDaemonLock(orchDir: string): void {
   try {
     unlinkSync(lockPath(orchDir));
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (errnoCode(error) !== "ENOENT") throw error;
   }
 }
 
@@ -273,7 +273,7 @@ export function clearDaemonRuntime(orchDir: string): string[] {
       unlinkSync(file);
       removed.push(file);
     } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if (errnoCode(error) !== "ENOENT") throw error;
     }
   }
   return removed;

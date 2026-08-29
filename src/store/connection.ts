@@ -93,25 +93,62 @@ function migrationsFolder(): string {
   return join(import.meta.dirname, "..", "..", "drizzle");
 }
 
-/** A current-schema status record with a live pid means an agent is still
- * running. Recreating the store while one exists would erase its identity. */
-function hasLivePresence(orchDir: string): boolean {
+/** Every agent whose status record still names a live pid. A current-schema
+ *  record with a live pid means an agent is still running, and its identity is
+ *  written nowhere but this store: recreating under it erases a living agent. */
+export function livePresenceHolders(orchDir: string): string[] {
   let entries: { name: string; isDirectory(): boolean }[];
   try {
     entries = readdirSync(presenceRoot(orchDir), { withFileTypes: true });
   } catch {
-    return false;
+    return [];
   }
+  const live: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     try {
       const status = readStatus(join(presenceRoot(orchDir), entry.name));
-      if (pidAlive(status.pid)) return true;
+      if (pidAlive(status.pid)) live.push(entry.name);
     } catch {
       // A malformed status is not a live presence record.
     }
   }
-  return false;
+  return live;
+}
+
+/**
+ * True when orch launched this process as an agent: it was handed the launch key
+ * at spawn, and a user's shell never carries one.
+ *
+ * Only the key's PRESENCE is asked, never its shape — the identity codec lives in
+ * `backends/identity.ts`, which reaches this module through the presence store,
+ * so parsing here would be both a second parser and an import cycle.
+ */
+function callerIsSpawnedAgent(): boolean {
+  return (process.env.ORCH_AGENT_KEY ?? "").length > 0;
+}
+
+/**
+ * Refuse destructive store maintenance that is not the caller's to perform.
+ *
+ * Rebuilding the store deletes the only record of who every agent is, so it is
+ * the user's or the pack orch's call and never a slave's — and while any agent
+ * is live it is nobody's, because a living agent's identity is never collateral.
+ *
+ * 2026-08-27: a slave running dev-tree code stamped the live store one schema
+ * ahead, and the installed CLI silently reaped and recreated it under twelve
+ * live agents.
+ */
+export function assertStoreRecreatable(orchDir: string): void {
+  const file = databasePath(orchDir);
+  if (callerIsSpawnedAgent()) {
+    throw new Error(`orch: a spawned agent never rebuilds ${file}. Report the skew to the user or the pack's orch, who rebuilds it, and change nothing.`);
+  }
+  const holders = livePresenceHolders(orchDir);
+  if (holders.length > 0) {
+    throw new Error(`orch: refusing to rebuild ${file} while ${holders.length} agent${holders.length === 1 ? " is" : "s are"} live: ${holders.join(", ")}. `
+      + `Their identity exists only in this store; close them first ('orch close --all'), then retry.`);
+  }
 }
 
 /** A store carrying orch's tables with no record of the migrations that create
@@ -139,6 +176,19 @@ function migrationFolderPredatesKit(reason: string): boolean {
   return reason.includes("drizzle-kit up");
 }
 
+/** What the caller who hit this skew may actually do about it. A slave is told
+ *  to report it, never how to rebuild: naming a rebuild at a process that must
+ *  not run one is how the store got recreated under twelve live agents. */
+function openRemedy(orchDir: string, reason: string): string {
+  if (callerIsSpawnedAgent()) {
+    return "A spawned agent never rebuilds the store: report this skew to the user or the pack's orch, and change nothing.";
+  }
+  if (migrationFolderPredatesKit(reason)) {
+    return "Regenerate the migration folder with 'bun db:gen'; rebuilding the store will not help.";
+  }
+  return `Rebuild it with 'bun db:reset', which first keeps a copy under ${join(orchDir, "backups")}.`;
+}
+
 function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): void {
   try {
     if (predatesMigrations(opened.port)) throw new Error("it has orch's tables but no record of the migrations that create them");
@@ -146,11 +196,8 @@ function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): v
   } catch (error) {
     opened.port.close();
     const reason = error instanceof Error ? error.message : String(error);
-    const live = hasLivePresence(orchDir) ? " Live agents hold this store; close them first." : "";
-    const remedy = migrationFolderPredatesKit(reason)
-      ? "Regenerate the migration folder with 'bun db:gen'; rebuilding the store will not help."
-      : `Rebuild it with 'bun db:reset', which first keeps a copy under ${join(orchDir, "backups")}.`;
-    throw new Error(`orch: ${path} does not match orch's migrations (${reason}).${live} ${remedy}`);
+    const live = livePresenceHolders(orchDir).length > 0 ? " Live agents hold this store; close them first." : "";
+    throw new Error(`orch: ${path} does not match orch's migrations (${reason}).${live} ${openRemedy(orchDir, reason)}`);
   }
 }
 

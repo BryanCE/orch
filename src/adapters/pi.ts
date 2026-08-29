@@ -8,7 +8,7 @@ import {
   statusForPresence,
   type PresenceEntry,
 } from "../presence/store.ts";
-import { isRecord, shellQuote } from "../util.ts";
+import { errnoCode, isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, type ExtensionName } from "../extensions/bundles.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
@@ -17,7 +17,7 @@ import { appendInbox } from "../presence/inbox.ts";
 import { writeAnswer } from "../presence/writer.ts";
 import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
-import { AGENT_STATES } from "./adapter.ts";
+import { isAgentState } from "../agent-state.ts";
 import type {
   AdapterCommand,
   AgentAdapter,
@@ -148,7 +148,7 @@ export function toolPolicyArgv(
   return argv;
 }
 
-function presenceFor(key: string): PresenceEntry | undefined {
+export function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
 
@@ -248,9 +248,7 @@ export const PI_LIFECYCLE_TEXT: Record<LifecycleVerb, string> = {
 };
 
 function stateFrom(value: unknown): AgentState {
-  return typeof value === "string" && AGENT_STATES.includes(value as AgentState)
-    ? value as AgentState
-    : "unknown";
+  return isAgentState(value) ? value : "unknown";
 }
 
 /** Pick the most descriptive argument value from a pi tool-call block. */
@@ -304,7 +302,7 @@ export function diagnoseExtensionLink(harness: string, extensionDir: string, ext
   try { bundleMissing = !fs.statSync(source).isFile(); } catch { bundleMissing = true; }
   let extensionDirMissing = false;
   try { fs.lstatSync(extensionDir); }
-  catch (error: unknown) { extensionDirMissing = (error as NodeJS.ErrnoException).code === "ENOENT"; }
+  catch (error: unknown) { extensionDirMissing = errnoCode(error) === "ENOENT"; }
 
   const { stale, fixable } = linkState(source, destination);
   const apply: FixDescriptor = {
@@ -338,7 +336,7 @@ function linkState(source: string, destination: string): { stale: boolean; fixab
     const copied = computeCodeHash(destination) !== computeCodeHash(source);
     return { stale: copied, fixable: copied };
   } catch (error: unknown) {
-    return { stale: true, fixable: (error as NodeJS.ErrnoException).code === "ENOENT" };
+    return { stale: true, fixable: errnoCode(error) === "ENOENT" };
   }
 }
 
@@ -434,16 +432,26 @@ export class PiAdapter implements AgentAdapter {
   readonly sessionEnvMarker = "PI_CODING_AGENT";
   readonly sessionIdEnv = "PI_SESSION_ID";
 
-  /** Pi supports every D4 capability through the bridge and session files. */
-  readonly capabilities = {
-    steer: "inbox" as const,
-    ask: true,
-    setModel: true,
-    sessionTail: true,
-    registersPresenceOnStart: true,
-    lifecycle: ["reset", "reload", "restart"] as const,
-    enforcesCommandLocks: true,
+  readonly workerLaunch = {
+    restrictedInteractiveCmd: (opts: SpawnOpts): string => this.restrictedInteractiveCmd(opts),
+    restrictedHeadlessCmd: (prompt: string, opts: SpawnOpts): string[] => this.restrictedHeadlessCmd(prompt, opts),
   };
+  readonly modelControl = { setModel: (request: ModelRequest): AdapterCommand | undefined => this.setModel(request) };
+  readonly lifecycleControl = { lifecycleCmd: (verb: LifecycleVerb): { text: string } | undefined => this.lifecycleCmd(verb) };
+  readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
+  readonly workspaceTrust = { preTrustWorkspace: (cwd: string, cmd: string): void => this.preTrustWorkspace(cwd, cmd) };
+  readonly shim = {
+    installShim: (opts?: ShimInstallOpts): void => this.installShim(opts),
+    diagnoseShim: (): CheckResult => this.diagnoseShim
+      ? this.diagnoseShim()
+      : { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi integration shim disabled" },
+  };
+  readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
+  readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
+  readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
+  readonly question = { answer: (request: AnswerRequest): AdapterCommand | undefined => this.answer(request) };
+  readonly inboxSteering = { steer: (request: SteerRequest): AdapterCommand | undefined => this.steer(request) };
+  readonly presenceRegistration = { isRegistered: (key: string): boolean => presenceFor(key) !== undefined };
 
   /** Start pi directly in an interactive backend session. Worker options use the same
    * composition as restricted launches, so tile/spawn cannot silently drop extensions. */

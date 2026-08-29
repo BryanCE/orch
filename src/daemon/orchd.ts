@@ -33,8 +33,9 @@ import type { WorkerPolicy } from "../policy/workers.ts";
 import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
-import { createLogger, isLogLevel, type Logger, type LogLevel } from "../log.ts";
+import { createLogger, isLogLevel, type Logger, type LogContext, type LogLevel } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
+import { decisionLogger } from "./decision-log.ts";
 
 export interface LeasePayload {
   readonly holderId: string;
@@ -183,7 +184,7 @@ function isWritePayload(value: unknown): value is { action?: unknown; text?: unk
 /** Send one outbox write into its target's text channel. New work and a mid-run steer
  *  differ only in the action kind; both go through the one control dispatcher. A target
  *  with no recorded adapter is a bare pane orch never spawned, so keystrokes are all it has. */
-async function deliverWrite(target: string, payload: unknown, id: string): Promise<boolean> {
+export async function deliverWrite(target: string, payload: unknown, id: string): Promise<boolean> {
   const canonicalTarget = normalizeControlTarget(target);
   const log = createLogger({ file: `${orchDir()}/orchd.log`, level: "info" }).forCorrelation(id);
   const value = isWritePayload(payload) ? payload : {};
@@ -198,9 +199,15 @@ async function deliverWrite(target: string, payload: unknown, id: string): Promi
   try {
     const outcome = await deliverControl(canonicalTarget, { kind, text, id });
     if (outcome.outcome === "answer") {
-      log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason });
+      const agentId = tryParseIdentity(canonicalTarget)?.id ?? canonicalTarget;
+      decisionLogger(orchDir(), { correlationId: id, agentId }).debug("boundary.answer", {
+        target: canonicalTarget,
+        reason: outcome.reason,
+      });
       process.stderr.write(`${kind} ${canonicalTarget} refused (${outcome.reason}): ${outcome.text}\n`);
-      return false;
+      // A boundary answer is a successful human-facing outcome, not a failed
+      // delivery. Ack it so the outbox does not retry or escalate it as error.
+      return true;
     }
     return true;
   } catch (error) {
@@ -229,7 +236,7 @@ export function validateWriteParams(params: unknown): { target: string; text: st
  * accepted. An open lease is mutual exclusion for every driving verb, but ONLY while
  * its holder is alive: Rule 11 - a dead holder is not a collision, it is a stale row.
  * Gating on a dead holder strands a whole fleet with no way to drive it. */
-export function governWrite(directory: string, target: string, params: unknown): void {
+export function governWrite(directory: string, target: string, params: unknown, context: LogContext = {}): void {
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
   const steal = value.steal === true;
@@ -243,20 +250,40 @@ export function governWrite(directory: string, target: string, params: unknown):
   const lease = currentLease(directory, targetId);
   const actorId = actor === null ? null : (tryParseIdentity(actor)?.id ?? actor);
   const holderId = lease && (tryParseIdentity(lease.orchId)?.id ?? lease.orchId);
-  if (lease && holderId !== actorId && leaseHolderIsAlive(directory, lease.orchId)) {
+  const holderAlive = lease === null ? false : leaseHolderIsAlive(directory, lease.orchId);
+  const foreignLease = lease !== null && holderId !== actorId;
+  const logLeaseGrant = (): void => {
+    if (!foreignLease || lease === null) return;
+    decisionLogger(directory, { ...context, agentId: targetId }).debug("lease.granted", {
+      target: targetId,
+      holderId: holderId ?? lease.orchId,
+      holderAlive: false,
+    });
+  };
+  if (foreignLease && lease !== null && holderAlive) {
+    decisionLogger(directory, { ...context, agentId: targetId }).debug("lease.refused", {
+      target: targetId,
+      holderId: holderId ?? lease.orchId,
+      holderAlive: true,
+    });
     throw new Error(`agent is leased by ${lease.orchId}; only its lease holder may drive it`);
   }
   if (actor === null) {
     const owner = getOwner(directory, target);
     if (owner !== undefined) throw new Error(`agent is owned by ${owner}; anonymous writes are refused - set ORCH_OWNER to identify this caller`);
+    logLeaseGrant();
     return;
   }
   // The workspace's human operator keeps control of every fleet keyed into it;
   // spawned agents carry their own key, never the operator id, so this grants
   // an agent nothing beyond what it spawned.
-  if (operatorControls(directory, actor, target, actorWorkspace, actorIsOperator)) return;
+  if (operatorControls(directory, actor, target, actorWorkspace, actorIsOperator)) {
+    logLeaseGrant();
+    return;
+  }
   const owned = checkOwnerWrite(directory, target, actor, { steal });
   if (!owned.ok) throw new Error(owned.reason ?? "ownership denied the write");
+  logLeaseGrant();
 }
 
 async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
@@ -265,7 +292,7 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
   const log = createLogger({ file: `${directory}/orchd.log`, level: "info" }).forCorrelation(id);
   try {
     withTransaction(directory, () => {
-      governWrite(directory, target, params);
+      governWrite(directory, target, params, { correlationId: id });
       insertOutboxMessage(directory, { id, target, payload: { action, text } });
     });
     log.info("dispatch.accepted", { target, action });

@@ -67,6 +67,12 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Read a Node syscall error code only when the thrown value actually carries a string code. */
+export function errnoCode(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("code" in value)) return undefined;
+  return typeof value.code === "string" ? value.code : undefined;
+}
+
 /** The message plus its traceback, for logs a human reads after the fact. */
 export function errorTrace(error: unknown): string {
   return error instanceof Error ? error.stack ?? error.message : String(error);
@@ -134,7 +140,8 @@ export function truncateOptional(value: unknown, max: number): string | undefine
 /** Parse a JSON file, or undefined when it is absent or unparseable. */
 export function readJsonFile(file: string): unknown {
   try {
-    return JSON.parse(readFileSync(file, "utf8")) as unknown;
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    return parsed;
   } catch {
     return undefined;
   }
@@ -166,7 +173,7 @@ export function pidAlive(pid: unknown): boolean {
     return true;
   } catch (error: unknown) {
     // EPERM means the process exists but belongs to another user.
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return errnoCode(error) === "EPERM";
   }
 }
 

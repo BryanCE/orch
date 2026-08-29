@@ -401,14 +401,16 @@ export function checkIdentityConstructionLine(line: string, relPath: string): st
  * It must remain visible here until that caller is removed; never add a broad
  * path exemption for this invariant.
  */
-export const IDENTITY_CONSTRUCTION_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  [
-    "src/entities.ts",
-    new Set([
-      'return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;',
-    ]),
-  ],
-]);
+/**
+ * Lines exempt from the identity-construction rule.
+ *
+ * EMPTY, and it must stay that way unless a new exemption is argued for. The one
+ * entry this held exempted `selfActor()`, which minted `<backend>~<workspace>~operator`
+ * — the exact welding of environment into identity `TASKS/01-agent-model.md` forbids.
+ * `selfActor()` is deleted (`TASKS/02-scope.md` B5), so the exemption outlived the code
+ * it excused and was holding the rule open for nothing.
+ */
+export const IDENTITY_CONSTRUCTION_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 
 /**
  * D2.4 — `src/commands/**` reads sessions through the resolved adapter's
@@ -429,6 +431,51 @@ export function checkBridgeBundleImportLine(line: string, relPath: string): stri
   if (!normalizedPath.startsWith("src/") || normalizedPath === "src/bridge-bundle.ts") return undefined;
   if (/(?:from\s+|import\s*\()\s*["'][^"']*bridge-bundle\.ts["']/.test(line)) {
     return "bridge-bundle.ts is build tooling; runtime src/** must use shipped bundle metadata without importing it";
+  }
+  return undefined;
+}
+
+/**
+ * I2 — environment capabilities are composed, never inferred from provider
+ * identity or from the shape of a port object. Concrete backend modules own
+ * their wire vocabulary and may branch on their own id; every other src module
+ * must use the declared environment capabilities instead.
+ */
+const ENVIRONMENT_IDS: readonly string[] = ["pi", "omp", "claude", "codex", "herdr", "tmux", "headless"];
+const ENVIRONMENT_ID_ALTERNATION = ENVIRONMENT_IDS.join("|");
+const ENVIRONMENT_REFERENCE = "(?:backend|backendId|plexer|plexerId|harness|harnessId|adapter|adapterId|resolvedBackend|resolvedAdapter|provider|key|identity(?:\\.key)?)";
+const ENVIRONMENT_ID_EQUALITY = new RegExp(
+  `(?:${ENVIRONMENT_REFERENCE})(?:\\.id)?\\s*(?:===|!==|==|!=)\\s*["'](?:${ENVIRONMENT_ID_ALTERNATION})["']|["'](?:${ENVIRONMENT_ID_ALTERNATION})["']\\s*(?:===|!==|==|!=)\\s*(?:${ENVIRONMENT_REFERENCE})(?:\\.id)?`,
+);
+const ENVIRONMENT_SWITCH = new RegExp(`\\bswitch\\s*\\(\\s*(?:${ENVIRONMENT_REFERENCE})(?:\\.id)?\\s*\\)`);
+const ENVIRONMENT_KEY_PREFIX = new RegExp(`\\b(?:key|identity\\.key)\\s*\\.\\s*startsWith\\s*\\(\\s*["'](?:${ENVIRONMENT_ID_ALTERNATION})~`);
+const METHOD_OWNER = "(?:provider|backend|adapter|resolvedBackend|resolvedAdapter)";
+const ENVIRONMENT_ROLE_NAMES: readonly string[] = [
+  "channel", "paneHost", "paneInventory", "paneInput", "paneForeground", "paneScreen", "paneZoom", "paneNaming",
+  "agentNaming", "agentStatus", "groupHome", "groupLayout", "notification", "capabilities", "id",
+  "workerLaunch", "modelControl", "lifecycleControl", "sessionView", "workspaceTrust", "shim", "defaultModel", "models", "modelWarm",
+  "question", "inboxSteering", "presenceRegistration", "commandLocks", "createWorkspace", "currentIdentity", "pruneLogs", "handleFor", "workspaces", "focusWorkspace", "version",
+  "sessionEnvMarker", "sessionIdEnv", "sessionPidEnv", "spaceHome",
+];
+const ENVIRONMENT_ROLE_ALTERNATION = ENVIRONMENT_ROLE_NAMES.join("|");
+const METHOD_TYPEOF = /\btypeof\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+\s*(?:===|!==|==|!=)\s*["']function["']/;
+const METHOD_IN = new RegExp(`["'][^"']+["']\\s+in\\s+${METHOD_OWNER}\\b`);
+const METHOD_PROPERTY_CONDITION = new RegExp(
+  `\\b(?:if|while)\\s*\\([^)]*\\b${METHOD_OWNER}\\.(?!${ENVIRONMENT_ROLE_ALTERNATION}\\b)[A-Za-z_$][\\w$]*\\b(?!\\s*(?:\\?\\.)?\\s*\\()(?!\\s*\\.)`,
+);
+const OPTIONAL_METHOD_CONDITION = new RegExp(
+  `\\b(?:if|while)\\s*\\([^)]*\\b${METHOD_OWNER}\\.(?!${ENVIRONMENT_ROLE_ALTERNATION}\\b)[A-Za-z_$][\\w$]*\\?\\.\\s*\\(`,
+);
+
+export function checkEnvironmentCapabilityLine(line: string, relPath: string): string | undefined {
+  const normalizedPath = relPath.replace(/\\/g, "/");
+  if (/^src\/backends\/[^/]+\//.test(normalizedPath) || normalizedPath.startsWith("src/seat/")) return undefined;
+
+  if (ENVIRONMENT_ID_EQUALITY.test(line) || ENVIRONMENT_SWITCH.test(line) || ENVIRONMENT_KEY_PREFIX.test(line)) {
+    return "environment identity branching is forbidden outside concrete backends; branch on declared capabilities instead";
+  }
+  if (METHOD_TYPEOF.test(line) || METHOD_IN.test(line) || METHOD_PROPERTY_CONDITION.test(line) || OPTIONAL_METHOD_CONDITION.test(line)) {
+    return "method-presence capability checks are forbidden; read the composed environment capability instead";
   }
   return undefined;
 }
@@ -496,6 +543,11 @@ function runAllChecks(): void {
    * definition and fails this check.
    */
   const bridgeSourceFiles = scanSrcOutsideBackends((line, relPath) => {
+    const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
+    if (environmentCapabilityViolation) {
+      const allowed = CORE_SCOPE_ALLOWLIST.get(relPath);
+      if (!allowed?.has(line.trim())) return environmentCapabilityViolation;
+    }
     const bridgeBundleViolation = checkBridgeBundleImportLine(line, relPath);
     if (bridgeBundleViolation) return bridgeBundleViolation;
     const backendEnvViolation = checkBackendEnvLine(line, relPath);
@@ -541,6 +593,8 @@ function runAllChecks(): void {
   });
 
   const backendFiles = scanDirectory("src/backends", new Set(["backend.ts", "identity.ts"]), (line, relPath) => {
+    const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
+    if (environmentCapabilityViolation) return environmentCapabilityViolation;
     const backendEnvViolation = checkBackendEnvLine(line, relPath);
     if (backendEnvViolation) return backendEnvViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);

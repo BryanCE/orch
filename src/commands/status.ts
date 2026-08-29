@@ -9,7 +9,7 @@ import { currentLease } from "../store/lease-rows.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
 import { collapse, buildEntities, entityWorkspace, sortEntities, type Entity } from "../entities.ts";
-import type { BackendCapabilities } from "../backends/backend.ts";
+import type {  } from "../backends/backend.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
@@ -24,6 +24,7 @@ import {
   splitOptionFlags,
 } from "./target.ts";
 import { isRecord, truncate } from "../util.ts";
+import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
@@ -74,14 +75,10 @@ export function entityAdapter(ent: Entity, spawned = spawnedRecords()): AgentAda
   return getAdapter(spawned.get(ent.key)?.adapter ?? ent.presence?.status?.agent ?? ent.agent ?? "");
 }
 
-/**
- * Resolve the live driver for a status row. The old ownership table is only a
- * transitional fallback: once an agents row exists, the lease is authoritative,
- * including the explicit unleased state after a release or expiry.
- */
+/** Resolve the driver for a status row from the one authoritative lease table. */
 export interface DriveState {
-  kind: "leased" | "unleased" | "legacy";
-  owner: string | null;
+  kind: "leased" | "unleased";
+  owner: string;
   mine: boolean;
 }
 
@@ -91,20 +88,43 @@ export interface DriveStateOptions {
   currentOrchId?: string | null;
 }
 
-export function deriveDriveState(key: string, legacyOwner: string | null, options: DriveStateOptions = {}): DriveState {
+interface HolderProcessRow {
+  pid: number;
+  start_token: string | null;
+}
+
+function isHolderProcessRow(value: unknown): value is HolderProcessRow {
+  return isRecord(value)
+    && typeof value.pid === "number"
+    && (value.start_token === null || typeof value.start_token === "string");
+}
+
+function holderIsAlive(directory: string, holderId: string): boolean {
+  const row = openStore(directory)
+    .query("SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL")
+    .get(holderId);
+  if (!isHolderProcessRow(row)) return false;
+  if (row.start_token !== null && row.start_token.length > 0) return processInstanceMatches(row.pid, row.start_token);
+  return processIsAlive(row.pid);
+}
+
+const NO_ORCH_DRIVER = "no orch driving it";
+const DEAD_HOLDER_DRIVER = `${NO_ORCH_DRIVER} (holder gone)`;
+
+export function deriveDriveState(key: string, options: DriveStateOptions = {}): DriveState {
   const identity = tryParseIdentity(key);
-  if (!identity) return { kind: "legacy", owner: legacyOwner, mine: false };
+  if (!identity) return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
   const directory = options.directory ?? orchDir();
   let agent: ReturnType<typeof agentById>;
   try {
     agent = agentById(directory, identity.id);
   } catch {
-    // A legacy or concurrently closed store cannot establish lease state.
-    return { kind: "legacy", owner: legacyOwner, mine: false };
+    return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
   }
-  if (!agent) return { kind: "legacy", owner: legacyOwner, mine: false };
+  if (!agent) return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
   const lease = currentLease(directory, agent.id);
-  if (!lease) return { kind: "unleased", owner: "unleased", mine: false };
+  if (!lease) return { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
+  if (!holderIsAlive(directory, lease.orchId)) return { kind: "unleased", owner: DEAD_HOLDER_DRIVER, mine: false };
   return { kind: "leased", owner: lease.orchId, mine: options.currentOrchId != null && lease.orchId === options.currentOrchId };
 }
 
@@ -113,8 +133,9 @@ function currentOrchId(): string | null {
   return tryParseIdentity(key)?.id ?? null;
 }
 
-function ownerCell(row: Pick<StatusRow, "owner">): string {
-  return row.owner === "unleased" ? dim(row.owner) : row.owner ?? "-";
+export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
+  if (row.owner === null) return "-";
+  return row.owner.startsWith(NO_ORCH_DRIVER) ? dim(row.owner) : row.owner;
 }
 
 /** Format a provider/model pair with its optional thinking suffix. */
@@ -142,7 +163,7 @@ function deriveModelString(pres: PresenceEntry | null, sview: SessionView | null
   if (presenceModel) return presenceModel;
   const sessionModel = sessionModelString(sview);
   if (sessionModel) return sessionModel;
-  const adapterDefault = adapter?.defaultModelString?.();
+  const adapterDefault = adapter?.defaultModel?.defaultModelString();
   return adapterDefault ? `${adapterDefault} (default)` : "-";
 }
 
@@ -172,8 +193,8 @@ function deriveContextPercent(pres: PresenceEntry | null): number | null {
 
 /** Read a session tail only when the adapter declares that capability. */
 function sessionViewFor(ent: Entity, adapter: AgentAdapter | undefined): SessionView | null {
-  if (!adapter?.capabilities.sessionTail || !ent.sessionPath) return null;
-  return adapter.readSessionView?.({ sessionPath: ent.sessionPath }) ?? null;
+  if (!adapter?.sessionView || !ent.sessionPath) return null;
+  return adapter.sessionView.readSessionView({ sessionPath: ent.sessionPath }) ?? null;
 }
 
 function deriveViewTask(pres: PresenceEntry | null, sview: SessionView | null): string {
@@ -336,14 +357,15 @@ function localStatusOptions(args: readonly string[]): { json: boolean; all: bool
 function tableFlags(rows: readonly StatusRow[], all: boolean): TableFlags {
   return {
     showWorkspace: all && new Set(rows.map((row) => row.workspace ?? "-")).size > 1,
-    showOwner: new Set(rows.map((row) => row.owner ?? "-")).size > 1,
+    // A known lease fact must remain visible even when every row shares it.
+    showOwner: rows.some((row) => row.owner !== null),
     showBranch: rows.some((row) => row.branch),
   };
 }
 
 function tableOptionalCells(row: StatusRow, flags: TableFlags): string[] {
   const cells: string[] = [];
-  if (flags.showOwner) cells.push(ownerCell(row));
+  if (flags.showOwner) cells.push(formatOwnerCell(row));
   if (flags.showBranch) cells.push(row.branch ?? "-");
   return cells;
 }
@@ -457,11 +479,10 @@ function readSpaceInfo(directory: string, spaceId: string): { id: string | null;
   };
 }
 
-function orchNames(key: string): OrchNames {
+function orchNames(key: string, directory = orchDir()): OrchNames {
   const identity = tryParseIdentity(key);
   if (!identity) return emptyOrchNames(null);
   try {
-    const directory = orchDir();
     const agent = agentById(directory, identity.id);
     const root = agent ? agentById(directory, agent.rootAgentId) : null;
     const names = agentOrchNames(identity.id, agent, root);
@@ -474,6 +495,15 @@ function orchNames(key: string): OrchNames {
   }
 }
 
+/** A rendered snapshot of which roles an environment composes. Data for display,
+ *  never a thing to branch on — the code reads the role itself. */
+export interface EnvironmentCapabilityView {
+  readonly spaceHome: boolean;
+  readonly identity: boolean;
+  readonly handleLookup: boolean;
+  readonly logPruning: boolean;
+}
+
 export interface StatusRow {
   key: string;
   /** Orch-minted id; distinct from every plexer coordinate. */
@@ -484,7 +514,7 @@ export interface StatusRow {
   name: string | null;
   tab: string | null;
   agent: string | null;
-  /** Orchestrator that spawned the agent; null for panes orch never recorded. */
+  /** Current live lease holder, or an explicit no-driving status when unleased. */
   owner: string | null;
   spawnedBy: string | null;
   spawnedByLabel: string | null;
@@ -519,7 +549,7 @@ export interface StatusRow {
   backend: string | null;
   /** What the owning backend can do with this agent. Every renderer branches on
    *  these, never on the backend's id (Rule 9). Null when no backend owns it. */
-  capabilities: BackendCapabilities | null;
+  capabilities: EnvironmentCapabilityView | null;
   sessionPath: string | null;
   presenceDir: string | null;
   presenceOnly: boolean;
@@ -585,9 +615,19 @@ function rowRuntime(v: View): Pick<StatusRow, "state" | "stateFallback" | "exite
   };
 }
 
-function backendCapabilities(v: View): BackendCapabilities | null {
+/** What this environment can actually do, read from WHICH ROLES IT COMPOSES rather
+ *  than from a flags bag (`TASKS/02-scope.md` E13 deleted `BackendCapabilities`).
+ *  Reported as data for the human and the web view, never branched on. */
+function backendCapabilities(v: View): EnvironmentCapabilityView | null {
   if (v.entity.backend === null) return null;
-  return getBackend(v.entity.backend)?.capabilities ?? null;
+  const backend = getBackend(v.entity.backend);
+  if (!backend) return null;
+  return {
+    spaceHome: backend.spaceHome !== null,
+    identity: backend.identity !== null,
+    handleLookup: backend.handleLookup !== null,
+    logPruning: backend.logPruning !== null,
+  };
 }
 
 function rowTokens(v: View): unknown {
@@ -618,9 +658,9 @@ function rowBackend(v: View, workspaces: OrchConfig["workspaces"], names: OrchNa
 }
 
 /** The one status-row shape shared by the local json branch and the merged table rows. */
-export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"], orchId: string | null = currentOrchId()): StatusRow {
-  const drive = deriveDriveState(v.entity.key, v.owner, { currentOrchId: orchId });
-  const names = orchNames(v.entity.key);
+export function statusRowFromView(v: View, workspaces: OrchConfig["workspaces"], orchId: string | null = currentOrchId(), directory: string = orchDir()): StatusRow {
+  const drive = deriveDriveState(v.entity.key, { currentOrchId: orchId, directory });
+  const names = orchNames(v.entity.key, directory);
   return { ...rowIdentity(v, drive, names), model: v.modelFull, modelShort: v.model, ...rowRuntime(v), ...rowBackend(v, workspaces, names) };
 }
 

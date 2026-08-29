@@ -187,7 +187,8 @@ describe("TmuxBackend", () => {
     expect(backend.paneInput).not.toBeNull();
     expect(backend.paneForeground).toBeNull();
     expect(backend.paneScreen).not.toBeNull();
-    expect(backend.capabilities).toEqual({ canPruneLogs: false });
+    expect(backend.logPruning).toBeNull();
+    expect(backend.identity).not.toBeNull();
   });
 
   test("does not declare pane foreground capability", () => {

@@ -59,7 +59,7 @@ function renderEntry(theme: Theme, entry: SessionEntry, width: number, out: stri
             + (preview && preview !== "{}" ? theme.fg("dim", ` ${preview}`) : "");
           out.push(truncateToWidth(line, width));
         } else if (block.type === "thinking") {
-          const thinking = (block as { thinking?: unknown }).thinking;
+          const thinking = "thinking" in block ? block.thinking : undefined;
           if (typeof thinking === "string") {
             pushWrapped(out, sanitizeText(thinking).trim(), width, theme.fg("dim", "~ "), "  ", (line) => theme.fg("muted", theme.italic(line)));
           }

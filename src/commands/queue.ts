@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { addTask, cancelTask, listTasks, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
+import { addTask, cancelTask, editTask, listTasks, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { rpcHello } from "../daemon/rpc.ts";
 import { orchDir } from "../presence/store.ts";
@@ -19,7 +19,7 @@ export function renderQueueTasks(tasks: TaskRec[]): void {
   const caps = [36, 10, 8, 16, 60, 40];
   const rows = tasks.map((task) => {
     const attempt = task.attempts.at(-1);
-    return [task.id, task.state, String(task.attempts.length), attempt?.agentId ?? "-", task.text, attempt?.error ?? ""];
+    return [task.id, task.stale ? `${task.state} (stale)` : task.state, String(task.attempts.length), attempt?.agentId ?? "-", task.text, attempt?.error ?? ""];
   });
   process.stdout.write(renderTable(headers, rows, caps) + "\n");
 }
@@ -116,6 +116,58 @@ function queueCollection(invocation: QueueInvocation): void {
   else renderQueueTasks(tasks);
 }
 
+async function queueEdit(invocation: QueueInvocation): Promise<void> {
+  const id = invocation.positional[0];
+  const text = invocation.positional.slice(1).join(" ");
+  if (!id || !text || invocation.worktree || invocation.agent || invocation.space) {
+    die("usage: orch queue edit <id> <task text> [--json]");
+  }
+  try {
+    const directory = orchDir();
+    await ensureDaemon(directory);
+    const identity = await rpcHello(directory);
+    const task = editTask(directory, id, identity.id, { text });
+    if (task.error) die(task.error);
+    writeQueueTask(task, invocation.json, `Edited ${task.id}`);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
+async function queueTakeOn(invocation: QueueInvocation): Promise<void> {
+  const id = invocation.positional[0];
+  if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.space) {
+    die("usage: orch queue take-on <id> [--agent <target>] [--json]");
+  }
+  try {
+    const directory = orchDir();
+    await ensureDaemon(directory);
+    const identity = await rpcHello(directory);
+    const taker = invocation.agent ? resolveAgent(directory, invocation.agent) : identity.id;
+    const task = takeOnTask(directory, id, taker);
+    writeQueueTask(task, invocation.json, `Took on ${task.id}`);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
+async function queueReap(invocation: QueueInvocation): Promise<void> {
+  const id = invocation.positional[0];
+  if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.space) {
+    die("usage: orch queue reap <id> [--json]");
+  }
+  try {
+    const directory = orchDir();
+    await ensureDaemon(directory);
+    const identity = await rpcHello(directory);
+    reapTask(directory, id, identity.id);
+    if (invocation.json) process.stdout.write(JSON.stringify({ id, state: "reaped" }) + "\n");
+    else process.stdout.write(`Reaped ${id}\n`);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
 async function queueCancel(invocation: QueueInvocation): Promise<void> {
   const id = invocation.positional[0];
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.space) {
@@ -146,7 +198,16 @@ export async function cmdQueue(args: string[]): Promise<void> {
     case "cancel":
       await queueCancel(invocation);
       return;
+    case "edit":
+      await queueEdit(invocation);
+      return;
+    case "take-on":
+      await queueTakeOn(invocation);
+      return;
+    case "reap":
+      await queueReap(invocation);
+      return;
     default:
-      die("usage: orch queue <add|list|history|cancel> ...");
+      die("usage: orch queue <add|list|history|cancel|edit|take-on|reap> ...");
   }
 }

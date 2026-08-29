@@ -52,7 +52,7 @@ never drafts what pi can draft.
 
 ```
 you = orchestrator + FINAL code author / decision maker
-   └─ pi-dispatch sub-agent(s) = run the pif command(s) FOREGROUND, distill
+   └─ relay sub-agent(s) = run the pif command(s) FOREGROUND, distill
         └─ pi (sol / terra / luna) = heavy investigation / grunt / second opinion
    └─ distilled answer back to you
 you → make the final edit or decision from the distilled knowledge
@@ -66,19 +66,19 @@ you → make the final edit or decision from the distilled knowledge
   `--model openai-codex/<gpt-5.6-sol|gpt-5.6-terra|gpt-5.6-luna>:<effort>`;
   never rely on the default.
 
-## One pi task → one background `pi-dispatch` agent
+## One pi task → one background relay agent
 
-Spawn the dedicated **`pi-dispatch`** agent with `run_in_background: true`. It
-is a THIN wrapper — it does not investigate the repo itself, it drives pif in
+Spawn a **`general-purpose`** agent with `run_in_background: true`, prompted to be
+a THIN relay — it does not investigate the repo itself, it drives pif in
 FOREGROUND Bash (no sleep, no polling) and summarizes. Pick its model per task:
 
-- **Single relay** (run one pif command, distill): leave the agent's default
-  (`opus`, low effort — beats sonnet on cost/quality per model-matrix.md).
-- **Sequential batch** (one wrapper told to run 2-4 pif commands one after
+- **Single relay** (run one pif command, distill): `opus` (beats sonnet on
+  cost/quality per model-matrix.md).
+- **Sequential batch** (one relay told to run 2-4 pif commands one after
   another, e.g. investigate → then edit → then verify): pass `model: sonnet`
   on the Agent call so medium-tier judgment carries the sequence.
 
-Template prompt for the pi-dispatch agent:
+Template prompt for the relay agent:
 
 ```
 Run exactly, in order (foreground Bash, generous timeout, never sleep/poll):
@@ -99,7 +99,7 @@ those rules too (no `script:prod`, no mutating DB scripts, no barrels, dates).
 ## Fan out N in parallel
 
 When the work splits — several independent questions, several files, several
-slices of one investigation — spawn several background `pi-dispatch` agents in
+slices of one investigation — spawn several background relay agents in
 ONE message so they run concurrently. Each wraps its own pi call. Collect the distilled
 results as they notify, dedupe, then you act.
 

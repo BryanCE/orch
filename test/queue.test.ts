@@ -12,8 +12,10 @@ import {
   taskShouldRetry,
 } from "../src/queue.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
-import { acquireLease } from "../src/store/lease-rows.ts";
+import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
 import { openIntake } from "../src/store/task-rows.ts";
+import { isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];
@@ -36,9 +38,17 @@ function fixture(): string {
 }
 
 describe("queue facade on tasks and attempts", () => {
+  test("malformed task options are refused instead of handed back as TaskOptions", () => {
+    const dir = fixture();
+    const task = addTask(dir, "malformed", {}, "a1");
+    openStore(dir).query("UPDATE tasks SET opts=? WHERE id=?").run(JSON.stringify("not-options"), task.id);
+    expect(() => listTasks(dir)).toThrow(/malformed task options/i);
+  });
+
   test("enqueue selects exactly one typed scope and defaults to the enqueuer pack", () => {
     const dir = fixture();
     expect(addTask(dir, "default", {}, "a1")).toMatchObject({ enqueuedBy: "a1", scopePackId: "orch-a", state: "queued" });
+    setSpace(dir, "a1", 2, "space-1");
     expect(addTask(dir, "space", {}, "a1", { spaceId: "space-1" })).toMatchObject({ scopeSpaceId: "space-1" });
     expect(() => addTask(dir, "none", {}, "missing")).toThrow(/enqueuer/i);
     expect(() => addTask(dir, "many", {}, "a1", { agentId: "a2", spaceId: "space-1" })).toThrow(/exactly one/i);
@@ -51,12 +61,37 @@ describe("queue facade on tasks and attempts", () => {
     expect(addTask(dir, "pin", {}, "orch-a", { agentId: "a1" })).toMatchObject({ scopeAgentId: "a1" });
   });
 
+  test("Cq1: the gate is on enqueuing into a scope, and adoption earns it", () => {
+    const dir = fixture();
+    // Provenance never grants it: orch-b spawned nothing in pack orch-a.
+    expect(() => addTask(dir, "intruder", {}, "orch-b", { packId: "orch-a" })).toThrow(/hold/i);
+    // Adoption does. One held live member of the pack is the whole right.
+    acquireLease(dir, "a1", "orch-b", 2);
+    expect(addTask(dir, "adopted", {}, "orch-b", { packId: "orch-a" })).toMatchObject({ scopePackId: "orch-a" });
+    // A space it is not in is not a scope it may publish into.
+    expect(() => addTask(dir, "outsider", {}, "b1", { spaceId: "space-1" })).toThrow(/space/i);
+    setSpace(dir, "b1", 3, "space-1");
+    expect(addTask(dir, "insider", {}, "b1", { spaceId: "space-1" })).toMatchObject({ scopeSpaceId: "space-1" });
+  });
+
+  test("Cq1: a pack drains its queue with its orch dead and no lease in force", () => {
+    const dir = fixture();
+    const task = addTask(dir, "keep working", {}, "a1");
+    openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('orch-a',2,NULL)").run();
+    expect(currentLease(dir, "a2")).toBeNull();
+    // Claiming is pull. No holder need be present, and the dead orch gates nothing.
+    expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(task.id);
+    expect(claimTask(dir, task.id, "a2", "d1")).toBe(true);
+    expect(listTasks(dir).find((entry) => entry.id === task.id)?.state).toBe("claimed");
+  });
+
   test("claiming excludes another pack and space claims require open intake", () => {
     const dir = fixture();
     const packTask = addTask(dir, "pack work", {}, "a1");
     expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
     expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(packTask.id);
 
+    setSpace(dir, "a1", 2, "space-1");
     const spaceTask = addTask(dir, "shared", {}, "a1", { spaceId: "space-1" });
     expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
     openIntake(dir, "orch-b", "space-1", 3);
@@ -105,6 +140,16 @@ describe("queue facade on tasks and attempts", () => {
     expect(cancelTask(dir, targeted.id, "orch-a")).toMatchObject({ state: "cancelled" });
     const human = addTask(dir, "human", {}, "a1");
     expect(cancelTask(dir, human.id, "orch-b", { human: true })).toMatchObject({ state: "cancelled" });
+  });
+
+  test("Cq7: origin_workspace is gone from the tasks table, scope replaces it", () => {
+    const dir = fixture();
+    const columns = openStore(dir).query("PRAGMA table_info(tasks)").all()
+      .flatMap((value): string[] => (isRecord(value) && typeof value.name === "string" ? [value.name] : []));
+    expect(columns).toEqual([
+      "id", "text", "opts", "enqueued_by", "scope_agent_id", "scope_pack_id", "scope_space_id", "created_at",
+    ]);
+    expect(() => openStore(dir).query("SELECT origin_workspace FROM tasks").all()).toThrow(/origin_workspace/);
   });
 
   test("state and attempt-derived values have no legacy flattened fields", () => {

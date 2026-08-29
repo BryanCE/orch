@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { recordSpawned } from "../src/presence/store.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
-import { assertNameFree, assertValidAgentName, liveNamedRecords, nextNameIndex } from "../src/policy/name.ts";
+import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -48,45 +48,32 @@ describe("agent name validation", () => {
   });
 });
 
-describe("spawn name numbering", () => {
-  test("starts at 1 when no agent under the prefix is live", () => {
-    tempOrchDir();
-    expect(nextNameIndex("recon", "w1")).toBe(1);
-  });
-
-  test("continues past the highest live index so a live fleet is grown, not collided with", () => {
+// TASKS/02-scope.md F4 deleted prefix numbering: names are positional, per-slice
+// and unnumbered, so there is no index to compute. What survives is the only
+// thing numbering ever protected — a LIVE name cannot be taken twice, and a
+// DEAD agent releases its name.
+describe("a live name is claimed and a dead one is released", () => {
+  test("a live agent holds its name against a second spawn", () => {
     const orchDir = tempOrchDir();
-    seedLiveAgent(orchDir, "herdr~w1~a1", "recon-1", "w1");
-    seedLiveAgent(orchDir, "herdr~w1~a3", "recon-3", "w1");
+    seedLiveAgent(orchDir, "herdr~w1~a1", "recon", "w1");
 
-    expect(liveNamedRecords("recon", "w1")).toHaveLength(2);
-    expect(nextNameIndex("recon", "w1")).toBe(4);
-    expect(() => assertNameFree("recon-1", "w1")).toThrow(/already live/);
-    expect(() => assertNameFree("recon-4", "w1")).not.toThrow();
+    expect(() => assertNameFree("recon", "w1")).toThrow(/already live/);
+    expect(() => assertNameFree("recon-two", "w1")).not.toThrow();
   });
 
-  test("a dead agent frees its name and its index", () => {
+  test("a dead agent frees its name", () => {
     const orchDir = tempOrchDir();
     recordSpawned("herdr~w1~dead", { workspace: "w1", handle: "herdr~w1~dead" });
-    registerSpawnedAgent(orchDir, { key: "herdr~w1~dead", harnessId: "pi", backendId: "herdr", pane: true, handle: "herdr~w1~dead", cwd: orchDir, name: "recon-1", model: "test", spawner: null });
+    registerSpawnedAgent(orchDir, { key: "herdr~w1~dead", harnessId: "pi", backendId: "herdr", pane: true, handle: "herdr~w1~dead", cwd: orchDir, name: "recon", model: "test", spawner: null });
     seedStatus(orchDir, "herdr~w1~dead", { agent: "pi", state: "idle" }); // no pid: process gone
 
-    expect(nextNameIndex("recon", "w1")).toBe(1);
-    expect(() => assertNameFree("recon-1", "w1")).not.toThrow();
+    expect(() => assertNameFree("recon", "w1")).not.toThrow();
   });
 
-  test("another workspace's fleet never affects numbering", () => {
+  test("another workspace's agent never blocks a name here", () => {
     const orchDir = tempOrchDir();
-    seedLiveAgent(orchDir, "herdr~w2~b1", "recon-1", "w2");
+    seedLiveAgent(orchDir, "herdr~w2~b1", "recon", "w2");
 
-    expect(nextNameIndex("recon", "w1")).toBe(1);
-  });
-
-  test("a prefix that is another prefix's head never matches it", () => {
-    const orchDir = tempOrchDir();
-    seedLiveAgent(orchDir, "herdr~w1~c1", "recon-extra-1", "w1");
-
-    expect(nextNameIndex("recon", "w1")).toBe(1);
-    expect(nextNameIndex("recon-extra", "w1")).toBe(2);
+    expect(() => assertNameFree("recon", "w1")).not.toThrow();
   });
 });

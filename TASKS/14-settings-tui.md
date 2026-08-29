@@ -11,6 +11,8 @@ settings have **no** subcommand at all — `fleet.spawn_cap`, `daemon.tcp_port`,
 `timeouts.*`, `retention.*`, `tiling.first_split`, `queue.max_retries` are printed and
 then unreachable. The user's only route to them is the JSON file the CLI exists to own.
 
+See [Settings and Config](03-vocabulary.md#configuration) for the distinction this registry uses.
+
 Underneath, one setting is described in **three** unrelated places:
 
 | where | what it holds |

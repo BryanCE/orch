@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "../log.ts";
+import { decisionLogger } from "./decision-log.ts";
 import { ACK_FILE } from "../presence/schema.ts";
 import { drainClaimedLines } from "../presence/inbox.ts";
 import { presenceRoot } from "../presence/writer.ts";
@@ -61,11 +62,14 @@ export function consumeOutboxAcks(orchDir: string): number {
   return acknowledged;
 }
 
+function retryDelay(attempts: number): number {
+  const safeAttempts = Number.isFinite(attempts) ? Math.max(0, Math.floor(attempts)) : 0;
+  return Math.min(30_000, 500 * 2 ** Math.min(safeAttempts, 6));
+}
+
 function retryAt(now: number, attempts: number): number {
   const safeNow = Number.isFinite(now) ? Math.max(0, now) : 0;
-  const safeAttempts = Number.isFinite(attempts) ? Math.max(0, Math.floor(attempts)) : 0;
-  const delay = Math.min(30_000, 500 * 2 ** Math.min(safeAttempts, 6));
-  return Math.min(Number.MAX_SAFE_INTEGER, safeNow + delay);
+  return Math.min(Number.MAX_SAFE_INTEGER, safeNow + retryDelay(attempts));
 }
 
 /**
@@ -85,7 +89,7 @@ export async function drainOutbox(
     if (inFlight.has(key)) continue;
     inFlight.add(key);
     try {
-      const log = createLogger({ file: join(orchDir, "orchd.log"), level: "info" }).forCorrelation(message.id);
+      const log = decisionLogger(orchDir).forCorrelation(message.id);
       log.info("dispatch.delivering", { target: message.target, attempt: message.attempts });
       let acknowledged = false;
       try {
@@ -99,8 +103,9 @@ export async function drainOutbox(
         continue;
       }
 
+      const delay = retryDelay(message.attempts);
       bumpOutboxAttempt(orchDir, message.id, retryAt(deps.now(), message.attempts));
-      log.warn("dispatch.retried", { target: message.target, attempt: message.attempts + 1 });
+      log.debug("retry.attempt", { target: message.target, attempt: message.attempts + 1, delay });
       retried += 1;
     } finally {
       inFlight.delete(key);

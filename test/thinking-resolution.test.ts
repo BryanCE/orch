@@ -30,9 +30,11 @@ describe("thinking resolution", () => {
   });
 
   test("pi translates the resolved level through its thinking role", () => {
-    expect(piAdapter.thinking).toBeDefined();
+    expect(piAdapter.thinking).not.toBeNull();
     expect(piAdapter.interactiveArgv({ model: "openai/model", thinking: "high" })).toEqual(["pi", "--model", "openai/model", "--thinking", "high"]);
-    expect(fakeAdapter().thinking).toBeUndefined();
+    // An adapter with no thinking control composes NULL, not undefined: nullness is
+    // the capability, and `undefined` would be a second way to say the same thing.
+    expect(fakeAdapter().thinking).toBeNull();
   });
 
   test("per-harness override beats global default", () => {

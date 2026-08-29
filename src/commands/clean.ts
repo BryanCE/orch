@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { loadPresence, orchDir, reapDeadPresenceDirs, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
 import type { SpawnedRecord } from "../store/spawned-rows.ts";
 import { errorMessage } from "../util.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import {
   listAgentWorktrees,
   removeDiscardedWorktree,
@@ -13,6 +14,7 @@ import {
   worktreeHasCommitsAheadOf,
 } from "../worktree.ts";
 import { die } from "./target.ts";
+import { commandLogger } from "./logging.ts";
 
 function liveWorktreeOwner(worktreePath: string, records: Map<string, SpawnedRecord>, presence: Map<string, PresenceEntry>): boolean {
   const owner = [...records.values()].find((record) =>
@@ -37,7 +39,9 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
       if (!json) process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}); discarded ${discardReason}.\n`);
     }
   } catch (error: unknown) {
-    process.stderr.write(`failed to clean worktree ${worktreePath}: ${errorMessage(error)}\n`);
+    const message = errorMessage(error);
+    commandLogger().error("clean.worktree-failed", { path: worktreePath, error: message });
+    process.stderr.write(`failed to clean worktree ${worktreePath}: ${message}\n`);
   }
   return true;
 }
@@ -82,7 +86,11 @@ export interface DeadAgentSweepOptions {
 export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions = {}): string[] {
   const result = reapDeadPresenceDirs(options.root ?? orchDir(), options.olderThan);
   for (const failure of result.failed) {
-    process.stderr.write(`failed to remove ${failure.entry.dir}: ${errorMessage(failure.error)}\n`);
+    const message = errorMessage(failure.error);
+    const identity = tryParseIdentity(failure.entry.key);
+    const log = identity ? commandLogger().forAgent(identity.id) : commandLogger();
+    log.error("clean.presence-remove-failed", { path: failure.entry.dir, error: message });
+    process.stderr.write(`failed to remove ${failure.entry.dir}: ${message}\n`);
   }
   const removed = result.removed.map((entry) => `${entry.key} (pid ${entry.status?.pid ?? "?"})`);
   if (!json) {

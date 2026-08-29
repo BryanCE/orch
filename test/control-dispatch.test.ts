@@ -115,20 +115,24 @@ describe("deliverControl", () => {
     expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
   }, 15_000);
 
-  test("fails unsupported steer and setModel capabilities", () => {
+  // Claude composes neither inboxSteering nor modelControl. Under TASKS/02-scope.md
+  // E13 that absence IS the capability statement, so the dispatcher reads it from
+  // the composition — there is no flag left to mutate, which is the point.
+  test("refuses steer and model on an adapter that composes neither role", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target("headless", "unsupported");
     presence(directory, key, "claude");
-    const caps: { steer: "inbox" | "keys" | "resume" | "none" } = claudeAdapter.capabilities;
-    const previousSteer = caps.steer;
-    caps.steer = "none";
-    try {
-      expect(deliverControl(key, { kind: "steer", text: "nope" })).rejects.toThrow(/steer.*none/);
-    } finally {
-      caps.steer = previousSteer;
-    }
-    expect(deliverControl(key, { kind: "model", model: "provider/new-model", id: "req-1" })).rejects.toThrow(/setModel false/);
+
+    expect(claudeAdapter.inboxSteering).toBeNull();
+    expect(claudeAdapter.modelControl).toBeNull();
+
+    expect(await deliverControl(key, { kind: "steer", text: "nope" })).toEqual({
+      outcome: "answer", reason: "no-pane", text: `${key} has no pane; steer does not apply.`,
+    });
+    expect(await deliverControl(key, { kind: "model", model: "provider/new-model", id: "req-1" })).toEqual({
+      outcome: "answer", reason: "no-environment-role", text: "this environment does not provide model control",
+    });
   });
 
   test("requires presence for inbox delivery", () => {

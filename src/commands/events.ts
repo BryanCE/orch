@@ -11,6 +11,7 @@ import { notificationText, type NotifyEvent } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { die } from "./target.ts";
+import { commandLogger } from "./logging.ts";
 
 interface WatchItem {
   key: string;
@@ -121,7 +122,8 @@ export async function cmdNotify(args: string[]) {
   };
   const sinks = loadConfig(orchDir()).notify;
   if (!sinks.length) {
-    process.stderr.write("notify test: no sinks configured\n");
+    commandLogger().error("notify.test.no-sinks", { sinkCount: 0 });
+    process.stdout.write("notify test: no sinks configured\n");
     process.exitCode = 1;
     return;
   }
@@ -261,7 +263,10 @@ function startEventsTransport(context: EventsContext): () => void {
         process.exit(0);
       }
     },
-    (oldestSeq) => process.stderr.write(formatEventGap(oldestSeq)),
+    (oldestSeq) => {
+      commandLogger().warn("events.replay-gap", { oldestSeq });
+      process.stderr.write(formatEventGap(oldestSeq));
+    },
   );
   return () => subscription.close();
 }

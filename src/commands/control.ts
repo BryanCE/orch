@@ -13,6 +13,8 @@ import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt, type Age
 import type { AgentAdapter } from "../adapters/adapter.ts";
 import type { WorkerHeaderContext } from "../worker-prompt.ts";
 import type { AdapterId } from "../adapters/adapter.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
+import { commandLogger } from "./logging.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -109,7 +111,12 @@ export async function cmdBroadcast(args: string[]) {
   if (json) process.stdout.write(JSON.stringify({ count: delivered, refused: refusals, broadcast: true }) + "\n");
   else {
     process.stdout.write(`Broadcast to ${delivered} of ${destinations.size} agent(s).\n`);
-    for (const refusal of refusals) process.stderr.write(`  refused ${recipientLabel(recipientFor(refusal.key))}: ${refusal.reason}\n`);
+    for (const refusal of refusals) {
+      const identity = tryParseIdentity(refusal.key);
+      const log = identity ? commandLogger().forAgent(identity.id) : commandLogger();
+      log.warn("broadcast.refused", { reason: refusal.reason, target: refusal.key });
+      process.stderr.write(`  refused ${recipientLabel(recipientFor(refusal.key))}: ${refusal.reason}\n`);
+    }
   }
   if (delivered === 0) process.exitCode = 1;
 }

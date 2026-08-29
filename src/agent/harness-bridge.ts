@@ -15,6 +15,7 @@ import { createAgentPresence } from "./presence.ts";
 import { orchDir } from "../presence/writer.ts";
 import { registerAgentTools } from "./tools.ts";
 import type { HarnessApi, HarnessIdentity } from "./harness.ts";
+import { isRecord } from "../util.ts";
 
 /** The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two. */
 export function hashExtensionFile(file: string): string {
@@ -44,8 +45,20 @@ export function registerHarnessBridge(
     {
       onSessionStart: (handler) => harness.on("session_start", (_event, ctx) => handler(ctx)),
       onAgentStart: (handler) => harness.on("agent_start", (_event, ctx) => handler(ctx)),
-      onAgentEnd: (handler) => harness.on("agent_end", (event) => handler(event as { messages?: unknown[] })),
-      onSessionShutdown: (handler) => harness.on("session_shutdown", (event) => handler(event as { reason?: string })),
+      onAgentEnd: (handler) => harness.on("agent_end", (event) => {
+        if (!isRecord(event)) return;
+        const messages = event.messages;
+        if (messages !== undefined && !Array.isArray(messages)) return;
+        handler({ messages });
+      }),
+      onSessionShutdown: (handler) => harness.on("session_shutdown", (event) => {
+        if (!isRecord(event)) return;
+        const reason = event.reason;
+        if (reason !== undefined && typeof reason !== "string") return;
+        // The handler is fire-and-forget by contract: a shutdown notice has no
+        // caller left to await it.
+        void handler({ reason });
+      }),
     },
     harness.events,
     { agentId: identity.agentId, extensionHash },

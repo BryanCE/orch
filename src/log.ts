@@ -39,7 +39,7 @@ export interface LogRecord {
 }
 
 export function isLogLevel(value: unknown): value is LogLevel {
-  return typeof value === "string" && (LOG_LEVELS as readonly string[]).includes(value);
+  return typeof value === "string" && LOG_LEVELS.some((level) => level === value);
 }
 
 function isLogValue(value: unknown): value is LogValue {

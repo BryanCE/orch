@@ -164,11 +164,35 @@ export function launchEnvFacts(): LaunchEnvFacts {
   };
 }
 
+/**
+ * Exactly the fields `launchStamp` carries forward from a prior record. Stating
+ * them means a caller holding a DECLARED status shape (an interface, which has no
+ * index signature) passes it without a cast, AND the compiler checks that this
+ * function only reads what it says it reads — which `Record<string, unknown>`
+ * never could.
+ */
+export interface LaunchStampable {
+  readonly label?: unknown;
+  readonly spawnedBy?: unknown;
+  readonly spawnedByLabel?: unknown;
+  readonly worktree?: unknown;
+  readonly branch?: unknown;
+  readonly tabLabel?: unknown;
+  readonly cost?: unknown;
+  readonly tokens?: unknown;
+  readonly turns?: unknown;
+}
+
 /** Merge the one canonical launch stamp into a status record. */
-export function launchStamp(previous: PresenceRecord, id: string, key: string): PresenceRecord {
+export function launchStamp<T extends LaunchStampable>(previous: T, id: string, key: string): PresenceRecord {
   const facts = launchEnvFacts();
+  // Rebuild the carried fields as entries rather than spreading `previous`: a
+  // spread keeps T in the result type, and a declared shape (an interface, which
+  // has no index signature) is not a JsonRecord. Going through entries states the
+  // widening honestly instead of casting past it.
+  const carried: JsonRecord = Object.fromEntries(Object.entries(previous));
   return {
-    ...previous,
+    ...carried,
     schema: PRESENCE_SCHEMA,
     agent: id,
     key,

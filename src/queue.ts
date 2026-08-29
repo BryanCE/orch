@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { agentById } from "./store/agent-rows.ts";
-import { currentLease } from "./store/lease-rows.ts";
+import { agentById, type AgentRow } from "./store/agent-rows.ts";
+import { currentSpace } from "./store/interval-rows.ts";
+import { currentLease, leasesByOrch } from "./store/lease-rows.ts";
+import { isRecord } from "./util.ts";
 import {
+  agentsInTaskScope,
   allTasks,
   attemptsOf,
   cancelTask as insertCancellation,
@@ -11,11 +14,15 @@ import {
   settleAttempt,
   taskById,
   taskState,
+  editTask as updateTask,
+  reapTask as deleteUnrunnableTask,
+  takeOnTask as rescopeTask,
   type AttemptRow,
   type TaskRow,
 } from "./store/task-rows.ts";
 
 export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled" | "unrunnable";
+export const STALE_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 
 export interface TaskOptions {
   agent?: string;
@@ -47,6 +54,8 @@ export interface TaskRec {
   createdAt: string;
   updatedAt: string;
   state: TaskState;
+  /** Queued beyond the notification threshold, while still claimable. */
+  stale: boolean;
   attempts: TaskAttemptRec[];
   /** A command error is returned without inventing another persisted state. */
   error?: string;
@@ -70,21 +79,35 @@ function mapAttempt(row: AttemptRow): TaskAttemptRec {
   };
 }
 
+export function isTaskOptions(value: unknown): value is TaskOptions {
+  if (!isRecord(value)) return false;
+  if ("agent" in value && typeof value.agent !== "string") return false;
+  if ("model" in value && typeof value.model !== "string") return false;
+  if ("cwd" in value && typeof value.cwd !== "string") return false;
+  if ("worktree" in value && typeof value.worktree !== "boolean") return false;
+  if ("constraints" in value && !isRecord(value.constraints)) return false;
+  return true;
+}
+
 function mapTask(orchDir: string, row: TaskRow, knownState?: TaskState): TaskRec {
+  if (!isTaskOptions(row.opts)) throw new Error(`Malformed task options for task ${row.id}`);
   const attempts = attemptsOf(orchDir, row.id).map(mapAttempt);
   const newest = attempts.at(-1);
   const updatedAt = newest?.until ?? newest?.since ?? row.createdAt;
+  const state = knownState ?? taskState(orchDir, row.id) ?? "queued";
   return {
     id: row.id,
     text: row.text,
-    opts: row.opts as TaskOptions,
+    opts: row.opts,
     enqueuedBy: row.enqueuedBy,
     scopeAgentId: row.scopeAgentId,
     scopePackId: row.scopePackId,
     scopeSpaceId: row.scopeSpaceId,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(updatedAt).toISOString(),
-    state: knownState ?? taskState(orchDir, row.id) ?? "queued",
+    state,
+    stale: state === "queued"
+      && Date.now() - row.createdAt >= STALE_TASK_AGE_MS,
     attempts,
   };
 }
@@ -93,6 +116,24 @@ export function requireTask(orchDir: string, id: string): TaskRec {
   const row = taskById(orchDir, id);
   if (!row) throw new Error(`Unknown queue task: ${id}`);
   return mapTask(orchDir, row);
+}
+
+/** Packs an agent may put work into: the one it is a member of, plus every pack
+ *  it currently holds a live agent in. Adoption earns the right; provenance on
+ *  its own never grants it (Cq1). */
+export function packsOpenTo(orchDir: string, enqueuer: AgentRow): Set<string> {
+  const packs = new Set([enqueuer.rootAgentId]);
+  for (const lease of leasesByOrch(orchDir, enqueuer.id)) {
+    const held = agentById(orchDir, lease.agentId);
+    if (held && held.ending == null) packs.add(held.rootAgentId);
+  }
+  return packs;
+}
+
+/** The space an agent is in right now, or null when it is in none. */
+export function spaceOf(orchDir: string, agentId: string): string | null {
+  const row = currentSpace(orchDir, agentId);
+  return isRecord(row) && typeof row.space_id === "string" ? row.space_id : null;
 }
 
 function selectedScope(orchDir: string, enqueuedBy: string, selection: TaskScopeSelection) {
@@ -107,8 +148,18 @@ function selectedScope(orchDir: string, enqueuedBy: string, selection: TaskScope
     }
     return { scopeAgentId: selection.agentId } as const;
   }
-  if (selection.packId !== undefined) return { scopePackId: selection.packId } as const;
-  if (selection.spaceId !== undefined) return { scopeSpaceId: selection.spaceId } as const;
+  if (selection.packId !== undefined) {
+    if (!packsOpenTo(orchDir, enqueuer).has(selection.packId)) {
+      throw new Error(`Pack-scoped enqueue requires holding a live agent in pack ${selection.packId}`);
+    }
+    return { scopePackId: selection.packId } as const;
+  }
+  if (selection.spaceId !== undefined) {
+    if (spaceOf(orchDir, enqueuedBy) !== selection.spaceId) {
+      throw new Error(`Space-scoped enqueue requires the enqueuer to be in space ${selection.spaceId}`);
+    }
+    return { scopeSpaceId: selection.spaceId } as const;
+  }
   return { scopePackId: enqueuer.rootAgentId } as const;
 }
 
@@ -140,12 +191,43 @@ export function cancelTask(
   options: { human?: boolean } = {},
 ): TaskRec {
   const task = requireTask(orchDir, id);
-  const targetedLease = task.scopeAgentId ? currentLease(orchDir, task.scopeAgentId) : null;
-  const permitted = options.human === true || task.enqueuedBy === cancelledBy || targetedLease?.orchId === cancelledBy;
+  const targeted = agentsInTaskScope(orchDir, id);
+  const permitted = options.human === true
+    || task.enqueuedBy === cancelledBy
+    || targeted.some((agentId) => currentLease(orchDir, agentId)?.orchId === cancelledBy);
   if (!permitted) return { ...task, error: "Cancellation is not permitted for this caller" };
   if (task.state === "cancelled") return task;
   insertCancellation(orchDir, id, cancelledBy);
   return requireTask(orchDir, id);
+}
+
+/** Edit task text/options only as its enqueuer and only before the first claim. */
+export function editTask(
+  orchDir: string,
+  id: string,
+  editedBy: string,
+  changes: { text?: string; opts?: unknown },
+): TaskRec {
+  const task = requireTask(orchDir, id);
+  try {
+    updateTask(orchDir, id, editedBy, changes);
+    return requireTask(orchDir, id);
+  } catch (error: unknown) {
+    return { ...task, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Take an orphaned task onto the taker's existing pack. */
+export function takeOnTask(orchDir: string, id: string, takerId: string): TaskRec {
+  const taker = agentById(orchDir, takerId);
+  if (!taker || taker.ending != null) throw new Error(`Unknown live task taker: ${takerId}`);
+  rescopeTask(orchDir, id, taker.rootAgentId);
+  return requireTask(orchDir, id);
+}
+
+/** Reap is an explicit resolution for an unrunnable task, never a timer. */
+export function reapTask(orchDir: string, id: string, _byAgentId?: string): boolean {
+  return deleteUnrunnableTask(orchDir, id);
 }
 
 function agentMayClaim(task: TaskRec, agentId: string): boolean {

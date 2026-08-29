@@ -70,14 +70,22 @@ describe("answer via the control dispatcher", () => {
     expect(line.text).toBe("yes, ship it");
   });
 
-  test("refuses answer when the adapter declares ask false, naming target and adapter", async () => {
+  // TASKS/02-scope.md E14: an adapter that takes no answers is an ABSENCE, and an
+  // absence is an answer to a human, never a failure path. So this is outcome
+  // "answer" with exit code zero — but it still has to NAME the target and the
+  // harness, or the human learns nothing from it.
+  test("answers, rather than failing, when the adapter composes no question role", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const agentKey = key("local", "claude-noask");
     seedStatus(directory, agentKey, { agent: "claude", pid: process.pid });
 
-    expect(await refusalOf(deliverControl(agentKey, { kind: "answer", text: "no" })))
-      .toMatch(new RegExp(`cannot answer .*${agentKey}.*adapter claude declares ask false`));
+    const result = await deliverControl(agentKey, { kind: "answer", text: "no" });
+    // Narrow on the discriminant before reading the answer's text: `invoke` carries
+    // none, and the union is what stops that being readable by accident.
+    if (result.outcome !== "answer") throw new Error(`expected a boundary answer, got ${result.outcome}`);
+    expect(result.reason).toBe("no-environment-role");
+    expect(result.text).toMatch(new RegExp(`cannot answer .*${agentKey}.*adapter claude takes no answers`));
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);
   });
 

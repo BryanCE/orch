@@ -9,6 +9,24 @@ function guardCancel<T>(value: T | symbol): T | null {
   return value;
 }
 
+function isOffered<Id extends string>(value: unknown, options: readonly Id[]): value is Id {
+  return typeof value === "string" && options.some((option) => option === value);
+}
+
+/** Validate a single prompt answer against the options offered to clack. */
+export function validatePromptSelection<Id extends string>(value: unknown, options: readonly Id[]): Id {
+  if (isOffered(value, options)) return value;
+  throw new Error(`prompt returned a value that was not one of the offered choices: ${String(value)}`);
+}
+
+/** Validate every multi-select answer against the options offered to clack. */
+export function validatePromptSelections<Id extends string>(value: unknown, options: readonly Id[]): Id[] {
+  if (Array.isArray(value) && value.every((entry) => isOffered(entry, options))) {
+    return value.filter((entry): entry is Id => isOffered(entry, options));
+  }
+  throw new Error(`prompt returned a value that was not one of the offered choices: ${String(value)}`);
+}
+
 /** Emit one progress line inside the wizard's guide rail; a raw stdout write breaks the rail. */
 export function logStep(message: string): void {
   log.info(message);
@@ -41,11 +59,12 @@ export async function promptSelect<Id extends string>(
   options: readonly Id[],
   initial?: Id,
 ): Promise<Id | null> {
-  return guardCancel(await select<string>({
+  const answer = guardCancel(await select<string>({
     message,
     options: options.map((id) => ({ value: id, label: id })),
     ...(initial !== undefined ? { initialValue: initial } : {}),
-  })) as Id | null;
+  }));
+  return answer === null ? null : validatePromptSelection(answer, options);
 }
 
 /** Run a bounded, searchable single-select over model options. */
@@ -55,13 +74,14 @@ export async function promptAutocomplete<Id extends string>(
   initial: Id | undefined,
   maxItems: number,
 ): Promise<Id | null> {
-  return guardCancel(await autocomplete<string>({
+  const answer = guardCancel(await autocomplete<string>({
     message,
     options: options.map(({ value, label, hint }) => ({ value, label, hint })),
     ...(initial !== undefined ? { initialValue: initial } : {}),
     placeholder: "Type to search; clear the query to browse all",
     maxItems,
-  })) as Id | null;
+  }));
+  return answer === null ? null : validatePromptSelection(answer, options.map(({ value }) => value));
 }
 
 
@@ -72,12 +92,13 @@ export async function promptMultiselect<Id extends string>(
   options: readonly { value: Id; label: string; hint: string; checked?: boolean; disabled?: boolean }[],
 ): Promise<Id[] | null> {
   if (options.length === 0) return [];
-  return guardCancel(await multiselect<string>({
+  const answer = guardCancel(await multiselect<string>({
     message,
     options: options.map(({ value, label, hint, disabled }) => ({ value, label, hint, ...(disabled === undefined ? {} : { disabled }) })),
     required: false,
     initialValues: options.filter(({ checked }) => checked !== false).map(({ value }) => value),
-  })) as Id[] | null;
+  }));
+  return answer === null ? null : validatePromptSelections(answer, options.map(({ value }) => value));
 }
 
 /** Run a bounded, searchable multi-select over model options. */
@@ -86,14 +107,15 @@ export async function promptAutocompleteMultiselect<Id extends string>(
   options: readonly { value: Id; label: string; hint?: string; checked?: boolean }[],
   maxItems: number,
 ): Promise<Id[] | null> {
-  return guardCancel(await autocompleteMultiselect<string>({
+  const answer = guardCancel(await autocompleteMultiselect<string>({
     message,
     options: options.map(({ value, label, hint }) => ({ value, label, hint })),
     required: false,
     initialValues: options.filter(({ checked }) => checked !== false).map(({ value }) => value),
     placeholder: "Type to search; clear the query to browse all",
     maxItems,
-  })) as Id[] | null;
+  }));
+  return answer === null ? null : validatePromptSelections(answer, options.map(({ value }) => value));
 }
 
 /** Wrap a synchronous side-effecting thunk in a clack spinner, marking the stop line failed if it throws. */

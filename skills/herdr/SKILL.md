@@ -12,7 +12,7 @@ agents: zero wrapper tokens, the user watches it live, you steer mid-flight.
 If `HERDR_ENV` is unset, do NOT control panes (guardrail); fall back to the
 pi-agent skill's wrapper model.
 
-## The dispatch loop (replaces pi-dispatch wrappers)
+## The dispatch loop (replaces sub-agent wrappers)
 
 ```bash
 # 1. Spawn (never steals focus). Returns JSON with result.agent.pane_id — PARSE IT.

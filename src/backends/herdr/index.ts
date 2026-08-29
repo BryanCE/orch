@@ -5,7 +5,8 @@ import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
 import type {
   Backend,
-  BackendCapabilities,
+  EnvironmentIdentityRole,
+  VersionRole,
   BackendId,
   BackendGroup,
   BackendGroupLayout,
@@ -25,6 +26,9 @@ import type {
   AgentStatusRole,
   GroupHomeRole,
   GroupLayoutRole,
+  SpaceHomeRole,
+  PlexerHome,
+  CreatedHome,
   OpenPaneRequest,
   CreateGroupRequest,
   CreatedGroup,
@@ -32,6 +36,7 @@ import type {
 } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
+import { LocalProcessRole } from "../process.ts";
 
 /** Handle owned by one herdr pane. */
 export type HerdrHandle = string;
@@ -141,7 +146,17 @@ const ZOOM_FLAGS: Record<BackendZoomMode, string> = { on: "--on", off: "--off", 
 /** Herdr pane backend: adapts the herdr CLI to the plexer Backend port. */
 export class HerdrBackend implements Backend<HerdrHandle> {
   readonly id = HERDR_BACKEND;
-  readonly capabilities: BackendCapabilities = { canPruneLogs: false };
+  readonly process = new LocalProcessRole();
+  // Composes identity (it knows which space this process sits in) and nothing for
+  // log pruning: herdr keeps no logs orch owns. Absence IS the answer (E13).
+  readonly identity: EnvironmentIdentityRole = {
+    current: (): Identity | null => this.currentIdentity(),
+  };
+  // No key -> handle lookup: a pane is addressed by its own handle here.
+  readonly handleLookup: null = null;
+  // herdr keeps no logs orch owns.
+  readonly logPruning: null = null;
+  readonly versionInfo: VersionRole = { installed: (): string | null => this.version() };
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneInput = {
@@ -228,6 +243,16 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       const rects = panes.flatMap((pane) => pane.rect ? [{ handle: pane.pane_id, rect: pane.rect }] : []);
       return rects.length === panes.length ? { group, panes: rects } : this.tabLayoutOf(panes[0]!.pane_id);
     },
+  };
+  readonly spaceHome: SpaceHomeRole<HerdrHandle> = {
+    list: (): readonly PlexerHome[] => this.workspaces().map((workspace) => ({ coordinate: workspace.id, label: workspace.label })),
+    create: (_subject, request): CreatedHome<HerdrHandle> => {
+      const created = this.createWorkspace({ cwd: request.cwd, label: request.label, env: request.env });
+      return { coordinate: created.workspace, rootHandle: created.rootHandle };
+    },
+    rename: (coordinate, label): void => { this.renameWorkspace(coordinate, label); },
+    close: (coordinate): void => { this.closeWorkspace(coordinate); },
+    focus: (coordinate): void => { this.focusWorkspace(coordinate); },
   };
 
   /** True when the herdr binary is resolvable on PATH. */
@@ -491,8 +516,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Open a workspace of orch's own. Throws on failure. */
-  createWorkspace(opts: { cwd: string; label?: string | null }): { workspace: string; rootHandle: HerdrHandle } {
-    const args = ["workspace", "create", "--cwd", opts.cwd, "--no-focus"];
+  createWorkspace(opts: { cwd: string; label?: string | null; env?: Readonly<Record<string, string>> }): { workspace: string; rootHandle: HerdrHandle } {
+    const args = ["workspace", "create", "--cwd", opts.cwd, "--no-focus", ...this.paneEnvFlags({ env: opts.env })];
     if (opts.label) args.push("--label", opts.label);
     const result = herdrJSON<{ workspace?: HerdrWorkspace; root_pane?: HerdrPane }>(args);
     const workspace = result?.workspace?.workspace_id;
@@ -512,6 +537,14 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   focusWorkspace(workspace: string): boolean {
     herdrAck(["workspace", "focus", workspace]);
     return true;
+  }
+
+  private renameWorkspace(workspace: string, label: string): void {
+    herdrAck(["workspace", "rename", workspace, label]);
+  }
+
+  private closeWorkspace(workspace: string): void {
+    herdrAck(["workspace", "close", workspace]);
   }
 }
 

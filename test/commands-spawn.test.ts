@@ -35,7 +35,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["2", "--name", "Bad_Name", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(["Bad_Name", "ok-name", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -71,7 +71,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["1", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree"]);
+      await cmdSpawn(["--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -80,7 +80,7 @@ describe("commands/spawn", () => {
       backend.spawn = originalSpawn;
     }
     expect(refusal).toBeInstanceOf(Error);
-    expect(stderr).toMatch(/name.*required/i);
+    expect(stderr).toMatch(/must be named at creation/i);
     expect(backendAllocations).toBe(0);
     expect([...spawnedRecords().entries()]).toEqual(before);
     expect((openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(beforeTasks);
@@ -114,8 +114,10 @@ describe("commands/spawn", () => {
     expect([...spawnedRecords().entries()]).toEqual([]);
   });
 
-  test("preserves the existing named-spawn path", () => expect(parseSpawnFlags(["2", "--name", "worker", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["2"], names: ["worker"], adapterFlag: "claude", backendFlag: "headless", json: true, unknownFlags: [] }));
-  test("collects repeated prompts in agent order", () => expect(parseSpawnFlags(["3", "--prompt", "one", "--prompt", "two", "--prompt", "three"]).promptFlags).toEqual(["one", "two", "three"]));
+  // TASKS/02-scope.md F4: the positional arguments ARE the agent names, and how
+  // many you give is how many panes you get. There is no --name flag to preserve.
+  test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true, unknownFlags: [] }));
+  test("collects repeated prompts in agent order", () => expect(parseSpawnFlags(["a", "b", "c", "--prompt", "one", "--prompt", "two", "--prompt", "three"]).promptFlags).toEqual(["one", "two", "three"]));
   test("each pi flavor launches its own binary and preserves raw prompt", () => {
     expect(piAdapter.interactiveCmd({})).toBe("pi");
     expect(piAdapter.headlessCmd("go", {})[0]).toBe("pif");

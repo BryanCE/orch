@@ -11,6 +11,7 @@ import { openingPlacement, planTilePlacement, readGroupLayout, type TilePlacemen
 import { displayWorkspace } from "./status.ts";
 import { workspaceName } from "../policy/workspace.ts";
 import { writeSpawnedHandle } from "../store/spawned-rows.ts";
+import { commandLogger } from "./logging.ts";
 
 type BoundaryPlan<T> =
   | { readonly outcome: "invoke"; readonly role: T }
@@ -119,8 +120,9 @@ export function resolveTab(target: string): BackendGroup {
   const candidates = exact.length ? exact : insensitive;
   if (candidates.length === 1) return candidates[0]!;
   if (candidates.length > 1) {
+    commandLogger().error("tabs.ambiguous", { target, candidates: candidates.map((group) => group.id).join(",") });
     process.stderr.write(`Ambiguous group "${target}". Candidates:\n`);
-    for (const group of candidates) process.stderr.write(`  ${group.id}  ${group.label}\n`);
+    for (const group of candidates) process.stdout.write(`  ${group.id}  ${group.label}\n`);
     process.exit(1);
   }
   const ent = resolveTarget(target);
@@ -141,7 +143,7 @@ export function cmdTabs(args: string[]) {
   const all = enabled.has("--all");
   const json = enabled.has("--json");
   const { backend, groups } = selectedGroups();
-  const workspace = backend.currentIdentity?.()?.workspace ?? null;
+  const workspace = backend.identity?.current()?.workspace ?? null;
   const tabs = groups.filter((tab) => all || workspace === null || tab.workspace === workspace);
   if (!tabs.length) {
     if (json) process.stdout.write("[]\n");
@@ -191,7 +193,7 @@ function parseTabNewArgs(args: string[]): { label: string | null; workspace: str
 function cmdTabNew(rest: string[], json: boolean, backend: Backend): void {
   const parsed = parseTabNewArgs(rest);
   const { label, cwd } = parsed;
-  const workspace = parsed.workspace ?? backend.currentIdentity?.()?.workspace ?? null;
+  const workspace = parsed.workspace ?? backend.identity?.current()?.workspace ?? null;
   if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
   const created = backend.groupHome!.create({ workspace, cwd, label });
   if (json) process.stdout.write(JSON.stringify(created) + "\n");
@@ -332,47 +334,5 @@ export function cmdMove(args: string[]) {
   } catch (e: unknown) {
     die(`move failed: ${errorMessage(e)}`);
   }
-}
-
-export function cmdWs(args: string[]) {
-  const json = args.includes("--json");
-  const positional = args.filter((arg) => arg !== "--json");
-  const sub = positional[0];
-  if (sub === "focus") {
-    const id = positional[1];
-    if (!id) die("usage: orch ws focus <workspace_id> [--json]");
-    const { backend } = selectedGroups();
-    if (!backend.focusWorkspace?.(id)) die(`Could not focus workspace ${id}.`);
-    if (json) process.stdout.write(JSON.stringify({ workspace: id, focused: true }) + "\n");
-    else process.stdout.write(`Focused workspace ${id}.\n`);
-    return;
-  }
-  if (sub && sub !== "list") die("usage: orch ws [list|focus <workspace_id>] [--json]");
-  const { backend } = selectedGroups();
-  let wss;
-  try {
-    wss = backend.workspaces?.() ?? [];
-  } catch (e: unknown) {
-    die(`workspace list failed: ${errorMessage(e)}`);
-  }
-  if (!wss.length) {
-    if (json) process.stdout.write("[]\n");
-    else process.stdout.write("No workspaces.\n");
-    return;
-  }
-  if (json) {
-    process.stdout.write(JSON.stringify(wss, null, 2) + "\n");
-    return;
-  }
-  const headers = ["WS", "LABEL", "NUM", "TABS", "PANES", "STATUS"];
-  const rows = wss.map((w) => [
-    w.id + (w.focused ? "*" : ""),
-    w.label ?? "-",
-    String(w.number ?? "-"),
-    String(w.tabCount ?? "-"),
-    String(w.paneCount ?? "-"),
-    w.status ?? "-",
-  ]);
-  process.stdout.write(renderTable(headers, rows, [8, 24, 4, 5, 6, 10]) + "\n");
 }
 

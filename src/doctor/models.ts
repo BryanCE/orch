@@ -12,9 +12,9 @@ export function checkHarnessModels(orchDir: string, harness: AdapterId): CheckRe
   const id = `models-${harness}`;
   const label = `${harness} models`;
   const adapter = resolveAdapter(harness);
-  if (!adapter.listModels) return { id, label, status: "skip", detail: `${harness} enumerates no catalogue of its own` };
+  if (!adapter.models) return { id, label, status: "skip", detail: `${harness} enumerates no catalogue of its own` };
 
-  const offered = adapter.listModels();
+  const offered = adapter.models.listModels();
   if (!offered.length) {
     return { id, label, status: "warn", detail: `${harness} lists no models - ${signedOutFix(harness)}` };
   }

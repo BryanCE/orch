@@ -7,6 +7,7 @@ import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { readAssignFlag, validateSetupFlag } from "./setup.ts";
 import { die } from "./target.ts";
+import { commandLogger } from "./logging.ts";
 
 /**
  * `orch models` — what each installed harness says it can run.
@@ -76,9 +77,11 @@ function readTargets(args: string[], enabled: readonly AdapterId[]): AdapterId[]
  *  borrowing another harness's catalogue or inventing entries. */
 function readAdapterCatalogue(id: AdapterId): readonly HarnessModel[] {
   try {
-    return resolveAdapter(id).listModels?.() ?? [];
+    return resolveAdapter(id).models?.listModels() ?? [];
   } catch (error: unknown) {
-    process.stderr.write(`  ${id}: could not list models - ${errorMessage(error)}\n`);
+    const message = errorMessage(error);
+    commandLogger().error("models.catalogue-failed", { adapter: id, error: message });
+    process.stderr.write(`  ${id}: could not list models - ${message}\n`);
     return [];
   }
 }

@@ -8,7 +8,6 @@ import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle } from "../backends/backend.ts";
-import { agentChannel } from "../presence/roles.ts";
 
 /**
  * Control-plane dispatcher (L5 facade). Runs inside the daemon only; the CLI
@@ -107,21 +106,12 @@ export type ControlBoundaryOutcome =
   | { readonly outcome: "invoke" }
   | { readonly outcome: "answer"; readonly text: string; readonly reason: "no-pane" | "no-environment-role" };
 
-function paneAnswer(target: string, command: string, route: { backend: Backend; handle: BackendHandle } | undefined): ControlBoundaryOutcome {
-  if (!route?.backend.paneInventory) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${command} does not apply.` };
-  return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${command}` };
-}
-
 async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
-  const mechanism = adapter.capabilities.steer;
-  if (mechanism === "none") throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} declares steer "none"`);
-  const route = mechanism === "keys" ? resolveTargetRoute(target) : undefined;
-  if (mechanism === "keys" && !route?.backend.paneInput) return paneAnswer(target, action.kind, route);
-  if (mechanism === "inbox") requireLiveAgent(target, adapter, action.kind);
   refuseSteerWhileAsking(target, action);
-  if (mechanism === "inbox") {
-    const route = resolveTargetRoute(target);
-    (route?.backend.channel ?? agentChannel).deliver(target, { id: action.id, text: action.text, action: action.kind === "run" ? "dispatch" : "steer" });
+  if (adapter.inboxSteering !== null) {
+    requireLiveAgent(target, adapter, action.kind);
+    const command = adapter.inboxSteering.steer({ key: target, text: action.text, id: action.id });
+    if (command) await runAdapterCommand(command, timeoutMs);
     return { outcome: "invoke" };
   }
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
@@ -129,20 +119,21 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
     await runAdapterCommand(command, timeoutMs);
     return { outcome: "invoke" };
   }
-  if (mechanism === "keys") {
-    process.stderr.write(`${action.kind} ${target} via ${adapter.id} keys fallback (degraded delivery)\n`);
-    route!.backend.paneInput!.submit(route!.handle, action.text);
-    return { outcome: "invoke" };
-  }
-  throw new Error(`cannot ${action.kind} ${target}: adapter ${adapter.id} returned no ${mechanism} command`);
+  const route = resolveTargetRoute(target);
+  if (!route?.backend.paneInventory) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${action.kind} does not apply.` };
+  if (!route.backend.paneInput) return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${action.kind}` };
+  route.backend.paneInput.submit(route.handle, action.text);
+  return { outcome: "invoke" };
 }
 
 async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
-  if (!adapter.capabilities.ask) {
-    throw new Error(`cannot answer ${target}: adapter ${adapter.id} declares ask false`);
+  // E14: an absence is an ANSWER to a human, not a failure path — but the answer has
+  // to be usable, so it names the target and the harness that cannot take answers.
+  if (adapter.question === null) {
+    return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
   requireLiveAgent(target, adapter, "answer");
-  const command = adapter.answer({ key: target, text });
+  const command = adapter.question.answer({ key: target, text });
   if (command) await runAdapterCommand(command, timeoutMs);
   return { outcome: "invoke" };
 }
@@ -153,18 +144,19 @@ async function deliverAnswer(target: string, adapter: AgentAdapter, text: string
  * through the presence control outcome, so a model the harness could not resolve
  * surfaces as an error instead of a false "accepted".
  */
-async function deliverModel(target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<void> {
-  if (!adapter.capabilities.setModel || !adapter.setModel) {
-    throw new Error(`cannot set model on ${target}: adapter ${adapter.id} declares setModel false`);
+async function deliverModel(target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+  if (adapter.modelControl === null) {
+    return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
   const directory = orchDir();
   assertModelAllowed(directory, adapter, model);
   requireLiveAgent(target, adapter, "set model on");
-  const command = adapter.setModel({ key: target, model, id });
+  const command = adapter.modelControl.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
   const dir = loadPresence().get(target)?.dir;
   if (!dir) throw new Error(`cannot confirm model on ${target}: presence dir vanished`);
   await awaitControlOutcome(dir, id, timeoutMs);
+  return { outcome: "invoke" };
 }
 
 /** The backend holding a target, and its current handle. Reads the registry pane
@@ -175,7 +167,7 @@ function resolveBackendHandle(target: string): { backend: Backend; handle: Backe
   if (route) return route;
   const backendId = spawnedRecords().get(target)?.backend;
   const backend = backendId ? getBackend(backendId) : undefined;
-  const handle = backend?.handleFor?.(target);
+  const handle = backend?.handleLookup?.handleFor(target);
   return backend && handle !== undefined ? { backend, handle } : undefined;
 }
 
@@ -187,18 +179,19 @@ function resolveBackendHandle(target: string): { backend: Backend; handle: Backe
  * refused. The branch is on the backend's declared keystroke capability, never
  * its id.
  */
-function deliverLifecycle(target: string, adapter: AgentAdapter, verb: LifecycleVerb): void {
-  if (!adapter.capabilities.lifecycle.includes(verb)) {
-    throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} declares no ${verb} mechanism`);
+function deliverLifecycle(target: string, adapter: AgentAdapter, verb: LifecycleVerb): ControlBoundaryOutcome {
+  if (adapter.lifecycleControl === null) {
+    return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${verb}` };
   }
   const route = resolveBackendHandle(target);
   if (!route) throw new Error(`cannot ${verb} ${target}: no live backend handle`);
   if (!route.backend.paneInput) {
     throw new Error(`cannot ${verb} ${target}: target environment has no pane input role`);
   }
-  const command = adapter.lifecycleCmd?.(verb);
+  const command = adapter.lifecycleControl.lifecycleCmd(verb);
   if (!command) throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} returned no ${verb} command`);
   route.backend.paneInput.submit(route.handle, command.text);
+  return { outcome: "invoke" };
 }
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
@@ -208,8 +201,10 @@ export async function deliverControl(target: string, action: ControlAction): Pro
   const adapter = resolveTargetAdapter(canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
   if (isPromptAction(action)) return deliverPrompt(canonicalTarget, adapter, action, timeoutMs);
-  if (action.kind === "answer") { await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs); return { outcome: "invoke" }; }
-  if (action.kind === "lifecycle") { deliverLifecycle(canonicalTarget, adapter, action.verb); return { outcome: "invoke" }; }
-  await deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
-  return { outcome: "invoke" };
+  // Return what deliverAnswer decided. Discarding it and reporting "invoke"
+  // regardless turned every boundary answer into a silent success, which is the
+  // one thing E14 says an absence must never become.
+  if (action.kind === "answer") return await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
+  if (action.kind === "lifecycle") return deliverLifecycle(canonicalTarget, adapter, action.verb);
+  return deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

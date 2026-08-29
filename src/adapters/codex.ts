@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { errorMessage, isRecord, packageRoot, shellQuote } from "../util.ts";
+import { errnoCode, errorMessage, isRecord, packageRoot, shellQuote } from "../util.ts";
 import { declaredRuntime } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
@@ -98,16 +98,22 @@ export class CodexAdapter implements AgentAdapter {
   readonly sessionEnvMarker = "CODEX_PID";
   readonly sessionPidEnv = "CODEX_PID";
 
-  /** Codex cannot ask through orch or switch a live model; resume is degraded steering. */
-  readonly capabilities = {
-    steer: "resume" as const,
-    ask: false,
-    setModel: false,
-    sessionTail: true,
-    registersPresenceOnStart: false,
-    lifecycle: [] as const,
-    enforcesCommandLocks: false,
+  readonly thinking = null;
+  readonly workerLaunch = null;
+  readonly modelControl = null;
+  readonly lifecycleControl = null;
+  readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
+  readonly workspaceTrust = null;
+  readonly shim = {
+    installShim: (): void => this.installShim(),
+    diagnoseShim: (): CheckResult => this.diagnoseShim(),
   };
+  readonly defaultModel = null;
+  readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
+  readonly modelWarm = null;
+  readonly question = null;
+  readonly inboxSteering = null;
+  readonly presenceRegistration = null;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
   readonly stateFallback = true;
@@ -179,7 +185,7 @@ export class CodexAdapter implements AgentAdapter {
     let raw: string;
     try { raw = readFileSync(configPath, "utf8"); }
     catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing ${configPath}`, fix: this.reinstallFix() };
+      if (errnoCode(error) === "ENOENT") return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `missing ${configPath}`, fix: this.reinstallFix() };
       return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `could not read ${configPath}` };
     }
     const line = raw.split(/\r?\n/).find((entry) => /^\s*notify\s*=/.test(entry));

@@ -113,4 +113,90 @@ describe("orch settings", () => {
     expect(failed.stderr).toContain("config.toml");
     expect(failed.stderr).toContain("orch setup");
   }, 30_000);
+
+  test("sets a boolean through its registry entry", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    expect(runSettings(directory, {}, "defaults.worktree", "true")).toContain("defaults.worktree = true");
+  }, 30_000);
+
+  test("sets an integer through its registry entry", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    expect(runSettings(directory, {}, "fleet.spawn_cap", "5")).toContain("fleet.spawn_cap = 5");
+  }, 30_000);
+
+  test("sets a choice through its registry entry", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    expect(runSettings(directory, {}, "tiling.first_split", "columns")).toContain("tiling.first_split = columns");
+  }, 30_000);
+
+  test("sets a multi value through its registry entry", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    expect(runSettings(directory, {}, "enabled.adapters", "pi,claude")).toContain("enabled.adapters = [\"pi\",\"claude\"]");
+  }, 30_000);
+
+  test("sets a list value through its registry entry", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    expect(runSettings(directory, {}, "skills.roots", "[\"/tmp/a\",\"/tmp/b\"]")).toContain("skills.roots = [\"/tmp/a\",\"/tmp/b\"]");
+  }, 30_000);
+
+  test("refuses an invalid boolean and names the allowed values", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const failed = runSettingsExpectingFailure(directory, "defaults.worktree", "maybe");
+    expect(failed.stderr).toContain("defaults.worktree");
+    expect(failed.stderr).toContain("true or false");
+  }, 30_000);
+
+  test("refuses an invalid integer and names the allowed range", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const failed = runSettingsExpectingFailure(directory, "fleet.spawn_cap", "zero");
+    expect(failed.stderr).toContain("fleet.spawn_cap");
+    expect(failed.stderr).toContain("integer");
+  }, 30_000);
+
+  test("refuses an invalid choice and names the allowed choices", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const failed = runSettingsExpectingFailure(directory, "tiling.first_split", "diagonal");
+    expect(failed.stderr).toContain("tiling.first_split");
+    expect(failed.stderr).toContain("rows");
+  }, 30_000);
+
+  test("refuses an invalid multi value and names the allowed choices", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const failed = runSettingsExpectingFailure(directory, "enabled.adapters", "bogus");
+    expect(failed.stderr).toContain("enabled.adapters");
+    expect(failed.stderr).toContain("pi");
+  }, 30_000);
+
+  test("refuses an invalid list and names JSON as the allowed format", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const failed = runSettingsExpectingFailure(directory, "skills.roots", "not-json");
+    expect(failed.stderr).toContain("skills.roots");
+    expect(failed.stderr).toContain("JSON array");
+  }, 30_000);
+
+  test("refuses an unknown key and suggests nearest valid keys", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const failed = runSettingsExpectingFailure(directory, "fleet.spawn_cpa", "5");
+    expect(failed.stderr).toContain("fleet.spawn_cpa");
+    expect(failed.stderr).toContain("fleet.spawn_cap");
+  }, 30_000);
+
+  test("refuses read-only runtime and names the editing subcommand", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const failed = runSettingsExpectingFailure(directory, "runtime", "node");
+    expect(failed.stderr).toContain("runtime");
+    expect(failed.stderr).toContain("orch setup");
+  }, 30_000);
 });

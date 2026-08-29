@@ -7,6 +7,7 @@ import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import type { CheckResult, IgnoredPresenceRecord } from "../check-result.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
+export { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 
 function humanAge(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "unknown";
@@ -105,27 +106,6 @@ export function checkUnscopedTasks(orchDir: string): CheckResult {
     label: "Unscoped queue tasks",
     status: "warn",
     detail: `${unscoped.length} malformed-scope task${unscoped.length === 1 ? "" : "s"} (exactly one scope is required; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
-  };
-}
-
-/** Report tasks whose scope currently contains no live agent. This is report-only:
- * the operator deliberately takes on, leaves, or reaps each task. */
-export function checkUnrunnableTasks(orchDir: string): CheckResult {
-  let tasks: TaskRec[];
-  try {
-    tasks = listTasks(orchDir);
-  } catch {
-    return { id: "unrunnable-tasks", label: "Unrunnable queue tasks", status: "ok", detail: "no queue" };
-  }
-  const unrunnable = tasks.filter((task) => task.state === "unrunnable");
-  if (!unrunnable.length) {
-    return { id: "unrunnable-tasks", label: "Unrunnable queue tasks", status: "ok", detail: "no unrunnable tasks" };
-  }
-  return {
-    id: "unrunnable-tasks",
-    label: "Unrunnable queue tasks",
-    status: "warn",
-    detail: `${unrunnable.length} unrunnable task${unrunnable.length === 1 ? "" : "s"} (deliberate resolution: take it on, leave it, or reap it):\n    ${unrunnable.map(describeUnscopedTask).join("\n    ")}`,
   };
 }
 

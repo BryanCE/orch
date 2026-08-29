@@ -31,7 +31,8 @@ const cockpitNav = [
  */
 export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) {
   const pathname = useLocation({ select: (l) => l.pathname });
-  const { data: spaces = [] } = useFleet();
+  const { data } = useFleet();
+  const spaces = data?.spaces ?? [];
   const isActive = (path: string, exact: boolean) =>
     exact ? pathname === path : pathname === path || pathname.startsWith(`${path}/`);
 
@@ -74,17 +75,16 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
                 none running
               </p>
             )}
-            {spaces.map((ws) => (
-              <SidebarMenuItem key={ws.slug}>
+            {spaces.map((space) => (
+              <SidebarMenuItem key={space.slug}>
                 <SidebarMenuButton
                   asChild
-                  isActive={pathname.startsWith(`/ws/${ws.slug}`)}
-                  tooltip={ws.name}
+                  isActive={pathname.startsWith(`/ws/${space.slug}`)}
+                  tooltip={space.name}
                 >
-                  <Link to="/ws/$slug" params={{ slug: ws.slug }}>
+                  <Link to="/ws/$slug" params={{ slug: space.slug }}>
                     <FolderGit2 />
-                    <span className="flex-1 truncate">{ws.name}</span>
-
+                    <span className="flex-1 truncate">{space.name}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -22,6 +22,9 @@ export interface FleetProjectionRow {
   paneId: string | null;
   name: string | null;
   agent: string | null;
+  /** Immutable provenance, supplied by orch for historical grouping. */
+  spawnedBy?: string | null;
+  spawnedByLabel?: string | null;
   state: string;
   exited: boolean;
   model: string;
@@ -47,6 +50,8 @@ export interface FleetProjectionRow {
 
 export interface FleetAgent {
   key: string;
+  /** Orch's opaque identity; never a plexer coordinate and never used as a display name. */
+  id: string | null;
   environment: AgentEnvironment;
   name: string;
   state: string;
@@ -100,6 +105,7 @@ function projectAgent(row: FleetProjectionRow): FleetAgent {
   const name = row.name?.trim() || row.agentId || "unnamed";
   return {
     key: row.key,
+    id: row.agentId ?? null,
     environment: environmentFor(row),
     name,
     state: row.state,
@@ -118,9 +124,13 @@ function groupedRows(rows: readonly FleetProjectionRow[], historical: boolean): 
   const groups = new Map<string, Space>();
   for (const row of rows) {
     if (row.exited !== historical) continue;
-    const id = historical ? row.rootAgentId ?? row.agentId ?? "unknown" : row.spaceId ?? "unscoped";
+    // Live work is grouped by its optional orch-owned space. History is grouped
+    // by immutable provenance: the agent that spawned each record, never lease.
+    const id = historical
+      ? row.spawnedBy ?? row.rootAgentId ?? row.agentId ?? "unknown-spawner"
+      : row.spaceId ?? "unscoped";
     const name = historical
-      ? row.rootAgentName?.trim() || row.rootAgentId || "unknown"
+      ? row.spawnedByLabel?.trim() || row.rootAgentName?.trim() || row.spawnedBy || row.rootAgentId || "unknown spawner"
       : row.spaceName?.trim() || row.spaceId || "unscoped";
     const group = groups.get(id) ?? { id, name, slug: id, agents: [] };
     group.agents.push(projectAgent(row));
@@ -135,6 +145,20 @@ export function projectFleet(rows: readonly FleetProjectionRow[]): Space[] {
 
 export function projectHistory(rows: readonly FleetProjectionRow[]): Space[] {
   return groupedRows(rows, true);
+}
+
+/** Keep unleased work out of the live list so it is visibly adoptable/reapable. */
+export function partitionAgents(agents: readonly FleetAgent[]): [FleetAgent[], FleetAgent[]] {
+  const live: FleetAgent[] = [];
+  const orphans: FleetAgent[] = [];
+  for (const agent of agents) {
+    // A null lease means no orch is driving this agent. leaseKnown only tells us
+    // whether the daemon had a corresponding registry row; it must not hide
+    // presence-only agents from the adoptable bucket.
+    if (agent.lease === null) orphans.push(agent);
+    else live.push(agent);
+  }
+  return [live, orphans];
 }
 
 export function findSpace(list: Space[], slug: string): Space | undefined {

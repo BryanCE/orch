@@ -81,7 +81,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                 <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <AppBreadcrumbs />
                   <ScrollArea className="min-h-0 flex-1">
-                    <main className="flex h-full min-h-0 flex-1 flex-col">{children}</main>
+                    <main data-content-region className="flex h-full min-h-0 flex-1 flex-col">{children}</main>
                   </ScrollArea>
                 </SidebarInset>
               </SidebarProvider>

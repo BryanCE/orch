@@ -147,6 +147,56 @@ export interface AgentPresenceOptions {
 /** The live presence binding returned by {@link createAgentPresence}. */
 export type AgentPresence = ReturnType<typeof createAgentPresence>;
 
+/**
+ * The live presence state one agent keeps about itself. Declared as a TYPE rather
+ * than inferred from the initializer: an inferred `null` narrows to `null`, so
+ * every optional field used to need a widening `as` on its initializer. Rule 13 —
+ * the fix for a type error is the type, never a cast, and a widening cast on an
+ * initializer is the compiler asking for a declaration.
+ */
+interface AgentPresenceState {
+  schema: typeof PRESENCE_SCHEMA;
+  agent: string;
+  key: string;
+  paneId: string | null;
+  /** The launch stamps the agent's display name and its spawner's identity into
+   *  env; a plexer HUD may later refine the label, but identity never depends on one. */
+  label: string | null;
+  spawnedBy: string | null;
+  spawnedByLabel: string | null;
+  tabLabel: string | null;
+  pid: number;
+  cwd: string;
+  project: string | undefined;
+  /** Stamped by the launch when this agent got its own git worktree; absent for
+   *  an agent sharing the fleet's working tree. */
+  worktree: string | undefined;
+  branch: string | undefined;
+  state: AgentState;
+  lastError: string | undefined;
+  model: { provider: string; id: string } | undefined;
+  thinking: string | undefined;
+  lastTool: string | undefined;
+  task: string | undefined;
+  dispatchId: string | undefined;
+  lastText: string | undefined;
+  currentFile: string | undefined;
+  filesTouched: string[];
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  cost: number;
+  context: { tokens: number; percent?: number } | undefined;
+  turns: number;
+  sessionPath: string | undefined;
+  sessionId: string | undefined;
+  startedAt: string | undefined;
+  finishedAt: string | undefined;
+  updatedAt: string;
+  steersReceived: number;
+  pendingHandoff: string | undefined;
+  handoffError: string | undefined;
+  asking: { question: string; id: string; ts: string } | undefined;
+}
+
 export function createAgentPresence(options: AgentPresenceOptions) {
   const { harness, ack, extensionHash, reportStatus } = options;
 
@@ -154,17 +204,17 @@ export function createAgentPresence(options: AgentPresenceOptions) {
   let controlFile = "";
 
   let lastCtx: HarnessContext | undefined;
-  const state = {
+  const state: AgentPresenceState = {
     schema: PRESENCE_SCHEMA,
     agent: options.identity.agentId,
     key: "",
     paneId: options.paneId,
     // The launch stamps the agent's display name and its spawner's identity into
     // env; a plexer HUD may later refine the label, but identity never depends on one.
-    label: null as string | null,
-    spawnedBy: null as string | null,
-    spawnedByLabel: null as string | null,
-    tabLabel: null as string | null,
+    label: null,
+    spawnedBy: null,
+    spawnedByLabel: null,
+    tabLabel: null,
     pid: process.pid,
     cwd: process.cwd(),
     project: projectRoot(),
@@ -172,37 +222,37 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     // for an agent sharing the fleet's working tree.
     worktree: optionalString(process.env.ORCH_AGENT_WORKTREE),
     branch: optionalString(process.env.ORCH_AGENT_BRANCH),
-    state: "idle" as AgentState,
-    lastError: undefined as string | undefined,
-    model: undefined as { provider: string; id: string } | undefined,
-    thinking: undefined as string | undefined,
-    lastTool: undefined as string | undefined,
-    task: undefined as string | undefined,
-    dispatchId: undefined as string | undefined,
-    lastText: undefined as string | undefined,
-    currentFile: undefined as string | undefined,
-    filesTouched: [] as string[],
+    state: "idle",
+    lastError: undefined,
+    model: undefined,
+    thinking: undefined,
+    lastTool: undefined,
+    task: undefined,
+    dispatchId: undefined,
+    lastText: undefined,
+    currentFile: undefined,
+    filesTouched: [],
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     cost: 0,
-    context: undefined as { tokens: number; percent?: number } | undefined,
+    context: undefined,
     turns: 0,
-    sessionPath: undefined as string | undefined,
-    sessionId: undefined as string | undefined,
-    startedAt: undefined as string | undefined,
-    finishedAt: undefined as string | undefined,
+    sessionPath: undefined,
+    sessionId: undefined,
+    startedAt: undefined,
+    finishedAt: undefined,
     updatedAt: new Date().toISOString(),
     steersReceived: 0,
-    pendingHandoff: undefined as string | undefined,
-    handoffError: undefined as string | undefined,
-    asking: undefined as { question: string; id: string; ts: string } | undefined,
+    pendingHandoff: undefined,
+    handoffError: undefined,
+    asking: undefined,
   };
   Object.assign(state, launchStamp(state, options.identity.agentId, ""));
   // Shared with the tool layer: the cmd-lock interception and the plexer's
   // blocked signal both raise/lower this count, and writeStatus reads it.
-  const blocked = { count: 0, message: undefined as string | undefined };
-  const text = {
-    lastFull: undefined as string | undefined,
-    runFull: undefined as string | undefined,
+  const blocked: { count: number; message: string | undefined } = { count: 0, message: undefined };
+  const text: { lastFull: string | undefined; runFull: string | undefined } = {
+    lastFull: undefined,
+    runFull: undefined,
   };
   let pendingHandoff: { target: string; note?: string } | undefined;
   /** The last inbox text delivery, kept so the run it starts can name its dispatch. */
@@ -359,7 +409,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     const trimmed = line.trim();
     if (!trimmed) return undefined;
     try {
-      return JSON.parse(trimmed) as unknown;
+      const parsed: unknown = JSON.parse(trimmed);
+      return parsed;
     } catch {
       return trimmed;
     }

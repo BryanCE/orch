@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { AgentAdapter } from "../../adapters/adapter.ts";
 import type {
   Backend,
-  BackendCapabilities,
+  EnvironmentIdentityRole,
   BackendId,
   BackendGroup,
   BackendGroupLayout,
@@ -20,6 +20,9 @@ import type {
   AgentStatusRole,
   GroupHomeRole,
   GroupLayoutRole,
+  SpaceHomeRole,
+  PlexerHome,
+  CreatedHome,
   CreateGroupRequest,
   CreatedGroup,
   MovePaneRequest,
@@ -31,6 +34,7 @@ import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
+import { LocalProcessRole } from "../process.ts";
 
 /** Handle owned by one tmux pane. */
 export type TmuxHandle = string;
@@ -88,10 +92,29 @@ function groupPanesBy(panes: readonly TmuxPane[], key: (pane: TmuxPane) => strin
   return groups;
 }
 
+/** Injected home command runner for hermetic provider tests. */
+export interface TmuxBackendDeps {
+  readonly homeExec?: (args: string[]) => string;
+}
+
 /** Backend for panes managed by a tmux session. */
 export class TmuxBackend implements Backend<TmuxHandle> {
   readonly id = TMUX_BACKEND;
-  readonly capabilities: BackendCapabilities = { canPruneLogs: false };
+  readonly process = new LocalProcessRole();
+  private readonly homeExec: (args: string[]) => string;
+
+  constructor(deps: TmuxBackendDeps = {}) {
+    this.homeExec = deps.homeExec ?? ((args) => execTmux(args));
+  }
+  readonly identity: EnvironmentIdentityRole = {
+    current: (): Identity | null => this.currentIdentity(),
+  };
+  // No key -> handle lookup: a pane is addressed by its own handle here.
+  readonly handleLookup: null = null;
+  // tmux keeps no logs orch owns.
+  readonly logPruning: null = null;
+  // tmux reports no orch integration version of its own.
+  readonly versionInfo: null = null;
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneInput = {
@@ -170,6 +193,23 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       if (!panes.length) throw new Error(`no panes on window ${group}`);
       return { group, panes: panes.map((pane) => ({ handle: pane.paneId, rect: pane.rect })) };
     },
+  };
+  readonly spaceHome: SpaceHomeRole<TmuxHandle> = {
+    list: (): readonly PlexerHome[] => this.homeExec(["list-sessions", "-F", "#{session_name}"])
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((coordinate) => coordinate.length > 0)
+      .map((coordinate) => ({ coordinate, label: coordinate })),
+    create: (_subject, request): CreatedHome<TmuxHandle> => {
+      const args = ["new-session", "-d", "-P", "-F", "#{session_name}\t#{pane_id}", "-c", request.cwd, ...tmuxEnvArgs(request.env ?? {})];
+      if (request.label) args.push("-s", request.label);
+      const [coordinate, rootHandle] = this.homeExec(args).trim().split("\t");
+      if (!coordinate || !rootHandle) throw new Error("tmux new-session returned no session/pane id");
+      return { coordinate, rootHandle };
+    },
+    rename: (coordinate, label): void => { this.homeExec(["rename-session", "-t", coordinate, label]); },
+    close: (coordinate): void => { this.homeExec(["kill-session", "-t", coordinate]); },
+    focus: (coordinate): void => { this.homeExec(["select-window", "-t", coordinate]); },
   };
 
   isAvailable(): boolean {
@@ -257,7 +297,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {
     if (!this.isInsideSession()) throw new Error("tmux spawn requires running inside a tmux session");
     // An explicit --cmd is the caller's launch line verbatim; without one the adapter builds it.
-    const command = opts.cmd ?? adapter.restrictedInteractiveCmd?.(opts) ?? adapter.interactiveCmd(opts);
+    const command = opts.cmd ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const cwd = opts.cwd ?? process.cwd();

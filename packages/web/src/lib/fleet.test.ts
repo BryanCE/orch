@@ -6,6 +6,7 @@ const row = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow =>
   model: "", lastText: null, cost: 0, ctxPercent: null, tokens: null,
   capabilities: { panes: false, focusable: false, canSendKeys: false, canPruneLogs: false },
   lease: null, leaseKnown: false, spaceId: null, spaceName: null,
+  spawnedBy: null, spawnedByLabel: null,
   ...overrides,
 });
 

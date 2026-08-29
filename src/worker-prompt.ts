@@ -4,8 +4,8 @@ import { truncate } from "./util.ts";
 /** Always-on worker header: the pane is unattended. */
 const WORKER_HEADER_BASE =
   "[orch worker] No human watches this pane." +
-  " Heavy commands (tests, builds, typechecks) MUST be run through `orch lock run -- <command>` — that is the ONE orch call a worker makes;" +
-  " every other orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden; never spawn subagents." +
+  " Run your own tests and typechecks directly in this pane; verify your slice before reporting." +
+  " Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden; never spawn subagents." +
   " Do the work yourself in this pane. A slice too big for one pane is reported back, not split by you.";
 
 /** Appended only for adapters that support orch's blocking ask flow. */
@@ -34,7 +34,7 @@ const WORKER_HEADER_NO_SPAWNER_CLAUSE =
 function lockedCommandsClause(lockedCommands: readonly string[]): string {
   if (lockedCommands.length === 0) return "";
   return ` These commands are locked machine-wide: ${lockedCommands.join(", ")}.` +
-    " Prefer reporting so the orchestrator verifies; when one genuinely serves your task, run it as `orch lock run -- <cmd>`.";
+    " Report rather than run them; the orchestrator verifies.";
 }
 
 export interface WorkerHeaderContext {
@@ -46,8 +46,8 @@ export interface WorkerHeaderContext {
 
 /** Compose the worker header from the adapter's capabilities and this spawn's reachable peers. */
 export function workerHeaderFor(adapter: AgentAdapter | undefined, context: WorkerHeaderContext = {}): string {
-  const ask = adapter?.capabilities.ask ? WORKER_HEADER_ASK_CLAUSE : "";
-  const spawner = adapter?.capabilities.steer === "inbox" && context.spawnerRepliable
+  const ask = adapter?.question ? WORKER_HEADER_ASK_CLAUSE : "";
+  const spawner = adapter?.inboxSteering && context.spawnerRepliable
     ? WORKER_HEADER_SPAWNER_CLAUSE
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
   return WORKER_HEADER_BASE + ask + spawner + lockedCommandsClause(context.lockedCommands ?? []);

@@ -13,7 +13,7 @@ const label = "Declared runtime";
  * wrong about what is interpreting it.
  */
 export function runningRuntime(): OrchRuntime {
-  const versions = process.versions as Record<string, string | undefined>;
+  const versions = process.versions;
   if (versions.bun) return "bun";
   if (versions.deno) return "deno";
   return "node";

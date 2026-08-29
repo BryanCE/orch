@@ -16,9 +16,10 @@ import { loadPresence, statusForPresence, type PresenceEntry } from "../presence
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnedRecords } from "../presence/store.ts";
 import { sweepExpiredRows } from "./retention.ts";
-import { createLogger } from "../log.ts";
+import { decisionLogger } from "./decision-log.ts";
 
 export interface WorkOptions {
   orchDir: string;
@@ -80,10 +81,15 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   // retry of the same id can never deliver the prompt twice, and the agent's
   // status/result echo the id the settle path verifies against.
   const dispatchId = currentAttempt(task)?.dispatchId ?? randomUUID();
-  const log = createLogger({ file: `${options.orchDir}/orchd.log`, level: "info" }).forCorrelation(dispatchId).forAgent(currentAttempt(task)?.agentId ?? entry.key);
-  const sendPrompt = () => {
+  const agentId = currentAttempt(task)?.agentId ?? tryParseIdentity(entry.key)?.id;
+  const correlated = decisionLogger(options.orchDir).forCorrelation(dispatchId);
+  const log = agentId === undefined ? correlated : correlated.forAgent(agentId);
+  const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
-    return deliverControl(entry.key, { kind: "run", text: prompt, id: dispatchId });
+    const outcome = await deliverControl(entry.key, { kind: "run", text: prompt, id: dispatchId });
+    if (outcome.outcome === "answer") {
+      log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
+    }
   };
   const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
   try {
@@ -92,7 +98,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
     let retried = false;
     if (status !== "working") {
       retried = true;
-      log.warn("dispatch.retried", { target: entry.key });
+      log.debug("retry.attempt", { target: entry.key, attempt: 2, delay: 0 });
       await sendPrompt();
       status = await waitForWorking(entry, task, dispatchAckTimeoutMs);
     }

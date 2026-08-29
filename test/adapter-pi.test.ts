@@ -60,7 +60,13 @@ describe("PiAdapter", () => {
       "openai/gpt-5",
       "fix tests",
     ]);
-    expect(adapter.capabilities).toEqual({ steer: "inbox", ask: true, setModel: true, sessionTail: true, registersPresenceOnStart: true, enforcesCommandLocks: true, lifecycle: ["reset", "reload", "restart"] });
+    // Nullness IS the capability (TASKS/02-scope.md E13): pi composes every role.
+    expect(adapter.inboxSteering).not.toBeNull();
+    expect(adapter.question).not.toBeNull();
+    expect(adapter.modelControl).not.toBeNull();
+    expect(adapter.sessionView).not.toBeNull();
+    expect(adapter.presenceRegistration).not.toBeNull();
+    expect(adapter.lifecycleControl).not.toBeNull();
   });
 
   test("restricted workers explicitly load the bundled pi extension", () => {

@@ -82,6 +82,7 @@ describe("loadConfig", () => {
       workspaces: { wD: "Design" },
       daemon: { tcp_port: 4321 },
       tiling: { first_split: "columns" },
+      logging: { level: "debug" },
     });
 
     expect(loadConfig(directory)).toEqual({
@@ -107,6 +108,7 @@ describe("loadConfig", () => {
       workspaces: { wD: "Design" },
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30 },
       tiling: { first_split: "columns" },
+      logging: { level: "debug" },
       skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
     });
   });
@@ -188,6 +190,7 @@ describe("loadConfig", () => {
       workspaces: {},
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
       tiling: { first_split: "rows" },
+      logging: { level: "info" },
       skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
     });
   });
@@ -455,6 +458,11 @@ describe("resolveSetting", () => {
 });
 
 describe("resolveWithSource", () => {
+  test("rejects an environment value with the wrong shape", () => {
+    process.env.ORCH_CONFIG_TEST = "not-an-object";
+    expect(() => resolveWithSource({ env: "ORCH_CONFIG_TEST", fallback: { enabled: true } })).toThrow(/expected object/);
+  });
+
   test("reports the winning source at each precedence level", () => {
     process.env.ORCH_CONFIG_TEST = "7";
     expect(resolveWithSource({ flag: 9, env: "ORCH_CONFIG_TEST", config: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });

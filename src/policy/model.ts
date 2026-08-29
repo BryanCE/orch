@@ -49,7 +49,7 @@ function correctedSpecHint(harness: AdapterId, candidates: readonly string[]): s
  * be checked, and orch does not pretend otherwise.
  */
 export function assertModelOffered(adapter: AgentAdapter, model: string): void {
-  assertModelListed(adapter.id, adapter.listModels?.() ?? [], model);
+  assertModelListed(adapter.id, adapter.models?.listModels() ?? [], model);
 }
 
 /** The same rejection against a catalogue the caller already holds, so a caller that has asked
@@ -67,7 +67,7 @@ export function assertModelAllowed(orchDir: string, adapter: AgentAdapter, model
   assertModelOffered(adapter, model);
   const { bare } = splitThinkingSuffix(model);
   if (isAllowedModel(orchDir, adapter.id, bare)) return;
-  const permitted = (adapter.listModels?.() ?? [])
+  const permitted = (adapter.models?.listModels() ?? [])
     .map((candidate) => candidate.spec)
     .filter((spec) => isAllowedModel(orchDir, adapter.id, spec));
   throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(orchDir, adapter.id).join(", ")}); ${correctedSpecHint(adapter.id, permitted)}`);

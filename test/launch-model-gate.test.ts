@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { assertModelAllowed, assertModelOffered } from "../src/policy/model.ts";
-import type { AgentAdapter, HarnessModel } from "../src/adapters/adapter.ts";
+import { fakeAdapter } from "./helpers/adapter.ts";
+import type { AdapterId, AgentAdapter, HarnessModel } from "../src/adapters/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -22,13 +23,18 @@ function makeDir(settings: Record<string, unknown> = {}): string {
   return dir;
 }
 
-function harness(id: string, specs: readonly string[]): AgentAdapter {
+/** A harness with a catalogue, built through the typed factory so it is a COMPLETE
+ *  AgentAdapter. The previous `as unknown as AgentAdapter` cast let this fixture keep
+ *  the deleted `listModels` method and hid the port change from these tests entirely
+ *  — which is exactly why Rule 13 forbids it. */
+function harness(id: AdapterId, specs: readonly string[]): AgentAdapter {
   const models: HarnessModel[] = specs.map((spec) => ({ spec }));
-  return { id, listModels: () => models } as unknown as AgentAdapter;
+  return fakeAdapter({ id, models: { listModels: (): readonly HarnessModel[] => models } });
 }
 
-/** A harness that publishes no catalogue: orch has nothing to check the token against. */
-const silentHarness = { id: "codex" } as unknown as AgentAdapter;
+/** A harness that publishes no catalogue: orch has nothing to check the token against,
+ *  and composes no catalogue role to say so. */
+const silentHarness: AgentAdapter = fakeAdapter({ id: "codex", models: null });
 
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);

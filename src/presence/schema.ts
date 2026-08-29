@@ -5,8 +5,9 @@
 
 /** The one presence status.json schema stamp. There is exactly one current
  * shape, every record stamps this value, and anything else is malformed and
- * gets reaped. On a shape change, fix every writer, reader, and test together. */
-export const PRESENCE_SCHEMA = 2;
+ * gets reaped. This stamp is 1 and DOES NOT MOVE (CLAUDE.md Rule 14). On a shape
+ * change, fix every writer, reader, and test together — never the number. */
+export const PRESENCE_SCHEMA = 1;
 
 /* The presence protocol filenames. These are orch vocabulary, not any harness's
  * wire format — orch defines them and every harness conforms. This is their ONE

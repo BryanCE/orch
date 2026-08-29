@@ -94,7 +94,11 @@ describe("HeadlessBackend", () => {
 
   test("spawns a detached process and records its handle", async () => {
     const key = serializeIdentity({ backend: "headless", workspace: "test", id: "fake-1" });
-    expect(backend.capabilities).toEqual({ canPruneLogs: true });
+    // E13: capability is which roles are composed, not a flags bag. Headless owns
+    // its own logs, is inside no space, and addresses agents by key.
+    expect(backend.logPruning).not.toBeNull();
+    expect(backend.handleLookup).not.toBeNull();
+    expect(backend.identity).toBeNull();
     const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key, prompt: "sleep" });
     handles.push(handle);
 

@@ -246,6 +246,28 @@ a reason for a second daemon.
 
 ---
 
+## Configuration
+
+### Settings
+
+**The stored, authored values orch writes and users edit** — `$ORCH_DIR/settings.json`, represented
+by the partial `SettingsFile` type. A setting may be absent, which means it is unset. The
+`writeSettings*` functions persist settings, and `SETTINGS_SCHEMA` stamps the file. You author
+settings; you read config.
+
+### Config
+
+**The resolved values orch reads** — `loadConfig()` returns the total `OrchConfig`, with every
+field present. It merges sources in this order: flag > env > `settings.json` > default. A config
+value is never absent, even when its setting is.
+
+### HostConfig naming inconsistency
+
+**Stored, authored per-host data named `HostConfig`** — it is a settings shape wearing the
+config name. This is the one naming inconsistency; `HostConfig` is not a second kind of config.
+
+---
+
 ## Work
 
 ### Task

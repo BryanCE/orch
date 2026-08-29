@@ -6,9 +6,12 @@ import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
 import { readStatus } from "../../presence/writer.ts";
 import { presenceAgentDir } from "../../presence/store.ts";
 import { errorMessage, pidAlive, projectRoot } from "../../util.ts";
+import { LocalProcessRole } from "../process.ts";
 import type {
   Backend,
-  BackendCapabilities,
+  HandleLookupRole,
+  LogPruningRole,
+  ProcessRole,
   BackendId,
   BackendSpawnOpts,
   PaneForegroundRole,
@@ -105,7 +108,19 @@ export interface HeadlessBackendDeps {
 
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
-  readonly capabilities: BackendCapabilities = { canPruneLogs: true };
+  // A detached agent is in no space, so `current` has no answer to give and the
+  // role is composed only for the half it CAN do — which means the whole role is
+  // absent, and `handleFor` moves to where callers already reach for it.
+  // A detached agent is inside nothing, so there is no identity to report.
+  readonly identity: null = null;
+  readonly handleLookup: HandleLookupRole<HeadlessHandle> = {
+    handleFor: (key: string): HeadlessHandle | undefined => this.handleFor(key),
+  };
+  // A detached process has no plexer integration to version.
+  readonly versionInfo: null = null;
+  readonly logPruning: LogPruningRole = {
+    prune: (cutoff: Date, liveKeys: readonly string[], orchDir?: string): number => this.pruneLogs(cutoff, liveKeys, orchDir),
+  };
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneHost = null;
@@ -119,8 +134,10 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly agentStatus = null;
   readonly groupHome = null;
   readonly groupLayout = null;
+  readonly spaceHome = null;
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly killer: (pid: number, signal: "SIGTERM") => void;
+  readonly process: ProcessRole;
 
   /** Headless is a detached process; it needs no external binary. */
   isAvailable(): boolean {
@@ -135,6 +152,13 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   constructor(deps: HeadlessBackendDeps = {}) {
     this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
     this.killer = deps.killer ?? ((pid, signal) => process.kill(pid, signal));
+    this.process = new LocalProcessRole({
+      isAlive: this.isPidAlive,
+      signal: (pid, signal) => {
+        if (signal === "SIGTERM") this.killer(pid, signal);
+        else process.kill(pid, signal);
+      },
+    });
   }
 
   /** Start the adapter's restricted worker command detached, redirecting output to a log. */
@@ -161,7 +185,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     // arrives at a dead process: the prompt is the only way in.
     const prompt = opts.prompt ?? "";
     if (!prompt.trim()) throw new Error(`cannot spawn a headless ${String(adapter.id)} agent with no prompt: a headless agent runs its prompt and exits, so it has nothing to do`);
-    const argv = adapter.restrictedHeadlessCmd?.(prompt, adapterOpts)
+    const argv = adapter.workerLaunch?.restrictedHeadlessCmd(prompt, adapterOpts)
       ?? adapter.headlessCmd(prompt, adapterOpts);
     // The final argv entry is the initial prompt; the executable itself must always be non-empty.
     if (!Array.isArray(argv) || argv.length === 0 || typeof argv[0] !== "string" || argv[0].length === 0

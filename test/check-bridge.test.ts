@@ -12,6 +12,7 @@ import {
   checkPackageImportLine,
   checkSpawnerReplyFallbackLine,
   checkLeaseProvenanceLine,
+  checkEnvironmentCapabilityLine,
 } from "../scripts/check-bridge.ts";
 
 // The static-enforcement rules added for group 10 of fix-audit-findings.
@@ -198,11 +199,10 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
     expect(checkIdentityConstructionLine("  return serializeIdentity(identity);", relPath)).toBeUndefined();
   });
 
-  test("the selfActor exemption is documented and load-bearing", () => {
-    const exemptLine =
-      'return id ? serializeIdentity({ backend: id.backend, workspace: id.workspace, id: "operator" }) : null;';
-    expect(checkIdentityConstructionLine(exemptLine, "src/entities.ts")).toContain("identity issuer");
-    expect(IDENTITY_CONSTRUCTION_ALLOWLIST.get("src/entities.ts")?.has(exemptLine)).toBe(true);
+  // selfActor() is deleted (TASKS/02-scope.md B5), so its exemption is too. The rule
+  // now applies with no holes; a future exemption must be argued for, not inherited.
+  test("no file is exempt from the identity-construction rule", () => {
+    expect(IDENTITY_CONSTRUCTION_ALLOWLIST.size).toBe(0);
   });
 
   test("passes the clean tree: every identity construction is allowed or registered", () => {
@@ -233,6 +233,30 @@ describe("10.6 per-harness session parser banned from commands (checkCommandsPar
     for (const line of readRepoLines("src/commands/results.ts")) {
       expect(checkCommandsParserLine(line)).toBeUndefined();
     }
+  });
+});
+
+describe("10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine)", () => {
+  test("flags plexer and harness identity branches", () => {
+    expect(checkEnvironmentCapabilityLine('  if (plexer === "herdr") return focus();', "src/commands/panes.ts")).toContain("environment identity");
+    expect(checkEnvironmentCapabilityLine('  if (adapter.id === "pi") return run();', "src/commands/spawn.ts")).toContain("environment identity");
+    expect(checkEnvironmentCapabilityLine('  if (key.startsWith("headless~")) return runHeadless();', "src/commands/spawn.ts")).toContain("environment identity");
+    expect(checkEnvironmentCapabilityLine('  switch (harness) { case "pi": return run(); }', "src/commands/spawn.ts")).toContain("environment identity");
+  });
+
+  test("flags method-presence capability checks", () => {
+    expect(checkEnvironmentCapabilityLine('  if (typeof backend.zoom === "function") return backend.zoom(target);', "src/commands/panes.ts")).toContain("method-presence");
+    expect(checkEnvironmentCapabilityLine("  if (backend.sendKeys) return backend.sendKeys(target, text);", "src/commands/control.ts")).toContain("method-presence");
+    expect(checkEnvironmentCapabilityLine('  if ("zoom" in provider) return provider.zoom(target);', "src/commands/panes.ts")).toContain("method-presence");
+    expect(checkEnvironmentCapabilityLine("  if (provider.zoom?.()) return focus();", "src/commands/panes.ts")).toContain("method-presence");
+  });
+
+  test("allows a branch inside a concrete backend", () => {
+    expect(checkEnvironmentCapabilityLine('  if (plexer === "herdr") return focus();', "src/backends/herdr/index.ts")).toBeUndefined();
+  });
+
+  test("allows capability-driven code", () => {
+    expect(checkEnvironmentCapabilityLine("  if (capabilities.canSendKeys) return sendKeys(target, text);", "src/commands/control.ts")).toBeUndefined();
   });
 });
 

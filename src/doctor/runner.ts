@@ -7,7 +7,9 @@ import type { AdapterId } from "../adapters/adapter.ts";
 import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { checkBackendCapabilities, checkBackendVersions } from "./backends.ts";
-import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks, checkUnrunnableTasks } from "./presence.ts";
+import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
+import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
+import { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
 import { checkHarnessModels } from "./models.ts";
 import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./config.ts";
@@ -45,7 +47,7 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
       const adapter = resolveAdapter(adapterId!);
       const backend = getBackend(backendId!);
       if (!backend) return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail", detail: `unknown backend ${JSON.stringify(backendId)}` };
-      const diagnosis = adapter.diagnoseShim ? await adapter.diagnoseShim() : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
+      const diagnosis = adapter.shim ? await adapter.shim.diagnoseShim() : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
       return { ...diagnosis, id, label: `${adapterId} + ${backendId} live pair`, detail: `${adapterId}/${backendId}: ${diagnosis.detail}` };
     } catch (error: unknown) {
       return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: errorMessage(error) };
@@ -85,7 +87,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
       : { id: `bin-${id}`, label: `${id} binary`, status: "fail", detail: `${id} is not on PATH` }),
     isolated(`shim-${id}`, `${id} integration`, async () => {
       const adapter = resolveAdapter(id);
-      return adapter.diagnoseShim ? await adapter.diagnoseShim() : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
+      return adapter.shim ? await adapter.shim.diagnoseShim() : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
     }),
     isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(orchDir, id)),
   ]).flat();
@@ -103,6 +105,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     ...livePairs.map((pair) => Promise.resolve(pair)),
     isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(enabledBackends, configuredBackend)),
     isolated("backend-versions", "Backend versions", checkBackendVersions),
+    isolated("declared-vs-reality", "Declared vs reality", () => checkDeclaredVsReality(orchDir)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
     isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
     isolated("store", "Store", () => checkStore(orchDir)),
@@ -140,17 +143,19 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
   return { applied };
 }
 
-/** Redeploy every installed adapter's stale integration shim. Cheap when current
- *  (a live symlink resolves with two stats), so spawn and reload run it first —
- *  a freshly updated orch must never launch agents on the last version's bridge. */
-export async function refreshStaleShims(orchDir: string): Promise<string[]> {
+/** Redeploy the stale integration shim of the harnesses a command actually touches.
+ *  Cheap when current (a live symlink resolves with two stats), so spawn and reload
+ *  run it first — a freshly updated orch must never launch agents on the last
+ *  version's bridge. `harnesses` is required and never widened to "every enabled
+ *  adapter": reloading a pi agent has no business rewriting Claude's hooks. */
+export async function refreshStaleShims(orchDir: string, harnesses: readonly string[]): Promise<string[]> {
   const refreshed: string[] = [];
-  const adapters = loadConfigOrNull(orchDir)?.enabled.adapters ?? [];
-  for (const id of adapters) {
+  const enabled = loadConfigOrNull(orchDir)?.enabled.adapters ?? [];
+  for (const id of enabled.filter((adapter) => harnesses.includes(adapter))) {
     try {
       const adapter = resolveAdapter(id);
-      if (!adapter.diagnoseShim) continue;
-      const diagnosis = await adapter.diagnoseShim();
+      if (!adapter.shim) continue;
+      const diagnosis = await adapter.shim.diagnoseShim();
       if (diagnosis.status === "ok" || diagnosis.status === "skip") continue;
       if (!diagnosis.fix) continue;
       // An undeclared `destructive` means a safe fix; only a declared one is left for the operator.

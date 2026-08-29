@@ -118,7 +118,7 @@ export function checkBackendVersions(): CheckResult {
   const detected = detectBackends();
   const observations = Object.keys(SUPPORTED_RANGES).map((plexerId) => {
     const here = detected.get(plexerId)?.detected ?? false;
-    return { plexerId, detected: here, installed: here ? getBackend(plexerId)?.version?.() ?? null : null };
+    return { plexerId, detected: here, installed: here ? getBackend(plexerId)?.versionInfo?.installed() ?? null : null };
   });
   return backendVersionsVerdict(observations);
 }
@@ -140,7 +140,7 @@ export function checkBackendCapabilities(
       active: false,
       available: probe.detected,
       insideSession: probe.insideSession,
-      workspace: backend.currentIdentity?.()?.workspace ?? null,
+      workspace: backend.identity?.current()?.workspace ?? null,
       roles: Object.entries({
         paneHost: backend.paneHost,
         paneInventory: backend.paneInventory,

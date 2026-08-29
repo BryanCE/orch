@@ -374,7 +374,7 @@ here", never a crash and never a silently empty list.
 
 ### What this retires
 
-- **Visibility scoped by plexer workspace.** `scopeFleetRows` (`src/commands/status.ts:187`)
+- **Visibility scoped by plexer workspace.** `scopeFleetRows` (`src/commands/status.ts:306`)
   hides every row whose workspace is not `currentWorkspace()`, so changing herdr window makes
   a live fleet vanish. Reads are never gated; grouping is a **space** you named.
 - **`orch status --offline`.** A second reader of a second source. It survives only as a

@@ -9,6 +9,7 @@ import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir }
 import { assertNameFree } from "../policy/name.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
+import type { CloseAuthority } from "../policy/close-authority.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId } from "../identity/self.ts";
 import { openStore } from "../store/connection.ts";
@@ -24,7 +25,7 @@ import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";
 import { commandLogger } from "./logging.ts";
-import type { Backend, BackendHandle, PaneForeground } from "../types/backend.ts";
+import type { Backend, BackendHandle, PaneForeground, PaneHostRole } from "../types/backend.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
 import type { AgentFlags } from "../types/command.ts";
@@ -559,6 +560,218 @@ function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boo
   }
 }
 
+/** One agent a close was asked to end, with everything needed to end it. */
+interface CloseTarget {
+  readonly backend: Backend | null;
+  readonly handle: BackendHandle;
+  readonly key: string;
+  readonly recorded: RecordedProcess | null;
+  /** Whether a pane operation is meaningful here — false when the plexer no
+   *  longer lists the handle (U1), so orch never asks it to close a lost pane. */
+  readonly paneKnown: boolean;
+}
+
+/**
+ * Every orch-managed record `--all` may end.
+ *
+ * Each row is read DIRECTLY, never resolved through a target string: resolution
+ * is what makes a stale row ambiguous, and one unresolvable row must not abort
+ * the sweep. A bulk close that closes nothing leaves every name reserved, which
+ * is exactly when respawning is the only way out.
+ */
+function sweepTargets(authority: CloseAuthority): CloseTarget[] {
+  const presence = presenceById();
+  const targets: CloseTarget[] = [];
+  for (const view of liveAgentViews(orchDir())) {
+    // The human sweeps the lot; an agent sweeps only the slaves it owns, so a
+    // bulk close never reaches into another orch's fleet.
+    if (refuseClose(orchDir(), authority, view.id) !== null) continue;
+    const address = agentAddress(view, presence);
+    const backend = getBackend(view.environment.plexer ?? "") ?? null;
+    if (!backend) {
+      lifecycleLogger(address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
+      process.stderr.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
+    }
+    const handle = view.environment.handle ?? address;
+    targets.push({ backend, handle, key: address, recorded: recordedProcess(address), paneKnown: plexerStillHasPane(backend, handle) });
+  }
+  return targets;
+}
+
+/** The targets named on the command line. Unlike the sweep, a refusal here is
+ *  fatal: the caller asked for THAT agent and must be told it is not theirs. */
+function namedTargets(positional: readonly string[], authority: CloseAuthority): CloseTarget[] {
+  return positional.map((target) => {
+    const resolved = resolveLifecycleTarget(target);
+    // The LEASE never gates ending: an orch must be able to close its own slave
+    // while another orch drives it, and a dead holder must never keep a runaway
+    // alive. OWNERSHIP does gate it for an agent - the human is unrestricted,
+    // an agent reaches only its own provenance subtree.
+    const refusal = refuseClose(orchDir(), authority, resolved.key);
+    if (refusal !== null) die(refusal);
+    return {
+      backend: resolved.backend,
+      handle: resolved.handle,
+      key: resolved.key,
+      recorded: recordedProcess(resolved.key),
+      // A pane-capable backend's stale registry row may outlive its pane. Do
+      // not invoke a provider with an opaque identity handle in that case.
+      paneKnown: resolved.entity.paneId !== null || resolved.backend.paneInventory === null,
+    };
+  });
+}
+
+/** How one target was ended, or why it could not be. `failure` is the REAL
+ *  reason at each point it can go wrong, never one sentence covering all four. */
+interface CloseAttempt {
+  readonly failure: string | null;
+  readonly signalled: boolean;
+  readonly closedByBackend: boolean;
+}
+
+/** Signal the recorded process INSTANCE, never merely the pid: reaping waits
+ *  until that same (pid, start_token) is gone, not until kill(2) is accepted. */
+function closeByProcess(recorded: RecordedProcess): CloseAttempt {
+  try {
+    process.kill(recorded.pid, "SIGTERM");
+  } catch (error: unknown) {
+    return { failure: errorMessage(error), signalled: false, closedByBackend: false };
+  }
+  const failure = recordedProcessRemains(recorded) ? `process ${recorded.pid} is still running after SIGTERM` : null;
+  return { failure, signalled: true, closedByBackend: false };
+}
+
+/** A pane host owns closure when process identity is unavailable. */
+function closeByPane(paneHost: PaneHostRole, handle: BackendHandle): CloseAttempt {
+  try {
+    paneHost.close(handle);
+    return { failure: null, signalled: false, closedByBackend: true };
+  } catch (error: unknown) {
+    return { failure: errorMessage(error), signalled: false, closedByBackend: false };
+  }
+}
+
+/** A plexer's successful close is not proof: verify the handle is really gone
+ *  after EVERY close attempt, a process kill included. */
+function stillListed(target: CloseTarget): string | null {
+  try {
+    const listed = target.backend?.paneInventory?.list()
+      ?.some((entry) => String(entry.handle) === String(target.handle));
+    return listed === true
+      ? `${String(target.handle)} is still listed by ${target.backend?.id ?? "the plexer"} after the close`
+      : null;
+  } catch (error: unknown) {
+    return errorMessage(error);
+  }
+}
+
+/** The one mechanism that can end this target, decided from the recorded
+ *  process and the environment's pane role BEFORE anything is attempted. A
+ *  variant carries what its own close needs, so the attempt re-derives nothing. */
+type CloseRoute =
+  | { readonly kind: "process"; readonly recorded: RecordedProcess }
+  | { readonly kind: "pane"; readonly paneHost: PaneHostRole }
+  | { readonly kind: "untokenized"; readonly pid: number }
+  | { readonly kind: "none" };
+
+function closeRoute(target: CloseTarget, paneHost: PaneHostRole | null): CloseRoute {
+  // Narrowed to the RECORD OF A LIVE PROCESS in one step: a dead pid is the
+  // same answer as no record at all, and every test below reads one value.
+  const recorded = target.recorded !== null && processIsAlive(target.recorded.pid) ? target.recorded : null;
+  const token = recorded !== null && typeof recorded.startToken === "string" ? recorded.startToken : null;
+  if (recorded !== null && token !== null && processInstanceMatches(recorded.pid, token)) {
+    return { kind: "process", recorded };
+  }
+  if (target.paneKnown && paneHost !== null) return { kind: "pane", paneHost };
+  // A live process without a launch token cannot be safely signalled or
+  // reaped: losing the row would make that process unreachable.
+  if (recorded !== null) return { kind: "untokenized", pid: recorded.pid };
+  return { kind: "none" };
+}
+
+function takeRoute(route: CloseRoute, handle: BackendHandle): CloseAttempt {
+  switch (route.kind) {
+    case "process": return closeByProcess(route.recorded);
+    case "pane": return closeByPane(route.paneHost, handle);
+    case "untokenized": return {
+      failure: `process ${route.pid} is live but carries no start token, so orch cannot prove it is this agent`,
+      signalled: false, closedByBackend: false,
+    };
+    case "none": return { failure: null, signalled: false, closedByBackend: false };
+  }
+}
+
+/** End one agent by the strongest means available, and say what happened. */
+function attemptClose(target: CloseTarget): CloseAttempt {
+  const paneHost = target.backend?.paneHost ?? null;
+  const paneCapable = target.paneKnown && paneHost !== null;
+  const attempt = takeRoute(closeRoute(target, paneHost), target.handle);
+  if (attempt.failure !== null || !paneCapable) return attempt;
+  const lingering = stillListed(target);
+  return lingering === null ? attempt : { ...attempt, failure: lingering };
+}
+
+/** SIGTERM this session's `orch events` streams, never orch itself. */
+function killEventStreams(): number {
+  let pids: number[] = [];
+  try {
+    pids = execFileSync("pgrep", ["-f", "orch events"]).toString().trim().split("\n").filter(Boolean).map(Number);
+  } catch { /* no stream running */ }
+  const skip = new Set([process.pid, process.ppid]);
+  const kill = pids.filter((pid) => !skip.has(pid));
+  for (const pid of kill) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+  return kill.length;
+}
+
+/** Close every target once, in order, recording an outcome for each.
+ *
+ *  `TASKS/07-port-seam.md`, "Multi-target commands": one recorded outcome per
+ *  target with the real error text. Prose on stderr is not something a caller
+ *  can act on, and a payload carrying only the successes cannot tell a full
+ *  sweep from a half one. A target named twice is closed once. */
+function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { results: CloseOutcome[]; closed: string[]; ok: number } {
+  const results: CloseOutcome[] = [];
+  const closed: string[] = [];
+  const seen = new Set<string>();
+  for (const target of targets) {
+    if (seen.has(target.key)) continue;
+    seen.add(target.key);
+    const handle = String(target.handle);
+    const { failure, signalled, closedByBackend } = attemptClose(target);
+    if (failure !== null) {
+      lifecycleLogger(target.key).error("close.failed", { handle, error: failure });
+      results.push({ target: target.key, handle, outcome: "error", error: failure });
+      process.stderr.write(`Could not close ${handle}: ${failure}\n`);
+      continue;
+    }
+    endClosedAgent(target.key);
+    closed.push(handle);
+    results.push({ target: target.key, handle, outcome: "done", error: null });
+    if (!json) process.stdout.write(`Closed ${handle}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
+  }
+  return { results, closed, ok: closed.length };
+}
+
+/** Say what the whole close did, and set the exit code from it. */
+function reportClose(
+  outcome: { results: CloseOutcome[]; closed: string[]; ok: number },
+  flags: { all: boolean; stream: boolean; json: boolean },
+): void {
+  const { results, closed, ok } = outcome;
+  const { all, stream, json } = flags;
+  const requested = results.length;
+  if (all && !requested && !json) process.stdout.write("No fleet agents to close.\n");
+  if (stream) {
+    const killed = killEventStreams();
+    if (!json) process.stdout.write(killed ? `Killed ${killed} orch events process(es).\n` : "No orch events stream running.\n");
+  }
+  if (json) process.stdout.write(JSON.stringify({ closed, results, requested, ok, stream }) + "\n");
+  // `process.exitCode`, never `process.exit()`: the JSON above is buffered, and
+  // exiting here truncates the very payload a caller reads to find out WHICH
+  // target failed (src/commands/index.ts:272 states the same rule).
+  if (requested && ok !== requested) process.exitCode = 1;
+}
+
 export function cmdClose(args: string[]) {
   const usage = "usage: orch close <target>... | --all [--stream] [--json]";
   const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
@@ -571,157 +784,9 @@ export function cmdClose(args: string[]) {
 
   // No ORCH_AGENT_KEY is the human at a terminal; a key present is an agent.
   const authority = callerAuthority(process.env.ORCH_AGENT_KEY);
-  const targets: { backend: Backend | null; handle: BackendHandle; key: string; recorded: RecordedProcess | null; paneKnown: boolean }[] = [];
-  if (all) {
-    // --all sweeps every orch-managed record, regardless of owner or spawner.
-    // Dead and headless records are cleanup targets too.
-    //
-    // Each row is read directly, never resolved through a target string:
-    // resolution is what makes a stale row ambiguous, and one unresolvable row
-    // must not abort the sweep. A bulk close that closes nothing leaves every
-    // name reserved, which is exactly when respawning is the only way out.
-    const presence = presenceById();
-    for (const view of liveAgentViews(orchDir())) {
-      // Every minted agent is orch-managed, regardless of which session spawned it.
-      // The human sweeps the lot; an agent sweeps only the slaves it owns, so a
-      // bulk close never reaches into another orch's fleet.
-      if (refuseClose(orchDir(), authority, view.id) !== null) continue;
-      const address = agentAddress(view, presence);
-      const backend = getBackend(view.environment.plexer ?? "") ?? null;
-      if (!backend) {
-        lifecycleLogger(address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
-        process.stderr.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
-      }
-      const handle = view.environment.handle ?? address;
-      targets.push({
-        backend,
-        handle,
-        key: address,
-        recorded: recordedProcess(address),
-        // U1: a registry handle is not proof of a live pane, and asking a plexer
-        // to close one it no longer has turns a throw into a permanent failure -
-        // a row nothing can ever close. The inventory ANSWERS the question; a
-        // plexer that was not asked says nothing either way and the handle stands.
-        paneKnown: plexerStillHasPane(backend, handle),
-      });
-    }
-  }
-  for (const target of positional) {
-    const resolved = resolveLifecycleTarget(target);
-    // The LEASE never gates ending: an orch must be able to close its own slave
-    // while another orch drives it, and a dead holder must never keep a runaway
-    // alive. OWNERSHIP does gate it for an agent - the human is unrestricted,
-    // an agent reaches only its own provenance subtree.
-    const refusal = refuseClose(orchDir(), authority, resolved.key);
-    if (refusal !== null) die(refusal);
-    targets.push({
-      backend: resolved.backend,
-      handle: resolved.handle,
-      key: resolved.key,
-      recorded: recordedProcess(resolved.key),
-      // A pane-capable backend's stale registry row may outlive its pane. Do
-      // not invoke a provider with an opaque identity handle in that case.
-      paneKnown: resolved.entity.paneId !== null || resolved.backend.paneInventory === null,
-    });
-  }
+  const targets = [...(all ? sweepTargets(authority) : []), ...namedTargets(positional, authority)];
 
-  let ok = 0;
-  const closed: string[] = [];
-  // TASKS/07-port-seam.md, "Multi-target commands": one recorded outcome per
-  // target, with the real error text. Prose on stderr is not something a caller
-  // can act on, and a payload carrying only the successes cannot tell a full
-  // sweep from a half one.
-  const results: CloseOutcome[] = [];
-  const seen = new Set<string>();
-  for (const target of targets) {
-    if (seen.has(target.key)) continue;
-    seen.add(target.key);
-    let signalled = false;
-    let closeFailed = false;
-    let closedByBackend = false;
-    let failure: string | null = null;
-    const recorded = target.recorded;
-    const recordedLive = recorded !== null && processIsAlive(recorded.pid);
-    const identityProven = recorded !== null
-      && recordedLive
-      && typeof recorded.startToken === "string"
-      && processInstanceMatches(recorded.pid, recorded.startToken);
-    const paneHost = target.backend?.paneHost;
-    const paneCapable = target.paneKnown && paneHost !== null && paneHost !== undefined;
-
-    if (identityProven && recorded) {
-      // Signal only the recorded process instance. Reaping waits until that
-      // same (pid,start_token) instance is gone, never merely until kill(2)
-      // accepts the request.
-      try { process.kill(recorded.pid, "SIGTERM"); signalled = true; }
-      catch (error: unknown) { closeFailed = true; failure = errorMessage(error); }
-      if (signalled && recordedProcessRemains(recorded)) {
-        closeFailed = true;
-        failure = `process ${recorded.pid} is still running after SIGTERM`;
-      }
-    } else if (paneCapable) {
-      // A pane host owns closure when process identity is unavailable.
-      try {
-        if (!paneHost) throw new Error("target environment has no pane host");
-        paneHost.close(target.handle);
-        closedByBackend = true;
-      } catch (error: unknown) {
-        closeFailed = true;
-        failure = errorMessage(error);
-      }
-    } else if (recordedLive && typeof recorded?.startToken !== "string") {
-      // A live process without a launch token cannot be safely signalled or
-      // reaped: losing the row would make that process unreachable.
-      closeFailed = true;
-      failure = `process ${recorded.pid} is live but carries no start token, so orch cannot prove it is this agent`;
-    }
-
-    // A backend's successful close is not proof when the plexer still lists
-    // the handle. Verify after every close attempt, including a process kill.
-    if (!closeFailed && paneCapable) {
-      try {
-        const inventory = target.backend?.paneInventory;
-        const list = inventory?.list();
-        if (list?.some((entry) => entry.handle === target.handle)) {
-          closeFailed = true;
-          failure = `${String(target.handle)} is still listed by ${target.backend?.id ?? "the plexer"} after the close`;
-        }
-      } catch (error: unknown) {
-        closeFailed = true;
-        failure = errorMessage(error);
-      }
-    }
-
-    if (closeFailed) {
-      const reason = failure ?? "process or pane remains registered";
-      lifecycleLogger(target.key).error("close.failed", { handle: String(target.handle), error: reason });
-      results.push({ target: target.key, handle: String(target.handle), outcome: "error", error: reason });
-      process.stderr.write(`Could not close ${String(target.handle)}: ${reason}\n`);
-      continue;
-    }
-    endClosedAgent(target.key);
-    ok++;
-    closed.push(String(target.handle));
-    results.push({ target: target.key, handle: String(target.handle), outcome: "done", error: null });
-    if (!json) process.stdout.write(`Closed ${String(target.handle)}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
-  }
-  const targetCount = seen.size;
-  if (all && !targetCount && !json) process.stdout.write("No fleet agents to close.\n");
-  if (stream) {
-    let pids: number[] = [];
-    try {
-      pids = execFileSync("pgrep", ["-f", "orch events"]).toString().trim().split("\n").filter(Boolean).map(Number);
-    } catch {}
-    const skip = new Set([process.pid, process.ppid]);
-    const kill = pids.filter((p) => !skip.has(p));
-    for (const p of kill) { try { process.kill(p, "SIGTERM"); } catch {} }
-    if (!json) process.stdout.write(kill.length ? `Killed ${kill.length} orch events process(es).\n` : "No orch events stream running.\n");
-  }
-  if (json) process.stdout.write(JSON.stringify({ closed, results, requested: targetCount, ok, stream }) + "\n");
-  // `process.exitCode`, never `process.exit()`: the JSON above is buffered, and
-  // exiting here truncates the very payload a caller reads to find out WHICH
-  // target failed (src/commands/index.ts:272 states the same rule).
-  if (targetCount && ok !== targetCount) process.exitCode = 1;
+  reportClose(closeEachTarget(targets, json), { all, stream, json });
 }
 
 export function cmdAbort(args: string[]) {

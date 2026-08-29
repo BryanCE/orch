@@ -16,7 +16,7 @@ import { allBackends } from "../backends/registry.ts";
 import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { HostOs, SessionAgentIdentity } from "../types/store.ts";
-import type { BufferedEvent, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
+import type { BufferedEvent, EndpointPaths, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
 import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agentEndings, agentLeases, agentProcesses, agents } from "../db/schema.ts";
@@ -216,7 +216,7 @@ function claimUnleasedAnnouncement(orchDir: string, sessionId: string): boolean 
   return true;
 }
 
-export function endpointPaths(orchDir: string): { socket: string; port: string; token: string } {
+export function endpointPaths(orchDir: string): EndpointPaths {
   const registration = liveDaemonRegistration(orchDir);
   if (registration) return { socket: registration.socket, port: registration.port, token: registration.token };
   const files = daemonRuntimeFiles(orchDir);
@@ -658,7 +658,6 @@ export async function startRpcServer(
   const sockets = new Set<Socket>();
   const replayBuffer = new ReplayBuffer(orchDir);
   const daemonToken = writeDaemonToken(paths.token);
-  let transport: "unix" | "tcp" = "tcp";
   const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {
     sockets.add(socket);
     attachConnection(socket, handlers, subscriptions, replayBuffer, orchDir, transport, daemonToken);
@@ -667,51 +666,70 @@ export async function startRpcServer(
   const attachUnix = attachFor("unix");
   const attachTcp = attachFor("tcp");
   const server = createServer(attachUnix);
-  let tcpServer: Server | undefined;
-  let tcpEndpoint: string | undefined;
-  try {
-    await listen(server, paths.socket);
-    transport = "unix";
-    markSocketBound(paths.socket);
-    try {
-      unlinkSync(paths.port);
-    } catch {}
-  } catch (unixError: unknown) {
-    const lockHeld = options.holdsDaemonLock ?? readDaemonLock(orchDir)?.pid === process.pid;
-    if (unixError instanceof Error && Reflect.get(unixError, "code") === "EADDRINUSE" && lockHeld) {
-      try {
-        unlinkSync(paths.socket);
-        await listen(server, paths.socket);
-        transport = "unix";
-        markSocketBound(paths.socket);
-        try {
-          unlinkSync(paths.port);
-        } catch {}
-        tcpServer = await startTcpServer(attachTcp, options, paths);
-        tcpEndpoint = tcpEndpointOf(tcpServer);
-        return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
-      } catch {
-        // A live endpoint or an unremovable path still requires TCP fallback.
-      }
-    }
-    try { server.close(); } catch {}
-    tcpServer = createServer(attachTcp);
-    await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
-    const boundPort = boundTcpPort(tcpServer);
-    writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
-    transport = "tcp";
-    tcpEndpoint = `tcp://127.0.0.1:${boundPort}`;
-    return makeRpcServer(tcpServer, undefined, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
+  if (await bindUnix(server, paths, reclaimableSocket(orchDir, options))) {
+    const tcpServer = await startTcpServer(attachTcp, options, paths);
+    return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, "unix", tcpEndpointOf(tcpServer));
   }
-  tcpServer = await startTcpServer(attachTcp, options, paths);
-  tcpEndpoint = tcpEndpointOf(tcpServer);
-  return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, transport, tcpEndpoint);
+  try { server.close(); } catch {}
+  const tcpServer = createServer(attachTcp);
+  await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
+  const boundPort = boundTcpPort(tcpServer);
+  writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
+  return makeRpcServer(tcpServer, undefined, sockets, subscriptions, replayBuffer, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
+}
+
+/**
+ * Claim the unix endpoint: bind it, mark the path so a client can find it, and
+ * drop the port file a previous TCP fallback left behind. `false` means the path
+ * is not ours to take and the caller falls back to loopback TCP.
+ *
+ * The whole claim lives here because it is made twice — once outright, once after
+ * clearing a stale path — and a fact added to one copy but not the other leaves a
+ * recovered daemon reachable somewhere its fresh self is not.
+ */
+async function bindUnix(server: Server, paths: EndpointPaths, reclaimable: (error: unknown) => boolean): Promise<boolean> {
+  let refusal = await refusedListen(server, paths.socket);
+  if (refusal !== undefined && reclaimable(refusal)) {
+    // Our own corpse: clear the path and take the address back. A live endpoint
+    // or an unremovable path still requires the TCP fallback.
+    try {
+      unlinkSync(paths.socket);
+    } catch {
+      return false;
+    }
+    refusal = await refusedListen(server, paths.socket);
+  }
+  if (refusal !== undefined) return false;
+  markSocketBound(paths.socket);
+  try {
+    unlinkSync(paths.port);
+  } catch {}
+  return true;
+}
+
+/** The error a bind refused with, or `undefined` when it took the address. */
+async function refusedListen(server: Server, endpoint: string): Promise<unknown> {
+  try {
+    await listen(server, endpoint);
+    return undefined;
+  } catch (error: unknown) {
+    return error;
+  }
+}
+
+/** A bind refusal this process may clear: the address is taken and the lock on it
+ *  is ours, so the path is a corpse of our own previous instance. */
+function reclaimableSocket(orchDir: string, options: RpcServerOptions): (error: unknown) => boolean {
+  return (error: unknown) => {
+    if (!(error instanceof Error) || Reflect.get(error, "code") !== "EADDRINUSE") return false;
+    return options.holdsDaemonLock ?? readDaemonLock(orchDir)?.pid === process.pid;
+  };
 }
 
 async function startTcpServer(
   attach: (socket: Socket) => void,
   options: RpcServerOptions,
-  paths: { socket: string; port: string; token: string },
+  paths: EndpointPaths,
 ): Promise<Server | undefined> {
   const port = companionTcpPort(options);
   if (port === undefined) return undefined;

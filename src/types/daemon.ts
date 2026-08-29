@@ -33,6 +33,14 @@ export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter, context: Rpc
 
 export type RpcHandlers = Record<string, RpcHandler>;
 
+/** Where one daemon instance is reachable and how a caller proves itself: the
+ *  unix socket path, the loopback port file beside it, and the token file. */
+export interface EndpointPaths {
+  socket: string;
+  port: string;
+  token: string;
+}
+
 export interface RpcServerOptions {
   /** Allow one stale unix endpoint to be removed during daemon boot. */
   holdsDaemonLock?: boolean;

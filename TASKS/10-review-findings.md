@@ -134,6 +134,22 @@ Newline-framed JSON parsing ×3 (`receiveResponse :505-508`, `subscribeEvents :7
 (`:693-699`, `:793-798`); the "listen on unix socket, mark bound, unlink port file" block ×3 inside
 `startRpcServer :561-596`; `stop` is a pure alias of `close` (`:654`); module-global
 `announcedHelloSessions` Set for a process that calls hello once.
+**Status: `FIXED`.** All five are gone. The three newline-framing copies collapsed into
+`framedLineReader` + `readJsonMessages`; `rpcSubscribe`, `RpcServer.stop` and the module-global
+`announcedHelloSessions` Set are deleted (a hello announcement is a marker file, not process state);
+the harness env-sniff ladder survives once, in `helloClaim`, which both the request path and the
+subscription's inline handshake build their claim from. This slice took the last one: `startRpcServer`
+no longer binds the unix socket at all. `bindUnix(server, paths, reclaimable)` owns the whole claim —
+listen, mark the path bound, drop the stale port file — and `reclaimableSocket` names the one refusal
+this process may clear (EADDRINUSE while it holds the lock). The retry-inside-catch is gone with the
+second copy: `refusedListen` returns the error instead of throwing, so a reclaim is a second attempt
+at ONE bind rather than a duplicated success path. `startRpcServer` is 15 lines and returns from two
+places, one per transport. `EndpointPaths` (`src/types/daemon.ts:36`) replaces the inline
+`{ socket, port, token }` written at three sites.
+`test/one-bind-for-the-unix-endpoint.test.ts` asserts the endpoint's claim — marking the path and
+dropping the port file — appears exactly ONCE in the region that starts a server, and that reclaiming
+a stale socket lands on the same endpoint a first bind produces.
+
 **Fix:** one `readJsonMessages(socket, onMessage)`, one `callerHarness()` (see §4.1), one
 `bindUnix(server, paths)`; delete `rpcSubscribe`, `RpcServer.stop`, the Set. ≈120 lines; `startRpcServer`
 goes from 60 lines with retry-inside-catch to ~25.

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { enqueueTask, insertAttempt, settleAttempt } from "../src/store/task-rows.ts";
 import { deliverTaskResult } from "../src/daemon/result-delivery.ts";
@@ -10,6 +10,7 @@ import { INBOX_FILE } from "../src/presence/schema.ts";
 import { presenceAgentDir, presenceFile } from "../src/presence/writer.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md Cq4 — "Results go to the enqueuer, not the runner —
@@ -38,7 +39,7 @@ function fixture(): string {
   const d = mkdtempSync(join(tmpdir(), "orch-cross-pack-result-"));
   dirs.push(d);
   process.env.ORCH_DIR = d;
-  openStore(d).query("INSERT INTO harnesses(id,name) VALUES (?,?)").run("pi", "Pi");
+  orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   // Two packs. `asker` is its own root; `runner` is rooted in `otherorch`.
   insertAgent(d, { id: "asker", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "asker", createdAt: 1 });
   insertAgent(d, { id: "otherorch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "otherorch", createdAt: 2 });

@@ -11,12 +11,15 @@ import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-r
 import { callerSession } from "../identity/self.ts";
 import { currentHostOs, getOrCreateSessionAgent } from "../store/agent-rows.ts";
 import { processStartToken } from "../process-identity.ts";
-import { openStore } from "../store/connection.ts";
+
 import { allBackends } from "../backends/registry.ts";
 import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { HostOs, SessionAgentIdentity } from "../types/store.ts";
 import type { BufferedEvent, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
+import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { agentEndings, agentLeases, agentProcesses, agents } from "../db/schema.ts";
 
 /** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
 export class DaemonAbsentError extends Error {
@@ -283,26 +286,17 @@ function claimedHostOs(claim: Readonly<Record<string, unknown>>): HostOs {
   }
 }
 
-function isUnleasedAgentRow(value: unknown): value is { id: string; name: string } {
-  return isObject(value) && typeof value.id === "string" && typeof value.name === "string";
-}
 
 function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
-  const rows = openStore(orchDir).query(
-    `SELECT a.id, a.name
-       FROM agents a
-       LEFT JOIN agent_endings e ON e.agent_id = a.id
-      WHERE a.id <> ?
-        AND e.agent_id IS NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM agent_leases newest
-           WHERE newest.agent_id = a.id
-             AND newest.id = (SELECT MAX(latest.id) FROM agent_leases latest WHERE latest.agent_id = a.id)
-             AND newest.until IS NULL
-        )
-      ORDER BY a.id`,
-  ).all(excludeId);
-  return rows.filter(isUnleasedAgentRow).map(({ id, name }) => ({ id, name }));
+  // "Unleased" is about the NEWEST holding: a closed lease beside it is history,
+  // and an agent whose latest holding is still open is held.
+  const held = orm(orchDir).select({ agentId: agentLeases.agentId }).from(agentLeases)
+    .where(isNull(agentLeases.until)).all().map((row) => row.agentId);
+  return orm(orchDir).select({ id: agents.id, name: agents.name }).from(agents)
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
+    .where(and(ne(agents.id, excludeId), isNull(agentEndings.agentId),
+      held.length === 0 ? undefined : notInArray(agents.id, held)))
+    .orderBy(asc(agents.id)).all();
 }
 
 /**
@@ -356,13 +350,11 @@ function plexerRegistrationWarning(plexerId: string | null, plexerVersion: strin
  * subsequent `orch` command from the same session.
  */
 function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: string): boolean {
-  return openStore(orchDir).query(
-    `SELECT a.id FROM agents a
-       JOIN agent_processes p ON p.agent_id = a.id AND p.until IS NULL
-       LEFT JOIN agent_endings e ON e.agent_id = a.id
-      WHERE p.pid = ? AND p.start_token = ? AND e.agent_id IS NULL
-      LIMIT 1`,
-  ).get(pid, startToken) != null;
+  return orm(orchDir).select({ id: agents.id }).from(agents)
+    .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
+    .where(and(eq(agentProcesses.pid, pid), eq(agentProcesses.startToken, startToken), isNull(agentEndings.agentId)))
+    .limit(1).get() !== undefined;
 }
 
 function helloIdentity(orchDir: string, params: unknown, daemonToken: string): HelloResponse {

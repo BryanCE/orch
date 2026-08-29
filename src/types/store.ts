@@ -122,18 +122,6 @@ export interface StoredCatalogue {
   stdout: string;
 }
 
-export interface StatementLike {
-  run(...params: unknown[]): { changes: number };
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown;
-}
-
-export interface DatabaseLike {
-  exec(sql: string): void;
-  query(sql: string): StatementLike;
-  close(): void;
-}
-
 export interface StoredEvent {
   seq: number;
   ts: number;

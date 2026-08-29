@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/work-loop.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import { sql } from "drizzle-orm";
 
 function claimedTask(): TaskRec {
   return {
@@ -40,10 +41,10 @@ const RUNNER_KEY = serializeIdentity({ id: "runner0000" });
 function fleet(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-work-loop-enqueuer-"));
   directories.push(dir);
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
-  db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('enq',NULL,'enq','pi','/repo','enq',1)").run();
-  db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('runner0000','enq','enq','pi','/repo','runner',1)").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
+  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('enq',NULL,'enq','pi','/repo','enq',1)`);
+  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('runner0000','enq','enq','pi','/repo','runner',1)`);
   seedStatus(dir, RUNNER_KEY, { state: "idle", label: "Runner", pid: process.pid });
   writeSettingsFixture(dir);
   return dir;

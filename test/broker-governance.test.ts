@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { governWrite } from "../src/daemon/orchd.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
-import { withTransaction, openStore } from "../src/store/connection.ts";
+import { withTransaction, orm } from "../src/store/connection.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
+import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 function freshDir(): string {
@@ -30,20 +31,18 @@ function liveOrch(dir: string, id: string): void {
   agent(dir, id);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(id, 1, "host", process.pid, token);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${token})`);
 }
 
 /** An orch with a recorded process that is provably NOT this process instance. */
 function deadOrch(dir: string, id: string): void {
   agent(dir, id);
-  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(id, 1, "host", process.pid, "not-this-process-instance");
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${"not-this-process-instance"})`);
 }
 
 /** Environment is a satellite of the identity, on its own timeline. */
 function placeIn(dir: string, id: string, space: string): void {
-  openStore(dir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run(space, space, 1);
+  orm(dir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(dir, id, 1, space);
 }
 
@@ -180,7 +179,7 @@ describe("daemon governWrite enforcement", () => {
     agent(dir, "targetaaa1");
     acquireLease(dir, "targetaaa1", "holderaaa1", 2);
     const params = { actor: "holderaaa1", target: "targetaaa1", text: "hi" };
-    openStore(dir).exec("CREATE TRIGGER reject_outbox BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'enqueue failed'); END");
+    orm(dir).run(sql.raw("CREATE TRIGGER reject_outbox BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'enqueue failed'); END"));
 
     expect(() => withTransaction(dir, () => {
       governWrite(dir, "targetaaa1", params);

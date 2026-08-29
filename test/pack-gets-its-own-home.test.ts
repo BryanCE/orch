@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clearHome, homeHandle, openHome, ORCH_HOME_LABEL } from "../src/store/home-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { insertAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -52,7 +52,7 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-pack-home-"));
   dirs.push(dir);
-  openStore(dir);
+  orm(dir);
   return dir;
 }
 

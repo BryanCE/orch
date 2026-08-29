@@ -4,11 +4,13 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, claimTask, listTasks, nextQueuedTask } from "../src/queue.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { acquireLease, adoptLease, currentLease, leaseHistory } from "../src/store/lease-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const tempDirs: string[] = [];
 
 function tempDir(prefix: string): string {
@@ -22,10 +24,10 @@ afterEach(() => {
 });
 
 function seedPack(dir: string): void {
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
-  db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)").run();
-  db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('worker','orch','orch','pi','/tmp','worker',1)").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)`);
+  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('worker','orch','orch','pi','/tmp','worker',1)`);
 }
 
 describe("store hardening", () => {
@@ -44,7 +46,7 @@ describe("store hardening", () => {
   test("a fresh store creates the full current schema with WAL enabled", () => {
     const dir = tempDir("orch-routing-schema-");
     expect(() => listTasks(dir)).not.toThrow();
-    const journal = openStore(dir).query("PRAGMA journal_mode").get() as { journal_mode: string };
+    const journal = row(orm(dir), sql`PRAGMA journal_mode`) as { journal_mode: string };
     insertOutboxMessage(dir, { id: "schema-probe", target: "test", payload: {}, createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
     expect(journal.journal_mode.toLowerCase()).toBe("wal");
     expect(selectPendingOutbox(dir, Number.MAX_SAFE_INTEGER)).toMatchObject([
@@ -67,7 +69,7 @@ describe("store hardening", () => {
   test("adoption closes the prior holding in the same step that opens the new one", () => {
     const dir = tempDir("orch-routing-adopt-");
     seedPack(dir);
-    openStore(dir).query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch2','orch2','pi','/tmp','orch2',1)").run();
+    orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch2','orch2','pi','/tmp','orch2',1)`);
     acquireLease(dir, "worker", "orch", 1);
     adoptLease(dir, "worker", "orch2", 2);
     expect(currentLease(dir, "worker")?.orchId).toBe("orch2");

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, ensureHost, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, adoptLease, handoffLease, leaseHistory, releaseLease } from "../src/store/lease-rows.ts";
@@ -11,6 +11,7 @@ import { inboxPath } from "../src/presence/inbox.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md C5 — "A transfer must not disturb the agent — no reset, no
@@ -37,7 +38,7 @@ function workingAgent(): { directory: string; worker: string; before: ReturnType
   const directory = mkdtempSync(join(tmpdir(), "orch-transfer-"));
   dirs.push(directory);
   process.env.ORCH_DIR = directory;
-  openStore(directory);
+  orm(directory);
   ensureHarness(directory, "pi", "pi", 1);
   ensurePlexer(directory, "herdr", "herdr", 1);
   ensureHost(directory, "h", "h", "linux", 1);
@@ -51,9 +52,8 @@ function workingAgent(): { directory: string; worker: string; before: ReturnType
   setHandle(directory, "worker", 10, "wF:p3");
   setSpace(directory, "worker", 10, "server");
   setTuning(directory, "worker", 10, { model: "openai-codex/gpt-5.6-luna", thinking: "high" });
-  openStore(directory)
-    .query("INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token) VALUES (?,?,NULL,?,?,?)")
-    .run("worker", 10, "h", process.pid, "tok");
+  orm(directory)
+    .run(sql`INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token) VALUES (${"worker"},${10},NULL,${"h"},${process.pid},${"tok"})`);
   seedStatus(directory, "worker", { key: "worker", agent: "pi", pid: process.pid, state: "working", sessionPath: "/s/session-1" });
   acquireLease(directory, "worker", "orch-a", 20);
 
@@ -61,8 +61,8 @@ function workingAgent(): { directory: string; worker: string; before: ReturnType
 }
 
 function processInterval(directory: string): unknown {
-  return openStore(directory)
-    .query("SELECT since, until, pid, start_token FROM agent_processes WHERE agent_id = 'worker'").all();
+  return orm(directory)
+    .all(sql`SELECT since, until, pid, start_token FROM agent_processes WHERE agent_id = 'worker'`);
 }
 
 function statusBytes(directory: string): string {

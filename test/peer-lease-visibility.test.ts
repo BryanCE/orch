@@ -3,12 +3,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatPeerLines, peerSummaries } from "../src/agent/peers.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env.ORCH_AGENT_KEY;
@@ -45,15 +46,14 @@ function fixture(): string {
   delete process.env.ORCH_SPAWNER;
 
   ensureHarness(directory, "pi", "Pi", 1);
-  const db = openStore(directory);
-  db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
+  const db = orm(directory);
+  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   for (const id of [CALLER, HELD, LOOSE, ORPHAN, DEAD_ORCH]) {
     insertAgent(directory, { id, harnessId: "pi", cwd: "/tmp", name: id, createdAt: 1 });
   }
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(CALLER, 1, "host", process.pid, token);
+  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${CALLER},${1},${"host"},${process.pid},${token})`);
   acquireLease(directory, HELD, CALLER, 2);
   acquireLease(directory, ORPHAN, DEAD_ORCH, 2);
 

@@ -1,9 +1,11 @@
+import { eq } from "drizzle-orm";
 import { parseIdentity } from "../backends/identity.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
+import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
-import { openStore } from "./connection.ts";
+import { orm } from "./connection.ts";
 import type { SpawnRegistration } from "../types/store.ts";
 
 /**
@@ -66,7 +68,7 @@ export function registerSpawnedAgent(directory: string, input: SpawnRegistration
 /** A7 — a space is the user's to create; a spawn into an unknown one is refused
  *  rather than inventing the place it names. */
 function requireSpace(directory: string, spaceId: string): void {
-  if (!openStore(directory).query("SELECT id FROM spaces WHERE id = ?").get(spaceId)) {
+  if (!orm(directory).select({ id: spaces.id }).from(spaces).where(eq(spaces.id, spaceId)).get()) {
     throw new Error(`orch: no space named "${spaceId}". Create it first with 'orch space create ${spaceId}'.`);
   }
 }

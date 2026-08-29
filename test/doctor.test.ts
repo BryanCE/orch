@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { startRpcServer } from "../src/daemon/rpc.ts";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
@@ -60,7 +60,7 @@ describe("runDoctor", () => {
 
   test("checks a healthy store", async () => {
     const directory = tempDir();
-    openStore(directory);
+    orm(directory);
     const result = check(await runDoctor(directory), "store");
     expect(result).toMatchObject({ status: "ok", label: "Store" });
     expect(result.detail).toContain("applied migration");
@@ -75,7 +75,7 @@ describe("runDoctor", () => {
 
   test("fails when the store predates orch's migrations", () => {
     const directory = tempDir();
-    openStore(directory);
+    orm(directory);
     closeAllStores();
     const database = new Database(path.join(directory, "orch.db"));
     database.exec("DROP TABLE __drizzle_migrations");
@@ -88,7 +88,7 @@ describe("runDoctor", () => {
 
   test("fails and names a missing store table", () => {
     const directory = tempDir();
-    openStore(directory);
+    orm(directory);
     const database = new Database(path.join(directory, "orch.db"));
     database.exec("DROP TABLE tasks");
     database.close();

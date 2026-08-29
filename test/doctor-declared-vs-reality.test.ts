@@ -4,28 +4,26 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
-import { openStore, closeAllStores } from "../src/store/connection.ts";
+import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const directories: string[] = [];
 function fixture(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-reality-"));
   directories.push(dir);
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
-  db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','Host','linux',1)").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
+  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','Host','linux',1)`);
   return dir;
 }
 function agent(dir: string, id: string, spawnedBy: string | null = null): void {
-  openStore(dir).query(
-    "INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,spawned_by,created_at) VALUES (?,?,?,?,?,?,?)",
-  ).run(id, spawnedBy ?? id, "pi", dir, id, spawnedBy, 1);
+  orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,spawned_by,created_at) VALUES (${id},${spawnedBy ?? id},${"pi"},${dir},${id},${spawnedBy},${1})`);
 }
 function recordProcess(dir: string, id: string, pid: number, token: string | null): void {
-  openStore(dir).query(
-    "INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)",
-  ).run(id, 1, "host", pid, token);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${pid},${token})`);
 }
 
 const testDependencies = {
@@ -57,9 +55,9 @@ describe("doctor declared-vs-reality", () => {
   test("reports an environment handle missing from its plexer", () => {
     const dir = fixture();
     agent(dir, "worker");
-    openStore(dir).query("INSERT INTO plexers(id,name) VALUES ('fake','Fake')").run();
-    openStore(dir).query("INSERT INTO agent_plexers(agent_id,plexer_id) VALUES ('worker','fake')").run();
-    openStore(dir).query("INSERT INTO agent_handles(agent_id,since,handle) VALUES ('worker',1,'gone')").run();
+    orm(dir).run(sql`INSERT INTO plexers(id,name) VALUES ('fake','Fake')`);
+    orm(dir).run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES ('worker','fake')`);
+    orm(dir).run(sql`INSERT INTO agent_handles(agent_id,since,handle) VALUES ('worker',1,'gone')`);
 
     const result = checkDeclaredVsReality(dir, {
       processAlive: testDependencies.processAlive,
@@ -95,12 +93,10 @@ describe("doctor declared-vs-reality", () => {
     const dir = fixture();
     agent(dir, "enqueuer");
     agent(dir, "target");
-    openStore(dir).query(
-      "INSERT INTO tasks(id,text,opts,enqueued_by,scope_agent_id,created_at) VALUES ('missing-scope','do it','{}','enqueuer','target',1)",
-    ).run();
-    openStore(dir).exec("PRAGMA foreign_keys = OFF");
-    openStore(dir).query("DELETE FROM agents WHERE id='target'").run();
-    openStore(dir).exec("PRAGMA foreign_keys = ON");
+    orm(dir).run(sql`INSERT INTO tasks(id,text,opts,enqueued_by,scope_agent_id,created_at) VALUES ('missing-scope','do it','{}','enqueuer','target',1)`);
+    orm(dir).run(sql.raw("PRAGMA foreign_keys = OFF"));
+    orm(dir).run(sql`DELETE FROM agents WHERE id='target'`);
+    orm(dir).run(sql.raw("PRAGMA foreign_keys = ON"));
 
     const results = await runDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     const result = results.find((entry) => entry.id === "unrunnable-tasks");
@@ -112,13 +108,11 @@ describe("doctor declared-vs-reality", () => {
   test("doctor -y does not delete an unrunnable task", async () => {
     const dir = fixture();
     agent(dir, "enqueuer");
-    openStore(dir).exec("PRAGMA foreign_keys = OFF");
-    openStore(dir).query(
-      "INSERT INTO tasks(id,text,opts,enqueued_by,scope_agent_id,created_at) VALUES ('missing-scope','do it','{}','enqueuer','gone',1)",
-    ).run();
-    openStore(dir).exec("PRAGMA foreign_keys = ON");
+    orm(dir).run(sql.raw("PRAGMA foreign_keys = OFF"));
+    orm(dir).run(sql`INSERT INTO tasks(id,text,opts,enqueued_by,scope_agent_id,created_at) VALUES ('missing-scope','do it','{}','enqueuer','gone',1)`);
+    orm(dir).run(sql.raw("PRAGMA foreign_keys = ON"));
     const results = await runDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     applyFixes(results);
-    expect(openStore(dir).query("SELECT COUNT(*) AS count FROM tasks WHERE id='missing-scope'").get()).toEqual({ count: 1 });
+    expect(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks WHERE id='missing-scope'`)).toEqual({ count: 1 });
   });
 });

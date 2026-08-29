@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { cmdClose } from "../src/commands/lifecycle.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { isRecord } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -50,7 +50,7 @@ function fixture(): string {
   });
   process.env.ORCH_DIR = dir;
   delete process.env.ORCH_AGENT_KEY;
-  openStore(dir);
+  orm(dir);
   seedSpace(dir, "space00001");
   return dir;
 }

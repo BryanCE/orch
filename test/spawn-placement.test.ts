@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSpawnPlacement } from "../src/commands/spawn.ts";
 import { homeHandle, openHome } from "../src/store/home-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -32,7 +32,7 @@ afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-placement-"));
   dirs.push(dir);
-  openStore(dir);
+  orm(dir);
   return dir;
 }
 

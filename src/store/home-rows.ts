@@ -1,6 +1,7 @@
-import { openStore } from "./connection.ts";
+import { and, eq, isNull } from "drizzle-orm";
+import { orm } from "./connection.ts";
+import { packPlexers, spacePlexers } from "../db/schema.ts";
 import { ensurePlexer } from "./agent-rows.ts";
-import { isRecord } from "../util.ts";
 import type { HomeSubject } from "../types/backend.ts";
 import type { OpenHomeRequest } from "../types/store.ts";
 export type { OpenHomeRequest };
@@ -27,17 +28,14 @@ export type { OpenHomeRequest };
  *  its agents read as random agents with no discoverable origin. */
 export const ORCH_HOME_LABEL = "orch";
 
-interface SubjectTable {
-  readonly table: string;
-  readonly column: string;
-}
-
-/** Which interval table holds this subject's home. The branch is on orch's own
- *  noun — the two subjects orch has — never on which plexer is answering. */
-function tableFor(subject: HomeSubject): SubjectTable {
+/** Which interval table holds this subject's home, and which column keys it.
+ *  The branch is on orch's own noun — the two subjects orch has — never on which
+ *  plexer is answering. Returning the drizzle table keeps the two spellings of
+ *  each column in ONE place: the schema. */
+function tableFor(subject: HomeSubject) {
   return subject.kind === "space"
-    ? { table: "space_plexers", column: "space_id" }
-    : { table: "pack_plexers", column: "pack_id" };
+    ? { table: spacePlexers, key: spacePlexers.spaceId }
+    : { table: packPlexers, key: packPlexers.packId };
 }
 
 /** The label orch asks a plexer to put on a home it opens for itself. */
@@ -48,11 +46,10 @@ export function homeLabel(name: string): string {
 /** This plexer's live home coordinate for a subject, or null when it has none
  *  HERE — a home recorded in another plexer is not this one's to drive. */
 export function homeHandle(directory: string, subject: HomeSubject, plexerId: string): string | null {
-  const { table, column } = tableFor(subject);
-  const row = openStore(directory)
-    .query(`SELECT handle FROM ${table} WHERE ${column} = ? AND plexer_id = ? AND until IS NULL`)
-    .get(subject.id, plexerId);
-  return isRecord(row) && typeof row.handle === "string" ? row.handle : null;
+  const { table, key } = tableFor(subject);
+  const row = orm(directory).select({ handle: table.handle }).from(table)
+    .where(and(eq(key, subject.id), eq(table.plexerId, plexerId), isNull(table.until))).get();
+  return row?.handle ?? null;
 }
 
 /** Record a coordinate a plexer just handed back. */
@@ -63,19 +60,18 @@ export function recordHome(
   handle: string,
   now: number = Date.now(),
 ): void {
-  const { table, column } = tableFor(subject);
   ensurePlexer(directory, plexerId, plexerId);
-  openStore(directory)
-    .query(`INSERT INTO ${table} (${column}, since, until, plexer_id, handle) VALUES (?, ?, NULL, ?, ?)`)
-    .run(subject.id, now, plexerId, handle);
+  const values = { since: now, until: null, plexerId, handle };
+  if (subject.kind === "space") orm(directory).insert(spacePlexers).values({ spaceId: subject.id, ...values }).run();
+  else orm(directory).insert(packPlexers).values({ packId: subject.id, ...values }).run();
 }
 
 /** Drop every home row for a subject. The partial unique index (`one_pack_home`
  *  / `one_space_home`) admits exactly one open interval, so a subject whose home
  *  is gone must leave no open row behind or the next open is refused. */
 export function clearHome(directory: string, subject: HomeSubject): void {
-  const { table, column } = tableFor(subject);
-  openStore(directory).query(`DELETE FROM ${table} WHERE ${column} = ?`).run(subject.id);
+  const { table, key } = tableFor(subject);
+  orm(directory).delete(table).where(eq(key, subject.id)).run();
 }
 
 /**

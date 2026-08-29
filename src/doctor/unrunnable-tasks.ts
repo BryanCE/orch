@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { openStore } from "../store/connection.ts";
+import { asc } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { agents, spaces, tasks } from "../db/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
-import { isRecord, truncate } from "../util.ts";
+import { truncate } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
 interface MissingScope {
@@ -11,39 +13,22 @@ interface MissingScope {
   readonly scopeId: string;
 }
 
-interface MissingScopeRow {
-  readonly task_id: string;
-  readonly kind: MissingScope["kind"];
-  readonly scope_id: string;
-}
-
-function isMissingScopeRow(value: unknown): value is MissingScopeRow {
-  if (!isRecord(value)) return false;
-  return typeof value.task_id === "string"
-    && (value.kind === "agent" || value.kind === "pack" || value.kind === "space")
-    && typeof value.scope_id === "string";
-}
-
+/** A task whose scope names something the store no longer holds. One pass per
+ *  axis, because the three scopes are three different references — a UNION of
+ *  three selects said the same thing with three chances to mistype a column. */
 function missingScopes(orchDir: string): MissingScope[] {
-  const rows = openStore(orchDir).query(`
-    SELECT t.id AS task_id, 'agent' AS kind, t.scope_agent_id AS scope_id
-    FROM tasks t LEFT JOIN agents a ON a.id=t.scope_agent_id
-    WHERE t.scope_agent_id IS NOT NULL AND a.id IS NULL
-    UNION ALL
-    SELECT t.id AS task_id, 'pack' AS kind, t.scope_pack_id AS scope_id
-    FROM tasks t LEFT JOIN agents a ON a.id=t.scope_pack_id
-    WHERE t.scope_pack_id IS NOT NULL AND a.id IS NULL
-    UNION ALL
-    SELECT t.id AS task_id, 'space' AS kind, t.scope_space_id AS scope_id
-    FROM tasks t LEFT JOIN spaces s ON s.id=t.scope_space_id
-    WHERE t.scope_space_id IS NOT NULL AND s.id IS NULL
-    ORDER BY task_id
-  `).all();
-  return rows.filter(isMissingScopeRow).map((row) => ({
-      taskId: row.task_id,
-      kind: row.kind,
-      scopeId: row.scope_id,
-    }));
+  const db = orm(orchDir);
+  const agentIds = new Set(db.select({ id: agents.id }).from(agents).all().map((row) => row.id));
+  const spaceIds = new Set(db.select({ id: spaces.id }).from(spaces).all().map((row) => row.id));
+  const rows = db.select({
+    taskId: tasks.id, agentId: tasks.scopeAgentId, packId: tasks.scopePackId, spaceId: tasks.scopeSpaceId,
+  }).from(tasks).orderBy(asc(tasks.id)).all();
+  return rows.flatMap((row): MissingScope[] => {
+    if (row.agentId !== null && !agentIds.has(row.agentId)) return [{ taskId: row.taskId, kind: "agent", scopeId: row.agentId }];
+    if (row.packId !== null && !agentIds.has(row.packId)) return [{ taskId: row.taskId, kind: "pack", scopeId: row.packId }];
+    if (row.spaceId !== null && !spaceIds.has(row.spaceId)) return [{ taskId: row.taskId, kind: "space", scopeId: row.spaceId }];
+    return [];
+  });
 }
 
 function age(task: TaskRec): string {

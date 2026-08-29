@@ -2,12 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/retention.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { OrchConfig } from "../src/types/config.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md H3 — "Reap must walk the provenance tree — refusing to
@@ -25,7 +26,7 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const d = mkdtempSync(join(tmpdir(), "orch-reap-provenance-"));
   dirs.push(d);
-  openStore(d).query("INSERT INTO harnesses(id,name) VALUES (?,?)").run("pi", "Pi");
+  orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
   insertAgent(d, { id: "child", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "child", createdAt: 2 });
   insertAgent(d, { id: "grand", spawnedBy: "child", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
@@ -33,7 +34,7 @@ function fixture(): string {
 }
 
 function end(dir: string, id: string, at: number): void {
-  openStore(dir).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (?,?,?)").run(id, at, null);
+  orm(dir).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${id},${at},${null})`);
 }
 
 /** Every window at zero so nothing survives the sweep by luck. */
@@ -98,7 +99,7 @@ describe("reap walks the provenance tree (H3)", () => {
     const d = fixture();
     // A cascade would make this delete take `child` and `grand` with it. It must
     // fail on the foreign key instead — the tree is walked, never collapsed.
-    expect(() => openStore(d).query("DELETE FROM agents WHERE id = 'orch'").run()).toThrow();
+    expect(() => orm(d).run(sql`DELETE FROM agents WHERE id = 'orch'`)).toThrow();
     expect(agentView(d, "child")).not.toBeNull();
     expect(agentView(d, "grand")).not.toBeNull();
   });

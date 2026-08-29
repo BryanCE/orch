@@ -2,11 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentViews } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 
@@ -29,7 +31,7 @@ describe("epoch-millisecond store instants", () => {
     const dir = fixture();
     seedAgent("aaaaaaaaa1", { adapter: "pi", backend: "headless", owner: "bbbbbbbbb1" });
 
-    expect(openStore(dir).query("SELECT typeof(since) AS kind FROM agent_leases WHERE agent_id = 'aaaaaaaaa1'").get())
+    expect(row(orm(dir), sql`SELECT typeof(since) AS kind FROM agent_leases WHERE agent_id = 'aaaaaaaaa1'`))
       .toEqual({ kind: "integer" });
   });
 
@@ -41,11 +43,10 @@ describe("epoch-millisecond store instants", () => {
     const earlier = Date.parse("2026-01-01T01:00:00.000Z");
     expect(later).toBeGreaterThan(earlier);
 
-    const db = openStore(dir);
-    db.query("INSERT OR IGNORE INTO harnesses (id, name, enabled_at) VALUES ('pi','pi',NULL)").run();
+    const db = orm(dir);
+    db.run(sql`INSERT OR IGNORE INTO harnesses (id, name, enabled_at) VALUES ('pi','pi',NULL)`);
     for (const [id, createdAt] of [["laaaaaaaaa", later], ["eaaaaaaaaa", earlier]] as const) {
-      db.query("INSERT INTO agents (id, root_agent_id, harness_id, cwd, name, created_at) VALUES (?,?,?,?,?,?)")
-        .run(id, id, "pi", dir, id, createdAt);
+      db.run(sql`INSERT INTO agents (id, root_agent_id, harness_id, cwd, name, created_at) VALUES (${id},${id},${"pi"},${dir},${id},${createdAt})`);
     }
 
     expect(agentViews(dir).map((view) => [view.id, view.createdAt]))

@@ -9,13 +9,14 @@ import { peerSummaries } from "../src/agent/peers.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * A1 ripple — the agent-side readers of an identity key.
@@ -208,15 +209,14 @@ describe("who drives an agent is looked up by its id", () => {
   function leased(): string {
     const directory = tempOrchDir();
     ensureHarness(directory, "pi", "Pi", 1);
-    const database = openStore(directory);
-    database.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
+    const database = orm(directory);
+    database.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
     for (const id of [HOLDER, HELD]) {
       insertAgent(directory, { id, harnessId: "pi", cwd: "/tmp", name: id, createdAt: 1 });
     }
     const token = processStartToken(process.pid);
     if (!token) throw new Error("test process has no start token");
-    database.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-      .run(HOLDER, 1, "host", process.pid, token);
+    database.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${HOLDER},${1},${"host"},${process.pid},${token})`);
     acquireLease(directory, HELD, HOLDER, 2);
     return directory;
   }

@@ -112,6 +112,18 @@ module stays consistent"). Only `agent-rows.ts` and `grant-rows.ts` use drizzle;
 daemon/commands still write SQL strings and cast rows (~16 `.get(...) as {...}` sites across 11 files —
 the exact Rule 13 casts `tables.ts` was adopted to eliminate). `interval-rows.ts:4/:19` additionally
 redefines its own `IntervalDatabase` (= `DatabaseLike`) and `transaction` (= `withTransaction`).
+**Status: `FIXED`.** Drizzle is the one stack. `bindValue`, `NodeSqliteAdapter`, `openStore` and the
+exported `transaction` are deleted from `src/store/connection.ts`, and `DatabaseLike`/`StatementLike`
+from `src/types/store.ts`; `OpenDatabase` now holds the drizzle handle beside the `node:sqlite` client,
+which is reached for exactly two things drizzle does not own — connection pragmas and closing the file.
+`predatesMigrations` reads `sqlite_master` through drizzle and `withTransaction` opens the one cached
+connection itself. Every `src/` row module, plus `scripts/db/build.ts` and all 61 test files that held
+the raw port open, now query through `orm(orchDir)`; a raw SELECT in a test reads through
+`test/helpers/rows.ts` (`row`/`stringField`/`numberField`), which returns `unknown` rather than the
+`as {...}` shape Rule 13 forbids. `test/one-query-stack-over-the-connection.test.ts` asserts the store
+exports neither `openStore` nor `transaction` AND that nothing under `src/`, `test/`, `scripts/` or
+`extensions/` prepares a statement through the deleted port.
+
 **Fix:** pick one. Finishing drizzle deletes `NodeSqliteAdapter`/`bindValue`/`DatabaseLike`/`openStore`
 and all the row casts; dropping it deletes `tables.ts` (368) + `drizzle/` + `defineRelations`. Keeping
 both means every new query chooses and every schema change touches two definitions.

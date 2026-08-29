@@ -4,13 +4,15 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdSpace, runSpace } from "../src/commands/space.ts";
 import { helpTopic } from "../src/commands/help.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 import type { CreateHomeRequest, CreatedHome, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import type { SpaceEnvironment } from "../src/types/command.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const originalDir = process.env.ORCH_DIR;
 const originalWrite = process.stdout.write.bind(process.stdout);
 const dirs: string[] = [];
@@ -70,15 +72,15 @@ function homed(directory: string, calls: HomeCall[]): SpaceEnvironment {
 }
 
 function liveHome(directory: string, spaceId: string): { plexer_id: string; handle: string } | null {
-  const row = openStore(directory).query("SELECT plexer_id, handle FROM space_plexers WHERE space_id = ? AND until IS NULL").get(spaceId);
-  if (!isRecord(row) || typeof row.plexer_id !== "string" || typeof row.handle !== "string") return null;
-  return { plexer_id: row.plexer_id, handle: row.handle };
+  const found = row(orm(directory), sql`SELECT plexer_id, handle FROM space_plexers WHERE space_id = ${spaceId} AND until IS NULL`);
+  if (!isRecord(found) || typeof found.plexer_id !== "string" || typeof found.handle !== "string") return null;
+  return { plexer_id: found.plexer_id, handle: found.handle };
 }
 
 function spaceIdOf(directory: string, name: string): string {
-  const row = openStore(directory).query("SELECT id FROM spaces WHERE name = ?").get(name);
-  if (!isRecord(row) || typeof row.id !== "string") throw new Error(`no space named ${name}`);
-  return row.id;
+  const found = row(orm(directory), sql`SELECT id FROM spaces WHERE name = ${name}`);
+  if (!isRecord(found) || typeof found.id !== "string") throw new Error(`no space named ${name}`);
+  return found.id;
 }
 
 describe("orch space — orch's own grouping", () => {
@@ -104,10 +106,10 @@ describe("orch space — orch's own grouping", () => {
     const dir = tempDir();
     capture(() => runSpace(homeless(dir), ["create", "Release"]));
     const id = spaceIdOf(dir, "Release");
-    const db = openStore(dir);
-    db.query("INSERT INTO harnesses (id,name,enabled_at) VALUES ('pi','pi',NULL)").run();
-    db.query("INSERT INTO agents (id,spawned_by,root_agent_id,harness_id,cwd,name,label,created_at) VALUES ('a',NULL,'a','pi','/','a',NULL,0)").run();
-    db.query("INSERT INTO agent_spaces (agent_id, since, until, space_id) VALUES ('a', 1, NULL, ?)").run(id);
+    const db = orm(dir);
+    db.run(sql`INSERT INTO harnesses (id,name,enabled_at) VALUES ('pi','pi',NULL)`);
+    db.run(sql`INSERT INTO agents (id,spawned_by,root_agent_id,harness_id,cwd,name,label,created_at) VALUES ('a',NULL,'a','pi','/','a',NULL,0)`);
+    db.run(sql`INSERT INTO agent_spaces (agent_id, since, until, space_id) VALUES ('a', 1, NULL, ${id})`);
     expect(() => capture(() => runSpace(homeless(dir), ["delete", "Release"]))).toThrow(/not empty|still/i);
   });
 });

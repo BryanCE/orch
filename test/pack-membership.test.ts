@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { getOrCreateSessionAgent, insertAgent, packMembers } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
@@ -10,6 +10,7 @@ import { agentView, agentViews } from "../src/store/agent-view.ts";
 import { roleOf } from "../src/policy/vocabulary.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md A10 — "A pack starts at ONE member — a registered session is
@@ -19,9 +20,9 @@ import { seedSpace } from "./helpers/space.ts";
 
 function withStore(body: (directory: string) => void): void {
   const directory = mkdtempSync(join(tmpdir(), "orch-pack-"));
-  const db = openStore(directory);
-  db.query("INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING").run();
-  db.query("INSERT INTO harnesses (id, name) VALUES ('claude', 'claude') ON CONFLICT DO NOTHING").run();
+  const db = orm(directory);
+  db.run(sql`INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING`);
+  db.run(sql`INSERT INTO harnesses (id, name) VALUES ('claude', 'claude') ON CONFLICT DO NOTHING`);
   try {
     body(directory);
   } finally {

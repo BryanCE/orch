@@ -9,7 +9,9 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { openStore } from "../store/connection.ts";
+import { eq } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { agents } from "../db/schema.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { AgentView } from "../types/store.ts";
 import type { DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
@@ -119,7 +121,7 @@ export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
 export function reapSpawnedRecord(key: string, root = orchDir(), options: { agentId?: string } = {}): void {
   const agentId = options.agentId ?? tryParseIdentity(key)?.id;
   if (agentId !== undefined) {
-    try { openStore(root).query("DELETE FROM agents WHERE id = ?").run(agentId); } catch {}
+    try { orm(root).delete(agents).where(eq(agents.id, agentId)).run(); } catch {}
   }
   removePresenceAgentDir(presenceAgentDir(key, root));
 }

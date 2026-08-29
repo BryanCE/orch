@@ -7,7 +7,7 @@ import { loadConfigOrNull, SETTINGS_SCHEMA } from "../src/config.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { selectRuns, upsertRun } from "../src/store/run-rows.ts";
 import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
@@ -17,13 +17,15 @@ import { writeResult } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import type { OrchConfig } from "../src/types/config.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const directories: string[] = [];
 
 function fixture(): string {
   const orchDir = mkdtempSync(join(tmpdir(), "orch-retention-"));
   directories.push(orchDir);
-  openStore(orchDir);
+  orm(orchDir);
   return orchDir;
 }
 
@@ -35,17 +37,17 @@ function config(days: Partial<OrchConfig["retention"]> = {}): OrchConfig {
 }
 
 function seedQueueTask(dir: string, text: string, state: "queued" | "claimed" | "done", ts: string): void {
-  const db = openStore(dir);
-  db.query("INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')").run();
-  db.query("INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',1)").run();
+  const db = orm(dir);
+  db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
+  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',1)`);
   const task = addTask(dir, text, {}, "queue-agent");
-  db.query("UPDATE tasks SET created_at=? WHERE id=?").run(Date.parse(ts), task.id);
+  db.run(sql`UPDATE tasks SET created_at=${Date.parse(ts)} WHERE id=${task.id}`);
   if (state !== "queued") {
     claimTask(dir, task.id, "queue-agent", `${text}-dispatch`);
     if (state === "done") {
       recordTaskDone(dir, task.id);
       const until = Date.parse(ts);
-      db.query("UPDATE task_attempts SET since=?, until=? WHERE task_id=?").run(until - 1, until, task.id);
+      db.run(sql`UPDATE task_attempts SET since=${until - 1}, until=${until} WHERE task_id=${task.id}`);
     }
   }
 }
@@ -92,9 +94,9 @@ describe("retention sweep", () => {
     expect(sweepExpiredRows(orchDir, config({ queue_days: 14, events_days: 3, runs_days: 30, outbox_days: 7 }), NOW)).toEqual({
       queue: 1, outbox: 1, events: 1, runs: 1, ended_agents: 0, logs: 0,
     });
-    expect(openStore(orchDir).query("SELECT id FROM tasks ORDER BY id").all()).toHaveLength(3);
-    expect(openStore(orchDir).query("SELECT id FROM outbox ORDER BY id").all()).toHaveLength(1);
-    expect(openStore(orchDir).query("SELECT seq FROM events").all()).toHaveLength(1);
+    expect(orm(orchDir).all(sql`SELECT id FROM tasks ORDER BY id`)).toHaveLength(3);
+    expect(orm(orchDir).all(sql`SELECT id FROM outbox ORDER BY id`)).toHaveLength(1);
+    expect(orm(orchDir).all(sql`SELECT seq FROM events`)).toHaveLength(1);
     expect(selectRuns(orchDir)).toHaveLength(1);
   });
 
@@ -108,7 +110,7 @@ describe("retention sweep", () => {
     const orchDir = fixture();
     appendEvent(orchDir, Date.parse("2020-01-01T00:00:00.000Z"), { old: true });
     upsertRun(orchDir, run("old-run", "2020-01-01T00:00:00.000Z"));
-    openStore(orchDir).exec("DROP TABLE tasks");
+    orm(orchDir).run(sql.raw("DROP TABLE tasks"));
 
     const counts = sweepExpiredRows(orchDir, config({ events_days: 1, runs_days: 1 }), NOW);
     expect(counts.queue).toBe(0);
@@ -124,26 +126,24 @@ describe("retention sweep", () => {
     const agentId = "expirednop";
     const holder = "holderorch";
     const old = "2026-01-20T00:00:00.000Z";
-    const db = openStore(orchDir);
-    db.query("INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')").run();
-    db.query("INSERT OR IGNORE INTO plexers(id,name) VALUES ('headless','headless')").run();
-    db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
-      .run(holder, holder, "pi", "/tmp", holder, Date.parse(old));
-    db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
-      .run(agentId, agentId, "pi", "/tmp", "reserved-agent", Date.parse(old));
-    db.query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,NULL)").run(agentId, Date.parse(old));
-    db.query("INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (?,?,?)").run(agentId, "/tmp/worktree", "orch/expired");
-    db.query("INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (?,?)").run(agentId, "headless");
+    const db = orm(orchDir);
+    db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
+    db.run(sql`INSERT OR IGNORE INTO plexers(id,name) VALUES ('headless','headless')`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${holder},${holder},${"pi"},${"/tmp"},${holder},${Date.parse(old)})`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)})`);
+    db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${Date.parse(old)},NULL)`);
+    db.run(sql`INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (${agentId},${"/tmp/worktree"},${"orch/expired"})`);
+    db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);
     acquireLease(orchDir, agentId, holder, Date.parse(old));
 
     expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
-    expect(db.query("SELECT id FROM agents WHERE id=?").get(agentId)).toBeNull();
-    expect(db.query("SELECT agent_id FROM agent_worktrees WHERE agent_id=?").get(agentId)).toBeNull();
-    expect(db.query("SELECT agent_id FROM agent_plexers WHERE agent_id=?").get(agentId)).toBeNull();
-    expect(db.query("SELECT id FROM agent_leases WHERE agent_id=?").get(agentId)).toBeNull();
-    expect(db.query("SELECT id FROM agents WHERE name=?").get("reserved-agent")).toBeNull();
+    expect(row(db, sql`SELECT id FROM agents WHERE id=${agentId}`)).toBeUndefined();
+    expect(row(db, sql`SELECT agent_id FROM agent_worktrees WHERE agent_id=${agentId}`)).toBeUndefined();
+    expect(row(db, sql`SELECT agent_id FROM agent_plexers WHERE agent_id=${agentId}`)).toBeUndefined();
+    expect(row(db, sql`SELECT id FROM agent_leases WHERE agent_id=${agentId}`)).toBeUndefined();
+    expect(row(db, sql`SELECT id FROM agents WHERE name=${"reserved-agent"}`)).toBeUndefined();
     // The holder is an agent in its own right and outlives what it held.
-    expect(db.query("SELECT id FROM agents WHERE id=?").get(holder)).not.toBeNull();
+    expect(row(db, sql`SELECT id FROM agents WHERE id=${holder}`)).not.toBeUndefined();
   });
 
   test("reaps dead dirs by recorded instants, not a fresh directory mtime", () => {
@@ -151,15 +151,14 @@ describe("retention sweep", () => {
     const key = "deadagent1";
     const old = "2026-01-20T00:00:00.000Z";
     const dir = seedStatus(orchDir, key, { pid: 999999, updatedAt: old });
-    const db = openStore(orchDir);
-    db.query("INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')").run();
-    db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
-      .run(key, key, "pi", "/tmp", key, Date.parse(old));
-    db.query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,NULL)").run(key, Date.parse(old));
+    const db = orm(orchDir);
+    db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${key},${key},${"pi"},${"/tmp"},${key},${Date.parse(old)})`);
+    db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${key},${Date.parse(old)},NULL)`);
     utimesSync(dir, NOW, NOW);
     expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
-    expect(openStore(orchDir).query("SELECT id FROM agents WHERE id=?").get(key)).toBeNull();
+    expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).toBeUndefined();
   });
 
   test("keeps dead dirs with a newer recorded instant despite an old mtime", () => {

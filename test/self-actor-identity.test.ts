@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentIdBySessionToken, getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -11,7 +11,7 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function store(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-actor-"));
   dirs.push(dir);
-  openStore(dir);
+  orm(dir);
   return dir;
 }
 

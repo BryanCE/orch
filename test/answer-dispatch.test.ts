@@ -6,7 +6,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { governWrite } from "../src/daemon/orchd.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
@@ -14,6 +14,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { rpcCall, startRpcServer } from "../src/daemon/rpc.ts";
 import { refusalOf } from "./helpers/refusal.ts";
 import type { RpcHandlers, RpcServer } from "../src/types/daemon.ts";
+import { sql } from "drizzle-orm";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
@@ -33,7 +34,7 @@ function agent(dir: string, id: string): void {
 }
 
 function placeIn(dir: string, id: string, space: string): void {
-  openStore(dir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run(space, space, 1);
+  orm(dir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(dir, id, 1, space);
 }
 
@@ -43,8 +44,7 @@ function liveOrch(dir: string, id: string): void {
   agent(dir, id);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(id, 1, "host", process.pid, token);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${token})`);
 }
 
 function answerFile(directory: string, agentKey: string): string {

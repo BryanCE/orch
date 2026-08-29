@@ -3,7 +3,10 @@ import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir } from "../presence/store.ts";
 import { rpcHello } from "../daemon/reach.ts";
 import { join } from "node:path";
-import { openStore } from "../store/connection.ts";
+import { asc, eq } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { agents } from "../db/schema.ts";
+import { currentProcess } from "../store/interval-rows.ts";
 import { agentById, childrenOf, liveAgents, renameAgent } from "../store/agent-rows.ts";
 import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../store/lease-rows.ts";
 import { assertValidAgentName } from "../policy/name.ts";
@@ -17,15 +20,7 @@ async function resolveSelfOrchId(): Promise<string> {
   return (await rpcHello(orchDir())).id;
 }
 
-interface NamedIdRow { id: string }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null ? { ...value } : null;
-}
-
-function isNamedIdRow(value: unknown): value is NamedIdRow {
-  return typeof asRecord(value)?.id === "string";
-}
 
 /** C4d - resolving a target to an id is ONE operation at the boundary, never a
  *  lookup re-spelled per command. C4c - names carry no uniqueness: an id always
@@ -34,10 +29,8 @@ function isNamedIdRow(value: unknown): value is NamedIdRow {
 export function resolveTarget(directory: string, target: string): AgentRow {
   const exact = agentById(directory, target);
   if (exact) return exact;
-  const rows = openStore(directory)
-    .query("SELECT id FROM agents WHERE name = ? ORDER BY id")
-    .all(target)
-    .filter(isNamedIdRow);
+  const rows = orm(directory).select({ id: agents.id }).from(agents)
+    .where(eq(agents.name, target)).orderBy(asc(agents.id)).all();
   if (rows.length > 1) {
     const ids = rows.map((row) => row.id).join(", ");
     throw new Error(`Ambiguous target "${target}": ${rows.length} agents share that name (${ids}). Which id did you mean?`);
@@ -56,12 +49,9 @@ function displayName(agent: AgentRow): string {
 
 interface RecordedProcess { readonly pid: number; readonly startToken: string | null }
 
-function currentProcess(directory: string, agentId: string): RecordedProcess | null {
-  const row = asRecord(openStore(directory).query(
-    "SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL",
-  ).get(agentId));
-  if (!row || typeof row.pid !== "number") return null;
-  return { pid: row.pid, startToken: typeof row.start_token === "string" ? row.start_token : null };
+function recordedProcess(directory: string, agentId: string): RecordedProcess | null {
+  const row = currentProcess(directory, agentId);
+  return row === undefined ? null : { pid: row.pid, startToken: row.startToken };
 }
 
 /** A recorded process is live only when its process instance still matches. An
@@ -111,7 +101,7 @@ export function detachAgent(directory: string, target: string, orchId: string, o
 }
 
 function holderStillAlive(directory: string, orchId: string): boolean {
-  return processStillAlive(currentProcess(directory, orchId));
+  return processStillAlive(recordedProcess(directory, orchId));
 }
 
 /** C3 - the one place that answers "may this orch drive that agent?". Mutual
@@ -182,14 +172,14 @@ export function reapAgent(directory: string, target: string, now = Date.now()): 
   }
   const status = readPresenceStatus(join(presenceAgentDir(agent.id, directory), STATUS_FILE));
   const statusProcess = typeof status?.pid === "number" ? { pid: status.pid, startToken: null } : null;
-  if (processStillAlive(currentProcess(directory, agent.id)) || processStillAlive(statusProcess)) {
+  if (processStillAlive(recordedProcess(directory, agent.id)) || processStillAlive(statusProcess)) {
     throw new Error(`Cannot reap ${displayName(agent)}: process is still running; close first.`);
   }
   // Foreign leases never gate ending/reaping. Delete descendants first because
   // agents.spawned_by intentionally has no ON DELETE CASCADE.
-  const db = openStore(directory);
-  for (const child of [...descendants].reverse()) db.query("DELETE FROM agents WHERE id = ?").run(child.id);
-  db.query("DELETE FROM agents WHERE id = ?").run(agent.id);
+  const db = orm(directory);
+  for (const child of [...descendants].reverse()) db.delete(agents).where(eq(agents.id, child.id)).run();
+  db.delete(agents).where(eq(agents.id, agent.id)).run();
   for (const child of descendants) removePresenceAgentDir(presenceAgentDir(child.id, directory));
   removePresenceAgentDir(presenceAgentDir(agent.id, directory));
   return { id: agent.id, name: displayName(agent), reaped: true };

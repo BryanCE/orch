@@ -8,7 +8,7 @@ import { headlessBackend } from "../src/backends/headless/index.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { errorMessage } from "../src/util.ts";
 import { agentViews } from "../src/store/agent-view.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
@@ -21,7 +21,9 @@ afterEach(() => {
 });
 import { piAdapter } from "../src/adapters/pi.ts";
 import { ompAdapter } from "../src/adapters/omp.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 describe("commands/spawn", () => {
   test("refuses an invalid name before resolving or creating a workspace", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-spawn-invalid-name-"));
@@ -60,7 +62,7 @@ describe("commands/spawn", () => {
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
     });
     const before = agentViews(dir).map((view) => view.id);
-    const beforeTasks = (openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count;
+    const beforeTasks = (row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count;
     const backend = headlessBackend as unknown as { spawn: typeof headlessBackend.spawn };
     const originalSpawn = backend.spawn;
     let backendAllocations = 0;
@@ -87,7 +89,7 @@ describe("commands/spawn", () => {
     expect(errorMessage(refusal)).toMatch(/must be named at creation/i);
     expect(backendAllocations).toBe(0);
     expect(agentViews(dir).map((view) => view.id)).toEqual(before);
-    expect((openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(beforeTasks);
+    expect((row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count).toBe(beforeTasks);
     expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);
   });
 

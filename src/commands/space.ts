@@ -3,10 +3,12 @@ import { resolveBackend } from "../backends/registry.ts";
 import { loadConfig } from "../config.ts";
 import { selfId } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
-import { openStore } from "../store/connection.ts";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { agentSpaces, agents, spaces } from "../db/schema.ts";
 import { clearHome, homeHandle, homeLabel, openHome } from "../store/home-rows.ts";
 import { die, splitOptionFlags } from "./target.ts";
-import { errorMessage, isRecord } from "../util.ts";
+import { errorMessage } from "../util.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
 
 /**
@@ -38,9 +40,8 @@ interface BoundaryAnswer {
 }
 
 function readSpaceRows(directory: string): SpaceRecord[] {
-  const rows = openStore(directory).query("SELECT id, name FROM spaces ORDER BY name, id").all();
-  return rows.flatMap((value): SpaceRecord[] => {
-    if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return [];
+  return orm(directory).select({ id: spaces.id, name: spaces.name }).from(spaces)
+    .orderBy(asc(spaces.name), asc(spaces.id)).all().flatMap((value): SpaceRecord[] => {
     return [{ id: value.id, name: value.name }];
   });
 }
@@ -79,8 +80,8 @@ function answer(space: SpaceRecord, verb: string, json: boolean): void {
  *  the reference grants nothing to. */
 function recordableActor(env: SpaceEnvironment): string | null {
   if (env.actorId === null) return null;
-  const row = openStore(env.directory).query("SELECT id FROM agents WHERE id = ?").get(env.actorId);
-  return isRecord(row) ? env.actorId : null;
+  const row = orm(env.directory).select({ id: agents.id }).from(agents).where(eq(agents.id, env.actorId)).get();
+  return row ? env.actorId : null;
 }
 
 function listSpaces(env: SpaceEnvironment, json: boolean): void {
@@ -105,9 +106,7 @@ function createSpace(env: SpaceEnvironment, name: string, json: boolean): void {
   // The spaces row lands FIRST: `openHome` records a `space_plexers` row whose
   // foreign key names it, so opening the home before the space exists would fail
   // on a reference orch itself had not written yet.
-  openStore(env.directory)
-    .query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, ?, ?)")
-    .run(id, name, recordableActor(env), now);
+  orm(env.directory).insert(spaces).values({ id, name, createdBy: recordableActor(env), createdAt: now }).run();
   const coordinate = openHome({
     directory: env.directory, subject: { kind: "space", id }, plexerId: env.plexerId,
     home: role, cwd: process.cwd(), label: name,
@@ -122,7 +121,7 @@ function renameSpace(env: SpaceEnvironment, target: string | undefined, name: st
   if (taken) throw new Error(`A space named "${name}" already exists.`);
   // orch's name is orch's own write and commits first; plexer chrome is a
   // separate action whose failure never rewrites whether the rename happened.
-  openStore(env.directory).query("UPDATE spaces SET name = ? WHERE id = ?").run(name, space.id);
+  orm(env.directory).update(spaces).set({ name }).where(eq(spaces.id, space.id)).run();
   const role = env.spaceHome;
   const coordinate = role === null ? null : readHome(env, space.id);
   // The MARK survives a rename (E8: allowable, but never unmarked). Renaming to
@@ -138,16 +137,15 @@ function renameSpace(env: SpaceEnvironment, target: string | undefined, name: st
 function deleteSpace(env: SpaceEnvironment, target: string | undefined, json: boolean): void {
   if (target === undefined) throw new Error("usage: orch space delete <space> [--json]");
   const space = findSpace(env.directory, target);
-  const occupied = openStore(env.directory)
-    .query("SELECT 1 FROM agent_spaces WHERE space_id = ? AND until IS NULL LIMIT 1")
-    .get(space.id);
+  const occupied = orm(env.directory).select({ agentId: agentSpaces.agentId }).from(agentSpaces)
+    .where(and(eq(agentSpaces.spaceId, space.id), isNull(agentSpaces.until))).limit(1).get();
   // Nobody moves the wall out from under someone else's agents.
-  if (occupied !== null && occupied !== undefined) throw new Error(`Space "${space.name}" is not empty; move its agents out first.`);
+  if (occupied !== undefined) throw new Error(`Space "${space.name}" is not empty; move its agents out first.`);
   const role = env.spaceHome;
   const coordinate = role === null ? null : readHome(env, space.id);
   if (role !== null && coordinate !== null) role.close(coordinate);
   clearHome(env.directory, { kind: "space", id: space.id });
-  openStore(env.directory).query("DELETE FROM spaces WHERE id = ?").run(space.id);
+  orm(env.directory).delete(spaces).where(eq(spaces.id, space.id)).run();
   emit(
     { space: { id: space.id, name: space.name }, deleted: true, home: coordinate === null ? "none" : "closed" },
     `Deleted space "${space.name}".`,

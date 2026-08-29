@@ -94,8 +94,7 @@ export function packsOpenTo(orchDir: string, enqueuer: AgentRow): Set<string> {
 
 /** The space an agent is in right now, or null when it is in none. */
 export function spaceOf(orchDir: string, agentId: string): string | null {
-  const row = currentSpace(orchDir, agentId);
-  return isRecord(row) && typeof row.space_id === "string" ? row.space_id : null;
+  return currentSpace(orchDir, agentId)?.spaceId ?? null;
 }
 
 function selectedScope(orchDir: string, enqueuedBy: string, selection: TaskScopeSelection) {

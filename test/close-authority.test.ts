@@ -2,11 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { callerAuthority, refuseClose } from "../src/policy/close-authority.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md D7, under the ruling at TASKS/01-agent-model.md:342.
@@ -25,7 +26,7 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const d = mkdtempSync(join(tmpdir(), "orch-close-authority-"));
   dirs.push(d);
-  openStore(d).query("INSERT INTO harnesses(id,name) VALUES (?,?)").run("pi", "Pi");
+  orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   insertAgent(d, { id: "orchA", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orchA", createdAt: 1 });
   insertAgent(d, { id: "slaveA", spawnedBy: "orchA", harnessId: "pi", cwd: "/repo", name: "slaveA", createdAt: 2 });
   insertAgent(d, { id: "grandA", spawnedBy: "slaveA", harnessId: "pi", cwd: "/repo", name: "grandA", createdAt: 3 });
@@ -80,7 +81,7 @@ describe("who may end an agent (D7)", () => {
 
   test("a provenance cycle terminates instead of hanging", () => {
     const d = fixture();
-    openStore(d).query("UPDATE agents SET spawned_by='grandA' WHERE id='orchA'").run();
+    orm(d).run(sql`UPDATE agents SET spawned_by='grandA' WHERE id='orchA'`);
     expect(() => refuseClose(d, callerAuthority("orchB"), "grandA")).not.toThrow();
   });
 });

@@ -1,9 +1,10 @@
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../../src/store/connection.ts";
+import { sql } from "drizzle-orm";
+import { closeAllStores, orm } from "../../src/store/connection.ts";
 import { isRecord } from "../../src/util.ts";
 
 // Build a store up to the migrations in `drizzle/` and describe what it holds.
-// Opening it is what migrates it: `openStore` runs the same `applyMigrations` an
+// Opening it is what migrates it: `orm` runs the same `applyMigrations` an
 // installed orch runs on its first command, so a dev store and a published one
 // can never come up differently.
 
@@ -32,11 +33,9 @@ function objectCountsOf(rows: readonly unknown[]): ObjectCount[] {
 }
 
 export function buildStore(storeDir: string): StoreSummary {
-  const store = openStore(storeDir);
-  const applied = countOf(store.query("SELECT COUNT(*) AS applied FROM __drizzle_migrations").get(), "applied");
-  const objects = objectCountsOf(store.query(
-    "SELECT type, COUNT(*) AS count FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' GROUP BY type ORDER BY type",
-  ).all());
+  const store = orm(storeDir);
+  const applied = countOf(store.all(sql`SELECT COUNT(*) AS applied FROM __drizzle_migrations`)[0], "applied");
+  const objects = objectCountsOf(store.all(sql`SELECT type, COUNT(*) AS count FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' GROUP BY type ORDER BY type`));
   closeAllStores();
   return { applied, objects };
 }

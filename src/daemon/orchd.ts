@@ -13,11 +13,11 @@ import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, configure
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
-import { errorMessage, errorTrace, isRecord } from "../util.ts";
+import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { openStore, withTransaction } from "../store/connection.ts";
+import { withTransaction } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
@@ -31,7 +31,6 @@ import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
 import { fleetStatusRows } from "../commands/status.ts";
 import { agentView } from "../store/agent-view.ts";
-import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { createLogger } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
@@ -41,57 +40,33 @@ import type { LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, 
 import type { ConfigWatch, NotifyEntry, OrchConfig } from "../types/config.ts";
 import type { StatusRow } from "../types/command.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
+import { agentById } from "../store/agent-rows.ts";
+import { recordedProcessIsLive } from "../store/interval-rows.ts";
 
-interface LeasePayloadRow {
-  holder_id: string;
-  holder_name: string;
-  pid: number | null;
-  start_token: string | null;
-}
 
 /** The one spelling of "is this lease's holder still running". A start token
  *  proves the pid is the SAME process instance, not a recycled number. */
-function holderProcessIsAlive(pid: unknown, startToken: unknown): boolean {
-  if (typeof pid !== "number") return false;
-  return typeof startToken === "string" && startToken.length > 0
-    ? processInstanceMatches(pid, startToken)
-    : processIsAlive(pid);
-}
-
-function isHolderProcessRow(value: unknown): value is { pid: number | null; start_token: string | null } {
-  if (!isRecord(value)) return false;
-  return (value.pid === null || typeof value.pid === "number")
-    && (value.start_token === null || typeof value.start_token === "string");
-}
-
 /** Whether the orchestrator holding a lease is still alive. Rule 11: a dead
  *  holder is not a collision, so its lease must never gate a driving verb. */
 function leaseHolderIsAlive(directory: string, holderId: string): boolean {
-  const row = openStore(directory)
-    .query("SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL")
-    .get(holderId);
-  return isHolderProcessRow(row) && holderProcessIsAlive(row.pid, row.start_token);
+  return recordedProcessIsLive(directory, holderId);
 }
 
 /** Derive lease facts from the normalized agent/lease rows, never from presence or ownership files. */
 export function deriveLeasePayload(directory: string, key: string): LeaseStatusPayload {
-  const db = openStore(directory);
   // An agent key IS its minted id (A1); a key that is not one names no agent and
   // stays unknown rather than being guessed at.
   const agentId = tryParseIdentity(key)?.id ?? key;
-  const agent = db.query("SELECT id FROM agents WHERE id = ?").get(agentId) as { id: string } | null;
-  if (!agent) return { lease: null, leaseKnown: false };
-  const row = db.query(
-    `SELECT l.orch_id AS holder_id, h.name AS holder_name, p.pid, p.start_token
-       FROM agent_leases l
-       JOIN agents h ON h.id = l.orch_id
-       LEFT JOIN agent_processes p ON p.agent_id = l.orch_id AND p.until IS NULL
-      WHERE l.agent_id = ? AND l.until IS NULL`,
-  ).get(agentId) as LeasePayloadRow | null;
-  if (!row) return { lease: null, leaseKnown: true };
-  const holderAlive = holderProcessIsAlive(row.pid, row.start_token);
+  if (!agentById(directory, agentId)) return { lease: null, leaseKnown: false };
+  const lease = currentLease(directory, agentId);
+  if (!lease) return { lease: null, leaseKnown: true };
+  const holderName = agentById(directory, lease.orchId)?.name;
   return {
-    lease: { holderId: row.holder_id, holderName: row.holder_name || row.holder_id, holderAlive },
+    lease: {
+      holderId: lease.orchId,
+      holderName: holderName === undefined || holderName === "" ? lease.orchId : holderName,
+      holderAlive: recordedProcessIsLive(directory, lease.orchId),
+    },
     leaseKnown: true,
   };
 }

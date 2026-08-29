@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { selectRuns } from "../src/store/run-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { isRecord } from "../src/util.ts";
@@ -15,6 +15,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import type { PresenceWatch, RpcServer } from "../src/types/daemon.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/config.ts";
+import { sql } from "drizzle-orm";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
@@ -39,7 +40,7 @@ function seedAgent(orchDir: string, agentId: string, options: { harnessId?: stri
   ensureHarness(orchDir, harnessId, harnessId);
   insertAgent(orchDir, { id: agentId, spawnedBy: null, harnessId, cwd: orchDir, name: agentId, createdAt: 1 });
   if (options.space !== undefined) {
-    openStore(orchDir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run(options.space, options.space, 1);
+    orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${options.space}, ${options.space}, ${1})`);
     setSpace(orchDir, agentId, 1, options.space);
   }
 }
@@ -231,7 +232,7 @@ describe("daemon presence events", () => {
   test("a throwing history write does not stop event delivery", async () => {
     const orchDir = tempOrchDir();
     const key = "runsbroken";
-    openStore(orchDir).exec("CREATE TRIGGER fail_run_history BEFORE INSERT ON runs BEGIN SELECT RAISE(ABORT, 'history disabled'); END;");
+    orm(orchDir).run(sql.raw("CREATE TRIGGER fail_run_history BEFORE INSERT ON runs BEGIN SELECT RAISE(ABORT, 'history disabled'); END;"));
     const events: unknown[] = [];
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-broken", startedAt: "2026-01-04T00:00:00.000Z" });
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });

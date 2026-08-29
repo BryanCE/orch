@@ -2,14 +2,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { ensureHarness, ensureHost, ensureHostPlexer, ensurePlexer, hostPlexers, insertAgent } from "../src/store/agent-rows.ts";
 import { setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 /**
  * TASKS/02-scope.md E15 — what is possible changes when WHAT IS THERE changes:
  * a move (a new environment record) or an upgrade (a new `host_plexers` row).
@@ -28,7 +30,7 @@ afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-possible-"));
   dirs.push(dir);
-  openStore(dir);
+  orm(dir);
   return dir;
 }
 
@@ -39,8 +41,8 @@ function seedAgent(dir: string, id: string): string {
 }
 
 function openIntervals(dir: string, table: string, agentId: string): number {
-  const row = openStore(dir).query(`SELECT COUNT(*) AS n FROM ${table} WHERE agent_id = ? AND until IS NULL`).get(agentId);
-  return isRecord(row) && typeof row.n === "number" ? row.n : -1;
+  const found = row(orm(dir), sql`SELECT COUNT(*) AS n FROM ${sql.raw(table)} WHERE agent_id = ${agentId} AND until IS NULL`);
+  return isRecord(found) && typeof found.n === "number" ? found.n : -1;
 }
 
 describe("the environment dictates what is possible, and nothing negotiates it (E15)", () => {
@@ -68,9 +70,8 @@ describe("the environment dictates what is possible, and nothing negotiates it (
     setHandle(dir, agent, 10, "w1:p1");
     setHandle(dir, agent, 20, "w2:p7");
 
-    const rows = openStore(dir)
-      .query("SELECT handle, since, until FROM agent_handles WHERE agent_id = ? ORDER BY since")
-      .all(agent)
+    const rows = orm(dir)
+      .all(sql`SELECT handle, since, until FROM agent_handles WHERE agent_id = ${agent} ORDER BY since`)
       .flatMap((value): { handle: string; since: number; until: number | null }[] => {
         if (!isRecord(value) || typeof value.handle !== "string" || typeof value.since !== "number") return [];
         return [{ handle: value.handle, since: value.since, until: typeof value.until === "number" ? value.until : null }];
@@ -131,9 +132,8 @@ describe("the environment dictates what is possible, and nothing negotiates it (
 
   test("nothing anywhere records what an agent CAN do", () => {
     const dir = fixture();
-    const names = openStore(dir)
-      .query("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
+    const names = orm(dir)
+      .all(sql`SELECT name FROM sqlite_master WHERE type = 'table'`)
       .flatMap((value): string[] => (isRecord(value) && typeof value.name === "string" ? [value.name] : []));
 
     // E13: no capability rows, nothing declared to orch by a plexer, nothing

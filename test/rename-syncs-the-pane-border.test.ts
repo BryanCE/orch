@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { cmdRename } from "../src/commands/lifecycle.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { isRecord } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -57,7 +57,7 @@ function fixture(): string {
     defaults: { adapter: "pi", backend: "headless" },
   });
   process.env.ORCH_DIR = dir;
-  openStore(dir);
+  orm(dir);
   seedSpace(dir, "space00001");
   seedAgent(KEY, { adapter: "pi", backend: "headless", space: "space00001", handle: "w7:p2J", name: "wave2-1" });
   const agentDir = join(dir, "agents", KEY);

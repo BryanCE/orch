@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { deliver } from "../src/notify/router.ts";
@@ -12,6 +12,7 @@ import { TASK_MAX } from "../src/agent/presence.ts";
 import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import { sql } from "drizzle-orm";
 
 const orchDirs: string[] = [];
 
@@ -148,7 +149,7 @@ describe("notification and presence event formatting", () => {
     const registeredKey = "spacedagn1";
     ensureHarness(orchDir, "pi", "pi");
     insertAgent(orchDir, { id: registeredKey, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "spaced", createdAt: 1 });
-    openStore(orchDir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run("registry-space", "registry-space", 1);
+    orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${"registry-space"}, ${"registry-space"}, ${1})`);
     setSpace(orchDir, registeredKey, 1, "registry-space");
     const withSpace = transition(orchDir, registeredKey, { state: "done" });
     expect(withSpace?.space).toBe("registry-space");

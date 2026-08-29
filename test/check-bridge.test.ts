@@ -333,9 +333,9 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
 describe("10.7 leases and provenance stay in separate columns (checkLeaseProvenanceLine)", () => {
   test("flags INSERT and UPDATE SQL that welds a lease holder into spawned_by", () => {
     const bad = [
-      'db.query("INSERT INTO agents (id, spawned_by, root_agent_id) SELECT agent_id, orch_id, agent_id FROM agent_leases").run();',
-      'db.query("UPDATE agents SET spawned_by = orchId WHERE id = ?").run(id);',
-      'db.query("INSERT INTO agent_leases (agent_id, spawner, since) VALUES (?, ?, ?)").run(agentId, spawner, since);',
+      'db.run(sql`INSERT INTO agents (id, spawned_by, root_agent_id) SELECT agent_id, orch_id, agent_id FROM agent_leases`);',
+      'db.run(sql`UPDATE agents SET spawned_by = orchId WHERE id = ${id}`);',
+      'db.run(sql`INSERT INTO agent_leases (agent_id, spawner, since) VALUES (${agentId}, ${spawner}, ${since})`);',
     ];
     for (const line of bad) expect(checkLeaseProvenanceLine(line, "src/store/lease-rows.ts")).toContain("lease and provenance");
   });
@@ -347,9 +347,9 @@ describe("10.7 leases and provenance stay in separate columns (checkLeaseProvena
 
   test("allows separate lease and provenance rows", () => {
     const clean = [
-      'db.query("INSERT INTO agent_leases (agent_id, orch_id, since) VALUES (?, ?, ?)").run(agentId, orchId, since);',
+      'db.run(sql`INSERT INTO agent_leases (agent_id, orch_id, since) VALUES (${agentId}, ${orchId}, ${since})`);',
       "interface LeaseRow { agent_id: string; orch_id: string; since: number; }",
-      'db.query("INSERT INTO agents (id, spawned_by, root_agent_id) VALUES (?, ?, ?)").run(id, spawnedBy, root);',
+      'db.run(sql`INSERT INTO agents (id, spawned_by, root_agent_id) VALUES (${id}, ${spawnedBy}, ${root})`);',
     ];
     for (const line of clean) expect(checkLeaseProvenanceLine(line, "src/store/lease-rows.ts")).toBeUndefined();
   });

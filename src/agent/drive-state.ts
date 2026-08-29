@@ -7,31 +7,10 @@
 // place — a second copy would be a second truth about who owns an agent.
 import { agentById } from "../store/agent-rows.ts";
 import { currentLease } from "../store/lease-rows.ts";
-import { openStore } from "../store/connection.ts";
 import { orchDir } from "../presence/store.ts";
-import { isRecord } from "../util.ts";
-import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
+import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import type { DriveState, DriveStateOptions } from "../types/agent.ts";
 
-interface HolderProcessRow {
-  pid: number;
-  start_token: string | null;
-}
-
-function isHolderProcessRow(value: unknown): value is HolderProcessRow {
-  return isRecord(value)
-    && typeof value.pid === "number"
-    && (value.start_token === null || typeof value.start_token === "string");
-}
-
-function holderIsAlive(directory: string, holderId: string): boolean {
-  const row = openStore(directory)
-    .query("SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL")
-    .get(holderId);
-  if (!isHolderProcessRow(row)) return false;
-  if (row.start_token !== null && row.start_token.length > 0) return processInstanceMatches(row.pid, row.start_token);
-  return processIsAlive(row.pid);
-}
 
 export const NO_ORCH_DRIVER = "no orch driving it";
 export const DEAD_HOLDER_DRIVER = `${NO_ORCH_DRIVER} (holder gone)`;
@@ -58,7 +37,7 @@ export function deriveDriveState(agentId: string, options: DriveStateOptions = {
     if (!lease) return UNLEASED;
     // A dead holder is not a collision and is not an owner: the agent is
     // adoptable, and saying otherwise would hand it to a process that is gone.
-    if (!holderIsAlive(directory, lease.orchId)) return HOLDER_GONE;
+    if (!recordedProcessIsLive(directory, lease.orchId)) return HOLDER_GONE;
     return {
       kind: "leased",
       owner: lease.orchId,

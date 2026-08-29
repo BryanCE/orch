@@ -12,9 +12,10 @@ import {
   takeOnTask,
   STALE_TASK_AGE_MS,
 } from "../src/queue.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { deleteSettledTasksBefore, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
@@ -22,20 +23,19 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-queue-reaping-"));
   dirs.push(dir);
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   for (const [id, root, parent] of [
     ["orch-a", "orch-a", null], ["a1", "orch-a", "orch-a"],
     ["orch-b", "orch-b", null],
   ] as const) {
-    db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?,1)")
-      .run(id, parent, root, "pi", "/repo", id);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1)`);
   }
   return dir;
 }
 
 function end(dir: string, agentId: string, at: number): void {
-  openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (?,?,NULL)").run(agentId, at);
+  orm(dir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${at},NULL)`);
 }
 
 describe("Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of them is reapable", () => {
@@ -61,7 +61,7 @@ describe("Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of the
     end(dir, "a1", 2);
     end(dir, "orch-a", 3);
     expect(taskState(dir, task.id)).toBe("unrunnable");
-    openStore(dir).query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('a2','orch-a','orch-a','pi','/repo','a2',4)").run();
+    orm(dir).run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('a2','orch-a','orch-a','pi','/repo','a2',4)`);
     expect(taskState(dir, task.id)).toBe("queued");
     expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(task.id);
     // And a task nobody can ever claim is exactly the one a reap refuses now.
@@ -71,7 +71,7 @@ describe("Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of the
   test("stale is surfaced beside its state and never deleted on age", () => {
     const dir = fixture();
     const task = addTask(dir, "left overnight", {}, "a1");
-    openStore(dir).query("UPDATE tasks SET created_at=? WHERE id=?").run(Date.now() - STALE_TASK_AGE_MS - 1, task.id);
+    orm(dir).run(sql`UPDATE tasks SET created_at=${Date.now() - STALE_TASK_AGE_MS - 1} WHERE id=${task.id}`);
     expect(listTasks(dir)[0]).toMatchObject({ id: task.id, state: "queued", stale: true });
     expect(deleteSettledTasksBefore(dir, Date.now() + 1_000)).toBe(0);
     expect(nextQueuedTask(dir, "a1", 1)?.id).toBe(task.id);

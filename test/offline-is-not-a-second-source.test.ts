@@ -93,7 +93,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     // The whole of the offline path is that one call plus the shared snapshot.
     expect(offlineBranch).not.toContain("loadPresence");
     expect(offlineBranch).not.toContain("readdirSync");
-    expect(offlineBranch).not.toContain("openStore");
+    expect(offlineBranch).not.toContain("orm");
   });
 
   test("offline is the one path that never dials or starts the daemon", () => {

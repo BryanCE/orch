@@ -48,7 +48,7 @@ describe("hello agent identity rows", () => {
       id: identity.id, spawnedBy: null, rootAgentId: identity.id, harnessId: "pi", cwd: "/repo",
       name: `pi-${identity.id.slice(0, 8)}`, label: "lead",
     });
-    expect(currentProcess(orchDir, identity.id)).toMatchObject({ pid: 42, start_token: "start-a", host_id: "host", until: null });
+    expect(currentProcess(orchDir, identity.id)).toMatchObject({ pid: 42, startToken: "start-a", hostId: "host", until: null });
     expect(isLiveAgentIdentity(orchDir, identity)).toBe(true);
     expect(isLiveAgentIdentity(orchDir, { id: "missing", label: "lead", kind: "session" })).toBe(false);
   });

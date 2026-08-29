@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { governWrite, deliverWrite } from "../src/daemon/orchd.ts";
 import { isLogRecord } from "../src/log.ts";
@@ -12,6 +12,7 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { LogRecord } from "../src/types/core.ts";
+import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
@@ -56,8 +57,7 @@ describe("daemon decision trail", () => {
     agent(directory, "live-holder");
     acquireLease(directory, "target", "live-holder", 2);
     const token = processStartToken(process.pid);
-    openStore(directory).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-      .run("live-holder", 2, "host", process.pid, token);
+    orm(directory).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live-holder"},${2},${"host"},${process.pid},${token})`);
 
     expect(() => governWrite(directory, "target", { actor: "caller", target: "target", text: "hello" })).toThrow(/leased by/);
 

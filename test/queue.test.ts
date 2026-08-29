@@ -15,13 +15,14 @@ import {
   recordTaskFailure,
   taskShouldRetry,
 } from "../src/queue.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { acquireLease, adoptLease, currentLease } from "../src/store/lease-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 
 import { isRecord } from "../src/util.ts";
 import { openTasksInScope, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
@@ -29,16 +30,15 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-queue-"));
   dirs.push(dir);
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   for (const [id, root, parent] of [
     ["orch-a", "orch-a", null], ["a1", "orch-a", "orch-a"], ["a2", "orch-a", "orch-a"],
     ["orch-b", "orch-b", null], ["b1", "orch-b", "orch-b"],
   ] as const) {
-    db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?,1)")
-      .run(id, parent, root, "pi", "/repo", id);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1)`);
   }
-  db.query("INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)").run();
+  db.run(sql`INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)`);
   return dir;
 }
 
@@ -46,7 +46,7 @@ describe("queue facade on tasks and attempts", () => {
   test("malformed task options are refused instead of handed back as TaskOptions", () => {
     const dir = fixture();
     const task = addTask(dir, "malformed", {}, "a1");
-    openStore(dir).query("UPDATE tasks SET opts=? WHERE id=?").run(JSON.stringify("not-options"), task.id);
+    orm(dir).run(sql`UPDATE tasks SET opts=${JSON.stringify("not-options")} WHERE id=${task.id}`);
     expect(() => listTasks(dir)).toThrow(/malformed task options/i);
   });
 
@@ -82,7 +82,7 @@ describe("queue facade on tasks and attempts", () => {
   test("Cq1: a pack drains its queue with its orch dead and no lease in force", () => {
     const dir = fixture();
     const task = addTask(dir, "keep working", {}, "a1");
-    openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('orch-a',2,NULL)").run();
+    orm(dir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('orch-a',2,NULL)`);
     expect(currentLease(dir, "a2")).toBeNull();
     // Claiming is pull. No holder need be present, and the dead orch gates nothing.
     expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(task.id);
@@ -173,7 +173,7 @@ describe("queue facade on tasks and attempts", () => {
   test("Cq13: adoption carries the queue — pack work comes with the agents", () => {
     const dir = fixture();
     const task = addTask(dir, "pack work", {}, "a1");
-    openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('orch-a',2,NULL)").run();
+    orm(dir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('orch-a',2,NULL)`);
     adoptLease(dir, "a1", "orch-b", 3);
     adoptLease(dir, "a2", "orch-b", 3);
     // Nothing to re-parent: the task is scoped to the pack, not to the dead orch.
@@ -210,12 +210,12 @@ describe("queue facade on tasks and attempts", () => {
 
   test("Cq7: origin_workspace is gone from the tasks table, scope replaces it", () => {
     const dir = fixture();
-    const columns = openStore(dir).query("PRAGMA table_info(tasks)").all()
+    const columns = orm(dir).all(sql`PRAGMA table_info(tasks)`)
       .flatMap((value): string[] => (isRecord(value) && typeof value.name === "string" ? [value.name] : []));
     expect(columns).toEqual([
       "id", "text", "opts", "enqueued_by", "scope_agent_id", "scope_pack_id", "scope_space_id", "created_at",
     ]);
-    expect(() => openStore(dir).query("SELECT origin_workspace FROM tasks").all()).toThrow(/origin_workspace/);
+    expect(() => orm(dir).all(sql`SELECT origin_workspace FROM tasks`)).toThrow(/origin_workspace/);
   });
 
   test("state and attempt-derived values have no legacy flattened fields", () => {

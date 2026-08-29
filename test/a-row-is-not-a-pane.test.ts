@@ -4,11 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities } from "../src/entities.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setHandle } from "../src/store/interval-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/11-usage-bugs.md U1 (and U4, which shares its root cause) — orch
@@ -42,7 +43,7 @@ function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-row-not-pane-"));
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
-  openStore(dir);
+  orm(dir);
   return dir;
 }
 
@@ -51,7 +52,7 @@ function seedAgentInPane(dir: string, id: string, handle: string): void {
   ensureHarness(dir, "pi", "pi", 1);
   ensurePlexer(dir, "headless", "headless");
   insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
-  openStore(dir).query("INSERT INTO agent_plexers (agent_id, plexer_id) VALUES (?, ?)").run(id, "headless");
+  orm(dir).run(sql`INSERT INTO agent_plexers (agent_id, plexer_id) VALUES (${id}, ${"headless"})`);
   setHandle(dir, id, 10, handle);
 }
 

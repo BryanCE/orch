@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import {
   attemptsOf,
   insertCancellation,
@@ -19,17 +19,19 @@ import {
   taskState,
 } from "../src/store/task-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 function fixture() { const d = mkdtempSync(join(tmpdir(), "orch-task-rows-")); dirs.push(d); return d; }
 function seed(d: string) {
-  const db = openStore(d);
-  db.query("INSERT INTO harnesses(id,name) VALUES (?,?)").run("pi", "Pi");
-  db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)").run("a", "a", "pi", "/tmp", "a", 1);
-  db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,spawned_by) VALUES (?,?,?,?,?,?,?)").run("b", "a", "pi", "/tmp", "b", 1, "a");
-  db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)").run("c", "c", "pi", "/tmp", "c", 1);
-  db.query("INSERT INTO spaces(id,name,created_at) VALUES (?,?,?)").run("s", "S", 1);
+  const db = orm(d);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"a"},${"a"},${"pi"},${"/tmp"},${"a"},${1})`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,spawned_by) VALUES (${"b"},${"a"},${"pi"},${"/tmp"},${"b"},${1},${"a"})`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"c"},${"c"},${"pi"},${"/tmp"},${"c"},${1})`);
+  db.run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"s"},${"S"},${1})`);
 }
 
 function addTask(d: string, id: string, scope: { scopeAgentId: string } | { scopePackId: string } | { scopeSpaceId: string }, enqueuedBy = "a") {
@@ -39,21 +41,21 @@ function addTask(d: string, id: string, scope: { scopeAgentId: string } | { scop
 describe("task and attempt rows", () => {
   test("malformed task rows are refused instead of handed back as typed data", () => {
     const d = fixture(); seed(d); addTask(d, "bad-task", { scopeAgentId: "a" });
-    openStore(d).query("UPDATE tasks SET opts='not-json' WHERE id='bad-task'").run();
+    orm(d).run(sql`UPDATE tasks SET opts='not-json' WHERE id='bad-task'`);
     expect(() => taskById(d, "bad-task")).toThrow(/malformed task row/i);
   });
 
   test("malformed attempt rows are refused instead of handing back NaN", () => {
     const d = fixture(); seed(d); addTask(d, "bad-attempt", { scopeAgentId: "a" });
     insertAttempt(d, "bad-attempt", "a", "dispatch", 10);
-    openStore(d).query("UPDATE task_attempts SET result='not-json' WHERE task_id='bad-attempt'").run();
+    orm(d).run(sql`UPDATE task_attempts SET result='not-json' WHERE task_id='bad-attempt'`);
     expect(() => attemptsOf(d, "bad-attempt")).toThrow(/malformed task attempt row/i);
   });
 
   test("enqueue accepts exactly one typed scope and round-trips JSON opts", () => {
     const d = fixture(); seed(d);
     addTask(d, "t", { scopeAgentId: "a" });
-    expect(openStore(d).query("SELECT typeof(created_at), typeof(opts) FROM tasks WHERE id='t'").get()).toEqual({ "typeof(created_at)": "integer", "typeof(opts)": "text" });
+    expect(row(orm(d), sql`SELECT typeof(created_at), typeof(opts) FROM tasks WHERE id='t'`)).toEqual({ "typeof(created_at)": "integer", "typeof(opts)": "text" });
     expect(openTasksInScope(d, { agentId: "a" })[0]?.opts).toEqual({ id: "t", nested: [1, true] });
     expect(() => enqueueTask(d, { id: "bad", text: "x", opts: {}, enqueuedBy: "a" } as never)).toThrow();
     expect(() => enqueueTask(d, { id: "bad2", text: "x", opts: {}, enqueuedBy: "a", scopeAgentId: "a", scopePackId: "a" } as never)).toThrow();
@@ -77,8 +79,8 @@ describe("task and attempt rows", () => {
     const second = new Database(join(d, "orch.db"));
     try {
       const outcomes = await Promise.allSettled([
-        Promise.resolve().then(() => first.query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run("t", 10, "a", "d1")),
-        Promise.resolve().then(() => second.query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run("t", 11, "b", "d2")),
+        Promise.resolve().then(() => first.run("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)", ["t", 10, "a", "d1"])),
+        Promise.resolve().then(() => second.run("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)", ["t", 11, "b", "d2"])),
       ]);
       expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
       const rejected = outcomes.find((outcome) => outcome.status === "rejected");
@@ -109,7 +111,7 @@ describe("task and attempt rows", () => {
     const d = fixture(); seed(d); addTask(d, "done", { scopeAgentId: "a" }); insertAttempt(d, "done", "a", "dispatch", 100);
     settleAttempt(d, "done", 100, 123, "done", { result: { ok: true } });
     expect(attemptsOf(d, "done")[0]).toMatchObject({ since: 100, until: 123, outcome: "done", result: { ok: true }, error: null });
-    expect(openStore(d).query("SELECT typeof(since),typeof(until) FROM task_attempts WHERE task_id='done'").get()).toEqual({ "typeof(since)": "integer", "typeof(until)": "integer" });
+    expect(row(orm(d), sql`SELECT typeof(since),typeof(until) FROM task_attempts WHERE task_id='done'`)).toEqual({ "typeof(since)": "integer", "typeof(until)": "integer" });
     addTask(d, "failed", { scopeAgentId: "a" }); insertAttempt(d, "failed", "a", "dispatch-f", 200);
     expect(() => settleAttempt(d, "failed", 200, 201, "failed")).toThrow();
     settleAttempt(d, "failed", 200, 201, "failed", { error: "bad" });
@@ -136,6 +138,6 @@ describe("task and attempt rows", () => {
     closeIntake(d, "a", "s", 20);
     expect(intakesOf(d, "a")).toEqual([{ packId: "a", spaceId: "s", since: 10, until: 20 }]);
     expect(openTasksInScope(d, { agentId: "b" })).toHaveLength(0);
-    expect(openStore(d).query("SELECT typeof(since),typeof(until) FROM pack_intakes").get()).toEqual({ "typeof(since)": "integer", "typeof(until)": "integer" });
+    expect(row(orm(d), sql`SELECT typeof(since),typeof(until) FROM pack_intakes`)).toEqual({ "typeof(since)": "integer", "typeof(until)": "integer" });
   });
 });

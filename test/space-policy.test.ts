@@ -10,9 +10,10 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf } from "../src/policy/space.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md A1 — the space an agent is in is ENVIRONMENT, composed onto
@@ -39,8 +40,7 @@ function storeDir(prefix: string): string {
 }
 
 function ensureSpaceRow(directory: string, spaceId: string): void {
-  openStore(directory).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, 1)")
-    .run(spaceId, spaceId);
+  orm(directory).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${spaceId}, ${spaceId}, 1)`);
 }
 
 /** Place one agent: identity is minted, and each environment axis it actually
@@ -164,7 +164,7 @@ describe("a space is user-created, and absence falls back to the repo root", () 
     expect(() => seedAgent(id, { adapter: "pi", backend: "headless", space: "not-a-real-space" }))
       .toThrow(/not-a-real-space/);
 
-    expect(openStore(orchDir).query("SELECT id FROM spaces WHERE id = ?").all("not-a-real-space")).toEqual([]);
+    expect(orm(orchDir).all(sql`SELECT id FROM spaces WHERE id = ${"not-a-real-space"}`)).toEqual([]);
     expect(agentById(orchDir, id)).toBeNull();
   });
 

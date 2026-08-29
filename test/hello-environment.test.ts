@@ -3,13 +3,15 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { endpointPaths, helloClaim } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 /**
  * TASKS/02-scope.md B9 — "`hello` is also where the ENVIRONMENT is recorded in
  * full — harness, plexer, directory, space, OS side. It is NOT filled in later
@@ -36,9 +38,9 @@ function storeDir(): string {
   for (const name of ENV) saved[name] = process.env[name];
   const directory = mkdtempSync(join(tmpdir(), "orch-hello-env-"));
   dirs.push(directory);
-  const db = openStore(directory);
-  db.query("INSERT INTO harnesses (id, name) VALUES ('claude', 'claude') ON CONFLICT DO NOTHING").run();
-  db.query("INSERT INTO plexers (id, name) VALUES ('herdr', 'herdr') ON CONFLICT DO NOTHING").run();
+  const db = orm(directory);
+  db.run(sql`INSERT INTO harnesses (id, name) VALUES ('claude', 'claude') ON CONFLICT DO NOTHING`);
+  db.run(sql`INSERT INTO plexers (id, name) VALUES ('herdr', 'herdr') ON CONFLICT DO NOTHING`);
   return directory;
 }
 
@@ -90,8 +92,7 @@ describe("hello records the environment in full", () => {
     expect(view.environment.plexer).toBe("herdr");
     expect(view.environment.space).toBe("server");
     // One open interval per axis: a second hello must not open a second row.
-    const open = openStore(directory)
-      .query("SELECT COUNT(*) AS n FROM agent_spaces WHERE agent_id = ? AND until IS NULL").get(first.id);
+    const open = row(orm(directory), sql`SELECT COUNT(*) AS n FROM agent_spaces WHERE agent_id = ${first.id} AND until IS NULL`);
     expect(open).toEqual({ n: 1 });
   });
 

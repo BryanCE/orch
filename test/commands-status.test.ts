@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveView, displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromView, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { Entity } from "../src/types/core.ts";
+import { sql } from "drizzle-orm";
 
 /** A complete AgentView, so a fixture never has to lie to the compiler. */
 function agentViewFixture(id: string, holder: string | null): AgentView {
@@ -120,12 +121,11 @@ describe("commands/status", () => {
       insertAgent(dir, { id: "worker0001", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
       insertAgent(dir, { id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
       const key = "worker0001";
-      const db = openStore(dir);
-      db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
+      const db = orm(dir);
+      db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
       const token = processStartToken(process.pid);
       if (!token) throw new Error("test process has no start token");
-      db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-        .run("me", 1, "host", process.pid, token);
+      db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"me"},${1},${"host"},${process.pid},${token})`);
       acquireLease(dir, "worker0001", "me", 2);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "me", mine: true });
       releaseLease(dir, "worker0001", "me", 3);

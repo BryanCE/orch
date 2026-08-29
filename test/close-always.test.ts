@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
 import { checkWall } from "../src/policy/space.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
@@ -15,6 +15,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * Identity is a minted id and NOTHING else (TASKS/01-agent-model.md §2), so
@@ -61,13 +62,11 @@ function writeStatus(dir: string, key: string, handle: string, pid: number): voi
 }
 
 function recordProcess(dir: string, key: string, pid: number, startToken: string): void {
-  const db = openStore(dir);
-  db.query("INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)").run();
-  db.query("INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)").run();
-  db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
-    .run(key, key, "pi", dir, key, 1);
-  db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(key, 1, "test-host", pid, startToken);
+  const db = orm(dir);
+  db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
+  db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${key},${key},${"pi"},${dir},${key},${1})`);
+  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
 }
 
 afterEach(async () => {
@@ -161,13 +160,11 @@ describe("close always works", () => {
     const handle = "pane-signal-failed";
     const pid = process.pid;
     const startToken = processStartToken(pid)!;
-    const db = openStore(dir);
-    db.query("INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)").run();
-    db.query("INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)").run();
-    db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
-      .run(key, key, "pi", dir, key, 1);
-    db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-      .run(key, 1, "test-host", pid, startToken);
+    const db = orm(dir);
+    db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
+    db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${key},${key},${"pi"},${dir},${key},${1})`);
+    db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
     seedSpace(dir, "foreign-space");
     placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" });
     writeStatus(dir, key, handle, pid);

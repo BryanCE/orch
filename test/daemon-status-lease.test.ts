@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveLeasePayload } from "../src/daemon/orchd.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
-import { openStore, closeAllStores } from "../src/store/connection.ts";
+import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
@@ -15,16 +16,14 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-daemon-status-lease-"));
   dirs.push(dir);
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
-  db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
+  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   for (const [id, name] of [[WORKER_ID, "Worker"], ["orch", "Lead"]]) {
-    db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
-      .run(id, id, "pi", "/tmp", name, 1);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${id},${"pi"},${"/tmp"},${name},${1})`);
   }
   const token = processStartToken(process.pid);
-  db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run("orch", 1, "host", process.pid, token ?? null);
+  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"orch"},${1},${"host"},${process.pid},${token ?? null})`);
   return dir;
 }
 

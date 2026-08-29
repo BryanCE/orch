@@ -1,4 +1,5 @@
-import { openStore } from "../../src/store/connection.ts";
+import { orm } from "../../src/store/connection.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * Create a space the way `orch space create` does.
@@ -9,7 +10,6 @@ import { openStore } from "../../src/store/connection.ts";
  * it first, exactly as a user would.
  */
 export function seedSpace(orchDir: string, id: string, name = id): void {
-  openStore(orchDir)
-    .query("INSERT OR IGNORE INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)")
-    .run(id, name, 1);
+  orm(orchDir)
+    .run(sql`INSERT OR IGNORE INTO spaces (id, name, created_by, created_at) VALUES (${id}, ${name}, NULL, ${1})`);
 }

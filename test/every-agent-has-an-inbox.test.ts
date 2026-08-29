@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { createAgentChannelRole } from "../src/presence/roles.ts";
 import { inboxPath } from "../src/presence/inbox.ts";
@@ -37,7 +37,7 @@ function storeDir(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-inbox-"));
   dirs.push(directory);
   process.env.ORCH_DIR = directory;
-  openStore(directory);
+  orm(directory);
   return directory;
 }
 

@@ -8,9 +8,10 @@ import { formatAge, isQuestionPayload, questionText, cmdQuestions, cmdResult, cm
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { sql } from "drizzle-orm";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
  *  test process — when it is absent, so every command-invoking test seeds one. */
@@ -30,7 +31,7 @@ function testTarget(id: string): { key: string; space: string } {
 function seedAgent(root: string, key: string, space: string, harnessId = "pi"): void {
   ensureHarness(root, harnessId, harnessId, 1);
   insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId, cwd: root, createdAt: 1 });
-  openStore(root).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run(space, space, 1);
+  orm(root).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(root, key, 1, space);
 }
 

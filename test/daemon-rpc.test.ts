@@ -9,7 +9,7 @@ import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, isHelloResponse, rpcCall, subscribeEvents, ReplayBuffer, startRpcServer } from "../src/daemon/rpc";
 import { rpcHello } from "../src/daemon/reach.ts";
 import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
@@ -18,7 +18,9 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
 const servers: RpcServer[] = [];
 
@@ -209,9 +211,9 @@ describe("daemon RPC", () => {
     expect(reply.id).toBe(1);
     if (!isLiveAgentIdentity(dir, reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
     expect(reply.result.label).toBe("web client");
-    const agent = openStore(dir).query("SELECT id, spawned_by, root_agent_id, harness_id, cwd, name FROM agents WHERE id = ?").get(reply.result.id);
+    const agent = row(orm(dir), sql`SELECT id, spawned_by, root_agent_id, harness_id, cwd, name FROM agents WHERE id = ${reply.result.id}`);
     expect(agent).toMatchObject({ id: reply.result.id, spawned_by: null, root_agent_id: reply.result.id, harness_id: "pi", cwd: process.cwd(), name: `pi-${reply.result.id.slice(0, 8)}` });
-    expect(openStore(dir).query("SELECT pid, start_token, until FROM agent_processes WHERE agent_id = ?").get(reply.result.id)).toMatchObject({ pid: process.pid, start_token: processStartToken(process.pid), until: null });
+    expect(row(orm(dir), sql`SELECT pid, start_token, until FROM agent_processes WHERE agent_id = ${reply.result.id}`)).toMatchObject({ pid: process.pid, start_token: processStartToken(process.pid), until: null });
   });
 
   test("refuses a hello that reports no session pid", async () => {

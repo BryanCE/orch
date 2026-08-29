@@ -12,7 +12,7 @@ import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
 import type { CloseAuthority } from "../types/policy.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId } from "../identity/self.ts";
-import { openStore } from "../store/connection.ts";
+
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -32,6 +32,7 @@ import type { AgentAdapter, LifecycleVerb } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
 import type { AgentFlags, LifecycleTarget } from "../types/command.ts";
 import type { OrchConfig } from "../types/config.ts";
+import { currentProcess } from "../store/interval-rows.ts";
 
 function lifecycleLogger(key: string) {
   const agentId = tryParseIdentity(key)?.id;
@@ -557,11 +558,9 @@ function agentIdOf(key: string): string {
  * status carries liveness only and can never authorize a signal. */
 function recordedProcess(key: string): RecordedProcess | null {
   try {
-    const row = openStore(orchDir()).query(
-      "SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL",
-    ).get(agentIdOf(key));
-    if (!isRecord(row) || typeof row.pid !== "number") return null;
-    return { pid: row.pid, ...(typeof row.start_token === "string" ? { startToken: row.start_token } : {}) };
+    const row = currentProcess(orchDir(), agentIdOf(key));
+    if (row === undefined) return null;
+    return { pid: row.pid, ...(row.startToken === null ? {} : { startToken: row.startToken }) };
   } catch {
     return null;
   }
@@ -863,5 +862,4 @@ export function cmdAbort(args: string[]) {
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
   else process.stdout.write(`Aborted ${String(handle)}.\n`);
 }
-
 

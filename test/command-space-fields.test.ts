@@ -10,8 +10,9 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import type { Entity } from "../src/types/core.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md A1 — commands read the space from the environment satellite
@@ -34,7 +35,7 @@ function writeAgent(orchDir: string, agent: string, space: string, handle: strin
   const id = mintAgentId();
   ensureHarness(orchDir, "pi", "pi", 1);
   ensurePlexer(orchDir, "headless", "headless", 1);
-  openStore(orchDir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, 1)").run(space, space);
+  orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, 1)`);
   insertAgent(orchDir, { id, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: id, createdAt: 1 });
   setAgentPlexer(orchDir, id, "headless");
   setSpace(orchDir, id, 1, space);

@@ -6,15 +6,12 @@ import { deleteEventsBefore } from "../store/event-rows.ts";
 import { deleteDeliveredBefore } from "../store/outbox-rows.ts";
 import { deleteSettledTasksBefore } from "../store/task-rows.ts";
 import { deleteRunsBefore } from "../store/run-rows.ts";
-import { openStore } from "../store/connection.ts";
-import { isRecord } from "../util.ts";
+
+
 import { rmSync, statSync } from "node:fs";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import type { OrchConfig } from "../types/config.ts";
 
-function isEndedAgentRow(value: unknown): value is { agent_id: string } {
-  return isRecord(value) && typeof value.agent_id === "string";
-}
 
 /** Delete ended agent records only when no descendants remain.
  *
@@ -23,15 +20,22 @@ function isEndedAgentRow(value: unknown): value is { agent_id: string } {
  *  takes them with it; there is no second key to sweep, and no scan of a wide
  *  row is needed to discover the identities an agent is filed under. */
 function removeExpiredAgentRecords(orchDir: string, cutoff: Date): { count: number; ids: Set<string> } {
-  const db = openStore(orchDir);
-  const rows = db.query(`SELECT e.agent_id FROM agent_endings e
-    WHERE e.ended_at < ? AND NOT EXISTS (SELECT 1 FROM agents child WHERE child.spawned_by = e.agent_id)`)
-    .all(cutoff.getTime()).filter(isEndedAgentRow);
-  for (const row of rows) reapSpawnedRecord(row.agent_id, orchDir, { agentId: row.agent_id });
-  return { count: rows.length, ids: new Set(rows.map((row) => row.agent_id)) };
+  // A parent is kept while any child row still points at it: `agents.spawned_by`
+  // has no ON DELETE CASCADE, so reaping it first would orphan the child.
+  const parents = orm(orchDir).selectDistinct({ id: agents.spawnedBy }).from(agents)
+    .where(isNotNull(agents.spawnedBy)).all().flatMap((row) => row.id === null ? [] : [row.id]);
+  const ids = orm(orchDir).select({ agentId: agentEndings.agentId }).from(agentEndings)
+    .where(and(lt(agentEndings.endedAt, cutoff.getTime()),
+      parents.length === 0 ? undefined : notInArray(agentEndings.agentId, parents)))
+    .all().map((row) => row.agentId);
+  for (const id of ids) reapSpawnedRecord(id, orchDir, { agentId: id });
+  return { count: ids.length, ids: new Set(ids) };
 }
 
 import type { SweepCounts } from "../types/daemon.ts";
+import { and, isNotNull, lt, notInArray } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { agentEndings, agents } from "../db/schema.ts";
 export type { SweepCounts };
 
 const DAY_MS = 24 * 60 * 60 * 1000;

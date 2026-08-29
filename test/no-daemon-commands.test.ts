@@ -2,9 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 /**
  * TASKS/02-scope.md B6 — "No-daemon commands (`setup`, `doctor`, `help`,
  * `version`, `status --offline`) need no identity because they NEVER WRITE."
@@ -43,8 +45,8 @@ function runCli(directory: string, args: string[]): { status: number | null; out
 /** Every agent orch has a record of. An identity was needed iff one appeared. */
 function agentCount(directory: string): number {
   if (!existsSync(join(directory, "orch.db"))) return 0;
-  const row = openStore(directory).query("SELECT COUNT(*) AS n FROM agents").get();
-  return typeof row === "object" && row !== null && "n" in row && typeof row.n === "number" ? row.n : -1;
+  const found = row(orm(directory), sql`SELECT COUNT(*) AS n FROM agents`);
+  return typeof found === "object" && found !== null && "n" in found && typeof found.n === "number" ? found.n : -1;
 }
 
 /** The daemon's runtime files. Their absence is how we know none was started. */

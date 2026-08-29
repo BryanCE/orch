@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertStoreRecreatable, closeAllStores, openStore } from "../src/store/connection.ts";
+import { assertStoreRecreatable, closeAllStores, orm } from "../src/store/connection.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -29,7 +29,7 @@ function fixture(): string {
 /** A store carrying orch's tables with no record of the migrations that create
  *  them — what every file written before orch adopted drizzle looks like. */
 function unmigrated(dir: string): string {
-  openStore(dir);
+  orm(dir);
   closeAllStores();
   const path = join(dir, "orch.db");
   const database = new Database(path);
@@ -44,8 +44,8 @@ describe("store migration guards", () => {
     const path = unmigrated(dir);
     const before = readFileSync(path);
 
-    expect(() => openStore(dir)).toThrow(/does not match orch's migrations/i);
-    expect(() => openStore(dir)).toThrow(/db:reset/i);
+    expect(() => orm(dir)).toThrow(/does not match orch's migrations/i);
+    expect(() => orm(dir)).toThrow(/db:reset/i);
     expect(readFileSync(path)).toEqual(before);
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
   });
@@ -62,7 +62,7 @@ describe("store migration guards", () => {
     mkdirSync(presenceDir, { recursive: true });
     writeFileSync(join(presenceDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, pid: process.pid, state: "working" }));
 
-    expect(() => openStore(dir)).toThrow(/live agents/i);
+    expect(() => orm(dir)).toThrow(/live agents/i);
     expect(readFileSync(path)).toEqual(before);
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
   });
@@ -92,7 +92,7 @@ describe("a slave never reaps or recreates the store", () => {
     const before = readFileSync(path);
     process.env.ORCH_AGENT_KEY = SPAWNED_AGENT_KEY;
 
-    const message = refusalMessage(() => openStore(dir));
+    const message = refusalMessage(() => orm(dir));
 
     // The skew, named.
     expect(message).toContain("does not match orch's migrations");
@@ -106,7 +106,7 @@ describe("a slave never reaps or recreates the store", () => {
 
   test("a recreate is refused while a live presence dir exists, for the user too", () => {
     const dir = fixture();
-    openStore(dir);
+    orm(dir);
     closeAllStores();
     // Deliberately not a minted id: the refusal names whatever directory it
     // found, and must not silently skip one whose name it cannot parse.
@@ -122,7 +122,7 @@ describe("a slave never reaps or recreates the store", () => {
 
   test("the user may recreate once nothing is live", () => {
     const dir = fixture();
-    openStore(dir);
+    orm(dir);
     closeAllStores();
     // Same unparseable directory name, dead pid: still not a live holder.
     seedLivePresence(dir, "herdr~w1~dead", 999999);
@@ -132,7 +132,7 @@ describe("a slave never reaps or recreates the store", () => {
 
   test("a spawned agent is refused a recreate even with nothing live", () => {
     const dir = fixture();
-    openStore(dir);
+    orm(dir);
     closeAllStores();
     process.env.ORCH_AGENT_KEY = SPAWNED_AGENT_KEY;
 

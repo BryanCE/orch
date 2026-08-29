@@ -1,55 +1,18 @@
 import { existsSync, readdirSync } from "node:fs";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { defineRelations } from "drizzle-orm";
+import { defineRelations, sql } from "drizzle-orm";
 import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { presenceRoot, readStatus } from "../presence/writer.ts";
 import { ensurePrivateDir, pidAlive } from "../util.ts";
-import type { DatabaseLike, StatementLike } from "../types/store.ts";
 
-/** SQLite stores five kinds of value, and every caller of this port builds its
- *  arguments from a row shape the schema already fixes. Anything else is a bug
- *  worth naming here rather than a value to hand the driver and hope. */
-function bindValue(value: unknown): SQLInputValue {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") return value;
-  if (value instanceof Uint8Array) return value;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  throw new TypeError(`cannot bind ${typeof value} to a SQLite parameter`);
-}
-
-class NodeSqliteAdapter implements DatabaseLike {
-  public constructor(private readonly database: DatabaseSync) {}
-
-  exec(sql: string): void {
-    this.database.exec(sql);
-  }
-
-  close(): void {
-    this.database.close();
-  }
-
-  query(sql: string): StatementLike {
-    const statement = this.database.prepare(sql);
-    const bound = (params: readonly unknown[]) => params.map(bindValue);
-    return {
-      run: (...params) => ({ changes: Number(statement.run(...bound(params)).changes) }),
-      all: (...params) => statement.all(...bound(params)),
-      // A row that is not there is absent, and absence is null here as it is in
-      // every column: one answer for "no row", never a second empty value a
-      // caller has to remember to test for separately.
-      get: (...params) => statement.get(...bound(params)) ?? null,
-    };
-  }
-}
-
-/** One open file, in both the shapes callers need: the untyped statement port
- *  the store was written against, and the drizzle handle replacing it. Both
- *  address the same connection, so a half-converted module stays consistent. */
+/** One open file: the drizzle handle every caller queries through, beside the
+ *  driver it was built on. The driver is reached for exactly two things drizzle
+ *  does not own — connection pragmas and closing the file. */
 interface OpenDatabase {
-  readonly port: DatabaseLike;
+  readonly client: DatabaseSync;
   readonly orm: Orm;
 }
 
@@ -58,17 +21,16 @@ interface OpenDatabase {
  *  the store queries tables directly, so the relational query builder stays
  *  unused, but the handle still names exactly orch's tables. */
 const relations = defineRelations(tables);
-type Orm = NodeSQLiteDatabase<typeof relations>;
+export type Orm = NodeSQLiteDatabase<typeof relations>;
 
 const connections = new Map<string, OpenDatabase>();
 
-/** One driver under both the raw port and drizzle, so a half-converted module
- *  stays consistent. `node:sqlite` is a builtin in node and bun alike: no
- *  compiled addon to mismatch a platform, and none for bun's N-API layer to
- *  panic on (oven-sh/bun#24956). */
+/** `node:sqlite` is a builtin in node and bun alike: no compiled addon to
+ *  mismatch a platform, and none for bun's N-API layer to panic on
+ *  (oven-sh/bun#24956). */
 function createDatabase(file: string): OpenDatabase {
   const client = new DatabaseSync(file);
-  return { port: new NodeSqliteAdapter(client), orm: drizzle({ client, relations }) };
+  return { client, orm: drizzle({ client, relations }) };
 }
 
 function databasePath(orchDir: string): string {
@@ -144,10 +106,10 @@ export function assertStoreRecreatable(orchDir: string): void {
  *  them: every file written before orch adopted drizzle looks like this. Asked
  *  first because drizzle's migrator writes `__drizzle_migrations` before it
  *  reaches the collision, and a refused open must leave the file untouched. */
-function predatesMigrations(db: DatabaseLike): boolean {
-  const anyTable = db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1").get();
-  if (anyTable == null) return false;
-  return db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'").get() == null;
+function predatesMigrations(db: Orm): boolean {
+  const anyTable = db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1`);
+  if (anyTable === undefined) return false;
+  return db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'`) === undefined;
 }
 
 /**
@@ -180,25 +142,21 @@ function openRemedy(orchDir: string, reason: string): string {
 
 function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): void {
   try {
-    if (predatesMigrations(opened.port)) throw new Error("it has orch's tables but no record of the migrations that create them");
+    if (predatesMigrations(opened.orm)) throw new Error("it has orch's tables but no record of the migrations that create them");
     migrate(opened.orm, { migrationsFolder: migrationsFolder() });
   } catch (error) {
-    opened.port.close();
+    opened.client.close();
     const reason = error instanceof Error ? error.message : String(error);
     const live = livePresenceHolders(orchDir).length > 0 ? " Live agents hold this store; close them first." : "";
     throw new Error(`orch: ${path} does not match orch's migrations (${reason}).${live} ${openRemedy(orchDir, reason)}`);
   }
 }
 
-/** The typed drizzle handle for one orch dir, opened and verified exactly as
- *  {@link openStore} does — they share the connection cache and the one file. */
+/** The typed drizzle handle for one orch dir: the ONE query stack over the one
+ *  connection. Opening creates the file when absent and applies every migration;
+ *  the connection is cached per orch dir. */
 export function orm(orchDir: string): Orm {
   return openDatabase(orchDir).orm;
-}
-
-/** Open (create-if-absent) the WAL store for one orch dir; connection is cached. */
-export function openStore(orchDir: string): DatabaseLike {
-  return openDatabase(orchDir).port;
 }
 
 /**
@@ -206,7 +164,7 @@ export function openStore(orchDir: string): DatabaseLike {
  *
  * TASKS/02-scope.md B6: `setup`, `doctor`, `help`, `version` and
  * `status --offline` need no identity BECAUSE THEY NEVER WRITE. Opening the
- * store is a write — `openStore` creates the file and applies every migration
+ * store is a write — `orm` creates the file and applies every migration
  * into it — so a read path that calls it unconditionally turns `orch status
  * --offline` on a machine that has never run orch into a machine that has.
  */
@@ -225,7 +183,7 @@ function openDatabase(orchDir: string): OpenDatabase {
   if (cached) return cached;
   ensurePrivateDir(orchDir);
   const opened = createDatabase(path);
-  const db = opened.port;
+  const db = opened.client;
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("PRAGMA busy_timeout = 5000;");
   // Both pragmas above are connection state and write nothing. Journal mode is
@@ -247,14 +205,19 @@ export function closeAllStores(): void {
     // statement the migrator prepared is still open, and running both in one
     // exec let that failure skip the journal-mode reset — which is what left a
     // `-wal` sidecar beside a store orch had promised not to touch.
-    try { opened.port.exec("PRAGMA wal_checkpoint(TRUNCATE);"); } catch {}
-    try { opened.port.exec("PRAGMA journal_mode = DELETE;"); } catch {}
-    opened.port.close();
+    try { opened.client.exec("PRAGMA wal_checkpoint(TRUNCATE);"); } catch {}
+    try { opened.client.exec("PRAGMA journal_mode = DELETE;"); } catch {}
+    opened.client.close();
     connections.delete(path);
   }
 }
 
-export function transaction<T>(db: DatabaseLike, body: () => T): T {
+/** One immediate transaction around `body`, on the same cached connection every
+ *  store module writes through. drizzle's own `transaction` takes a callback
+ *  bound to a scoped handle; orch's writers reach the connection by orch dir, so
+ *  the boundary is stated here in the driver's own terms. */
+export function withTransaction<T>(orchDir: string, body: () => T): T {
+  const db = openDatabase(orchDir).client;
   db.exec("BEGIN IMMEDIATE");
   try {
     const result = body();
@@ -264,8 +227,4 @@ export function transaction<T>(db: DatabaseLike, body: () => T): T {
     try { db.exec("ROLLBACK"); } catch {}
     throw error;
   }
-}
-
-export function withTransaction<T>(orchDir: string, body: () => T): T {
-  return transaction(openStore(orchDir), body);
 }

@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent, setWorktree } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { ENVIRONMENT_AXES, agentView, agentViews, environmentOf, liveAgentViews } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md A14 — "Environment is a composition, never a table" — and
@@ -17,10 +18,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 
 function store(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-agent-view-"));
-  const db = openStore(directory);
-  db.query("INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING").run();
-  db.query("INSERT INTO plexers (id, name) VALUES ('herdr', 'herdr') ON CONFLICT DO NOTHING").run();
-  db.query("INSERT INTO spaces (id, name, created_at) VALUES ('s1', 'server', 1) ON CONFLICT DO NOTHING").run();
+  const db = orm(directory);
+  db.run(sql`INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING`);
+  db.run(sql`INSERT INTO plexers (id, name) VALUES ('herdr', 'herdr') ON CONFLICT DO NOTHING`);
+  db.run(sql`INSERT INTO spaces (id, name, created_at) VALUES ('s1', 'server', 1) ON CONFLICT DO NOTHING`);
   return directory;
 }
 
@@ -135,7 +136,7 @@ describe("the agent composer", () => {
     withStore((directory) => {
       insertAgent(directory, { id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "first", createdAt: 10 });
       insertAgent(directory, { id: "a2", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "second", createdAt: 20 });
-      openStore(directory).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES ('a1', 99, NULL)").run();
+      orm(directory).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES ('a1', 99, NULL)`);
       expect(agentViews(directory).map((view) => view.id)).toEqual(["a1", "a2"]);
       expect(liveAgentViews(directory).map((view) => view.id)).toEqual(["a2"]);
     });

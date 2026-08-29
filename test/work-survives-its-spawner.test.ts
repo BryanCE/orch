@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getTableColumns, is } from "drizzle-orm";
+import { getTableColumns, is, sql } from "drizzle-orm";
 import { SQLiteTable } from "drizzle-orm/sqlite-core";
-import { closeAllStores, openStore, ormForRead } from "../src/store/connection.ts";
+import { closeAllStores, orm, ormForRead } from "../src/store/connection.ts";
 import * as schema from "../src/db/schema.ts";
 import { agentEndings } from "../src/db/schema.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
@@ -28,7 +28,7 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const d = mkdtempSync(join(tmpdir(), "orch-survives-spawner-"));
   dirs.push(d);
-  openStore(d).query("INSERT INTO harnesses(id,name) VALUES (?,?)").run("pi", "Pi");
+  orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   return d;
 }
 
@@ -40,7 +40,7 @@ describe("work survives its spawner, always (D1)", () => {
     acquireLease(d, "child", "orch", 3);
 
     // The spawner ends. Nothing about that is a statement about the child.
-    openStore(d).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (?,?,?)").run("orch", 10, null);
+    orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"orch"},${10},${null})`);
 
     expect(agentView(d, "child")?.endedAt).toBeNull();
     expect(liveAgentViews(d).map((v) => v.id)).toContain("child");
@@ -55,7 +55,7 @@ describe("work survives its spawner, always (D1)", () => {
     insertAgent(d, { id: "mid", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "mid", createdAt: 2 });
     insertAgent(d, { id: "grand", spawnedBy: "mid", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
 
-    openStore(d).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (?,?,?)").run("mid", 10, null);
+    orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"mid"},${10},${null})`);
 
     expect(agentView(d, "grand")?.endedAt).toBeNull();
     expect(liveAgentViews(d).map((v) => v.id).sort()).toEqual(["grand", "orch"]);
@@ -91,7 +91,7 @@ describe("work survives its spawner, always (D1)", () => {
     insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
     insertAgent(d, { id: "a", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "a", createdAt: 2 });
     insertAgent(d, { id: "b", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "b", createdAt: 3 });
-    openStore(d).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (?,?,?)").run("orch", 10, null);
+    orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"orch"},${10},${null})`);
 
     const endings = ormForRead(d)?.select({ agentId: agentEndings.agentId }).from(agentEndings).all() ?? [];
     expect(endings.map((row) => row.agentId)).toEqual(["orch"]);

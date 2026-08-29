@@ -7,12 +7,13 @@ import { cmdResult } from "../src/commands/results.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { sql } from "drizzle-orm";
 
 function capture(run: () => void): { stdout: string; stderr: string } {
   const out: string[] = [];
@@ -33,7 +34,7 @@ function seedPresence(root: string, key: string): void {
   mkdirSync(dir, { recursive: true });
   ensureHarness(root, "pi", "pi", 1);
   insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
-  openStore(root).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run("runs", "runs", 1);
+  orm(root).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${"runs"}, ${"runs"}, ${1})`);
   setSpace(root, key, 1, "runs");
   setHandle(root, key, 1, key);
   writeFileSync(join(dir, "status.json"), JSON.stringify({

@@ -13,10 +13,12 @@ import {
   reapTask,
   takeOnTask,
 } from "../src/queue.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { attemptsOf, enqueueTask } from "../src/store/task-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
 afterEach(() => {
   closeAllStores();
@@ -26,8 +28,8 @@ afterEach(() => {
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-queue-scope-"));
   dirs.push(dir);
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   const agents: readonly [string, string, string | null][] = [
     ["pack", "pack", null],
     ["x", "pack", "pack"],
@@ -35,8 +37,7 @@ function fixture(): string {
     ["other", "other", null],
   ];
   for (const [id, root, parent] of agents) {
-    db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?,1)")
-      .run(id, parent, root, "pi", "/repo", id);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1)`);
   }
   return dir;
 }
@@ -65,7 +66,7 @@ describe("queue scope invariants", () => {
 
   test("cancel is allowed for the enqueuer or a lease holder of a targeted agent", () => {
     const dir = fixture();
-    openStore(dir).query("INSERT INTO agent_leases(agent_id,orch_id,since) VALUES ('x','other',1)").run();
+    orm(dir).run(sql`INSERT INTO agent_leases(agent_id,orch_id,since) VALUES ('x','other',1)`);
     const byEnqueuer = addTask(dir, "cancel me", {}, "x", { agentId: "x" });
     expect(cancelTask(dir, byEnqueuer.id, "x").state).toBe("cancelled");
     const byLease = addTask(dir, "cancel leased", {}, "x", { agentId: "x" });
@@ -94,22 +95,22 @@ describe("queue scope invariants", () => {
   test("an orphan has exactly take-on, leave, and reap resolutions", () => {
     const dir = fixture();
     const task = addTask(dir, "orphan", {}, "x", { agentId: "x" });
-    openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('x',2,NULL)").run();
+    orm(dir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('x',2,NULL)`);
     expect(takeOnTask(dir, task.id, "other").scopePackId).toBe("other");
     expect(() => reapTask(dir, task.id, "other")).toThrow(/unrunnable/);
     const orphan = addTask(dir, "orphan again", {}, "x", { agentId: "x" });
     expect(reapTask(dir, orphan.id, "other")).toBe(true);
-    expect(openStore(dir).query("SELECT id FROM tasks WHERE id=?").get(orphan.id)).toBeNull();
+    expect(row(orm(dir), sql`SELECT id FROM tasks WHERE id=${orphan.id}`)).toBeUndefined();
   });
 
   test("stale queued work is surfaced distinctly and never deleted by age", () => {
     const dir = fixture();
     const task = addTask(dir, "old but claimable", {}, "x");
-    openStore(dir).query("UPDATE tasks SET created_at=? WHERE id=?").run(Date.now() - 3 * 24 * 60 * 60 * 1000, task.id);
+    orm(dir).run(sql`UPDATE tasks SET created_at=${Date.now() - 3 * 24 * 60 * 60 * 1000} WHERE id=${task.id}`);
     const listed = listTasks(dir);
     expect(listed[0]).toMatchObject({ id: task.id, state: "queued", stale: true });
     expect(() => reapTask(dir, task.id, "x")).toThrow(/unrunnable/);
-    expect(openStore(dir).query("SELECT id FROM tasks WHERE id=?").get(task.id)).not.toBeNull();
+    expect(row(orm(dir), sql`SELECT id FROM tasks WHERE id=${task.id}`)).not.toBeUndefined();
   });
 
   test("two concurrent claims have one winner and one one_open_attempt violation", async () => {
@@ -126,8 +127,8 @@ describe("queue scope invariants", () => {
     const second = new Database(join(dir, "orch.db"));
     try {
       const outcomes = await Promise.allSettled([
-        Promise.resolve().then(() => first.query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run("race", 10, "x", "d1")),
-        Promise.resolve().then(() => second.query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run("race", 11, "y", "d2")),
+        Promise.resolve().then(() => first.run("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)", ["race", 10, "x", "d1"])),
+        Promise.resolve().then(() => second.run("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)", ["race", 11, "y", "d2"])),
       ]);
       expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
       const rejected = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");

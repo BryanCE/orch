@@ -5,14 +5,16 @@ import { tmpdir } from "node:os";
 import { ensureHarness, ensureHost, getOrCreateSessionAgent, insertAgent, packMembers } from "../src/store/agent-rows.ts";
 import { acquireLease, adoptLease, currentLease, leaseHistory, openLeaseId, releaseLease } from "../src/store/lease-rows.ts";
 import { holderOf } from "../src/store/agent-view.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { deriveLeasePayload, governWrite } from "../src/daemon/orchd.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/commands/lease.ts";
 import { resolveSpawnNames } from "../src/commands/spawn.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 afterEach(() => {
@@ -37,15 +39,13 @@ function live(dir: string, id: string, name = id): void {
   agent(dir, id, name);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(id, 1, "host", process.pid, token);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${token})`);
 }
 
 /** An agent with a recorded process that is provably NOT this process instance. */
 function dead(dir: string, id: string, name = id): void {
   agent(dir, id, name);
-  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(id, 1, "host", process.pid, "not-this-process-instance");
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${"not-this-process-instance"})`);
 }
 
 // C3 - An orch can never touch another orch's agents: not their panes, not their
@@ -108,8 +108,7 @@ describe("C4 steal", () => {
     expect(() => adoptAgent(dir, "worker", "new-orch")).toThrow(/leased by live orch/);
     expect(adoptAgent(dir, "worker", "new-orch", { steal: true, now: 3 })).toMatchObject({ adopted: true });
     expect(currentLease(dir, "worker")?.orchId).toBe("new-orch");
-    const prior = openStore(dir)
-      .query("SELECT release_reason AS reason FROM agent_leases WHERE orch_id = ?").get("live-orch");
+    const prior = row(orm(dir), sql`SELECT release_reason AS reason FROM agent_leases WHERE orch_id = ${"live-orch"}`);
     expect(prior).toMatchObject({ reason: "adopted" });
   });
 
@@ -253,22 +252,21 @@ describe("C5 a transfer does not disturb the agent", () => {
     dead(dir, "old-orch");
     agent(dir, "new-orch");
     agent(dir, "worker", "worker");
-    openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-      .run("worker", 1, "host", 424242, "worker-token");
+    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${1},${"host"},${424242},${"worker-token"})`);
     const statusPath = join(presenceAgentDir("worker", dir), "status.json");
     mkdirSync(presenceAgentDir("worker", dir), { recursive: true });
     writeFileSync(statusPath, JSON.stringify({ state: "working", task: "keep me" }));
     acquireLease(dir, "worker", "old-orch", 2);
 
     const before = {
-      agent: openStore(dir).query("SELECT * FROM agents WHERE id = ?").get("worker"),
-      process: openStore(dir).query("SELECT * FROM agent_processes WHERE agent_id = ?").get("worker"),
+      agent: row(orm(dir), sql`SELECT * FROM agents WHERE id = ${"worker"}`),
+      process: row(orm(dir), sql`SELECT * FROM agent_processes WHERE agent_id = ${"worker"}`),
       status: readFileSync(statusPath, "utf8"),
     };
     expect(adoptAgent(dir, "worker", "new-orch", { now: 3 })).toMatchObject({ adopted: true });
     expect({
-      agent: openStore(dir).query("SELECT * FROM agents WHERE id = ?").get("worker"),
-      process: openStore(dir).query("SELECT * FROM agent_processes WHERE agent_id = ?").get("worker"),
+      agent: row(orm(dir), sql`SELECT * FROM agents WHERE id = ${"worker"}`),
+      process: row(orm(dir), sql`SELECT * FROM agent_processes WHERE agent_id = ${"worker"}`),
       status: readFileSync(statusPath, "utf8"),
     }).toEqual(before);
   });

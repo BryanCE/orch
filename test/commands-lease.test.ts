@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { governWrite } from "../src/daemon/orchd.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -17,7 +17,9 @@ import { spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { placeAgent } from "./helpers/agent.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 afterEach(() => {
@@ -40,8 +42,7 @@ function liveHolder(dir: string, id = "foreign-orch"): void {
   agent(dir, id);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run(id, 1, "host", process.pid, token);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${token})`);
 }
 
 // Command tests exercise the pure command operations so they do not need to boot a daemon.
@@ -77,15 +78,14 @@ describe("lease commands", () => {
     acquireLease(dir, "worker", "old-orch", 2);
     expect(adoptAgent(dir, "worker", "new-orch", { now: 3 })).toMatchObject({ adopted: true, name: "worker" });
     expect(currentLease(dir, "worker")?.orchId).toBe("new-orch");
-    expect(openStore(dir).query("SELECT release_reason FROM agent_leases WHERE orch_id = ?").get("old-orch"))
+    expect(row(orm(dir), sql`SELECT release_reason FROM agent_leases WHERE orch_id = ${"old-orch"}`))
       .toMatchObject({ release_reason: "adopted" });
   });
 
   test("adopt refuses a holder with a live recorded process", () => {
     const dir = fixture();
     agent(dir, "new-orch"); agent(dir, "old-orch"); agent(dir, "worker", "worker");
-    openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-      .run("old-orch", 1, "host", process.pid, processStartToken(process.pid));
+    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"old-orch"},${1},${"host"},${process.pid},${processStartToken(process.pid)})`);
     acquireLease(dir, "worker", "old-orch", 2);
     expect(() => adoptAgent(dir, "worker", "new-orch", { now: 3 })).toThrow("worker is leased by live orch old-orch.");
   });
@@ -100,7 +100,7 @@ describe("lease commands", () => {
   test("reap refuses while the recorded process is alive", () => {
     const dir = fixture();
     agent(dir, "worker", "worker");
-    openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)").run("worker", 2, "host", process.pid, processStartToken(process.pid));
+    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${2},${"host"},${process.pid},${processStartToken(process.pid)})`);
     expect(() => reapAgent(dir, "worker", 3)).toThrow(/close first/);
   });
 
@@ -112,7 +112,7 @@ describe("lease commands", () => {
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), "{}\n");
     expect(reapAgent(dir, "worker", 3)).toMatchObject({ reaped: true, name: "worker" });
-    expect(openStore(dir).query("SELECT id FROM agents WHERE id = ?").get("worker")).toBeNull();
+    expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${"worker"}`)).toBeUndefined();
   });
 
   test("abort proceeds with a foreign live-holder lease", () => {
@@ -155,7 +155,7 @@ describe("lease commands", () => {
     cmdClose([key, "--json"]);
 
     expect(spawnedRecords().has(key)).toBe(false);
-    expect(openStore(dir).query("SELECT id FROM agents WHERE id = ?").get(key)).toBeDefined();
+    expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${key}`)).toBeDefined();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });
 
@@ -169,7 +169,7 @@ describe("lease commands", () => {
 
     void cmdReap([key, "--json"]);
 
-    expect(openStore(dir).query("SELECT id FROM agents WHERE id = ?").get(key)).toBeNull();
+    expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${key}`)).toBeUndefined();
   });
 
   test("reset driving verb refuses a foreign live-holder lease", () => {

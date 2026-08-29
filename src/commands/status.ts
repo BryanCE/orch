@@ -5,7 +5,7 @@ import { spawnerIdentity } from "../policy/spawner.ts";
 import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { currentSpace } from "../store/interval-rows.ts";
-import { openStore } from "../store/connection.ts";
+
 import { getAdapter } from "../adapters/registry.ts";
 import { collapse, buildEntities, entitySpace, sortEntities } from "../entities.ts";
 import type {  } from "../backends/backend.ts";
@@ -31,6 +31,9 @@ import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchConfig } from "../types/config.ts";
 import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
+import { eq } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { spaces } from "../db/schema.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
@@ -479,11 +482,9 @@ function agentOrchNames(agentId: string, agent: ReturnType<typeof agentById>, ro
 }
 
 function readSpaceInfo(directory: string, spaceId: string): { id: string | null; name: string | null } {
-  const space = openStore(directory).query("SELECT id, name FROM spaces WHERE id = ?").get(spaceId) as { id?: string; name?: string } | undefined;
-  return {
-    id: typeof space?.id === "string" ? space.id : null,
-    name: typeof space?.name === "string" ? space.name : null,
-  };
+  const space = orm(directory).select({ id: spaces.id, name: spaces.name }).from(spaces)
+    .where(eq(spaces.id, spaceId)).get();
+  return { id: space?.id ?? null, name: space?.name ?? null };
 }
 
 function orchNames(key: string, directory = orchDir()): OrchNames {
@@ -494,8 +495,8 @@ function orchNames(key: string, directory = orchDir()): OrchNames {
     const root = agent ? agentById(directory, agent.rootAgentId) : null;
     const names = agentOrchNames(identity.id, agent, root);
     const current = currentSpace(directory, identity.id);
-    if (!current || typeof current.space_id !== "string") return names;
-    const space = readSpaceInfo(directory, current.space_id);
+    if (!current) return names;
+    const space = readSpaceInfo(directory, current.spaceId);
     return { ...names, spaceId: space.id, spaceName: space.name };
   } catch {
     return emptyOrchNames(identity.id);

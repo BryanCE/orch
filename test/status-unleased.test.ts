@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { deriveView, formatOwnerCell, statusRowFromView } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { rmSync } from "node:fs";
 import type { Entity } from "../src/types/core.ts";
+import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -22,15 +23,14 @@ function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-status-unleased-"));
   dirs.push(dir);
   ensureHarness(dir, "pi", "Pi", 1);
-  const db = openStore(dir);
-  db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   insertAgent(dir, { id: WORKER_ID, harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
   insertAgent(dir, { id: "live", harnessId: "pi", cwd: "/tmp", name: "live", createdAt: 1 });
   insertAgent(dir, { id: "dead", harnessId: "pi", cwd: "/tmp", name: "dead", createdAt: 1 });
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run("live", 1, "host", process.pid, token);
+  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live"},${1},${"host"},${process.pid},${token})`);
   return dir;
 }
 

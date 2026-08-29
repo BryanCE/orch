@@ -2,11 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease, expireLease, leasesByOrch } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 /**
  * TASKS/02-scope.md D5 — "Nested spawn: a grandchild becomes unleased, never
@@ -25,7 +26,7 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const d = mkdtempSync(join(tmpdir(), "orch-nested-spawn-"));
   dirs.push(d);
-  openStore(d).query("INSERT INTO harnesses(id,name) VALUES (?,?)").run("pi", "Pi");
+  orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   insertAgent(d, { id: "grandparent", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "grandparent", createdAt: 1 });
   insertAgent(d, { id: "mid", spawnedBy: "grandparent", harnessId: "pi", cwd: "/repo", name: "mid", createdAt: 2 });
   insertAgent(d, { id: "grand", spawnedBy: "mid", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
@@ -36,7 +37,7 @@ describe("a grandchild becomes unleased, never falls to the grandparent (D5)", (
   test("the middle agent's death leaves the grandchild unleased, held by nobody", () => {
     const d = fixture();
     acquireLease(d, "grand", "mid", 10);
-    openStore(d).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (?,?,?)").run("mid", 20, null);
+    orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"mid"},${20},${null})`);
 
     expireLease(d, "grand", 30);
 
@@ -48,7 +49,7 @@ describe("a grandchild becomes unleased, never falls to the grandparent (D5)", (
   test("the grandchild stays alive and adoptable, and keeps its own provenance", () => {
     const d = fixture();
     acquireLease(d, "grand", "mid", 10);
-    openStore(d).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (?,?,?)").run("mid", 20, null);
+    orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"mid"},${20},${null})`);
     expireLease(d, "grand", 30);
 
     const view = agentView(d, "grand");

@@ -3,11 +3,13 @@ import { readFileSync, readdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { VOCABULARY, roleOf, term } from "../src/policy/vocabulary.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
+import { stringField } from "./helpers/rows.ts";
 
 /**
  * TASKS/02-scope.md A8 — "Vocabulary (orch / slave / pack / space) is a display
@@ -17,8 +19,8 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 
 function withStore(body: (directory: string) => void): void {
   const directory = mkdtempSync(join(tmpdir(), "orch-vocabulary-"));
-  const db = openStore(directory);
-  db.query("INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING").run();
+  const db = orm(directory);
+  db.run(sql`INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING`);
   try {
     body(directory);
   } finally {
@@ -52,12 +54,13 @@ describe("vocabulary is a display map, and a role is tree position", () => {
 
   test("no table carries a role column: there is nothing to disagree with the tree", () => {
     withStore((directory) => {
-      const db = openStore(directory);
-      const tables = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
-      for (const row of tables) {
-        const name = (row as { name: string }).name;
-        const columns = db.query(`PRAGMA table_info(${name})`).all();
-        const names = columns.map((column) => (column as { name: string }).name);
+      const db = orm(directory);
+      const tables = db.all(sql`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`);
+      for (const table of tables) {
+        const name = stringField(table, "name");
+        // A pragma names its table as an identifier, never as a bound value.
+        const columns = db.all(sql.raw(`PRAGMA table_info(${name})`));
+        const names = columns.map((column) => stringField(column, "name"));
         // A role is the only thing A8 forbids storing. `grant_requests.kind` is
         // a grant kind, not a rank, and is none of this row's business.
         expect(names).not.toContain("role");

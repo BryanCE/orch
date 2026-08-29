@@ -8,13 +8,15 @@ import { headlessBackend } from "../src/backends/headless/index.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { openStore } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 import type { OrchConfig } from "../src/types/config.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { sql } from "drizzle-orm";
 
+import { row } from "./helpers/rows.ts";
 const tempDirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 const oldAgentKey = process.env.ORCH_AGENT_KEY;
@@ -105,13 +107,13 @@ describe("spawn policy caps", () => {
     const key = "liveagent1";
     // A space is USER-created and never minted (A7), so the fixture creates the
     // one the claimant sits in before placing an agent in it.
-    openStore(dir).query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)").run("space", "space", 1);
+    orm(dir).run(sql`INSERT INTO spaces (id, name, created_by, created_at) VALUES (${"space"}, ${"space"}, NULL, ${1})`);
     seedAgent(key, { adapter: "pi", backend: "headless", space: "space", handle: key });
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));
     const beforeRegistry = agentViews(dir).map((view) => view.id);
-    const beforeTasks = (openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count;
+    const beforeTasks = (row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count;
     // Inject a backend claimant: policy refusal must happen before allocation.
     const backend = headlessBackend as unknown as { spawn: typeof headlessBackend.spawn };
     const originalSpawn = backend.spawn;
@@ -151,7 +153,7 @@ describe("spawn policy caps", () => {
     expect(backendAllocations).toBe(0);
     // The live registry row above is the injected name claimant; it must remain the sole claim.
     expect(agentViews(dir).map((view) => view.id)).toEqual(beforeRegistry);
-    expect((openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(beforeTasks);
+    expect((row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count).toBe(beforeTasks);
     expect(existsSync(join(dir, "agents", key))).toBe(true);
     expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);
   });

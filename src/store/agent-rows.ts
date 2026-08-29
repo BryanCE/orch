@@ -1,8 +1,8 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, type SQL } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
 import { isRecord } from "../util.ts";
-import { openStore, orm, storeExists, withTransaction } from "./connection.ts";
-import { agentEndings, agentWorktrees, agents, hostPlexers as hostPlexerTable } from "../db/schema.ts";
+import { orm, storeExists, withTransaction } from "./connection.ts";
+import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setSpace } from "./interval-rows.ts";
 import type { AgentInput, AgentRow, AgentWorktree, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
@@ -104,10 +104,19 @@ export function isLiveAgentIdentity(orchDir: string, value: unknown): value is S
   if (!isRecord(value)
     || typeof value.id !== "string" || value.id.length === 0
     || typeof value.label !== "string" || value.kind !== "session") return false;
-  return openStore(orchDir).query(
-    `SELECT a.id FROM agents a LEFT JOIN agent_endings e ON e.agent_id = a.id
-     WHERE a.id = ? AND e.agent_id IS NULL`,
-  ).get(value.id) != null;
+  return liveAgentId(orchDir, eq(agents.id, value.id)) !== null;
+}
+
+/** The live agent holding an OPEN process interval for this exact instance. The
+ *  pair is not an identity — it is how a harness exporting no session token is
+ *  recognised across one process's life. */
+function liveAgentIdByProcess(orchDir: string, pid: number, startToken: string): string | null {
+  const row = orm(orchDir).select({ id: agents.id }).from(agents)
+    .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
+    .where(and(eq(agentProcesses.pid, pid), eq(agentProcesses.startToken, startToken), isNull(agentEndings.agentId)))
+    .limit(1).get();
+  return row?.id ?? null;
 }
 
 /** Register a caller as an agent.
@@ -128,23 +137,19 @@ export function agentIdBySessionToken(orchDir: string, sessionToken: string): st
   // machine that has never run orch would leave a store behind. No store means
   // no registered session, which is the honest answer.
   if (!storeExists(orchDir)) return null;
-  const row = openStore(orchDir).query(
-    `SELECT a.id FROM agents a
-     LEFT JOIN agent_endings e ON e.agent_id = a.id
-     WHERE a.session_token = ? AND e.agent_id IS NULL
-     LIMIT 1`,
-  ).get(sessionToken);
-  return isAgentIdRow(row) ? row.id : null;
+  return liveAgentId(orchDir, eq(agents.sessionToken, sessionToken));
 }
 
-function isProcessRow(value: unknown): value is { since: number; pid: number; start_token: string | null } {
-  return isRecord(value) && typeof value.pid === "number" && typeof value.since === "number"
-    && (value.start_token === null || typeof value.start_token === "string");
+/** The id of the one agent matching `where` that has NOT ended, or null.
+ *  An ending is what makes an agent non-live, so every "who is this" lookup
+ *  joins it — and there is one spelling of that join. */
+function liveAgentId(orchDir: string, where: SQL): string | null {
+  const row = orm(orchDir).select({ id: agents.id }).from(agents)
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
+    .where(and(where, isNull(agentEndings.agentId))).limit(1).get();
+  return row?.id ?? null;
 }
 
-function isAgentIdRow(value: unknown): value is { id: string } {
-  return isRecord(value) && typeof value.id === "string";
-}
 
 /**
  * B9: record the registering session's own environment, at hello.
@@ -177,62 +182,46 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
     ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
   }
   const identity = withTransaction<SessionAgentIdentity>(orchDir, () => {
-    const db = openStore(orchDir);
+    const db = orm(orchDir);
     const token = input.sessionToken ?? null;
     const existing = token === null
-      ? db.query(
-        `SELECT a.id FROM agents a
-         JOIN agent_processes p ON p.agent_id = a.id AND p.until IS NULL
-         LEFT JOIN agent_endings e ON e.agent_id = a.id
-         WHERE p.pid = ? AND p.start_token = ? AND e.agent_id IS NULL
-         LIMIT 1`,
-      ).get(input.pid, input.startToken)
-      : db.query(
-        `SELECT a.id FROM agents a
-         LEFT JOIN agent_endings e ON e.agent_id = a.id
-         WHERE a.session_token = ? AND e.agent_id IS NULL
-         LIMIT 1`,
-      ).get(token);
-    if (isAgentIdRow(existing)) {
-      db.query("UPDATE agents SET label = ? WHERE id = ?").run(input.label, existing.id);
+      ? liveAgentIdByProcess(orchDir, input.pid, input.startToken)
+      : liveAgentId(orchDir, eq(agents.sessionToken, token));
+    if (existing !== null) {
+      db.update(agents).set({ label: input.label }).where(eq(agents.id, existing)).run();
       // The session outlives any one process instance. An agent may hold only ONE
       // open process interval (the `one_live_process` unique index), so a
       // superseded one is CLOSED before the current instance opens its own -
       // inserting beside it aborts the whole registration.
-      const open = db.query(
-        "SELECT since, pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL",
-      ).get(existing.id);
-      const current = isProcessRow(open) && open.pid === input.pid && open.start_token === input.startToken;
-      if (!current) {
+      const open = db.select({ since: agentProcesses.since, pid: agentProcesses.pid, startToken: agentProcesses.startToken })
+        .from(agentProcesses).where(and(eq(agentProcesses.agentId, existing), isNull(agentProcesses.until))).get();
+      if (open?.pid !== input.pid || open.startToken !== input.startToken) {
         // An agent holds ONE open process interval, and `[since, until)` are
         // half-open so they must MEET exactly: the superseded interval closes at
         // the instant the new one opens. `until > since` also forbids closing an
         // interval at its own start, which two registrations inside one
         // millisecond would otherwise do.
         let opensAt = input.now;
-        if (isProcessRow(open)) {
+        if (open) {
           opensAt = Math.max(input.now, open.since + 1);
-          db.query("UPDATE agent_processes SET until = ? WHERE agent_id = ? AND until IS NULL")
-            .run(opensAt, existing.id);
+          db.update(agentProcesses).set({ until: opensAt })
+            .where(and(eq(agentProcesses.agentId, existing), isNull(agentProcesses.until))).run();
         }
-        db.query(
-          `INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token)
-           VALUES (?, ?, NULL, ?, ?, ?)`,
-        ).run(existing.id, opensAt, input.hostId, input.pid, input.startToken);
+        db.insert(agentProcesses).values({
+          agentId: existing, since: opensAt, until: null, hostId: input.hostId, pid: input.pid, startToken: input.startToken,
+        }).run();
       }
-      return { id: existing.id, label: input.label, kind: "session" };
+      return { id: existing, label: input.label, kind: "session" };
     }
 
     const id = mintAgentId();
-    const name = `${input.harnessId}-${id.slice(0, 8)}`;
-    db.query(
-      `INSERT INTO agents (id, spawned_by, root_agent_id, harness_id, cwd, name, label, session_token, created_at)
-       VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, id, input.harnessId, input.cwd, name, input.label, token, input.now);
-    db.query(
-      `INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token)
-       VALUES (?, ?, NULL, ?, ?, ?)`,
-    ).run(id, input.now, input.hostId, input.pid, input.startToken);
+    db.insert(agents).values({
+      id, spawnedBy: null, rootAgentId: id, harnessId: input.harnessId, cwd: input.cwd,
+      name: `${input.harnessId}-${id.slice(0, 8)}`, label: input.label, sessionToken: token, createdAt: input.now,
+    }).run();
+    db.insert(agentProcesses).values({
+      agentId: id, since: input.now, until: null, hostId: input.hostId, pid: input.pid, startToken: input.startToken,
+    }).run();
     return { id, label: input.label, kind: "session" };
   });
   // Placement runs AFTER the registration transaction: `closeThenOpen` opens its
@@ -243,13 +232,13 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
 }
 
 export function ensureHarness(orchDir: string, id: string, name: string, enabledAt: number | null = null): void {
-  openStore(orchDir).query("INSERT OR IGNORE INTO harnesses (id, name, enabled_at) VALUES (?, ?, ?)").run(id, name, enabledAt);
+  orm(orchDir).insert(harnesses).values({ id, name, enabledAt }).onConflictDoNothing().run();
 }
 export function ensurePlexer(orchDir: string, id: string, name: string, enabledAt: number | null = null): void {
-  openStore(orchDir).query("INSERT OR IGNORE INTO plexers (id, name, enabled_at) VALUES (?, ?, ?)").run(id, name, enabledAt);
+  orm(orchDir).insert(plexers).values({ id, name, enabledAt }).onConflictDoNothing().run();
 }
 export function ensureHost(orchDir: string, id: string, name: string, os: HostOs, createdAt: number): void {
-  openStore(orchDir).query("INSERT OR IGNORE INTO hosts (id, name, os, created_at) VALUES (?, ?, ?, ?)").run(id, name, os, createdAt);
+  orm(orchDir).insert(hosts).values({ id, name, os, createdAt }).onConflictDoNothing().run();
 }
 
 /** Record the currently installed version for one host/plexer pair. Upgrading

@@ -3,12 +3,15 @@ import { addTask, cancelTask, closePackIntake, editTask, listTasks, openPackInta
 import { ensureDaemon, rpcHello } from "../daemon/reach.ts";
 import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
-import { errorMessage, isRecord } from "../util.ts";
+import { errorMessage } from "../util.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { agentById } from "../store/agent-rows.ts";
-import { openStore } from "../store/connection.ts";
+
 import { die, remoteWrite, splitOptionFlags } from "./target.ts";
 import type { QueueScopeFlags } from "../types/command.ts";
+import { asc, eq } from "drizzle-orm";
+import { orm } from "../store/connection.ts";
+import { agents } from "../db/schema.ts";
 
 export function renderQueueTasks(tasks: TaskRec[]): void {
   if (tasks.length === 0) {
@@ -41,8 +44,8 @@ function takeValue(args: string[], flag: string): { value?: string; rest: string
  *  is a lookup that either finds one agent or asks which id you meant. */
 function resolveAgent(directory: string, target: string): string {
   if (agentById(directory, target)) return target;
-  const rows = openStore(directory).query("SELECT id FROM agents WHERE name=? ORDER BY id").all(target)
-    .filter((row): row is { id: string } => isRecord(row) && typeof row.id === "string");
+  const rows = orm(directory).select({ id: agents.id }).from(agents)
+    .where(eq(agents.name, target)).orderBy(asc(agents.id)).all();
   if (rows.length === 0) die(`Unknown agent: ${target}`);
   if (rows.length > 1) die(`Ambiguous agent: ${target}; use its id`);
   return rows[0]!.id;

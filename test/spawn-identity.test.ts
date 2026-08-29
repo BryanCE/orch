@@ -10,7 +10,7 @@ import { agentById, ensureHarness } from "../src/store/agent-rows.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -18,6 +18,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
+import { sql } from "drizzle-orm";
 
 const oldOrchDir = process.env.ORCH_DIR;
 const dirs: string[] = [];
@@ -168,13 +169,13 @@ function registryFixture(space?: string): string {
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   if (space !== undefined) {
-    openStore(dir).query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)").run(space, space, 1);
+    orm(dir).run(sql`INSERT INTO spaces (id, name, created_by, created_at) VALUES (${space}, ${space}, NULL, ${1})`);
   }
   return dir;
 }
 
 function spaceRows(dir: string, agentId: string): unknown[] {
-  return openStore(dir).query("SELECT space_id, since, until FROM agent_spaces WHERE agent_id = ?").all(agentId);
+  return orm(dir).all(sql`SELECT space_id, since, until FROM agent_spaces WHERE agent_id = ${agentId}`);
 }
 
 describe("A1: spawn registration records the space as an environment axis", () => {
@@ -216,7 +217,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
 
   test("moving an agent to another space closes the old interval and keeps its identity", () => {
     const dir = registryFixture("wsA");
-    openStore(dir).query("INSERT INTO spaces (id, name, created_by, created_at) VALUES ('wsB', 'wsB', NULL, 1)").run();
+    orm(dir).run(sql`INSERT INTO spaces (id, name, created_by, created_at) VALUES ('wsB', 'wsB', NULL, 1)`);
     const key = mintAgentId();
 
     registerSpawnedAgent(dir, {

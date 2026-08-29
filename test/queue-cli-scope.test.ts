@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scopeFromFlags } from "../src/commands/queue.ts";
 import { addTask, listTasks, history } from "../src/queue.ts";
-import { closeAllStores, openStore } from "../src/store/connection.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
@@ -13,18 +14,17 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-queue-cli-"));
   dirs.push(dir);
-  const db = openStore(dir);
-  db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
+  const db = orm(dir);
+  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   for (const [id, root, parent, name] of [
     ["orch-a", "orch-a", null, "alpha"],
     ["a1", "orch-a", "orch-a", "worker"],
     ["orch-b", "orch-b", null, "beta"],
     ["b1", "orch-b", "orch-b", "worker"],
   ] as const) {
-    db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?,1)")
-      .run(id, parent, root, "pi", "/repo", name);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${name},1)`);
   }
-  db.query("INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)").run();
+  db.run(sql`INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)`);
   return dir;
 }
 

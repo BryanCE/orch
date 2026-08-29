@@ -151,7 +151,7 @@ export function enqueueTask(dir: string, input: NewTask): void {
     );
 }
 
-export function editTask(dir: string, taskId: string, byAgentId: string, changes: { text?: string; opts?: unknown }): void {
+export function updateTask(dir: string, taskId: string, byAgentId: string, changes: { text?: string; opts?: unknown }): void {
   const assignments: string[] = [];
   const values: unknown[] = [];
   if (changes.text !== undefined) {
@@ -171,7 +171,7 @@ export function editTask(dir: string, taskId: string, byAgentId: string, changes
 }
 
 /** Re-scope an unrunnable task to a live taker's pack. */
-export function takeOnTask(dir: string, taskId: string, packId: string): void {
+export function rescopeTask(dir: string, taskId: string, packId: string): void {
   const changes = openStore(dir).query(
     `UPDATE tasks SET scope_agent_id=NULL, scope_pack_id=?, scope_space_id=NULL
      WHERE id=? AND EXISTS (SELECT 1 FROM task_states s WHERE s.task_id=tasks.id AND s.state='unrunnable')`,
@@ -180,7 +180,7 @@ export function takeOnTask(dir: string, taskId: string, packId: string): void {
 }
 
 /** Explicitly remove an unrunnable task; queued/claimable work is never reapable. */
-export function reapTask(dir: string, taskId: string): boolean {
+export function deleteUnrunnableTask(dir: string, taskId: string): boolean {
   const changes = openStore(dir).query(
     `DELETE FROM tasks WHERE id=? AND EXISTS (SELECT 1 FROM task_states s WHERE s.task_id=tasks.id AND s.state='unrunnable')`,
   ).run(taskId).changes;
@@ -188,7 +188,7 @@ export function reapTask(dir: string, taskId: string): boolean {
   return true;
 }
 
-export function claimTask(dir: string, taskId: string, agentId: string, dispatchId: string, since = Date.now()): void {
+export function insertAttempt(dir: string, taskId: string, agentId: string, dispatchId: string, since = Date.now()): void {
   openStore(dir).query("INSERT INTO task_attempts (task_id,since,agent_id,dispatch_id) VALUES (?,?,?,?)").run(taskId, since, agentId, dispatchId);
 }
 
@@ -208,7 +208,7 @@ export function settleAttempt(
   if (changes !== 1) throw new Error("open task attempt not found");
 }
 
-export function cancelTask(dir: string, taskId: string, cancelledBy: string, cancelledAt = Date.now()): void {
+export function insertCancellation(dir: string, taskId: string, cancelledBy: string, cancelledAt = Date.now()): void {
   openStore(dir).query("INSERT INTO task_cancellations (task_id,cancelled_at,cancelled_by) VALUES (?,?,?)").run(taskId, cancelledAt, cancelledBy);
 }
 

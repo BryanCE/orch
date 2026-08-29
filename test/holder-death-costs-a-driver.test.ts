@@ -7,7 +7,7 @@ import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease, leaseHistory, leasesByOrch } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
 import { detachAgent } from "../src/commands/lease.ts";
-import { claimTask, enqueueTask, settleAttempt, taskState } from "../src/store/task-rows.ts";
+import { insertAttempt, enqueueTask, settleAttempt, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
@@ -45,7 +45,7 @@ describe("holder death costs a driver, not a life (D2)", () => {
     const d = fixture();
     acquireLease(d, "worker", "orch", 5);
     enqueueTask(d, { id: "t1", text: "in flight", opts: {}, enqueuedBy: "orch", scopePackId: "orch", createdAt: 6 });
-    claimTask(d, "t1", "worker", "d1", 7);
+    insertAttempt(d, "t1", "worker", "d1", 7);
 
     killHolder(d);
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
-import { enqueueTask, claimTask, settleAttempt } from "../src/store/task-rows.ts";
+import { enqueueTask, insertAttempt, settleAttempt } from "../src/store/task-rows.ts";
 import { deliverTaskResult } from "../src/daemon/result-delivery.ts";
 import { INBOX_FILE } from "../src/presence/schema.ts";
 import { presenceAgentDir, presenceFile } from "../src/presence/writer.ts";
@@ -57,7 +57,7 @@ describe("results go to the enqueuer across packs (Cq4)", () => {
     seedStatus(d, "asker", { agent: "pi", pid: process.pid, state: "idle" });
     seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
     enqueueTask(d, { id: "t1", text: "survey the repo", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    claimTask(d, "t1", "runner", "d1", 6);
+    insertAttempt(d, "t1", "runner", "d1", 6);
     settleAttempt(d, "t1", 6, 7, "done", { result: { findings: 3 } });
 
     deliverTaskResult(d, "t1");
@@ -76,7 +76,7 @@ describe("results go to the enqueuer across packs (Cq4)", () => {
     seedStatus(d, "asker", { agent: "pi", pid: process.pid, state: "idle" });
     seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
     enqueueTask(d, { id: "t1", text: "count things", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    claimTask(d, "t1", "runner", "d1", 6);
+    insertAttempt(d, "t1", "runner", "d1", 6);
     settleAttempt(d, "t1", 6, 7, "done", { result: { findings: 3 } });
 
     deliverTaskResult(d, "t1");
@@ -90,7 +90,7 @@ describe("results go to the enqueuer across packs (Cq4)", () => {
     seedStatus(d, "asker", { agent: "pi", pid: process.pid, state: "idle" });
     seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
     enqueueTask(d, { id: "t1", text: "risky work", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    claimTask(d, "t1", "runner", "d1", 6);
+    insertAttempt(d, "t1", "runner", "d1", 6);
     settleAttempt(d, "t1", 6, 7, "failed", { error: "the tool blew up" });
 
     deliverTaskResult(d, "t1");
@@ -102,7 +102,7 @@ describe("results go to the enqueuer across packs (Cq4)", () => {
     const d = fixture();
     seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
     enqueueTask(d, { id: "t1", text: "work", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    claimTask(d, "t1", "runner", "d1", 6);
+    insertAttempt(d, "t1", "runner", "d1", 6);
     settleAttempt(d, "t1", 6, 7, "done", { result: { ok: true } });
 
     // `asker` has no presence dir at all. A result that cannot be delivered

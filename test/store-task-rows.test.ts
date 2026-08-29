@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import {
   attemptsOf,
-  cancelTask,
-  claimTask,
+  insertCancellation,
+  insertAttempt,
   closeIntake,
-  editTask,
+  updateTask,
   enqueueTask,
   intakesOf,
   openIntake,
@@ -45,7 +45,7 @@ describe("task and attempt rows", () => {
 
   test("malformed attempt rows are refused instead of handing back NaN", () => {
     const d = fixture(); seed(d); addTask(d, "bad-attempt", { scopeAgentId: "a" });
-    claimTask(d, "bad-attempt", "a", "dispatch", 10);
+    insertAttempt(d, "bad-attempt", "a", "dispatch", 10);
     openStore(d).query("UPDATE task_attempts SET result='not-json' WHERE task_id='bad-attempt'").run();
     expect(() => attemptsOf(d, "bad-attempt")).toThrow(/malformed task attempt row/i);
   });
@@ -61,12 +61,12 @@ describe("task and attempt rows", () => {
 
   test("queued tasks can be edited only by their enqueuer", () => {
     const d = fixture(); seed(d); addTask(d, "t", { scopeAgentId: "a" });
-    editTask(d, "t", "a", { text: "edited", opts: { changed: true } });
+    updateTask(d, "t", "a", { text: "edited", opts: { changed: true } });
     expect(openTasksInScope(d, { agentId: "a" })[0]).toMatchObject({ text: "edited", opts: { changed: true } });
-    claimTask(d, "t", "a", "d1", 10);
-    expect(() => editTask(d, "t", "a", { text: "nope" })).toThrow();
+    insertAttempt(d, "t", "a", "d1", 10);
+    expect(() => updateTask(d, "t", "a", { text: "nope" })).toThrow();
     addTask(d, "q", { scopeAgentId: "a" });
-    expect(() => editTask(d, "q", "b", { text: "nope" })).toThrow();
+    expect(() => updateTask(d, "q", "b", { text: "nope" })).toThrow();
   });
 
   test("two concurrent claims have one winner and one index violation", async () => {
@@ -93,8 +93,8 @@ describe("task and attempt rows", () => {
 
   test("failed attempts remain in history and retries are new attempts", () => {
     const d = fixture(); seed(d); addTask(d, "t", { scopePackId: "a" }); addTask(d, "outside", { scopePackId: "c" });
-    claimTask(d, "t", "a", "dispatch-x", 10); settleAttempt(d, "t", 10, 15, "failed", { error: "no" });
-    claimTask(d, "t", "b", "dispatch-y", 20);
+    insertAttempt(d, "t", "a", "dispatch-x", 10); settleAttempt(d, "t", 10, 15, "failed", { error: "no" });
+    insertAttempt(d, "t", "b", "dispatch-y", 20);
     expect(attemptsOf(d, "t")).toEqual([
       { taskId: "t", since: 10, until: 15, agentId: "a", dispatchId: "dispatch-x", outcome: "failed", result: null, error: "no" },
       { taskId: "t", since: 20, until: null, agentId: "b", dispatchId: "dispatch-y", outcome: null, result: null, error: null },
@@ -106,11 +106,11 @@ describe("task and attempt rows", () => {
   });
 
   test("settlement stores exact integer instants and outcome payloads", () => {
-    const d = fixture(); seed(d); addTask(d, "done", { scopeAgentId: "a" }); claimTask(d, "done", "a", "dispatch", 100);
+    const d = fixture(); seed(d); addTask(d, "done", { scopeAgentId: "a" }); insertAttempt(d, "done", "a", "dispatch", 100);
     settleAttempt(d, "done", 100, 123, "done", { result: { ok: true } });
     expect(attemptsOf(d, "done")[0]).toMatchObject({ since: 100, until: 123, outcome: "done", result: { ok: true }, error: null });
     expect(openStore(d).query("SELECT typeof(since),typeof(until) FROM task_attempts WHERE task_id='done'").get()).toEqual({ "typeof(since)": "integer", "typeof(until)": "integer" });
-    addTask(d, "failed", { scopeAgentId: "a" }); claimTask(d, "failed", "a", "dispatch-f", 200);
+    addTask(d, "failed", { scopeAgentId: "a" }); insertAttempt(d, "failed", "a", "dispatch-f", 200);
     expect(() => settleAttempt(d, "failed", 200, 201, "failed")).toThrow();
     settleAttempt(d, "failed", 200, 201, "failed", { error: "bad" });
     expect(attemptsOf(d, "failed")[0]?.error).toBe("bad");
@@ -119,10 +119,10 @@ describe("task and attempt rows", () => {
   test("task state precedence covers queued, claimed, failed, done and cancelled", () => {
     const d = fixture(); seed(d);
     addTask(d, "queued", { scopeAgentId: "a" });
-    addTask(d, "claimed", { scopeAgentId: "a" }); claimTask(d, "claimed", "a", "c", 1);
-    addTask(d, "failed", { scopeAgentId: "a" }); claimTask(d, "failed", "a", "f", 1); settleAttempt(d, "failed", 1, 2, "failed", { error: "x" });
-    addTask(d, "done", { scopeAgentId: "a" }); claimTask(d, "done", "a", "d", 1); settleAttempt(d, "done", 1, 2, "done", { result: true });
-    addTask(d, "cancelled", { scopeAgentId: "a" }); claimTask(d, "cancelled", "a", "x", 1); cancelTask(d, "cancelled", "a", 3);
+    addTask(d, "claimed", { scopeAgentId: "a" }); insertAttempt(d, "claimed", "a", "c", 1);
+    addTask(d, "failed", { scopeAgentId: "a" }); insertAttempt(d, "failed", "a", "f", 1); settleAttempt(d, "failed", 1, 2, "failed", { error: "x" });
+    addTask(d, "done", { scopeAgentId: "a" }); insertAttempt(d, "done", "a", "d", 1); settleAttempt(d, "done", 1, 2, "done", { result: true });
+    addTask(d, "cancelled", { scopeAgentId: "a" }); insertAttempt(d, "cancelled", "a", "x", 1); insertCancellation(d, "cancelled", "a", 3);
     expect(["queued", "claimed", "failed", "done", "cancelled"].map((id) => taskState(d, id))).toEqual(["queued", "claimed", "failed", "done", "cancelled"]);
   });
 

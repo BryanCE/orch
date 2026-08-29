@@ -52,7 +52,10 @@ export interface AgentStatusRole<Handle = BackendHandle> { wait(handle: Handle, 
 
 /** Request to create one plexer group (herdr tab, tmux window). */
 export interface CreateGroupRequest {
-  readonly workspace: string;
+  /** The plexer's coordinate to open the group in, or undefined when orch
+   *  resolved none — it never invents one, and the plexer uses its own default
+   *  (`TASKS/02-scope.md` E10, E14). */
+  readonly workspace: string | undefined;
   readonly cwd: string;
   readonly label?: string | null;
   /** Environment for the group's own shell pane, for a caller that will launch

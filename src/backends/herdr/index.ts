@@ -180,7 +180,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly groupHome: GroupHomeRole<HerdrHandle> = {
     list: () => [...herdrTabs().values()].map(groupFromTab),
     create: (opts: CreateGroupRequest): CreatedGroup<HerdrHandle> => {
-      const args = ["tab", "create", "--workspace", opts.workspace, "--cwd", opts.cwd, "--no-focus"];
+      const args = ["tab", "create"];
+      // No coordinate resolved means herdr picks its own current workspace;
+      // orch never invents one to pass (E10).
+      if (opts.workspace !== undefined) args.push("--workspace", opts.workspace);
+      args.push("--cwd", opts.cwd, "--no-focus");
       if (opts.label) args.push("--label", opts.label);
       args.push(...this.paneEnvFlags({ env: opts.env }));
       const result = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(args);

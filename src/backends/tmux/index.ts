@@ -132,13 +132,17 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       return [...byWindow.entries()].map(([windowId, panes]) => groupFromWindowPanes(windowId, panes));
     },
     create: (opts: CreateGroupRequest): CreatedGroup<TmuxHandle> => {
-      const args = ["new-window", "-P", "-F", "#{window_id}\t#{window_index}\t#{pane_id}", "-t", opts.workspace, "-c", opts.cwd];
+      const args = ["new-window", "-P", "-F", "#{window_id}\t#{window_index}\t#{pane_id}"];
+      // No coordinate resolved means tmux picks its own current session; orch
+      // never invents one to pass (E10).
+      if (opts.workspace !== undefined) args.push("-t", opts.workspace);
+      args.push("-c", opts.cwd);
       if (opts.label) args.push("-n", opts.label);
       args.push(...tmuxEnvArgs(opts.env ?? {}));
       const [windowId, windowIndex, paneId] = execTmux(args).trim().split("\t");
       if (!windowId || !paneId) throw new Error("tmux new-window returned no window/pane id");
       const index = Number(windowIndex);
-      return { group: { id: windowId, label: opts.label ?? null, workspace: opts.workspace, focused: false, number: Number.isFinite(index) ? index : null, paneCount: 1, status: null }, rootHandle: paneId };
+      return { group: { id: windowId, label: opts.label ?? null, workspace: opts.workspace ?? null, focused: false, number: Number.isFinite(index) ? index : null, paneCount: 1, status: null }, rootHandle: paneId };
     },
     rename: (coordinate, label) => { execTmux(["rename-window", "-t", coordinate, label]); },
     close: (coordinate) => { execTmux(["kill-window", "-t", coordinate]); },

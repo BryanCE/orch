@@ -324,28 +324,69 @@ describe("a spawned agent touches only what it spawned", () => {
     expect(result.output).toContain("operator-only");
   }, 15_000);
 
-  test("close --all sweeps every managed spawn", () => {
+  test("close --all from an AGENT sweeps only its own subtree", () => {
     const dir = makeDir();
     seedSpace(dir, "wF");
-    recordSpawned("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", owner: agentKey });
-    recordSpawned("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", owner: "kwfoperato" });
+    // The caller is an agent, so ownership is the PROVENANCE chain: user -> orch
+    // -> the slaves it owns. `owner` here is the LEASE, which answers who is
+    // DRIVING and is deliberately not what ending is gated on - a lease can be
+    // adopted, and adopting a driver must never hand over the right to end.
+    // Provenance needs a spawner that EXISTS: `recordSpawned` drops a
+    // `spawnedBy` naming no agent rather than inventing the row it points at.
+    recordSpawned(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
+    recordSpawned("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
+    recordSpawned("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
 
     const result = runCli(dir, ["close", "--all", "--json"], undefined, { ORCH_AGENT_KEY: agentKey });
+    expect(result.status).toBe(0);
+    expect(spawnedRecords().has("kwfmine001")).toBe(false);
+    // Another orch's slave survives a sibling's sweep. A `--all` that reached it
+    // would let any agent on the machine wipe every other fleet.
+    expect(spawnedRecords().has("kwftheirs1")).toBe(true);
+  }, 15_000);
+
+  test("close --all from the HUMAN sweeps every managed spawn, whoever spawned it", () => {
+    const dir = makeDir();
+    seedSpace(dir, "wF");
+    recordSpawned(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
+    recordSpawned("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
+    recordSpawned("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
+
+    // No ORCH_AGENT_KEY: the caller is a person at a terminal. Rule 11 - the
+    // human must ALWAYS be able to stop a runaway agent, so nothing gates this.
+    const result = runCli(dir, ["close", "--all", "--json"]);
     expect(result.status).toBe(0);
     expect(spawnedRecords().has("kwfmine001")).toBe(false);
     expect(spawnedRecords().has("kwftheirs1")).toBe(false);
   }, 15_000);
 
-  test("close from a spawned agent is unconditional", () => {
+  test("close from a spawned agent is REFUSED when the target is not its own", () => {
     const dir = makeDir();
     const key = "kwfvictim1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, owner: "kwfoperato" });
+    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" });
 
     const result = runCli(dir, ["close", key], undefined, { ORCH_AGENT_KEY: agentKey });
-    expect(result.status).toBe(0);
+    // An agent reaches only its own provenance subtree. The refusal has to say
+    // whose it is and who to ask, or the agent has nothing to do but retry.
+    expect(result.status).not.toBe(0);
+    expect(result.output).toContain("not yours to close");
+    expect(spawnedRecords().has(key)).toBe(true);
+  }, 15_000);
+
+  test("close from a spawned agent SUCCEEDS on a slave it spawned itself", () => {
+    const dir = makeDir();
+    const key = "kwfownslav";
+    mkdirSync(join(dir, "agents", key), { recursive: true });
+    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
+    seedSpace(dir, "wF");
+    recordSpawned(agentKey, { backend: "headless", adapter: "pi", space: "wF", handle: agentKey });
+    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: agentKey });
+
+    const result = runCli(dir, ["close", key], undefined, { ORCH_AGENT_KEY: agentKey });
+    expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
     expect(spawnedRecords().has(key)).toBe(false);
   }, 15_000);
 

@@ -117,7 +117,10 @@ describe("orch space — the plexer's home", () => {
     const dir = tempDir();
     const calls: HomeCall[] = [];
     const output = capture(() => runSpace(homed(dir, calls), ["create", "Release", "--json"]));
-    expect(calls).toMatchObject([{ method: "create", args: ["space", expect.any(String), "Release"] }]);
+    // E8: "allowable, but never unmarked". orch marks every home it opens so a
+    // fleet is visibly separate from the human's own panes; a home labelled with
+    // a bare name is indistinguishable from one a person made.
+    expect(calls).toMatchObject([{ method: "create", args: ["space", expect.any(String), "orch/Release"] }]);
     const id = spaceIdOf(dir, "Release");
     expect(liveHome(dir, id)).toEqual({ plexer_id: "herdr", handle: "hc-1" });
     expect(output).not.toContain("hc-1");
@@ -137,7 +140,7 @@ describe("orch space — the plexer's home", () => {
     const calls: HomeCall[] = [];
     capture(() => runSpace(homed(dir, calls), ["create", "Release"]));
     capture(() => runSpace(homed(dir, calls), ["rename", "Release", "Ship"]));
-    expect(calls.at(-1)).toEqual({ method: "rename", args: ["hc-1", "Ship"] });
+    expect(calls.at(-1)).toEqual({ method: "rename", args: ["hc-1", "orch/Ship"] });
     expect(spaceIdOf(dir, "Ship")).toBeString();
   });
 

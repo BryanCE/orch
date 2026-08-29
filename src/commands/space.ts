@@ -4,7 +4,7 @@ import { loadConfig } from "../config.ts";
 import { selfId } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { openStore } from "../store/connection.ts";
-import { clearHome, homeHandle, openHome } from "../store/home-rows.ts";
+import { clearHome, homeHandle, homeLabel, openHome } from "../store/home-rows.ts";
 import { die, splitOptionFlags } from "./target.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
@@ -125,7 +125,9 @@ function renameSpace(env: SpaceEnvironment, target: string | undefined, name: st
   openStore(env.directory).query("UPDATE spaces SET name = ? WHERE id = ?").run(name, space.id);
   const role = env.spaceHome;
   const coordinate = role === null ? null : readHome(env, space.id);
-  if (role !== null && coordinate !== null) role.rename(coordinate, name);
+  // The MARK survives a rename (E8: allowable, but never unmarked). Renaming to
+  // a bare name is how a home stops reading as orch's after one edit.
+  if (role !== null && coordinate !== null) role.rename(coordinate, homeLabel(name));
   emit(
     { space: { id: space.id, name }, renamed: true, home: coordinate === null ? "none" : "renamed" },
     `Renamed space "${space.name}" to "${name}".`,

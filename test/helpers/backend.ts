@@ -1,7 +1,7 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
 import { agentChannel, capture } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
-import type { Backend, BackendHandle, BackendId, BackendSpawnOpts, CreatedPane, PaneHostRole, PaneInventoryRole, PaneTarget, ProcessRole } from "../../src/types/backend.ts";
+import type { Backend, BackendHandle, BackendId, BackendSpawnOpts, CreatedPane, EnvironmentIdentityRole, PaneHostRole, PaneInventoryRole, PaneTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own
@@ -65,8 +65,11 @@ export class FakePanedBackend implements Backend {
   readonly agentStatus = null;
   readonly groupHome = null;
   readonly groupLayout = null;
-  readonly spaceHome = null;
-  readonly identity = null;
+  // Declared at the PORT's type, not inferred as the literal `null`: a subclass
+  // that composes one of these roles is still the same environment, and an
+  // inferred `null` makes the helper claim a shape the port does not have.
+  readonly spaceHome: SpaceHomeRole | null = null;
+  readonly identity: EnvironmentIdentityRole | null = null;
   readonly handleLookup = null;
   readonly logPruning = null;
   readonly versionInfo = null;

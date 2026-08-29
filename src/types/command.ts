@@ -275,3 +275,35 @@ export type CataloguePicker = (
   options: readonly CatalogueOption[],
   maxItems: number,
 ) => Promise<string[] | null>;
+
+/**
+ * Where one spawn puts its fleet. Two DIFFERENT facts, never welded.
+ *
+ * `space` is orch's own grouping (`TASKS/adr/0001`) — user-created, optional
+ * (A7) and never minted from a path. `workspace` is the plexer's coordinate,
+ * which orch stores and hands back and never says (`TASKS/02-scope.md` E10).
+ * Returning one as the other is how `wF` came to be printed as a name a human
+ * chose, and how a spawn opened a window the store then refused to file.
+ */
+export interface SpawnPlacement {
+  readonly space: string | null;
+  readonly workspace: string | undefined;
+}
+
+/** What deciding a {@link SpawnPlacement} needs. */
+export interface SpawnPlacementRequest {
+  readonly directory: string;
+  readonly backend: Backend;
+  /** The space the caller named, or null. Never invented here. */
+  readonly space: string | null;
+  /** The agent at the root of this fleet's provenance tree — what
+   *  `pack_plexers.pack_id` names. Null when the caller has no agent row yet. */
+  readonly packRootId: string | null;
+  readonly cwd: string;
+  /** orch's own name for the fleet, marked before it reaches the plexer. */
+  readonly label: string;
+  /** Opening a home puts a window on the human's screen, so it is asked for.
+   *  Passed in rather than called here so the decision stays one function and
+   *  the gate stays testable. Throws or exits when not granted. */
+  readonly grantNewHome: () => void;
+}

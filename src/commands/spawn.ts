@@ -15,7 +15,6 @@ import { detachedBackend, resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
-import * as path from "node:path";
 import { readFileSync } from "node:fs";
 import { dispatchToAgent } from "./control.ts";
 import { errorMessage, sleep } from "../util.ts";
@@ -31,7 +30,10 @@ import type { AgentView, GrantAction } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchConfig } from "../types/config.ts";
-import type { AgentFlags, AgentSettings, CreatedAgent, TabSpawnSpec } from "../types/command.ts";
+import { homeHandle, openHome } from "../store/home-rows.ts";
+import { agentById } from "../store/agent-rows.ts";
+import type { AgentFlags, AgentSettings, CreatedAgent, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../types/command.ts";
+import type { HomeSubject } from "../types/backend.ts";
 import type { WorkerHeaderContext } from "../types/core.ts";
 
 function spawnLogger(key?: string) {
@@ -567,24 +569,45 @@ function assertNewSpaceGranted(settings: SpawnSettings, backend: Backend, caller
     + ` or --backend headless with --prompt to launch detached.`);
 }
 
-/** The space this fleet lives in: the one the caller is sitting in, else one
- *  orch opens for itself, named for the project it was invoked from. A caller
- *  outside the plexer owns no space, and helping itself to an existing one
- *  puts orch's agents in another person's space. */
-function resolveSpawnSpace(settings: SpawnSettings, backend: Backend, callerAgentId: string | null): string {
-  const existing = settings.space ?? callerSpace();
-  if (existing) return existing;
-  // Whether this environment can hold a space of its own is read from the COMPOSED
-  // ROLE, never from whether a method happens to exist (TASKS/02-scope.md E13).
-  const home = backend.spaceHome;
-  if (!home) {
-    die(`backend ${backend.id} cannot open a space of its own. Pass --space <id>, or --backend headless with --prompt to launch detached.`);
+/**
+ * Where this fleet goes: orch's own space and the plexer's workspace, apart.
+ *
+ * `TASKS/02-scope.md` E10 — the coordinate a plexer hands back is NOT an orch
+ * noun. This used to return it as the space id, which both printed a plexer's
+ * word as a name a human chose and produced a space `requireSpace` then refused.
+ *
+ * E8 — an orch spawning into a plexer it is not itself inside gets its own new
+ * home so its pack is visibly separate from other orchs' work and from the
+ * human's own panes. Allowable, but never unmarked, and never unasked.
+ *
+ * A7 — a space is user-created and OPTIONAL. Nothing here mints one; with none
+ * set the reachability boundary is the repo root.
+ */
+export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlacement {
+  const { directory, backend, space, packRootId, cwd, label, grantNewHome } = request;
+  // A space the user named is where the agents are FILED, whether or not this
+  // plexer holds a home for it. A home recorded in another plexer is not this
+  // one's to drive, so its absence here is simply no coordinate.
+  if (space !== null) {
+    return { space, workspace: homeHandle(directory, { kind: "space", id: space }, backend.id) ?? undefined };
   }
-  assertNewSpaceGranted(settings, backend, callerAgentId);
+  // Whether this environment can hold a home at all is read from the COMPOSED
+  // ROLE, never from whether a method happens to exist (E13). Its absence is the
+  // answer, not a failure (E14): the plexer places the fleet on its own default.
+  const home = backend.spaceHome;
+  const identity = backend.identity;
+  // Already inside this plexer: the fleet lands beside the caller. There is no
+  // window to open, so there is nothing to ask the human for.
+  const inside = identity !== null && identity.current() !== null;
+  if (home === null || inside || packRootId === null) return { space: null, workspace: undefined };
+  const subject: HomeSubject = { kind: "pack", id: packRootId };
+  const existing = homeHandle(directory, subject, backend.id);
+  if (existing !== null) return { space: null, workspace: existing };
+  grantNewHome();
   try {
-    return home.create({ kind: "space", id: path.basename(settings.cwd) }, { cwd: settings.cwd, label: path.basename(settings.cwd) }).coordinate;
+    return { space: null, workspace: openHome({ directory, subject, plexerId: backend.id, home, cwd, label }) ?? undefined };
   } catch (error: unknown) {
-    die(`could not open a space for this fleet: ${errorMessage(error)}`);
+    die(`could not open a home for this fleet: ${errorMessage(error)}`);
   }
 }
 
@@ -690,9 +713,13 @@ function growFleetIntoGroup(settings: SpawnSettings, space: string, group: strin
 }
 
 /** Find a tab by id or label in the target space, for `spawn --tab <existing>`. */
-function findGroupInSpace(backend: Backend, space: string, target: string): BackendGroup | undefined {
+/** `group.workspace` is the PLEXER's coordinate, so the match is against the
+ *  workspace this spawn resolved — never against orch's space id (E10). With no
+ *  coordinate resolved, any group carrying the label is the one meant. */
+function findGroupInSpace(backend: Backend, workspace: string | undefined, target: string): BackendGroup | undefined {
   return [...(backend.groupHome?.list() ?? [])].find((group) =>
-    (group.id === target || group.label === target) && (group.workspace === null || group.workspace === space));
+    (group.id === target || group.label === target)
+    && (group.workspace === null || workspace === undefined || group.workspace === workspace));
 }
 
 /**
@@ -866,7 +893,17 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
     else process.stdout.write(`${answer.text}\n`);
     return;
   }
-  const space = resolveSpawnSpace(settings, backend, spawnerAgentId);
+  const placement = resolveSpawnPlacement({
+    directory: orchDir(), backend, space: settings.space ?? callerSpace(),
+    packRootId: spawnerAgentId === null ? null : agentById(orchDir(), spawnerAgentId)?.rootAgentId ?? null,
+    cwd: settings.cwd, label: settings.label,
+    grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawnerAgentId); },
+  });
+  // orch's own grouping and the plexer's coordinate are used for different
+  // things and are never interchanged: capacity, names and the agent record are
+  // orch's; the group and pane requests take the coordinate.
+  const space = placement.space ?? "";
+  const workspace = placement.workspace;
   assertSpawnCapacity(settings, space, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
   const names = claimSpawnNames(settings.names, space);
@@ -874,7 +911,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // as it fills, so no follow-up move/tile is needed. There is no implicit
   // "grow the fleet under this prefix" path: names are per-slice and unnumbered
   // (TASKS/02-scope.md F4), so the tab is named explicitly or it is a new one.
-  const existing = settings.tabExplicit ? findGroupInSpace(backend, space, settings.label) : undefined;
+  const existing = settings.tabExplicit ? findGroupInSpace(backend, workspace, settings.label) : undefined;
   if (existing) return spawnIntoExistingTab(settings, existing, space, backend, names, spawnerAgentId, groupLayout);
   // Fresh-tab launches are deliberately phased: mint all identities/worktrees,
   // create the tab, open every pane, then launch every agent.
@@ -889,7 +926,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const groupHome = backend.groupHome;
   if (!groupHome) die(`backend ${backend.id} does not provide groups.`);
   let createdGroup: ReturnType<typeof groupHome.create>;
-  try { createdGroup = groupHome.create({ workspace: space, cwd: prepared[0]!.cwd, label: settings.label, env: prepared[0]!.env }); }
+  try { createdGroup = groupHome.create({ workspace, cwd: prepared[0]!.cwd, label: settings.label, env: prepared[0]!.env }); }
   catch (error: unknown) { die(`group create failed: ${errorMessage(error)}`); }
   const group = createdGroup.group;
   prepared[0]!.pane = createdGroup.rootHandle;
@@ -898,9 +935,9 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
     try {
       const role = backend.groupLayout;
       if (!role) continue;
-      const placement = nextTilePlacement(role, group.id, settings.tiling.first_split);
+      const tile = nextTilePlacement(role, group.id, settings.tiling.first_split);
       if (!backend.paneHost) throw new Error("backend has no pane host");
-      item.pane = backend.paneHost.open({ cwd: item.cwd, workspace: space, group: group.id, split: placement.split, targetPane: placement.targetPane, env: item.env }).handle;
+      item.pane = backend.paneHost.open({ cwd: item.cwd, workspace, group: group.id, split: tile.split, targetPane: tile.targetPane, env: item.env }).handle;
     } catch (error: unknown) {
       const message = errorMessage(error);
       spawnLogger(item.key).warn("spawn.pane-open-failed", { name: item.name, error: message });

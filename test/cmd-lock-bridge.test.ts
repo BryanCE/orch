@@ -158,9 +158,9 @@ describe("pi-bridge command-lock interception", () => {
       "-e",
       "process.exit(0)",
     ], { env: { ...process.env, ORCH_DIR: orchDir }, stdout: "pipe", stderr: "pipe" });
-    const [exit, stderr] = await Promise.all([waiter.exited, new Response(waiter.stderr).text()]);
+    const [exit, stdout] = await Promise.all([waiter.exited, new Response(waiter.stdout).text()]);
     expect(exit).not.toBe(0);
-    expect(stderr).toContain("timed out");
+    expect(stdout).toContain("timed out");
     expect(readCommandLock(orchDir)?.pid).toBe(process.pid);
 
     await emit("tool_execution_end", { toolName: "bash", toolCallId: "tc-concurrent-1" });

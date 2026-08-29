@@ -14,6 +14,7 @@ import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { CheckResult } from "../types/doctor.ts";
+import { commandLogger } from "../commands/logging.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -88,7 +89,8 @@ function installClaudeHooks(pkgRoot: string): void {
       if (!isRecord(parsed)) throw new Error("settings root is not an object");
       settings = parsed;
     } catch (error: unknown) {
-      process.stderr.write(`  warning: could not parse ${claudeSettingsPath}; Claude hooks not changed (${errorMessage(error)})\n`);
+      commandLogger().warn("claude.hooks-parse-failed", { path: claudeSettingsPath, error: errorMessage(error) });
+      process.stdout.write(`  warning: could not parse ${claudeSettingsPath}; Claude hooks not changed (${errorMessage(error)})\n`);
       return;
     }
   }
@@ -100,7 +102,8 @@ function installClaudeHooks(pkgRoot: string): void {
   let prunedStale = false;
   const hooks = isRecord(settings.hooks) ? settings.hooks : (settings.hooks === undefined ? {} : null);
   if (!hooks) {
-    process.stderr.write(`  warning: ${claudeSettingsPath} has a non-object hooks value; Claude hooks not changed\n`);
+    commandLogger().warn("claude.hooks-invalid", { path: claudeSettingsPath });
+    process.stdout.write(`  warning: ${claudeSettingsPath} has a non-object hooks value; Claude hooks not changed\n`);
     return;
   }
   settings.hooks = hooks;
@@ -108,7 +111,8 @@ function installClaudeHooks(pkgRoot: string): void {
     const command = claudeHookCommand(shim, event, runtime, orchDir());
     const entries = hooks[event];
     if (entries !== undefined && !Array.isArray(entries)) {
-      process.stderr.write(`  warning: ${claudeSettingsPath} has a non-array ${event} hook value; skipped\n`);
+      commandLogger().warn("claude.hook-event-invalid", { path: claudeSettingsPath, event });
+      process.stdout.write(`  warning: ${claudeSettingsPath} has a non-array ${event} hook value; skipped\n`);
       continue;
     }
     const { list, pruned } = pruneStaleShimHooks(Array.isArray(entries) ? entries : [], command);
@@ -131,7 +135,8 @@ function installClaudeHooks(pkgRoot: string): void {
   ].filter(Boolean).join("; ") || "already configured";
   process.stdout.write(`Claude Code hooks: ${summary}\n`);
   if (!fs.existsSync(shim)) {
-    process.stderr.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
+    commandLogger().warn("claude.shim-missing", { path: shim });
+    process.stdout.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
   }
 }
 

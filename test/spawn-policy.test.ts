@@ -123,15 +123,15 @@ describe("spawn policy caps", () => {
       throw new Error("backend allocation should not occur after policy refusal");
     };
     const originalExit = process.exit.bind(process);
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    let stderr = "";
-    function stderrWrite(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;
-    function stderrWrite(chunk: string | Uint8Array, _encoding: BufferEncoding, _callback?: (error: Error | null | undefined) => void): boolean;
-    function stderrWrite(chunk: string | Uint8Array): boolean {
-      stderr += String(chunk);
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let stdout = "";
+    function stdoutWrite(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;
+    function stdoutWrite(chunk: string | Uint8Array, _encoding: BufferEncoding, _callback?: (error: Error | null | undefined) => void): boolean;
+    function stdoutWrite(chunk: string | Uint8Array): boolean {
+      stdout += String(chunk);
       return true;
     }
-    process.stderr.write = stderrWrite;
+    process.stdout.write = stdoutWrite;
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
@@ -140,7 +140,7 @@ describe("spawn policy caps", () => {
       refusal = error;
     } finally {
       process.exit = originalExit;
-      process.stderr.write = originalWrite;
+      process.stdout.write = originalWrite;
       backend.spawn = originalSpawn;
     }
     // A refusal THROWS a typed error and prints nothing itself: `die()` belongs to
@@ -149,7 +149,7 @@ describe("spawn policy caps", () => {
     expect(refusal).toBeInstanceOf(Error);
     if (!(refusal instanceof Error)) throw new Error("refusal was not an Error");
     expect(refusal.message).toMatch(/spawn refused:.*pack cap 1/);
-    expect(stderr).toBe("");
+    expect(stdout).toBe("");
     expect(backendAllocations).toBe(0);
     // The live registry row above is the injected name claimant; it must remain the sole claim.
     expect(agentViews(dir).map((view) => view.id)).toEqual(beforeRegistry);

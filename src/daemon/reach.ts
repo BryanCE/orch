@@ -151,7 +151,7 @@ export async function terminateWedgedDaemon(directory: string, lockPid: number, 
   const wedged = provenDaemonPid(directory);
   if (wedged === undefined) throw new Error(unprovenLockRefusal(directory, lockPid));
   commandLogger().warn("daemon.wedged-stopping", { pid: wedged });
-  process.stderr.write(`orchd pid ${wedged} holds the lock but did not answer; stopping it\n`);
+  process.stdout.write(`orchd pid ${wedged} holds the lock but did not answer; stopping it\n`);
   await terminateDaemon(wedged, graceMs);
 }
 
@@ -191,7 +191,7 @@ export async function ensureDaemonOrWarn(directory: string): Promise<void> {
   } catch (error: unknown) {
     const message = errorMessage(error);
     commandLogger().warn("daemon.unavailable", { error: message });
-    process.stderr.write(`warning: ${message}\n`);
+    process.stdout.write(`warning: ${message}\n`);
   }
 }
 
@@ -215,7 +215,10 @@ export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFA
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
     }
     announceUnleasedAgents(orchDir, identity);
-    if (identity.registrationWarning) process.stderr.write(`warning: ${identity.registrationWarning}\n`);
+    if (identity.registrationWarning) {
+      commandLogger().warn("daemon.registration-warning", { warning: identity.registrationWarning });
+      process.stdout.write(`warning: ${identity.registrationWarning}\n`);
+    }
     return identity;
   } catch (error: unknown) {
     throw translateDaemonError(orchDir, error);

@@ -54,7 +54,7 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
   } catch (error: unknown) {
     const message = errorMessage(error);
     commandLogger().error("clean.worktree-failed", { path: worktreePath, error: message });
-    process.stderr.write(`failed to clean worktree ${worktreePath}: ${message}\n`);
+    process.stdout.write(`failed to clean worktree ${worktreePath}: ${message}\n`);
   }
   return true;
 }
@@ -96,7 +96,7 @@ export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions
     const identity = tryParseIdentity(failure.entry.key);
     const log = identity ? commandLogger().forAgent(identity.id) : commandLogger();
     log.error("clean.presence-remove-failed", { path: failure.entry.dir, error: message });
-    process.stderr.write(`failed to remove ${failure.entry.dir}: ${message}\n`);
+    process.stdout.write(`failed to remove ${failure.entry.dir}: ${message}\n`);
   }
   const removed = result.removed.map((entry) => `${entry.key} (pid ${entry.status?.pid ?? "?"})`);
   if (!json) {

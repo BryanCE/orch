@@ -272,7 +272,7 @@ function startEventsTransport(context: EventsContext): () => void {
     },
     (oldestSeq) => {
       commandLogger().warn("events.replay-gap", { oldestSeq });
-      process.stderr.write(formatEventGap(oldestSeq));
+      process.stdout.write(formatEventGap(oldestSeq));
     },
   );
   return () => subscription.close();

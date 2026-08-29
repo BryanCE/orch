@@ -118,8 +118,8 @@ describe("close reports an outcome for every target it was given (U2)", () => {
     const results: unknown[] = Array.isArray(payload.results) ? payload.results : [];
     const first: unknown = results[0];
     expect(isRecord(first) && first.outcome).toBe("error");
-    // Prose on stderr is not something a caller can act on. The reason travels
-    // with the outcome.
+    // Prose outside the JSON payload is not something a caller can act on. The
+    // reason travels with the outcome.
     expect(isRecord(first) && typeof first.error === "string" && first.error).toContain("herdr refused: pane is busy");
     expect(spawnedRecords().has("stuckagt01")).toBe(true);
   });

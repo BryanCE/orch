@@ -114,9 +114,6 @@ export class FakePanedBackend implements Backend {
     return pane.handle;
   }
 
-  workspaceNames(): Map<string, string> {
-    return new Map();
-  }
 }
 
 /**

@@ -6,6 +6,7 @@ import { clearCatalogues, readCatalogues, writeCatalogue } from "../store/catalo
 import { binaryOnPath, errorMessage } from "../util.ts";
 import type { StoredCatalogue } from "../types/store.ts";
 import type { RetryPolicy } from "../types/core.ts";
+import { commandLogger } from "../commands/logging.ts";
 
 /** A cold registry on a slow machine takes far longer to print than a warm one, and giving up
  *  early strips every model out of setup rather than failing loudly. */
@@ -58,9 +59,10 @@ function record(command: string, stdout: string): void {
   writeCatalogue(orchDir(), command, entry);
 }
 
-/** An unanswerable harness lists nothing rather than failing the caller; the reason goes to stderr. */
+/** An unanswerable harness lists nothing rather than failing the caller; the reason goes to stdout. */
 function recordFailure(command: string, bin: string, error: unknown): void {
-  process.stderr.write(`  warning: ${command} failed; ${bin} lists no models (${errorMessage(error)})\n`);
+  commandLogger().warn("models.catalogue-failed", { command, bin, error: errorMessage(error) });
+  process.stdout.write(`  warning: ${command} failed; ${bin} lists no models (${errorMessage(error)})\n`);
   record(command, "");
 }
 
@@ -85,7 +87,7 @@ function queryInBackground(command: string, bin: string, argv: readonly string[]
 
 /** Run a harness's model-listing command. A stored answer is served at once and re-queried in
  *  the background once stale, so only a harness never asked before makes the caller wait.
- *  Empty string when it cannot answer, reason on stderr. */
+ *  Empty string when it cannot answer, reason on stdout. */
 export function readModelCatalogue(bin: string, argv: readonly string[]): string {
   const command = commandLine(bin, argv);
   const answer = catalogues().get(command);

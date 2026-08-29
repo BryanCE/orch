@@ -4,8 +4,10 @@ import { oneLine } from "./format.ts";
 import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/config.ts";
+import { orchDir } from "../presence/store.ts";
+import { decisionLogger } from "../daemon/decision-log.ts";
 
-function warning(message: string): void { process.stderr.write(`notify: ${message}\n`); }
+function warning(message: string): void { decisionLogger(orchDir()).warn("notify.failed", { message }); }
 
 /** The sink ids are the discriminants config.ts's `NotifyEntrySchema` already
  *  declares. Re-listing them here made a second copy that could drift, and put a

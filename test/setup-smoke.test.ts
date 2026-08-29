@@ -2,25 +2,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { runSetupSmoke } from "../src/commands/setup.ts";
 import type { SmokeSteps } from "../src/types/command.ts";
 
-/** Capture everything written to stdout+stderr so the smoke's verdict lines are assertable
- *  without a live daemon, model, or real spawn. */
-let output: string;
+/** Capture stdout so the smoke's verdict lines are assertable without a live daemon,
+ *  model, or real spawn. */
+let stdout: string;
 let restore: (() => void) | null = null;
 /** Keys torn down by the default `cleanup` leg, so a test can assert teardown without overriding it. */
 let cleanedKeys: string[] = [];
 
 beforeEach(() => {
-  output = "";
+  stdout = "";
   cleanedKeys = [];
   process.exitCode = undefined;
   const originalOut = process.stdout.write.bind(process.stdout);
-  const originalErr = process.stderr.write.bind(process.stderr);
-  const capture = (chunk: string | Uint8Array): boolean => { output += chunk.toString(); return true; };
+  const capture = (chunk: string | Uint8Array): boolean => { stdout += chunk.toString(); return true; };
   (process.stdout as unknown as { write: typeof capture }).write = capture;
-  (process.stderr as unknown as { write: typeof capture }).write = capture;
   restore = () => {
     process.stdout.write = originalOut;
-    process.stderr.write = originalErr;
   };
 });
 
@@ -49,8 +46,8 @@ describe("runSetupSmoke (12.5)", () => {
     const ok = await runSetupSmoke("/tmp/smoke", steps({}));
     expect(ok).toBe(true);
     expect(process.exitCode).toBeUndefined();
-    expect(output).toContain("Smoke ok");
-    expect(output).toContain("orch can deliver work");
+    expect(stdout).toContain("Smoke ok");
+    expect(stdout).toContain("orch can deliver work");
     expect(cleanedKeys).toEqual(["smokeagen1"]);
   });
 
@@ -78,8 +75,8 @@ describe("runSetupSmoke (12.5)", () => {
     expect(ok).toBe(false);
     // The smoke REPORTS; it never fails setup's exit code.
     expect(process.exitCode).toBeUndefined();
-    expect(output).toContain("no result came back");
-    expect(output).toContain("did not complete a work round-trip");
+    expect(stdout).toContain("no result came back");
+    expect(stdout).toContain("did not complete a work round-trip");
     // A timed-out smoke still tears down the spawned agent.
     expect(cleaned).toBe("smokeagen1");
   });
@@ -93,8 +90,8 @@ describe("runSetupSmoke (12.5)", () => {
     expect(ok).toBe(false);
     // The smoke REPORTS; it never fails setup's exit code.
     expect(process.exitCode).toBeUndefined();
-    expect(output).toContain("orch could not deliver work");
-    expect(output).toContain("headless spawn recorded no new agent");
+    expect(stdout).toContain("orch could not deliver work");
+    expect(stdout).toContain("headless spawn recorded no new agent");
     expect(polls).toBe(0);
   });
 });

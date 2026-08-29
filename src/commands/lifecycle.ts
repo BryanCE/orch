@@ -266,7 +266,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
   }
   if (!shellSeen) {
     lifecycleLogger(presenceKey).warn("lifecycle.restart-exit-timeout", { handle: pane, command: quitText });
-    process.stderr.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
+    process.stdout.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
   backend.paneInput.submit(pane, cmd);
@@ -276,7 +276,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
     if (typeof st?.pid === "number" && st.pid !== oldPid && pidAlive(st.pid)) return true;
   }
   lifecycleLogger(presenceKey).warn("lifecycle.restart-bridge-timeout", { handle: pane });
-  process.stderr.write(`${pane}: relaunched but bridge status.json did not refresh within 20s.\n`);
+  process.stdout.write(`${pane}: relaunched but bridge status.json did not refresh within 20s.\n`);
   return false;
 }
 
@@ -422,7 +422,7 @@ async function restartOneTarget(target: string, cmd: string | null, config: Orch
     }
     const reason = restarted.reason ?? "restart failed";
     lifecycleLogger(ent.key).error("lifecycle.restart-failed", { handle: String(restarted.pane), error: reason });
-    process.stderr.write(`${restarted.pane}: ${reason}\n`);
+    process.stdout.write(`${restarted.pane}: ${reason}\n`);
     return false;
   }
   const launch = restartLaunchCommand(cmd, harness, adapter, config);
@@ -479,7 +479,7 @@ function renameAgent(
   const view = viewForKey(views, key);
   if (!view) {
     lifecycleLogger(key).error("rename.unmanaged-agent", { target: key });
-    process.stderr.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
+    process.stdout.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return null;
   }
   assertNameFree(name, view.environment.space ?? "");
@@ -498,7 +498,7 @@ function renameAgent(
   } catch (error: unknown) {
     const message = errorMessage(error);
     lifecycleLogger(key).warn("rename.chrome-failed", { handle: String(handle), error: message });
-    process.stderr.write(`orch rename: named "${name}", but the pane border was not updated: ${message}\n`);
+    process.stdout.write(`orch rename: named "${name}", but the pane border was not updated: ${message}\n`);
     return { chrome: "failed", chromeError: message };
   }
 }
@@ -642,7 +642,7 @@ function sweepTargets(authority: CloseAuthority): CloseTarget[] {
     const backend = getBackend(view.environment.plexer ?? "") ?? null;
     if (!backend) {
       lifecycleLogger(address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
-      process.stderr.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
+      process.stdout.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
     }
     const handle = view.environment.handle ?? address;
     targets.push({ backend, handle, key: address, recorded: recordedProcess(address), paneKnown: plexerStillHasPane(backend, handle) });
@@ -793,7 +793,7 @@ function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { resu
     if (failure !== null) {
       lifecycleLogger(target.key).error("close.failed", { handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
-      process.stderr.write(`Could not close ${handle}: ${failure}\n`);
+      process.stdout.write(`Could not close ${handle}: ${failure}\n`);
       continue;
     }
     endClosedAgent(target.key);

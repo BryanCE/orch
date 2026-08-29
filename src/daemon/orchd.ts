@@ -174,7 +174,7 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
         target: canonicalTarget,
         reason: outcome.reason,
       });
-      process.stderr.write(`${kind} ${canonicalTarget} refused (${outcome.reason}): ${outcome.text}\n`);
+      log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason, text: outcome.text });
       // A boundary answer is a successful human-facing outcome, not a failed
       // delivery. Ack it so the outbox does not retry or escalate it as error.
       return "acked";
@@ -184,7 +184,6 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
     return outcome.ack === "expected" ? "queued" : "acked";
   } catch (error) {
     log.error("dispatch.failed", { target: canonicalTarget, error: errorMessage(error) });
-    process.stderr.write(`${kind} ${canonicalTarget} failed: ${errorMessage(error)}\n`);
     return "failed";
   }
 }
@@ -478,7 +477,7 @@ async function main(): Promise<void> {
     }), {
       holdsDaemonLock: true,
       tcpPort,
-      onTcpError: (error, port) => process.stderr.write(`orchd TCP listener failed on 127.0.0.1:${port}: ${errorMessage(error)}\n`),
+      onTcpError: (error, port) => daemonLogger?.error("daemon.tcp-listener-failed", { port, error: errorMessage(error) }),
     });
   } catch (error) {
     releaseDaemonLock(directory);
@@ -495,10 +494,10 @@ async function main(): Promise<void> {
     onChange: (config) => {
       currentConfig = config;
       sinks = undefined;
-      if (configLoaded) process.stderr.write("config reloaded\n");
+      if (configLoaded) daemonLogger?.info("config.reloaded");
       configLoaded = true;
     },
-    onWarn: (message) => process.stderr.write(`orchd config: ${message}\n`),
+    onWarn: (message) => daemonLogger?.warn("config.warning", { message }),
   });
   presenceWatch = startPresenceWatch({
     orchDir: directory,

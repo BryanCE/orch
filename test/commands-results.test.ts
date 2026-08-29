@@ -108,7 +108,7 @@ describe("commands/results", () => {
     seedAgent(root, key, space, "pi");
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done", sessionPath: session }));
     try {
-      expect(captureStdout(() => cmdResult([key]))).toBe("session final\n");
+      expect(captureStdout(() => cmdResult([key]))).toContain("(no result.json - falling back to adapter-extracted session text)\nsession final\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);

@@ -34,9 +34,9 @@ describe("commands/spawn", () => {
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
     });
     const originalExit = process.exit.bind(process);
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    let stderr = "";
-    process.stderr.write = (chunk: string | Uint8Array) => { stderr += String(chunk); return true; };
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let stdout = "";
+    process.stdout.write = (chunk: string | Uint8Array) => { stdout += String(chunk); return true; };
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
@@ -45,7 +45,7 @@ describe("commands/spawn", () => {
       refusal = error;
     } finally {
       process.exit = originalExit;
-      process.stderr.write = originalWrite;
+      process.stdout.write = originalWrite;
     }
     expect(refusal).toBeInstanceOf(CommandRefusal);
     expect(errorMessage(refusal)).toMatch(/invalid agent name.*must match/i);
@@ -71,9 +71,9 @@ describe("commands/spawn", () => {
       return originalSpawn(...args);
     };
     const originalExit = process.exit.bind(process);
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    let stderr = "";
-    process.stderr.write = (chunk: string | Uint8Array) => { stderr += String(chunk); return true; };
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let stdout = "";
+    process.stdout.write = (chunk: string | Uint8Array) => { stdout += String(chunk); return true; };
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
@@ -82,7 +82,7 @@ describe("commands/spawn", () => {
       refusal = error;
     } finally {
       process.exit = originalExit;
-      process.stderr.write = originalWrite;
+      process.stdout.write = originalWrite;
       backend.spawn = originalSpawn;
     }
     expect(refusal).toBeInstanceOf(CommandRefusal);
@@ -102,9 +102,9 @@ describe("commands/spawn", () => {
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
     });
     const originalExit = process.exit.bind(process);
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    let stderr = "";
-    process.stderr.write = (chunk: string | Uint8Array) => { stderr += String(chunk); return true; };
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let stdout = "";
+    process.stdout.write = (chunk: string | Uint8Array) => { stdout += String(chunk); return true; };
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
@@ -113,7 +113,7 @@ describe("commands/spawn", () => {
       refusal = error;
     } finally {
       process.exit = originalExit;
-      process.stderr.write = originalWrite;
+      process.stdout.write = originalWrite;
     }
     expect(refusal).toBeInstanceOf(CommandRefusal);
     expect(errorMessage(refusal)).toMatch(/unknown flag.*--detached/i);

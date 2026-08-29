@@ -86,8 +86,8 @@ describe("commands/runs", () => {
       const key = "runsgoneaa";
       upsertRun(root, { dispatchId: "history", agentKey: key, state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), result: { text: "from history" } });
       const output = capture(() => cmdResult([key]));
-      expect(output.stdout).toBe("from history\n");
-      expect(output.stderr).toContain("run history");
+      expect(output.stdout).toContain("(result from run history)\n");
+      expect(output.stdout).toContain("from history\n");
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 });

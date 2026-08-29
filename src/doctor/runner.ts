@@ -4,7 +4,7 @@ import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
-import { checkBackendCapabilities, checkBackendVersions } from "./backends.ts";
+import { describeBackendEnvironments, checkBackendVersions } from "./backends.ts";
 import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
 import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
 import { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
@@ -18,6 +18,7 @@ import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion } from 
 import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
 import { placementOf } from "../agent/registry.ts";
+import { commandLogger } from "../commands/logging.ts";
 
 export type { CheckResult } from "../types/doctor.ts";
 import type { AdapterId } from "../types/adapter.ts";
@@ -97,7 +98,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("bins", "Required binaries", () => checkBins(bins, enabledAdapters)),
     ...providerChecks,
     ...livePairs.map((pair) => Promise.resolve(pair)),
-    isolated("backend-capabilities", "Backend capabilities", () => checkBackendCapabilities(enabledBackends, configuredBackend)),
+    isolated("backend-environments", "Backend environments", () => describeBackendEnvironments(enabledBackends, configuredBackend)),
     isolated("backend-versions", "Backend versions", checkBackendVersions),
     isolated("declared-vs-reality", "Declared vs reality", () => checkDeclaredVsReality(orchDir)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
@@ -159,7 +160,8 @@ export async function refreshStaleShims(orchDir: string, harnesses: readonly str
       refreshed.push(id);
     } catch (error: unknown) {
       // A broken shim diagnosis warns; it never blocks the command that asked.
-      process.stderr.write(`warning: ${id} integration refresh failed: ${errorMessage(error)}\n`);
+      commandLogger().warn("doctor.shim-refresh-failed", { adapter: id, error: errorMessage(error) });
+      process.stdout.write(`warning: ${id} integration refresh failed: ${errorMessage(error)}\n`);
     }
   }
   return refreshed;

@@ -59,11 +59,11 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
     await sleep(500);
   }
   // A stalled agent is a failed spawn: it holds its name and answers no control
-  // traffic. Reporting it on stderr while exiting 0 is what let a scripted fleet
+  // traffic. Reporting it on stdout while exiting 0 is what let a scripted fleet
   // launch read as success and dispatch into panes that never came up.
   for (const agent of pending.values()) {
     spawnLogger(agent.key).error("spawn.stalled", { handle: agent.pane, name: agent.name });
-    process.stderr.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
+    process.stdout.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
   }
   if (pending.size) process.exitCode = 1;
   return [...registered.values()];
@@ -74,7 +74,7 @@ async function awaitBridgeRegistration(created: { key: string; pane: string; nam
 function reportShortfall(requested: number, placed: number): void {
   if (placed >= requested) return;
   commandLogger().error("spawn.shortfall", { requested, placed });
-  process.stderr.write(`placed ${placed} of ${requested} requested agent(s)\n`);
+  process.stdout.write(`placed ${placed} of ${requested} requested agent(s)\n`);
   process.exitCode = 1;
 }
 
@@ -86,7 +86,7 @@ async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[
     return await awaitBridgeRegistration(created, json);
   }
   commandLogger().warn("spawn.unverified", { adapter: adapter.id, count: created.length });
-  process.stderr.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
+  process.stdout.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
   return null;
 }
 
@@ -166,7 +166,7 @@ export async function pinModels(
     .map((result) => `could not pin ${result.name} (${result.pane}) to ${spec}: ${result.failure}`);
   for (const warning of warnings) {
     commandLogger().warn("spawn.model-pin-failed", { warning });
-    process.stderr.write(`warning: ${warning}\n`);
+    process.stdout.write(`warning: ${warning}\n`);
   }
   return warnings;
 }
@@ -495,7 +495,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
       // only "failed" retries the whole spawn and ends up with a duplicate fleet.
       const message = errorMessage(error);
       commandLogger().error("spawn.failed", { backend: settings.backend, name, error: message });
-      process.stderr.write(`${settings.backend} spawn failed for ${name}: ${message}\n`);
+      process.stdout.write(`${settings.backend} spawn failed for ${name}: ${message}\n`);
       break;
     }
   }
@@ -672,7 +672,7 @@ function growFleetIntoGroup(settings: SpawnSettings, space: string | null, works
     } catch (error: unknown) {
       const message = errorMessage(error);
       commandLogger().warn("spawn.place-failed", { backend: backend.id, name, error: message });
-      process.stderr.write(`warning: could not place agent ${name}: ${message}\n`);
+      process.stdout.write(`warning: could not place agent ${name}: ${message}\n`);
     }
   }
   return created;
@@ -749,7 +749,7 @@ async function reportControlPlaneOutage(paneCount: number): Promise<string | nul
   const outage = await daemonOutage();
   if (!outage) return null;
   commandLogger().error("spawn.control-plane-unreachable", { panes: paneCount, error: outage });
-  process.stderr.write(`CONTROL PLANE UNREACHABLE - ${paneCount} pane(s) are UNMANAGED: ${outage}\n`);
+  process.stdout.write(`CONTROL PLANE UNREACHABLE - ${paneCount} pane(s) are UNMANAGED: ${outage}\n`);
   process.exitCode = 1;
   return outage;
 }
@@ -768,7 +768,7 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
     for (const agent of created) {
       if (!registeredKeys.has(agent.key)) {
         spawnLogger(agent.key).warn("spawn.not-registered", { name: agent.name });
-        process.stderr.write(`not pinned: ${agent.name} never registered\n`);
+        process.stdout.write(`not pinned: ${agent.name} never registered\n`);
       }
     }
   }
@@ -792,7 +792,7 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
       } catch (error: unknown) {
         const message = errorMessage(error);
         spawnLogger(agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });
-        process.stderr.write(`warning: could not dispatch ${agent.name}: ${message}\n`);
+        process.stdout.write(`warning: could not dispatch ${agent.name}: ${message}\n`);
       }
     }
   }
@@ -823,7 +823,7 @@ function spawnBackend(settings: SpawnSettings): Backend {
   if (backend.isInsideSession()) return backend;
   if (backend.spaceHome) return backend;
   commandLogger().warn("spawn.detached-fallback", { backend: backend.id });
-  process.stderr.write(
+  process.stdout.write(
     `orch is not running inside a ${backend.id} pane and ${backend.id} cannot open a space of its own - spawning detached. `
     + `Pass --space <id> to place these agents in a ${backend.id} space instead.\n`,
   );
@@ -909,7 +909,7 @@ function openPanesForGroup(
     } catch (error: unknown) {
       const message = errorMessage(error);
       spawnLogger(item.key).warn("spawn.pane-open-failed", { name: item.name, error: message });
-      process.stderr.write(`warning: could not open a pane for ${item.name}: ${message}\n`);
+      process.stdout.write(`warning: could not open a pane for ${item.name}: ${message}\n`);
       item.pane = undefined;
     }
   }
@@ -936,7 +936,7 @@ function launchPrepared(
     } catch (error: unknown) {
       const message = errorMessage(error);
       spawnLogger(item.key).error("spawn.launch-failed", { name: item.name, error: message });
-      process.stderr.write(`warning: could not launch agent ${item.name}: ${message}\n`);
+      process.stdout.write(`warning: could not launch agent ${item.name}: ${message}\n`);
     }
   }
   return created;

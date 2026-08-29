@@ -45,13 +45,13 @@ describe("a command refusal is thrown, not exited", () => {
     expect(() => cmdRuns(["absentag01", "--json"])).toThrow(/No target matches/);
   });
 
-  test("the CLI boundary turns a refusal into exit 1 with the message on stderr", () => {
+  test("the CLI boundary turns a refusal into exit 1 with the message on stdout", () => {
     const dir = fixture();
     const ran = Bun.spawnSync(
       [process.execPath, join(import.meta.dir, "../bin/orch.ts"), "runs", "absentag01", "--json"],
       { env: { ...process.env, ORCH_DIR: dir }, stdout: "pipe", stderr: "pipe" },
     );
     expect(ran.exitCode).toBe(1);
-    expect(ran.stderr.toString()).toContain("No target matches");
+    expect(ran.stdout.toString()).toContain("No target matches");
   });
 });

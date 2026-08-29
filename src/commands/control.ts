@@ -118,7 +118,7 @@ export async function cmdBroadcast(args: string[]) {
       const identity = tryParseIdentity(refusal.key);
       const log = identity ? commandLogger().forAgent(identity.id) : commandLogger();
       log.warn("broadcast.refused", { reason: refusal.reason, target: refusal.key });
-      process.stderr.write(`  refused ${recipientLabel(recipientFor(refusal.key))}: ${refusal.reason}\n`);
+      process.stdout.write(`  refused ${recipientLabel(recipientFor(refusal.key))}: ${refusal.reason}\n`);
     }
   }
   if (delivered === 0) process.exitCode = 1;

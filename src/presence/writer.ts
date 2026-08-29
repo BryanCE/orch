@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ANSWER_FILE, PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 import { errorMessage, isRecord } from "../util.ts";
+import { createLogger } from "../log.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord } from "../types/presence.ts";
 import type { JsonRecord } from "../types/core.ts";
 
@@ -115,7 +116,7 @@ export function launchKey(validate: (key: string) => void): string | undefined {
   try {
     validate(key);
   } catch (error: unknown) {
-    process.stderr.write(`${errorMessage(error)}\n`);
+    createLogger({ file: join(orchDir(), "orch.log"), level: "error" }).error("launch.invalid-key", { error: errorMessage(error) });
     process.exit(1);
   }
   return key;

@@ -54,7 +54,7 @@ function readAdapterCatalogue(id: AdapterId): readonly HarnessModel[] {
   } catch (error: unknown) {
     const message = errorMessage(error);
     commandLogger().error("models.catalogue-failed", { adapter: id, error: message });
-    process.stderr.write(`  ${id}: could not list models - ${message}\n`);
+    process.stdout.write(`  ${id}: could not list models - ${message}\n`);
     return [];
   }
 }

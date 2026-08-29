@@ -10,6 +10,7 @@ import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, AnswerRequest, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
+import { commandLogger } from "../commands/logging.ts";
 
 const CODEX_MODELS_CACHE = join(homedir(), ".codex", "models_cache.json");
 
@@ -47,18 +48,21 @@ function installCodexNotifyShim(root: string): void {
     try {
       raw = readFileSync(configPath, "utf8");
     } catch (error: unknown) {
-      process.stderr.write(`  warning: could not read ${configPath}; Codex notify not changed (${errorMessage(error)})\n`);
+      commandLogger().warn("codex.notify-config-read-failed", { path: configPath, error: errorMessage(error) });
+      process.stdout.write(`  warning: could not read ${configPath}; Codex notify not changed (${errorMessage(error)})\n`);
       return;
     }
   }
 
   const edit = editCodexNotifyConfig(raw, argv);
   if (edit.status === "ambiguous") {
-    process.stderr.write(`  warning: could not read the top-level notify key in ${configPath}; Codex notify not changed\n`);
+    commandLogger().warn("codex.notify-config-ambiguous", { path: configPath });
+    process.stdout.write(`  warning: could not read the top-level notify key in ${configPath}; Codex notify not changed\n`);
     return;
   }
   if (edit.status === "foreign") {
-    process.stderr.write(
+    commandLogger().warn("codex.notify-foreign", { path: configPath, value: edit.foreignValue });
+    process.stdout.write(
       `  warning: ${configPath} already has a non-orch notify program (${edit.foreignValue}); leaving it - `
       + "codex notify presence is disabled (headless session-tail parsing still works)\n",
     );
@@ -72,7 +76,8 @@ function installCodexNotifyShim(root: string): void {
   writeFileSync(configPath, edit.text);
   process.stdout.write(`Codex notify: ${edit.status === "inserted" ? "added" : "updated"} (${runtime}) in ${configPath}\n`);
   if (!existsSync(shim)) {
-    process.stderr.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
+    commandLogger().warn("codex.shim-missing", { path: shim });
+    process.stdout.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
   }
 }
 

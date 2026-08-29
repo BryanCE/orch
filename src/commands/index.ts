@@ -278,7 +278,7 @@ export function reportCommandFailure(error: unknown): void {
   if (!(error instanceof CommandRefusal)) {
     commandLogger().error("command.failed", { error: errorMessage(error) });
   }
-  process.stderr.write(errorMessage(error) + "\n");
+  process.stdout.write(errorMessage(error) + "\n");
   process.exitCode = 1;
 }
 
@@ -390,7 +390,7 @@ export function runCommand(argv: string[]): void {
   if (cmd.startsWith("--")) dispatchAsync(cmdStatus(argv));
   else {
     commandLogger().error("command.unknown", { command: cmd });
-    process.stderr.write(`Unknown command: ${cmd}\n\n`);
+    process.stdout.write(`Unknown command: ${cmd}\n\n`);
     usage();
     process.exitCode = 1;
   }

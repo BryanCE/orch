@@ -128,7 +128,6 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
     if (!options.json) process.stdout.write(`Dispatched to ${entry.key} -> status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
   } catch (error) {
     log.error("dispatch.failed", { target: entry.key, error: errorMessage(error) });
-    process.stderr.write(`Warning: cannot dispatch ${entry.key}: ${errorMessage(error)}\n`);
   }
 }
 
@@ -235,7 +234,14 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         lastSweepAt = nowMs;
         const counts = sweepExpiredRows(options.orchDir, config, new Date(nowMs));
         if (Object.values(counts).some((count) => count > 0)) {
-          process.stderr.write(`retention sweep: queue=${counts.queue} outbox=${counts.outbox} events=${counts.events} runs=${counts.runs} ended_agents=${counts.ended_agents} logs=${counts.logs}\n`);
+          decisionLogger(options.orchDir).info("retention.swept", {
+            queue: counts.queue,
+            outbox: counts.outbox,
+            events: counts.events,
+            runs: counts.runs,
+            ended_agents: counts.ended_agents,
+            logs: counts.logs,
+          });
         }
       }
     }

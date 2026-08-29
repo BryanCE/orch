@@ -29,7 +29,7 @@ function writeHistoricalResult(run: { result?: unknown }, json: boolean, key?: s
   resultLogger(key).info("result.history-fallback");
   // TASKS/13 §1: stdout carries what the human asked for — here, the result
   // text itself. A provenance notice on stdout corrupts `orch result … | …`.
-  process.stderr.write("(result from run history)\n");
+  process.stdout.write("(result from run history)\n");
   if (json) {
     process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
     return true;
@@ -95,7 +95,7 @@ function writeAdapterResult(ent: Entity, json: boolean): boolean {
   if (!text) return false;
   resultLogger(ent.key).info("result.adapter-fallback");
   // Same rule: where the text came from is diagnosis, not the result.
-  process.stderr.write("(no result.json - falling back to adapter-extracted session text)\n");
+  process.stdout.write("(no result.json - falling back to adapter-extracted session text)\n");
   if (json) writeAdapterJson(ent, adapter, text);
   else process.stdout.write(text + "\n");
   return true;

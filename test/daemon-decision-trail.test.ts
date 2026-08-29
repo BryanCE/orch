@@ -109,7 +109,8 @@ describe("daemon decision trail", () => {
     // will ever append a marker for it, so it settles on the write (L7).
     expect(await deliverWrite(target, { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
 
-    const [record] = records(directory);
+    const trail = records(directory);
+    const record = trail.find((candidate) => candidate.event === "boundary.answer");
     if (record === undefined) throw new Error("missing boundary answer record");
     expect(Number.isFinite(record.at)).toBe(true);
     expect(record).toEqual({
@@ -120,5 +121,10 @@ describe("daemon decision trail", () => {
       agentId: target,
       fields: { target, reason: "no-pane" },
     });
+    const refusal = trail.find((candidate) => candidate.event === "dispatch.refused");
+    if (refusal === undefined) throw new Error("missing dispatch refusal record");
+    expect(refusal.level).toBe("warn");
+    expect(refusal.correlationId).toBe("dispatch-1");
+    expect(refusal.fields).toEqual({ target, reason: "no-pane", text: `${target} has no pane; steer does not apply.` });
   });
 });

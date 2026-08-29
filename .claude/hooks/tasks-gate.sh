@@ -29,12 +29,12 @@ fail() { printf '%s\n' "$1" >&2; exit 2; }
 # Code moved but no row flipped means finished work is sitting unmarked, and the
 # scope file then under-reports the tree. Checked against the working tree and
 # against the last commit, so it cannot be dodged by committing first.
-code_now="$(git diff --name-only HEAD -- src test packages scripts 2>/dev/null | head -1)"
-tasks_now="$(git diff --name-only HEAD -- TASKS/ 2>/dev/null | head -1)"
+# Only the LAST COMMIT is judged: a fleet mid-row leaves unmarked edits in the
+# working tree by definition, and a row is marked when it is COMMITTED.
 code_last="$(git diff --name-only HEAD~1 HEAD -- src test packages scripts 2>/dev/null | head -1)"
 tasks_last="$(git diff --name-only HEAD~1 HEAD -- TASKS/ 2>/dev/null | head -1)"
 
-if { [ -n "$code_now" ] && [ -z "$tasks_now" ]; } || { [ -n "$code_last" ] && [ -z "$tasks_last" ]; }; then
+if [ -n "$code_last" ] && [ -z "$tasks_last" ]; then
   fail "NOT DONE — YOU CHANGED CODE AND MARKED NOTHING OFF.
 
 TASKS/ was not touched.

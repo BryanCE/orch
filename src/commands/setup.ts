@@ -23,6 +23,7 @@ import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
 import { cmdSpawn } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
+import { commandLogger } from "./logging.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { AdapterId, AgentAdapter, HarnessModel } from "../types/adapter.ts";
 import type { HarnessModelChoices, ShimBoundaryPlan, SmokeSteps } from "../types/command.ts";
@@ -312,7 +313,8 @@ function runInstall(bin: string, cmd: string, interactive: boolean): void {
       execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
     }
   } catch {
-    process.stderr.write(`  ${bin} install failed - run manually: ${cmd}\n`);
+    commandLogger().warn("setup.install-failed", { bin, command: cmd });
+    process.stdout.write(`  ${bin} install failed - run manually: ${cmd}\n`);
   }
 }
 
@@ -479,11 +481,13 @@ async function installAdapterShims(adapters: readonly AdapterId[], copy: boolean
         await plan.role.installShim({ copy });
       } catch (error: unknown) {
         const gap = `${id}: integration install failed - ${errorMessage(error)}`;
-        process.stderr.write(`  WARNING ${gap}\n`);
+        commandLogger().warn("setup.shim-install-failed", { adapter: id, error: errorMessage(error) });
+        process.stdout.write(`  WARNING ${gap}\n`);
         gaps.push(gap);
       }
     } else {
-      process.stderr.write(`  ANSWER ${plan.text}\n`);
+      commandLogger().warn("setup.shim-unavailable", { adapter: id, reason: plan.reason });
+      process.stdout.write(`  ANSWER ${plan.text}\n`);
       gaps.push(plan.text);
     }
   }
@@ -616,7 +620,8 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   try {
     key = await step.spawnHeadless(cwd, step.buildPrompt());
   } catch (error: unknown) {
-    process.stderr.write(
+    commandLogger().error("setup.smoke-spawn-failed", { error: errorMessage(error) });
+    process.stdout.write(
       `Smoke failed: orch could not deliver work - the headless spawn was rejected (${errorMessage(error)}).\n` +
       `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status'.\n`,
     );
@@ -631,7 +636,8 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   }
   step.cleanup(key);
   if (!result) {
-    process.stderr.write(
+    commandLogger().error("setup.smoke-timeout", { key, timeoutMs: step.timeoutMs });
+    process.stdout.write(
       `Smoke failed: the agent launched but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,
     );
@@ -825,7 +831,8 @@ async function configureNotifiers(): Promise<void> {
   }
   const result = await buildSelectedNotifyEntries(selections);
   for (const error of result.errors) {
-    process.stderr.write(`  notifier ${error.id}: missing required fields - ${error.missing.join(", ")}\n`);
+    commandLogger().warn("setup.notifier-missing-fields", { notifier: error.id, missing: error.missing.join(", ") });
+    process.stdout.write(`  notifier ${error.id}: missing required fields - ${error.missing.join(", ")}\n`);
   }
   if (result.entries.length) {
     writeSettingsNotify(orchDir(), result.entries);

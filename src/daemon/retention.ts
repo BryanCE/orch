@@ -2,6 +2,7 @@ import { loadPresence, reapDeadPresenceDirs, reapSpawnedRecord } from "../presen
 import { tryParseIdentity } from "../backends/identity.ts";
 import { allBackends } from "../backends/registry.ts";
 import { errorMessage } from "../util.ts";
+import { decisionLogger } from "./decision-log.ts";
 import { deleteEventsBefore } from "../store/event-rows.ts";
 import { deleteDeliveredBefore } from "../store/outbox-rows.ts";
 import { deleteSettledTasksBefore } from "../store/task-rows.ts";
@@ -54,7 +55,7 @@ function removeExpiredAgentDirs(orchDir: string, cutoff: Date): number {
   const recordsRemoved = removeExpiredAgentRecords(orchDir, cutoff);
   const result = reapDeadPresenceDirs(orchDir, cutoff);
   for (const failure of result.failed) {
-    process.stderr.write(`Warning: retention sweep ended_agents failed for ${failure.entry.dir}: ${errorMessage(failure.error)}\n`);
+    decisionLogger(orchDir).warn("retention.sweep-failed", { area: "ended_agents", dir: failure.entry.dir, error: errorMessage(failure.error) });
   }
   // The registry row and presence directory represent one logical agent. Count
   // their union so removing both does not inflate the retention metric.
@@ -89,7 +90,7 @@ function removeExpiredLogs(orchDir: string, cutoff: Date): number {
     try {
       backendRemoved += pruning.prune(cutoff, liveKeys, orchDir);
     } catch (error: unknown) {
-      process.stderr.write(`Warning: retention sweep logs failed for backend ${backend.id}: ${errorMessage(error)}\n`);
+      decisionLogger(orchDir).warn("retention.sweep-failed", { area: "logs", backend: backend.id, error: errorMessage(error) });
     }
   }
   return removed + backendRemoved;
@@ -113,7 +114,7 @@ export function sweepExpiredRows(orchDir: string, config: OrchConfig, now: Date)
     try {
       counts[entry.name] = entry.remove(cutoff(entry.days));
     } catch (error: unknown) {
-      process.stderr.write(`Warning: retention sweep ${entry.name} failed: ${errorMessage(error)}\n`);
+      decisionLogger(orchDir).warn("retention.sweep-failed", { area: entry.name, error: errorMessage(error) });
     }
   }
   return counts;

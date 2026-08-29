@@ -26,7 +26,7 @@ import { agentViewIndex, callerOwnerToken, die, presenceById } from "./target.ts
 import { callerSpace } from "../identity/self.ts";
 import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
-import type { Backend, BackendGroup, BackendHandle, GroupLayoutRole, TileFirstSplit } from "../types/backend.ts";
+import type { Backend, BackendGroup, BackendHandle, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../types/backend.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { AgentView, GrantAction } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
@@ -34,7 +34,7 @@ import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchConfig } from "../types/config.ts";
 import { homeHandle, openHome } from "../store/home-rows.ts";
 import { agentById } from "../store/agent-rows.ts";
-import type { AgentFlags, AgentSettings, CreatedAgent, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../types/command.ts";
+import type { AgentFlags, AgentSettings, CreatedAgent, PreparedAgent, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../types/command.ts";
 import type { HomeSubject } from "../types/backend.ts";
 
 function spawnLogger(key?: string) {
@@ -837,47 +837,148 @@ function spawnBackend(settings: SpawnSettings): Backend {
   return detachedBackend;
 }
 
-async function executeSpawn(settings: SpawnSettings): Promise<void> {
-  // Enforce provenance depth and pack size before resolving a backend or
-  // allocating its space; a refused spawn creates nothing and is never queued.
+/** Everything that can refuse a spawn, run before it creates anything. A refused
+ *  spawn leaves no tab, no pane, no worktree and no queue entry. */
+async function admitSpawn(settings: SpawnSettings): Promise<void> {
+  // Provenance depth and pack size come first: before a backend is resolved and
+  // before any space is allocated.
   assertSpawnPolicy(settings, settings.space ?? callerSpace() ?? "", settings.n);
   assertLaunchModelAllowed(settings.adapter, settings.model);
-  // Shim refresh is a launch side effect and must happen only after policy accepts,
-  // and only for the harness actually being launched.
+  // Shim refresh is a launch side effect, so it happens only after policy
+  // accepts, and only for the harness actually being launched.
   await refreshStaleShims(orchDir(), [settings.adapter]);
-  // Validate the user-supplied prefix before resolving a space or creating
-  // any tab. Herdr rejects these names, so no placement side effect may precede it.
+  // Herdr rejects an invalid prefix, so no placement side effect may precede it.
   try {
     assertValidAgentName(settings.prefix);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  const spawnerAgentId = (await rpcHello(orchDir())).id;
-  const backend = spawnBackend(settings);
-  // A backend without group creation has no panes to tile into: spawn detached.
-  if (!backend.groupHome) {
-    await executeDetachedSpawn(settings, backend, spawnerAgentId);
-    return;
+}
+
+/** An environment with no group layout cannot tile. That is an ANSWER with exit
+ *  0 (`TASKS/02-scope.md` E14), never a throw and never a silent empty result. */
+function answerNoGroupLayout(json: boolean): void {
+  const answer = { outcome: "answer", reason: "no-environment-role", text: "this pane environment does not provide group layout" };
+  if (json) process.stdout.write(JSON.stringify(answer) + "\n");
+  else process.stdout.write(`${answer.text}\n`);
+}
+
+/** Mint every identity, worktree and environment up front, before a tab exists. */
+function prepareAgents(settings: SpawnSettings, adapter: AgentAdapter, names: readonly string[]): PreparedAgent[] {
+  return names.map((name) => {
+    const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
+    adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
+    const key = serializeIdentity({ id: mintAgentId() });
+    const branch = settings.worktree ? `orch/${name}` : undefined;
+    const env = {
+      ...agentIdentityEnv(name, spawnerIdentity()),
+      ...worktreeEnv(settings.worktree ? cwd : undefined, branch),
+      ORCH_AGENT_KEY: key, ORCH_DIR: orchDir(),
+    };
+    return { name, cwd, key, env, branch, pane: undefined };
+  });
+}
+
+/** Create the tab and hand its root pane to the first prepared agent. */
+function createSpawnGroup(
+  groupHome: GroupHomeRole,
+  workspace: string | undefined,
+  label: string,
+  prepared: readonly PreparedAgent[],
+): BackendGroup {
+  const root = prepared[0]!;
+  try {
+    const created = groupHome.create({ workspace, cwd: root.cwd, label, env: root.env });
+    root.pane = created.rootHandle;
+    return created.group;
+  } catch (error: unknown) {
+    die(`group create failed: ${errorMessage(error)}`);
   }
-  const groupLayout = backend.groupLayout;
-  if (!groupLayout) {
-    const answer = { outcome: "answer", reason: "no-environment-role", text: "this pane environment does not provide group layout" };
-    if (settings.json) process.stdout.write(JSON.stringify(answer) + "\n");
-    else process.stdout.write(`${answer.text}\n`);
-    return;
+}
+
+/** Open a pane for every prepared agent after the first, which already holds the
+ *  group's root. A pane that fails to open costs that agent, never the tab. */
+function openPanesForGroup(
+  backend: Backend,
+  prepared: readonly PreparedAgent[],
+  groupId: string,
+  workspace: string | undefined,
+  firstSplit: TileFirstSplit,
+): void {
+  for (let index = 1; index < prepared.length; index++) {
+    const item = prepared[index]!;
+    try {
+      const role = backend.groupLayout;
+      if (!role) continue;
+      const tile = nextTilePlacement(role, groupId, firstSplit);
+      if (!backend.paneHost) throw new Error("backend has no pane host");
+      item.pane = backend.paneHost.open({ cwd: item.cwd, workspace, group: groupId, split: tile.split, targetPane: tile.targetPane, env: item.env }).handle;
+    } catch (error: unknown) {
+      const message = errorMessage(error);
+      spawnLogger(item.key).warn("spawn.pane-open-failed", { name: item.name, error: message });
+      process.stderr.write(`warning: could not open a pane for ${item.name}: ${message}\n`);
+      item.pane = undefined;
+    }
   }
+}
+
+/** Launch an agent into every pane that opened. A launch failure costs that
+ *  agent; the caller rules on what an empty result means. */
+function launchPrepared(
+  prepared: readonly PreparedAgent[],
+  context: { settings: SpawnSettings; backend: Backend; adapter: AgentAdapter; space: string; groupId: string; spawnerAgentId: string | null },
+): CreatedAgent[] {
+  const { settings, backend, adapter, space, groupId, spawnerAgentId } = context;
+  const created: CreatedAgent[] = [];
+  for (const item of prepared) {
+    if (item.pane === undefined) continue;
+    try {
+      created.push(spawnOneIntoTab({
+        backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, group: groupId,
+        model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels,
+        tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined,
+        worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
+        spawnerAgentId, intoPane: item.pane, key: item.key, env: item.env,
+      }));
+    } catch (error: unknown) {
+      const message = errorMessage(error);
+      spawnLogger(item.key).error("spawn.launch-failed", { name: item.name, error: message });
+      process.stderr.write(`warning: could not launch agent ${item.name}: ${message}\n`);
+    }
+  }
+  return created;
+}
+
+/** Where this spawn lands, and whether it fits there.
+ *
+ *  orch's own grouping and the plexer's coordinate are used for different
+ *  things and are never interchanged: capacity, names and the agent record are
+ *  orch's; the group and pane requests take the coordinate. */
+function placeSpawn(
+  settings: SpawnSettings,
+  backend: Backend,
+  spawnerAgentId: string | null,
+): { space: string; workspace: string | undefined } {
   const placement = resolveSpawnPlacement({
     directory: orchDir(), backend, space: settings.space ?? callerSpace(),
     packRootId: spawnerAgentId === null ? null : agentById(orchDir(), spawnerAgentId)?.rootAgentId ?? null,
     cwd: settings.cwd, label: settings.label,
     grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawnerAgentId); },
   });
-  // orch's own grouping and the plexer's coordinate are used for different
-  // things and are never interchanged: capacity, names and the agent record are
-  // orch's; the group and pane requests take the coordinate.
   const space = placement.space ?? "";
-  const workspace = placement.workspace;
   assertSpawnCapacity(settings, space, settings.n);
+  return { space, workspace: placement.workspace };
+}
+
+async function executeSpawn(settings: SpawnSettings): Promise<void> {
+  await admitSpawn(settings);
+  const spawnerAgentId = (await rpcHello(orchDir())).id;
+  const backend = spawnBackend(settings);
+  // A backend without group creation has no panes to tile into: spawn detached.
+  if (!backend.groupHome) return executeDetachedSpawn(settings, backend, spawnerAgentId);
+  const groupLayout = backend.groupLayout;
+  if (!groupLayout) return answerNoGroupLayout(settings.json);
+  const { space, workspace } = placeSpawn(settings, backend, spawnerAgentId);
   const adapter = resolveAdapterOrDie(settings.adapter);
   const names = claimSpawnNames(settings.names, space);
   // `--tab <existing>` fills that tab instead of opening a new one, auto-balancing
@@ -886,51 +987,15 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // (TASKS/02-scope.md F4), so the tab is named explicitly or it is a new one.
   const existing = settings.tabExplicit ? findGroupInSpace(backend, workspace, settings.label) : undefined;
   if (existing) return spawnIntoExistingTab(settings, existing, space, backend, names, spawnerAgentId, groupLayout);
-  // Fresh-tab launches are deliberately phased: mint all identities/worktrees,
-  // create the tab, open every pane, then launch every agent.
-  const prepared: { name: string; cwd: string; key: string; env: Readonly<Record<string, string>>; branch: string | undefined; pane: BackendHandle }[] = names.map((name) => {
-    const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-    adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
-    const key = serializeIdentity({ id: mintAgentId() });
-    const spawnerInfo = spawnerIdentity();
-    const env = { ...agentIdentityEnv(name, spawnerInfo), ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined), ORCH_AGENT_KEY: key, ORCH_DIR: orchDir() };
-    return { name, cwd, key, env, branch: settings.worktree ? `orch/${name}` : undefined, pane: undefined };
-  });
   const groupHome = backend.groupHome;
-  if (!groupHome) die(`backend ${backend.id} does not provide groups.`);
-  let createdGroup: ReturnType<typeof groupHome.create>;
-  try { createdGroup = groupHome.create({ workspace, cwd: prepared[0]!.cwd, label: settings.label, env: prepared[0]!.env }); }
-  catch (error: unknown) { die(`group create failed: ${errorMessage(error)}`); }
-  const group = createdGroup.group;
-  prepared[0]!.pane = createdGroup.rootHandle;
-  for (let index = 1; index < prepared.length; index++) {
-    const item = prepared[index]!;
-    try {
-      const role = backend.groupLayout;
-      if (!role) continue;
-      const tile = nextTilePlacement(role, group.id, settings.tiling.first_split);
-      if (!backend.paneHost) throw new Error("backend has no pane host");
-      item.pane = backend.paneHost.open({ cwd: item.cwd, workspace, group: group.id, split: tile.split, targetPane: tile.targetPane, env: item.env }).handle;
-    } catch (error: unknown) {
-      const message = errorMessage(error);
-      spawnLogger(item.key).warn("spawn.pane-open-failed", { name: item.name, error: message });
-      process.stderr.write(`warning: could not open a pane for ${item.name}: ${message}\n`);
-      item.pane = undefined;
-    }
+  const prepared = prepareAgents(settings, adapter, names);
+  const group = createSpawnGroup(groupHome, workspace, settings.label, prepared);
+  openPanesForGroup(backend, prepared, group.id, workspace, settings.tiling.first_split);
+  const created = launchPrepared(prepared, { settings, backend, adapter, space, groupId: group.id, spawnerAgentId });
+  if (created.length === 0) {
+    try { groupHome.close(group.id); } catch { /* best effort */ }
+    die("all spawns failed");
   }
-  const created: CreatedAgent[] = [];
-  for (const item of prepared) {
-    if (item.pane === undefined) continue;
-    try {
-      const agent = spawnOneIntoTab({ backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, group: group.id, model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels, tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined, worktree: settings.worktree ? item.cwd : undefined, branch: item.branch, spawnerAgentId, intoPane: item.pane, key: item.key, env: item.env });
-      created.push(agent);
-    } catch (error: unknown) {
-      const message = errorMessage(error);
-      spawnLogger(item.key).error("spawn.launch-failed", { name: item.name, error: message });
-      process.stderr.write(`warning: could not launch agent ${item.name}: ${message}\n`);
-    }
-  }
-  if (created.length === 0) { try { groupHome.close(group.id); } catch { /* best effort */ } die("all spawns failed"); }
   await reportSpawnResults(settings, group.id, group.label ?? settings.label, created, backend);
 }
 

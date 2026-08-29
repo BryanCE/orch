@@ -323,3 +323,21 @@ export interface LeaseOptions {
   readonly now?: number;
   readonly steal?: boolean;
 }
+
+/**
+ * Everything minted for ONE agent before any pane exists: its identity, its
+ * worktree and the environment its pane is opened with.
+ *
+ * A fresh-tab launch is deliberately phased — mint every identity, create the
+ * tab, open every pane, then launch every agent — so this is what one agent
+ * carries between those phases. `pane` is filled in by the phase that opens it
+ * and stays undefined when that failed, which costs that agent and never the tab.
+ */
+export interface PreparedAgent {
+  readonly name: string;
+  readonly cwd: string;
+  readonly key: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly branch: string | undefined;
+  pane: BackendHandle;
+}

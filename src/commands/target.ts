@@ -7,8 +7,9 @@ import { selfId } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { runSSH } from "../remote.ts";
-import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/spawned-rows.ts";
+import { loadPresence, orchDir, type PresenceEntry } from "../presence/store.ts";
+import { agentViews, type AgentView } from "../store/agent-view.ts";
+import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
@@ -53,6 +54,60 @@ export function requirePresenceTarget(target: string): Entity {
 
 function looksLikePaneKey(key: string): boolean {
   return tryParseIdentity(key) !== null;
+}
+
+/**
+ * The one identity inside a presence key.
+ *
+ * A key is `<plexer>~<space>~<id>`: environment wrapped around orch's minted id
+ * (Rule 11). The store is keyed by the id alone, so every join from a key to an
+ * agent goes through here — reading the whole key as an identity is what made a
+ * moved agent look like a different one.
+ */
+export function agentIdOfKey(key: string | null | undefined): string | null {
+  return tryParseIdentity(key)?.id ?? null;
+}
+
+/** Every agent the store knows, indexed by its minted id. */
+export function agentViewIndex(root = orchDir()): Map<string, AgentView> {
+  const index = new Map<string, AgentView>();
+  for (const view of agentViews(root)) index.set(view.id, view);
+  return index;
+}
+
+/** Presence re-indexed by minted id so an {@link AgentView} joins to it without
+ *  ever reconstructing a key. Entries whose directory name carries no identity
+ *  belong to no agent orch minted. */
+export function presenceById(presence: ReadonlyMap<string, PresenceEntry> = loadPresence()): Map<string, PresenceEntry> {
+  const byId = new Map<string, PresenceEntry>();
+  for (const entry of presence.values()) {
+    const id = agentIdOfKey(entry.key);
+    if (id !== null) byId.set(id, entry);
+  }
+  return byId;
+}
+
+export function viewForKey(views: ReadonlyMap<string, AgentView>, key: string): AgentView | undefined {
+  const id = agentIdOfKey(key);
+  return id === null ? undefined : views.get(id);
+}
+
+/** The address that reaches an agent: the presence key it actually has, else
+ *  its bare id. The key is READ from presence, never rebuilt from environment —
+ *  an axis it happens to be missing must not silently rename it. */
+export function agentAddress(view: AgentView, presence: ReadonlyMap<string, PresenceEntry>): string {
+  return presence.get(view.id)?.key ?? view.id;
+}
+
+/** The live lease holder for one identity key, or null when nothing holds it. */
+export function leaseHolderOf(key: string): string | null {
+  const id = agentIdOfKey(key);
+  if (id === null) return null;
+  try {
+    return currentLease(orchDir(), id)?.orchId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function livePanePresenceEntries(): PresenceEntry[] {
@@ -139,15 +194,17 @@ export function assertAgentOwned(
   target: string,
   entity: Pick<Entity, "key">,
   force = false,
-  records?: ReadonlyMap<string, SpawnedRecord>,
+  views?: ReadonlyMap<string, AgentView>,
 ): void {
   if (force) {
     forbidAgentOverride("--force");
     return;
   }
-  const record = (records ?? spawnedRecords()).get(entity.key);
-  if (record?.owner && !ownsAgent({ ...record, pane: entity.key })) {
-    die(`Target "${target}" is owned by ${record.owner}. Use --force to override.`);
+  // Ownership is the open lease and nothing else. A closed one is history, and
+  // history never gates a write (Rule 11).
+  const holder = views ? viewForKey(views, entity.key)?.heldBy?.orchId ?? null : leaseHolderOf(entity.key);
+  if (holder !== null && !ownsAgent({ owner: holder, pane: entity.key })) {
+    die(`Target "${target}" is owned by ${holder}. Use --force to override.`);
   }
 }
 
@@ -159,7 +216,7 @@ export function callerSpace(): string | null {
 export function backendTarget(
   target: string,
   command: string,
-  records?: ReadonlyMap<string, SpawnedRecord>,
+  views?: ReadonlyMap<string, AgentView>,
 ): { backend: Backend; handle: string; key: string } {
   const ent = resolveTarget(target);
   const id = parseIdentity(ent.key);
@@ -169,36 +226,40 @@ export function backendTarget(
   // handle. Names are display metadata; herdr pane commands require paneId.
   // A headless target has no pane handle; retain its identity so the command
   // boundary can return a successful no-pane answer without touching a provider.
-  const handle = ent.paneId ?? (records ?? spawnedRecords()).get(ent.key)?.handle ?? ent.key;
+  const handle = ent.paneId ?? viewForKey(views ?? agentViewIndex(), ent.key)?.environment.handle ?? ent.key;
   return { backend, handle, key: ent.key };
 }
 
 export interface LifecycleTarget {
   readonly entity: Entity;
-  readonly record: SpawnedRecord;
+  /** The address orch reaches this agent by: its presence key, else its id. */
+  readonly key: string;
+  /** The composed agent, or null for a pane orch never minted an id for. */
+  readonly view: AgentView | null;
   readonly backend: Backend;
   /** Backend-native handle, or a headless pid/key signal handle. */
   readonly handle: BackendHandle;
 }
 
-/** Every spelling that addresses one agent: its key, its minted id, its mutable
- *  name, or its backend pane handle. Only the key is identity; the rest are lookups. */
-export function registryTargetMatches(record: SpawnedRecord, target: string): boolean {
-  if (record.pane === target || record.handle === target || record.name === target) return true;
-  return tryParseIdentity(record.pane)?.id === target;
+/** Every spelling that addresses one agent: its minted id, its mutable name, or
+ *  its current pane handle. Only the id is identity; the other two are lookups,
+ *  and the handle is environment — it changes when the agent moves. */
+export function agentTargetMatches(view: AgentView, target: string): boolean {
+  return view.id === target || view.name === target || view.environment.handle === target;
 }
 
-export function resolveRegistryRecord(
-  records: readonly SpawnedRecord[],
+export function resolveAgentView(
+  views: readonly AgentView[],
   presence: ReadonlyMap<string, PresenceEntry>,
   target: string,
-): SpawnedRecord | undefined {
-  const candidates = records.filter((record) => registryTargetMatches(record, target));
-  const live = candidates.filter((record) => presence.get(record.pane)?.alive === true);
+): AgentView | undefined {
+  const candidates = views.filter((view) => agentTargetMatches(view, target)
+    || agentAddress(view, presence) === target);
+  const live = candidates.filter((view) => presence.get(view.id)?.alive === true);
   const preferred = live.length > 0 ? live : candidates;
   if (preferred.length > 1) {
-    const keys = preferred.map((record) => record.pane).join(", ");
-    throw new Error(`Ambiguous target "${target}"; address by key: ${keys}`);
+    const ids = preferred.map((view) => view.id).join(", ");
+    throw new Error(`Ambiguous target "${target}"; address by id: ${ids}`);
   }
   return preferred[0];
 }
@@ -209,7 +270,8 @@ export function resolveRegistryRecord(
  * the backend has stopped reporting the pane.
  */
 export function resolveLifecycleTarget(target: string): LifecycleTarget {
-  const currentRecords = spawnedRecords();
+  const views = agentViewIndex();
+  const presence = presenceById();
   const entities = buildEntities();
   // Prefer the live backend inventory. A registry row can retain an old pane
   // key after a store wipe; its handle/name must not become a malformed identity.

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { entitySpace, scopeEntitiesToSpace, spaceOf, type Entity } from "../src/entities.ts";
 import { checkWall } from "../src/policy/space.ts";
 import { recordSpawned } from "../src/presence/store.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-space-walls-"));
@@ -24,6 +25,11 @@ const AGENTS = {
   w1headless: { id: "w1headles1", plexer: "headless", space: "w1" },
   w2headless: { id: "w2headles1", plexer: "headless", space: "w2" },
 } as const;
+
+// A space is user-created and never minted from a spawn (TASKS A7), so the
+// fixture creates every space it places an agent in — including "w7", which
+// only the move test names.
+for (const id of ["w1", "w2", "w6", "w7", "w12"]) seedSpace(orchDir, id);
 
 for (const agent of Object.values(AGENTS)) {
   recordSpawned(agent.id, { adapter: "pi", backend: agent.plexer, space: agent.space });

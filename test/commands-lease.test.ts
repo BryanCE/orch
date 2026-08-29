@@ -15,6 +15,7 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedSpace } from "./helpers/space.ts";
 
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
@@ -120,6 +121,7 @@ describe("lease commands", () => {
     agent(dir, key, "abort-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
+    seedSpace(dir, "space");
     recordSpawned(key, { backend: "headless", space: "space", handle: "abort-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
@@ -143,6 +145,7 @@ describe("lease commands", () => {
     agent(dir, key, "close-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
+    seedSpace(dir, "space");
     recordSpawned(key, { backend: "headless", space: "space", handle: "close-handle" });
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });

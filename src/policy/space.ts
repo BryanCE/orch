@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { placementOf } from "../agent/registry.ts";
 
 export interface WallDecision {
@@ -41,6 +43,31 @@ export function operatorControls(
     && sameSpace(actorSpace, spaceOf(orchDir, agentKey));
 }
 
+/**
+ * The repo an agent's `cwd` sits in. A7: with no space set, THIS is the
+ * reachability boundary — unspaced does not mean "reaches every agent on the
+ * machine". A directory outside any repository is its own boundary, which is
+ * the honest answer rather than widening to the filesystem.
+ *
+ * Walked rather than shelled out to `git rev-parse`: this runs on every peer
+ * resolution, and a subprocess per check is not affordable there.
+ */
+function repoRootOf(cwd: string | null | undefined): string | null {
+  if (cwd === null || cwd === undefined || cwd.length === 0) return null;
+  let directory = resolve(cwd);
+  for (;;) {
+    if (existsSync(join(directory, ".git"))) return directory;
+    const parent = dirname(directory);
+    if (parent === directory) return resolve(cwd);
+    directory = parent;
+  }
+}
+
+function repoRootFor(orchDir: string, key: string | null | undefined): string | null {
+  if (key === null || key === undefined) return null;
+  return repoRootOf(placementOf(orchDir, key)?.cwd);
+}
+
 /** Decide whether a caller may cross the space wall. */
 export function checkWall(
   orchDir: string,
@@ -51,10 +78,26 @@ export function checkWall(
   const ownSpace = spaceOf(orchDir, ownKey);
   const targetSpace = spaceOf(orchDir, targetKey);
 
-  // Unscoped actors and unplaced targets are eligible by policy.
-  if (ownSpace === null || targetSpace === null) return { allowed: true };
   if (sameSpace(ownSpace, targetSpace)) return { allowed: true };
   if (opts.crossSpace) return { allowed: true };
+
+  // A7: with no space on either side the boundary falls back to the repo root.
+  // A space, once created, OUTRANKS it — creating one is the statement "these
+  // belong together", and it is what widens the wall past a single repo.
+  if (ownSpace === null && targetSpace === null) {
+    const ownRepo = repoRootFor(orchDir, ownKey);
+    const targetRepo = repoRootFor(orchDir, targetKey);
+    if (ownRepo === null || targetRepo === null || ownRepo === targetRepo) return { allowed: true };
+    return {
+      allowed: false,
+      reason: `space wall: no space is set, so the boundary is the repo root — ${ownRepo} cannot write to ${targetRepo} (${targetKey ?? "unknown"})`,
+    };
+  }
+
+  // One side is in a space and the other is not: an unplaced target is eligible,
+  // because nothing has said it belongs anywhere else.
+  if (ownSpace === null || targetSpace === null) return { allowed: true };
+
   return {
     allowed: false,
     reason: `space wall: actor space ${ownSpace} cannot write to target space ${targetSpace} (${targetKey ?? "unknown"})`,

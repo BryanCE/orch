@@ -15,6 +15,7 @@ import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import type { BackendHandle, BackendSpawnOpts } from "../src/backends/backend.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const oldOrchDir = process.env.ORCH_DIR;
@@ -64,7 +65,7 @@ function fakePaneBackend(paneHandle: string): { backend: KeyRecordingBackend; en
 
 describe("one key per pane spawn (12.1)", () => {
   test("identity is an opaque minted id — never the name, never the pane handle", () => {
-    tempOrchDir();
+    seedSpace(tempOrchDir(), "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
     const agent = spawnOneIntoTab({
@@ -101,7 +102,7 @@ describe("one key per pane spawn (12.1)", () => {
   });
 
   test("a name freed by a dead agent is reusable, and the two agents differ in identity", () => {
-    tempOrchDir();
+    seedSpace(tempOrchDir(), "wsC");
     const spawnAudit = () => spawnOneIntoTab({
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
@@ -125,6 +126,7 @@ describe("one key per pane spawn (12.1)", () => {
 
   test("a spawned agent resolves to exactly one control-target candidate", () => {
     const dir = tempOrchDir();
+    seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
     const agent = spawnOneIntoTab({

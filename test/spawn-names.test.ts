@@ -7,6 +7,7 @@ import { recordSpawned } from "../src/presence/store.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
@@ -24,6 +25,7 @@ function tempOrchDir(): string {
  *  the key. */
 function seedAgent(orchDir: string, name: string, space: string): string {
   const key = mintAgentId();
+  seedSpace(orchDir, space);
   registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: orchDir, name, model: "test", spawner: null });
   recordSpawned(key, { adapter: "pi", space });
   return key;
@@ -101,6 +103,7 @@ describe("name scope follows the agent's current space, not its birthplace", () 
     expect(() => assertNameFree("recon", "w2")).not.toThrow();
 
     // The agent moves. Its identity is untouched — only the environment changed.
+    seedSpace(orchDir, "w2");
     recordSpawned(key, { adapter: "pi", space: "w2" });
 
     expect(() => assertNameFree("recon", "w1")).not.toThrow();

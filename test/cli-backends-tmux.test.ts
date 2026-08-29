@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { mintAgentId, parseIdentity, serializeIdentity } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
@@ -124,6 +125,9 @@ describe("tmux backend registry and capabilities", () => {
     process.env.ORCH_DIR = orchDir;
     // The space is ENVIRONMENT, recorded beside the agent. The key carries none,
     // so the wall can only read it from the store — which is the whole point.
+    // Spaces are user-created (TASKS A7), so the fixture creates both first.
+    seedSpace(orchDir, "main");
+    seedSpace(orchDir, "side");
     const operator = "tmuxopera1";
     const foreign = "tmuxforei1";
     recordSpawned(operator, { adapter: "pi", backend: "tmux", space: "main" });

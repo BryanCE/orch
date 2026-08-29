@@ -10,6 +10,7 @@ import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
 import { INBOX_FILE } from "../src/presence/schema.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const IDENTITY_ENV = [
@@ -78,6 +79,7 @@ describe("spawner identity", () => {
   test("an orch-spawned orchestrator acts as the id orch minted for it", () => {
     const orchDir = tempOrchDir();
     const key = "lead0000ab";
+    seedSpace(orchDir, "wF");
     recordSpawned(key, { space: "wF", adapter: "pi" });
     seedStatus(orchDir, key, { agent: "pi", label: "lead-1", pid: process.pid, state: "working" });
     process.env.ORCH_AGENT_KEY = key;
@@ -121,6 +123,7 @@ describe("spawner identity", () => {
       cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
     });
     const key = "stamp0001a";
+    seedSpace(orchDir, "wF");
     recordSpawned(key, {
       name: "fix-1",
       adapter: "pi",

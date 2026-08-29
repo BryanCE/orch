@@ -8,6 +8,7 @@ import { recordSpawned } from "../src/presence/store.ts";
 import { releaseLease } from "../src/store/lease-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
@@ -28,6 +29,7 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
       defaults: { adapter: "pi", backend: "headless" },
     });
     const key = "worker0001";
+    seedSpace(root, "local");
     recordSpawned(key, { adapter: "pi", backend: "headless", space: "local", handle: "w1:p1", owner: "orcha00001" });
     seedStatus(root, key, { key, pid: process.pid });
     body(root, key, key);

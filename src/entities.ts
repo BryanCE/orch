@@ -200,7 +200,11 @@ function entityFromBackendTarget(
     // and goes stale, which is what makes mid-run `tail` read an empty session.
     sessionPath: pres?.status?.sessionPath ?? null,
     presenceOnly: false,
-    space: target.workspace ?? spaceOf(orchDir(), key),
+    // ADR 0001: `target.workspace` is the PLEXER's own grouping — herdr's `wF`,
+    // a tmux session. It is environment, never orch's space, and preferring it
+    // here is exactly how `wF` got shown as a name the user had chosen. orch's
+    // space is read from orch's own record or it is absent.
+    space: spaceOf(orchDir(), key),
   };
 }
 

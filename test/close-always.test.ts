@@ -11,6 +11,7 @@ import { openStore } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
 import { checkWall } from "../src/policy/space.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -92,6 +93,7 @@ describe("close always works", () => {
       ["panekey001", "pane-key", null],
       ["paneid0001", "pane-id", null],
     ] as const;
+    seedSpace(dir, "foreign-space");
     for (const [key, handle, name] of records) {
       recordSpawned(key, {
         adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller",
@@ -128,6 +130,7 @@ describe("close always works", () => {
     children.push(child);
     const pid = child.pid!;
     recordProcess(dir, key, pid, processStartToken(pid)!);
+    seedSpace(dir, "foreign-space");
     recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     writeStatus(dir, key, handle, pid);
     // The pane host is never asked to close here — the recorded process is
@@ -164,6 +167,7 @@ describe("close always works", () => {
       .run(key, key, "pi", dir, key, 1);
     db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
       .run(key, 1, "test-host", pid, startToken);
+    seedSpace(dir, "foreign-space");
     recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" });
     writeStatus(dir, key, handle, pid);
 
@@ -197,6 +201,7 @@ describe("close always works", () => {
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
     children.push(child);
     const pid = child.pid!;
+    seedSpace(dir, "foreign-space");
     recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     writeStatus(dir, key, handle, pid);
 
@@ -218,6 +223,7 @@ describe("close always works", () => {
     const dir = makeDir();
     const key = "owned00001";
     const handle = "pane-owned";
+    seedSpace(dir, "foreign-space");
     recordSpawned(key, {
       adapter: "pi", backend: "headless", space: "foreign-space", handle,
       owner: "other", spawnedBy: "other-session",
@@ -235,6 +241,7 @@ describe("close always works", () => {
     const dir = makeDir();
     const key = "abort00001";
     const handle = "pane-abort";
+    seedSpace(dir, "foreign-space");
     recordSpawned(key, {
       adapter: "pi", backend: "headless", space: "foreign-space", handle,
       owner: "other", spawnedBy: "other-session",
@@ -245,8 +252,9 @@ describe("close always works", () => {
   });
 
   test("duplicate close targets count once", () => {
-    makeDir();
+    const dir = makeDir();
     const key = "duplicate1";
+    seedSpace(dir, "foreign-space");
     recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle: "pane-duplicate", owner: "caller" });
     const oldExitCode = process.exitCode;
     const originalExit = process.exit.bind(process);
@@ -268,6 +276,7 @@ describe("close always works", () => {
     const dir = makeDir();
     const key = "deadpane01";
     const handle = "99999999";
+    seedSpace(dir, "foreign-space");
     recordSpawned(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
@@ -286,6 +295,8 @@ describe("close always works", () => {
     const dir = makeDir();
     const operator = "operator01";
     const foreign = "spacebpane";
+    seedSpace(dir, "space-a");
+    seedSpace(dir, "space-b");
     recordSpawned(operator, { adapter: "pi", backend: "headless", space: "space-a", handle: "operator" });
     recordSpawned(foreign, { adapter: "pi", backend: "headless", space: "space-b", handle: "pane" });
     const decision = checkWall(dir, operator, foreign, { crossSpace: false });

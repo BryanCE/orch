@@ -6,6 +6,7 @@ import { eventInMineScope, eventInScope, eventInSpaceScope, formatEventGap, isNo
 import { mintAgentId } from "../src/backends/identity.ts";
 import { recordSpawned } from "../src/presence/store.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc.ts";
@@ -113,6 +114,7 @@ describe("commands/events space scope", () => {
 
   function seedAgent(root: string, space: string): string {
     const key = mintAgentId();
+    seedSpace(root, space);
     registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", spawner: null });
     recordSpawned(key, { adapter: "pi", space });
     return key;
@@ -135,6 +137,7 @@ describe("commands/events space scope", () => {
   test("moving an agent moves its events with it", () => {
     const root = tempOrchDir();
     const key = seedAgent(root, "w1");
+    seedSpace(root, "w2");
     recordSpawned(key, { adapter: "pi", space: "w2" });
     // The identity key never changed; only the environment did.
     expect(eventInSpaceScope(root, key, "w1", false)).toBe(false);

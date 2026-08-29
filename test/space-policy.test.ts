@@ -5,9 +5,9 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entitySpace } from "../src/entities.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir, recordSpawned } from "../src/presence/store.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
+import { agentById, ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
@@ -62,6 +62,17 @@ function placeAgent(
   return id;
 }
 
+/** An agent whose cwd is a specific repo root, optionally in a space. */
+function placeAgentIn(directory: string, cwd: string, space?: string): string {
+  const id = mintAgentId();
+  insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd, name: id, createdAt: 1 });
+  if (space !== undefined) {
+    ensureSpaceRow(directory, space);
+    setSpace(directory, id, 1, space);
+  }
+  return id;
+}
+
 function identityFixture(): { actorKey: string; targetKey: string } {
   const orchDir = storeDir("orch-space-policy-");
   const keys: string[] = [];
@@ -77,6 +88,95 @@ function identityFixture(): { actorKey: string; targetKey: string } {
   process.env.ORCH_DIR = orchDir;
   return { actorKey: keys[0]!, targetKey: keys[1]! };
 }
+
+/**
+ * TASKS/02-scope.md A7 — "A space is user-created and optional — never minted
+ * from a path. With no space set the reachability boundary is the repo root."
+ * ADR 0001: a space covers no directories and nothing owns it; a plexer's
+ * workspace id is that plexer's coordinate and never orch's grouping.
+ */
+describe("a space is user-created, and absence falls back to the repo root", () => {
+  test("placing an agent in a space nobody created is refused, not minted", () => {
+    const dir = storeDir("orch-space-a7-mint-");
+    const id = mintAgentId();
+    insertAgent(dir, { id, spawnedBy: null, harnessId: "pi", cwd: dir, name: id, createdAt: 1 });
+    // Creating a space is a statement the user makes ("these belong together").
+    // An INSERT OR IGNORE behind a spawn makes every typo a new space and every
+    // plexer coordinate a space name — which is how `wF` got shown as one.
+    expect(() => setSpace(dir, id, 1, "never-created")).toThrow();
+    expect(spaceOf(dir, id)).toBeNull();
+  });
+
+  test("two unspaced agents in the SAME repo root can reach each other", () => {
+    const dir = storeDir("orch-space-a7-same-repo-");
+    const repo = mkdtempSync(join(tmpdir(), "orch-a7-repo-"));
+    fixtureDirs.push(repo);
+    const one = placeAgentIn(dir, repo);
+    const two = placeAgentIn(dir, repo);
+    expect(spaceOf(dir, one)).toBeNull();
+    expect(checkWall(dir, one, two, { crossSpace: false })).toEqual({ allowed: true });
+  });
+
+  test("two unspaced agents in DIFFERENT repo roots cannot", () => {
+    const dir = storeDir("orch-space-a7-other-repo-");
+    const here = mkdtempSync(join(tmpdir(), "orch-a7-here-"));
+    const there = mkdtempSync(join(tmpdir(), "orch-a7-there-"));
+    fixtureDirs.push(here, there);
+    const mine = placeAgentIn(dir, here);
+    const theirs = placeAgentIn(dir, there);
+    // With no space set the boundary is the repo root: unspaced is NOT a
+    // wildcard that reaches every agent on the machine.
+    expect(checkWall(dir, mine, theirs, { crossSpace: false }).allowed).toBe(false);
+    // Creating a space is what widens the wall past a single repo, so the
+    // deliberate override still works.
+    expect(checkWall(dir, mine, theirs, { crossSpace: true })).toEqual({ allowed: true });
+  });
+
+  test("an agent placed in no space reports none, even inside a plexer workspace", () => {
+    const orchDir = storeDir("orch-space-a7-plexer-");
+    // The agent IS in a herdr workspace — that is its plexer coordinate, and a
+    // real fact about its environment. It is not a space: nobody created one.
+    // ADR 0001 was written because `wF` was displayed as a name the user chose.
+    const id = placeAgent(orchDir, { plexer: "herdr", handle: "wF:p1" });
+    const directory = presenceAgentDir(id, orchDir);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "status.json"), JSON.stringify({
+      schema: PRESENCE_SCHEMA, key: id, paneId: "wF:p1", pid: process.pid, agent: "pi", state: "idle",
+    }));
+    process.env.ORCH_DIR = orchDir;
+
+    const entity = buildEntities().find((candidate) => candidate.key === id)!;
+    expect(entitySpace(entity)).toBeNull();
+    expect(JSON.stringify(entity)).not.toContain("\"space\":\"wF");
+  });
+
+  test("recording a spawn never conjures the space it names", () => {
+    const orchDir = storeDir("orch-space-a7-no-conjure-");
+    process.env.ORCH_DIR = orchDir;
+    const id = mintAgentId();
+
+    // A space is created by the user, deliberately (`orch space create`). A
+    // spawn naming an unknown one has named nothing, and is refused rather than
+    // conjuring it — otherwise every typo and every plexer id is a space
+    // forever after. Refused BEFORE anything is written, so there is no
+    // half-placed agent left behind.
+    expect(() => recordSpawned(id, { adapter: "pi", backend: "headless", space: "not-a-real-space" }))
+      .toThrow(/not-a-real-space/);
+
+    expect(openStore(orchDir).query("SELECT id FROM spaces WHERE id = ?").all("not-a-real-space")).toEqual([]);
+    expect(agentById(orchDir, id)).toBeNull();
+  });
+
+  test("a space still walls, and it outranks the repo root", () => {
+    const dir = storeDir("orch-space-a7-space-wins-");
+    const repo = mkdtempSync(join(tmpdir(), "orch-a7-shared-"));
+    fixtureDirs.push(repo);
+    const server = placeAgentIn(dir, repo, "server");
+    const client = placeAgentIn(dir, repo, "client");
+    // Same repo, different spaces: the space is the boundary the user drew.
+    expect(checkWall(dir, server, client, { crossSpace: false }).allowed).toBe(false);
+  });
+});
 
 describe("space policy", () => {
   test("reads the space from the environment satellite, and absence is null", () => {

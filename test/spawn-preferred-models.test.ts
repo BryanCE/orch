@@ -10,6 +10,7 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS, type OrchConfig } from "../src/config.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/adapters/adapter.ts";
 import type { Backend } from "../src/backends/backend.ts";
+import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 // Every launch route must hand the SAME per-harness quicklist to the adapter that builds the
@@ -68,7 +69,8 @@ function capturingPaneBackend(): { backend: Backend; seen: () => { preferredMode
 
 describe("the preferred quicklist reaches every launch route", () => {
   test("a pane spawn hands the exact array to the backend", () => {
-    tempOrchDir();
+    // A space is user-created and never minted by a spawn (TASKS A7).
+    seedSpace(tempOrchDir(), "wsA");
     const { backend, seen } = capturingPaneBackend();
 
     spawnOneIntoTab({
@@ -87,7 +89,7 @@ describe("the preferred quicklist reaches every launch route", () => {
   });
 
   test("an unconfigured quicklist stays empty rather than becoming a default one", () => {
-    tempOrchDir();
+    seedSpace(tempOrchDir(), "wsA");
     const { backend, seen } = capturingPaneBackend();
 
     spawnOneIntoTab({

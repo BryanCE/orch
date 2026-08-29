@@ -195,11 +195,18 @@ export interface AgentFacts {
   spawnedByLabel?: string;
 }
 
-/** Make sure a space id exists before an agent can be placed in it. Spaces are
- *  orch's own grouping; a plexer's workspace name only ever seeds one. */
-function ensureSpace(root: string, spaceId: string, now: number): void {
-  openStore(root).query("INSERT OR IGNORE INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)")
-    .run(spaceId, spaceId, now);
+/**
+ * A7: a space is USER-created and never minted. `orch space create` is the one
+ * path that writes a `spaces` row, and it stamps who created it. Placing an
+ * agent in a space nobody created is a refusal, not a silent insert — an
+ * insert-or-ignore here is how a plexer's own workspace id (`wF`) came to be
+ * displayed as a name the user had chosen (ADR 0001).
+ */
+function requireSpace(root: string, spaceId: string): void {
+  const known = openStore(root).query("SELECT id FROM spaces WHERE id = ?").get(spaceId);
+  if (!known) {
+    throw new Error(`orch: no space named "${spaceId}". Create it first with 'orch space create ${spaceId}'.`);
+  }
 }
 
 /** Rule 11: an orchestrator IS an agent. A holder orch has never registered gets
@@ -225,6 +232,7 @@ export function recordSpawned(key: string, metadata: AgentFacts = {}): void {
   if (!identity) return;
   const agentId = identity.id;
   const now = Date.now();
+  if (metadata.space !== undefined) requireSpace(root, metadata.space);
   const existing = agentById(root, agentId);
   if (!existing) {
     // An agent with no stated harness is one orch cannot run: refusing to invent
@@ -250,7 +258,6 @@ export function recordSpawned(key: string, metadata: AgentFacts = {}): void {
     setHandle(root, agentId, now, metadata.handle);
   }
   if (metadata.space !== undefined && environment.space !== metadata.space) {
-    ensureSpace(root, metadata.space, now);
     setSpace(root, agentId, now, metadata.space);
   }
   if (metadata.worktree !== undefined && metadata.branch !== undefined) {
@@ -271,13 +278,19 @@ export function recordSpawned(key: string, metadata: AgentFacts = {}): void {
 }
 
 /**
- * Every agent the store knows, indexed by its minted id.
+ * Every agent that has NOT ended, indexed by its minted id.
  *
  * A1: this replaces the pane-keyed `spawned` scan. Identity is the minted id and
  * nothing else, and a presence key IS that id, so one index answers both "which
  * agent is this key" and "what has orch spawned" without a second id space.
  * Values are the composed {@link AgentView}: environment, tuning and the lease
  * are read from the tables that own them, never from a flat row.
+ *
+ * An ended agent is out because this index is the LIVE fleet — it is what
+ * `close` removes an agent from. TASKS/01-agent-model.md §11 keeps the row and
+ * its lease history after a close (only `reap` deletes them), so "is it still
+ * in the fleet" has to be the ending, not the presence of a row. Reading
+ * history is `agentViews`/`agentView`, which still see everything.
  */
 export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
   const index = new Map<string, AgentView>();

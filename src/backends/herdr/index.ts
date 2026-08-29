@@ -8,7 +8,7 @@ import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendWorkspace, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, OpenPaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, OpenPaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
 
@@ -64,18 +64,6 @@ function groupFromTab(tab: HerdrTab): BackendGroup {
     number: tab.number ?? null,
     paneCount: tab.pane_count ?? null,
     status: tab.agent_status ?? null,
-  };
-}
-
-function workspaceFromHerdr(workspace: HerdrWorkspace): BackendWorkspace {
-  return {
-    id: workspace.workspace_id,
-    label: workspace.label ?? null,
-    focused: !!workspace.focused,
-    number: workspace.number ?? null,
-    tabCount: workspace.tab_count ?? null,
-    paneCount: workspace.pane_count ?? null,
-    status: workspace.agent_status ?? null,
   };
 }
 
@@ -237,7 +225,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     },
   };
   readonly spaceHome: SpaceHomeRole<HerdrHandle> = {
-    list: (): readonly PlexerHome[] => this.herdrWorkspaces().map((workspace) => ({ coordinate: workspace.id, label: workspace.label })),
+    list: (): readonly PlexerHome[] => this.herdrWorkspaces(),
     create: (subject: HomeSubject, request): CreatedHome<HerdrHandle> => {
       // E8: the home orch opens is marked for the subject it was opened for.
       // Without a label herdr names the workspace itself (`wF`), and the pack
@@ -394,19 +382,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     });
   }
 
-  /**
-   * Workspace id → its own label, straight from `workspace list`. A tab's label
-   * is a tab's, and using one as the workspace's name printed `wF` where
-   * `t3reports` was one field away.
-   */
-  workspaceNames(): Map<string, string> {
-    const names = new Map<string, string>();
-    for (const workspace of this.herdrWorkspaces()) {
-      if (workspace.label) names.set(workspace.id, workspace.label);
-    }
-    return names;
-  }
-
   /** One `pane move` into a tab, retaining herdr's replacement pane id. */
   private movePaneIntoTab(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): { handle: HerdrHandle; changed: boolean; reason: string | null } {
     const args = ["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"];
@@ -444,9 +419,12 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Throws on herdr failure (callers surface the error). */
-  private herdrWorkspaces(): BackendWorkspace[] {
+  private herdrWorkspaces(): PlexerHome[] {
     const result = herdrJSON<{ workspaces: HerdrWorkspace[] }>(["workspace", "list"]);
-    return (result?.workspaces ?? []).map(workspaceFromHerdr);
+    return (result?.workspaces ?? []).map((workspace) => ({
+      coordinate: workspace.workspace_id,
+      label: workspace.label ?? null,
+    }));
   }
 
 }

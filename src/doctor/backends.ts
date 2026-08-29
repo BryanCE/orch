@@ -6,8 +6,8 @@ import type { BackendVersionObservation, CheckResult, DoctorBackendReport } from
  *  resolveBackend's probe order without throwing: doctor reports on a broken
  *  composition, it does not refuse to run on one.
  *
- *  Expressed through capabilities rather than backend ids — core never branches on
- *  which plexer it is looking at. "First available pane backend already inside a
+ *  Expressed through composed environment roles rather than backend ids — core
+ *  never branches on which plexer it is looking at. "First available pane backend already inside a
  *  live session, else the sessionless one" is the same rule resolveBackend applies,
  *  and reports arrive in registry order, so the precedence matches too. */
 function activeBackend(reports: readonly DoctorBackendReport[], configured?: string | null): DoctorBackendReport | null {
@@ -59,8 +59,8 @@ export function backendCapabilitiesVerdict(
   const reasons = [...failReasons, ...warnReasons];
 
   return {
-    id: "backend-capabilities",
-    label: "Backend capabilities",
+    id: "backend-environments",
+    label: "Backend environments",
     status: failReasons.length ? "fail" : warnReasons.length ? "warn" : "ok",
     detail: reasons.length ? `${reasons.join("; ")}\n    ${summary}` : summary,
     backends: [...backends],
@@ -113,23 +113,23 @@ export function checkBackendVersions(): CheckResult {
   return backendVersionsVerdict(observations);
 }
 
-export function checkBackendCapabilities(
+export function describeBackendEnvironments(
   enabledIds: readonly string[] = allBackends().map((backend) => backend.id),
   configured?: string | null,
 ): CheckResult {
   const enabled = new Set(enabledIds);
-  const detected = detectBackends();
   const candidates = allBackends();
   const reports: DoctorBackendReport[] = candidates.map((backend) => {
-    const probe = detected.get(backend.id)!;
+    const available = backend.isAvailable();
+    const insideSession = backend.isInsideSession();
     const isEnabled = enabled.has(backend.id);
     return {
       id: backend.id,
-      detected: probe.detected,
+      detected: available,
       enabled: isEnabled,
       active: false,
-      available: probe.detected,
-      insideSession: probe.insideSession,
+      available,
+      insideSession,
       // The plexer's own grouping for the calling pane. Never read off an
       // identity: identity carries no environment (A1).
       space: backend.paneInventory?.current()?.workspace ?? null,
@@ -145,6 +145,11 @@ export function checkBackendCapabilities(
         agentStatus: backend.agentStatus,
         groupHome: backend.groupHome,
         groupLayout: backend.groupLayout,
+        spaceHome: backend.spaceHome,
+        identity: backend.identity,
+        handleLookup: backend.handleLookup,
+        logPruning: backend.logPruning,
+        versionInfo: backend.versionInfo,
       }).filter((entry) => entry[1] !== null).map(([name]) => name),
     };
   });

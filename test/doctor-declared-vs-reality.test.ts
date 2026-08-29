@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
+import { describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
@@ -10,6 +11,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
+import { FakePanedBackend, withRegisteredBackend } from "./helpers/backend.ts";
 const directories: string[] = [];
 function fixture(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-reality-"));
@@ -37,6 +39,14 @@ afterEach(() => {
 });
 
 describe("doctor declared-vs-reality", () => {
+  test("describes composed and absent backend roles", () => {
+    const result = withRegisteredBackend(new FakePanedBackend(), () => describeBackendEnvironments(["headless"]));
+    const description = result.backends?.find((backend) => backend.id === "headless");
+    expect(description).toBeDefined();
+    expect(description?.roles).toContain("paneHost");
+    expect(description?.roles).not.toContain("paneInput");
+  });
+
   test("reports a lease whose recorded holder process is dead", () => {
     const dir = fixture();
     agent(dir, "holder");

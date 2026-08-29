@@ -4,6 +4,7 @@ import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import { orchDir } from "../../presence/writer.ts";
 import {  } from "../../presence/store.ts";
 import { errorMessage, pidAlive } from "../../util.ts";
+import { decisionLogger } from "../../daemon/decision-log.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { LocalProcessRole } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
@@ -216,11 +217,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return handle;
   }
 
-  /** Headless has no workspace naming; ids stand in for names. */
-  workspaceNames(): Map<string, string> {
-    return new Map();
-  }
-
   /** Every registered headless handle with a fresh liveness result. Private:
    *  `handleLookup` is the one public address for this (2.2). */
   private liveHandles(): HeadlessHandle[] {
@@ -253,7 +249,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         rmSync(file, { force: true });
         removed++;
       } catch (error: unknown) {
-        process.stderr.write(`Warning: retention sweep logs failed for ${file}: ${errorMessage(error)}\n`);
+        decisionLogger(orchDirectory(orchDir)).warn("retention.sweep-failed", { area: "logs", file, error: errorMessage(error) });
       }
     }
     return removed;

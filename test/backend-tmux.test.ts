@@ -203,10 +203,6 @@ describe("TmuxBackend", () => {
     expect(backend.isAvailable()).toBe(Bun.which("tmux") !== null);
   });
 
-  test("workspaceNames is empty — tmux sessions have no names distinct from ids", () => {
-    expect(new TmuxBackend().workspaceNames()).toEqual(new Map());
-  });
-
   test("reflects the TMUX environment", () => {
     const previous = process.env.TMUX;
     try {

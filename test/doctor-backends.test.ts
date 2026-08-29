@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { backendCapabilitiesVerdict, checkBackendCapabilities } from "../src/doctor/backends.ts";
+import { backendCapabilitiesVerdict, describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -28,7 +28,7 @@ afterEach(() => {
 
 describe("doctor backend and presence checks", () => {
   test("reports every registered backend and composed roles", () => {
-    const result = checkBackendCapabilities();
+    const result = describeBackendEnvironments();
     expect(result.backends?.map((backend) => backend.id)).toEqual(["herdr", "headless", "tmux"]);
     for (const backend of result.backends ?? []) {
       expect(typeof backend.available).toBe("boolean");

@@ -83,10 +83,6 @@ afterAll(() => {
 });
 
 describe("HeadlessBackend", () => {
-  test("workspaceNames is empty — headless has no name concept", () => {
-    expect(backend.workspaceNames()).toEqual(new Map());
-  });
-
   test("refuses to spawn with no prompt — a headless agent runs its prompt and exits", () => {
     for (const prompt of [undefined, "", "   "]) {
       expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt }))

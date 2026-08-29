@@ -323,17 +323,6 @@ describe("HerdrBackend", () => {
     expect(() => backend.groupLayout.read("t2")).toThrow("no panes on tab t2");
   });
 
-  test("workspaceNames reads each workspace's OWN label, never a tab's", () => {
-    // The tab labels are Alpha/Beta/Gamma; taking those printed `wF` where the
-    // workspace's real label was one field away in `workspace list`.
-    expect(backend.workspaceNames()).toEqual(
-      new Map([
-        ["ws-test", "t3reports"],
-        ["ws-2", "dev"],
-      ]),
-    );
-  });
-
   test("pane input submits through pane run", () => {
     herdrArgv.length = 0;
     backend.paneInput.submit("w0:p1", "ls");

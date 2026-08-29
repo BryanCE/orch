@@ -299,11 +299,6 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return handle;
   }
 
-  /** tmux workspaces carry no display names distinct from their ids. */
-  workspaceNames(): Map<string, string> {
-    return new Map();
-  }
-
   /** Block until the pane's presence status.json reports the status, or time out (D2). */
   private awaitStatus(handle: TmuxHandle, status: string, timeoutMs: number): boolean {
     const key = this.agentKeyOf(handle);

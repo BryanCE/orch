@@ -320,17 +320,6 @@ export interface BackendGroup {
   readonly status: string | null;
 }
 
-/** One workspace reported by a backend. */
-export interface BackendWorkspace {
-  readonly id: string;
-  readonly label: string | null;
-  readonly focused: boolean;
-  readonly number: number | null;
-  readonly tabCount: number | null;
-  readonly paneCount: number | null;
-  readonly status: string | null;
-}
-
 /** Geometry of every pane in one group. */
 export interface BackendGroupLayout<Handle = BackendHandle> {
   readonly group: string;
@@ -363,13 +352,6 @@ export interface Backend<Handle = BackendHandle> {
   /** Whether the current process is inside a live session for this backend. */
   isInsideSession(): boolean;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
-  /**
-   * Workspace id → human display name for the workspaces the backend can
-   * enumerate. A backend with no name concept returns an empty map; consumers
-   * fall back to the workspace id.
-   */
-  workspaceNames(): Map<string, string>;
-
   /** Process control, always composed: every environment runs processes. */
   readonly process: ProcessRole;
   /** Orch-owned channels composed for this environment. */

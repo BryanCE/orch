@@ -52,7 +52,7 @@ describe("settings shell decisions", () => {
       stderr: "pipe",
     });
     expect(result.success).toBe(false);
-    expect(result.stderr.toString()).toContain("ORCH_SPAWN_CAP");
+    expect(result.stdout.toString()).toContain("ORCH_SPAWN_CAP");
   });
 
   test("registered writes use the registry entry", () => {

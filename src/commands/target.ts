@@ -71,7 +71,11 @@ export function agentIdOfKey(key: string | null | undefined): string | null {
 /** Every agent the store knows, indexed by its minted id. */
 export function agentViewIndex(root = orchDir()): Map<string, AgentView> {
   const index = new Map<string, AgentView>();
-  for (const view of agentViews(root)) index.set(view.id, view);
+  // A store that does not exist yet is an empty fleet, not a crash: `orch
+  // status` runs before anything has ever been spawned.
+  try {
+    for (const view of agentViews(root)) index.set(view.id, view);
+  } catch {}
   return index;
 }
 
@@ -283,7 +287,7 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
     die(`Ambiguous target "${target}"; address by key: ${keys}`);
   }
   let ent = directMatches[0];
-  let record = ent ? currentRecords.get(ent.key) : undefined;
+  let view = ent ? viewForKey(views, ent.key) : undefined;
   // A stale registry handle can make buildEntities temporarily expose the pane
   // id as its key. Prefer the bridge's canonical presence identity when one is
   // available for that pane, rather than carrying the malformed key onward.
@@ -292,37 +296,44 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
     const canonical = entities.find((candidate) => tryParseIdentity(candidate.key)
       && candidate.presence?.status?.paneId === stalePaneId);
     if (canonical) {
-      record = record ?? [...currentRecords.values()].find((row) => row.handle === stalePaneId || row.name === target);
+      view = view ?? [...views.values()].find((row) => row.environment.handle === stalePaneId || row.name === target);
       ent = canonical;
     }
   }
   if (!ent) {
     try {
-      record = resolveRegistryRecord([...currentRecords.values()], loadPresence(), target);
+      view = resolveAgentView([...views.values()], presence, target);
     } catch (error: unknown) {
       die(errorMessage(error));
     }
-    if (record) {
-      const linked = entities.filter((candidate) => candidate.key === record!.pane
-        || (!!record!.handle && candidate.paneId === record!.handle)
-        || (!!record!.name && candidate.name === record!.name));
+    if (view) {
+      const found = view;
+      const address = agentAddress(found, presence);
+      const linked = entities.filter((candidate) => candidate.key === address
+        || (found.environment.handle !== null && candidate.paneId === found.environment.handle)
+        || candidate.name === found.name);
       if (linked.length === 1) ent = linked[0];
     }
   }
-  if (!ent && !record) ent = resolveTarget(target, { all: true });
-  // A stale row addressed by name may still have no inventory entry; retain
-  // its metadata and let the backend-native handle perform cleanup.
-  ent ??= { key: record!.pane, paneId: record!.handle ?? null, managed: true, name: record!.name ?? null,
-    tabLabel: null, agent: record!.adapter ?? null, focused: false, backendStatus: null,
-    backend: record!.backend ?? null, presence: loadPresence().get(record!.pane) ?? null,
-    sessionPath: null, presenceOnly: true, space: record!.space ?? null };
-  record = record ?? currentRecords.get(ent.key);
-  const parsed = tryParseIdentity(ent.key) ?? (record ? tryParseIdentity(record.pane) : null);
-  const backendId = record?.backend ?? ent.backend ?? parsed?.backend;
+  if (!ent && !view) ent = resolveTarget(target, { all: true });
+  // An agent with no inventory entry is still closable; retain its composed
+  // facts and let the backend-native handle perform cleanup.
+  if (!ent) {
+    const found = view!;
+    ent = { key: agentAddress(found, presence), paneId: found.environment.handle, managed: true, name: found.name,
+      tabLabel: null, agent: found.harnessId, focused: false, backendStatus: null,
+      backend: found.environment.plexer, presence: presence.get(found.id) ?? null,
+      sessionPath: null, presenceOnly: true, space: found.environment.space };
+  }
+  view = view ?? viewForKey(views, ent.key);
+  const parsed = tryParseIdentity(ent.key);
+  const backendId = view?.environment.plexer ?? ent.backend ?? parsed?.backend;
   const backend = backendId ? getBackend(backendId) : undefined;
   if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(backendId)}.`);
-  const effectiveRecord = record ?? { pane: ent.key, backend: backend.id, handle: ent.paneId ?? parsed?.id };
   const pid = ent.presence?.status?.pid;
-  const handle = effectiveRecord.handle ?? ent.paneId ?? (typeof pid === "number" ? { pid, key: ent.key } : (parsed?.id ?? ent.key));
-  return { entity: ent, record: effectiveRecord, backend, handle };
+  const fallback: BackendHandle = typeof pid === "number" ? { pid, key: ent.key } : (parsed?.id ?? ent.key);
+  const handle: BackendHandle = view
+    ? (view.environment.handle ?? ent.paneId ?? fallback)
+    : (ent.paneId ?? parsed?.id ?? fallback);
+  return { entity: ent, key: ent.key, view: view ?? null, backend, handle };
 }

@@ -7,8 +7,13 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
-import { deleteSpawnedRecord, insertSpawnedRecord, selectSpawnedRecords, type SpawnedRecord } from "../store/spawned-rows.ts";
-import { deleteOwner, setOwner } from "../store/ownership-rows.ts";
+import { agentViews, environmentOf, holderOf, tuningOf, type AgentView } from "../store/agent-view.ts";
+import { adoptLease } from "../store/lease-rows.ts";
+import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "../store/agent-rows.ts";
+import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
+import { serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
+import { isAdapterId, type AdapterId } from "../adapters/adapter.ts";
+import { isBackendId, type BackendId } from "../backends/backend.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 
@@ -157,51 +162,159 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
   return isPresenceStatus(status) ? status : null;
 }
 
-export function recordSpawned(
-  pane: string,
-  // Derived from SpawnedRecord, never re-listed: a hand-copied field list drifts
-  // silently from the row it writes, and a dropped field is a column that stops
-  // being persisted with no error at the call site.
-  metadata: Omit<SpawnedRecord, "pane" | "ts"> = {},
-): void {
-  // Never swallowed. An agent whose registry row is missing has no recorded
-  // backend handle, so nothing can ever address it again: status shows nothing,
-  // dispatch says "no target matches", and the pane is a ghost on screen. A
-  // spawn that cannot register must fail at the spawn, not hours later.
-  const record: SpawnedRecord = { pane, ts: Date.now() };
-  if (metadata.adapter !== undefined) record.adapter = metadata.adapter;
-  if (metadata.model !== undefined) record.model = metadata.model;
-  if (metadata.backend !== undefined) record.backend = metadata.backend;
-  if (metadata.space !== undefined) record.space = metadata.space;
-  if (metadata.handle !== undefined) record.handle = metadata.handle;
-  if (metadata.name !== undefined) record.name = metadata.name;
-  if (metadata.cwd !== undefined) record.cwd = metadata.cwd;
-  if (metadata.worktree !== undefined) record.worktree = metadata.worktree;
-  if (metadata.branch !== undefined) record.branch = metadata.branch;
-  if (metadata.owner !== undefined) record.owner = metadata.owner;
-  if (metadata.spawnedBy !== undefined) record.spawnedBy = metadata.spawnedBy;
-  if (metadata.spawnedByLabel !== undefined) record.spawnedByLabel = metadata.spawnedByLabel;
-  insertSpawnedRecord(orchDir(), record);
-  if (metadata.owner) setOwner(orchDir(), pane, metadata.owner);
+/**
+ * One agent as the pane-keyed callers still spell it, COMPOSED at read time from
+ * the four facts (src/store/agent-view.ts) — never stored in this shape.
+ *
+ * A1: the old `spawned` table welded identity, provenance, ownership and
+ * environment into one wide row whose primary key was the pane, so moving an
+ * agent minted a new identity. This is that row's obituary: a projection with
+ * no table behind it, which every caller migrates off onto {@link AgentView}.
+ */
+export interface AgentRecord {
+  /** The serialized identity key, recomposed from id + environment. */
+  pane: string;
+  ts?: number;
+  adapter?: AdapterId;
+  model?: string;
+  backend?: BackendId;
+  space?: string;
+  handle?: string;
+  name?: string;
+  cwd?: string;
+  worktree?: string;
+  branch?: string;
+  /** The live lease holder. Ownership is a lease, never a second id space. */
+  owner?: string;
+  spawnedBy?: string;
+  spawnedByLabel?: string;
 }
 
-export function spawnedRecords(): Map<string, SpawnedRecord> {
-  const records = new Map<string, SpawnedRecord>();
+/** What a caller may state about an agent it is registering or adopting. */
+export type AgentRecordInput = Omit<AgentRecord, "pane" | "ts">;
+
+/** Make sure a space id exists before an agent can be placed in it. Spaces are
+ *  orch's own grouping; a plexer's workspace name only ever seeds one. */
+function ensureSpace(root: string, spaceId: string, now: number): void {
+  openStore(root).query("INSERT OR IGNORE INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)")
+    .run(spaceId, spaceId, now);
+}
+
+/** Rule 11: an orchestrator IS an agent. A holder orch has never registered gets
+ *  a row in the ONE agent table rather than a second id space beside it. */
+function ensureOrchAgent(root: string, orchId: string, harnessId: string, now: number): void {
+  if (agentById(root, orchId)) return;
+  ensureHarness(root, harnessId, harnessId, now);
+  insertAgent(root, { id: orchId, harnessId, cwd: process.cwd(), name: orchId, createdAt: now });
+}
+
+/**
+ * Record the four facts for one agent orch has just launched or adopted.
+ *
+ * Identity is the minted id inside the key and nothing else; the key's other
+ * two segments are LEGACY environment welded into it at mint time, so they are
+ * decomposed into the environment satellites here and never read back out of
+ * the key again.
+ */
+export function recordSpawned(pane: string, metadata: AgentRecordInput = {}): void {
+  const root = orchDir();
+  // A target that is not an orch-minted identity names no agent: there is
+  // nothing to key the four facts on, and inventing one would fork the agent.
+  const identity = tryParseIdentity(pane);
+  if (!identity) return;
+  const now = Date.now();
+  const harnessId = metadata.adapter ?? identity.backend;
+  const plexerId = metadata.backend ?? identity.backend;
+  const spaceId = metadata.space ?? identity.workspace;
+  ensureHarness(root, harnessId, harnessId, now);
+  ensurePlexer(root, plexerId, plexerId, now);
+  if (!agentById(root, identity.id)) {
+    const spawner = metadata.spawnedBy && agentById(root, metadata.spawnedBy) ? metadata.spawnedBy : null;
+    insertAgent(root, {
+      id: identity.id,
+      spawnedBy: spawner,
+      harnessId,
+      cwd: metadata.cwd ?? process.cwd(),
+      name: metadata.name ?? pane,
+      createdAt: now,
+    });
+  }
+  const environment = environmentOf(root, identity.id);
+  if (environment.plexer === null) setAgentPlexer(root, identity.id, plexerId);
+  if (metadata.handle !== undefined && environment.handle !== metadata.handle) {
+    setHandle(root, identity.id, now, metadata.handle);
+  }
+  if (environment.space !== spaceId) {
+    ensureSpace(root, spaceId, now);
+    setSpace(root, identity.id, now, spaceId);
+  }
+  if (metadata.worktree !== undefined && metadata.branch !== undefined) {
+    setWorktree(root, identity.id, metadata.worktree, metadata.branch);
+  }
+  if (metadata.model !== undefined && tuningOf(root, identity.id).model === null) {
+    setTuning(root, identity.id, now, { model: metadata.model });
+  }
+  // Ownership is a lease and nothing else. An agent never holds its own lease
+  // (`agent_leases_not_self`), and re-stamping the holder it already has would
+  // close and reopen a holding that never changed hands.
+  if (metadata.owner !== undefined && metadata.owner !== identity.id) {
+    ensureOrchAgent(root, metadata.owner, harnessId, now);
+    if (holderOf(root, identity.id)?.orchId !== metadata.owner) {
+      adoptLease(root, identity.id, metadata.owner, now);
+    }
+  }
+}
+
+/** Compose one legacy record, or null for an agent that has no serializable key
+ *  — a driving session orch registered through `hello` was never in the pane
+ *  registry either, and inventing a key for it would mint a second identity. */
+function projectAgentRecord(view: AgentView): AgentRecord | null {
+  const { plexer, space, handle, worktree, branch } = view.environment;
+  if (plexer === null || space === null) return null;
+  const record: AgentRecord = {
+    pane: serializeIdentity({ backend: plexer, workspace: space, id: view.id }),
+    ts: view.createdAt,
+    space,
+    name: view.name,
+    cwd: view.cwd,
+  };
+  if (isAdapterId(view.harnessId)) record.adapter = view.harnessId;
+  if (isBackendId(plexer)) record.backend = plexer;
+  if (handle !== null) record.handle = handle;
+  if (worktree !== null) record.worktree = worktree;
+  if (branch !== null) record.branch = branch;
+  if (view.tuning.model !== null) record.model = view.tuning.model;
+  if (view.heldBy !== null) record.owner = view.heldBy.orchId;
+  if (view.spawnedBy !== null) record.spawnedBy = view.spawnedBy;
+  return record;
+}
+
+export function spawnedRecords(): Map<string, AgentRecord> {
+  const records = new Map<string, AgentRecord>();
   try {
-    for (const record of selectSpawnedRecords(orchDir())) records.set(record.pane, record);
+    const root = orchDir();
+    for (const view of agentViews(root)) {
+      const record = projectAgentRecord(view);
+      if (!record) continue;
+      // Provenance names the spawner; its LABEL is the spawner's own name, read
+      // from that agent — never a second copy stored beside the child.
+      if (view.spawnedBy !== null) {
+        const spawner = agentById(root, view.spawnedBy);
+        if (spawner) record.spawnedByLabel = spawner.name;
+      }
+      records.set(record.pane, record);
+    }
   } catch {}
   return records;
 }
 
+/** Reap one agent: the hub row (which cascades every satellite, lease and
+ *  ending) and its presence directory. There is no second id space to clean. */
 export function reapSpawnedRecord(key: string, root = orchDir(), options: { agentId?: string } = {}): void {
-  if (options.agentId !== undefined) {
-    // Retention uses this same owning reap path for the normalized agent hub;
-    // deleting it cascades every satellite while the registry and presence
-    // cleanup below handles the legacy-keyed records.
-    openStore(root).query("DELETE FROM agents WHERE id = ?").run(options.agentId);
+  const agentId = options.agentId ?? tryParseIdentity(key)?.id;
+  if (agentId !== undefined) {
+    try { openStore(root).query("DELETE FROM agents WHERE id = ?").run(agentId); } catch {}
   }
-  try { deleteSpawnedRecord(root, key); } catch {}
-  try { deleteOwner(root, key); } catch {}
   removePresenceAgentDir(presenceAgentDir(key, root));
 }
 

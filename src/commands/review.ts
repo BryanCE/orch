@@ -1,17 +1,17 @@
 import { collapse } from "../entities.ts";
-import { loadPresence, spawnedRecords } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/spawned-rows.ts";
+import { loadPresence } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
-import { die } from "./target.ts";
+import { agentAddress, agentViewIndex, die, presenceById } from "./target.ts";
 import { resultText } from "./target.ts";
 
 import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
 
 interface ReviewItem {
   target: string;
-  pane: string;
+  /** The address the agent answers to; identity, never a pane. */
+  key: string;
   branch: string;
   worktree: string;
   base: string;
@@ -67,8 +67,8 @@ export async function cmdReview(args: string[]): Promise<void> {
     const feedback = messageIndex >= 0 ? args[messageIndex + 1] : undefined;
     const allowedReject = new Set(["reject", target, "-m", feedback, "--json"]);
     if (messageIndex < 0 || !feedback || args.some((arg) => !allowedReject.has(arg))) die('usage: orch review reject <target> -m "feedback" [--json]');
-    if (!loadPresence().get(item.pane)) die(`Cannot reject ${item.target}: agent presence is missing.`);
-    await writeRpc("steer", { target: item.pane, text: feedback });
+    if (!loadPresence().get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
+    await writeRpc("steer", { target: item.key, text: feedback });
     if (json) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
     else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
     return;
@@ -112,27 +112,30 @@ export async function cmdReviewInteractive(): Promise<void> {
 }
 
 function reviewItems(): ReviewItem[] {
-  const records = spawnedRecords();
-  const presence = loadPresence();
+  // A1: worktree and branch are ENVIRONMENT axes composed onto an agent, and
+  // presence joins to that agent by its minted id — not by a pane key.
+  const presence = presenceById();
   const items: ReviewItem[] = [];
-  for (const record of records.values()) {
-    if (!record.worktree || !record.branch) continue;
-    if (presence.get(record.pane)?.status?.state !== "done") continue;
+  for (const view of agentViewIndex().values()) {
+    const { worktree, branch } = view.environment;
+    if (worktree === null || branch === null) continue;
+    const entry = presence.get(view.id);
+    if (entry?.status?.state !== "done") continue;
     try {
-      const baseRoot = repositoryCommonRoot(record.worktree);
+      const baseRoot = repositoryCommonRoot(worktree);
       const base = repositoryBranch(baseRoot);
-      const details = worktreeReviewSummary(record.worktree, base, record.branch);
+      const details = worktreeReviewSummary(worktree, base, branch);
       if (details.commitsAhead === 0) continue;
-      const entry = presence.get(record.pane);
-      const status = entry?.status;
-      const adapter = record.adapter ?? status?.agent;
+      const status = entry.status;
+      const adapter = view.harnessId ?? status?.agent;
       if (!adapter) continue;
-      const resultSummary = resultText(entry?.result) ? collapse(resultText(entry?.result)!) : "";
+      const key = agentAddress(view, presence);
+      const resultSummary = resultText(entry.result) ? collapse(resultText(entry.result)!) : "";
       items.push({
-        target: reviewTarget(record),
-        pane: record.pane,
-        branch: record.branch,
-        worktree: record.worktree,
+        target: reviewTarget({ key, branch }),
+        key,
+        branch,
+        worktree,
         base,
         state: "done",
         task: status?.task ?? "",
@@ -150,13 +153,13 @@ function reviewItems(): ReviewItem[] {
 }
 
 function findReviewItem(target: string): ReviewItem {
-  const item = reviewItems().find((candidate) => [candidate.target, candidate.pane, candidate.branch, candidate.worktree].includes(target));
+  const item = reviewItems().find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
   if (!item) die(`No reviewable worktree matches "${target}". Run 'orch review list'.`);
   return item;
 }
 
-export function reviewTarget(record: SpawnedRecord): string {
-  const branch = record.branch ?? "";
-  return branch.startsWith("orch/") ? branch.slice("orch/".length) : branch || record.pane;
+export function reviewTarget(agent: { key: string; branch: string | null }): string {
+  const branch = agent.branch ?? "";
+  return branch.startsWith("orch/") ? branch.slice("orch/".length) : branch || agent.key;
 }
 

@@ -1,6 +1,6 @@
 import * as path from "node:path";
-import { loadPresence, orchDir, reapDeadPresenceDirs, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/spawned-rows.ts";
+import { orchDir, reapDeadPresenceDirs, type PresenceEntry } from "../presence/store.ts";
+import type { AgentView } from "../store/agent-view.ts";
 import { errorMessage } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import {
@@ -13,13 +13,24 @@ import {
   worktreeHasChanges,
   worktreeHasCommitsAheadOf,
 } from "../worktree.ts";
-import { callerIsSpawnedAgent, die } from "./target.ts";
+import { agentViewIndex, callerIsSpawnedAgent, die, presenceById } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 
-function liveWorktreeOwner(worktreePath: string, records: Map<string, SpawnedRecord>, presence: Map<string, PresenceEntry>): boolean {
-  const owner = [...records.values()].find((record) =>
-    record.worktree && path.resolve(record.worktree) === path.resolve(worktreePath));
-  return Boolean(owner && presence.get(owner.pane)?.alive);
+/** Whether a live agent still runs from this worktree.
+ *
+ *  A1: the worktree is one ENVIRONMENT axis of an agent, and the agent it
+ *  belongs to is found by its minted id — never by a pane, which is a different
+ *  axis and can change without the worktree changing at all. `presence` is keyed
+ *  by that same id.
+ */
+export function liveWorktreeOwner(
+  worktreePath: string,
+  views: readonly AgentView[],
+  presence: ReadonlyMap<string, PresenceEntry>,
+): boolean {
+  const owner = views.find((view) => view.environment.worktree !== null
+    && path.resolve(view.environment.worktree) === path.resolve(worktreePath));
+  return Boolean(owner && presence.get(owner.id)?.alive);
 }
 
 function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, json = false): boolean {
@@ -54,12 +65,12 @@ function cleanWorktrees(force: boolean, json = false): number {
     die(errorMessage(error));
   }
   const baseBranch = repositoryBranch(repoRoot);
-  const records = spawnedRecords();
-  const presence = loadPresence();
+  const views = [...agentViewIndex().values()];
+  const presence = presenceById();
   const worktrees = listAgentWorktrees(repoRoot);
   let reported = false;
   for (const worktreePath of worktrees) {
-    if (liveWorktreeOwner(worktreePath, records, presence)) continue;
+    if (liveWorktreeOwner(worktreePath, views, presence)) continue;
     reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, force, json) || reported;
   }
   if (!reported && !json) process.stdout.write("No orphan worktrees to clean.\n");

@@ -37,6 +37,9 @@ export interface FleetProjectionRow {
   cost: number;
   ctxPercent: number | null;
   tokens: unknown;
+  /** What this agent's environment declares it can do. Absent when the daemon
+   *  had nothing to report — never inferred from a backend id (E13). */
+  capabilities?: unknown;
   lease: FleetLease | null;
   leaseKnown: boolean;
   /** Orch's own grouping. A space is user-created and always carries a name;
@@ -46,6 +49,11 @@ export interface FleetProjectionRow {
   /** Immutable provenance: the agent that spawned this one, and its name. */
   spawnedBy?: string | null;
   spawnedByLabel?: string | null;
+  /** The pack: the ROOT of the provenance chain, never the immediate spawner.
+   *  A10 - every agent is in exactly one pack at any depth, so history groups on
+   *  the root; grouping on the spawner splits one pack across its own branches. */
+  rootAgentId?: string | null;
+  rootAgentName?: string | null;
 }
 
 export interface FleetAgent {
@@ -79,7 +87,7 @@ export type Space = AgentGroup;
 
 /** Shown when an agent is in no space of the user's. Not a place — a missing value. */
 const UNSCOPED_ID = "unscoped";
-const UNSCOPED_NAME = "No space";
+const UNSCOPED_NAME = "unscoped";
 /** Shown for an ended agent that reported no spawner (a self-registered session). */
 const UNSPAWNED_ID = "unspawned";
 const UNSPAWNED_NAME = "No spawner";
@@ -145,14 +153,12 @@ function liveGroup(row: FleetProjectionRow): { id: string; name: string } {
   return { id: trimmed(row.spaceId) ?? name, name };
 }
 
-/**
- * History is grouped by immutable provenance — the agent that spawned each
- * record — never by a lease, which moves (C7).
- */
+/** A11: a pack is its provenance ROOT. Ownership never groups anything - a lease
+ *  says who is driving right now, and a pack outlives every lease in it. */
 function historyGroup(row: FleetProjectionRow): { id: string; name: string } {
-  const spawner = trimmed(row.spawnedBy);
-  if (spawner === null) return { id: UNSPAWNED_ID, name: UNSPAWNED_NAME };
-  return { id: spawner, name: trimmed(row.spawnedByLabel) ?? UNNAMED_SPAWNER };
+  const root = trimmed(row.rootAgentId) ?? trimmed(row.spawnedBy);
+  if (root === null) return { id: UNSPAWNED_ID, name: UNSPAWNED_NAME };
+  return { id: root, name: trimmed(row.rootAgentName) ?? trimmed(row.spawnedByLabel) ?? UNNAMED_SPAWNER };
 }
 
 function groupedRows(

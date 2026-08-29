@@ -16,7 +16,7 @@ const base = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow =
   capabilities: null,
   lease: null,
   leaseKnown: false,
-  space: "wF",
+  spaceId: "wF",
   spaceName: null,
   rootAgentId: null,
   rootAgentName: null,

@@ -12,16 +12,18 @@ import { collapse, buildEntities, entitySpace, sortEntities, type Entity } from 
 import type {  } from "../backends/backend.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
-import { orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
-import type { SpawnedRecord } from "../store/spawned-rows.ts";
+import { orchDir, type PresenceEntry } from "../presence/store.ts";
+import type { AgentView } from "../store/agent-view.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName } from "../policy/space.ts";
 import { ensureDaemonOrWarn } from "./daemon.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import {
+  agentViewIndex,
   firstNonEmptyText,
   resultText,
   splitOptionFlags,
+  viewForKey,
 } from "./target.ts";
 import { isRecord, truncate } from "../util.ts";
 
@@ -70,8 +72,8 @@ interface View {
 }
 
 /** Resolve the adapter recorded for one entity (spawn registry, then presence, then backend report). */
-export function entityAdapter(ent: Entity, spawned = spawnedRecords()): AgentAdapter | undefined {
-  return getAdapter(spawned.get(ent.key)?.adapter ?? ent.presence?.status?.agent ?? ent.agent ?? "");
+export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView> = agentViewIndex()): AgentAdapter | undefined {
+  return getAdapter(viewForKey(views, ent.key)?.harnessId ?? ent.presence?.status?.agent ?? ent.agent ?? "");
 }
 
 function currentOrchId(): string | null {
@@ -152,42 +154,46 @@ function deriveViewLast(pres: PresenceEntry | null, sview: SessionView | null): 
   return firstNonEmptyText(pres?.status?.lastText, resultText(pres?.result), sview?.lastText);
 }
 
-function viewAgent(ent: Entity, pres: PresenceEntry | null, spawned: Map<string, SpawnedRecord>): string {
-  return pres?.status?.agent ?? spawned.get(ent.key)?.adapter ?? ent.agent ?? "-";
+function viewAgent(ent: Entity, pres: PresenceEntry | null, view: AgentView | undefined): string {
+  return pres?.status?.agent ?? view?.harnessId ?? ent.agent ?? "-";
 }
 
-type ProvenanceKey = "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd";
-
-function pickProvenance(record: SpawnedRecord | undefined, status: PresenceEntry["status"], key: ProvenanceKey): string | null {
-  return record?.[key] ?? status?.[key] ?? null;
-}
-
-function viewProvenance(pres: PresenceEntry | null, spawnedRecord: SpawnedRecord | undefined): Pick<View, "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd"> {
+/**
+ * The four facts, read apart (A1). Ownership is the open lease; provenance is
+ * the immutable spawner; worktree/branch are environment axes; cwd is the
+ * agent's own. Nothing here reads a second copy of any of them off one wide row.
+ */
+function viewProvenance(
+  pres: PresenceEntry | null,
+  view: AgentView | undefined,
+  views: ReadonlyMap<string, AgentView>,
+): Pick<View, "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd"> {
   const status = pres?.status ?? null;
+  const spawner = view?.spawnedBy === null || view?.spawnedBy === undefined ? undefined : views.get(view.spawnedBy);
   return {
-    owner: spawnedRecord?.owner ?? null,
-    spawnedBy: pickProvenance(spawnedRecord, status, "spawnedBy"),
-    spawnedByLabel: pickProvenance(spawnedRecord, status, "spawnedByLabel"),
-    worktree: pickProvenance(spawnedRecord, status, "worktree"),
-    branch: pickProvenance(spawnedRecord, status, "branch"),
-    cwd: pickProvenance(spawnedRecord, status, "cwd"),
+    owner: view?.heldBy?.orchId ?? null,
+    spawnedBy: view?.spawnedBy ?? status?.spawnedBy ?? null,
+    spawnedByLabel: spawner?.name ?? status?.spawnedByLabel ?? null,
+    worktree: view?.environment.worktree ?? status?.worktree ?? null,
+    branch: view?.environment.branch ?? status?.branch ?? null,
+    cwd: view?.cwd ?? status?.cwd ?? null,
   };
 }
 
-export function deriveView(ent: Entity, spawned: Map<string, SpawnedRecord>, staleHashes?: ReadonlySet<string>): View {
+export function deriveView(ent: Entity, views: ReadonlyMap<string, AgentView>, staleHashes?: ReadonlySet<string>): View {
   const pres = ent.presence;
-  const adapter = entityAdapter(ent, spawned);
+  const adapter = entityAdapter(ent, views);
   const sview = sessionViewFor(ent, adapter);
-  const spawnedRecord = spawned.get(ent.key);
+  const agent = viewForKey(views, ent.key);
   const modelFull = deriveModelString(pres, sview, adapter);
   const { state, stateFallback, exited } = deriveState(pres, ent, sview);
-  const provenance = viewProvenance(pres, spawnedRecord);
+  const provenance = viewProvenance(pres, agent, views);
   return {
     entity: ent,
     paneLabel: (ent.paneId ?? ent.key) + (ent.focused ? "*" : ""),
     name: ent.name ?? "",
     tab: ent.tabLabel ?? "-",
-    agent: viewAgent(ent, pres, spawned),
+    agent: viewAgent(ent, pres, agent),
     ...provenance,
     model: modelFull.replace(/^openai-codex\//, ""),
     modelFull,
@@ -636,11 +642,11 @@ interface FleetStatusOptions {
 }
 
 export function fleetStatusRows(spaces: OrchConfig["spaces"], options: FleetStatusOptions = {}): StatusRow[] {
-  const spawned = spawnedRecords();
+  const views = agentViewIndex();
   const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
   const orchId = options.orchId?.() ?? currentOrchId();
   return sortEntities(buildEntities({ skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromView(deriveView(entity, spawned, staleHashes), spaces, orchId));
+    .map((entity) => statusRowFromView(deriveView(entity, views, staleHashes), spaces, orchId));
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */

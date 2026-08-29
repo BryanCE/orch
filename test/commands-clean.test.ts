@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cmdClean, removeDeadAgentDirs } from "../src/commands/clean.ts";
+import { cmdClean, liveWorktreeOwner, removeDeadAgentDirs } from "../src/commands/clean.ts";
+import { ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
+import { agentViewIndex, presenceById } from "../src/commands/target.ts";
+import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -20,6 +23,35 @@ describe("commands/clean", () => {
       expect(existsSync(join(root, "agents", "dead"))).toBe(false);
       expect(existsSync(join(root, "agents", "live"))).toBe(true);
     } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+  });
+});
+
+describe("worktree ownership reads the composed environment", () => {
+  // TASKS/02-scope.md A1: the worktree is an ENVIRONMENT axis of an agent, and
+  // liveness is presence keyed by the agent's minted id — not a column on a wide
+  // row keyed by a pane.
+  test("a live agent's worktree is protected and a dead one's is not", () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-clean-worktree-owner-"));
+    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    try {
+      ensureHarness(root, "pi", "pi", 1);
+      insertAgent(root, { id: "live1", harnessId: "pi", cwd: "/repo", name: "keeper", createdAt: 1 });
+      insertAgent(root, { id: "dead1", harnessId: "pi", cwd: "/repo", name: "goner", createdAt: 2 });
+      setWorktree(root, "live1", join(root, "wt-live"), "orch/keeper");
+      setWorktree(root, "dead1", join(root, "wt-dead"), "orch/goner");
+      seedStatus(root, "headless~local~live1", { key: "headless~local~live1", pid: process.pid });
+      seedStatus(root, "headless~local~dead1", { key: "headless~local~dead1", pid: 999999 });
+
+      const views = [...agentViewIndex(root).values()];
+      const presence = presenceById();
+      expect(liveWorktreeOwner(join(root, "wt-live"), views, presence)).toBe(true);
+      expect(liveWorktreeOwner(join(root, "wt-dead"), views, presence)).toBe(false);
+      expect(liveWorktreeOwner(join(root, "wt-nobody"), views, presence)).toBe(false);
+    } finally {
+      closeAllStores();
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
   });
 });
 

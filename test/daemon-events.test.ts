@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { selectRuns } from "../src/store/run-rows.ts";
 import { openStore } from "../src/store/connection.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { insertAgent, renameAgent, ensureHarness } from "../src/store/agent-rows.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
+import { isRecord } from "../src/util.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import {
   derivePresenceTransition,
@@ -33,6 +34,19 @@ function tempOrchDir(): string {
 function storageKey(key: string): string {
   // Windows forbids ':' in directory names; the event state assertions do not depend on the key text.
   return process.platform === "win32" ? key.replaceAll(":", "_") : key;
+}
+
+/** Seed one agent through the normalized tables the composer reads.
+ *  A1: identity is the minted id, and environment is a satellite of it - never a
+ *  column on a wide row keyed by the pane. */
+function seedAgent(orchDir: string, agentId: string, options: { harnessId?: string; space?: string } = {}): void {
+  const harnessId = options.harnessId ?? "pi";
+  ensureHarness(orchDir, harnessId, harnessId);
+  insertAgent(orchDir, { id: agentId, spawnedBy: null, harnessId, cwd: orchDir, name: agentId, createdAt: 1 });
+  if (options.space !== undefined) {
+    openStore(orchDir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run(options.space, options.space, 1);
+    setSpace(orchDir, agentId, 1, options.space);
+  }
 }
 
 function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
@@ -131,7 +145,7 @@ describe("daemon presence events", () => {
     const startedAtMs = Date.parse(startedAt);
     const finishedAtMs = Date.parse(finishedAt);
     const resultText = "x".repeat(3_000);
-    insertSpawnedRecord(orchDir, { pane: key, adapter: "pi", space: "space-full" });
+    seedAgent(orchDir, "full", { harnessId: "pi", space: "space-full" });
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-full", startedAt });
     const events: unknown[] = [];
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
@@ -157,7 +171,6 @@ describe("daemon presence events", () => {
       agentKey: key,
       adapter: "pi",
       model: "model-full",
-      space: "space-full",
       task: "the complete task",
       state: "done",
       startedAt: startedAtMs,
@@ -171,7 +184,12 @@ describe("daemon presence events", () => {
       result: resultText,
       lastError: "last problem",
     });
-    expect((events.find((event) => eventState(event) === "done") as { result?: string }).result).toHaveLength(2_000);
+    // A1: a run must read the agent's space through the composer, never keep its
+    // own copy of a fact that moves when the agent moves.
+    expect(run?.space).toBeUndefined();
+    const done = events.find((event) => eventState(event) === "done");
+    expect(done).toBeDefined();
+    expect(isRecord(done) && typeof done.result === "string" ? done.result : "").toHaveLength(2_000);
   });
 
   test("repeated transitions upsert one run and only terminal states set finishedAt", async () => {
@@ -271,7 +289,6 @@ describe("daemon presence events", () => {
   test("presence transitions resolve the human name before emission", () => {
     const orchDir = tempOrchDir();
     const key = "w6:p-name";
-    insertSpawnedRecord(orchDir, { pane: key, space: "w6" });
     const states = new Map([[key, "working"]]);
     const event = derivePresenceTransition(
       orchDir,

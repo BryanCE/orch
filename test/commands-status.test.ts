@@ -9,6 +9,19 @@ import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
+import type { AgentView } from "../src/store/agent-view.ts";
+
+/** A complete AgentView, so a fixture never has to lie to the compiler. */
+function agentViewFixture(id: string, holder: string | null): AgentView {
+  return {
+    id, name: "worker", label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
+    spawnedBy: null, rootAgentId: id,
+    heldBy: holder === null ? null : { orchId: holder, since: 5 },
+    environment: { plexer: "herdr", handle: "app:p1", space: "local", worktree: null, branch: null },
+    tuning: { model: null, thinking: null },
+    endedAt: null,
+  };
+}
 
 const seededEntity = {
   key: "herdr~local~app:p1", paneId: "app:p1", name: "worker", tabLabel: "app", agent: "pi",
@@ -92,7 +105,9 @@ describe("commands/status", () => {
   // Provenance remains visible on the internal view, while the status OWNER
   // column answers the current driving lease and never falls back to provenance.
   test("status owner ignores spawning provenance when no lease exists", () => {
-    const owned = new Map([["herdr~local~app:p1", { owner: "orch-a" } as never]]);
+    // Keyed by the MINTED ID, never by the pane-bearing presence key: the key
+    // welds environment onto identity, and the store is keyed by the id alone.
+    const owned = new Map([["app:p1", agentViewFixture("app:p1", "orch-a")]]);
     expect(deriveView(seededEntity, owned).owner).toBe("orch-a");
     expect(statusRowFromView(deriveView(seededEntity, owned), {}).owner).toBe("no orch driving it");
     expect(statusRowFromView(deriveView(seededEntity, new Map()), {}).owner).toBe("no orch driving it");

@@ -11,7 +11,8 @@ import {
   worktreeBranch,
 } from "../src/worktree.ts";
 import { provenDaemonPid } from "../src/daemon/lifecycle.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
+import { closeAllStores } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fixtureRepo, git } from "./helpers/git-repo.ts";
 
@@ -42,14 +43,20 @@ function commit(worktreePath: string, file: string, contents: string, message: s
   git(worktreePath, ["commit", "-m", message]);
 }
 
-function registerDoneAgent(orchDir: string, pane: string, worktreePath: string, branch: string): void {
-  fs.mkdirSync(path.join(orchDir, "agents", pane), { recursive: true });
-  fs.writeFileSync(path.join(orchDir, "agents", pane, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, agent: "pi", paneId: pane, pid: process.pid, state: "done", task: "finish the feature",
+/** Seed one done agent the way orch itself records it: an identity, a harness,
+ *  and a WORKTREE ENVIRONMENT axis — never one wide row keyed by its pane. */
+function registerDoneAgent(orchDir: string, id: string, worktreePath: string, branch: string): string {
+  const key = `headless~local~${id}`;
+  fs.mkdirSync(path.join(orchDir, "agents", key), { recursive: true });
+  fs.writeFileSync(path.join(orchDir, "agents", key, "status.json"), JSON.stringify({
+    schema: PRESENCE_SCHEMA, agent: "pi", key, pid: process.pid, state: "done", task: "finish the feature",
   }));
-  insertSpawnedRecord(orchDir, {
-    pane, ts: Date.now(), adapter: "pi", worktree: worktreePath, branch,
-  });
+  const now = Date.now();
+  ensureHarness(orchDir, "pi", "pi", now);
+  insertAgent(orchDir, { id, harnessId: "pi", cwd: worktreePath, name: id, createdAt: now });
+  setWorktree(orchDir, id, worktreePath, branch);
+  closeAllStores();
+  return key;
 }
 
 function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
@@ -107,7 +114,7 @@ describe("review plumbing", () => {
     const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "feature-1");
     commit(worktreePath, "feature.txt", "feature\n", "add feature");
-    registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
+    registerDoneAgent(orchDir, "agent1", worktreePath, worktreeBranch(worktreePath));
 
     const result = JSON.parse(runOrch(repoRoot, orchDir, "review", "list", "--json")) as Record<string, unknown>[];
     expect(result).toHaveLength(1);
@@ -120,11 +127,11 @@ describe("review plumbing", () => {
     const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "iterate-1");
     commit(worktreePath, "feature.txt", "feature\n", "first pass");
-    registerDoneAgent(orchDir, "pane-1", worktreePath, worktreeBranch(worktreePath));
+    const key = registerDoneAgent(orchDir, "agent1", worktreePath, worktreeBranch(worktreePath));
 
     expect(runOrch(repoRoot, orchDir, "review", "reject", "iterate-1", "-m", "handle the empty case")).toContain("re-dispatched");
     // The daemon accepts the steer and delivers it asynchronously; wait for the inbox write.
-    const inbox = path.join(orchDir, "agents", "pane-1", "inbox.jsonl");
+    const inbox = path.join(orchDir, "agents", key, "inbox.jsonl");
     const deadline = Date.now() + 15_000;
     while (!fs.existsSync(inbox) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(fs.readFileSync(inbox, "utf8")).toContain("handle the empty case");
@@ -137,7 +144,7 @@ describe("review plumbing", () => {
     const worktreePath = createAgentWorktree(repoRoot, "approve-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "approved.txt", "approved\n", "approved change");
-    registerDoneAgent(orchDir, "pane-1", worktreePath, branch);
+    registerDoneAgent(orchDir, "agent1", worktreePath, branch);
 
     expect(runOrch(repoRoot, orchDir, "review", "approve", "approve-1")).toContain("fast-forward");
     expect(fs.existsSync(path.join(repoRoot, "approved.txt"))).toBe(true);

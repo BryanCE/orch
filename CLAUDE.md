@@ -1,5 +1,20 @@
 # CLAUDE.md — working rules for this repo (NON-NEGOTIABLE)
 
+## RULE #1 — ☢️ NEVER BUILD. NEVER MIGRATE. NEVER GENERATE. ASK BRYAN. ☢️
+You are NOT ALLOWED to run ANYTHING that builds, installs, migrates, generates, resets, or
+reloads. Not directly, not through a worker, not through a subagent, not through an orch
+verb, not "just to test it". The complete list, all USER-ONLY:
+- `bun run build:dev`, `bun run build`, `bun run build:cli`, `bun build`, `npm pack`,
+  `npm install -g`, `npm i -g` — ANY build or install
+- `bun db:gen`, `bun db:mig`, `bun db:reset`, `drizzle-kit`, editing `drizzle/` or any
+  `migration.sql` — ANY database generation, migration, or reset
+- `orch daemon reload`, `orch daemon restart`, `orch daemon stop` — the daemon runs YOUR
+  installed build; only Bryan cycles it
+- `bun check`, `bun run check`, `bun run check:bridge` — the gate (Rule 5)
+When a change needs any of these, STOP and hand Bryan the exact command to run, then WAIT
+for him to say it is done. Never poll, never assume, never "retry in case". Every time this
+rule is broken it costs Bryan hours; it has been said MANY times.
+
 # GROUND-TRUTH FILES — READ THESE, NEVER RUN THE GATES YOURSELF
 These files ARE the state of the tree. The USER runs the gate on Windows; I READ the result files. Running `bun run check` myself = FIRED. **Running `bun test` is FINE and encouraged** — run tests freely while working, especially scoped runs of the files you touched.
 - **`test-results.md`** — full `bun test` output. User regenerates with: `bun run test *> .\test-results.md`

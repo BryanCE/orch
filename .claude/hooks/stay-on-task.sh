@@ -51,9 +51,11 @@ case "$cmd" in
   *"db:gen"*|*"db:reset"*|*"db:mig"*|*"drizzle-kit"*)
     deny "BLOCKED: db commands are USER-ONLY. Never run generation, reset or migrate." ;;
 
-  # --- Publishing is the user's (Rule 12) ----------------------------------
-  *"build:dev"*|*"npm pack"*|*"npm install -g"*|*"npm i -g"*)
-    deny "BLOCKED: building/installing is USER-ONLY (CLAUDE.md Rule 12). Builds never leave the checkout's dist/." ;;
+  # --- RULE #1: building, installing, daemon cycling are the user's ---------
+  *"build:dev"*|*"build:cli"*|*"bun run build"*|*"bun build"*|*"npm pack"*|*"npm install -g"*|*"npm i -g"*)
+    deny "BLOCKED: building/installing is USER-ONLY (CLAUDE.md RULE #1). Hand Bryan the command and WAIT." ;;
+  *"orch daemon reload"*|*"orch daemon restart"*|*"orch daemon stop"*)
+    deny "BLOCKED: cycling the daemon is USER-ONLY (CLAUDE.md RULE #1). Hand Bryan the command and WAIT." ;;
 
   # --- Never write outside the repo ----------------------------------------
   *".orch"*|*".pi/agent/extensions"*|*".local/lib/node_modules"*)

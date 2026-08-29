@@ -82,40 +82,40 @@ describe("PiAdapter", () => {
   });
 
   test("reads state from the presence status through store helpers", () => {
-    writeStatus("pi-state", "working");
+    writeStatus("pistate001", "working");
 
-    expect(adapter.detectState({ key: "pi-state" })).toBe("working");
-    expect(adapter.detectState({ key: "missing" })).toBe("unknown");
+    expect(adapter.detectState({ key: "pistate001" })).toBe("working");
+    expect(adapter.detectState({ key: "missingag1" })).toBe("unknown");
   });
 
   test("appends a steer message to the presence inbox", () => {
-    writeStatus("pi-steer", "working");
+    writeStatus("pisteer001", "working");
 
-    adapter.steer({ key: "pi-steer", text: "run the tests" });
+    adapter.steer({ key: "pisteer001", text: "run the tests" });
 
-    const lines = fs.readFileSync(path.join(storePresenceDir(), "pi-steer", "inbox.jsonl"), "utf8").trim().split("\n");
+    const lines = fs.readFileSync(path.join(storePresenceDir(), "pisteer001", "inbox.jsonl"), "utf8").trim().split("\n");
     expect(JSON.parse(lines[0]!)).toMatchObject({ text: "run the tests" });
   });
 
   test("writes a blocking answer to the presence answer file", () => {
-    writeStatus("pi-answer", "blocked");
+    writeStatus("pianswer01", "blocked");
 
-    adapter.answer({ key: "pi-answer", text: "yes" });
+    adapter.answer({ key: "pianswer01", text: "yes" });
 
-    expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir(), "pi-answer", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
+    expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir(), "pianswer01", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
   });
 
   test("reads result.json and falls back to the last assistant session text", () => {
-    writeStatus("pi-result", "done");
-    fs.writeFileSync(presencePath("pi-result", "result.json"), JSON.stringify({ text: "from result" }));
-    expect(adapter.extractResult({ key: "pi-result" })).toBe("from result");
+    writeStatus("piresult01", "done");
+    fs.writeFileSync(presencePath("piresult01", "result.json"), JSON.stringify({ text: "from result" }));
+    expect(adapter.extractResult({ key: "piresult01" })).toBe("from result");
 
     const sessionPath = path.join(orchDir, "session.jsonl");
     fs.writeFileSync(sessionPath, JSON.stringify({
       type: "message",
       message: { role: "assistant", content: [{ type: "text", text: "from session" }] },
     }) + "\n");
-    expect(adapter.extractResult({ key: "missing", sessionPath })).toBe("from session");
+    expect(adapter.extractResult({ key: "missingag1", sessionPath })).toBe("from session");
   });
   test("parses pi's supported model table without importing harness internals", () => {
     const output = [

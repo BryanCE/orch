@@ -1,7 +1,6 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { isAgentId } from "../backends/identity.ts";
-import { loadPresence, presenceDir } from "../presence/store.ts";
+import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
 import { placementOf } from "../agent/registry.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
@@ -45,12 +44,16 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
 
   const ignoredRecords: IgnoredPresenceRecord[] = [];
   const held: IgnoredPresenceRecord[] = [];
+  // The directory name IS the agent id (TASKS/01): anything else — a
+  // `<plexer>~<grouping>~<id>` key, a pane handle, a name — is a record no agent
+  // answers to, whatever wrote it. `loadPresence` skips those entirely, because
+  // they are not presence; doctor is the one caller that must SEE them, so it
+  // reads the raw directory names instead of pretending they are entries.
+  for (const malformed of malformedPresenceDirs(orchDir)) {
+    (malformed.alive ? held : ignoredRecords).push({ path: malformed.dir, reason: "malformed identity key" });
+  }
   for (const entry of entries.values()) {
     const reasons: string[] = [];
-    // The directory name IS the agent id (TASKS/01): anything else — a
-    // `<plexer>~<grouping>~<id>` key, a pane handle, a name — is a record no
-    // agent answers to, whatever wrote it.
-    if (!isAgentId(entry.key)) reasons.push("malformed identity key");
     if (entry.status === null) reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
     if (!reasons.length) continue;
     // A record whose process is still running is a live session on older bridge

@@ -141,7 +141,7 @@ describe("runDoctor", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({
       pid: process.pid,
-      codeHash: "old",
+      codeHash: "oldagent01",
       startedAt: new Date().toISOString(),
     }));
 
@@ -164,7 +164,7 @@ describe("runDoctor", () => {
     const unanswerable = tempDir();
     fs.writeFileSync(path.join(unanswerable, "orchd.lock"), JSON.stringify({
       pid: process.pid,
-      codeHash: "old",
+      codeHash: "oldagent01",
       startedAt: new Date().toISOString(),
     }));
     const socketResult = check(await runDoctor(unanswerable), "orchd-socket");
@@ -174,7 +174,7 @@ describe("runDoctor", () => {
 
   test("warns when the extension bundle is absent for a matching live hash", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "pane-1");
+    const agent = path.join(directory, "agents", "paneagent1");
     fs.mkdirSync(agent, { recursive: true });
     seedStatusInDir(agent, {
       pid: process.pid,
@@ -190,7 +190,7 @@ describe("runDoctor", () => {
 
   test("warns when the extension bundle is absent for a stale live hash", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "pane-2");
+    const agent = path.join(directory, "agents", "paneagent2");
     fs.mkdirSync(agent, { recursive: true });
     seedStatusInDir(agent, { pid: process.pid, extensionHash: "old" });
 
@@ -203,8 +203,8 @@ describe("runDoctor", () => {
 
   test("warns when the extension bundle is absent for a live status without a hash", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "pane-3");
-    const broken = path.join(directory, "agents", "broken");
+    const agent = path.join(directory, "agents", "paneagent3");
+    const broken = path.join(directory, "agents", "brokenagt1");
     fs.mkdirSync(agent, { recursive: true });
     fs.mkdirSync(broken, { recursive: true });
     seedStatusInDir(agent, { pid: process.pid });
@@ -219,14 +219,14 @@ describe("runDoctor", () => {
 
   test("reports a dead presence pid", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "former-agent");
+    const agent = path.join(directory, "agents", "formeragt1");
     fs.mkdirSync(agent, { recursive: true });
     seedStatusInDir(agent, { pid: 99999999 });
     const results = await runDoctor(directory);
     const stale = check(results, "stale-presence");
 
     expect(stale.status).toBe("warn");
-    expect(stale.detail).toContain("former-agent");
+    expect(stale.detail).toContain("formeragt1");
     expect(stale.fix).toBeDefined();
     expect(applyFixes([stale])).toEqual({ applied: [stale.fix!.description] });
     expect(fs.existsSync(agent)).toBe(false);

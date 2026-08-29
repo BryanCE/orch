@@ -17,11 +17,11 @@ describe("commands/clean", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-clean-"));
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
-      seedStatus(root, "dead", { pid: 999999 });
-      seedStatus(root, "live", { pid: process.pid });
-      expect(removeDeadAgentDirs(true)).toEqual(["dead (pid 999999)"]);
-      expect(existsSync(join(root, "agents", "dead"))).toBe(false);
-      expect(existsSync(join(root, "agents", "live"))).toBe(true);
+      seedStatus(root, "deadagent1", { pid: 999999 });
+      seedStatus(root, "liveagent1", { pid: process.pid });
+      expect(removeDeadAgentDirs(true)).toEqual(["deadagent1 (pid 999999)"]);
+      expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
+      expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
     } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 });
@@ -65,13 +65,13 @@ describe("orch clean is destructive maintenance", () => {
     process.env.ORCH_AGENT_KEY = "agent00001";
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     try {
-      seedStatus(root, "dead", { pid: 999999 });
+      seedStatus(root, "deadagent1", { pid: 999999 });
       // A refusal is a thrown value carrying its reason, not a process exit and
       // not a stderr side effect (src/refusal.ts): the CLI boundary renders it.
       // Asserting the reason on the thrown value is stronger than either.
       expect(() => cmdClean([])).toThrow(CommandRefusal);
       expect(() => cmdClean([])).toThrow(/operator-only/i);
-      expect(existsSync(join(root, "agents", "dead"))).toBe(true);
+      expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);
     } finally {
       process.exit = oldExit;
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;

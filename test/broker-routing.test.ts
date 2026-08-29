@@ -24,11 +24,11 @@ function makeOrchDir(): string {
 }
 
 function seedAgent(orchDir: string, pid: number): void {
-  const agentDir = join(orchDir, "agents", "agent-alpha");
+  const agentDir = join(orchDir, "agents", "agentalpha");
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "status.json"),
-    JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "pi", paneId: "agent-alpha", pid, state: "working" }),
+    JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "pi", paneId: "agentalpha", pid, state: "working" }),
   );
 }
 
@@ -62,7 +62,7 @@ describe("broker CLI routing", () => {
     const result = runCli(orchDir, ["status", "--offline", "--json", "--all", "--all-panes"]);
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("agent-alpha");
+    expect(result.stdout).toContain("agentalpha");
     expect(result.stdout).toContain("working");
   }, 15_000);
 });

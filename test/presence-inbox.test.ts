@@ -38,7 +38,7 @@ describe("shared presence line writers", () => {
   test("pi appends and answers through shared presence writers", () => {
     const root = temp();
     process.env.ORCH_DIR = root;
-    const key = "pi~test";
+    const key = "pitestagt1";
     const dir = presenceAgentDir(key, root);
     fs.mkdirSync(dir, { recursive: true });
     steerViaInbox({ key, id: "s1", text: "hello" });

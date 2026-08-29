@@ -85,13 +85,13 @@ describe("Claude adapter", () => {
   });
 
   test("detects state from a live presence status", () => {
-    const key = "claude-state";
+    const key = "claudestt1";
     writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "claude", pid: process.pid, state: "working" }));
     expect(claudeAdapter.detectState({ key })).toBe("working");
   });
 
   test("extracts result.json before transcript and native output", () => {
-    const key = "claude-result";
+    const key = "claudersl1";
     const directory = agentDir(key);
     const transcript = join(directory, "transcript.jsonl");
     writeFileSync(join(directory, "result.json"), JSON.stringify({ text: "result text" }));
@@ -103,7 +103,7 @@ describe("Claude adapter", () => {
   });
 
   test("reads the final assistant text from a Stop-hook transcript", () => {
-    const key = "claude-session-view";
+    const key = "claudesvw1";
     const transcript = join(agentDir(key), "stop-hook-session.jsonl");
     writeFileSync(transcript, [
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Earlier answer" }] } }),
@@ -116,7 +116,7 @@ describe("Claude adapter", () => {
   });
 
   test("shim and adapter extract identical text from one transcript (empty-string parts)", () => {
-    const key = "claude-shared-fixture";
+    const key = "claudeshr1";
     const transcript = join(agentDir(key), "shared.jsonl");
     // The final assistant carries an empty-string part beside a real one — the
     // exact divergence D4 collapsed onto the adapter's `part !== undefined`

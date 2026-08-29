@@ -231,19 +231,38 @@ function newestRecordedInstant(entry: PresenceEntry): number | null {
  * own presence under the id orch minted for it, or it has none and orch cannot
  * address it either way.
  */
-function reapMalformedPresenceDirs(root: string): string[] {
-  let names: string[];
+function presenceDirectoryNames(root: string): string[] {
   try {
-    names = readdirSync(presenceDir(root));
+    return readdirSync(presenceDir(root));
   } catch (error: unknown) {
     if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTDIR")) return [];
     throw error;
   }
-  const removed: string[] = [];
-  for (const name of names) {
+}
+
+/**
+ * Every presence directory whose name is NOT a minted id, with the pid it holds.
+ *
+ * `loadPresence` skips these — they are not presence — so doctor, which exists
+ * to REPORT them, has to see them some other way. This is that way: the raw
+ * directory names, read once, with no pretence that any of them names an agent.
+ */
+export function malformedPresenceDirs(root = orchDir()): { name: string; dir: string; alive: boolean }[] {
+  const found: { name: string; dir: string; alive: boolean }[] = [];
+  for (const name of presenceDirectoryNames(root)) {
     if (tryParseIdentity(name) !== null) continue;
-    removePresenceAgentDir(join(presenceDir(root), name));
-    removed.push(name);
+    const dir = join(presenceDir(root), name);
+    const status = readPresenceStatus(join(dir, STATUS_FILE));
+    found.push({ name, dir, alive: pidAlive(status?.pid) });
+  }
+  return found;
+}
+
+function reapMalformedPresenceDirs(root: string): string[] {
+  const removed: string[] = [];
+  for (const entry of malformedPresenceDirs(root)) {
+    removePresenceAgentDir(entry.dir);
+    removed.push(entry.name);
   }
   return removed;
 }

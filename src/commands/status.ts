@@ -244,6 +244,40 @@ function snapshot(rows: StatusRow[], backendAnswered: boolean): FleetSnapshot {
   };
 }
 
+/**
+ * A status row that arrived from OUTSIDE this process — the daemon's RPC answer
+ * or a remote host's `orch status --json`.
+ *
+ * Rule 13: this used to be `answer.rows as StatusRow[]`, which is a promise to
+ * the compiler about data neither end of the wire has checked. A row that is
+ * missing `state` or carries a number where a string belongs then reaches every
+ * renderer, and the crash lands far from the boundary that let it in.
+ */
+function isStatusRow(value: unknown): value is StatusRow {
+  if (!isRecord(value)) return false;
+  const strings = ["key", "model", "modelShort", "state"] as const;
+  const nullableStrings = [
+    "paneId", "name", "tab", "agent", "owner", "spawnedBy", "spawnedByLabel", "worktree",
+    "branch", "cwd", "task", "dispatchId", "lastText", "backendStatus", "backend",
+    "sessionPath", "presenceDir",
+  ] as const;
+  const booleans = ["managed", "focused", "stateFallback", "exited", "alive", "presenceOnly"] as const;
+  for (const field of strings) if (typeof value[field] !== "string") return false;
+  for (const field of nullableStrings) if (value[field] !== null && typeof value[field] !== "string") return false;
+  for (const field of booleans) if (typeof value[field] !== "boolean") return false;
+  if (typeof value.cost !== "number") return false;
+  if (value.ctxPercent !== null && typeof value.ctxPercent !== "number") return false;
+  // `capabilities` is a nullable composed view, not a flag bag: null means no
+  // backend owns the row, which is an answer renderers already read (E13/E14).
+  return value.capabilities === null || isRecord(value.capabilities);
+}
+
+/** Keep only the rows that really are rows. A malformed one is dropped at the
+ *  boundary rather than carried inward as a lie about its shape. */
+function statusRowsFrom(values: readonly unknown[]): StatusRow[] {
+  return values.filter(isStatusRow);
+}
+
 async function readFleetRows(spaces: OrchConfig["spaces"], offline: boolean): Promise<FleetSnapshot> {
   if (offline) {
     const rows = fleetStatusRows(spaces, { offline: true });
@@ -252,7 +286,7 @@ async function readFleetRows(spaces: OrchConfig["spaces"], offline: boolean): Pr
   try {
     const answer = await rpcCall(orchDir(), "status");
     if (isRecord(answer) && Array.isArray(answer.rows)) {
-      const rows = answer.rows as StatusRow[];
+      const rows = statusRowsFrom(answer.rows);
       // RPC availability is not backend availability; only inventory-bearing rows count.
       return snapshot(rows, rows.some((row) => row.backend != null));
     }
@@ -618,7 +652,7 @@ async function remoteStatusResults(hosts: OrchConfig["hosts"], offline: boolean)
 
 function validRemoteValues(result: RemoteStatusResult): StatusRow[] {
   if (!result.ok || !Array.isArray(result.value)) return [];
-  return result.value.filter((value) => Boolean(value) && typeof value === "object") as StatusRow[];
+  return statusRowsFrom(result.value);
 }
 
 function remoteRowsFromResult(name: string, result: RemoteStatusResult, space?: string): StatusRow[] {

@@ -29,12 +29,12 @@ function makeOrchDir(): string {
 }
 
 function seedAgent(orchDir: string): void {
-  const agentDir = path.join(orchDir, "agents", "agent-alpha");
+  const agentDir = path.join(orchDir, "agents", "agentalpha");
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA,
     agent: "pi",
-    paneId: "agent-alpha",
+    paneId: "agentalpha",
     pid: process.pid,
     state: "working",
   }));
@@ -73,7 +73,7 @@ describe("CLI daemon skew guard", () => {
     const staleHash = "stale-daemon-hash";
     seedDaemonLock(orchDir, staleHash);
 
-    const result = runCli(orchDir, ["dispatch", "agent-alpha", "hello"]);
+    const result = runCli(orchDir, ["dispatch", "agentalpha", "hello"]);
     const text = output(result);
 
     expect(result.status).not.toBe(0);
@@ -90,7 +90,7 @@ describe("CLI daemon skew guard", () => {
     const result = runCli(orchDir, ["status", "--offline", "--json", "--all", "--all-panes"]);
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("agent-alpha");
+    expect(result.stdout).toContain("agentalpha");
     expect(output(result)).not.toContain("orch daemon reload");
   }, 15_000);
 
@@ -99,7 +99,7 @@ describe("CLI daemon skew guard", () => {
     seedAgent(orchDir);
     seedDaemonLock(orchDir, "stale-daemon-hash");
 
-    const result = runCli(orchDir, ["dispatch", "agent-alpha", "hello", "--stale-ok"]);
+    const result = runCli(orchDir, ["dispatch", "agentalpha", "hello", "--stale-ok"]);
     const text = output(result);
 
     expect(result.status).not.toBe(0);
@@ -129,7 +129,7 @@ describe("CLI daemon skew guard", () => {
     const orchDir = makeOrchDir();
     seedAgent(orchDir);
 
-    const result = runCli(orchDir, ["dispatch", "agent-alpha", "hello"]);
+    const result = runCli(orchDir, ["dispatch", "agentalpha", "hello"]);
     const text = output(result);
     runCli(orchDir, ["daemon", "stop"]);
 

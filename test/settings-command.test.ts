@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import * as registry from "../src/settings/registry.ts";
 import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
+import { cmdSettings } from "../src/commands/settings.ts";
 import { isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -171,6 +173,23 @@ describe("orch settings", () => {
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     expect(runSettings(directory, {}, "fleet.spawn_cap", "5")).toContain("fleet.spawn_cap = 5");
   }, 30_000);
+
+  test("single-setting set delegates to the registry writer", async () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const previousOrchDir = process.env.ORCH_DIR;
+    process.env.ORCH_DIR = directory;
+    const writer = spyOn(registry, "writeRegisteredSetting");
+    try {
+      await cmdSettings(["fleet.spawn_cap", "6"]);
+      expect(writer).toHaveBeenCalledTimes(1);
+      expect(writer).toHaveBeenCalledWith(directory, "fleet.spawn_cap", 6);
+    } finally {
+      writer.mockRestore();
+      if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
+      else process.env.ORCH_DIR = previousOrchDir;
+    }
+  });
 
   test("sets a choice through its registry entry", () => {
     const directory = tempDir();

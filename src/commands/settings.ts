@@ -152,7 +152,7 @@ function setSingleSetting(args: string[]): boolean {
   }
   const parsed = parseSettingValue(spec, input);
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
-  try { spec.write(orchDir(), parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
+  try { writeRegisteredSetting(orchDir(), key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
   process.stdout.write(`${key} = ${formatValue(parsed.value)}\n`);
   return true;
 }

@@ -280,7 +280,17 @@ function nonEmpty(value: string | undefined): string | undefined {
   return value;
 }
 
-function hostOs(): HostOs {
+const HOST_OS_VALUES: readonly HostOs[] = ["linux", "windows", "darwin"];
+
+function isHostOs(value: unknown): value is HostOs {
+  return typeof value === "string" && HOST_OS_VALUES.some((os) => os === value);
+}
+
+/** B9: the OS side is the CALLER's, not the daemon's. A daemon that answers with
+ *  its own platform mislabels every session on the other side of a WSL boundary.
+ *  Falling back to this process only covers a caller too old to state one. */
+function claimedHostOs(claim: Readonly<Record<string, unknown>>): HostOs {
+  if (isHostOs(claim.hostOs)) return claim.hostOs;
   try {
     return currentHostOs();
   } catch (error: unknown) {
@@ -334,9 +344,12 @@ function helloIdentity(orchDir: string, params: unknown, daemonToken: string): H
     ? claim.sessionToken
     : null;
   const claimed = typeof claim.label === "string" ? claim.label.trim() : "";
-  const host = hostname();
+  const host = typeof claim.hostName === "string" && claim.hostName.trim().length > 0
+    ? claim.hostName.trim()
+    : hostname();
   const plexerId = typeof claim.plexer === "string" ? claim.plexer.trim() : null;
   const plexerVersion = typeof claim.plexerVersion === "string" ? claim.plexerVersion.trim() : null;
+  const space = typeof claim.space === "string" && claim.space.trim().length > 0 ? claim.space.trim() : null;
   const identity = getOrCreateSessionAgent(orchDir, {
     pid,
     startToken,
@@ -346,9 +359,10 @@ function helloIdentity(orchDir: string, params: unknown, daemonToken: string): H
     label: claimed || `${harness} session ${pid}`,
     hostId: host,
     hostName: host,
-    hostOs: hostOs(),
+    hostOs: claimedHostOs(claim),
     plexerId,
     plexerVersion,
+    space,
     now: Date.now(),
   });
   const registrationWarning = plexerId && plexerVersion && supportedRange(plexerId) && !supportedPlexerVersion(plexerId, plexerVersion)
@@ -797,6 +811,13 @@ export function helloClaim(orchDir: string, label?: string): Record<string, unkn
     label,
     plexer: callerBackend?.id,
     plexerVersion: callerBackend?.versionInfo?.installed() ?? undefined,
+    // B9: every environment fact travels in the claim. The daemon runs in ONE
+    // place and the caller may be in another — a WSL daemon with a Windows-side
+    // session is the case this repo lives with — so the daemon must not observe
+    // the host or the space on the caller's behalf.
+    space: nonEmpty(process.env.ORCH_SPACE?.trim()) ?? null,
+    hostName: hostname(),
+    hostOs: currentHostOs(),
   };
 }
 

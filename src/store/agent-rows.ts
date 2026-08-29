@@ -3,6 +3,8 @@ import { mintAgentId } from "../backends/identity.ts";
 import { isRecord } from "../util.ts";
 import { openStore, orm, withTransaction } from "./connection.ts";
 import { agentEndings, agentWorktrees, agents, hostPlexers as hostPlexerTable } from "../db/schema.ts";
+import { environmentOf } from "./agent-view.ts";
+import { setAgentPlexer, setSpace } from "./interval-rows.ts";
 
 export type HostOs = "linux" | "windows" | "darwin";
 
@@ -46,6 +48,9 @@ export interface SessionAgentInput {
   /** Plexer observed by the registering session, when it runs in one. */
   plexerId?: string | null;
   plexerVersion?: string | null;
+  /** The space the caller registered in. Optional (A7): a session in no space
+   *  records no row, which is an answer and not a missing value. */
+  space?: string | null;
   now: number;
 }
 export interface AgentRow {
@@ -198,6 +203,29 @@ function isAgentIdRow(value: unknown): value is { id: string } {
   return isRecord(value) && typeof value.id === "string";
 }
 
+/**
+ * B9: record the registering session's own environment, at hello.
+ *
+ * `host_plexers` says which plexer is INSTALLED on a machine (E17); it does not
+ * say where this agent is. The agent's own axes are satellites (A14), so they
+ * are written here rather than inferred at use — what an agent can do is
+ * dictated by where it is, and a fact filled in later is a fact something read
+ * wrong first.
+ *
+ * Both are idempotent: the plexer is an immutable one-shot, and the space
+ * already open is left alone rather than reopened, so a second hello from the
+ * same session opens no second interval.
+ */
+function placeSession(orchDir: string, agentId: string, input: SessionAgentInput): void {
+  const environment = environmentOf(orchDir, agentId);
+  if (input.plexerId != null && environment.plexer === null) {
+    setAgentPlexer(orchDir, agentId, input.plexerId);
+  }
+  if (input.space != null && environment.space !== input.space) {
+    setSpace(orchDir, agentId, input.now, input.space);
+  }
+}
+
 export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInput): SessionAgentIdentity {
   ensureHarness(orchDir, input.harnessId, input.harnessId, input.now);
   ensureHost(orchDir, input.hostId, input.hostName, input.hostOs, input.now);
@@ -205,7 +233,7 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
     ensurePlexer(orchDir, input.plexerId, input.plexerId);
     ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
   }
-  return withTransaction(orchDir, () => {
+  const identity = withTransaction<SessionAgentIdentity>(orchDir, () => {
     const db = openStore(orchDir);
     const token = input.sessionToken ?? null;
     const existing = token === null
@@ -264,6 +292,11 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
     ).run(id, input.now, input.hostId, input.pid, input.startToken);
     return { id, label: input.label, kind: "session" };
   });
+  // Placement runs AFTER the registration transaction: `closeThenOpen` opens its
+  // own, and sqlite has no nested one. It is idempotent, so a crash in between
+  // is repaired by the session's next hello rather than leaving a second row.
+  placeSession(orchDir, identity.id, input);
+  return identity;
 }
 
 export function ensureHarness(orchDir: string, id: string, name: string, enabledAt: number | null = null): void {

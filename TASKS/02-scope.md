@@ -39,7 +39,7 @@ The `hello` handshake in detail. Nothing outside `TASKS/` is part of this plan.
 | # | item | status |
 |---|---|---|
 | B1 | `hello` is the only entry point; identity is issued by orchd, never derived by the caller | `BUILT` — `src/daemon/rpc.ts` |
-| B9 | `hello` is also where the **environment** is recorded in full — harness, plexer, directory, space, OS side. It is not filled in later or inferred at use, because it is what dictates everything that agent can do (E13) | `DECIDED` |
+| B9 | `hello` is also where the **environment** is recorded in full — harness, plexer, directory, space, OS side. It is not filled in later or inferred at use, because it is what dictates everything that agent can do (E13) | `BUILT` — `helloClaim` (`src/daemon/rpc.ts:790`) now carries `space`, `hostName` and `hostOs` alongside harness/cwd/plexer, and `helloIdentity` records what the CALLER stated instead of observing daemon-side (`claimedHostOs`, `:283`). `placeSession` (`src/store/agent-rows.ts:201`) writes the session's own `agent_plexers` and `agent_spaces` at registration — `host_plexers` says what is installed on a machine, not where this agent is. Tests: `test/hello-environment.test.ts` (5) |
 | B2 | Credential is the `0600` token file in `$ORCH_DIR`; same-uid is the whole trust boundary | `DECIDED` |
 | B3 | One mechanism on both transports; TCP is a fallback, never a client class | `DECIDED` |
 | B4 | Peer credentials rejected — node exposes neither `SO_PEERCRED` nor process ancestry portably | `DECIDED` |

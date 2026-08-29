@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseDispatchFlags } from "../src/commands/control.ts";
-import { workerPrompt } from "../src/commands/spawn.ts";
+import { workerPrompt } from "../src/worker-prompt.ts";
 
 describe("commands/control", () => {
   test("parses dispatch flags without losing prompt words", () => expect(parseDispatchFlags(["--raw", "agent", "do", "it", "--agent", "pi"])).toMatchObject({ raw: true, positional: ["agent", "do", "it"], adapterFlag: "pi" }));

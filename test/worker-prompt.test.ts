@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
-import { workerPrompt } from "../src/commands/spawn.ts";
+import { workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";

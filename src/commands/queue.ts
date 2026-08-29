@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { addTask, cancelTask, closePackIntake, editTask, listTasks, openPackIntake, packIntakes, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
-import { ensureDaemon } from "./daemon.ts";
-import { rpcHello } from "../daemon/rpc.ts";
+import { ensureDaemon, rpcHello } from "../daemon/reach.ts";
 import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage, isRecord } from "../util.ts";

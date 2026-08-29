@@ -1,7 +1,7 @@
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir } from "../presence/store.ts";
-import { rpcHello } from "../daemon/rpc.ts";
+import { rpcHello } from "../daemon/reach.ts";
 import { join } from "node:path";
 import { openStore } from "../store/connection.ts";
 import { agentById, childrenOf, liveAgents, renameAgent } from "../store/agent-rows.ts";

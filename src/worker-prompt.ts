@@ -1,5 +1,6 @@
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
+import { spawnerIdentity } from "./policy/spawner.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
 import type { WorkerHeaderContext } from "./types/core.ts";
 
@@ -58,4 +59,15 @@ export function stripWorkerHeader(task: string): string {
 /** Normalize a dispatched task before storing it: strip the header, then truncate. */
 export function prepareWorkerTask(task: string, max: number): string {
   return truncate(stripWorkerHeader(task), max);
+}
+
+export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: WorkerHeaderContext = {}): string {
+  return raw ? prompt : `${workerHeaderFor(adapter, context)}\n\n${prompt}`;
+}
+
+/** This session's own reply address, live only when it writes presence of its own.
+ *  A worker is told to `orch_send target "spawner"` on the strength of this and
+ *  nothing else — never on its own harness's steer capability. */
+export function spawnerIsRepliable(): boolean {
+  return spawnerIdentity().key !== null;
 }

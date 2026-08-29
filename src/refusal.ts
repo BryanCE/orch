@@ -47,3 +47,14 @@ export function ambiguousTargetRefusal(target: string, candidates: readonly Ambi
     + "Pick one and address it by its key - a key never matches two agents.",
   );
 }
+
+/** A spawn refused before it placed anything. Distinct from {@link CommandRefusal}
+ *  because a caller catches it to report WHICH spawn was refused and why, and it
+ *  lives here so the leaf both `spawn.ts` and the selection helpers import is the
+ *  same one — that is what keeps them from importing each other. */
+export class SpawnRefusalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SpawnRefusalError";
+  }
+}

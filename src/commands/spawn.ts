@@ -7,9 +7,10 @@ import { assertModelAllowed } from "../policy/model.ts";
 import { term } from "../policy/vocabulary.ts";
 import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../policy/workers.ts";
-import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
-import { workerHeaderFor } from "../worker-prompt.ts";
+import { workerPrompt } from "../worker-prompt.ts";
+import { pickAdapter, requestedModel, resolveAdapterOrDie } from "./selection.ts";
+import { SpawnRefusalError } from "../refusal.ts";
 import { mintAgentId, serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { detachedBackend, resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
@@ -18,8 +19,8 @@ import { refreshStaleShims } from "../doctor/runner.ts";
 import { readFileSync } from "node:fs";
 import { dispatchToAgent } from "./control.ts";
 import { errorMessage, sleep } from "../util.ts";
-import { callDaemon, daemonOutage } from "./daemon.ts";
-import { rpcHello } from "../daemon/rpc.ts";
+import { callDaemon } from "./daemon.ts";
+import { daemonOutage, rpcHello } from "../daemon/reach.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { agentViewIndex, callerOwnerToken, die, presenceById } from "./target.ts";
 import { callerSpace } from "../identity/self.ts";
@@ -35,7 +36,6 @@ import { homeHandle, openHome } from "../store/home-rows.ts";
 import { agentById } from "../store/agent-rows.ts";
 import type { AgentFlags, AgentSettings, CreatedAgent, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../types/command.ts";
 import type { HomeSubject } from "../types/backend.ts";
-import type { WorkerHeaderContext } from "../types/core.ts";
 
 function spawnLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;
@@ -107,21 +107,6 @@ function printLayout(backend: Backend, group: string, header: string) {
     process.stdout.write(`  ${r[0]!.padEnd(w0)}  ${r[1]!.padEnd(w1)}  ${r[2]!}\n`);
 }
 
-export class SpawnRefusalError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SpawnRefusalError";
-  }
-}
-
-export function resolveAdapterOrDie(id: string): AgentAdapter {
-  try {
-    return resolveRegisteredAdapter(id);
-  } catch (error: unknown) {
-    throw new SpawnRefusalError(errorMessage(error));
-  }
-}
-
 /** The command one harness launches under, built by that harness's own adapter. `launch` carries
  *  what this launch selected — the model it starts on and the quicklist its picker shows — so a
  *  previewed command is the command the backend actually runs. */
@@ -187,19 +172,6 @@ export async function pinModels(
 }
 
 /** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
-export function pickAdapter(flags: AgentFlags, config: OrchConfig): AdapterId {
-  const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "" });
-  if (!selected) die("no harness selected - pass --agent <id> or run `orch setup` to pick one");
-  // Validate the id here, at the boundary, so everything downstream carries AdapterId.
-  return resolveAdapterOrDie(selected).id;
-}
-
-/** The model THIS command named, or null when the caller named none. NEVER the
- *  configured default: only a launch may apply that. A dispatch that fell back to
- *  it re-pinned every agent to the default and erased the model it spawned on. */
-export function requestedModel(flags: AgentFlags): string | null {
-  return resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", fallback: "" }) || null;
-}
 
 /** The model a fresh session runs on: what the caller named, else the configured
  *  default. With neither, refuse — an unpinned session silently runs whatever the
@@ -1027,16 +999,5 @@ export async function cmdTile(args: string[]) {
     printLayout(selectedBackend, tab.id, "\nFinal tiling:");
   }
   await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);
-}
-
-export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: WorkerHeaderContext = {}): string {
-  return raw ? prompt : `${workerHeaderFor(adapter, context)}\n\n${prompt}`;
-}
-
-/** This session's own reply address, live only when it writes presence of its own.
- *  A worker is told to `orch_send target "spawner"` on the strength of this and
- *  nothing else — never on its own harness's steer capability. */
-export function spawnerIsRepliable(): boolean {
-  return spawnerIdentity().key !== null;
 }
 

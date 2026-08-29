@@ -14,7 +14,7 @@ import { runRemoteAsync } from "../remote.ts";
 import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName } from "../policy/space.ts";
-import { ensureDaemonOrWarn } from "./daemon.ts";
+import { ensureDaemonOrWarn } from "../daemon/reach.ts";
 import { rpcCall } from "../daemon/rpc.ts";
 import {
   agentViewIndex,

@@ -9,12 +9,11 @@ import { readPortPath } from "../presence/socket-client.ts";
 import { ensurePrivateDir, errorMessage } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
 import { callerSession } from "../identity/self.ts";
-import { currentHostOs, getOrCreateSessionAgent, isLiveAgentIdentity } from "../store/agent-rows.ts";
+import { currentHostOs, getOrCreateSessionAgent } from "../store/agent-rows.ts";
 import { processStartToken } from "../process-identity.ts";
 import { openStore } from "../store/connection.ts";
 import { allBackends } from "../backends/registry.ts";
 import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
-import { ensureDaemon, translateDaemonError } from "../commands/daemon.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { HostOs, SessionAgentIdentity } from "../types/store.ts";
 import type { BufferedEvent, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
@@ -166,7 +165,7 @@ export function isHelloResponse(value: unknown): value is HelloResponse {
     && (value.registrationWarning === undefined || typeof value.registrationWarning === "string");
 }
 
-const DEFAULT_TIMEOUT_MS = 5_000;
+export const DEFAULT_TIMEOUT_MS = 5_000;
 // Bounds for the self-healing event subscription's reconnect loop. A daemon can
 // return at any time (restart, reload, machine wake), so retries never give up;
 // they only stop climbing once the delay reaches the cap.
@@ -839,26 +838,6 @@ export function helloClaim(orchDir: string, label?: string): Record<string, unkn
     hostName: hostname(),
     hostOs: currentHostOs(),
   };
-}
-
-/** Register this process with the daemon and return the identity it issued. Reading the
- *  `0600` token file IS the credential, so there is nothing else to enroll. The session
- *  is this process's parent — the shell or harness that outlives one `orch` invocation. */
-export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<HelloResponse> {
-  try {
-    // Ensure the daemon first: its token exists only for the lifetime of a running
-    // daemon, so reading it before this probe turns a fresh store into raw ENOENT.
-    await ensureDaemon(orchDir);
-    const identity = await rpcCall(orchDir, "hello", helloClaim(orchDir, label), timeoutMs);
-    if (!isLiveAgentIdentity(orchDir, identity) || !isHelloResponse(identity)) {
-      throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
-    }
-    announceUnleasedAgents(orchDir, identity);
-    if (identity.registrationWarning) process.stderr.write(`warning: ${identity.registrationWarning}\n`);
-    return identity;
-  } catch (error: unknown) {
-    throw translateDaemonError(orchDir, error);
-  }
 }
 
 /**

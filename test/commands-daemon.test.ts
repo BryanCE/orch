@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { daemonLockPid, parseGovernance, validDaemonStatus } from "../src/commands/daemon.ts";
+import { parseGovernance, validDaemonStatus } from "../src/commands/daemon.ts";
+import { daemonLockPid } from "../src/daemon/reach.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 describe("commands/daemon", () => {

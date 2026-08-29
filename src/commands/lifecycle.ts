@@ -20,7 +20,9 @@ import { NO_PANE_FOREGROUND, paneAtShellPrompt, sleepMs } from "../backends/pane
 
 import { loadConfig } from "../config.ts";
 import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
-import { adapterCommand, assertLaunchModelAllowed, launchModel, pickAdapter, pinModels, resolveAdapterOrDie, spawnerIsRepliable, workerPrompt } from "./spawn.ts";
+import { adapterCommand, assertLaunchModelAllowed, launchModel, pinModels } from "./spawn.ts";
+import { pickAdapter, resolveAdapterOrDie } from "./selection.ts";
+import { spawnerIsRepliable, workerPrompt } from "../worker-prompt.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";

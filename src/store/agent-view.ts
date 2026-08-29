@@ -1,5 +1,5 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
-import { orm } from "./connection.ts";
+import { ormForRead } from "./connection.ts";
 import {
   agentEndings,
   agentHandles,
@@ -90,31 +90,31 @@ interface EnvironmentAxis {
 
 /** The open row of an interval satellite is the one with no `until`. */
 function currentHandle(orchDir: string, agentId: string): string | null {
-  const row = orm(orchDir).select({ handle: agentHandles.handle }).from(agentHandles)
+  const row = ormForRead(orchDir)?.select({ handle: agentHandles.handle }).from(agentHandles)
     .where(and(eq(agentHandles.agentId, agentId), isNull(agentHandles.until))).get();
   return row?.handle ?? null;
 }
 
 function currentSpace(orchDir: string, agentId: string): string | null {
-  const row = orm(orchDir).select({ spaceId: agentSpaces.spaceId }).from(agentSpaces)
+  const row = ormForRead(orchDir)?.select({ spaceId: agentSpaces.spaceId }).from(agentSpaces)
     .where(and(eq(agentSpaces.agentId, agentId), isNull(agentSpaces.until))).get();
   return row?.spaceId ?? null;
 }
 
 function currentPlexer(orchDir: string, agentId: string): string | null {
-  const row = orm(orchDir).select({ plexerId: agentPlexers.plexerId }).from(agentPlexers)
+  const row = ormForRead(orchDir)?.select({ plexerId: agentPlexers.plexerId }).from(agentPlexers)
     .where(eq(agentPlexers.agentId, agentId)).get();
   return row?.plexerId ?? null;
 }
 
 function worktreePath(orchDir: string, agentId: string): string | null {
-  const row = orm(orchDir).select({ path: agentWorktrees.path }).from(agentWorktrees)
+  const row = ormForRead(orchDir)?.select({ path: agentWorktrees.path }).from(agentWorktrees)
     .where(eq(agentWorktrees.agentId, agentId)).get();
   return row?.path ?? null;
 }
 
 function worktreeBranch(orchDir: string, agentId: string): string | null {
-  const row = orm(orchDir).select({ branch: agentWorktrees.branch }).from(agentWorktrees)
+  const row = ormForRead(orchDir)?.select({ branch: agentWorktrees.branch }).from(agentWorktrees)
     .where(eq(agentWorktrees.agentId, agentId)).get();
   return row?.branch ?? null;
 }
@@ -145,14 +145,14 @@ export function environmentOf(orchDir: string, agentId: string): AgentEnvironmen
 }
 
 export function tuningOf(orchDir: string, agentId: string): AgentTuning {
-  const row = orm(orchDir).select({ model: agentTunings.model, thinking: agentTunings.thinking })
+  const row = ormForRead(orchDir)?.select({ model: agentTunings.model, thinking: agentTunings.thinking })
     .from(agentTunings).where(and(eq(agentTunings.agentId, agentId), isNull(agentTunings.until))).get();
   return { model: row?.model ?? null, thinking: row?.thinking ?? null };
 }
 
 /** The live lease, if one is open. A closed lease is history, not ownership. */
 export function holderOf(orchDir: string, agentId: string): AgentHolder | null {
-  const row = orm(orchDir).select({ orchId: agentLeases.orchId, since: agentLeases.since })
+  const row = ormForRead(orchDir)?.select({ orchId: agentLeases.orchId, since: agentLeases.since })
     .from(agentLeases).where(and(eq(agentLeases.agentId, agentId), isNull(agentLeases.until))).get();
   return row ? { orchId: row.orchId, since: row.since } : null;
 }
@@ -160,18 +160,18 @@ export function holderOf(orchDir: string, agentId: string): AgentHolder | null {
 /** The spawner's name today, not the name it had when it spawned this agent. */
 function nameOf(orchDir: string, agentId: string | null): string | null {
   if (agentId === null) return null;
-  const row = orm(orchDir).select({ name: agents.name }).from(agents).where(eq(agents.id, agentId)).get();
+  const row = ormForRead(orchDir)?.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId)).get();
   return row?.name ?? null;
 }
 
 function endedAt(orchDir: string, agentId: string): number | null {
-  const row = orm(orchDir).select({ endedAt: agentEndings.endedAt }).from(agentEndings)
+  const row = ormForRead(orchDir)?.select({ endedAt: agentEndings.endedAt }).from(agentEndings)
     .where(eq(agentEndings.agentId, agentId)).get();
   return row?.endedAt ?? null;
 }
 
 export function agentView(orchDir: string, agentId: string): AgentView | null {
-  const hub = orm(orchDir).select().from(agents).where(eq(agents.id, agentId)).get();
+  const hub = ormForRead(orchDir)?.select().from(agents).where(eq(agents.id, agentId)).get();
   if (!hub) return null;
   return {
     id: hub.id,
@@ -192,7 +192,7 @@ export function agentView(orchDir: string, agentId: string): AgentView | null {
 
 /** Every agent, oldest first — the ordering the old `spawned` scan produced. */
 export function agentViews(orchDir: string): AgentView[] {
-  const ids = orm(orchDir).select({ id: agents.id }).from(agents).orderBy(asc(agents.createdAt), asc(agents.id)).all();
+  const ids = ormForRead(orchDir)?.select({ id: agents.id }).from(agents).orderBy(asc(agents.createdAt), asc(agents.id)).all() ?? [];
   const views: AgentView[] = [];
   for (const { id } of ids) {
     const view = agentView(orchDir, id);

@@ -1,4 +1,4 @@
-import { openStore } from "./connection.ts";
+import { openStore, storeExists } from "./connection.ts";
 import { isRecord } from "../util.ts";
 
 export type TaskScope =
@@ -278,6 +278,10 @@ export function agentsInTaskScope(dir: string, taskId: string): string[] {
 }
 
 export function allTasks(dir: string): (TaskRow & { state: TaskState })[] {
+  // B6: `orch doctor` runs this and must never write. A store that does not
+  // exist holds no tasks — creating one to discover that is the write the row
+  // forbids, and it turns "you have not set up orch" into "you have".
+  if (!storeExists(dir)) return [];
   const rows = rowsOf(openStore(dir).query(`
     SELECT t.*, s.state FROM tasks t
     JOIN task_states s ON s.task_id=t.id

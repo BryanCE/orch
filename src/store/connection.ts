@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { join } from "node:path";
 import { defineRelations } from "drizzle-orm";
@@ -210,6 +210,24 @@ export function orm(orchDir: string): Orm {
 /** Open (create-if-absent) the WAL store for one orch dir; connection is cached. */
 export function openStore(orchDir: string): DatabaseLike {
   return openDatabase(orchDir).port;
+}
+
+/**
+ * Whether this orch dir has a store yet.
+ *
+ * TASKS/02-scope.md B6: `setup`, `doctor`, `help`, `version` and
+ * `status --offline` need no identity BECAUSE THEY NEVER WRITE. Opening the
+ * store is a write — `openStore` creates the file and applies every migration
+ * into it — so a read path that calls it unconditionally turns `orch status
+ * --offline` on a machine that has never run orch into a machine that has.
+ */
+export function storeExists(orchDir: string): boolean {
+  return connections.has(databasePath(orchDir)) || existsSync(databasePath(orchDir));
+}
+
+/** The store for reading, or `null` where there is none. Never creates one. */
+export function ormForRead(orchDir: string): Orm | null {
+  return storeExists(orchDir) ? orm(orchDir) : null;
 }
 
 function openDatabase(orchDir: string): OpenDatabase {

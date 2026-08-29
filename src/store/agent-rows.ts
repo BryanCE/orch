@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
 import { isRecord } from "../util.ts";
-import { openStore, orm, withTransaction } from "./connection.ts";
+import { openStore, orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentWorktrees, agents, hostPlexers as hostPlexerTable } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setSpace } from "./interval-rows.ts";
@@ -185,6 +185,11 @@ export function isLiveAgentIdentity(orchDir: string, value: unknown): value is S
  *  stable session token. This is the id a driving session ACTS as: its lease is
  *  held by it, so anything else can never match and orch refuses its own fleet. */
 export function agentIdBySessionToken(orchDir: string, sessionToken: string): string | null {
+  // B6: this is a LOOKUP, and it runs on `orch status --offline`. Opening the
+  // store creates it and applies every migration, so asking "who am I" on a
+  // machine that has never run orch would leave a store behind. No store means
+  // no registered session, which is the honest answer.
+  if (!storeExists(orchDir)) return null;
   const row = openStore(orchDir).query(
     `SELECT a.id FROM agents a
      LEFT JOIN agent_endings e ON e.agent_id = a.id

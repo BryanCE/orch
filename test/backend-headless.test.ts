@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import type { SpawnOpts } from "../src/adapters/adapter.ts";
+import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { codexAdapter } from "../src/adapters/codex.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -17,9 +18,10 @@ const { HeadlessBackend } = await import("../src/backends/headless/index.ts");
 const backend = new HeadlessBackend();
 const handles: { pid: number; key: string }[] = [];
 
-const fakeAdapter = {
-  id: "fake",
-  headlessCmd(_prompt: string, opts: { key?: string; orchDir?: string }): string[] {
+// Rule 13: a fixture that does not satisfy the port gets a typed factory that
+// builds the COMPLETE value, never a cast past the compiler.
+const fakeAdapter = makeFakeAdapter({
+  headlessCmd(_prompt: string, opts: SpawnOpts): string[] {
     const key = opts.key!;
     const directory = opts.orchDir!;
     const statusDir = path.join(directory, "agents", key);
@@ -32,11 +34,11 @@ const fakeAdapter = {
     ].join(" ");
     return [process.execPath, "-e", script];
   },
-};
+});
 
-const codexLogAdapter = {
+const codexLogAdapter = makeFakeAdapter({
   id: "codex",
-  headlessCmd(_prompt: string, opts: { key?: string; orchDir?: string }): string[] {
+  headlessCmd(_prompt: string, opts: SpawnOpts): string[] {
     const statusDir = path.join(opts.orchDir!, "agents", opts.key!);
     const script = [
       "const fs = require(\"node:fs\");",
@@ -47,7 +49,7 @@ const codexLogAdapter = {
     ].join(" ");
     return [process.execPath, "-e", script];
   },
-};
+});
 
 // Generous deadline: these tests launch real detached OS processes, and child
 // startup can take seconds on a loaded machine — a short deadline makes the
@@ -86,7 +88,7 @@ describe("HeadlessBackend", () => {
 
   test("refuses to spawn with no prompt — a headless agent runs its prompt and exits", () => {
     for (const prompt of [undefined, "", "   "]) {
-      expect(() => backend.spawn(fakeAdapter as unknown as AgentAdapter, { key: "fake-promptless", prompt }))
+      expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt }))
         .toThrow(/no prompt/);
     }
     expect(backend.list().some((entry) => entry.key === "fake-promptless")).toBe(false);
@@ -99,7 +101,7 @@ describe("HeadlessBackend", () => {
     expect(backend.logPruning).not.toBeNull();
     expect(backend.handleLookup).not.toBeNull();
     expect(backend.identity).toBeNull();
-    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key, prompt: "sleep" });
+    const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep" });
     handles.push(handle);
 
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
@@ -115,9 +117,8 @@ describe("HeadlessBackend", () => {
 
   test("completes a headless dispatch round-trip and leaves a readable result", async () => {
     const key = serializeIdentity({ backend: "headless", workspace: "test", id: "round-trip" });
-    const adapter = {
-      ...fakeAdapter,
-      headlessCmd: (_prompt: string, opts: { key?: string; orchDir?: string }) => {
+    const adapter = makeFakeAdapter({
+      headlessCmd: (_prompt: string, opts: SpawnOpts): string[] => {
         const dir = path.join(opts.orchDir!, "agents", opts.key!);
         return [process.execPath, "-e", [
           "const fs=require('node:fs');",
@@ -127,8 +128,8 @@ describe("HeadlessBackend", () => {
           "setTimeout(()=>{fs.writeFileSync(result, JSON.stringify({text:'headless result'})); fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'done'}));}, 30);",
         ].join(" ")];
       },
-    };
-    const handle = backend.spawn(adapter as unknown as AgentAdapter, { key, prompt: "dispatch" });
+    });
+    const handle = backend.spawn(adapter, { key, prompt: "dispatch" });
     handles.push(handle);
     const dir = path.join(testOrchDir, "agents", key);
     await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
@@ -138,7 +139,7 @@ describe("HeadlessBackend", () => {
 
   test("records and mirrors the headless log for Codex session-tail parsing", async () => {
     const key = serializeIdentity({ backend: "headless", workspace: "test", id: "codex-tail" });
-    const handle = backend.spawn(codexLogAdapter as unknown as AgentAdapter, { key, prompt: "tail" });
+    const handle = backend.spawn(codexLogAdapter, { key, prompt: "tail" });
     handles.push(handle);
     const statusPath = path.join(testOrchDir, "agents", key, "status.json");
     await waitFor(() => fs.existsSync(statusPath));
@@ -153,7 +154,7 @@ describe("HeadlessBackend", () => {
   test("closes only when registry and presence pid/key both match", async () => {
     const key = serializeIdentity({ backend: "headless", workspace: "test", id: "fake-2" });
     const wrongKey = serializeIdentity({ backend: "headless", workspace: "test", id: "wrong-key" });
-    const handle = backend.spawn(fakeAdapter as unknown as AgentAdapter, { key, prompt: "sleep" });
+    const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep" });
     handles.push(handle);
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
 

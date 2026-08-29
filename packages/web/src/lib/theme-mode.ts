@@ -6,7 +6,6 @@ import { includesValue } from './validation'
 export type ThemeMode = 'light' | 'dark' | 'system'
 
 const COOKIE_NAME = 'theme-mode'
-const STORAGE_KEY = 'theme'
 const DEFAULT_MODE: ThemeMode = 'system'
 const VALID: readonly ThemeMode[] = ['light', 'dark', 'system']
 
@@ -28,9 +27,3 @@ export const setThemeModeCookie = createServerFn({ method: 'POST' })
       sameSite: 'lax',
     })
   })
-
-function getThemeMode(): ThemeMode {
-  if (typeof window === 'undefined') return DEFAULT_MODE
-  const stored = localStorage.getItem(STORAGE_KEY)
-  return isValidMode(stored) ? stored : DEFAULT_MODE
-}

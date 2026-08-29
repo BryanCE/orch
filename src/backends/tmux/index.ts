@@ -1,31 +1,33 @@
 import { join } from "node:path";
 import type { AgentAdapter } from "../../adapters/adapter.ts";
-import type {
-  Backend,
-  EnvironmentIdentityRole,
-  BackendId,
-  BackendGroup,
-  BackendGroupLayout,
-  BackendSpawnOpts,
-  BackendSplit,
-  BackendTarget,
-  BackendWorkspace,
-  PaneHostRole,
-  PaneInventoryRole,
-  PaneForegroundRole,
-  PaneScreenRole,
-  PaneZoomRole,
-  PaneNamingRole,
-  AgentNamingRole,
-  AgentStatusRole,
-  GroupHomeRole,
-  GroupLayoutRole,
-  SpaceHomeRole,
-  PlexerHome,
-  CreatedHome,
-  CreateGroupRequest,
-  CreatedGroup,
-  MovePaneRequest,
+import {
+  homeLabel,
+  type Backend,
+  type EnvironmentIdentityRole,
+  type BackendId,
+  type BackendGroup,
+  type BackendGroupLayout,
+  type BackendSpawnOpts,
+  type BackendSplit,
+  type BackendTarget,
+  type BackendWorkspace,
+  type PaneHostRole,
+  type PaneInventoryRole,
+  type PaneForegroundRole,
+  type PaneScreenRole,
+  type PaneZoomRole,
+  type PaneNamingRole,
+  type AgentNamingRole,
+  type AgentStatusRole,
+  type GroupHomeRole,
+  type GroupLayoutRole,
+  type SpaceHomeRole,
+  type PlexerHome,
+  type CreatedHome,
+  type HomeSubject,
+  type CreateGroupRequest,
+  type CreatedGroup,
+  type MovePaneRequest,
 } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
@@ -200,9 +202,11 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       .map((line) => line.trim())
       .filter((coordinate) => coordinate.length > 0)
       .map((coordinate) => ({ coordinate, label: coordinate })),
-    create: (_subject, request): CreatedHome<TmuxHandle> => {
-      const args = ["new-session", "-d", "-P", "-F", "#{session_name}\t#{pane_id}", "-c", request.cwd, ...tmuxEnvArgs(request.env ?? {})];
-      if (request.label) args.push("-s", request.label);
+    create: (subject: HomeSubject, request): CreatedHome<TmuxHandle> => {
+      // E8: never unmarked. A `new-session` with no `-s` takes tmux's own
+      // counter for a name, which says nothing about who opened it or what for.
+      const args = ["new-session", "-d", "-P", "-F", "#{session_name}\t#{pane_id}", "-c", request.cwd,
+        "-s", homeLabel(subject, request.label), ...tmuxEnvArgs(request.env ?? {})];
       const [coordinate, rootHandle] = this.homeExec(args).trim().split("\t");
       if (!coordinate || !rootHandle) throw new Error("tmux new-session returned no session/pane id");
       return { coordinate, rootHandle };

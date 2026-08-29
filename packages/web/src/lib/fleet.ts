@@ -1,11 +1,18 @@
 // Fleet types shared by the god-view, sidebar, and space detail. Data comes
 // from the real daemon via getFleet (src/server/orch.ts) — NO mock source.
+//
+// The row shape below is the subset of orchd's one status row this UI consumes.
+// There is exactly one shape (Rule 8): no legacy coordinate fields, no second
+// spelling of a field the daemon already sends.
 
-/** Composed environment facts safe for renderers: coordinates and answers, never provider ids. */
+/**
+ * Where an agent is, reduced to what a renderer may show. A pane is a plexer
+ * COORDINATE orch stores and hands back — it is never a name and never a bucket.
+ * Its absence means "no shortcut to watch this agent", never "unreachable":
+ * delivery is orch's own inbox mechanism and needs no screen.
+ */
 export interface AgentEnvironment {
   pane: string | null;
-  home: string | null;
-  answers: readonly string[];
 }
 
 export interface FleetLease {
@@ -14,17 +21,15 @@ export interface FleetLease {
   holderAlive: boolean;
 }
 
+/** The daemon's status row, narrowed to the fields this UI reads. */
 export interface FleetProjectionRow {
   key: string;
-  plexer?: string | null;
-  environment?: { pane?: string | null; home?: string | null; answers?: readonly string[] } | null;
+  /** Orch's minted id. Opaque: routing and keying only, never a display name. */
   agentId?: string | null;
+  /** The plexer's coordinate for this agent's pane, when it has one. */
   paneId: string | null;
+  /** The name orch holds for this agent. Spawning requires one (C4e). */
   name: string | null;
-  agent: string | null;
-  /** Immutable provenance, supplied by orch for historical grouping. */
-  spawnedBy?: string | null;
-  spawnedByLabel?: string | null;
   state: string;
   exited: boolean;
   model: string;
@@ -32,20 +37,15 @@ export interface FleetProjectionRow {
   cost: number;
   ctxPercent: number | null;
   tokens: unknown;
-  capabilities?: {
-    panes?: boolean;
-    focusable?: boolean;
-    canSendKeys?: boolean;
-    canPruneLogs?: boolean;
-  } | null;
   lease: FleetLease | null;
   leaseKnown: boolean;
-  /** Legacy coordinate fields retained for routing input, never rendered. */
-  space?: string | null;
-  spaceName?: string | null;
+  /** Orch's own grouping. A space is user-created and always carries a name;
+   *  a row with no `spaceName` is in no space, whatever coordinate `spaceId` holds. */
   spaceId?: string | null;
-  rootAgentId?: string | null;
-  rootAgentName?: string | null;
+  spaceName?: string | null;
+  /** Immutable provenance: the agent that spawned this one, and its name. */
+  spawnedBy?: string | null;
+  spawnedByLabel?: string | null;
 }
 
 export interface FleetAgent {
@@ -66,72 +66,104 @@ export interface FleetAgent {
   leaseKnown: boolean;
 }
 
-export interface Space {
+/** One rendered group of agents — a space in the live view, a spawner in history. */
+export interface AgentGroup {
   id: string;
   name: string;
   slug: string;
   agents: FleetAgent[];
 }
 
+/** The live view's grouping is orch's space; "workspace" is a plexer's word (adr/0001). */
+export type Space = AgentGroup;
+
+/** Shown when an agent is in no space of the user's. Not a place — a missing value. */
+const UNSCOPED_ID = "unscoped";
+const UNSCOPED_NAME = "No space";
+/** Shown for an ended agent that reported no spawner (a self-registered session). */
+const UNSPAWNED_ID = "unspawned";
+const UNSPAWNED_NAME = "No spawner";
+/** A spawner orch known only by its id: an id is not a name, so it is not printed as one. */
+const UNNAMED_SPAWNER = "Unnamed orch";
+
+function trimmed(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
 function environmentFor(row: FleetProjectionRow): AgentEnvironment {
-  if (row.environment) {
-    return {
-      pane: row.environment.pane ?? null,
-      home: row.environment.home ?? null,
-      answers: row.environment.answers ?? [],
-    };
-  }
-  const reported = row.capabilities;
-  const answers: string[] = [];
-  if (reported?.focusable === true) answers.push("focus");
-  if (reported?.canSendKeys === true) answers.push("message", "steer");
-  if (reported?.canPruneLogs === true) answers.push("pruneLogs");
-  return { pane: reported?.panes === true ? row.paneId : null, home: null, answers };
+  return { pane: row.paneId };
+}
+
+function numberField(value: object, key: string): number | undefined {
+  const item: unknown = Reflect.get(value, key);
+  return typeof item === "number" ? item : undefined;
 }
 
 function tokenFields(value: unknown): FleetAgent["tokens"] | undefined {
-  if (!value || typeof value !== "object") return undefined;
+  if (value === null || typeof value !== "object") return undefined;
   const fields: NonNullable<FleetAgent["tokens"]> = {};
   const keys: readonly ("input" | "output" | "cacheRead" | "cacheWrite")[] = ["input", "output", "cacheRead", "cacheWrite"];
   for (const key of keys) {
-    const item = Reflect.get(value, key);
-    if (item !== undefined && typeof item !== "number") return undefined;
-    if (typeof item === "number") fields[key] = item;
+    const item = numberField(value, key);
+    if (item !== undefined) fields[key] = item;
   }
   return fields;
 }
 
 function projectAgent(row: FleetProjectionRow): FleetAgent {
-  const name = row.name?.trim() || row.agentId || "unnamed";
+  const tokens = tokenFields(row.tokens);
   return {
     key: row.key,
     id: row.agentId ?? null,
     environment: environmentFor(row),
-    name,
+    // orch names its agents; falling back to the minted id is the last resort,
+    // and a plexer coordinate is never a candidate (adr/0001).
+    name: trimmed(row.name) ?? row.agentId ?? "unnamed",
     state: row.state,
     ...(row.model ? { model: { id: row.model } } : {}),
     ...(row.lastText ? { lastText: row.lastText } : {}),
     cost: row.cost,
-    ...(tokenFields(row.tokens) ? { tokens: tokenFields(row.tokens) } : {}),
+    ...(tokens ? { tokens } : {}),
     ...(row.ctxPercent !== null ? { context: { percent: row.ctxPercent } } : {}),
     alive: !row.exited,
-    lease: row.lease && typeof row.lease === "object" ? row.lease : null,
-    leaseKnown: row.leaseKnown === true,
+    lease: row.lease ?? null,
+    leaseKnown: row.leaseKnown,
   };
 }
 
-function groupedRows(rows: readonly FleetProjectionRow[], historical: boolean): Space[] {
-  const groups = new Map<string, Space>();
+/**
+ * Live work is grouped by orch's own space. A space is user-created and named;
+ * when orch reports no space NAME the agent is in no space, and it is filed
+ * under that fact — never under the plexer coordinate `spaceId` may be carrying,
+ * which is exactly how `wF` once got printed as a name the user had chosen.
+ */
+function liveGroup(row: FleetProjectionRow): { id: string; name: string } {
+  const name = trimmed(row.spaceName);
+  if (name === null) return { id: UNSCOPED_ID, name: UNSCOPED_NAME };
+  return { id: trimmed(row.spaceId) ?? name, name };
+}
+
+/**
+ * History is grouped by immutable provenance — the agent that spawned each
+ * record — never by a lease, which moves (C7).
+ */
+function historyGroup(row: FleetProjectionRow): { id: string; name: string } {
+  const spawner = trimmed(row.spawnedBy);
+  if (spawner === null) return { id: UNSPAWNED_ID, name: UNSPAWNED_NAME };
+  return { id: spawner, name: trimmed(row.spawnedByLabel) ?? UNNAMED_SPAWNER };
+}
+
+function groupedRows(
+  rows: readonly FleetProjectionRow[],
+  historical: boolean,
+  groupFor: (row: FleetProjectionRow) => { id: string; name: string },
+): AgentGroup[] {
+  const groups = new Map<string, AgentGroup>();
   for (const row of rows) {
     if (row.exited !== historical) continue;
-    // Live work is grouped by its optional orch-owned space. History is grouped
-    // by immutable provenance: the agent that spawned each record, never lease.
-    const id = historical
-      ? row.spawnedBy ?? row.rootAgentId ?? row.agentId ?? "unknown-spawner"
-      : row.spaceId ?? "unscoped";
-    const name = historical
-      ? row.spawnedByLabel?.trim() || row.rootAgentName?.trim() || row.spawnedBy || row.rootAgentId || "unknown spawner"
-      : row.spaceName?.trim() || row.spaceId || "unscoped";
+    const { id, name } = groupFor(row);
     const group = groups.get(id) ?? { id, name, slug: id, agents: [] };
     group.agents.push(projectAgent(row));
     groups.set(id, group);
@@ -140,11 +172,11 @@ function groupedRows(rows: readonly FleetProjectionRow[], historical: boolean): 
 }
 
 export function projectFleet(rows: readonly FleetProjectionRow[]): Space[] {
-  return groupedRows(rows, false);
+  return groupedRows(rows, false, liveGroup);
 }
 
-export function projectHistory(rows: readonly FleetProjectionRow[]): Space[] {
-  return groupedRows(rows, true);
+export function projectHistory(rows: readonly FleetProjectionRow[]): AgentGroup[] {
+  return groupedRows(rows, true, historyGroup);
 }
 
 /** Keep unleased work out of the live list so it is visibly adoptable/reapable. */
@@ -161,8 +193,8 @@ export function partitionAgents(agents: readonly FleetAgent[]): [FleetAgent[], F
   return [live, orphans];
 }
 
-export function findSpace(list: Space[], slug: string): Space | undefined {
-  return list.find((w) => w.slug === slug);
+export function findSpace(list: readonly Space[], slug: string): Space | undefined {
+  return list.find((space) => space.slug === slug);
 }
 
 export function stateGlow(state: string): string {

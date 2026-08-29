@@ -161,7 +161,7 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 | # | file:line | line | rule |
 |---|---|---|---|
-| 6.1 | `src/store/tables.ts:29, :38, :44, :66, :78-79` | `updatedAt: text("updated_at")`, `createdAt: text(…)`, `ts: text("ts")` ×2, `startedAt/finishedAt: text(…)`; writers `ownership-rows.ts:5 new Date().toISOString()`, `retention.ts:92-94` pass ISO strings; later tables use `integer()`. | **Rule 11**: instants are INTEGER epoch millis, never TEXT. One convention. |
+| 6.1 | `src/db/schema.ts:29, :38, :44, :66, :78-79` | `updatedAt: text("updated_at")`, `createdAt: text(…)`, `ts: text("ts")` ×2, `startedAt/finishedAt: text(…)`; writers `ownership-rows.ts:5 new Date().toISOString()`, `retention.ts:92-94` pass ISO strings; later tables use `integer()`. | **Rule 11**: instants are INTEGER epoch millis, never TEXT. One convention. |
 | 6.2 | `src/seat/index.ts:71` | `(ctx.ui as unknown as { theme?: Theme }).theme` | **Rule 13**: `as unknown as` forbidden outright. Type guard or a typed accessor on the harness API. |
 | 6.3 | `src/daemon/rpc.ts:508, :865` | `parsed as unknown as RpcResponse` (after an `isObject` check that proves nothing about the shape) | **Rule 13**: write `isRpcResponse`. |
 | 6.4 | `extensions/pi/index.ts:24`, `extensions/omp/index.ts:31` | `registerOrchSeat(harness as unknown as ExtensionAPI, …)` | **Rule 13**: the seat's pi-specific dependency is hidden from the compiler; omp's "pi-shaped" API is asserted, not checked. Make the seat take the harness-neutral surface it actually uses. |

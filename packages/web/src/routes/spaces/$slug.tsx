@@ -25,7 +25,7 @@ import { useDaemonEvents } from "@/lib/daemon-events";
 import { findSpace, partitionAgents, stateColor, type FleetAgent } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/ws/$slug")({
+export const Route = createFileRoute("/spaces/$slug")({
   staticData: {
     crumbs: () => [
       { label: "God-view", to: "/" },
@@ -57,20 +57,20 @@ function SpaceDetail() {
   const [liveFleet, orphans] = partitionAgents(space.agents);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-1 flex-col">
       <div className="flex items-baseline gap-2 px-6 pt-4">
         <h1 className="text-xl font-semibold">{space.name}</h1>
         <Badge variant="outline" className="ml-2">{space.agents.length} agents</Badge>
       </div>
 
-      <Tabs defaultValue="fleet" className="flex min-h-0 flex-1 flex-col">
+      <Tabs defaultValue="fleet" className="flex flex-1 flex-col">
         <TabsList className="mx-6 mt-3 w-fit">
           <TabsTrigger value="fleet">Fleet</TabsTrigger>
           <TabsTrigger value="events">Activity</TabsTrigger>
           <TabsTrigger value="overview">Overview</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="fleet" className="min-h-0 flex-1">
+        <TabsContent value="fleet" className="flex-1">
           <div className="p-6">
             {space.agents.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
@@ -114,7 +114,7 @@ function SpaceDetail() {
           </div>
         </TabsContent>
 
-        <TabsContent value="events" className="min-h-0 flex-1">
+        <TabsContent value="events" className="flex-1">
           <div className="p-6">
             <div className="mb-5 flex items-center gap-3">
               <Activity className="size-5 text-primary" />
@@ -134,7 +134,7 @@ function SpaceDetail() {
           </div>
         </TabsContent>
 
-        <TabsContent value="overview" className="min-h-0 flex-1 p-6">
+        <TabsContent value="overview" className="flex-1 p-6">
           <div className="grid max-w-md grid-cols-2 gap-3 text-sm">
             {space.agents.map((a) => (
               <div key={a.key} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
@@ -203,30 +203,23 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
         </div>
       </ScrollArea>
 
+      {/* Delivery is orch's own mechanism, so every agent can be written to; a
+          pane is only a shortcut for watching one. Nothing here is gated on it. */}
       <SheetFooter className="border-t">
-        {!agent.environment.answers.includes("message") ? (
-          <p className="text-xs text-muted-foreground">
-            This agent has no console — it runs one prompt and exits. Spawn a new agent instead of
-            steering this one.
-          </p>
-        ) : (
-          <>
-            <Textarea
-              value={msg}
-              onChange={(e) => setMsg(e.target.value)}
-              placeholder={`message ${agent.name}…`}
-              className="min-h-16 resize-none text-sm"
-            />
-            <div className="flex gap-2">
-              <Button size="sm" className="flex-1" disabled={sending} onClick={() => void send("message")}>
-                <Send className="size-3.5" /> Send
-              </Button>
-              <Button size="sm" variant="secondary" className="flex-1" disabled={sending} onClick={() => void send("steer")}>
-                <Radio className="size-3.5" /> Steer
-              </Button>
-            </div>
-          </>
-        )}
+        <Textarea
+          value={msg}
+          onChange={(e) => setMsg(e.target.value)}
+          placeholder={`message ${agent.name}…`}
+          className="min-h-16 resize-none text-sm"
+        />
+        <div className="flex gap-2">
+          <Button size="sm" className="flex-1" disabled={sending} onClick={() => void send("message")}>
+            <Send className="size-3.5" /> Send
+          </Button>
+          <Button size="sm" variant="secondary" className="flex-1" disabled={sending} onClick={() => void send("steer")}>
+            <Radio className="size-3.5" /> Steer
+          </Button>
+        </div>
       </SheetFooter>
     </>
   );

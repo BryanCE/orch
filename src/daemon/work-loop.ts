@@ -17,6 +17,7 @@ import { loadConfig, type OrchConfig } from "../config.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
+import { agentById } from "../store/agent-rows.ts";
 import { spawnedRecords } from "../presence/store.ts";
 import { sweepExpiredRows } from "./retention.ts";
 import { decisionLogger } from "./decision-log.ts";
@@ -40,6 +41,37 @@ export interface WorkOptions {
 function agentIdle(entry: PresenceEntry): boolean {
   const state = entry.status?.state;
   return entry.alive && (state === "idle" || state === "done");
+}
+
+/** One idle process, and the agent orch minted for it. */
+interface Runner {
+  entry: PresenceEntry;
+  agentId: string;
+}
+
+/** A presence key is an ENVIRONMENT — the plexer, that plexer's own grouping, and
+ *  the minted id. Only the third segment is identity, so every queue decision is
+ *  made from `agentId` and every delivery from `entry.key`.
+ *
+ *  Cq8: an idle process whose id names no live registered agent is precisely the
+ *  foreign runner the old code handed work to. It has no row, so it has no pack,
+ *  so no scope contains it. */
+function runnerOf(orchDir: string, entry: PresenceEntry): Runner | null {
+  const agentId = tryParseIdentity(entry.key)?.id;
+  if (agentId === undefined) return null;
+  const agent = agentById(orchDir, agentId);
+  if (!agent || agent.ending != null) return null;
+  return { entry, agentId };
+}
+
+/** Every live process orch has a row for, addressable by the id its attempts carry. */
+function runnersByAgent(orchDir: string, presence: Map<string, PresenceEntry>): Map<string, Runner> {
+  const runners = new Map<string, Runner>();
+  for (const entry of presence.values()) {
+    const runner = runnerOf(orchDir, entry);
+    if (runner) runners.set(runner.agentId, runner);
+  }
+  return runners;
 }
 
 
@@ -138,12 +170,12 @@ function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newSta
 }
 
 function settleClaimedTasks(orchDir: string, emit: (event: NotifyEvent) => void): void {
-  const presence = loadPresence();
+  const runners = runnersByAgent(orchDir, loadPresence());
   for (const task of listTasks(orchDir)) {
     if (task.state !== "claimed") continue;
     const attempt = currentAttempt(task);
     if (!attempt) continue;
-    const agent = presence.get(attempt.agentId);
+    const agent = runners.get(attempt.agentId)?.entry;
     // Failure closes this attempt. Scope, not the former runner, decides where
     // a retry may land; pack work therefore survives one member disappearing.
     if (!agent || !agent.alive) {
@@ -216,12 +248,15 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     settleClaimedTasks(options.orchDir, emit);
     let assigned = 0;
     const tasks = listTasks(options.orchDir);
-    for (const entry of [...presence.values()].filter(agentIdle)) {
+    const idle = [...presence.values()].filter(agentIdle)
+      .map((entry) => runnerOf(options.orchDir, entry))
+      .filter((runner): runner is Runner => runner !== null);
+    for (const { entry, agentId } of idle) {
       // The facade resolves agent/pack/space eligibility from the registered
       // agent id and open pack intake. A foreign pack never sees this task.
-      const task = nextQueuedTask(options.orchDir, entry.key, maxRetries, tasks);
+      const task = nextQueuedTask(options.orchDir, agentId, maxRetries, tasks);
       const dispatchId = randomUUID();
-      if (!task || !claimTask(options.orchDir, task.id, entry.key, dispatchId)) continue;
+      if (!task || !claimTask(options.orchDir, task.id, agentId, dispatchId)) continue;
       assigned++;
       const claimed = requireTask(options.orchDir, task.id);
       emit(taskEvent(entry, claimed, task.state, claimed.state));

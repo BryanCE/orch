@@ -4,8 +4,9 @@ import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir }
 import { rpcHello } from "../daemon/rpc.ts";
 import { join } from "node:path";
 import { openStore } from "../store/connection.ts";
-import { agentById, childrenOf, liveAgents, type AgentRow } from "../store/agent-rows.ts";
-import { adoptLease, currentLease, expireLease, releaseLease } from "../store/lease-rows.ts";
+import { agentById, childrenOf, liveAgents, renameAgent, type AgentRow } from "../store/agent-rows.ts";
+import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../store/lease-rows.ts";
+import { assertValidAgentName } from "../policy/name.ts";
 
 export interface LeaseCommandResult {
   readonly id: string;
@@ -13,6 +14,14 @@ export interface LeaseCommandResult {
   readonly released?: boolean;
   readonly adopted?: boolean;
   readonly reaped?: boolean;
+  readonly renamed?: boolean;
+}
+
+/** Every lease operation takes the same two options: when it happened, and
+ *  whether the caller is deliberately taking the agent from a LIVE orch (C4). */
+export interface LeaseOptions {
+  readonly now?: number;
+  readonly steal?: boolean;
 }
 
 /** Transitional seam: the daemon hello identity is the caller's orch identity.
@@ -21,19 +30,35 @@ async function resolveSelfOrchId(): Promise<string> {
   return (await rpcHello(orchDir())).id;
 }
 
-function lookupAgent(directory: string, target: string): AgentRow {
+interface NamedIdRow { id: string }
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? { ...value } : null;
+}
+
+function isNamedIdRow(value: unknown): value is NamedIdRow {
+  return typeof asRecord(value)?.id === "string";
+}
+
+/** C4d - resolving a target to an id is ONE operation at the boundary, never a
+ *  lookup re-spelled per command. C4c - names carry no uniqueness: an id always
+ *  wins, a unique name resolves, and several matches is a lookup that found more
+ *  than one agent and asks which id was meant. */
+export function resolveTarget(directory: string, target: string): AgentRow {
   const exact = agentById(directory, target);
   if (exact) return exact;
-  const rows = openStore(directory).query(
-    `SELECT a.id, a.spawned_by, a.root_agent_id, a.harness_id, a.cwd, a.name, a.label, a.created_at,
-            e.ended_at, e.closed_by
-       FROM agents a LEFT JOIN agent_endings e ON e.agent_id = a.id
-      WHERE a.name = ? ORDER BY a.id`,
-  ).all(target) as Record<string, unknown>[];
-  if (rows.length > 1) throw new Error(`Ambiguous target "${target}".`);
-  if (rows.length === 1) {
-    const row = rows[0]!;
-    return agentById(directory, String(row.id))!;
+  const rows = openStore(directory)
+    .query("SELECT id FROM agents WHERE name = ? ORDER BY id")
+    .all(target)
+    .filter(isNamedIdRow);
+  if (rows.length > 1) {
+    const ids = rows.map((row) => row.id).join(", ");
+    throw new Error(`Ambiguous target "${target}": ${rows.length} agents share that name (${ids}). Which id did you mean?`);
+  }
+  const only = rows[0];
+  if (only) {
+    const row = agentById(directory, only.id);
+    if (row) return row;
   }
   throw new Error(`No agent matches "${target}".`);
 }
@@ -42,17 +67,19 @@ function displayName(agent: AgentRow): string {
   return agent.name || agent.id;
 }
 
-function currentProcess(directory: string, agentId: string): { pid: number; startToken?: string | null } | null {
-  const row = openStore(directory).query(
+interface RecordedProcess { readonly pid: number; readonly startToken: string | null }
+
+function currentProcess(directory: string, agentId: string): RecordedProcess | null {
+  const row = asRecord(openStore(directory).query(
     "SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL",
-  ).get(agentId) as { pid?: unknown; start_token?: unknown } | null;
+  ).get(agentId));
   if (!row || typeof row.pid !== "number") return null;
   return { pid: row.pid, startToken: typeof row.start_token === "string" ? row.start_token : null };
 }
 
 /** A recorded process is live only when its process instance still matches. An
  * un-tokened live pid remains conservatively live: reaping must ask for close. */
-function processStillAlive(process: { pid: number; startToken?: string | null } | null): boolean {
+function processStillAlive(process: RecordedProcess | null): boolean {
   if (!process || !processIsAlive(process.pid)) return false;
   return process.startToken ? processInstanceMatches(process.pid, process.startToken) : true;
 }
@@ -73,22 +100,21 @@ function allDescendants(directory: string, parentId: string, result: AgentRow[] 
   return result;
 }
 
-/** Release the caller's lease, or expire a dead holder's. An already-unleased
- *  agent is a friendly no-op.
+/** Release the caller's lease, or expire a stale one. An already-unleased agent
+ *  is a friendly no-op.
  *
  *  Rule 11: a lease is mutual exclusion, and only a LIVE holder excludes anyone.
  *  A dead holder's lease is a stale row, and refusing to release it strands the
  *  agent permanently - every driving verb is gated on that same lease, so detach
  *  is the only way out and must never be blocked by the thing it exists to clear.
- *  This mirrors adoptAgent below, which already gates on liveness. */
-export function detachAgent(directory: string, target: string, orchId: string, now = Date.now()): LeaseCommandResult {
-  const agent = lookupAgent(directory, target);
+ *  C4: taking it from a LIVE orch is deliberate, and that is what --steal is. */
+export function detachAgent(directory: string, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
+  const now = opts.now ?? Date.now();
+  const agent = resolveTarget(directory, target);
   const lease = currentLease(directory, agent.id);
   if (!lease) return { id: agent.id, name: displayName(agent), released: false };
   if (lease.orchId !== orchId) {
-    if (holderStillAlive(directory, lease.orchId)) {
-      throw new Error(`${displayName(agent)} is leased by live orch ${lease.orchId}.`);
-    }
+    assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, orchId, opts);
     // Closed as "expired", not "released": no caller held it to release.
     expireLease(directory, agent.id, now);
     return { id: agent.id, name: displayName(agent), released: true };
@@ -101,24 +127,66 @@ function holderStillAlive(directory: string, orchId: string): boolean {
   return processStillAlive(currentProcess(directory, orchId));
 }
 
-/** Adopt an unleased agent, or one whose current holder is no longer alive. */
-export function adoptAgent(directory: string, target: string, orchId: string, now = Date.now()): LeaseCommandResult {
-  const agent = lookupAgent(directory, target);
+/** C3 - the one place that answers "may this orch drive that agent?". Mutual
+ *  exclusion, never authorization: only a LIVE foreign holder excludes, and only
+ *  a deliberate --steal takes an agent from one. */
+export function assertNotHeldByLiveForeignOrch(
+  directory: string,
+  agent: AgentRow,
+  holderId: string,
+  orchId: string,
+  opts: LeaseOptions = {},
+): void {
+  if (holderId === orchId) return;
+  if (opts.steal) return;
+  if (!holderStillAlive(directory, holderId)) return;
+  throw new Error(`${displayName(agent)} is leased by live orch ${holderId}.`);
+}
+
+/** Adopt an unleased agent, one whose holder is no longer alive, or - with
+ *  --steal - one a live orch still holds. C5: this writes lease rows and nothing
+ *  else, so the agent is not reset, not re-attached, and loses no context. */
+export function adoptAgent(directory: string, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
+  const now = opts.now ?? Date.now();
+  const agent = resolveTarget(directory, target);
   if (agent.ending) throw new Error(`${displayName(agent)} has ended and cannot be adopted.`);
   if (agent.id === orchId) throw new Error(`Cannot adopt the calling orch agent ${displayName(agent)}.`);
   const lease = currentLease(directory, agent.id);
   if (lease?.orchId === orchId) return { id: agent.id, name: displayName(agent), adopted: false };
-  if (lease && holderStillAlive(directory, lease.orchId)) {
-    throw new Error(`${displayName(agent)} is leased by live orch ${lease.orchId}.`);
-  }
+  if (lease) assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, orchId, opts);
   adoptLease(directory, agent.id, orchId, now);
   return { id: agent.id, name: displayName(agent), adopted: true };
+}
+
+/** C4f - an agent may rename ITSELF with no lease in force, because acting on
+ *  itself is not driving. Renaming ANOTHER agent is driving, so it meets the
+ *  same live-foreign-holder gate as dispatch/steer/model/reset. */
+export function renameTarget(directory: string, target: string, callerId: string, name: string): LeaseCommandResult {
+  assertValidAgentName(name);
+  const agent = resolveTarget(directory, target);
+  if (agent.id !== callerId) {
+    const lease = currentLease(directory, agent.id);
+    if (lease) assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, callerId);
+  }
+  if (!renameAgent(directory, agent.id, name)) throw new Error(`No agent matches "${target}".`);
+  return { id: agent.id, name, renamed: true };
+}
+
+/** C7 - the LIVE view groups by lease. History groups by provenance, which is
+ *  `packMembers`/`childrenOf` and never this. */
+export function leasedAgents(directory: string, orchId: string): AgentRow[] {
+  const rows: AgentRow[] = [];
+  for (const lease of leasesByOrch(directory, orchId)) {
+    const agent = agentById(directory, lease.agentId);
+    if (agent) rows.push(agent);
+  }
+  return rows;
 }
 
 /** Delete an agent subtree after proving no live descendant or process remains. */
 export function reapAgent(directory: string, target: string, now = Date.now()): LeaseCommandResult {
   void now;
-  const agent = lookupAgent(directory, target);
+  const agent = resolveTarget(directory, target);
   const descendants = allDescendants(directory, agent.id);
   const live = liveDescendants(directory, agent.id);
   if (live.length) {
@@ -140,16 +208,17 @@ export function reapAgent(directory: string, target: string, now = Date.now()): 
   return { id: agent.id, name: displayName(agent), reaped: true };
 }
 
-function parseTarget(args: string[], usage: string): { target: string; json: boolean } {
+function parseTarget(args: string[], usage: string): { target: string; json: boolean; steal: boolean } {
   const json = args.includes("--json");
-  const positional = args.filter((arg) => arg !== "--json");
+  const steal = args.includes("--steal");
+  const positional = args.filter((arg) => arg !== "--json" && arg !== "--steal");
   if (positional.length !== 1) throw new Error(usage);
-  return { target: positional[0]!, json };
+  return { target: positional[0]!, json, steal };
 }
 
 export async function cmdDetach(args: string[]): Promise<void> {
-  const { target, json } = parseTarget(args, "usage: orch detach <target> [--json]");
-  const result = detachAgent(orchDir(), target, await resolveSelfOrchId());
+  const { target, json, steal } = parseTarget(args, "usage: orch detach <target> [--steal] [--json]");
+  const result = detachAgent(orchDir(), target, await resolveSelfOrchId(), { steal });
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, released: result.released }) + "\n");
   else process.stdout.write(result.released ? `Detached ${result.name}.\n` : `${result.name}: no lease (already detached).\n`);
 }
@@ -157,8 +226,12 @@ export async function cmdDetach(args: string[]): Promise<void> {
 export async function cmdAdopt(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const all = args.includes("--all");
-  const positional = args.filter((arg) => arg !== "--json" && arg !== "--all");
-  if ((!all && positional.length !== 1) || (all && positional.length)) throw new Error("usage: orch adopt <target> | --all [--json]");
+  const steal = args.includes("--steal");
+  const positional = args.filter((arg) => arg !== "--json" && arg !== "--all" && arg !== "--steal");
+  if ((!all && positional.length !== 1) || (all && positional.length)) throw new Error("usage: orch adopt <target> | --all [--steal] [--json]");
+  // C4: --steal takes ONE agent from ONE live orch, deliberately. A sweep that
+  // silently took every live orch's fleet would be the opposite of deliberate.
+  if (all && steal) throw new Error("orch adopt --all never steals; name the agent to take it from a live orch.");
   const orchId = await resolveSelfOrchId();
   const results: LeaseCommandResult[] = [];
   if (all) {
@@ -170,7 +243,7 @@ export async function cmdAdopt(args: string[]): Promise<void> {
       }
     }
   } else {
-    results.push(adoptAgent(orchDir(), positional[0]!, orchId));
+    results.push(adoptAgent(orchDir(), positional[0]!, orchId, { steal }));
   }
   const adopted = results.filter((result) => result.adopted);
   if (json) process.stdout.write(JSON.stringify({ adopted: adopted.map((result) => ({ target: result.id, name: result.name })) }) + "\n");

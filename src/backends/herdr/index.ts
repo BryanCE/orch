@@ -3,36 +3,38 @@ import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
 import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrReachable, herdrStartAgent, herdrTabs, version, type HerdrPane, type HerdrTab, type HerdrWorkspace } from "./cli.ts";
-import type {
-  Backend,
-  EnvironmentIdentityRole,
-  VersionRole,
-  BackendId,
-  BackendGroup,
-  BackendGroupLayout,
-  BackendRect,
-  BackendSpawnOpts,
-  BackendSplit,
-  BackendTarget,
-  BackendWorkspace,
-  BackendZoomMode,
-  PaneHostRole,
-  PaneInventoryRole,
-  PaneForegroundRole,
-  PaneScreenRole,
-  PaneZoomRole,
-  PaneNamingRole,
-  AgentNamingRole,
-  AgentStatusRole,
-  GroupHomeRole,
-  GroupLayoutRole,
-  SpaceHomeRole,
-  PlexerHome,
-  CreatedHome,
-  OpenPaneRequest,
-  CreateGroupRequest,
-  CreatedGroup,
-  MovePaneRequest,
+import {
+  homeLabel,
+  type Backend,
+  type EnvironmentIdentityRole,
+  type VersionRole,
+  type BackendId,
+  type BackendGroup,
+  type BackendGroupLayout,
+  type BackendRect,
+  type BackendSpawnOpts,
+  type BackendSplit,
+  type BackendTarget,
+  type BackendWorkspace,
+  type BackendZoomMode,
+  type PaneHostRole,
+  type PaneInventoryRole,
+  type PaneForegroundRole,
+  type PaneScreenRole,
+  type PaneZoomRole,
+  type PaneNamingRole,
+  type AgentNamingRole,
+  type AgentStatusRole,
+  type GroupHomeRole,
+  type GroupLayoutRole,
+  type SpaceHomeRole,
+  type PlexerHome,
+  type CreatedHome,
+  type HomeSubject,
+  type OpenPaneRequest,
+  type CreateGroupRequest,
+  type CreatedGroup,
+  type MovePaneRequest,
 } from "../backend.ts";
 import type { Identity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
@@ -246,8 +248,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   readonly spaceHome: SpaceHomeRole<HerdrHandle> = {
     list: (): readonly PlexerHome[] => this.workspaces().map((workspace) => ({ coordinate: workspace.id, label: workspace.label })),
-    create: (_subject, request): CreatedHome<HerdrHandle> => {
-      const created = this.createWorkspace({ cwd: request.cwd, label: request.label, env: request.env });
+    create: (subject: HomeSubject, request): CreatedHome<HerdrHandle> => {
+      // E8: the home orch opens is marked for the subject it was opened for.
+      // Without a label herdr names the workspace itself (`wF`), and the pack
+      // inside it reads as random agents beside the human's own panes.
+      const created = this.createWorkspace({ cwd: request.cwd, label: homeLabel(subject, request.label), env: request.env });
       return { coordinate: created.workspace, rootHandle: created.rootHandle };
     },
     rename: (coordinate, label): void => { this.renameWorkspace(coordinate, label); },

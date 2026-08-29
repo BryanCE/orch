@@ -1,4 +1,4 @@
-import { and, eq, exists, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
+import { and, eq, exists, isNotNull, isNull, notExists, or, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { QueryBuilder, alias, check, index, integer, primaryKey, real, sqliteTable, sqliteView, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
@@ -358,8 +358,8 @@ export const grantSpends = sqliteTable("grant_spends", {
 /** Every agent whose ending row is absent — the only definition of "still
  *  running" this schema has. Both scope checks below are the same question
  *  asked of a different set of agents. */
-function stillRunning(agent: typeof agents): ReturnType<typeof notExists> {
-  return notExists(new QueryBuilder().select({ one: sql`1` }).from(agentEndings).where(eq(agentEndings.agentId, agent.id)));
+function stillRunning(agentId: AnySQLiteColumn): SQL {
+  return notExists(new QueryBuilder().select({ one: sql`1` }).from(agentEndings).where(eq(agentEndings.agentId, agentId)));
 }
 
 /**
@@ -382,7 +382,7 @@ export const taskStates = sqliteView("task_states").as((qb) => {
     )),
     and(isNotNull(tasks.scopePackId), notExists(
       new QueryBuilder().select({ one: sql`1` }).from(packed)
-        .where(and(eq(packed.rootAgentId, tasks.scopePackId), stillRunning(packed))),
+        .where(and(eq(packed.rootAgentId, tasks.scopePackId), stillRunning(packed.id))),
     )),
     and(isNotNull(tasks.scopeSpaceId), notExists(
       new QueryBuilder().select({ one: sql`1` }).from(intaken)
@@ -391,12 +391,14 @@ export const taskStates = sqliteView("task_states").as((qb) => {
           eq(packIntakes.spaceId, tasks.scopeSpaceId),
           isNull(packIntakes.until),
         ))
-        .where(stillRunning(intaken)),
+        .where(stillRunning(intaken.id)),
     )),
   );
 
   return qb.select({
-    taskId: tasks.id,
+    // Named for what it identifies, not for the column it came from: the view's
+    // own name for its key is `task_id`, as every other table spells it.
+    taskId: sql<string>`${tasks.id}`.as("task_id"),
     state: sql<string>`CASE
       WHEN ${taskCancellations.taskId} IS NOT NULL THEN 'cancelled'
       WHEN ${unclaimable} AND ${scopeIsGone} THEN 'unrunnable'
@@ -418,7 +420,7 @@ export const taskStates = sqliteView("task_states").as((qb) => {
  *  the clock answers differently for unchanged rows. Callers compare
  *  `expires_at` themselves at the instant they spend. */
 export const grantStates = sqliteView("grant_states").as((qb) => qb.select({
-  requestId: grantRequests.id,
+  requestId: sql<string>`${grantRequests.id}`.as("request_id"),
   actionHash: grantRequests.actionHash,
   kind: grantRequests.kind,
   requestedAt: grantRequests.requestedAt,

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { daemonRpc, down, type DaemonDown, type DaemonEndpoint } from "./daemon";
-import { projectFleet, projectHistory, type FleetProjectionRow, type Space } from "@/lib/fleet";
+import { projectFleet, projectHistory, type AgentGroup, type FleetProjectionRow, type Space } from "@/lib/fleet";
 
 // Every export here is a server function, so the TanStack Start plugin strips this
 // module's body from the client bundle. Adding a plain exported function pulls
@@ -16,8 +16,10 @@ interface DaemonWhere {
 type DaemonStatus = DaemonDown | (DaemonUp & { running: true; startedAt?: string; where: DaemonWhere });
 export interface FleetSnapshot {
   daemon: "up";
+  /** Live work, grouped by orch's space. */
   spaces: Space[];
-  history: Space[];
+  /** Ended work, grouped by the agent that spawned it. */
+  history: AgentGroup[];
 }
 type FleetResult = DaemonDown | FleetSnapshot;
 
@@ -46,14 +48,9 @@ export const getDaemonStatus = createServerFn({ method: "GET" }).handler(async (
   }
 });
 
-interface PresenceRow extends FleetProjectionRow {
-  /** Legacy plexer coordinate, retained for daemon routing but never displayed. */
-  space?: string | null;
-  spaceName?: string | null;
-}
-
-interface PresenceResult {
-  rows: PresenceRow[];
+/** orchd's `status` reply: the one row shape every renderer consumes. */
+interface FleetStatusResult {
+  rows: FleetProjectionRow[];
 }
 
 /**
@@ -75,7 +72,7 @@ export const sendToAgent = createServerFn({ method: "POST" })
 /** Read the merged pane + presence view from orchd. */
 export const getFleet = createServerFn({ method: "GET" }).handler(async (): Promise<FleetResult> => {
   try {
-    const { result } = await daemonRpc<PresenceResult>("status");
+    const { result } = await daemonRpc<FleetStatusResult>("status");
     return {
       daemon: "up",
       spaces: projectFleet(result.rows),

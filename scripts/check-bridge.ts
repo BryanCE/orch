@@ -13,6 +13,47 @@ function relPathOf(file: string): string {
   return file.replace(/\\/g, "/");
 }
 
+/**
+ * I2 — the plexer and harness ids every identity rule below branches on,
+ * DERIVED from the tree rather than typed out beside it.
+ *
+ * A plexer owns a directory under `src/backends/` and a harness owns a
+ * directory under `extensions/` (Rule 10), so the tree already answers "what
+ * ids exist". The hand-kept copies that stood here had drifted in the way a
+ * second list always does: `PROVIDER_IDS` never listed `omp`, so
+ * `harness === "omp"` was exempt from the exact rule that exists to forbid it,
+ * and a deleted backend would have kept its entry forever.
+ *
+ * Throws when a source yields nothing: an empty alternation matches nothing,
+ * which would turn every rule built on it into a silent pass — the same failure
+ * mode `scanDirectory`'s recursion guard (I5) exists to prevent.
+ */
+function directoryIds(directory: string, label: string): readonly string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    entries = [];
+  }
+  if (entries.length === 0) {
+    throw new Error(`check-bridge: found no ${label} directories under ${directory}/ - the tree layout changed under this rule`);
+  }
+  return entries.sort((left, right) => left.localeCompare(right));
+}
+
+/** Every plexer: one directory under `src/backends/`. */
+export const PLEXER_IDS: readonly string[] = directoryIds("src/backends", "plexer");
+/** Every harness: one directory under `extensions/` (Rule 10). */
+export const HARNESS_IDS: readonly string[] = directoryIds("extensions", "harness");
+/** The union both identity rules branch on. */
+export const ENVIRONMENT_IDS: readonly string[] = [...new Set([...HARNESS_IDS, ...PLEXER_IDS])].sort((left, right) => left.localeCompare(right));
+
+function alternation(ids: readonly string[]): string {
+  return ids.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+}
+
 type LineCheck = (line: string, relPath: string) => string | undefined;
 
 function scanDirectory(directory: string, excluded: Set<string>, check: LineCheck, recursive = false): number {
@@ -131,9 +172,9 @@ const PRESENCE_SCOPE = "src/presence";
 const DISPATCHER_MODULE = "src/control/dispatch.ts";
 
 /** Provider/backend identity strings. Branching on these by literal in core is
- * the string-form of the `.id ===` breach the identity-branch rule bans (D2.3). */
-const PROVIDER_IDS = ["pi", "claude", "codex", "herdr", "tmux", "headless"] as const;
-const PROVIDER_ID_ALTERNATION = PROVIDER_IDS.join("|");
+ * the string-form of the `.id ===` breach the identity-branch rule bans (D2.3).
+ * Derived (see ENVIRONMENT_IDS) — never a second list to forget. */
+const PROVIDER_ID_ALTERNATION = alternation(ENVIRONMENT_IDS);
 const IDENTITY_EQUALITY_RIGHT = new RegExp(`(?:===|!==)\\s*["'](?:${PROVIDER_ID_ALTERNATION})["']`);
 const IDENTITY_EQUALITY_LEFT = new RegExp(`["'](?:${PROVIDER_ID_ALTERNATION})["']\\s*(?:===|!==)`);
 const IDENTITY_FALLBACK = new RegExp(`(?:\\?\\?|\\|\\|)\\s*["'](?:${PROVIDER_ID_ALTERNATION})["']`);
@@ -209,15 +250,7 @@ const BACKEND_ENV_PREFIX_EXTRAS: ReadonlyMap<string, readonly string[]> = new Ma
 
 function backendEnvNames(): ReadonlyMap<string, string> {
   const owners = new Map<string, string>();
-  let backends: string[];
-  try {
-    backends = readdirSync("src/backends", { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    return owners;
-  }
-  for (const backend of backends) {
+  for (const backend of PLEXER_IDS) {
     const prefix = `${backend.toUpperCase()}_`;
     owners.set(prefix, backend);
     for (const extra of BACKEND_ENV_PREFIX_EXTRAS.get(backend) ?? []) owners.set(extra, backend);
@@ -284,11 +317,13 @@ function checkPresenceFilenameLine(line: string, relPath: string): string | unde
  * `adapters/codex-events.ts`) sit directly under their dir (no `<id>/` subpath,
  * not a bare harness id) and stay allowed.
  */
+const CONCRETE_ADAPTER_IMPORT = new RegExp(`adapters\\/(?:${alternation(HARNESS_IDS)})(?:\\.ts)?["']`);
+
 export function checkPackageImportLine(line: string): string | undefined {
   if (/backends\/[\w-]+\//.test(line)) {
     return "packages must not import a concrete backend (src/backends/<id>/…); resolve via src/backends/registry.ts or the backend port";
   }
-  if (/adapters\/(?:pi|omp|claude|codex)(?:\.ts)?["']/.test(line)) {
+  if (CONCRETE_ADAPTER_IMPORT.test(line)) {
     return "packages must not import a concrete agent adapter (src/adapters/<id>); resolve via src/adapters/registry.ts";
   }
   return undefined;
@@ -441,8 +476,7 @@ export function checkBridgeBundleImportLine(line: string, relPath: string): stri
  * their wire vocabulary and may branch on their own id; every other src module
  * must use the declared environment capabilities instead.
  */
-const ENVIRONMENT_IDS: readonly string[] = ["pi", "omp", "claude", "codex", "herdr", "tmux", "headless"];
-const ENVIRONMENT_ID_ALTERNATION = ENVIRONMENT_IDS.join("|");
+const ENVIRONMENT_ID_ALTERNATION = alternation(ENVIRONMENT_IDS);
 const ENVIRONMENT_REFERENCE = "(?:backend|backendId|plexer|plexerId|harness|harnessId|adapter|adapterId|resolvedBackend|resolvedAdapter|provider|key|identity(?:\\.key)?)";
 const ENVIRONMENT_ID_EQUALITY = new RegExp(
   `(?:${ENVIRONMENT_REFERENCE})(?:\\.id)?\\s*(?:===|!==|==|!=)\\s*["'](?:${ENVIRONMENT_ID_ALTERNATION})["']|["'](?:${ENVIRONMENT_ID_ALTERNATION})["']\\s*(?:===|!==|==|!=)\\s*(?:${ENVIRONMENT_REFERENCE})(?:\\.id)?`,
@@ -490,7 +524,16 @@ function portRoleMembers(): readonly string[] {
 
 export const ENVIRONMENT_ROLE_NAMES: readonly string[] = portRoleMembers();
 const ENVIRONMENT_ROLE_ALTERNATION = ENVIRONMENT_ROLE_NAMES.join("|");
-const METHOD_TYPEOF = /\btypeof\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+\s*(?:===|!==|==|!=)\s*["']function["']/;
+/**
+ * Scoped to METHOD_OWNER, exactly like the three patterns below it. E13 forbids
+ * asking a PORT whether it has a method; `typeof value.fn === "function"` on a
+ * genuinely `unknown` value from a foreign API is a type guard narrowing data,
+ * which is the only way to read an `unknown` safely and never a capability
+ * negotiation. Unscoped, this pattern flagged those guards — and the answer had
+ * been a whole-directory exemption for `src/seat/`, which then exempted every
+ * real breach in that directory too. Precision here is what lets the hole close.
+ */
+const METHOD_TYPEOF = new RegExp(`\\btypeof\\s+${METHOD_OWNER}(?:\\.[A-Za-z_$][\\w$]*)+\\s*(?:===|!==|==|!=)\\s*["']function["']`);
 const METHOD_IN = new RegExp(`["'][^"']+["']\\s+in\\s+${METHOD_OWNER}\\b`);
 const METHOD_PROPERTY_CONDITION = new RegExp(
   `\\b(?:if|while)\\s*\\([^)]*\\b${METHOD_OWNER}\\.(?!${ENVIRONMENT_ROLE_ALTERNATION}\\b)[A-Za-z_$][\\w$]*\\b(?!\\s*(?:\\?\\.)?\\s*\\()(?!\\s*\\.)`,
@@ -501,7 +544,11 @@ const OPTIONAL_METHOD_CONDITION = new RegExp(
 
 export function checkEnvironmentCapabilityLine(line: string, relPath: string): string | undefined {
   const normalizedPath = relPath.replace(/\\/g, "/");
-  if (/^src\/backends\/[^/]+\//.test(normalizedPath) || normalizedPath.startsWith("src/seat/")) return undefined;
+  // Only a CONCRETE plexer directory owns its own wire vocabulary. `src/seat/`
+  // used to be exempt here too — a whole-directory hole in the rule, kept after
+  // the branches that needed it were gone. A path exemption is invisible: it
+  // never fails, so nothing ever tells you it stopped being needed.
+  if (/^src\/backends\/[^/]+\//.test(normalizedPath)) return undefined;
 
   if (ENVIRONMENT_ID_EQUALITY.test(line) || ENVIRONMENT_SWITCH.test(line) || ENVIRONMENT_KEY_PREFIX.test(line)) {
     return "environment identity branching is forbidden outside concrete backends; branch on declared capabilities instead";
@@ -512,15 +559,20 @@ export function checkEnvironmentCapabilityLine(line: string, relPath: string): s
   return undefined;
 }
 
+const CORE_ADAPTER_IMPORT = new RegExp(`from\\s+["'][^"']*\\/(?:${alternation(HARNESS_IDS)})(?:\\.ts)?["']`);
+const CORE_BACKEND_IMPORT = new RegExp(`from\\s+["'][^"']*backends\\/(?:${alternation(PLEXER_IDS)})\\/`);
+/** Agent-id literals a backend must not spell (Eh13's kind map is the one exemption). */
+const HARNESS_ID_LITERAL = new RegExp(`["']\\b(?:${alternation(HARNESS_IDS)})\\b["']`);
+
 export function checkCoreScopeLine(line: string, relPath: string): string | undefined {
   const backendEnvViolation = checkBackendEnvLine(line, relPath);
   if (backendEnvViolation) return backendEnvViolation;
   const presenceViolation = checkPresenceFilenameLine(line, relPath);
   if (presenceViolation) return presenceViolation;
-  if (/from\s+["'][^"']*\/(?:pi|claude|codex)(?:\.ts)?["']/.test(line)) {
+  if (CORE_ADAPTER_IMPORT.test(line)) {
     return "concrete adapter imports are forbidden in core; resolve via src/adapters/registry.ts";
   }
-  if (/from\s+["'][^"']*backends\/(?:herdr|tmux|headless)\//.test(line)) {
+  if (CORE_BACKEND_IMPORT.test(line)) {
     return "concrete backend imports are forbidden in core; resolve via src/backends/registry.ts";
   }
   if (/\b(?:adapter|backend)\.id\s*(?:===|!==)/.test(line)) {
@@ -595,6 +647,14 @@ function runAllChecks(): void {
   });
 
   const extensionFiles = scanDirectory("extensions", new Set(), (line, relPath) => {
+    // A harness extension is per-HARNESS code (Rule 10), never per-plexer, so
+    // the identity-branch rule applies here whole: nothing under extensions/ may
+    // branch on a plexer id or ask a port whether it has a method. Deliberately
+    // no `extensions/<harness>/` self-exemption to mirror the backends one — the
+    // tree needs none today, and an exemption nothing exercises is the src/seat
+    // hole all over again.
+    const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
+    if (environmentCapabilityViolation) return environmentCapabilityViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden in extensions (boundary modules live directly under backends/)";
@@ -631,10 +691,10 @@ function runAllChecks(): void {
     if (backendEnvViolation) return backendEnvViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
-    if (/from\s+["']\.\.\/adapters\/(?:pi|claude|codex)\.ts["']/.test(line)) {
+    if (new RegExp(`from\\s+["']\\.\\.\\/adapters\\/(?:${alternation(HARNESS_IDS)})\\.ts["']`).test(line)) {
       return "agent adapter imports are forbidden in backends";
     }
-    if (/["']\b(?:pi|claude|codex)\b["']/.test(line)) {
+    if (HARNESS_ID_LITERAL.test(line)) {
       if (BACKEND_KIND_MAP_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
       return "agent id literals are forbidden in backends";
     }
@@ -642,7 +702,15 @@ function runAllChecks(): void {
   }, true);
 
   const coreScopeFiles = scanCoreScope();
-  const packageFiles = scanPackagesSrc(checkPackageImportLine);
+  // Rule 11's "Why" is a renderer that printed a plexer coordinate as a name and
+  // bucketed every detached agent under `local`. A package is core's consumer,
+  // not a concrete plexer, so the identity-branch rule governs it exactly as it
+  // governs src/**: adding an environment must edit zero renderers.
+  const packageFiles = scanPackagesSrc((line, relPath) => {
+    const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
+    if (environmentCapabilityViolation) return environmentCapabilityViolation;
+    return checkPackageImportLine(line);
+  });
   const dispatcherScopeFiles = scanDirectory("src", new Set(), checkDispatcherCallLine, true);
   const spawnerReplyFiles = scanDirectory("src", new Set(), checkSpawnerReplyFallbackLine, true);
   const identityConstructionFiles = scanDirectory("src", new Set(), (line, relPath) => {

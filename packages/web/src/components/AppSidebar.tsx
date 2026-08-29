@@ -79,10 +79,10 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
               <SidebarMenuItem key={space.slug}>
                 <SidebarMenuButton
                   asChild
-                  isActive={pathname.startsWith(`/ws/${space.slug}`)}
+                  isActive={pathname.startsWith(`/spaces/${space.slug}`)}
                   tooltip={space.name}
                 >
-                  <Link to="/ws/$slug" params={{ slug: space.slug }}>
+                  <Link to="/spaces/$slug" params={{ slug: space.slug }}>
                     <FolderGit2 />
                     <span className="flex-1 truncate">{space.name}</span>
                   </Link>

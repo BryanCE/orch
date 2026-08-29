@@ -7,6 +7,13 @@ export const SUPPORTED_RANGES = {
 
 type SupportedPlexer = keyof typeof SUPPORTED_RANGES;
 
+/** Whether orch declares a supported range for this plexer at all. A narrowing
+ *  guard, not a cast: an id orch has never heard of has no range, and saying so
+ *  is the answer doctor and registration print. */
+function isSupportedPlexer(plexerId: string): plexerId is SupportedPlexer {
+  return Object.hasOwn(SUPPORTED_RANGES, plexerId);
+}
+
 interface Semver {
   major: number;
   minor: number;
@@ -72,10 +79,10 @@ export function versionInRange(version: string, range: string): boolean {
 }
 
 export function supportedPlexerVersion(plexerId: string, installed: string): boolean {
-  const range = SUPPORTED_RANGES[plexerId as SupportedPlexer];
+  const range = supportedRange(plexerId);
   return range !== undefined && versionInRange(installed, range);
 }
 
 export function supportedRange(plexerId: string): string | undefined {
-  return SUPPORTED_RANGES[plexerId as SupportedPlexer];
+  return isSupportedPlexer(plexerId) ? SUPPORTED_RANGES[plexerId] : undefined;
 }

@@ -6,7 +6,7 @@ Accepted — 2026-08-27
 
 ## Context
 
-The queue is one flat table (`src/store/schema.ts:11`): `id, text, opts, origin_workspace,
+The queue is one flat table (`src/db/schema.ts`): `id, text, opts, origin_workspace,
 created_at, updated_at, state, retries, last_error, agent_key, dispatch_id, result`.
 
 Four of those columns are the newest *claim*, flattened onto the task and then overwritten by

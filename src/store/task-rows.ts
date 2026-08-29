@@ -247,30 +247,13 @@ export function cancelTask(dir: string, taskId: string, cancelledBy: string, can
   openStore(dir).query("INSERT INTO task_cancellations (task_id,cancelled_at,cancelled_by) VALUES (?,?,?)").run(taskId, cancelledAt, cancelledBy);
 }
 
-function spaceHasLiveAgent(dir: string, spaceId: string): boolean {
-  return openStore(dir).query(`
-    SELECT a.id FROM agents a
-    JOIN pack_intakes i ON i.pack_id=a.root_agent_id AND i.space_id=? AND i.until IS NULL
-    WHERE NOT EXISTS (SELECT 1 FROM agent_endings e WHERE e.agent_id=a.id)
-    LIMIT 1
-  `).get(spaceId) !== null;
-}
-
-function effectiveState(dir: string, row: TaskRow, state: TaskState): TaskState {
-  if ((state === "queued" || state === "failed") && row.scopeSpaceId !== null && !spaceHasLiveAgent(dir, row.scopeSpaceId)) {
-    return "unrunnable";
-  }
-  return state;
-}
-
+/** `task_states` is the ONE definition of a task's state (Cq15). Re-deriving any
+ *  part of it here would be a second truth that drifts from the rows it reads. */
 export function taskState(dir: string, taskId: string): TaskState | undefined {
   const rawStateRow = openStore(dir).query("SELECT state FROM task_states WHERE task_id=?").get(taskId);
   if (rawStateRow === null) return undefined;
   if (!isRawTaskStateRow(rawStateRow)) throw new Error("Malformed task state row");
-  const stateRow = rawStateRow;
-  if (stateRow.state === null) return undefined;
-  const row = taskById(dir, taskId);
-  return row ? effectiveState(dir, row, stateRow.state) : stateRow.state;
+  return rawStateRow.state ?? undefined;
 }
 
 export function taskById(dir: string, taskId: string): TaskRow | undefined {
@@ -300,10 +283,7 @@ export function allTasks(dir: string): (TaskRow & { state: TaskState })[] {
     JOIN task_states s ON s.task_id=t.id
     ORDER BY t.created_at, t.id
   `).all(), isRawTaskWithState, "task");
-  return rows.map((row) => {
-    const mapped = task(row);
-    return { ...mapped, state: effectiveState(dir, mapped, row.state) };
-  });
+  return rows.map((row) => ({ ...task(row), state: row.state }));
 }
 
 /** Retention is based on the last settlement clock. Queued and open attempts

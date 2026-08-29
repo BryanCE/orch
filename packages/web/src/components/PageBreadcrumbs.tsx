@@ -36,7 +36,7 @@ export function AppBreadcrumbs({ actions }: { actions?: ReactNode }) {
   const match = [...matches]
     .reverse()
     .find((m) => m.staticData.crumbs !== undefined)
-  const crumbs = match?.staticData.crumbs?.(match.params as Record<string, string>)
+  const crumbs = match?.staticData.crumbs?.(match.params)
   if (!crumbs && !actions) return null
 
   return (

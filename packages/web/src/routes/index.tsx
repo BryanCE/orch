@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AgentCard } from "@/components/AgentCard";
 import { useFleet } from "@/hooks/use-fleet";
-import { partitionAgents, stateColor, type FleetAgent, type Space } from "@/lib/fleet";
+import { partitionAgents, stateColor, type AgentGroup, type FleetAgent, type Space } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -14,13 +14,13 @@ export const Route = createFileRoute("/")({
   component: GodView,
 });
 
-function rollup(ws: Space) {
-  const cost = ws.agents.reduce((s, a) => s + (a.cost ?? 0), 0);
-  const counts = ws.agents.reduce<Record<string, number>>((m, a) => {
-    m[a.state] = (m[a.state] ?? 0) + 1;
-    return m;
+function rollup(space: Space) {
+  const cost = space.agents.reduce((total, agent) => total + (agent.cost ?? 0), 0);
+  const counts = space.agents.reduce<Record<string, number>>((tally, agent) => {
+    tally[agent.state] = (tally[agent.state] ?? 0) + 1;
+    return tally;
   }, {});
-  return { count: ws.agents.length, cost, counts };
+  return { count: space.agents.length, cost, counts };
 }
 
 function GodView() {
@@ -81,7 +81,7 @@ function GodView() {
 function SpaceCard({ space }: { space: Space }) {
   const r = rollup(space);
   return (
-    <Link key={space.slug} to="/ws/$slug" params={{ slug: space.slug }} className="group">
+    <Link key={space.slug} to="/spaces/$slug" params={{ slug: space.slug }} className="group">
       <Card className="h-full transition-colors group-hover:border-primary/60">
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
@@ -108,7 +108,7 @@ function SpaceCard({ space }: { space: Space }) {
   );
 }
 
-function HistoryView({ groups }: { groups: Space[] }) {
+function HistoryView({ groups }: { groups: AgentGroup[] }) {
   if (groups.length === 0) {
     return <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground"><Inbox className="size-10" /><p className="text-sm">No completed work yet.</p></div>;
   }

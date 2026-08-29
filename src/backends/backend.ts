@@ -102,10 +102,39 @@ export interface CreatedHome<Handle = BackendHandle> {
   readonly rootHandle: Handle;
 }
 
+/**
+ * What a home is opened FOR. orch has exactly two things a plexer can hold — a
+ * space and a pack (`TASKS/02-scope.md` E10) — and neither is a new noun minted
+ * for the plexer's own grouping. The coordinate the plexer hands back is stored
+ * against this subject in `space_plexers` / `pack_plexers`, never displayed.
+ */
+export interface HomeSubject {
+  readonly kind: "space" | "pack";
+  readonly id: string;
+}
+
+/**
+ * The label a home is opened with (E8). An orch that opens a home of its own
+ * must leave it marked: an unlabelled workspace is named by the plexer's own
+ * counter, so the fleet inside it reads as random agents with no discoverable
+ * origin, sitting beside the human's own panes. The caller's label wins when it
+ * has one — a space the human named is already discoverable by that name — and
+ * otherwise the mark names the subject orch opened the home for.
+ *
+ * The subject id is narrowed to the grammar every plexer accepts for a display
+ * name: it reaches here from callers that derive it from a path, and tmux
+ * refuses `.` and `:` in a session name.
+ */
+export function homeLabel(subject: HomeSubject, requested?: string | null): string {
+  if (requested) return requested;
+  const id = subject.id.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return `orch-${subject.kind}-${id || subject.kind}`;
+}
+
 /** Home inventory and mutation role for spaces and packs. */
 export interface SpaceHomeRole<Handle = BackendHandle> {
   list(): readonly PlexerHome[];
-  create(subject: { kind: "space" | "pack"; id: string }, request: CreateHomeRequest): CreatedHome<Handle>;
+  create(subject: HomeSubject, request: CreateHomeRequest): CreatedHome<Handle>;
   rename(coordinate: string, label: string): void;
   close(coordinate: string): void;
   focus(coordinate: string): void;

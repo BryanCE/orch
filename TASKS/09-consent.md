@@ -68,7 +68,7 @@ through a channel the agent never reads.
 ## Shape
 
 ```
-src/store/schema.ts      the five tables below (STORE_SCHEMA 7)
+src/db/schema.ts         the five tables below
 src/store/grant-rows.ts  canonicalAction, actionHash, record/approve/deny/spend, render
 src/commands/grant.ts    orch grant [<id>|--list]   — refuses without a TTY
 ```

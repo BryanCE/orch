@@ -8,7 +8,8 @@ import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord, spawnedRecords } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
 import { type SpawnedRecord } from "../store/spawned-rows.ts";
-import { renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
+import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
+import { selfId } from "../identity/self.ts";
 import { openStore } from "../store/connection.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
@@ -442,13 +443,21 @@ interface RecordedProcess {
   startToken?: string;
 }
 
+/** The agent id inside a presence key. A key is an ENVIRONMENT wrapped around
+ *  orch's opaque id, and the store is keyed by that id alone; a key that does not
+ *  parse is already bare. Same resolution as `deriveLeasePayload` — reading the
+ *  raw key here is what made close look up a row no writer ever produces. */
+function agentIdOf(key: string): string {
+  return tryParseIdentity(key)?.id ?? key;
+}
+
 /** Read the launch identity from the normalized agent process interval. Presence
  * status carries liveness only and can never authorize a signal. */
 function recordedProcess(key: string): RecordedProcess | null {
   try {
     const row = openStore(orchDir()).query(
       "SELECT pid, start_token FROM agent_processes WHERE agent_id = ? AND until IS NULL",
-    ).get(key) as { pid?: unknown; start_token?: unknown } | null;
+    ).get(agentIdOf(key)) as { pid?: unknown; start_token?: unknown } | null;
     if (!row || typeof row.pid !== "number") return null;
     return { pid: row.pid, ...(typeof row.start_token === "string" ? { startToken: row.start_token } : {}) };
   } catch {

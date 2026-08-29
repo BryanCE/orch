@@ -47,15 +47,15 @@ describe("lease commands", () => {
     const dir = fixture();
     agent(dir, "orch"); agent(dir, "new-orch"); agent(dir, "worker", "worker");
     acquireLease(dir, "worker", "orch", 2);
-    expect(detachAgent(dir, "worker", "orch", 3)).toMatchObject({ released: true, name: "worker" });
+    expect(detachAgent(dir, "worker", "orch", { now: 3 })).toMatchObject({ released: true, name: "worker" });
     expect(currentLease(dir, "worker")).toBeNull();
-    expect(adoptAgent(dir, "worker", "new-orch", 4)).toMatchObject({ adopted: true, name: "worker" });
+    expect(adoptAgent(dir, "worker", "new-orch", { now: 4 })).toMatchObject({ adopted: true, name: "worker" });
     expect(currentLease(dir, "worker")?.orchId).toBe("new-orch");
     // Rule 11: a lease excludes only while its holder is ALIVE. "new-orch" has no
     // process, so its lease is a stale row and detach clears it. Refusing here is
     // what stranded a fleet: every driving verb is gated on the lease, so detach
     // is the only way out and must never be blocked by the thing it exists to clear.
-    expect(detachAgent(dir, "worker", "orch", 5)).toMatchObject({ released: true });
+    expect(detachAgent(dir, "worker", "orch", { now: 5 })).toMatchObject({ released: true });
     expect(currentLease(dir, "worker")).toBeNull();
   });
 
@@ -64,7 +64,7 @@ describe("lease commands", () => {
     agent(dir, "orch"); agent(dir, "worker", "worker");
     liveHolder(dir, "live-orch");
     acquireLease(dir, "worker", "live-orch", 2);
-    expect(() => detachAgent(dir, "worker", "orch", 3)).toThrow(/leased by live orch/);
+    expect(() => detachAgent(dir, "worker", "orch", { now: 3 })).toThrow(/leased by live orch/);
     expect(currentLease(dir, "worker")?.orchId).toBe("live-orch");
   });
 
@@ -72,9 +72,10 @@ describe("lease commands", () => {
     const dir = fixture();
     agent(dir, "new-orch"); agent(dir, "old-orch"); agent(dir, "worker", "worker");
     acquireLease(dir, "worker", "old-orch", 2);
-    expect(adoptAgent(dir, "worker", "new-orch", 3)).toMatchObject({ adopted: true, name: "worker" });
+    expect(adoptAgent(dir, "worker", "new-orch", { now: 3 })).toMatchObject({ adopted: true, name: "worker" });
     expect(currentLease(dir, "worker")?.orchId).toBe("new-orch");
-    expect((openStore(dir).query("SELECT release_reason FROM agent_leases WHERE orch_id = ?").get("old-orch") as { release_reason: string }).release_reason).toBe("adopted");
+    expect(openStore(dir).query("SELECT release_reason FROM agent_leases WHERE orch_id = ?").get("old-orch"))
+      .toMatchObject({ release_reason: "adopted" });
   });
 
   test("adopt refuses a holder with a live recorded process", () => {
@@ -83,7 +84,7 @@ describe("lease commands", () => {
     openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
       .run("old-orch", 1, "host", process.pid, processStartToken(process.pid));
     acquireLease(dir, "worker", "old-orch", 2);
-    expect(() => adoptAgent(dir, "worker", "new-orch", 3)).toThrow("worker is leased by live orch old-orch.");
+    expect(() => adoptAgent(dir, "worker", "new-orch", { now: 3 })).toThrow("worker is leased by live orch old-orch.");
   });
 
   test("reap refuses when a live descendant exists, regardless of lease", () => {

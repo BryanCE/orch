@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { serializeIdentity } from "../src/backends/identity.ts";
 import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/work-loop.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
@@ -31,6 +32,10 @@ describe("work loop attempt binding", () => {
 const directories: string[] = [];
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });
 
+/** The runner's presence key is its environment; only its third segment is the
+ *  minted id its attempts and events carry. */
+const RUNNER_KEY = serializeIdentity({ backend: "herdr", workspace: "wF", id: "runner" });
+
 /** An enqueuer and one runner in its pack, with the runner idle on disk. */
 function fleet(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-work-loop-enqueuer-"));
@@ -39,7 +44,7 @@ function fleet(): string {
   db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
   db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('enq',NULL,'enq','pi','/repo','enq',1)").run();
   db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('runner','enq','enq','pi','/repo','runner',1)").run();
-  seedStatus(dir, "runner", { state: "idle", label: "Runner", pid: process.pid });
+  seedStatus(dir, RUNNER_KEY, { state: "idle", label: "Runner", pid: process.pid });
   writeSettingsFixture(dir);
   return dir;
 }
@@ -58,7 +63,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         once: true,
         json: true,
         dispatch: () => {
-          seedStatus(dir, "runner", { state: "done", label: "Runner", pid: process.pid });
+          seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner", pid: process.pid });
           return Promise.resolve();
         },
         onEvent: (event) => published.push(event),

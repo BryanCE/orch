@@ -46,10 +46,8 @@ export const Route = createRootRoute({
 function RootDocument({ children }: { children: React.ReactNode }) {
   // TanStack Start's createServerFn().handler() erases its handler's return type,
   // so the loader's inferred shape degrades to any. Name it at the boundary.
-  const { colorScheme, themeMode } = Route.useLoaderData() as {
-    colorScheme: ColorSchemeId;
-    themeMode: ThemeMode;
-  };
+  const { colorScheme, themeMode }: { colorScheme: ColorSchemeId; themeMode: ThemeMode } =
+    Route.useLoaderData();
 
   return (
     <html
@@ -80,8 +78,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                 <AppSidebar initialScheme={colorScheme} />
                 <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <AppBreadcrumbs />
+                  {/* The app's ONE scroll: header and sidebar are fixed, and only
+                      this content region moves. Routes lay out in normal flow and
+                      never open a second page-level scroller. */}
                   <ScrollArea className="min-h-0 flex-1">
-                    <main data-content-region className="flex h-full min-h-0 flex-1 flex-col">{children}</main>
+                    <main data-content-region className="flex min-h-full flex-col">{children}</main>
                   </ScrollArea>
                 </SidebarInset>
               </SidebarProvider>

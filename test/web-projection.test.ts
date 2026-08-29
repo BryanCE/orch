@@ -6,7 +6,6 @@ const base = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow =
   agentId: "agent1234",
   paneId: "wF:p1",
   name: null,
-  agent: "herdr-agent-name",
   state: "idle",
   exited: false,
   model: "",
@@ -46,7 +45,7 @@ describe("web fleet projection", () => {
   });
 
   test("unscoped agents use a neutral space label when no orch space exists", () => {
-    const [space] = projectFleet([base({ space: "wF", spaceName: null })]);
+    const [space] = projectFleet([base({ spaceId: "wF", spaceName: null })]);
 
     expect(space!.name).toBe("unscoped");
     expect(space!.name).not.toBe("wF");

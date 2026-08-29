@@ -15,15 +15,15 @@ const DEFAULT_PORT = 3716;
 const CONNECT_TIMEOUT_MS = 2_000;
 const CALL_TIMEOUT_MS = 5_000;
 
-type RpcMessage = {
+interface RpcMessage {
   id?: number;
   event?: unknown;
   seq?: number;
   result?: unknown;
   error?: { code?: string | number; message?: string } | string;
-};
+}
 
-export type DaemonDown = { daemon: "down"; reason: string; tried: string };
+export interface DaemonDown { daemon: "down"; reason: string; tried: string }
 
 /** The one endpoint a dial actually used, so callers can report it rather than guess. */
 export interface DaemonEndpoint {
@@ -87,7 +87,7 @@ function connectEndpoint(endpoint: string | { host: string; port: number }, time
 
 function isAbsentOrRefused(error: unknown): boolean {
   if (error === null || typeof error !== "object") return false;
-  const code = Reflect.get(error, "code");
+  const code: unknown = Reflect.get(error, "code");
   return code === "ENOENT" || code === "ECONNREFUSED";
 }
 

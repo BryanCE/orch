@@ -16,21 +16,21 @@ or web section, which made settled things look open and got them asked again.
 | # | item | status |
 |---|---|---|
 | A1 | Entity model: an orch is an agent; **four** facts never welded — identity, provenance, lease, environment. Lifetime is not one of them | `DECIDED` — `01-agent-model.md` |
-| A2 | **5NF schema**, past it only where a split deletes a constraint. Lookups `harnesses`, `plexers`, `hosts`; `spaces`; the `agents` hub; `agent_processes`; `agent_leases`; `agent_plexers` (which layer, immutable) and its coordinate `agent_handles`; `agent_spaces`; `agent_tunings` for configuration, which is not environment; and `agent_worktrees` / `agent_endings` for facts only some agents have. Harness and `cwd` are on the hub: a running process cannot change either, and every agent has both | `BUILT` — `src/store/schema.ts` |
-| A16 | Non-agent environments: `space_plexers`, `pack_plexers` (E10, E11); `host_plexers` for which plexer is installed on a machine and at what version (E17). Queue: `tasks`, `task_attempts`, `pack_intakes`, `task_states` | `BUILT` — `src/store/schema.ts` |
+| A2 | **5NF schema**, past it only where a split deletes a constraint. Lookups `harnesses`, `plexers`, `hosts`; `spaces`; the `agents` hub; `agent_processes`; `agent_leases`; `agent_plexers` (which layer, immutable) and its coordinate `agent_handles`; `agent_spaces`; `agent_tunings` for configuration, which is not environment; and `agent_worktrees` / `agent_endings` for facts only some agents have. Harness and `cwd` are on the hub: a running process cannot change either, and every agent has both | `BUILT` — `src/db/schema.ts` |
+| A16 | Non-agent environments: `space_plexers`, `pack_plexers` (E10, E11); `host_plexers` for which plexer is installed on a machine and at what version (E17). Queue: `tasks`, `task_attempts`, `pack_intakes`, `task_states` | `BUILT` — `src/db/schema.ts` |
 | A14 | **Environment is a composition, never a table.** What can change gets its own narrow table with its own `since`/`until` and partial unique index; a missing axis is a missing row, never a NULL. What cannot change is a column on the hub — a satellite whose history is always one row is a join answering a question nobody can ask | `DECIDED` |
 | A15 | Adding an axis that can change (OS side, remote host, container) is one table plus one line in the composer — zero consumer changes | `DECIDED` |
-| A3 | Data types chosen from purpose; instants are INTEGER epoch ms; no booleans | `BUILT` — `src/store/schema.ts` |
-| A4 | `STRICT` tables + partial unique indexes for "one live X" | `BUILT` — `src/store/schema.ts` |
+| A3 | Data types chosen from purpose; instants are INTEGER epoch ms; no booleans | `BUILT` — `src/db/schema.ts` |
+| A4 | Partial unique indexes for "one live X" — 10 of them, emitted by drizzle-kit (`drizzle/*/migration.sql`). **`STRICT` was removed on Bryan's ruling 2026-08-29**: it needed a hand-written post-pass over the generated migration, and one schema file with nothing on top outranks it | `BUILT` — `src/db/schema.ts` |
 | A5 | `PRAGMA foreign_keys = ON` in `openStore` — absent today, so every FK is decoration | `BUILT` — `src/store/connection.ts:103-127` |
 | A6 | `processInstanceMatches(pid, start_token)` as the one liveness primitive | `BUILT` — `src/process-identity.ts`, replaced two divergent copies |
 | A7 | A **space** is user-created and optional — never minted from a path. With no space set the reachability boundary is the repo root | `DECIDED` — `adr/0001` |
 | A8 | Vocabulary (`orch` / `slave` / `pack` / `space`) is a display map, never stored — roles are derived from the tree. User-configurable terms are later polish, but the one-map constraint holds from day one | `DECIDED` |
-| A9 | Depth-2 policy enforced at the spawn command; the model itself stays recursive | `DECIDED` |
+| A9 | Depth-2 policy enforced at the spawn command; the model itself stays recursive | `BUILT` — `src/commands/spawn.ts:398-412` walks the `spawnedBy` chain and refuses at depth ≥ 2; the schema stays recursive |
 | A10 | A pack starts at **one** member — a registered session is an orch of a pack of one. Membership is the **provenance root**, so every agent is in exactly one pack at any depth | `DECIDED` |
 | A11 | Roles derive from tree position: **orch = pack root, slave = any non-root member** | `DECIDED` |
-| A12 | Pack size capped at **10 live members** (1 orch + 9 slaves), configurable in `settings.json`. Enforced at the spawn command, like A9 | `DECIDED` |
-| A13 | A spawn past the cap is **blocked** — never queued, never advisory. The block offers the two existing scopes: bind the task to a live slave, or put it on the pack | `DECIDED` |
+| A12 | Pack size capped at **10 live members** (1 orch + 9 slaves), configurable in `settings.json`. Enforced at the spawn command, like A9 | `BUILT` — `src/commands/spawn.ts:414-443`, `fleet.pack_cap` (`src/config.ts:72`); counts only live presence |
+| A13 | A spawn past the cap is **blocked** — never queued, never advisory. The block offers the two existing scopes: bind the task to a live slave, or put it on the pack | `BUILT` — `SPAWN_POLICY_OFFERS` (`src/commands/spawn.ts:389`) names both; `:445` refuses before any pane, tab, worktree or queue entry is allocated. `test/spawn-policy.test.ts` + `test/spawn-limits.test.ts` (19 pass) |
 
 ## B. Identity and registration
 
@@ -86,7 +86,7 @@ Modelled in `06-schema.md`: `tasks`, `task_attempts`, `pack_intakes`, and the `t
 | Cq12 | An orphaned task has three deliberate resolutions: **take it on** (re-scope to the taker's pack), leave, reap | `DECIDED` |
 | Cq13 | Adoption carries the queue — pack-scoped tasks come with the agents, nothing to re-parent | `DECIDED` |
 | Cq14 | **A claim is an attempt row, and a retry is the next one.** `retries`, `last_error` and `agent_key` leave the task; the claim is an INSERT guarded by `one_open_attempt`, not a conditional UPDATE. Cq6 stops being enforceable code and becomes unrepresentable | `BUILT` — `src/store/task-rows.ts` |
-| Cq15 | **State is derived** (`task_states`), never stored. A stored `state` is a second truth beside the attempts that produce it | `BUILT` — `src/store/schema.ts` |
+| Cq15 | **State is derived** (`task_states`), never stored. A stored `state` is a second truth beside the attempts that produce it | `BUILT` — `src/db/schema.ts` |
 | Cq16 | Scope is three typed nullable references with `exactly one non-null`, never `(kind, id)` — a polymorphic pair cannot carry a foreign key | `BUILT` — `src/store/task-rows.ts` |
 
 ## D. Lifecycle

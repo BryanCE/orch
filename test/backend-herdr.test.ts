@@ -83,6 +83,9 @@ const restoreExecutor = setHerdrExecutor((_command, args) => {
   if (command === "tab" && subcommand === "create") {
     return JSON.stringify({ tab: { tab_id: "t9", workspace_id: "ws-test" }, root_pane: { pane_id: freshPane("w0:p9") } });
   }
+  if (command === "workspace" && subcommand === "create") {
+    return JSON.stringify({ workspace: { workspace_id: "w7" }, root_pane: { pane_id: "w7:p1" } });
+  }
   if (command === "workspace" && subcommand === "list") {
     return JSON.stringify({ workspaces: [
       { workspace_id: "ws-test", label: "t3reports" },
@@ -354,5 +357,37 @@ describe("HerdrBackend", () => {
     expect(backend.waitAgentStatus("w0:p1", "idle", 1000)).toBe(true);
 
     expect(herdrArgv).toEqual([["agent", "wait", "w0:p1", "--until", "idle", "--timeout", "1000"]]);
+  });
+});
+
+// TASKS/02-scope.md E8/E9: a home is what an environment provides for holding
+// orch's own structure, and an orch that opens one "MUST" leave it marked —
+// `herdr workspace create` with no `--label` yields a workspace herdr names
+// itself (`wF`), which is the unmarked home E8 forbids and the display bug
+// ADR-0001 is about.
+describe("HerdrBackend space home", () => {
+  test("opens an orch-marked workspace for a pack the caller did not label", () => {
+    herdrArgv.length = 0;
+
+    expect(backend.spaceHome.create({ kind: "pack", id: "p1" }, { cwd: testDir }))
+      .toEqual({ coordinate: "w7", rootHandle: "w7:p1" });
+    expect(lastCall("workspace", "create")).toEqual([
+      "workspace", "create", "--cwd", testDir, "--no-focus",
+      "--env", `ORCH_PROJECT=${projectRoot()}`,
+      "--label", "orch-pack-p1",
+    ]);
+  });
+
+  test("a space home the human named keeps that name", () => {
+    herdrArgv.length = 0;
+    backend.spaceHome.create({ kind: "space", id: "s7" }, { cwd: testDir, label: "release" });
+    expect(lastCall("workspace", "create")?.slice(-2)).toEqual(["--label", "release"]);
+  });
+
+  // E10: the coordinate is orch's to STORE and hand back, never a name orch says.
+  test("create hands back the plexer coordinate and the root pane, and says neither", () => {
+    const created = backend.spaceHome.create({ kind: "space", id: "s8" }, { cwd: testDir });
+    expect(created.coordinate).toBe("w7");
+    expect(created.rootHandle).toBe("w7:p1");
   });
 });

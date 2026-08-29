@@ -12,6 +12,7 @@ import {
 } from "../queue.ts";
 import { emitAndNotify } from "./events.ts";
 import { type NotifyEvent } from "../notify/format.ts";
+import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, statusForPresence, type PresenceEntry } from "../presence/store.ts";
 import { loadConfig, type OrchConfig } from "../config.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
@@ -191,6 +192,7 @@ function settleClaimedTasks(orchDir: string, emit: (event: NotifyEvent) => void)
     if (!statusSpeaksForTask(status, task)) continue;
     if (status?.state === "done") {
       const settled = recordTaskDone(orchDir, task.id, agent.result);
+      deliverTaskResult(orchDir, task.id);
       emit(taskEvent(agent, settled, task.state, settled.state));
     }
     if (status?.state === "error") settleError(orchDir, task, typeof status?.lastError === "string" ? status.lastError : "agent reported error", agent, emit);
@@ -201,6 +203,9 @@ function settleError(orchDir: string, task: TaskRec, error: string, entry: Prese
   // A failed attempt remains derived as failed until the next attempt INSERT.
   // Selection policy below enforces max_retries + 1 total attempts.
   const settled = recordTaskFailure(orchDir, task.id, error);
+  // Cq4: a failure reports back too — silence is the worst outcome for the
+  // orch that asked, and it may be in another pack with nothing else to read.
+  deliverTaskResult(orchDir, task.id);
   emit(taskEvent(entry, settled, task.state, settled.state, error));
 }
 
@@ -218,6 +223,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
     if (state === "error") return settleError(options.orchDir, current, "agent reported error", entry, emit);
     if (state === "done") {
       const done = recordTaskDone(options.orchDir, task.id, loadPresence().get(entry.key)?.result);
+      deliverTaskResult(options.orchDir, task.id);
       emit(taskEvent(entry, done, current.state, done.state));
     }
   } catch (error) {

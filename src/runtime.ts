@@ -1,24 +1,15 @@
 // The JS runtime orch runs under is a DECLARED value, never one inferred from PATH
 // order. The vocabulary itself lives in the leaf `runtimes.ts` (imported here and
 // re-exported, so there is exactly ONE definition); this module owns the
-// invocation form for each runtime, which needs the adapter registry.
+// invocation form for each runtime. The env grant it hands deno comes from the
+// leaf `adapters/session-env.ts`, never from the adapter registry: importing the
+// registry here put every harness shim on a module cycle back into runtime.ts.
 
-import { allAdapters } from "./adapters/registry.ts";
+import { SHIM_ENV_VARS } from "./adapters/session-env.ts";
 import type { OrchRuntime } from "./runtimes.ts";
 import { binaryPath } from "./util.ts";
 
 export { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
-
-/** Env vars the harness shims may read, including vocabulary owned by adapters. */
-function shimEnvVars(): string[] {
-  const names = new Set(["ORCH_AGENT_KEY", "ORCH_DIR", "ORCH_AGENT_LOG", "ORCH_PROJECT", "HOME", "USERPROFILE"]);
-  for (const adapter of allAdapters()) {
-    if (adapter.sessionEnvMarker) names.add(adapter.sessionEnvMarker);
-    if (adapter.sessionIdEnv) names.add(adapter.sessionIdEnv);
-    if (adapter.sessionPidEnv) names.add(adapter.sessionPidEnv);
-  }
-  return [...names];
-}
 
 /** Filesystem scope a shim invocation is granted. Paths must be absolute. */
 export interface ShimScope {
@@ -60,7 +51,7 @@ export function runtimeArgv(runtime: OrchRuntime, script: string, args: readonly
   return [
     bin,
     "run",
-    `--allow-env=${shimEnvVars().join(",")}`,
+    `--allow-env=${SHIM_ENV_VARS.join(",")}`,
     "--allow-sys=homedir",
     `--allow-read=${readable.join(",")}`,
     `--allow-write=${scope.orchDir}`,

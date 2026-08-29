@@ -429,7 +429,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Read the last visible lines of a pane's screen. Throws on failure. */
-  // fallow-ignore-next-line unused-class-member
   read(handle: HerdrHandle, lines: number): string {
     return herdrExec(["pane", "read", handle, "--source", "recent-unwrapped", "--lines", String(lines)], {
       timeout: 5000,
@@ -438,7 +437,6 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     });
   }
 
-  // fallow-ignore-next-line unused-class-member
   zoom(handle: HerdrHandle, mode: BackendZoomMode): boolean {
     herdrAck(["pane", "zoom", handle, ZOOM_FLAGS[mode]]);
     return true;
@@ -501,13 +499,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Throws on herdr failure (callers surface the error). */
-  // fallow-ignore-next-line unused-class-member
   workspaces(): BackendWorkspace[] {
     const result = herdrJSON<{ workspaces: HerdrWorkspace[] }>(["workspace", "list"]);
     return (result?.workspaces ?? []).map(workspaceFromHerdr);
   }
 
-  // fallow-ignore-next-line unused-class-member
   focusWorkspace(workspace: string): boolean {
     herdrAck(["workspace", "focus", workspace]);
     return true;

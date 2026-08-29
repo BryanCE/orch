@@ -1,7 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { loadPresence } from "../presence/store.ts";
-import { orchDir } from "../presence/writer.ts";
-import { agentViews } from "../store/agent-view.ts";
 
 /**
  * Agent identity: one minted id, and nothing else.
@@ -22,6 +19,11 @@ import { agentViews } from "../store/agent-view.ts";
  * `agent_spaces`, on their own timelines, and are read through
  * `src/store/agent-view.ts`. Nothing reads them out of a key, because a key no
  * longer has anywhere to put them.
+ *
+ * A LEAF: this module imports nothing but `node:crypto`. Resolving a target name
+ * to an id is a lookup over presence and the agent views, so it lives in
+ * `src/control/normalize-target.ts` — doing it here made the id vocabulary import
+ * `presence/store.ts`, which imports this module straight back.
  */
 
 /** Characters in a minted id; excludes every separator and escape trigger. */
@@ -72,41 +74,4 @@ export function parseIdentity(key: string): Identity {
 export function tryParseIdentity(key: string | null | undefined): Identity | null {
   if (key === null || key === undefined) return null;
   return isAgentId(key) ? { id: key } : null;
-}
-
-/**
- * Resolve any spelling of a target to the one canonical identity key.
- *
- * An agent is addressable three ways — its id, its mutable name, or its
- * environment's handle for the pane it happens to occupy. Only the first is
- * identity; the other two are looked up through the composer, never parsed out
- * of the key, because both of them move.
- *
- * A dead agent still resolves (close and cleanup need it), but a live one wins:
- * reusing a name whose previous holder exited must never be ambiguous.
- */
-export function normalizeControlTarget(target: string): string {
-  if (typeof target !== "string" || target.trim().length === 0) {
-    throw new Error(`control target must be a non-empty string: ${JSON.stringify(target)}`);
-  }
-
-  const presence = loadPresence();
-  if (presence.has(target)) return target;
-
-  const matches = agentViews(orchDir()).filter((view) =>
-    view.id === target || view.name === target || view.environment.handle === target);
-
-  const live = matches.filter((view) => presence.get(view.id)?.alive);
-  const resolved = live.length > 0 ? live : matches;
-  const keys = new Set(resolved.map((view) => view.id));
-
-  if (keys.size === 1) return [...keys][0]!;
-  if (keys.size > 1) throw new Error(`control target ${target} is ambiguous: ${[...keys].join(", ")}`);
-
-  // Not in the registry: an agent whose bridge stamped presence before its row
-  // landed is still reachable through the pane id it reported.
-  const stamped = [...presence].filter(([, entry]) => entry.status?.paneId === target).map(([key]) => key);
-  if (stamped.length === 1) return stamped[0]!;
-  if (stamped.length > 1) throw new Error(`control target ${target} is ambiguous: ${stamped.join(", ")}`);
-  throw new Error(`control target ${target} does not resolve to a presence identity`);
 }

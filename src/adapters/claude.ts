@@ -23,6 +23,7 @@ import type {
 import type { CheckResult } from "../check-result.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
+import { HARNESS_SESSION_ENV } from "./session-env.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -192,13 +193,13 @@ class ClaudeAdapter implements AgentAdapter {
   readonly hookDriven = true;
 
   /** Claude Code exports CLAUDECODE=1 into every subprocess it runs. */
-  readonly sessionEnvMarker = "CLAUDECODE";
+  readonly sessionEnvMarker = HARNESS_SESSION_ENV.claude.marker;
 
   /** Claude Code exports its per-session UUID, telling parallel sessions apart. */
-  readonly sessionIdEnv = "CLAUDE_CODE_SESSION_ID";
+  readonly sessionIdEnv = HARNESS_SESSION_ENV.claude.sessionId;
 
   /** Claude Code exports its own pid, which outlives each `orch` invocation. */
-  readonly sessionPidEnv = "CLAUDE_PID";
+  readonly sessionPidEnv = HARNESS_SESSION_ENV.claude.sessionPid;
 
   /** Start Claude Code directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {

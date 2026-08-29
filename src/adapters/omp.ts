@@ -37,6 +37,7 @@ import type {
   SpawnOpts,
   SteerRequest,
 } from "./adapter.ts";
+import { HARNESS_SESSION_ENV } from "./session-env.ts";
 
 // orch's omp (oh-my-pi) integration. omp is its OWN harness: its own binary, its
 // own config root, its own extension bundle (extensions/omp/), its own settle
@@ -105,8 +106,8 @@ class OmpAdapter implements AgentAdapter {
   readonly id = "omp" as const;
 
   /** omp exports its session id into subprocesses; it is both marker and identity. */
-  readonly sessionEnvMarker = "OMP_SESSION_ID";
-  readonly sessionIdEnv = "OMP_SESSION_ID";
+  readonly sessionEnvMarker = HARNESS_SESSION_ENV.omp.marker;
+  readonly sessionIdEnv = HARNESS_SESSION_ENV.omp.sessionId;
 
   readonly thinking = null;
   readonly workerLaunch = {

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
-import { normalizeControlTarget } from "../backends/identity.ts";
+import { normalizeControlTarget } from "./normalize-target.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";

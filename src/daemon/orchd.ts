@@ -23,7 +23,8 @@ import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMess
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps, type OutboxDelivery } from "./outbox.ts";
-import { normalizeControlTarget, tryParseIdentity } from "../backends/identity.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
+import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";

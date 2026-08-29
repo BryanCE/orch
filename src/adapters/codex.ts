@@ -24,6 +24,7 @@ import type {
   SteerRequest,
 } from "./adapter.ts";
 import type { CheckResult, FixDescriptor } from "../check-result.ts";
+import { HARNESS_SESSION_ENV } from "./session-env.ts";
 
 const CODEX_MODELS_CACHE = join(homedir(), ".codex", "models_cache.json");
 
@@ -95,8 +96,8 @@ export class CodexAdapter implements AgentAdapter {
   readonly id = "codex" as const;
 
   /** Codex exports its session pid, which doubles as its session marker. */
-  readonly sessionEnvMarker = "CODEX_PID";
-  readonly sessionPidEnv = "CODEX_PID";
+  readonly sessionEnvMarker = HARNESS_SESSION_ENV.codex.marker;
+  readonly sessionPidEnv = HARNESS_SESSION_ENV.codex.sessionPid;
 
   readonly thinking = null;
   readonly workerLaunch = null;
@@ -177,7 +178,6 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Verify the top-level notify artifact written by installShim. */
-  // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
     const configPath = join(homedir(), ".codex", "config.toml");
     const shim = codexNotifyShimPath(packageRoot());

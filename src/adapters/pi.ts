@@ -37,6 +37,7 @@ import type {
   ThinkingStrategy,
 } from "./adapter.ts";
 import type { ThinkingLevel } from "../policy/thinking.ts";
+import { HARNESS_SESSION_ENV } from "./session-env.ts";
 
 /** State input for pi, identified by its orch presence key. */
 export interface PiStateDetectionInput extends StateDetectionInput {
@@ -429,8 +430,8 @@ export class PiAdapter implements AgentAdapter {
   };
 
   /** pi exports these into every subprocess of an interactive session. */
-  readonly sessionEnvMarker = "PI_CODING_AGENT";
-  readonly sessionIdEnv = "PI_SESSION_ID";
+  readonly sessionEnvMarker = HARNESS_SESSION_ENV.pi.marker;
+  readonly sessionIdEnv = HARNESS_SESSION_ENV.pi.sessionId;
 
   readonly workerLaunch = {
     restrictedInteractiveCmd: (opts: SpawnOpts): string => this.restrictedInteractiveCmd(opts),
@@ -515,7 +516,6 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Verify the extension link and bundle written by installShim. */
-  // fallow-ignore-next-line unused-class-member
   diagnoseShim(): CheckResult {
     return diagnoseExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION);
   }
@@ -542,7 +542,6 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory. */
-  // fallow-ignore-next-line unused-class-member
   installShim(opts?: ShimInstallOpts): void {
     installExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION, opts);
   }

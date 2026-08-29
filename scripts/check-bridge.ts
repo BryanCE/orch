@@ -237,6 +237,31 @@ export const BACKEND_KIND_MAP_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>
   ],
 ]);
 
+/** The closed plexer-id set has to be spelled SOMEWHERE, and `src/types/backend.ts`
+ *  is that place: `BACKEND_IDS` is what every other module imports instead of
+ *  writing "herdr" itself, and it lives in types so importing it pulls no provider
+ *  code. The exemption is the exact definition line and nothing else — any other
+ *  quoted plexer id in that file still fails. */
+export const PLEXER_ID_SET_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "src/types/backend.ts",
+    new Set(['export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;']),
+  ],
+]);
+
+/**
+ * A plexer id written as a literal where it is not that plexer's own code to
+ * write. `where` names the scope in the message so one rule serves both scans.
+ *
+ * The only exemption is {@link PLEXER_ID_SET_ALLOWLIST}: the line that DEFINES
+ * the closed set, which every other module imports instead of spelling an id.
+ */
+export function checkPlexerLiteralLine(line: string, relPath: string, where: string): string | undefined {
+  if (!/["'](herdr|tmux)["']/.test(line)) return undefined;
+  if (PLEXER_ID_SET_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
+  return `quoted herdr/tmux literals are forbidden ${where}`;
+}
+
 /** Exact backend-owned environment names in addition to the directory-derived prefix. */
 const BACKEND_ENV_PREFIX_EXTRAS: ReadonlyMap<string, readonly string[]> = new Map([
   ["tmux", ["TMUX"]],
@@ -636,7 +661,8 @@ function runAllChecks(): void {
     }
     if (line.includes("process.env.HERDR")) return "process.env.HERDR is forbidden outside backends";
     if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden outside backends";
-    if (/[\"'](herdr|tmux)[\"']/.test(line)) return "quoted herdr/tmux literals are forbidden outside backends";
+    const plexerLiteralViolation = checkPlexerLiteralLine(line, relPath, "outside backends");
+    if (plexerLiteralViolation) return plexerLiteralViolation;
     return undefined;
   });
 
@@ -653,7 +679,8 @@ function runAllChecks(): void {
     if (presenceViolation) return presenceViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden in extensions (boundary modules live directly under backends/)";
     // Harness extensions may read the environment for their own harness integration.
-    if (/["'](herdr|tmux)["']/.test(line)) return "quoted herdr/tmux literals are forbidden in extensions";
+    const plexerLiteralViolation = checkPlexerLiteralLine(line, relPath, "in extensions");
+    if (plexerLiteralViolation) return plexerLiteralViolation;
     return undefined;
     // Recursive: each harness owns extensions/<harness>/, so every file is one level down.
   }, true);

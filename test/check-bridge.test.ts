@@ -13,6 +13,7 @@ import {
   checkSpawnerReplyFallbackLine,
   checkLeaseProvenanceLine,
   checkEnvironmentCapabilityLine,
+  checkPlexerLiteralLine,
   ENVIRONMENT_ROLE_NAMES,
 } from "../scripts/check-bridge.ts";
 
@@ -362,5 +363,38 @@ describe("10.7 leases and provenance stay in separate columns (checkLeaseProvena
       });
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// The closed plexer-id set has to be spelled once so nothing else has to. That
+// one line is the whole exemption: a file that writes an id any other way is
+// still hard-coding a plexer, which is what this rule exists to stop.
+describe("the closed plexer-id set is spelled in exactly one line", () => {
+  const DEFINITION = 'export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;';
+
+  test("the definition line is allowed where it lives, and nowhere else", () => {
+    expect(checkPlexerLiteralLine(DEFINITION, "src/types/backend.ts", "outside backends")).toBeUndefined();
+    expect(checkPlexerLiteralLine(DEFINITION, "src/commands/status.ts", "outside backends"))
+      .toBe("quoted herdr/tmux literals are forbidden outside backends");
+  });
+
+  test("any other quoted plexer id in that same file still fails", () => {
+    expect(checkPlexerLiteralLine('if (backend === "herdr") return true;', "src/types/backend.ts", "outside backends"))
+      .toBe("quoted herdr/tmux literals are forbidden outside backends");
+    expect(checkPlexerLiteralLine('const fallback = "tmux";', "src/types/backend.ts", "outside backends"))
+      .toBe("quoted herdr/tmux literals are forbidden outside backends");
+  });
+
+  test("the line src/types/backend.ts actually carries is the allowed one", () => {
+    const source = readFileSync("src/types/backend.ts", "utf8").split("\n");
+    const spelled = source.flatMap((line, index) =>
+      checkPlexerLiteralLine(line, "src/types/backend.ts", "outside backends") ? [`src/types/backend.ts:${index + 1}`] : []);
+    expect(spelled).toEqual([]);
+    expect(source.map((line) => line.trim())).toContain(DEFINITION);
+  });
+
+  test("extensions get the same rule with their own scope named", () => {
+    expect(checkPlexerLiteralLine('const id = "herdr";', "extensions/pi/bridge.ts", "in extensions"))
+      .toBe("quoted herdr/tmux literals are forbidden in extensions");
   });
 });

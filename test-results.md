@@ -1954,3 +1954,75 @@ test/settings-command.test.ts:
 (pass) orch settings > refuses read-only runtime and names the editing subcommand [140.18ms]
 
 test/orchd-rpc-replay.test.ts:
+(pass) orchd RPC replay buffer > assigns monotonic sequence numbers and replays after a sequence [49.90ms]
+(pass) orchd RPC replay buffer > replays from inside the surviving range without a gap [34.25ms]
+(pass) orchd RPC replay buffer > reports a gap when the requested sequence predates retained history [30.77ms]
+(pass) orchd RPC replay buffer > empty history has no gap or oldest sequence [25.62ms]
+(pass) orchd RPC replay buffer > limits replay size without pruning durable events [1944.19ms]
+
+test/commands-index.test.ts:
+(pass) commands/index > does not gate help or noninteractive commands [0.05ms]
+(pass) commands/index > reads a package version string [0.12ms]
+(pass) commands/index > announces unleased agents once per session [0.36ms]
+(pass) commands/index > dispatches representative commands and reports unknown commands [1.06ms]
+
+test/store-outbox.test.ts:
+(pass) outbox store rows > inserts pending messages and orders them by creation time [28.73ms]
+(pass) outbox store rows > reports one message's pending state [28.35ms]
+(pass) outbox store rows > bumps attempts and hides a message until its next attempt time [29.73ms]
+(pass) outbox store rows > deletes delivered messages older than the cutoff [39.82ms]
+
+test/adapter-model-flag.test.ts:
+(pass) interactive launches carry the resolved model (12.6) > pi.interactiveCmd includes --model when set and omits it cleanly when not [0.06ms]
+(pass) interactive launches carry the resolved model (12.6) > pi.restrictedInteractiveCmd includes --model when set and omits it cleanly when not [0.12ms]
+(pass) interactive launches carry the resolved model (12.6) > claude.interactiveCmd includes --model when set and omits it cleanly when not [0.06ms]
+(pass) interactive launches carry the resolved model (12.6) > codex.interactiveCmd includes a quoted --model when set and omits it cleanly when not [0.06ms]
+(pass) preferred models fill the harness's native picker quicklist > pi interactive builders pass the quicklist as one quoted --models argument [0.11ms]
+(pass) preferred models fill the harness's native picker quicklist > pi headless builders pass the quicklist as one verbatim argv entry [0.11ms]
+(pass) preferred models fill the harness's native picker quicklist > pi omits --models cleanly for an absent or empty quicklist [0.17ms]
+(pass) preferred models fill the harness's native picker quicklist > pi keeps quicklist order and provider punctuation intact [0.06ms]
+(pass) preferred models fill the harness's native picker quicklist > omp interactive builders pass the quicklist as one quoted --models argument [0.03ms]
+(pass) preferred models fill the harness's native picker quicklist > omp headless builders pass the quicklist as one verbatim argv entry [0.01ms]
+(pass) preferred models fill the harness's native picker quicklist > omp omits --models cleanly for an absent or empty quicklist [0.04ms]
+(pass) preferred models fill the harness's native picker quicklist > omp keeps quicklist order and provider punctuation intact
+(pass) preferred models fill the harness's native picker quicklist > a model outside the quicklist is still what the launch runs on [0.07ms]
+
+test/a-backend-exposes-each-operation-once.test.ts:
+(pass) a backend exposes each operation exactly once (2.2) > herdr publishes no operation beside the role that owns it [0.17ms]
+(pass) a backend exposes each operation exactly once (2.2) > tmux publishes no operation beside the role that owns it [0.14ms]
+(pass) a backend exposes each operation exactly once (2.2) > headless publishes no operation beside the role that owns it [0.09ms]
+
+test/pack-membership.test.ts:
+(pass) a pack is the provenance root > a registered session is an orch of a pack of one [47.63ms]
+(pass) a pack is the provenance root > membership is inherited from the spawner at any depth, never re-rooted [41.54ms]
+(pass) a pack is the provenance root > every agent is in exactly one pack, and two packs never share a member [46.33ms]
+(pass) a pack is the provenance root > a pack of one grows without re-rooting, and the root stays the orch [32.41ms]
+(pass) a pack is the provenance root > a lease or a move never changes which pack an agent is in [40.56ms]
+(pass) a pack is the provenance root > an agent cannot be spawned by someone who does not exist [81.24ms]
+
+test/doctor-orphan-daemons.test.ts:
+(pass) doctor orphaned-daemon check > a live foreign lock is reported, and an unproven owner is never killable [29.94ms]
+(pass) doctor orphaned-daemon check > a dead pid's lock is not an orphan [13.79ms]
+(pass) doctor orphaned-daemon check > the caller's own orch dir is never reported against itself [14.72ms]
+
+packages/web/src/lib/fleet.test.ts:
+(pass) web environment projection > novel plexers still render a detached environment [0.27ms]
+(pass) web environment projection > missing space is absent rather than local [0.10ms]
+(pass) web environment projection > pane coordinates are not chosen names [0.08ms]
+(pass) web environment projection > renderers contain no provider-id branches or backend capability imports [0.45ms]
+
+packages/web/src/lib/web-shell.test.ts:
+(pass) web shell and fleet views > the app shell scrolls only its content region [0.30ms]
+(pass) web shell and fleet views > no route declares a scroll frame of its own [0.57ms]
+(pass) web shell and fleet views > unleased agents are partitioned into an orphan bucket [0.17ms]
+(pass) web shell and fleet views > history groups exited agents by the agent that spawned them [0.07ms]
+(pass) web shell and fleet views > visible names never expose a plexer coordinate or the forbidden term [0.73ms]
+
+1 tests skipped:
+(skip) claude-hooks shim tests need the dist bundle
+
+ 1428 pass
+ 1 skip
+ 0 fail
+ 6508 expect() calls
+Ran 1429 tests across 227 files. [67.85s]

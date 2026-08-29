@@ -133,17 +133,17 @@ describe("fleet ownership scoping", () => {
     delete process.env.ORCH_OWNER;
     delete process.env.HERDR_PANE_ID;
     delete process.env.TMUX_PANE;
-    recordSpawned("headless~local~unowned", { backend: "headless", space: "local", handle: "unowned", owner: "other" });
+    recordSpawned("kunowned01", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" });
     const result = runCli(dir, ["close", "--all", "--json"], undefined);
     expect(result.status).toBe(0);
-    expect(spawnedRecords().has("headless~local~unowned")).toBe(false);
+    expect(spawnedRecords().has("kunowned01")).toBe(false);
   });
 
   test("close --all closes all managed records regardless of owner", () => {
     makeDir();
     process.env.ORCH_OWNER = "caller";
-    recordSpawned("headless~local~mine", { backend: "headless", space: "local", handle: "mine", owner: "caller" });
-    recordSpawned("headless~local~foreign", { backend: "headless", space: "local", handle: "foreign", owner: "other" });
+    recordSpawned("klmine0001", { adapter: "pi", backend: "headless", space: "local", handle: "mine", owner: "caller" });
+    recordSpawned("klforeign1", { adapter: "pi", backend: "headless", space: "local", handle: "foreign", owner: "other" });
 
     // `user-pane` is listed but never orch-spawned: `close --all` sweeps only
     // panes orch owns records for, never the user's own.
@@ -156,7 +156,7 @@ describe("fleet ownership scoping", () => {
 
   test("explicit foreign target closes successfully", () => {
     const dir = makeDir();
-    const key = "headless~local~foreign";
+    const key = "klforeign1";
     const signalPath = join(dir, "sigterm.txt");
     const child = spawn(process.execPath, ["-e", `process.on(\"SIGTERM\", () => { require(\"node:fs\").writeFileSync(${JSON.stringify(signalPath)}, \"term\"); process.exit(0); }); setTimeout(() => {}, 60000)`], { detached: true });
     children.push(child);
@@ -183,7 +183,7 @@ describe("fleet ownership scoping", () => {
     ] as const;
     for (const [verb, arg] of commands) {
       const dir = makeDir();
-      const key = `headless~local~foreign-${verb}`;
+      const key = `kfrgn${verb.slice(0, 5).padEnd(5, "x")}`;
       mkdirSync(join(dir, "agents", key), { recursive: true });
       writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({
         schema: PRESENCE_SCHEMA, key, pid: process.pid, startToken: processStartToken(process.pid), agent: "pi", state: "working",
@@ -201,7 +201,7 @@ describe("fleet ownership scoping", () => {
   // as if this session had produced it.
   test("result refuses a foreign-owned agent and names its owner", () => {
     const dir = makeDir();
-    const key = "headless~local~foreign-result";
+    const key = "kfrgnresu1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
     writeFileSync(join(dir, "agents", key, "result.json"), JSON.stringify({ text: "other session's answer" }));
@@ -219,7 +219,7 @@ describe("fleet ownership scoping", () => {
   // Other pane mutations remain gated; ending is intentionally ungated.
   test("pane mutations refuse a foreign-owned agent and name its owner", () => {
     const dir = makeDir();
-    const key = "headless~local~foreign-pane";
+    const key = "kfrgnpane1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "working" }));
     recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
@@ -239,7 +239,7 @@ describe("fleet ownership scoping", () => {
 
   test("close has no force option and remains unconditional without it", () => {
     const dir = makeDir();
-    const key = "headless~local~forced";
+    const key = "kforced001";
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
     children.push(child);
     const pid = child.pid!;
@@ -261,7 +261,7 @@ describe("fleet ownership scoping", () => {
 
   test("close cleans up a mismatched recorded process without signalling", () => {
     const dir = makeDir();
-    const key = "headless~local~mismatched";
+    const key = "kmismatch1";
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
     children.push(child);
     const pid = child.pid!;
@@ -288,14 +288,14 @@ describe("fleet ownership scoping", () => {
 // killed every fleet in the workspace. A spawned agent now acts as ITSELF —
 // its own minted key — and no flag widens that to anyone else's agents.
 describe("a spawned agent touches only what it spawned", () => {
-  const agentKey = "headless~wF~worker-a";
+  const agentKey = "kwfworkera";
 
-  // TASKS/01: identity is a minted id and NOTHING else. The `headless~wF~`
-  // segments of a launch key are ENVIRONMENT and never travel as identity.
+  // TASKS/01: identity is a minted id and NOTHING else. A launch key carries no
+  // plexer and no space, so there is nothing left to mistake for identity.
   test("a spawned agent acts as its own minted id, not its launch key", () => {
     process.env.ORCH_AGENT_KEY = agentKey;
     try {
-      expect(selfId()).toBe("worker-a");
+      expect(selfId()).toBe(agentKey);
     } finally {
       delete process.env.ORCH_AGENT_KEY;
     }
@@ -303,7 +303,7 @@ describe("a spawned agent touches only what it spawned", () => {
 
   test("--cross-space from a spawned agent is refused", () => {
     const dir = makeDir();
-    const key = "headless~wB~victim";
+    const key = "kwbvictim1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     recordSpawned(key, { backend: "headless", adapter: "pi", space: "wB", handle: key });
@@ -315,21 +315,21 @@ describe("a spawned agent touches only what it spawned", () => {
 
   test("close --all sweeps every managed spawn", () => {
     const dir = makeDir();
-    recordSpawned("headless~wF~mine", { backend: "headless", space: "wF", handle: "mine", owner: agentKey });
-    recordSpawned("headless~wF~theirs", { backend: "headless", space: "wF", handle: "theirs", owner: "herdr~wF~operator" });
+    recordSpawned("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", owner: agentKey });
+    recordSpawned("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", owner: "kwfoperato" });
 
     const result = runCli(dir, ["close", "--all", "--json"], undefined, { ORCH_AGENT_KEY: agentKey });
     expect(result.status).toBe(0);
-    expect(spawnedRecords().has("headless~wF~mine")).toBe(false);
-    expect(spawnedRecords().has("headless~wF~theirs")).toBe(false);
+    expect(spawnedRecords().has("kwfmine001")).toBe(false);
+    expect(spawnedRecords().has("kwftheirs1")).toBe(false);
   }, 15_000);
 
   test("close from a spawned agent is unconditional", () => {
     const dir = makeDir();
-    const key = "headless~wF~victim";
+    const key = "kwfvictim1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
-    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, owner: "herdr~wF~operator" });
+    recordSpawned(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, owner: "kwfoperato" });
 
     const result = runCli(dir, ["close", key], undefined, { ORCH_AGENT_KEY: agentKey });
     expect(result.status).toBe(0);
@@ -338,13 +338,13 @@ describe("a spawned agent touches only what it spawned", () => {
 
   test("the workspace operator keeps control of an agent-owned fleet", () => {
     const dir = makeDir();
-    const key = "herdr~wF~worker-b";
+    const key = "kwfworkerb";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     // A dead pid: close must reap the record, never signal a live process here.
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     recordSpawned(key, { backend: "herdr", adapter: "pi", space: "wF", handle: key, owner: agentKey });
 
-    const result = runCli(dir, ["close", key], "herdr~wF~operator");
+    const result = runCli(dir, ["close", key], "kwfoperato");
     // Assert on the pair so a non-zero exit prints what orch actually said.
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
     expect(spawnedRecords().has(key)).toBe(false);

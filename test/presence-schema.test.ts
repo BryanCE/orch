@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { buildEntities } from "../src/entities.ts";
-import { parseIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, parseIdentity } from "../src/backends/identity.ts";
 import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 
@@ -60,26 +60,30 @@ afterAll(() => {
   removeTempDir(orchDir);
 });
 
+/** A1: a presence directory is named by the agent's minted id and nothing else.
+ *  These fixtures used to spell `tmux~workspace-a~%255` — the plexer, that
+ *  plexer's own grouping, and a pane handle, all welded into the one fact that
+ *  may never change. Where an agent sits is read through the composer instead. */
 describe("presence status schema", () => {
   test("reads a spawned identity without placement fields in status", () => {
-    const key = "tmux~workspace-a~%255";
+    const key = mintAgentId();
     writeStatus(key, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "working" });
     expect(readStatuses()[key]!).toMatchObject({ schema: PRESENCE_SCHEMA, key, agent: "pi", state: "working" });
   });
 
   test("orch status JSON exposes the agent status fields", () => {
-    const key = "headless~workspace-a~ag7k2m9x1p";
+    const key = mintAgentId();
     writeStatus(key, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_DIR = orchDir;
 
     expect(readStatuses()).toEqual(expect.objectContaining({
       [key]: expect.objectContaining({ key, agent: "pi" }) as PresenceStatus,
     }) as Record<string, PresenceStatus>);
-    expect(parseIdentity(key)).toEqual({ backend: "headless", workspace: "workspace-a", id: "ag7k2m9x1p" });
+    expect(parseIdentity(key)).toEqual({ id: key });
   });
 
   test("status and list report the same agent identity", () => {
-    const key = "headless~workspace-a~ag7k2m9x1p";
+    const key = mintAgentId();
     writeStatus(key, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_DIR = orchDir;
 
@@ -88,12 +92,12 @@ describe("presence status schema", () => {
     expect({ key: status.key, agent: status.agent }).toEqual({
       key: listed.key, agent: listed.agent ?? undefined,
     });
-    expect(parseIdentity(status.key!)).toMatchObject({ backend: "headless", workspace: "workspace-a", id: "ag7k2m9x1p" });
+    expect(parseIdentity(status.key!)).toEqual({ id: key });
   });
 
   test("mixed pi and Claude status rows carry the same status field set", () => {
-    const piKey = "headless~workspace-a~ag7k2m9x1p";
-    const claudeKey = "headless~workspace-b~zq4n8b3t7v";
+    const piKey = mintAgentId();
+    const claudeKey = mintAgentId();
     writeStatus(piKey, { schema: PRESENCE_SCHEMA, key: piKey, agent: "pi", pid: process.pid, state: "idle" });
     writeStatus(claudeKey, { schema: PRESENCE_SCHEMA, key: claudeKey, agent: "claude", pid: process.pid, state: "idle" });
     process.env.ORCH_DIR = orchDir;
@@ -105,11 +109,9 @@ describe("presence status schema", () => {
       ["agent", "key", "pid", "schema", "state"],
     ]);
     expect(rows.map((row) => row.agent).sort()).toEqual(["claude", "pi"]);
-    // The id is minted, so it matches neither the pane handle nor the name.
-    for (const row of rows) {
-      const identity = parseIdentity(row.key!);
-      expect(identity.id).not.toBe(row.key);
-    }
+    // The key IS the minted id: there is no segment to strip, so two agents in
+    // different spaces are told apart by their ids and by nothing else.
+    for (const row of rows) expect(parseIdentity(row.key!)).toEqual({ id: row.key! });
   });
 
   test("rejects a status record that carries no schema stamp", () => {
@@ -139,21 +141,24 @@ describe("presence status schema", () => {
     expect(statuses.current!).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "pi" });
   });
 
-  test("persists the complete spawned identity record", () => {
+  test("the four facts are recorded apart and composed back onto the minted id", () => {
     process.env.ORCH_DIR = orchDir;
-    recordSpawned("tmux~workspace-a~%255", {
+    const key = mintAgentId();
+    recordSpawned(key, {
       backend: "tmux",
       handle: "%5",
       adapter: "claude",
       cwd: "/work/project",
     });
 
-    expect(spawnedRecords().get("tmux~workspace-a~%255")).toMatchObject({
-      pane: "tmux~workspace-a~%255",
-      backend: "tmux",
-      handle: "%5",
-      adapter: "claude",
+    // Identity is the id; the harness and cwd are hub columns; the plexer and
+    // its pane handle are ENVIRONMENT, each on its own table and read back
+    // through the composer. Nothing reassembles them into a flat row.
+    expect(spawnedRecords().get(key)).toMatchObject({
+      id: key,
+      harnessId: "claude",
       cwd: "/work/project",
+      environment: { plexer: "tmux", handle: "%5", space: null },
     });
   });
 });

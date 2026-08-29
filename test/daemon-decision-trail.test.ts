@@ -8,7 +8,7 @@ import { openStore } from "../src/store/connection.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { governWrite, deliverWrite } from "../src/daemon/orchd.ts";
 import { isLogRecord, type LogRecord } from "../src/log.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -68,7 +68,10 @@ describe("daemon decision trail", () => {
       level: "debug",
       event: "lease.refused",
       agentId: "target",
-      fields: { target: "target", holderId: "live-holder", holderAlive: true },
+      // `steal` is on the record because a refusal must say whether the caller
+      // even asked to take the holding: a refusal to a caller who never asked and
+      // a refusal to one who did are different decisions to read back later.
+      fields: { target: "target", holderId: "live-holder", holderAlive: true, steal: false },
     });
   });
 
@@ -94,7 +97,9 @@ describe("daemon decision trail", () => {
 
   test("records a no-pane boundary answer with its reason", async () => {
     const directory = fixture();
-    const target = serializeIdentity({ backend: "headless", workspace: "local", id: "claude-agent" });
+    // A bare minted id: an agent with no pane is not a different KIND of
+    // identity, it is the same identity with one environment axis absent (A1).
+    const target = mintAgentId();
     seedStatus(directory, target, { agent: "claude", pid: process.pid });
 
     // Await the promise itself rather than `.resolves`: the linter does not see
@@ -111,7 +116,7 @@ describe("daemon decision trail", () => {
       level: "debug",
       event: "boundary.answer",
       correlationId: "dispatch-1",
-      agentId: "claude-agent",
+      agentId: target,
       fields: { target, reason: "no-pane" },
     });
   });

@@ -662,6 +662,14 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     }
     throw error;
   }
+  // Registration MINTS the agent row; recordSpawned only records facts against
+  // an agent that already exists. Reversing these two inserts the hub twice.
+  registerSpawnedAgent(orchDir(), {
+    key, harnessId: spec.adapterId, backendId: spec.backend.id, pane: spec.backend.paneInventory !== null,
+    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model,
+    spawner: spec.spawnerAgentId ?? null,
+    worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
+  });
   recordSpawned(key, {
     adapter: spec.adapterId,
     model: spec.model,
@@ -674,12 +682,6 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     owner: callerOwnerToken(),
     spawnedBy: spec.spawnerAgentId ?? undefined,
     spawnedByLabel: spawner.label,
-  });
-  registerSpawnedAgent(orchDir(), {
-    key, harnessId: spec.adapterId, backendId: spec.backend.id, pane: spec.backend.paneInventory !== null,
-    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model,
-    spawner: spec.spawnerAgentId ?? null,
-    worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
   });
   return { key, pane: String(handle), name: spec.name };
 }

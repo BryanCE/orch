@@ -5,11 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { resolveAdapter } from "../src/adapters/registry.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
-const { claudeAdapter } = await import("../src/adapters/claude.ts");
+// Resolved through the registry, which is how everything in production reaches
+// an adapter. Importing `adapters/claude.ts` directly makes it the ENTRY of the
+// pre-existing config.ts -> runtime.ts -> adapters/registry.ts -> claude.ts
+// import cycle, and registry.ts then reads `claudeAdapter` inside its own TDZ.
+const claudeAdapter = resolveAdapter("claude");
 const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
 // A1: the hook receives its identity through ORCH_AGENT_KEY, and that key is the
 // minted id alone — no plexer, no space, nothing for the hook to decode.

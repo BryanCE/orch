@@ -3,11 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn.ts";
-import { parseIdentity, normalizeControlTarget } from "../src/backends/identity.ts";
+import { mintAgentId, parseIdentity, normalizeControlTarget } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
-import { agentById } from "../src/store/agent-rows.ts";
+import { agentById, ensureHarness } from "../src/store/agent-rows.ts";
+import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
+import { agentView } from "../src/store/agent-view.ts";
+import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
-import type { Backend } from "../src/backends/backend.ts";
+import type { AgentAdapter } from "../src/adapters/adapter.ts";
+import type { BackendHandle, BackendSpawnOpts } from "../src/backends/backend.ts";
+import { FakePanedBackend } from "./helpers/backend.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -22,24 +28,38 @@ function tempOrchDir(): string {
 }
 
 afterEach(() => {
+  closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = oldOrchDir;
 });
 
-// A fake pane backend that records the key it would stamp as ORCH_AGENT_KEY
-// (real herdr/tmux put opts.key into the launch env verbatim) and returns a
-// pane-native handle distinct from that key.
-function fakePaneBackend(paneHandle: string): { backend: Backend; envKey: () => string | undefined } {
-  let seen: string | undefined;
-  const backend = {
-    id: "herdr",
-    spawn(_adapter: unknown, opts: { key?: string }) {
-      seen = opts.key;
-      return paneHandle;
-    },
-  } as unknown as Backend;
-  return { backend, envKey: () => seen };
+/**
+ * A paned environment that records the key it would stamp as ORCH_AGENT_KEY
+ * (real herdr/tmux put `opts.key` into the launch env verbatim) and returns a
+ * pane-native handle distinct from that key.
+ *
+ * Rule 13: this extends the shared COMPLETE `Backend` fixture rather than
+ * casting a two-field object through `unknown`. The cast used to hide that the
+ * fake declared none of the pane roles `spawnOneIntoTab` reads.
+ */
+class KeyRecordingBackend extends FakePanedBackend {
+  /** The key the launch was handed, or undefined before the first spawn. */
+  envKey: string | undefined;
+
+  constructor(private readonly paneHandle: string) {
+    super({ id: "herdr" });
+  }
+
+  override spawn(_adapter: AgentAdapter, opts: BackendSpawnOpts): BackendHandle {
+    this.envKey = opts.key;
+    return this.paneHandle;
+  }
+}
+
+function fakePaneBackend(paneHandle: string): { backend: KeyRecordingBackend; envKey: () => string | undefined } {
+  const backend = new KeyRecordingBackend(paneHandle);
+  return { backend, envKey: () => backend.envKey };
 }
 
 describe("one key per pane spawn (12.1)", () => {
@@ -134,5 +154,79 @@ describe("one key per pane spawn (12.1)", () => {
     // A second re-minted identity would make these ambiguous and throw.
     expect(normalizeControlTarget("%7")).toBe(agent.key);
     expect(normalizeControlTarget(agent.key)).toBe(agent.key);
+  });
+});
+
+/** A registry fixture: one harness, and the user-created space a spawn may be
+ *  placed into. A7 — a space is user-created and optional, never minted from a
+ *  path — so the row exists before any agent can be put in it. */
+function registryFixture(space?: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-spawn-space-"));
+  dirs.push(dir);
+  ensureHarness(dir, "pi", "pi", 1);
+  if (space !== undefined) {
+    openStore(dir).query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)").run(space, space, 1);
+  }
+  return dir;
+}
+
+function spaceRows(dir: string, agentId: string): unknown[] {
+  return openStore(dir).query("SELECT space_id, since, until FROM agent_spaces WHERE agent_id = ?").all(agentId);
+}
+
+describe("A1: spawn registration records the space as an environment axis", () => {
+  test("a spawn into a space writes agent_spaces, and the composer reads it back", () => {
+    const dir = registryFixture("wsA");
+    const key = mintAgentId();
+
+    registerSpawnedAgent(dir, {
+      key, harnessId: "pi", backendId: "herdr", pane: true, handle: "%42",
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, now: 10,
+    });
+
+    // The space is its own open interval, not a column beside the plexer.
+    expect(spaceRows(dir, key)).toEqual([{ space_id: "wsA", since: 10, until: null }]);
+    // And it comes back through the ONE composed read, beside the plexer it is
+    // independent of. Nothing parses either of them out of `key`.
+    expect(agentView(dir, key)?.environment).toEqual({
+      plexer: "herdr", handle: "%42", space: "wsA", worktree: null, branch: null,
+    });
+  });
+
+  test("a spawn stating no space records NO ROW — a missing axis is a missing row", () => {
+    const dir = registryFixture();
+    const key = mintAgentId();
+
+    registerSpawnedAgent(dir, {
+      key, harnessId: "pi", backendId: "headless", pane: false,
+      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, now: 10,
+    });
+
+    // Not a NULL column, not the invented place called "local": no row at all.
+    expect(spaceRows(dir, key)).toEqual([]);
+    expect(agentView(dir, key)?.environment).toEqual({
+      plexer: null, handle: null, space: null, worktree: null, branch: null,
+    });
+  });
+
+  test("moving an agent to another space closes the old interval and keeps its identity", () => {
+    const dir = registryFixture("wsA");
+    openStore(dir).query("INSERT INTO spaces (id, name, created_by, created_at) VALUES ('wsB', 'wsB', NULL, 1)").run();
+    const key = mintAgentId();
+
+    registerSpawnedAgent(dir, {
+      key, harnessId: "pi", backendId: "herdr", pane: true, handle: "%42",
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, now: 10,
+    });
+    setSpace(dir, key, 20, "wsB");
+
+    // The whole point of splitting the axis out of the key: the agent MOVED and
+    // is still the same agent, with the move recorded as history.
+    expect(spaceRows(dir, key)).toEqual([
+      { space_id: "wsA", since: 10, until: 20 },
+      { space_id: "wsB", since: 20, until: null },
+    ]);
+    expect(agentView(dir, key)?.id).toBe(key);
+    expect(agentView(dir, key)?.environment.space).toBe("wsB");
   });
 });

@@ -1,7 +1,7 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
 import { agentChannel, capture } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
-import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, CreatedPane, EnvironmentIdentityRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
+import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, OpenedPane, EnvironmentIdentityRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own
@@ -22,7 +22,7 @@ export function fakePane(
 }
 
 /** Build the COMPLETE port value a pane inventory returns for one fake pane. */
-function paneTarget(pane: FakePane): PaneTarget {
+function paneTarget(pane: FakePane): BackendTarget {
   return {
     handle: pane.handle,
     workspace: pane.space,
@@ -78,7 +78,7 @@ export class FakePanedBackend implements Backend {
     this.id = options.id ?? "headless";
     this.panes = [...(options.panes ?? [])];
     this.paneHost = {
-      open: (): CreatedPane => {
+      open: (): OpenedPane => {
         const pane = fakePane(`fake-pane-${++this.opened}`);
         this.panes.push(pane);
         return { handle: pane.handle };
@@ -92,7 +92,7 @@ export class FakePanedBackend implements Backend {
     };
     this.paneInventory = {
       current: () => null,
-      list: (): readonly PaneTarget[] => this.panes.map(paneTarget),
+      list: (): readonly BackendTarget[] => this.panes.map(paneTarget),
     };
   }
 

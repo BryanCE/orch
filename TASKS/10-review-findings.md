@@ -86,6 +86,20 @@ duplicated again inside `capabilities` (`herdr:147-150`, `tmux:93-96`). Call sit
 ("the legacy backend boolean is checked too"), `lifecycle.ts:567-578` builds a `sendKeys` shim
 choosing between the two, `headless/index.ts:116-121` carries `fallow-ignore unused-class-member`
 to satisfy dead booleans. Bug 1.5 is a direct product of this: a role that exists but throws.
+**Status: `FIXED`.** Every operation now has exactly ONE address: the role that owns it. The method
+bodies moved INTO the roles, and the top-level duplicates are deleted — 15 on herdr (`close`, `list`,
+`inventory`, `focus`, `sendKeys`, `read`, `zoom`, `renameAgent`, `renamePane`, `waitAgentStatus`,
+`createWorkspace`, `workspaces`, `focusWorkspace`, `currentIdentity`, `version`), 13 on tmux, 6 on
+headless. What no role reached is gone with them: herdr's `list`, tmux's `focus`/`list`/`sendKeys`/
+`workspaces`, and headless's `close`/`focus`/`sendKeys` — headless composes no `paneHost` and no
+`paneInput`, so nothing ever reached them, and closing a headless agent goes through the `process`
+role, whose start-token check is the stronger guard on the axis orch actually records.
+`EnvironmentServices` is dissolved into `Backend` (it also RE-declared `channel`, `capture` and
+`paneInput`, which `Backend` already had), and the four aliases are gone: `PlexerGroup`→
+`BackendGroup`, `PaneTarget`→`BackendTarget`, `GroupLayout`→`BackendGroupLayout`, `CreatedPane`→
+`OpenedPane` (one name, not a second spelling). Both `fallow-ignore unused-class-member` markers on
+dead `focus` methods went with the methods. `test/a-backend-exposes-each-operation-once.test.ts`.
+
 **Fix:** keep ONLY the nullable role objects — their nullness IS the capability. Move method bodies
 into them; drop the 11 top-level methods, the 3 booleans, `EnvironmentServices`, and the
 `PlexerGroup`/`GroupLayout`/`PaneTarget`/`CreatedPane` aliases. ≈85 lines of port + forwarders, and

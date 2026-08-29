@@ -9,7 +9,7 @@ import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendWorkspace, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit,  CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
 
@@ -40,18 +40,6 @@ function groupFromWindowPanes(windowId: string, panes: readonly TmuxPane[]): Bac
   };
 }
 
-function workspaceFromSessionPanes(session: string, panes: readonly TmuxPane[]): BackendWorkspace {
-  const windowIds = new Set(panes.map((pane) => pane.windowId));
-  return {
-    id: session,
-    label: session,
-    focused: panes.some((pane) => pane.sessionAttached),
-    number: null,
-    tabCount: windowIds.size,
-    paneCount: panes.length,
-    status: null,
-  };
-}
 
 /** Group orch panes by a key, dropping panes with no value for that key. */
 function groupPanesBy(panes: readonly TmuxPane[], key: (pane: TmuxPane) => string): Map<string, TmuxPane[]> {
@@ -76,7 +64,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     this.homeExec = deps.homeExec ?? ((args) => execTmux(args));
   }
   readonly identity: EnvironmentIdentityRole = {
-    current: (): Identity | null => this.currentIdentity(),
+    current: (): Identity | null => this.ownIdentity(),
   };
   // No key -> handle lookup: a pane is addressed by its own handle here.
   readonly handleLookup: null = null;
@@ -113,20 +101,37 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       if (!handle) throw new Error("tmux split-window returned no pane id");
       return { handle };
     },
-    close: (handle) => { this.close(handle); },
+    close: (handle) => {
+      if (typeof handle !== "string" || handle.length === 0) return;
+      bestEffortTmux(["kill-pane", "-t", handle]);
+    },
   };
   readonly paneInventory: PaneInventoryRole<TmuxHandle> = {
     current: () => {
       const handle = process.env.TMUX_PANE;
       return handle ? { handle, workspace: this.sessionOf(handle), group: null } : null;
     },
-    list: () => this.inventory(),
+    // Every orch pane with its workspace, group, name and presence status (D1, D2).
+    list: () => orchPanes().map((pane) => ({
+      handle: pane.paneId,
+      workspace: pane.session || null,
+      group: pane.windowId || null,
+      groupLabel: pane.windowName || null,
+      name: pane.agentName || pane.paneTitle || null,
+      agent: pane.agent || null,
+      focused: pane.paneActive && pane.windowActive && pane.sessionAttached,
+      status: statusForAgentKey(pane.agentKey),
+      sessionPath: null,
+    })),
   };
-  readonly paneScreen: PaneScreenRole<TmuxHandle> = { read: (handle, lines) => this.read(handle, lines) };
+  /** The last visible lines of a pane's screen. Throws on failure (D7). */
+  readonly paneScreen: PaneScreenRole<TmuxHandle> = { read: (handle, lines) => execTmux(["capture-pane", "-p", "-t", handle, "-S", `-${lines}`]) };
   readonly paneZoom: PaneZoomRole<TmuxHandle> | null = null;
-  readonly paneNaming: PaneNamingRole<TmuxHandle> = { renamePane: (handle, name) => { if (!this.renamePane(handle, name)) throw new Error(`tmux failed to rename pane ${handle}`); } };
-  readonly agentNaming: AgentNamingRole<TmuxHandle> = { renameAgent: (handle, name) => { if (!this.renameAgent(handle, name)) throw new Error(`tmux failed to rename agent ${handle}`); } };
-  readonly agentStatus: AgentStatusRole<TmuxHandle> = { wait: (handle, status, timeoutMs) => { if (!this.waitAgentStatus(handle, status, timeoutMs)) throw new Error(`wait for ${handle} -> "${status}" timed out`); } };
+  /** The pane border label. */
+  readonly paneNaming: PaneNamingRole<TmuxHandle> = { renamePane: (handle, name) => { if (bestEffortTmux(["select-pane", "-t", handle, "-T", name]) === null) throw new Error(`tmux failed to rename pane ${handle}`); } };
+  /** The agent shown for a pane (the `@orch_agent_name` pane option). */
+  readonly agentNaming: AgentNamingRole<TmuxHandle> = { renameAgent: (handle, name) => { if (bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent_name", name]) === null) throw new Error(`tmux failed to rename agent ${handle}`); } };
+  readonly agentStatus: AgentStatusRole<TmuxHandle> = { wait: (handle, status, timeoutMs) => { if (!this.awaitStatus(handle, status, timeoutMs)) throw new Error(`wait for ${handle} -> "${status}" timed out`); } };
   readonly groupHome: GroupHomeRole<TmuxHandle> = {
     list: () => {
       const byWindow = groupPanesBy(orchPanes(), (pane) => pane.windowId);
@@ -209,7 +214,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   /** Identity of the calling pane, resolved from tmux's environment. */
-  currentIdentity(): Identity | null {
+  private ownIdentity(): Identity | null {
     const handle = process.env.TMUX_PANE;
     if (!handle) return null;
     // See the herdr backend: identity is minted by orch and arrives in the
@@ -294,64 +299,13 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return handle;
   }
 
-  close(handle: TmuxHandle): boolean {
-    if (typeof handle !== "string" || handle.length === 0) return false;
-    return bestEffortTmux(["kill-pane", "-t", handle]) !== null;
-  }
-
-  /** Pane ids for panes orch itself spawned (a non-empty `@orch_agent_key`). */
-  list(): TmuxHandle[] {
-    return orchPanes().map((pane) => pane.paneId);
-  }
-
-  /** Select the target window and pane in tmux. */
-  focus(handle: TmuxHandle): boolean {
-    return bestEffortTmux(["select-window", "-t", handle]) !== null
-      && bestEffortTmux(["select-pane", "-t", handle]) !== null;
-  }
-
-  /** Pass backend key names through to tmux unchanged. */
-  sendKeys(handle: TmuxHandle, keys: readonly string[]): boolean {
-    return bestEffortTmux(["send-keys", "-t", handle, "--", ...keys]) !== null;
-  }
-
   /** tmux workspaces carry no display names distinct from their ids. */
   workspaceNames(): Map<string, string> {
     return new Map();
   }
 
-  /** Every orch pane with its workspace, group, name, and presence status (D1, D2). */
-  inventory(): BackendTarget<TmuxHandle>[] {
-    return orchPanes().map((pane) => ({
-      handle: pane.paneId,
-      workspace: pane.session || null,
-      group: pane.windowId || null,
-      groupLabel: pane.windowName || null,
-      name: pane.agentName || pane.paneTitle || null,
-      agent: pane.agent || null,
-      focused: pane.paneActive && pane.windowActive && pane.sessionAttached,
-      status: statusForAgentKey(pane.agentKey),
-      sessionPath: null,
-    }));
-  }
-
-  /** Read the last visible lines of a pane's screen. Throws on failure (D7). */
-  read(handle: TmuxHandle, lines: number): string {
-    return execTmux(["capture-pane", "-p", "-t", handle, "-S", `-${lines}`]);
-  }
-
-  /** Rename the agent shown for a pane (the `@orch_agent_name` pane option). */
-  renameAgent(handle: TmuxHandle, name: string): boolean {
-    return bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent_name", name]) !== null;
-  }
-
-  /** Rename the pane border label. */
-  renamePane(handle: TmuxHandle, name: string): boolean {
-    return bestEffortTmux(["select-pane", "-t", handle, "-T", name]) !== null;
-  }
-
   /** Block until the pane's presence status.json reports the status, or time out (D2). */
-  waitAgentStatus(handle: TmuxHandle, status: string, timeoutMs: number): boolean {
+  private awaitStatus(handle: TmuxHandle, status: string, timeoutMs: number): boolean {
     const key = this.agentKeyOf(handle);
     if (!key) return false;
     const statusPath = join(presenceAgentDir(key), STATUS_FILE);
@@ -363,11 +317,6 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     }
   }
 
-  /** tmux sessions containing at least one orch pane; `number` is always null for tmux (D4). */
-  workspaces(): BackendWorkspace[] {
-    const bySession = groupPanesBy(orchPanes(), (pane) => pane.session);
-    return [...bySession.entries()].map(([session, panes]) => workspaceFromSessionPanes(session, panes));
-  }
 }
 
 /** Shared tmux backend instance. */

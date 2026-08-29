@@ -1,8 +1,8 @@
 import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
-import { orchDir, readStatus } from "../../presence/writer.ts";
-import { presenceAgentDir } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
+import {  } from "../../presence/store.ts";
 import { errorMessage, pidAlive } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { LocalProcessRole } from "../process.ts";
@@ -75,19 +75,8 @@ function headlessHandles(directory: string): HeadlessHandle[] {
   }
 }
 
-function statusPid(directory: string, key: string): number | undefined {
-  if (!safeKey(key)) return undefined;
-  const status = readStatus(presenceAgentDir(key, directory));
-  return typeof status.pid === "number" ? status.pid : undefined;
-}
 
-function sameHandle(left: HeadlessHandle, right: HeadlessHandle): boolean {
-  return left.pid === right.pid && left.key === right.key;
-}
 
-function registeredHandle(handle: HeadlessHandle, directory: string): boolean {
-  return headlessHandles(directory).some((record) => sameHandle(record, handle));
-}
 
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
@@ -96,13 +85,16 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   // absent, and `handleFor` moves to where callers already reach for it.
   // A detached agent is inside nothing, so there is no identity to report.
   readonly identity: null = null;
+  /** A detached handle carries the OS pid, which a relaunch replaces, so the
+   *  recorded environment is its one source. */
   readonly handleLookup: HandleLookupRole<HeadlessHandle> = {
-    handleFor: (key: string): HeadlessHandle | undefined => this.handleFor(key),
+    handleFor: (key: string): HeadlessHandle | undefined =>
+      this.liveHandles().find((handle) => handle.key === key && handle.alive),
   };
   // A detached process has no plexer integration to version.
   readonly versionInfo: null = null;
   readonly logPruning: LogPruningRole = {
-    prune: (cutoff: Date, liveKeys: readonly string[], orchDir?: string): number => this.pruneLogs(cutoff, liveKeys, orchDir),
+    prune: (cutoff: Date, liveKeys: readonly string[], orchDir?: string): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
   };
   readonly channel = agentChannel;
   readonly capture = capture;
@@ -224,61 +216,20 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return handle;
   }
 
-  /**
-   * Signal only a process still represented by its registered presence pid.
-   * Missing/mismatched status is a refusal, not a best-effort kill.
-   */
-  close(handle: HeadlessHandle): boolean {
-    const directory = orchDirectory();
-    const resolved = typeof handle === "string" ? parseHeadlessHandle(handle) : handle;
-    if (!resolved || !Number.isInteger(resolved.pid) || !safeKey(resolved.key)) return false;
-    if (!registeredHandle(resolved, directory)) return false;
-    if (statusPid(directory, resolved.key) !== resolved.pid) return false;
-    if (!this.isPidAlive(resolved.pid)) return false;
-    try {
-      this.killer(resolved.pid, "SIGTERM");
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /** The live handle for one agent key. A detached handle carries the OS pid,
-   *  which a relaunch replaces, so the recorded environment is its one source. */
-  handleFor(key: string): HeadlessHandle | undefined {
-    return this.list().find((handle) => handle.key === key && handle.alive);
-  }
-
-  /** Return every registered headless handle with a fresh liveness result. */
-  list(): HeadlessHandle[] {
-    const directory = orchDirectory();
-    return headlessHandles(directory).map((handle) => ({
-      ...handle,
-      alive: this.isPidAlive(handle.pid),
-    }));
-  }
-
-  /** Headless has no console UI, so it cannot focus a target. */
-  // WHY: reached only through the backend port's focus role (`plan.role.focus(...)`
-  // in src/commands/panes.ts), which fallow's class-member analysis cannot follow.
-  // The method has no direct caller by design; deleting it removes the capability.
-  // fallow-ignore-next-line unused-class-member
-  focus(_handle: HeadlessHandle): boolean {
-    return false;
-  }
-
-  /** Headless has no console UI, so it cannot send keystrokes. */
-  sendKeys(_handle: HeadlessHandle, _keys: readonly string[]): boolean {
-    return false;
-  }
-
   /** Headless has no workspace naming; ids stand in for names. */
   workspaceNames(): Map<string, string> {
     return new Map();
   }
 
+  /** Every registered headless handle with a fresh liveness result. Private:
+   *  `handleLookup` is the one public address for this (2.2). */
+  private liveHandles(): HeadlessHandle[] {
+    const directory = orchDirectory();
+    return headlessHandles(directory).map((handle) => ({ ...handle, alive: this.isPidAlive(handle.pid) }));
+  }
+
   /** Remove old headless logs, retaining every log belonging to a live presence. */
-  pruneLogs(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number {
+  private pruneLogFiles(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number {
     const logsDir = logDirectory(orchDirectory(orchDir));
     let names: string[];
     try {

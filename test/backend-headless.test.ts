@@ -6,12 +6,11 @@ import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 // The session-tail parse lives in the codex adapter family's leaf module;
 // reaching for it there keeps this test off the adapter registry's init graph.
 import { readCodexSessionView } from "../src/adapters/codex-events.ts";
-import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { SpawnOpts } from "../src/types/adapter.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { processStartToken } from "../src/process-identity.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
@@ -93,7 +92,7 @@ describe("HeadlessBackend", () => {
       expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt }))
         .toThrow(/no prompt/);
     }
-    expect(backend.list().some((entry) => entry.key === "fake-promptless")).toBe(false);
+    expect(backend.handleLookup.handleFor("fake-promptless")).toBeUndefined();
   });
 
   test("spawns a detached process and records its handle", async () => {
@@ -114,7 +113,7 @@ describe("HeadlessBackend", () => {
     expect(JSON.parse(view?.environment.handle ?? "null")).toEqual({ pid: handle.pid, key });
     expect(fs.existsSync(path.join(testOrchDir, "logs"))).toBe(true);
     expect(fs.existsSync(path.join(testOrchDir, "logs", `${key}.log`))).toBe(true);
-    expect(backend.list()).toContainEqual({ pid: handle.pid, key, alive: true });
+    expect(backend.handleLookup.handleFor(key)).toEqual({ pid: handle.pid, key, alive: true });
     expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", key, "status.json"), "utf8")) as { key: string }).key).toBe(key);
   }, 30000);
 
@@ -154,57 +153,41 @@ describe("HeadlessBackend", () => {
     expect(readCodexSessionView(undefined)).toBeUndefined();
   }, 30000);
 
-  test("closes only when registry and presence pid/key both match", async () => {
-    const key = "hfakeaaaa2";
-    const wrongKey = "hwrongkey1";
-    const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep" });
-    handles.push(handle);
-    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
-
-    expect(backend.close({ pid: handle.pid, key: wrongKey })).toBe(false);
-    expect(backend.close({ pid: process.pid, key })).toBe(false);
-    expect(backend.list()).toContainEqual({ pid: handle.pid, key, alive: true });
-
-    expect(backend.close(handle)).toBe(true);
-    await waitFor(() => !backend.list().some((entry) => entry.pid === handle.pid && entry.alive));
-  }, 30000);
-
-  test("signals a matching recorded handle through the injected killer", () => {
+  /**
+   * 2.2 — closing a headless agent has ONE address: the `process` role. The
+   * backend used to publish a `close(handle)` method beside it that nothing
+   * reached (`paneHost` is null here), carrying its own pid/key ownership check.
+   * The live guard is stronger and on the axis orch actually records: a process
+   * is signalled only while its recorded START TOKEN still matches, so a pid
+   * reused by an unrelated process is refused rather than killed.
+   */
+  test("signals a matching recorded process through the injected killer", () => {
     const calls: { pid: number; signal: string }[] = [];
     const hermetic = new HeadlessBackend({
       pidAlive: () => true,
       killer: (pid, signal) => calls.push({ pid, signal }),
     });
-    const handle = { pid: 41001, key: "hmatch0001" };
-    fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
-    seedStatus(testOrchDir, handle.key, { pid: handle.pid });
-    seedAgent(handle.key, { backend: "headless", handle: JSON.stringify(handle), adapter: "codex" });
+    const token = processStartToken(process.pid)!;
 
-    expect(hermetic.close(handle)).toBe(true);
-    expect(calls).toEqual([{ pid: handle.pid, signal: "SIGTERM" }]);
+    hermetic.process.kill({ pid: process.pid, startToken: token }, "SIGTERM");
+
+    expect(calls).toEqual([{ pid: process.pid, signal: "SIGTERM" }]);
   });
 
-  test("refuses when presence pid is missing or key does not match the recorded handle", () => {
+  test("refuses to signal a pid whose process instance was replaced", () => {
     const calls: number[] = [];
     const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
-    const recorded = { pid: 41002, key: "hrecorded1" };
-    seedAgent(recorded.key, { backend: "headless", handle: JSON.stringify(recorded), adapter: "codex" });
 
-    fs.mkdirSync(path.join(testOrchDir, "agents", recorded.key), { recursive: true });
-    expect(hermetic.close(recorded)).toBe(false);
-    seedStatus(testOrchDir, recorded.key, { pid: recorded.pid });
-    expect(hermetic.close({ pid: recorded.pid, key: "hwrong0001" })).toBe(false);
+    expect(() => hermetic.process.kill({ pid: process.pid, startToken: "not-this-instance" }, "SIGTERM"))
+      .toThrow(/replaced/);
     expect(calls).toEqual([]);
   });
 
-  test("never signals an unrecorded pid", () => {
+  test("never signals a dead pid", () => {
     const calls: number[] = [];
-    const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
-    const handle = { pid: 41003, key: "hunrecord1" };
-    fs.mkdirSync(path.join(testOrchDir, "agents", handle.key), { recursive: true });
-    seedStatus(testOrchDir, handle.key, { pid: handle.pid });
+    const hermetic = new HeadlessBackend({ pidAlive: () => false, killer: (pid) => calls.push(pid) });
 
-    expect(hermetic.close(handle)).toBe(false);
+    expect(() => hermetic.process.kill({ pid: 41003, startToken: "any" }, "SIGTERM")).toThrow(/dead/);
     expect(calls).toEqual([]);
   });
 });

@@ -9,8 +9,6 @@ export interface PaneCoordinate {
   readonly group: string | null;
 }
 
-export type PaneTarget<Handle = BackendHandle> = BackendTarget<Handle>;
-
 export interface OpenPaneRequest<Handle = BackendHandle> {
   readonly cwd: string;
   readonly workspace?: string;
@@ -20,16 +18,16 @@ export interface OpenPaneRequest<Handle = BackendHandle> {
   readonly env?: Readonly<Record<string, string>>;
 }
 
-export interface CreatedPane<Handle = BackendHandle> { readonly handle: Handle; }
+export interface OpenedPane<Handle = BackendHandle> { readonly handle: Handle; }
 
 export interface PaneHostRole<Handle = BackendHandle> {
-  open(request: OpenPaneRequest<Handle>): CreatedPane<Handle>;
+  open(request: OpenPaneRequest<Handle>): OpenedPane<Handle>;
   close(handle: Handle): void;
 }
 
 export interface PaneInventoryRole<Handle = BackendHandle> {
   current(): PaneCoordinate | null;
-  list(): readonly PaneTarget<Handle>[];
+  list(): readonly BackendTarget<Handle>[];
 }
 
 export interface PaneInputRole<Handle = BackendHandle> {
@@ -65,7 +63,7 @@ export interface CreateGroupRequest {
 
 /** Result of creating a group, including its initial shell pane. */
 export interface CreatedGroup<Handle = BackendHandle> {
-  readonly group: PlexerGroup;
+  readonly group: BackendGroup;
   readonly rootHandle: Handle;
 }
 
@@ -82,7 +80,7 @@ export interface MovePaneRequest<Handle = BackendHandle> {
 
 /** Group inventory and mutation role. Every method is implemented by a paned provider. */
 export interface GroupHomeRole<Handle = BackendHandle> {
-  list(): readonly PlexerGroup[];
+  list(): readonly BackendGroup[];
   create(request: CreateGroupRequest): CreatedGroup<Handle>;
   rename(coordinate: string, label: string): void;
   close(coordinate: string): void;
@@ -92,7 +90,7 @@ export interface GroupHomeRole<Handle = BackendHandle> {
 
 /** Group geometry role used by the tiling planner. */
 export interface GroupLayoutRole<Handle = BackendHandle> {
-  read(coordinate: string): GroupLayout<Handle>;
+  read(coordinate: string): BackendGroupLayout<Handle>;
 }
 
 /** One plexer home coordinate belonging to a space or pack. */
@@ -193,23 +191,6 @@ export interface ProcessRole {
   kill(process: RecordedProcess, signal: NodeJS.Signals): void;
 }
 
-export interface EnvironmentServices<Handle = BackendHandle> {
-  readonly process: ProcessRole;
-  readonly channel: AgentChannelRole;
-  readonly capture: CaptureRole;
-  readonly paneHost: PaneHostRole<Handle> | null;
-  readonly paneInventory: PaneInventoryRole<Handle> | null;
-  readonly paneInput: PaneInputRole<Handle> | null;
-  readonly paneForeground: PaneForegroundRole<Handle> | null;
-  readonly paneScreen: PaneScreenRole<Handle> | null;
-  readonly paneZoom: PaneZoomRole<Handle> | null;
-  readonly paneNaming: PaneNamingRole<Handle> | null;
-  readonly agentNaming: AgentNamingRole<Handle> | null;
-  readonly agentStatus: AgentStatusRole<Handle> | null;
-  readonly groupHome: GroupHomeRole<Handle> | null;
-  readonly groupLayout: GroupLayoutRole<Handle> | null;
-  readonly spaceHome: SpaceHomeRole<Handle> | null;
-}
 
 /** The closed backend-id set, importable without pulling any provider code. */
 export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;
@@ -356,10 +337,7 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
   readonly panes: readonly { readonly handle: Handle; readonly rect: BackendRect }[];
 }
 
-/** Port vocabulary aliases; coordinates remain opaque provider values. */
-export type PlexerGroup = BackendGroup;
 
-export type GroupLayout<Handle = BackendHandle> = BackendGroupLayout<Handle>;
 
 /**
  * Lifecycle, identity, and control contract shared by pane and
@@ -378,13 +356,8 @@ export type GroupLayout<Handle = BackendHandle> = BackendGroupLayout<Handle>;
  * perform it; optional methods are absent when a backend has no such concept
  * (callers gate on presence, never on the backend id).
  */
-export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Handle> {
+export interface Backend<Handle = BackendHandle> {
   readonly id: BackendId;
-  /** Orch-owned channels composed for this environment. */
-  readonly channel: AgentChannelRole;
-  readonly capture: CaptureRole;
-  /** Explicit plexer fast path; normal dispatch never uses this channel. */
-  readonly paneInput: PaneInputRole<Handle> | null;
   /** Whether the backend binary/runtime is present on this machine. */
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
@@ -397,23 +370,38 @@ export interface Backend<Handle = BackendHandle> extends EnvironmentServices<Han
    */
   workspaceNames(): Map<string, string>;
 
+  /** Process control, always composed: every environment runs processes. */
+  readonly process: ProcessRole;
+  /** Orch-owned channels composed for this environment. */
+  readonly channel: AgentChannelRole;
+  readonly capture: CaptureRole;
+  /** Identity of the calling process's own target, when inside a session. */
+  readonly identity: EnvironmentIdentityRole | null;
   /**
-   * Live handle for one agent identity key. Declared by backends whose handle is
+   * Live handle for one agent identity key. Composed by backends whose handle is
    * not a pane the spawn registry can record — a detached process handle changes
    * every relaunch, so only the backend knows the current one.
    */
-  readonly identity: EnvironmentIdentityRole | null;
   readonly handleLookup: HandleLookupRole<Handle> | null;
-  /** Identity of the calling process's own target, when inside a session. */
   /** Remove stale backend-owned logs, retaining logs for live presence keys. */
   readonly logPruning: LogPruningRole | null;
   /** Reports this environment's installed integration version. Absent when the
    *  environment exposes no version to report — which is an ANSWER for the doctor
    *  to print, not a missing method to probe for (TASKS/02-scope.md E13). */
   readonly versionInfo: VersionRole | null;
-  /** Open a workspace of orch's own and report it with its root handle. Throws on
-   *  failure. A caller outside the plexer has no workspace to borrow, and taking
-   *  someone else's is what put orch's agents in another person's space. */
+  readonly paneHost: PaneHostRole<Handle> | null;
+  readonly paneInventory: PaneInventoryRole<Handle> | null;
+  /** Explicit plexer fast path; normal dispatch never uses this channel. */
+  readonly paneInput: PaneInputRole<Handle> | null;
+  readonly paneForeground: PaneForegroundRole<Handle> | null;
+  readonly paneScreen: PaneScreenRole<Handle> | null;
+  readonly paneZoom: PaneZoomRole<Handle> | null;
+  readonly paneNaming: PaneNamingRole<Handle> | null;
+  readonly agentNaming: AgentNamingRole<Handle> | null;
+  readonly agentStatus: AgentStatusRole<Handle> | null;
+  readonly groupHome: GroupHomeRole<Handle> | null;
+  readonly groupLayout: GroupLayoutRole<Handle> | null;
+  readonly spaceHome: SpaceHomeRole<Handle> | null;
 }
 
 /**

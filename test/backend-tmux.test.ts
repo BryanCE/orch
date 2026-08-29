@@ -221,10 +221,11 @@ describe("TmuxBackend", () => {
   });
 
   test("rejects an empty handle without invoking tmux", () => {
-    expect(new TmuxBackend().close("")).toBe(false);
+    new TmuxBackend().paneHost.close("");
+    expect(execCalls.some((call) => call.file === "tmux" && call.args[0] === "kill-pane")).toBe(false);
   });
 
-  test("list() and inventory() surface only orch-spawned panes", () => {
+  test("the pane inventory surfaces only orch-spawned panes", () => {
     panes = [
       orchPane({ paneId: "%1", agentKey: "tmuxpane01", agentName: "worker-a" }),
       { ...orchPane({ paneId: "%2", agentKey: "" }), agent: "", paneTitle: "shell" },
@@ -244,8 +245,7 @@ describe("TmuxBackend", () => {
     ];
 
     const backend = new TmuxBackend();
-    expect(backend.list()).toEqual(["%1", "%3"]);
-    expect(backend.inventory()).toEqual([
+    expect(backend.paneInventory.list()).toEqual([
       { handle: "%1", workspace: "main", group: "@1", groupLabel: "agents", name: "worker-a", agent: "pi", focused: true, status: null, sessionPath: null },
       { handle: "%3", workspace: "side", group: "@2", groupLabel: "side-window", name: "claude-pane", agent: "claude", focused: false, status: null, sessionPath: null },
     ]);
@@ -253,7 +253,7 @@ describe("TmuxBackend", () => {
 
   test("status-facing inventory displays the tmux session workspace", () => {
     panes = [orchPane({ paneId: "%1", session: "main", agentKey: "tmuxpane01", agent: "claude" })];
-    const target = new TmuxBackend().inventory()[0];
+    const target = new TmuxBackend().paneInventory.list()[0];
     expect(target?.workspace).toBe("main");
     expect(target?.agent).toBe("claude");
   });
@@ -263,13 +263,13 @@ describe("TmuxBackend", () => {
     writeStatus("tmuxpane01", { state: "working" });
 
     const backend = new TmuxBackend();
-    expect(backend.inventory()[0]?.status).toBe("working");
+    expect(backend.paneInventory.list()[0]?.status).toBe("working");
   });
 
   test("inventory status is null when no presence status.json exists", () => {
     panes = [orchPane({ paneId: "%1", agentKey: "nostatus99" })];
     const backend = new TmuxBackend();
-    expect(backend.inventory()[0]?.status).toBeNull();
+    expect(backend.paneInventory.list()[0]?.status).toBeNull();
   });
 
   test("waitAgentStatus polls presence status.json until it matches or times out", () => {
@@ -277,31 +277,31 @@ describe("TmuxBackend", () => {
     writeStatus("tmuxpane01", { state: "working" });
     const backend = new TmuxBackend();
 
-    expect(backend.waitAgentStatus("%1", "done", 50)).toBe(false);
+    expect(() => backend.agentStatus.wait("%1", "done", 50)).toThrow(/timed out/);
 
     writeStatus("tmuxpane01", { state: "done" });
-    expect(backend.waitAgentStatus("%1", "done", 2000)).toBe(true);
+    expect(() => backend.agentStatus.wait("%1", "done", 2000)).not.toThrow();
   });
 
-  test("waitAgentStatus fails immediately when the pane has no presence key", () => {
+  test("waiting fails immediately when the pane has no presence key", () => {
     panes = [];
     const backend = new TmuxBackend();
-    expect(backend.waitAgentStatus("%9", "done", 50)).toBe(false);
+    expect(() => backend.agentStatus.wait("%9", "done", 50)).toThrow(/timed out/);
   });
 
-  test("read returns captured text and throws when capture-pane fails", () => {
+  test("the pane screen returns captured text and throws when capture-pane fails", () => {
     const backend = new TmuxBackend();
     captureResult = "line one\nline two";
-    expect(backend.read("%1", 100)).toBe("line one\nline two");
+    expect(backend.paneScreen.read("%1", 100)).toBe("line one\nline two");
 
     captureResult = null;
-    expect(() => backend.read("%1", 100)).toThrow();
+    expect(() => backend.paneScreen.read("%1", 100)).toThrow();
   });
 
   test("renamePane and renameAgent write two distinct pane options", () => {
     const backend = new TmuxBackend();
-    expect(backend.renamePane("%1", "border-label")).toBe(true);
-    expect(backend.renameAgent("%1", "agent-label")).toBe(true);
+    backend.paneNaming.renamePane("%1", "border-label");
+    backend.agentNaming.renameAgent("%1", "agent-label");
 
     expect(callArgs("tmux", "select-pane")).toEqual(["select-pane", "-t", "%1", "-T", "border-label"]);
     expect(callArgs("tmux", "set-option")).toEqual(["set-option", "-p", "-t", "%1", "@orch_agent_name", "agent-label"]);
@@ -388,10 +388,6 @@ describe("TmuxBackend", () => {
     expect(backend.groupHome.list()).toEqual([
       { id: "@1", label: "agents", workspace: "main", focused: true, number: 0, paneCount: 2, status: null },
       { id: "@2", label: "side-window", workspace: "side", focused: false, number: 3, paneCount: 1, status: null },
-    ]);
-    expect(backend.workspaces()).toEqual([
-      { id: "main", label: "main", focused: true, number: null, tabCount: 1, paneCount: 2, status: null },
-      { id: "side", label: "side", focused: false, number: null, tabCount: 1, paneCount: 1, status: null },
     ]);
   });
 

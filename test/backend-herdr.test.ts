@@ -244,10 +244,8 @@ describe("HerdrBackend", () => {
     ]);
   });
 
-  test("maps close and list to herdr helpers", () => {
-    expect(backend.list()).toEqual(["w0:p1", "w0:p2"]);
-    expect(backend.close("")).toBe(false);
-    expect(backend.close("w0:p2")).toBe(true);
+  test("the pane host closes a pane through herdr", () => {
+    backend.paneHost.close("w0:p2");
     expect(herdrArgv.at(-1)).toEqual(["pane", "close", "w0:p2"]);
   });
 
@@ -305,7 +303,7 @@ describe("HerdrBackend", () => {
 
   test("reads recent unwrapped pane output", () => {
     herdrArgv.length = 0;
-    backend.read("w0:p1", 12);
+    backend.paneScreen.read("w0:p1", 12);
     expect(herdrArgv).toEqual([["pane", "read", "w0:p1", "--source", "recent-unwrapped", "--lines", "12"]]);
   });
 
@@ -352,9 +350,9 @@ describe("HerdrBackend", () => {
     }
   });
 
-  test("waitAgentStatus uses agent wait --until, not the removed top-level wait", () => {
+  test("waiting uses agent wait --until, not the removed top-level wait", () => {
     herdrArgv.length = 0;
-    expect(backend.waitAgentStatus("w0:p1", "idle", 1000)).toBe(true);
+    backend.agentStatus.wait("w0:p1", "idle", 1000);
 
     expect(herdrArgv).toEqual([["agent", "wait", "w0:p1", "--until", "idle", "--timeout", "1000"]]);
   });

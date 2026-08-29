@@ -64,10 +64,6 @@ describe("tmux backend registry and capabilities", () => {
     expect(() => serializeIdentity({ id: "%5" })).toThrow(/minted id|lowercase alphanumerics/);
   });
 
-  test("rejects an empty handle without invoking tmux", () => {
-    expect(new TmuxBackend().close("")).toBe(false);
-  });
-
   test("implicitly selects tmux inside a session", () => {
     const previous = process.env.TMUX;
     // eslint-disable-next-line typescript/unbound-method

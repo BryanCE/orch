@@ -18,7 +18,7 @@
 import { subscribeEvents, type EventSubscription } from "../daemon/rpc.ts";
 import type { NotifyEvent } from "../notify/format.ts";
 import { isRecord, truncate } from "../util.ts";
-import type { FleetAgentRow, FleetMonitor, FleetMonitorOptions, FleetReadModel, FleetStatusRenderer, HarnessApi, HarnessContext } from "../types/agent.ts";
+import type { FleetAgentRow, FleetMonitor, FleetMonitorOptions, FleetReadModel, HarnessApi, HarnessContext } from "../types/agent.ts";
 
 /** Status-line key; one writer, cleared by the same key. */
 const STATUS_ID = "orch-fleet";

@@ -26,7 +26,7 @@ import { isRecord, isUnknownArray, optionalString, projectRoot, type JsonRecord 
 import { createModelControl, isControlCommand } from "./model-control.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
-import type { AgentPresence, AgentPresenceOptions, AssistantMessageLike, BridgeNotification, BridgeNotifier, DaemonAck, HarnessApi, HarnessContext, HarnessIdentity, UsageLike } from "../types/agent.ts";
+import type { AgentPresenceOptions, AssistantMessageLike, HarnessContext, UsageLike } from "../types/agent.ts";
 
 export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */

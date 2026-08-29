@@ -15,7 +15,7 @@ import { createAgentPresence } from "./presence.ts";
 import { orchDir } from "../presence/writer.ts";
 import { registerAgentTools } from "./tools.ts";
 import { isRecord } from "../util.ts";
-import type { FleetReadModel, FleetStatusRenderer, HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
+import type { FleetStatusRenderer, HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
 
 /** The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two. */
 export function hashExtensionFile(file: string): string {

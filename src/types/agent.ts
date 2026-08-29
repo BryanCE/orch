@@ -1,3 +1,27 @@
+import type { ThinkingLevel } from "../policy/thinking.ts";
+import type { JsonRecord } from "../util.ts";
+// Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
+// time, so these create no runtime edge out of the types layer.
+import type { createAgentPresence } from "../agent/presence.ts";
+import type { subscribeEvents } from "../daemon/rpc.ts";
+
+/**
+ * The harness surface orch's in-agent control plane runs against.
+ *
+ * This is orch's OWN port, not any harness's API: nothing here imports a harness
+ * package, so `src/agent/**` typechecks, bundles and runs with none of them
+ * installed. Each harness's composition root (`extensions/<harness>/index.ts`)
+ * imports its own package's types and hands its live API in — pi and omp both
+ * satisfy this structurally, and a build that stops satisfying it fails in its
+ * own directory rather than silently degrading the shared plane.
+ *
+ * It is deliberately the SUBSET the control plane actually uses. Widening it to
+ * mirror a harness's full ExtensionAPI would re-couple every consumer to whichever
+ * harness the extra members were copied from.
+ */
+import type { ThinkingLevel } from "../policy/thinking.ts";
+import type { HarnessApi, HarnessCommandHandler, HarnessContext, HarnessContextUsage, HarnessEventBus, HarnessEventHandler, HarnessIdentity, HarnessModelRegistry, HarnessResolvedModel, HarnessSessionManager, HarnessTool, HarnessUi } from "../types/agent.ts";
+
 /** A model as the harness's own registry hands it back; orch reads two fields and never constructs one. */
 export interface HarnessResolvedModel {
   readonly provider: string;
@@ -128,6 +152,21 @@ export interface PeerSummary {
   lastText: string;
   cost?: number;
   updatedAt?: string;
+}
+
+/** One sibling agent as its presence directory reports it. */
+export interface Peer {
+  key: string;
+  dir: string;
+  status: JsonRecord;
+}
+
+export interface PeerResolutionError {
+  error: string;
+}
+
+export interface PeerResolutionPeer {
+  peer: Peer;
 }
 
 export type PeerResolution = PeerResolutionError | PeerResolutionPeer;

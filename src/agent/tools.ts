@@ -21,7 +21,7 @@ import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
 import { isRecord, isUnknownArray, optionalString, readJsonFile, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
-import type { AgentPresence, AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeNotifier, BridgeToolResult, HarnessApi, HarnessContext, HarnessIdentity } from "../types/agent.ts";
+import type { AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeToolResult, HarnessApi, HarnessContext } from "../types/agent.ts";
 
 interface ModelSelectEventLike {
   model: unknown;

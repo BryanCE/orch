@@ -16,24 +16,10 @@ import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
 import { orchDir } from "../presence/store.ts";
-import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate, type JsonRecord } from "../util.ts";
+import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
-import type { AgentPresence, BridgeToolResult, DriveState, HarnessApi, HarnessContext, PeerResolution, PeerSummary } from "../types/agent.ts";
-
-interface Peer {
-  key: string;
-  dir: string;
-  status: JsonRecord;
-}
-
-interface PeerResolutionError {
-  error: string;
-}
-
-interface PeerResolutionPeer {
-  peer: Peer;
-}
+import type { AgentPresence, BridgeToolResult, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
 
 function peerModel(status: unknown): string | undefined {
   if (!isRecord(status) || !isRecord(status.model)) return undefined;

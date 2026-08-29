@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { projectFleet, projectHistory, type FleetProjectionRow } from "../packages/web/src/lib/fleet.ts";
+import { partitionAgents, projectFleet, projectHistory, type FleetProjectionRow } from "../packages/web/src/lib/fleet.ts";
 
 const base = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow => ({
   key: "herdr~wF~agent1234",
@@ -146,5 +146,60 @@ describe("live views group by lease (C7)", () => {
     expect(pack!.id).toBe("pack-root");
     expect(pack!.agents.map((agent) => agent.name)).toEqual(["e1", "e2"]);
     expect("orchs" in pack!).toBe(false);
+  });
+});
+
+/**
+ * TASKS/02-scope.md G9 — "Orphan bucket — unleased agents separated from live
+ * work, never mixed."
+ *
+ * The CLI already gets this right: `deriveDriveState` treats a lease whose
+ * HOLDER PROCESS IS GONE as unleased, and the OWNER column reads "no orch
+ * driving it (holder gone)". The web split on `lease === null` alone, so the
+ * same agent — the one Rule 11 calls unleased and adoptable — rendered in the
+ * live list underneath a dead orch. A stale row is worse than a missing one:
+ * it tells the user work is being driven when nothing is driving it.
+ */
+describe("the orphan bucket holds every undriven agent (G9)", () => {
+  const withLease = (id: string, lease: FleetProjectionRow["lease"]) =>
+    base({ key: `herdr~wF~${id}`, agentId: id, name: id, spaceId: "space-1", spaceName: "Release", lease, leaseKnown: true });
+
+  test("a lease whose holder is DEAD is an orphan, not live work", () => {
+    const [space] = projectFleet([
+      withLease("driven", { holderId: "orch-1", holderName: "orch-1", holderAlive: true }),
+      withLease("stranded", { holderId: "gone", holderName: "gone", holderAlive: false }),
+    ]);
+    const [live, orphans] = partitionAgents(space!.agents);
+
+    expect(live.map((a) => a.name)).toEqual(["driven"]);
+    expect(orphans.map((a) => a.name)).toEqual(["stranded"]);
+  });
+
+  test("an agent with no lease at all is still an orphan", () => {
+    const [space] = projectFleet([withLease("loose", null)]);
+    const [live, orphans] = partitionAgents(space!.agents);
+
+    expect(live).toEqual([]);
+    expect(orphans.map((a) => a.name)).toEqual(["loose"]);
+  });
+
+  test("the two buckets never overlap and never lose an agent", () => {
+    const rows = [
+      withLease("a", { holderId: "o1", holderName: "o1", holderAlive: true }),
+      withLease("b", { holderId: "dead", holderName: "dead", holderAlive: false }),
+      withLease("c", null),
+    ];
+    const [space] = projectFleet(rows);
+    const [live, orphans] = partitionAgents(space!.agents);
+
+    expect([...live, ...orphans].map((a) => a.name).sort()).toEqual(["a", "b", "c"]);
+    expect(live.map((a) => a.name).filter((n) => orphans.some((o) => o.name === n))).toEqual([]);
+  });
+
+  test("a dead holder is not shown as an orch driving work in the lease grouping either", () => {
+    const [space] = projectFleet([withLease("stranded", { holderId: "gone", holderName: "gone", holderAlive: false })]);
+    // C7 groups live work by holder. A dead holder is not a holder, so it must
+    // not appear as an orch with a fleet under it.
+    expect(space!.orchs.map((orch) => orch.id)).toEqual(["unheld"]);
   });
 });

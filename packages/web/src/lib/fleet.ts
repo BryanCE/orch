@@ -181,7 +181,9 @@ function historyGroup(row: FleetProjectionRow): { id: string; name: string } {
  *  for it (Rule 11: work survives its spawner). */
 function leaseGroup(row: FleetProjectionRow): { id: string; name: string } {
   const lease = row.lease;
-  if (lease === null) return { id: UNHELD_ID, name: UNHELD_NAME };
+  // A dead holder is not a holder (G9): it must not appear as an orch with a
+  // fleet under it, or the view claims work is being driven when none is.
+  if (lease === null || !lease.holderAlive) return { id: UNHELD_ID, name: UNHELD_NAME };
   return { id: lease.holderId, name: trimmed(lease.holderName) ?? lease.holderId };
 }
 
@@ -215,16 +217,29 @@ export function projectHistory(rows: readonly FleetProjectionRow[]): AgentGroup[
   return groupedRows(rows, true, historyGroup);
 }
 
-/** Keep unleased work out of the live list so it is visibly adoptable/reapable. */
+/**
+ * Is any orch actually DRIVING this agent right now?
+ *
+ * G9: a lease whose holder process is gone is not ownership — it is a stale
+ * row, and Rule 11 is explicit that a dead holder is not a collision. The CLI
+ * has always said so ("no orch driving it (holder gone)"); this is the same
+ * question asked in the same way, so the two surfaces cannot disagree.
+ */
+function isDriven(agent: FleetAgent): boolean {
+  return agent.lease !== null && agent.lease.holderAlive;
+}
+
+/** Keep undriven work out of the live list so it is visibly adoptable/reapable. */
 export function partitionAgents(agents: readonly FleetAgent[]): [FleetAgent[], FleetAgent[]] {
   const live: FleetAgent[] = [];
   const orphans: FleetAgent[] = [];
   for (const agent of agents) {
-    // A null lease means no orch is driving this agent. leaseKnown only tells us
-    // whether the daemon had a corresponding registry row; it must not hide
-    // presence-only agents from the adoptable bucket.
-    if (agent.lease === null) orphans.push(agent);
-    else live.push(agent);
+    // A null lease means no orch is driving this agent, and neither does a lease
+    // whose holder has died. leaseKnown only tells us whether the daemon had a
+    // corresponding registry row; it must not hide presence-only agents from the
+    // adoptable bucket.
+    if (isDriven(agent)) live.push(agent);
+    else orphans.push(agent);
   }
   return [live, orphans];
 }

@@ -12,7 +12,7 @@
 import { isThinkingLevel, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
 import { atomicWrite } from "../presence/writer.ts";
 import { isRecord, type JsonRecord } from "../util.ts";
-import type { ControlCommand, FindRegistryModel, HarnessApi, HarnessContext, ModelControlDeps, RegistryRetry, ResolvedModel } from "../types/agent.ts";
+import type { ControlCommand, FindRegistryModel, ModelControlDeps, RegistryRetry, ResolvedModel } from "../types/agent.ts";
 
 export type { ThinkingLevel };
 

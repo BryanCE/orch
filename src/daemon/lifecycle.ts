@@ -14,16 +14,9 @@ import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot, type OsSide } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
-import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
+import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
 
 const HASH_LENGTH = 12;
-
-interface LockRecord {
-  pid: number;
-  codeHash: string;
-  startedAt: string;
-  startToken?: string;
-}
 
 /** Read the exact live-daemon code-hash skew used by doctor. */
 /** The orchd entrypoint every caller starts, re-execs, or verifies. */

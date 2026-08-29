@@ -1,3 +1,6 @@
+import type { Effect, Stream } from "effect";
+import type { PackAbortError, PackSendError } from "../seat/domain.ts";
+
 /** One transition as orch's daemon publishes it; the pack's only event source. */
 export interface PackTransition {
   readonly key: string;

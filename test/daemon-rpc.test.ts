@@ -6,18 +6,7 @@ import { join } from "node:path";
 import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
-import {
-  DaemonAbsentError,
-  DaemonUnreachableError,
-  RpcError,
-  isHelloResponse,
-  rpcCall,
-  rpcHello,
-  subscribeEvents,
-  ReplayBuffer,
-  startRpcServer,
-  type RpcServer,
-} from "../src/daemon/rpc";
+import { DaemonAbsentError, DaemonUnreachableError, RpcError, isHelloResponse, rpcCall, rpcHello, subscribeEvents, ReplayBuffer, startRpcServer } from "../src/daemon/rpc";
 import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
 import { openStore } from "../src/store/connection.ts";
 import { selectPendingOutbox } from "../src/store/outbox-rows.ts";
@@ -27,6 +16,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 const dirs: string[] = [];
 const servers: RpcServer[] = [];

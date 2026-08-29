@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { loadConfigOrNull, type HostConfig } from "../config.ts";
-import { runSSH, type SshResult } from "../remote.ts";
+import { runSSH } from "../remote.ts";
 import { readJson } from "./shared.ts";
 import { isRecord, packageRoot, shellQuote } from "../util.ts";
 import type { CheckResult, SshRunner } from "../types/doctor.ts";

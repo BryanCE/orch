@@ -7,7 +7,7 @@ import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { packageRoot } from "../util.ts";
 import { notificationText, payload } from "./format.ts";
-import type { Notifier, NotifierConfigField, NotifierMetadata, NotifyEvent } from "../types/notify.ts";
+import type { Notifier, NotifyEvent } from "../types/notify.ts";
 
 const registeredNotifiers = new Map<string, Notifier>();
 

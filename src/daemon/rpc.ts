@@ -17,7 +17,7 @@ import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts"
 import { ensureDaemon, translateDaemonError } from "../commands/daemon.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { HostOs, SessionAgentIdentity } from "../types/store.ts";
-import type { BufferedEvent, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandler, RpcHandlers, RpcParams, RpcRequestContext, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
+import type { BufferedEvent, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
 
 /** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
 export class DaemonAbsentError extends Error {

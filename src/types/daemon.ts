@@ -1,3 +1,14 @@
+import type { OsSide } from "../util.ts";
+import type { SessionAgentIdentity } from "./store.ts";
+import type { NotifyEvent } from "./notify.ts";
+
+export interface LockRecord {
+  pid: number;
+  codeHash: string;
+  startedAt: string;
+  startToken?: string;
+}
+
 export type RpcParams = unknown;
 
 export type RpcEventEmitter = (event: unknown) => void;

@@ -8,7 +8,7 @@
 import { ManagedRuntime, Layer } from "effect";
 import { PackManager, PackManagerLive } from "./manager.ts";
 import { packSourceLayer } from "./source.ts";
-import type { PackManagerShape, PackRuntime, PackSourceConfig } from "../types/seat.ts";
+import type { PackRuntime, PackSourceConfig } from "../types/seat.ts";
 
 export function createPackRuntime(config: PackSourceConfig): PackRuntime {
   const runtime = ManagedRuntime.make(

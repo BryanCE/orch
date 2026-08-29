@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { createServer, createConnection } from "node:net";
-import { isRpcResponse, readJsonMessages, startRpcServer, subscribeEvents, type EventSubscription, type RpcServer } from "../src/daemon/rpc";
+import { isRpcResponse, readJsonMessages, startRpcServer, subscribeEvents } from "../src/daemon/rpc";
+import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
 
 function waitFor<T>(read: () => T[], length: number, timeoutMs = 5_000): Promise<T[]> {
   return new Promise((resolve, reject) => {

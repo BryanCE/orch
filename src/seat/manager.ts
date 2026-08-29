@@ -10,7 +10,7 @@
  * scope owns only the subscription and fibers, never a pane.
  */
 import { Context, Effect, Fiber, Layer, Runtime, Stream } from "effect";
-import { SETTLED_STATES, type PackSendError } from "./domain.ts";
+import { SETTLED_STATES } from "./domain.ts";
 import { PackSource } from "./source.ts";
 import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape, PackTransition } from "../types/seat.ts";
 

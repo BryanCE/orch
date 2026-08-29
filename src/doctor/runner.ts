@@ -19,7 +19,7 @@ import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
 import { placementOf } from "../agent/registry.ts";
 
-export type { CheckResult } from "../check-result.ts";
+export type { CheckResult } from "../types/doctor.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { CheckResult, DoctorOptions, SshRunner } from "../types/doctor.ts";
 

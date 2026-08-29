@@ -8,7 +8,7 @@
  * are orch-owned panes, not in-process subagent runs.
  */
 import { Data } from "effect";
-import type { PackEnrichment, PackSnapshot, PackTransition } from "../types/seat.ts";
+import type { PackSnapshot } from "../types/seat.ts";
 
 /** States that should pull the operator's attention the moment they are entered. */
 export const ALERT_STATES: ReadonlySet<string> = new Set(["blocked", "asking", "error", "aborted"]);

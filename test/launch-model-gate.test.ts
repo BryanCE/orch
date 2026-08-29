@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { assertModelAllowed, assertModelOffered } from "../src/policy/model.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
-import type { AdapterId, AgentAdapter, HarnessModel } from "../src/adapters/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { AdapterId, AgentAdapter, HarnessModel } from "../src/types/adapter.ts";
 
 // A launch hands its model string to the harness CLI, whose own resolver fuzzy-matches
 // a shorthand onto any registry entry sharing a prefix — "sol:high" booted a fleet on

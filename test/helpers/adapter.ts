@@ -1,4 +1,4 @@
-import type { AgentAdapter, SpawnOpts } from "../../src/adapters/adapter.ts";
+import type { AgentAdapter, SpawnOpts } from "../../src/types/adapter.ts";
 
 /** One complete adapter fixture; overrides replace individual port members. */
 export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {

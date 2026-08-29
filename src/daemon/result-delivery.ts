@@ -1,6 +1,6 @@
 import { appendPeerInbox } from "../agent/peers.ts";
 import { presenceAgentDir } from "../presence/writer.ts";
-import { attemptsOf, taskById } from "../store/task-rows.ts";
+import { attemptsOf, taskById, type AttemptRow } from "../store/task-rows.ts";
 import { agentById } from "../store/agent-rows.ts";
 
 /**
@@ -21,8 +21,13 @@ import { agentById } from "../store/agent-rows.ts";
 export function deliverTaskResult(orchDir: string, taskId: string): void {
   const task = taskById(orchDir, taskId);
   if (!task) return;
-  const settled = attemptsOf(orchDir, taskId).findLast((attempt) => attempt.outcome !== null);
-  if (!settled) return;
+  const attempts = attemptsOf(orchDir, taskId);
+  let settled: AttemptRow | undefined;
+  for (let index = attempts.length - 1; index >= 0; index -= 1) {
+    const attempt = attempts[index];
+    if (attempt !== undefined && attempt.outcome !== null) { settled = attempt; break; }
+  }
+  if (settled === undefined) return;
   // The runner asked for nothing; delivering its own result back to it is noise.
   if (settled.agentId === task.enqueuedBy) return;
 

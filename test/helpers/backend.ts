@@ -1,8 +1,8 @@
-import type { AgentAdapter } from "../../src/adapters/adapter.ts";
 import { LocalProcessRole } from "../../src/backends/process.ts";
 import { agentChannel, capture } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
 import type { Backend, BackendHandle, BackendId, BackendSpawnOpts, CreatedPane, PaneHostRole, PaneInventoryRole, PaneTarget, ProcessRole } from "../../src/types/backend.ts";
+import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own
  *  (`TASKS/adr/0001-space-not-workspace.md`); the port's `workspace` field is

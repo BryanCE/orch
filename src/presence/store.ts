@@ -12,10 +12,10 @@ import { adoptLease } from "../store/lease-rows.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "../store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import type { AdapterId } from "../adapters/adapter.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { BackendId } from "../types/backend.ts";
+import type { AdapterId } from "../types/adapter.ts";
 
 export { orchDir, presenceAgentDir };
 

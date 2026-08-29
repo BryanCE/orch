@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { Identity } from "../types/backend.ts";
 
 /**
  * Agent identity: one minted id, and nothing else.

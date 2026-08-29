@@ -1,4 +1,4 @@
-import type { BackendGroupLayout, BackendHandle, BackendRect, BackendSplit, GroupLayoutRole } from "../types/backend.ts";
+import type { BackendGroupLayout, BackendRect, BackendSplit, GroupLayoutRole, TileFirstSplit, TilePlacement } from "../types/backend.ts";
 
 /** A terminal cell is about twice as tall as it is wide, so geometry is compared
  *  in cell-widths: a pane looks square when its columns double its rows. */

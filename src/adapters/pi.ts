@@ -18,38 +18,10 @@ import { writeAnswer } from "../presence/writer.ts";
 import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { isAgentState } from "../agent-state.ts";
-import type {
-  AdapterCommand,
-  AgentAdapter,
-  AgentState,
-  AnswerRequest,
-  HarnessModel,
-  LifecycleVerb,
-  ModelRequest,
-  ResultExtractionInput,
-  SessionView,
-  SessionViewEntry,
-  SessionViewInput,
-  ShimInstallOpts,
-  SpawnOpts,
-  StateDetectionInput,
-  SteerRequest,
-  ThinkingStrategy,
-} from "./adapter.ts";
+import type { AgentState } from "./adapter.ts";
 import type { ThinkingLevel } from "../policy/thinking.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-
-/** State input for pi, identified by its orch presence key. */
-export interface PiStateDetectionInput extends StateDetectionInput {
-  /** Presence key whose status.json is authoritative. */
-  readonly key: string;
-}
-
-/** Result input for pi, identified by its orch presence key. */
-export interface PiResultExtractionInput extends ResultExtractionInput {
-  /** Presence key whose result.json is authoritative. */
-  readonly key: string;
-}
+import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 
 /** pi's own config root, and the files under it orch reads or writes. */
 const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
@@ -115,10 +87,6 @@ export function bridgeExtensionArgv(
   return argv;
 }
 
-/** How a builder renders the quicklist argument: verbatim in an argv array, quoted in a shell
- *  string so a glob pattern (`anthropic/*`) reaches the harness instead of the shell's expansion. */
-export type QuicklistForm = "argv" | "shell";
-
 /**
  * The tokens that pick a launch model and, when configured, hand the harness the quicklist its
  * own picker cycles. Each harness names its two flags; the quicklist is one comma-separated
@@ -182,7 +150,6 @@ export function setModelViaInbox(request: ModelRequest): AdapterCommand | undefi
   if (presence) appendInbox(presence.dir, { cmd: "model", model: request.model, id: request.id, ts: new Date().toISOString() });
   return undefined;
 }
-
 
 /**
  * Parse pi's supported `--list-models` table into orch's provider/id vocabulary.
@@ -289,7 +256,6 @@ function piViewEntries(entries: SessionEntry[]): SessionViewEntry[] {
   }
   return items;
 }
-
 
 /** Verify one shipped bundle is linked into a harness's extension directory and current. */
 export function diagnoseExtensionLink(harness: string, extensionDir: string, extension: ExtensionName): CheckResult {

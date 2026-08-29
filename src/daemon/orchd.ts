@@ -27,7 +27,7 @@ import { tryParseIdentity } from "../backends/identity.ts";
 import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
-import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
+import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
@@ -36,6 +36,7 @@ import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { createLogger, type Logger, type LogContext, type LogLevel } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
+import type { LifecycleVerb } from "../types/adapter.ts";
 
 export interface LeasePayload {
   readonly holderId: string;

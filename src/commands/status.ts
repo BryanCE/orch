@@ -7,7 +7,6 @@ import { agentById } from "../store/agent-rows.ts";
 import { currentSpace } from "../store/interval-rows.ts";
 import { openStore } from "../store/connection.ts";
 import { getAdapter } from "../adapters/registry.ts";
-import type { AgentAdapter, SessionView } from "../adapters/adapter.ts";
 import { collapse, buildEntities, entitySpace, sortEntities, type Entity } from "../entities.ts";
 import type {  } from "../backends/backend.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -26,6 +25,7 @@ import {
   viewForKey,
 } from "./target.ts";
 import { isRecord, truncate } from "../util.ts";
+import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);

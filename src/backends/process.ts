@@ -1,6 +1,7 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { processIsAlive, processStartToken } from "../process-identity.ts";
 import type { ProcessRole, RecordedProcess, StartRequest, StartedProcess } from "../types/backend.ts";
+import type { LocalProcessRoleDeps } from "../types/backend.ts";
 
 function startLocalProcess(request: StartRequest): StartedProcess {
   const [executable, ...args] = request.argv;

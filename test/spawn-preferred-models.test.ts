@@ -8,10 +8,10 @@ import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS, type OrchConfig } from "../src/config.ts";
-import type { AgentAdapter, SpawnOpts } from "../src/adapters/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { Backend } from "../src/types/backend.ts";
+import type { AgentAdapter, SpawnOpts } from "../src/types/adapter.ts";
 
 // Every launch route must hand the SAME per-harness quicklist to the adapter that builds the
 // command. A route that drops it launches an agent whose model picker is empty while every

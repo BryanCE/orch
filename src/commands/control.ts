@@ -10,11 +10,10 @@ import { callDaemon, parseGovernance, writeRpc, type WriteGovernance } from "./d
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt, type AgentFlags } from "./spawn.ts";
-import type { AgentAdapter } from "../adapters/adapter.ts";
 import type { WorkerHeaderContext } from "../worker-prompt.ts";
-import type { AdapterId } from "../adapters/adapter.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
+import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;

@@ -1,4 +1,4 @@
-import { isAdapterId, type AgentAdapter } from "../../adapters/adapter.ts";
+import { isAdapterId } from "../../adapters/adapter.ts";
 import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
 import { binaryOnPath, isRecord, projectRoot } from "../../util.ts";
@@ -8,6 +8,7 @@ import { tryParseIdentity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendWorkspace, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, OpenPaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import type { AgentAdapter } from "../../types/adapter.ts";
 
 /** Handle owned by one herdr pane. */
 export type HerdrHandle = string;
@@ -404,6 +405,9 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Jump the view (tab + pane) to an agent's pane. */
+  // WHY: reached only through the backend port's focus role (`plan.role.focus(...)`
+  // in src/commands/panes.ts), which fallow's class-member analysis cannot follow.
+  // The method has no direct caller by design; deleting it removes the capability.
   // fallow-ignore-next-line unused-class-member
   focus(handle: HerdrHandle): boolean {
     herdrAck(["agent", "focus", handle]);

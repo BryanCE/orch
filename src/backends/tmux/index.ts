@@ -1,35 +1,6 @@
 import { join } from "node:path";
-import type { AgentAdapter } from "../../adapters/adapter.ts";
-import {
-  homeLabel,
-  type Backend,
-  type EnvironmentIdentityRole,
-  type BackendId,
-  type BackendGroup,
-  type BackendGroupLayout,
-  type BackendSpawnOpts,
-  type BackendSplit,
-  type BackendTarget,
-  type BackendWorkspace,
-  type PaneHostRole,
-  type PaneInventoryRole,
-  type PaneForegroundRole,
-  type PaneScreenRole,
-  type PaneZoomRole,
-  type PaneNamingRole,
-  type AgentNamingRole,
-  type AgentStatusRole,
-  type GroupHomeRole,
-  type GroupLayoutRole,
-  type SpaceHomeRole,
-  type PlexerHome,
-  type CreatedHome,
-  type HomeSubject,
-  type CreateGroupRequest,
-  type CreatedGroup,
-  type MovePaneRequest,
-} from "../backend.ts";
-import { tryParseIdentity, type Identity } from "../identity.ts";
+import { homeLabel } from "../backend.ts";
+import { tryParseIdentity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { sleepMs } from "../pane-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
@@ -37,6 +8,8 @@ import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendWorkspace, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
+import type { AgentAdapter } from "../../types/adapter.ts";
 
 /** Handle owned by one tmux pane. */
 export type TmuxHandle = string;

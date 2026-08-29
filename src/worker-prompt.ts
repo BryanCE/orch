@@ -1,6 +1,6 @@
-import type { AgentAdapter } from "./adapters/adapter.ts";
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
+import type { AgentAdapter } from "./types/adapter.ts";
 
 /** Always-on worker header: the pane is unattended. */
 const WORKER_HEADER_BASE =

@@ -6,12 +6,12 @@ import { QUESTION_FILE } from "../presence/schema.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
-import type { AgentAdapter, SessionView, SessionViewEntry } from "../adapters/adapter.ts";
 import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
+import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
 
 function resultLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;

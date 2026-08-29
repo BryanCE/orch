@@ -339,7 +339,35 @@ conflicting steers are chaos. This is **mutual exclusion, not authorization**:
 | command | gated | why |
 |---|---|---|
 | `dispatch` `steer` `model` `reset` | **yes** | driving. Two drivers interleaving is the chaos. |
-| `abort` `close` `reap` | **no** | ending. Nothing to interleave with, and the human must always be able to stop a runaway agent from the CLI or the web. |
+| `abort` `close` `reap` | **no — FOR THE HUMAN** | ending. Nothing to interleave with, and the human must always be able to stop a runaway agent from the CLI or the web. **This row is about the HUMAN and nothing else.** An agent is gated: see *Who may end an agent* below. |
+
+### Who may end an agent
+
+**"Not gated" applies to the HUMAN. It has never applied to an agent.** The human at a CLI or
+in the web may end anything, always — that is the whole point of the row above, and the reason
+it exists is that a human must be able to stop a runaway. An agent is not a human and inherits
+none of it.
+
+**An agent may end only what it OWNS.** Ownership is a chain — **user → orch → the slaves that
+orch owns** — and an agent's reach is its own provenance subtree, at any depth. An orch closing
+its own slave is ordinary work. An agent closing another orch's slave is refused, and the
+refusal names the owner so the caller knows who to ask. An agent may always end itself: acting
+on yourself is not driving somebody else's fleet.
+
+**Ownership here is the PROVENANCE CHAIN, never the lease.** The lease answers "who is driving
+this right now" and gates the driving verbs. This answers "whose is this" and gates ending it.
+They are different questions and must not be merged:
+
+- An orch must be able to close its own slave *even while another orch holds the lease* —
+  otherwise a foreign holder can keep a runaway alive.
+- Holding the lease must confer no right to end an agent you do not own.
+- Clearing a dead holder's lease must never be a prerequisite for killing a runaway.
+
+The caller is told apart the way `orch clean` already does it (`src/commands/clean.ts:118`): no
+`ORCH_AGENT_KEY` in the environment is the human at a terminal; a key present is an agent.
+There is still no account and no login — same-uid remains the whole trust boundary.
+
+Implemented in `src/policy/close-authority.ts`; proven by `test/close-authority.test.ts`.
 
 **Today's defect is that the gate has no liveness.** `ownership.owner` is a bare string with
 no pid and no token, so a *dead* orch's claim is indistinguishable from a live one and blocks

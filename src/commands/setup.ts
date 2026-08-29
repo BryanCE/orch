@@ -7,9 +7,9 @@ import { allAdapters, refreshAdapterCatalogues, resolveAdapter, warmAdapterCatal
 import { allBackends, getBackend, resolveBackend } from "../backends/registry.ts";
 import { loadConfig, loadConfigOrNull, reapUnreadableSettings, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsNotify, writeSettingsRuntime, writeSettingsSkills } from "../config.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
-import { ADAPTER_IDS, type AdapterId, type AgentAdapter, type HarnessModel, type ShimRole } from "../adapters/adapter.ts";
+import { ADAPTER_IDS } from "../types/adapter.ts";
 import { PREREQUISITES, signedOutFix } from "../adapters/prerequisites.ts";
-import { BACKEND_IDS } from "../backends/backend.ts";
+import { BACKEND_IDS } from "../types/backend.ts";
 import { assertModelListed } from "../policy/model.ts";
 import { binaryStatus } from "../doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
@@ -24,6 +24,7 @@ import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts"
 import { cmdSpawn } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
 import type { BackendId } from "../types/backend.ts";
+import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "../types/adapter.ts";
 
 const HOME = os.homedir();
 

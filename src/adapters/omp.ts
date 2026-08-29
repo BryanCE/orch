@@ -2,42 +2,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { isRecord } from "../util.ts";
-import {
-  answerViaFile,
-  bridgeExtensionArgv,
-  diagnoseExtensionLink,
-  installExtensionLink,
-  modelSelectionArgv,
-  PI_LIFECYCLE_TEXT,
-  piSessionView,
-  presenceAgentState,
-  presenceFor,
-  resultFromPresenceOrSession,
-  setModelViaInbox,
-  settingsDefaultModel,
-  steerViaInbox,
-  toolPolicyArgv,
-  type PiResultExtractionInput,
-  type PiStateDetectionInput,
-  type QuicklistForm,
-} from "./pi.ts";
+import { answerViaFile, bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, setModelViaInbox, settingsDefaultModel, steerViaInbox, toolPolicyArgv } from "./pi.ts";
 import type { ExtensionName } from "../extensions/bundles.ts";
 import type { CheckResult } from "../check-result.ts";
-import type {
-  AdapterCommand,
-  AgentAdapter,
-  AgentState,
-  AnswerRequest,
-  HarnessModel,
-  LifecycleVerb,
-  ModelRequest,
-  SessionView,
-  SessionViewInput,
-  ShimInstallOpts,
-  SpawnOpts,
-  SteerRequest,
-} from "./adapter.ts";
+import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
+import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
 
 // orch's omp (oh-my-pi) integration. omp is its OWN harness: its own binary, its
 // own config root, its own extension bundle (extensions/omp/), its own settle

@@ -9,13 +9,11 @@ import { term } from "../policy/vocabulary.ts";
 import { resolveThinking, splitThinkingSuffix, type ThinkingLevel } from "../policy/thinking.ts";
 import { workerPolicyFrom, workerTools, type WorkerPolicy } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
-import type { AdapterId, AgentAdapter } from "../adapters/adapter.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
 import { workerHeaderFor, type WorkerHeaderContext } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
-import type { Backend, BackendGroup, BackendHandle, BackendId, GroupLayoutRole } from "../backends/backend.ts";
 import { detachedBackend, resolveBackend } from "../backends/registry.ts";
-import { nextTilePlacement, planTilePlacement, readGroupLayout, type TileFirstSplit, type TilePlacement } from "../backends/tiling.ts";
+import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
 import * as path from "node:path";
@@ -28,6 +26,8 @@ import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { agentViewIndex, callerOwnerToken, callerSpace, die, presenceById } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
+import type { Backend, BackendGroup, BackendHandle, BackendId, GroupLayoutRole, TileFirstSplit, TilePlacement } from "../types/backend.ts";
+import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 
 function spawnLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;

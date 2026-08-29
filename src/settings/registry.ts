@@ -94,51 +94,14 @@ function setting(key: string, group: string, help: string, env?: string, writabl
   };
 }
 
-const KEYS = [
-  "runtime",
-  "enabled.adapters",
-  "enabled.backends",
-  "defaults.adapter",
-  "defaults.backend",
-  "defaults.models",
-  "defaults.thinking",
-  "defaults.thinking_by_harness",
-  "defaults.worktree",
-  "fleet.spawn_cap",
-  "fleet.pack_cap",
-  "fleet.max_agents",
-  "fleet.space_caps",
-  "fleet.worker_peer_tools",
-  "fleet.cross_space",
-  "models.allowed",
-  "models.preferred",
-  "workers.inherit_extensions",
-  "workers.exclude_extensions",
-  "workers.builtin_tools",
-  "workers.allow_tools",
-  "queue.max_retries",
-  "logging.level",
-  "retention.ended_agents_days",
-  "retention.queue_days",
-  "retention.events_days",
-  "retention.runs_days",
-  "retention.outbox_days",
-  "retention.logs_days",
-  "timeouts.dispatch_ack_ms",
-  "timeouts.wait_ms",
-  "timeouts.adapter_command_ms",
-  "timeouts.notify_ms",
-  "notify",
-  "locked_commands",
-  "hosts",
-  "spaces",
-  "daemon.tcp_port",
-  "daemon.idle_shutdown_minutes",
-  "tiling.first_split",
-  "skills.install",
-  "skills.roots",
-];
-
+/**
+ * Every setting orch declares, in display order, with its one-line help.
+ *
+ * This object is the ONLY roster. The registry's key list is DERIVED from it, so a
+ * setting can no longer be declared in one place and documented in another: the two
+ * used to be parallel 42-entry lists kept in step by hand, and the `?? "Configure
+ * <key>."` fallback that papered over a missing entry meant drift shipped silently.
+ */
 const HELP: Readonly<Record<string, string>> = {
   runtime: "JavaScript runtime used to execute orch.",
   "enabled.adapters": "Harnesses enabled for spawning agents.",
@@ -184,17 +147,22 @@ const HELP: Readonly<Record<string, string>> = {
   "skills.roots": "Harness skill directories managed by orch.",
 };
 
-export const SETTINGS_REGISTRY: readonly SettingSpec[] = KEYS.map((key) => {
-  const group = key.split(".")[0] ?? key;
-  return setting(key, group, HELP[key] ?? `Configure ${key}.`,
-    key === "defaults.worktree" ? "ORCH_WORKTREE"
-      : key === "defaults.thinking" ? "ORCH_THINKING"
-        : key === "defaults.adapter" ? "ORCH_ADAPTER"
-          : key === "defaults.backend" ? "ORCH_BACKEND"
-            : key === "daemon.tcp_port" ? "ORCH_DAEMON_PORT"
-              : key === "fleet.spawn_cap" ? "ORCH_SPAWN_CAP" : undefined,
-    key !== "runtime");
-});
+/** Env var that overrides a setting, for the few that take one. */
+const ENV_OVERRIDES: Readonly<Record<string, string>> = {
+  "defaults.worktree": "ORCH_WORKTREE",
+  "defaults.thinking": "ORCH_THINKING",
+  "defaults.adapter": "ORCH_ADAPTER",
+  "defaults.backend": "ORCH_BACKEND",
+  "daemon.tcp_port": "ORCH_DAEMON_PORT",
+  "fleet.spawn_cap": "ORCH_SPAWN_CAP",
+};
+
+/** `runtime` is the one declared setting orch will not rewrite: it names how orch
+ *  itself is executed, so changing it from inside a running orch is not honourable. */
+const READ_ONLY_KEYS: readonly string[] = ["runtime"];
+
+export const SETTINGS_REGISTRY: readonly SettingSpec[] = Object.entries(HELP).map(([key, help]) =>
+  setting(key, key.split(".")[0] ?? key, help, ENV_OVERRIDES[key], !READ_ONLY_KEYS.includes(key)));
 
 /** Find one declared setting or throw a plain configuration error. */
 export function registeredSetting(key: string): SettingSpec {

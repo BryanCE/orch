@@ -1,15 +1,4 @@
-/** What one provider id needs to be usable: exactly one of a real install command or a
- * documentation URL, an optional ordered list of prerequisite provider ids installed
- * first, and the provider's own command for signing in — installed is not the same as
- * usable, and a harness with no credentials enumerates no models.
- * Keyed by real provider id, so a prerequisite can never drift from its provider. */
-export interface Prerequisite {
-  install?: string;
-  docsUrl?: string;
-  needs?: readonly string[];
-  signIn?: string;
-}
-
+import type { Prerequisite } from "../types/adapter.ts";
 export const PREREQUISITES: Record<string, Prerequisite> = {
   // bun is never probed on its own — it surfaces only as pi's declared dependency.
   pi: { install: "bun add -g @earendil-works/pi-coding-agent", needs: ["bun"], signIn: "pi auth" },

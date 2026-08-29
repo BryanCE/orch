@@ -9,10 +9,10 @@ import { loadConfig } from "../src/config.ts";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
-import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { AgentAdapter } from "../src/types/adapter.ts";
 
 const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening-"));
 

@@ -7,8 +7,8 @@ import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
-import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../adapters/adapter.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
+import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../types/adapter.ts";
 
 /**
  * Control-plane dispatcher (L5 facade). Runs inside the daemon only; the CLI

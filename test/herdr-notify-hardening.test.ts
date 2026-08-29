@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
 import type { NotifyEvent } from "../src/notify/format.ts";
+import type { AgentAdapter } from "../src/types/adapter.ts";
 
 // Stubbing the cli module replaces it for every test file in the process, which
 // silently hands the next suite these fixtures instead of its own. The cli

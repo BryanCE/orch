@@ -10,9 +10,9 @@ import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { resolveAdapter } from "../src/adapters/registry.ts";
-import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
+import type { AgentAdapter } from "../src/types/adapter.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 

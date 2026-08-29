@@ -1,9 +1,9 @@
 import { isAgentId } from "../backends/identity.ts";
 import { agentIdBySessionToken } from "../store/agent-rows.ts";
 import { allAdapters } from "../adapters/registry.ts";
-import type { AgentAdapter } from "../adapters/adapter.ts";
 import { optionalString } from "../util.ts";
 import { orchDir } from "../presence/writer.ts";
+import type { AgentAdapter } from "../types/adapter.ts";
 
 /**
  * Who this process is, as ONE answer for the whole CLI.

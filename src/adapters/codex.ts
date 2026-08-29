@@ -5,26 +5,11 @@ import { errnoCode, errorMessage, isRecord, packageRoot, shellQuote } from "../u
 import { declaredRuntime } from "../config.ts";
 import { orchDir } from "../presence/store.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
-import {
-  detectCodexState,
-  extractCodexResult,
-  readCodexSessionView,
-  type CodexResultExtractionInput,
-} from "./codex-events.ts";
-import type {
-  HarnessModel,
-  AdapterCommand,
-  AgentAdapter,
-  AgentState,
-  AnswerRequest,
-  SessionView,
-  SessionViewInput,
-  SpawnOpts,
-  StateDetectionInput,
-  SteerRequest,
-} from "./adapter.ts";
+import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
+import type { AgentState } from "./adapter.ts";
 import type { CheckResult, FixDescriptor } from "../check-result.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
+import type { AdapterCommand, AgentAdapter, AnswerRequest, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 
 const CODEX_MODELS_CACHE = join(homedir(), ".codex", "models_cache.json");
 

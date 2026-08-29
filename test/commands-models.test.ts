@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildSections, pickedSpec, renderSections } from "../src/commands/models.ts";
-import type { AdapterId, HarnessModel } from "../src/adapters/adapter.ts";
 import { SETTINGS_DEFAULTS, type OrchConfig } from "../src/config.ts";
+import type { AdapterId, HarnessModel } from "../src/types/adapter.ts";
 
 // `orch models` exists so a small quicklist never hides a harness's catalogue: every offered
 // model is listed by default, and one outside models.preferred is still discoverable and

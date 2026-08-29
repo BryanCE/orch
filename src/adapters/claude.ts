@@ -7,23 +7,12 @@ import { loadPresence, orchDir, statusForPresence, type PresenceEntry } from "..
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
-import type {
-  HarnessModel,
-  AdapterCommand,
-  AgentAdapter,
-  AgentState,
-  AnswerRequest,
-  ResultExtractionInput,
-  SessionView,
-  SessionViewInput,
-  SpawnOpts,
-  StateDetectionInput,
-  SteerRequest,
-} from "./adapter.ts";
+import type { AgentState } from "./adapter.ts";
 import type { CheckResult } from "../check-result.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
+import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {

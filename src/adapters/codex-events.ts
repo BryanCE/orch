@@ -6,7 +6,8 @@
 import { readFileSync } from "node:fs";
 import { isRecord, textValue, type JsonRecord } from "../util.ts";
 import { contentText } from "./transcript.ts";
-import type { AgentState, ResultExtractionInput, SessionView, StateDetectionInput } from "./adapter.ts";
+import type { AgentState } from "./adapter.ts";
+import type { CodexResultExtractionInput, SessionView, StateDetectionInput } from "../types/adapter.ts";
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
 export const CODEX_TURN_COMPLETE = "agent-turn-complete";
@@ -17,14 +18,6 @@ export const CODEX_TURN_COMPLETE = "agent-turn-complete";
  * A notify completion (or permission hook) is the only authoritative signal.
  */
 export const CODEX_STATE_FALLBACK_MARKER = "stateFallback" as const;
-
-/** Additional native files accepted by the Codex result extractor. */
-export interface CodexResultExtractionInput extends ResultExtractionInput {
-  /** File passed to `codex exec --output-last-message`, when available. */
-  readonly lastMessagePath?: string;
-  /** Descriptive alias accepted by callers that retain the CLI flag name. */
-  readonly outputLastMessagePath?: string;
-}
 
 const COMPLETION_EVENTS = new Set([
   CODEX_TURN_COMPLETE,

@@ -8,15 +8,14 @@ import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
 import { liveAgentViews, type AgentView } from "../store/agent-view.ts";
+import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId } from "../identity/self.ts";
 import { openStore } from "../store/connection.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
-import type { Backend, BackendHandle } from "../backends/backend.ts";
-import type { LifecycleVerb } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
-import { NO_PANE_FOREGROUND, paneAtShellPrompt, sleepMs, type PaneForeground } from "../backends/pane-ready.ts";
+import { NO_PANE_FOREGROUND, paneAtShellPrompt, sleepMs } from "../backends/pane-ready.ts";
 
 import { loadConfig } from "../config.ts";
 import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
@@ -25,6 +24,8 @@ import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";
 import { commandLogger } from "./logging.ts";
+import type { Backend, BackendHandle, PaneForeground } from "../types/backend.ts";
+import type { LifecycleVerb } from "../types/adapter.ts";
 
 function lifecycleLogger(key: string) {
   const agentId = tryParseIdentity(key)?.id;
@@ -504,6 +505,8 @@ export function cmdClose(args: string[]) {
   if (positional.some((argument) => argument.startsWith("--"))) die(usage);
   if (!all && !positional.length) die(usage);
 
+  // No ORCH_AGENT_KEY is the human at a terminal; a key present is an agent.
+  const authority = callerAuthority(process.env.ORCH_AGENT_KEY);
   const targets: { backend: Backend | null; handle: BackendHandle; key: string; recorded: RecordedProcess | null; paneKnown: boolean }[] = [];
   if (all) {
     // --all sweeps every orch-managed record, regardless of owner or spawner.
@@ -516,7 +519,9 @@ export function cmdClose(args: string[]) {
     const presence = presenceById();
     for (const view of liveAgentViews(orchDir())) {
       // Every minted agent is orch-managed, regardless of which session spawned it.
-      // Ending is never gated by ownership or provenance; unmanaged panes have no id.
+      // The human sweeps the lot; an agent sweeps only the slaves it owns, so a
+      // bulk close never reaches into another orch's fleet.
+      if (refuseClose(orchDir(), authority, view.id) !== null) continue;
       const address = agentAddress(view, presence);
       const backend = getBackend(view.environment.plexer ?? "") ?? null;
       if (!backend) {
@@ -536,7 +541,12 @@ export function cmdClose(args: string[]) {
   }
   for (const target of positional) {
     const resolved = resolveLifecycleTarget(target);
-    // Close is an unconditional ending operation: ownership and provenance never gate it.
+    // The LEASE never gates ending: an orch must be able to close its own slave
+    // while another orch drives it, and a dead holder must never keep a runaway
+    // alive. OWNERSHIP does gate it for an agent - the human is unrestricted,
+    // an agent reaches only its own provenance subtree.
+    const refusal = refuseClose(orchDir(), authority, resolved.key);
+    if (refusal !== null) die(refusal);
     targets.push({
       backend: resolved.backend,
       handle: resolved.handle,

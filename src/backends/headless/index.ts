@@ -2,7 +2,6 @@ import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from "n
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
-import type { AgentAdapter, SpawnOpts } from "../../adapters/adapter.ts";
 import { readStatus } from "../../presence/writer.ts";
 import { presenceAgentDir } from "../../presence/store.ts";
 import { errorMessage, pidAlive, projectRoot } from "../../util.ts";
@@ -13,6 +12,7 @@ import { ensurePlexer } from "../../store/agent-rows.ts";
 import { setAgentPlexer, setHandle } from "../../store/interval-rows.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, HandleLookupRole, LogPruningRole, PaneForegroundRole, ProcessRole } from "../../types/backend.ts";
+import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {
@@ -279,6 +279,9 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   }
 
   /** Headless has no console UI, so it cannot focus a target. */
+  // WHY: reached only through the backend port's focus role (`plan.role.focus(...)`
+  // in src/commands/panes.ts), which fallow's class-member analysis cannot follow.
+  // The method has no direct caller by design; deleting it removes the capability.
   // fallow-ignore-next-line unused-class-member
   focus(_handle: HeadlessHandle): boolean {
     return false;

@@ -1,6 +1,6 @@
 import { allowedModelPatterns } from "../config.ts";
 import { splitThinkingSuffix, THINKING_LEVELS } from "./thinking.ts";
-import type { AdapterId, AgentAdapter, HarnessModel } from "../adapters/adapter.ts";
+import type { AdapterId, AgentAdapter, HarnessModel } from "../types/adapter.ts";
 
 /**
  * The allowlist gate, owned by orch and applied to every harness. A harness

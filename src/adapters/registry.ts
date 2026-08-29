@@ -1,9 +1,9 @@
-import type { AgentAdapter } from "./adapter.ts";
 import { forgetModelCatalogues } from "./model-catalogue.ts";
 import { piAdapter } from "./pi.ts";
 import { ompAdapter } from "./omp.ts";
 import { codexAdapter } from "./codex.ts";
 import { claudeAdapter } from "./claude.ts";
+import type { AgentAdapter } from "../types/adapter.ts";
 
 const adapters: readonly AgentAdapter[] = [piAdapter, ompAdapter, codexAdapter, claudeAdapter];
 

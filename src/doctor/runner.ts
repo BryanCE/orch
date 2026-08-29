@@ -3,7 +3,6 @@ import { errorMessage } from "../util.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import type { AdapterId } from "../adapters/adapter.ts";
 import type { CheckResult } from "../check-result.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { checkBackendCapabilities, checkBackendVersions } from "./backends.ts";
@@ -22,6 +21,7 @@ import { loadPresence } from "../presence/store.ts";
 import { placementOf } from "../agent/registry.ts";
 
 export type { CheckResult } from "../check-result.ts";
+import type { AdapterId } from "../types/adapter.ts";
 
 async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   try {

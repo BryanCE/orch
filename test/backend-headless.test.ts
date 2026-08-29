@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { SpawnOpts } from "../src/adapters/adapter.ts";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 // The session-tail parse lives in the codex adapter family's leaf module;
 // reaching for it there keeps this test off the adapter registry's init graph.
@@ -12,6 +11,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { recordSpawned } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { SpawnOpts } from "../src/types/adapter.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));

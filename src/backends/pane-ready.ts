@@ -1,3 +1,4 @@
+import type { PaneForeground } from "../types/backend.ts";
 export const NO_PANE_FOREGROUND: PaneForeground = { shellPid: null, foregroundPid: null, processes: [] };
 
 /** What a plexer counts as a pane's own shell. Copied from herdr's

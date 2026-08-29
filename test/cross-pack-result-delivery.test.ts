@@ -56,7 +56,7 @@ describe("results go to the enqueuer across packs (Cq4)", () => {
     const d = fixture();
     seedStatus(d, "asker", { agent: "pi", pid: process.pid, state: "idle" });
     seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
-    enqueueTask(d, { id: "t1", text: "survey the repo", opts: {}, enqueuedBy: "asker", scopeSpaceId: null, scopeAgentId: "runner", createdAt: 5 });
+    enqueueTask(d, { id: "t1", text: "survey the repo", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
     claimTask(d, "t1", "runner", "d1", 6);
     settleAttempt(d, "t1", 6, 7, "done", { result: { findings: 3 } });
 

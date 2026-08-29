@@ -493,7 +493,7 @@ const METHOD_OWNER = "(?:provider|backend|adapter|resolvedBackend|resolvedAdapte
  */
 function portRoleMembers(): readonly string[] {
   const names = new Set<string>();
-  for (const file of ["src/backends/backend.ts", "src/adapters/adapter.ts"]) {
+  for (const file of ["src/types/backend.ts", "src/adapters/adapter.ts"]) {
     const source = readFileSync(file, "utf8");
     // A composed role is a member whose TYPE is a Role or a Strategy — `readonly
     // paneHost: PaneHostRole<Handle> | null`, `readonly thinking: ThinkingStrategy

@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { runtimeArgv, type OrchRuntime, type ShimScope } from "../runtime.ts";
+import type { CodexNotifyEdit } from "../types/adapter.ts";
 
 // Codex's notify wire format lives here, in the codex adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
@@ -30,13 +31,6 @@ function isOrchNotifyValue(value: string): boolean {
 function isEmptyNotifyValue(value: string): boolean {
   return value === "" || value === "[]" || value === '""' || value === "''";
 }
-
-/** Outcome of a targeted edit of the top-level `notify` key in a codex config.toml body. */
-export type CodexNotifyEdit =
-  | { readonly status: "inserted" | "replaced"; readonly text: string }
-  | { readonly status: "unchanged" }
-  | { readonly status: "foreign"; readonly foreignValue: string }
-  | { readonly status: "ambiguous" };
 
 /**
  * Targeted single-line edit of the top-level `notify` key (D2a): replace an

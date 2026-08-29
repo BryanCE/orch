@@ -59,7 +59,7 @@ describe("commands/events", () => {
   });
   test("names one agent by name or by identity key", () => {
     expect(parseEventsOptions(["--agent=api-1"]).targets).toEqual(["api-1"]);
-    expect(parseEventsOptions(["--agent-id=headless~local~abc"]).targets).toEqual(["headless~local~abc"]);
+    expect(parseEventsOptions(["--agent-id=abcagent01"]).targets).toEqual(["abcagent01"]);
   });
   test("a subscription with no daemon keeps redialing instead of exiting", () => {
     // One subscription must cover a whole session: a daemon restart drops the

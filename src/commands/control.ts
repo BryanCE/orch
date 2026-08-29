@@ -1,6 +1,6 @@
 import * as files from "node:fs";
 import * as path from "node:path";
-import { collapse, recipientFor, recipientLabel, resolveTarget, type Entity } from "../entities.ts";
+import { collapse, recipientFor, recipientLabel, resolveTarget } from "../entities.ts";
 import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, recordSpawned, spawnedRecords } from "../presence/store.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
@@ -10,13 +10,13 @@ import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, spawnerIsRepliable, workerPrompt } from "./spawn.ts";
-import type { WorkerHeaderContext } from "../worker-prompt.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
-import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
+import type { AdapterId } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchConfig } from "../types/config.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
+import type { Entity } from "../types/core.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;

@@ -11,9 +11,10 @@
 // the suffix is split off before lookup and applied through pi's own mechanism.
 import { isThinkingLevel, splitThinkingSuffix } from "../policy/thinking.ts";
 import { atomicWrite } from "../presence/writer.ts";
-import { isRecord, type JsonRecord } from "../util.ts";
+import { isRecord } from "../util.ts";
 import type { ControlCommand, FindRegistryModel, ModelControlDeps, RegistryRetry, ResolvedModel } from "../types/agent.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
+import type { JsonRecord } from "../types/core.ts";
 
 export type { ThinkingLevel };
 

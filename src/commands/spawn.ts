@@ -9,7 +9,7 @@ import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../policy/workers.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
-import { workerHeaderFor, type WorkerHeaderContext } from "../worker-prompt.ts";
+import { workerHeaderFor } from "../worker-prompt.ts";
 import { mintAgentId, serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
 import { detachedBackend, resolveBackend } from "../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
@@ -25,13 +25,14 @@ import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { agentViewIndex, callerOwnerToken, callerSpace, die, presenceById } from "./target.ts";
 import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
-import type { Backend, BackendGroup, BackendHandle, BackendId, GroupLayoutRole, TileFirstSplit, TilePlacement } from "../types/backend.ts";
+import type { Backend, BackendGroup, BackendHandle, GroupLayoutRole, TileFirstSplit } from "../types/backend.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { AgentView, GrantAction } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchConfig } from "../types/config.ts";
 import type { AgentFlags, AgentSettings, CreatedAgent, TabSpawnSpec } from "../types/command.ts";
+import type { WorkerHeaderContext } from "../types/core.ts";
 
 function spawnLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;

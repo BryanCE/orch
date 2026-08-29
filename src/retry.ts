@@ -1,23 +1,5 @@
 import { errorMessage, sleep } from "./util.ts";
-
-/**
- * One retry policy for every flaky IO path in orch. Older and loaded machines fail these
- * operations on TIMING, not on being wrong, so each reattempt waits longer than the last.
- *
- * Only ever wrap an operation that is safe to run twice. A request that already reached its
- * server and merely answered late is NOT safe — reattempting `spawn-detached` on a slow box
- * launches a second agent.
- */
-export interface RetryPolicy {
-  attempts: number;
-  delayMs: number;
-  /** Multiplies the wait after each failed attempt. */
-  backoff: number;
-  /** Which failures are worth reattempting. A failure this rejects is rethrown
-   *  at once: retrying a name collision or a bad argument only wastes the budget
-   *  that a genuinely slow machine needs. Absent = every failure is retryable. */
-  retryable?: (error: unknown) => boolean;
-}
+import type { RetryPolicy } from "./types/core.ts";
 
 const DEFAULT_RETRY: RetryPolicy = { attempts: 3, delayMs: 250, backoff: 3 };
 

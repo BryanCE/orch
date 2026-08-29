@@ -13,7 +13,7 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { assertModelListed } from "../policy/model.ts";
 import { binaryStatus } from "../doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
-import { runDoctor, type CheckResult } from "../doctor/runner.ts";
+import { runDoctor } from "../doctor/runner.ts";
 import { withSpinner, promptText, logStep, logWarning } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
 import { installSkills, packagedSkillNames } from "../setup/skills.ts";
@@ -24,8 +24,9 @@ import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts"
 import { cmdSpawn } from "./spawn.ts";
 import { die, resultText } from "./target.ts";
 import type { BackendId } from "../types/backend.ts";
-import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "../types/adapter.ts";
-import type { HarnessModelChoices, ShimBoundaryAnswer, ShimBoundaryInvocation, ShimBoundaryPlan, SmokeSteps } from "../types/command.ts";
+import type { AdapterId, AgentAdapter, HarnessModel } from "../types/adapter.ts";
+import type { HarnessModelChoices, ShimBoundaryPlan, SmokeSteps } from "../types/command.ts";
+import type { CheckResult } from "../types/doctor.ts";
 
 const HOME = os.homedir();
 

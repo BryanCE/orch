@@ -1,7 +1,8 @@
 // Shared transcript text extraction for claude-format JSONL, used by both the
 // claude adapter and the in-process claude shim. Node built-ins + util.ts only,
 // so a standalone shim bundle can pull it without dragging store/config in.
-import { isRecord, textValue, type JsonRecord } from "../util.ts";
+import { isRecord, textValue } from "../util.ts";
+import type { JsonRecord } from "../types/core.ts";
 
 /**
  * Flatten a transcript content value to text. Strings pass through

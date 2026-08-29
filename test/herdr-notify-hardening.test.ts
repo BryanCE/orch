@@ -104,10 +104,14 @@ describe("herdr and notification hardening", () => {
   test("falls back to a valid name when the identity key contains herdr-invalid separators", () => {
     // A NEGATIVE case: orch never mints a key like this, and the pane namer must
     // still produce a name herdr accepts rather than passing separators through.
+    // What is asserted is the GRAMMAR, not a particular stripped value - the
+    // namer no longer splits on "~" (A1: the key IS the minted id, so there is
+    // no component to keep), it normalizes whatever it is handed.
     new HerdrBackend().spawn(adapter, { workspace: "ws-test", key: "herdr~ws-test~ABC_123" });
     const name = lastCall("pane", "rename")?.[3] ?? "";
-    expect(name).toBe("pi-abc_123");
     expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+    expect(name).not.toContain("~");
+    expect(name.length).toBeLessThanOrEqual(32);
   });
 
   test("falls back to a real name when an adapter id is blank", () => {

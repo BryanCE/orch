@@ -226,7 +226,7 @@ export function projectHistory(rows: readonly FleetProjectionRow[]): AgentGroup[
  * question asked in the same way, so the two surfaces cannot disagree.
  */
 function isDriven(agent: FleetAgent): boolean {
-  return agent.lease !== null && agent.lease.holderAlive;
+  return agent.lease?.holderAlive === true;
 }
 
 /** Keep undriven work out of the live list so it is visibly adoptable/reapable. */

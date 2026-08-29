@@ -4,13 +4,14 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildEntities, entitySpace, type Entity } from "../src/entities.ts";
+import { buildEntities, entitySpace } from "../src/entities.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
+import type { Entity } from "../src/types/core.ts";
 
 /**
  * TASKS/02-scope.md A1 — commands read the space from the environment satellite

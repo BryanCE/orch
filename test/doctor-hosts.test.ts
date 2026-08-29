@@ -3,9 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor } from "../src/doctor/runner.ts";
-import type { SshResult } from "../src/remote.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { SshResult } from "../src/types/core.ts";
 
 const directories: string[] = [];
 

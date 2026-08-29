@@ -5,6 +5,7 @@ import { allBackends } from "../backends/registry.ts";
 import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
 import type { NotifierChoice } from "../types/notify.ts";
+import type { CataloguePicker } from "../types/command.ts";
 
 const MODEL_PICKER_MAX_ITEMS = 15;
 
@@ -94,21 +95,6 @@ export async function selectDefaultModel(
   if (chosen === null) return null;
   return suggested !== undefined && suggestedBare === chosen ? suggested : chosen;
 }
-
-/** One option row of a catalogue multiselect. */
-interface CatalogueOption {
-  value: string;
-  label: string;
-  hint?: string;
-  checked: boolean;
-}
-
-export type CataloguePicker = (
-  mode: "multiselect" | "autocomplete",
-  message: string,
-  options: readonly CatalogueOption[],
-  maxItems: number,
-) => Promise<string[] | null>;
 
 const defaultCataloguePicker: CataloguePicker = (mode, message, options, maxItems) =>
   mode === "autocomplete"

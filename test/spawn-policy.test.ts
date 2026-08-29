@@ -44,7 +44,7 @@ function fixtureMaps(agents: AgentView[]): { views: Map<string, AgentView>; pres
   return {
     views: new Map(agents.map((view): [string, AgentView] => [view.id, view])),
     presence: new Map(agents.map((view): [string, PresenceEntry] => [view.id, {
-      key: `headless~${view.environment.space ?? "space"}~${view.id}`,
+      key: view.id,
       dir: "",
       status: null,
       result: null,
@@ -101,8 +101,11 @@ describe("spawn policy caps", () => {
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
       fleet: { pack_cap: 1 },
     });
-    const key = "headless~workspace~live";
-    recordSpawned(key, { backend: "headless", space: "space", handle: key });
+    const key = "liveagent1";
+    // A space is USER-created and never minted (A7), so the fixture creates the
+    // one the claimant sits in before placing an agent in it.
+    openStore(dir).query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)").run("space", "space", 1);
+    recordSpawned(key, { adapter: "pi", backend: "headless", space: "space", handle: key });
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));

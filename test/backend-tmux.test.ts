@@ -225,7 +225,7 @@ describe("TmuxBackend", () => {
 
   test("list() and inventory() surface only orch-spawned panes", () => {
     panes = [
-      orchPane({ paneId: "%1", agentKey: "tmux~main~%251", agentName: "worker-a" }),
+      orchPane({ paneId: "%1", agentKey: "tmuxpane01", agentName: "worker-a" }),
       { ...orchPane({ paneId: "%2", agentKey: "" }), agent: "", paneTitle: "shell" },
       orchPane({
         paneId: "%3",
@@ -237,7 +237,7 @@ describe("TmuxBackend", () => {
         paneActive: false,
         windowActive: false,
         sessionAttached: false,
-        agentKey: "tmux~side~%253",
+        agentKey: "tmuxpane03",
         agent: "claude",
       }),
     ];
@@ -251,34 +251,34 @@ describe("TmuxBackend", () => {
   });
 
   test("status-facing inventory displays the tmux session workspace", () => {
-    panes = [orchPane({ paneId: "%1", session: "main", agentKey: "tmux~main~%251", agent: "claude" })];
+    panes = [orchPane({ paneId: "%1", session: "main", agentKey: "tmuxpane01", agent: "claude" })];
     const target = new TmuxBackend().inventory()[0];
     expect(target?.workspace).toBe("main");
     expect(target?.agent).toBe("claude");
   });
 
   test("inventory status is read from the pane's presence status.json", () => {
-    panes = [orchPane({ paneId: "%1", agentKey: "tmux~main~%251" })];
-    writeStatus("tmux~main~%251", { state: "working" });
+    panes = [orchPane({ paneId: "%1", agentKey: "tmuxpane01" })];
+    writeStatus("tmuxpane01", { state: "working" });
 
     const backend = new TmuxBackend();
     expect(backend.inventory()[0]?.status).toBe("working");
   });
 
   test("inventory status is null when no presence status.json exists", () => {
-    panes = [orchPane({ paneId: "%1", agentKey: "tmux~main~%299-no-status" })];
+    panes = [orchPane({ paneId: "%1", agentKey: "nostatus99" })];
     const backend = new TmuxBackend();
     expect(backend.inventory()[0]?.status).toBeNull();
   });
 
   test("waitAgentStatus polls presence status.json until it matches or times out", () => {
-    panes = [orchPane({ paneId: "%1", agentKey: "tmux~main~%251" })];
-    writeStatus("tmux~main~%251", { state: "working" });
+    panes = [orchPane({ paneId: "%1", agentKey: "tmuxpane01" })];
+    writeStatus("tmuxpane01", { state: "working" });
     const backend = new TmuxBackend();
 
     expect(backend.waitAgentStatus("%1", "done", 50)).toBe(false);
 
-    writeStatus("tmux~main~%251", { state: "done" });
+    writeStatus("tmuxpane01", { state: "done" });
     expect(backend.waitAgentStatus("%1", "done", 2000)).toBe(true);
   });
 
@@ -320,12 +320,12 @@ describe("TmuxBackend", () => {
 
   test("spawn places the agent into an existing group via split-window when opts.group is set", () => {
     const backend = new TmuxBackend();
-    const handle = backend.spawn(fakeAdapter, { key: "tmux~main~agent-1", cwd: "/work", group: "@1", split: "right" });
+    const handle = backend.spawn(fakeAdapter, { key: "tmuxagent1", cwd: "/work", group: "@1", split: "right" });
 
     expect(handle).toBe("%1");
     const split = callArgs("tmux", "split-window");
-    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", "ORCH_AGENT_KEY=tmux~main~agent-1", "-e", `ORCH_DIR=${testOrchDir}`, "--", "bash", "-lc", "fake-agent"]);
-    expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent_key tmux~main~agent-1")).toBe(true);
+    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", "ORCH_AGENT_KEY=tmuxagent1", "-e", `ORCH_DIR=${testOrchDir}`, "--", "bash", "-lc", "fake-agent"]);
+    expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent_key tmuxagent1")).toBe(true);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent pi")).toBe(true);
     // The tiling planner owns geometry; a blanket select-layout would overwrite it.
     expect(execCalls.some((call) => call.args[0] === "select-layout")).toBe(false);
@@ -333,7 +333,7 @@ describe("TmuxBackend", () => {
 
   test("spawn splits the planned target pane, not whatever pane the window has active", () => {
     const backend = new TmuxBackend();
-    backend.spawn(fakeAdapter, { key: "tmux~main~agent-1", cwd: "/work", group: "@1", split: "down", targetPane: "%7" });
+    backend.spawn(fakeAdapter, { key: "tmuxagent1", cwd: "/work", group: "@1", split: "down", targetPane: "%7" });
 
     expect(callArgs("tmux", "split-window")?.slice(0, 4)).toEqual(["split-window", "-t", "%7", "-v"]);
   });
@@ -358,7 +358,7 @@ describe("TmuxBackend", () => {
 
   test("spawn opens a new window via new-window when no group is given", () => {
     const backend = new TmuxBackend();
-    const handle = backend.spawn(fakeAdapter, { key: "tmux~main~agent-2", cwd: "/work" });
+    const handle = backend.spawn(fakeAdapter, { key: "tmuxagent2", cwd: "/work" });
 
     expect(handle).toBe("%1");
     expect(callArgs("tmux", "new-window")?.[0]).toBe("new-window");
@@ -367,8 +367,8 @@ describe("TmuxBackend", () => {
 
   test("groups() and workspaces() are scoped to windows/sessions containing an orch pane", () => {
     panes = [
-      orchPane({ paneId: "%1", agentKey: "tmux~main~%251" }),
-      orchPane({ paneId: "%2", agentKey: "tmux~main~%252", agent: "claude" }),
+      orchPane({ paneId: "%1", agentKey: "tmuxpane01" }),
+      orchPane({ paneId: "%2", agentKey: "tmuxpane02", agent: "claude" }),
       { ...orchPane({ paneId: "%9", agentKey: "" }), windowId: "@9", session: "main" },
       orchPane({
         paneId: "%3",
@@ -379,7 +379,7 @@ describe("TmuxBackend", () => {
         paneActive: false,
         windowActive: false,
         sessionAttached: false,
-        agentKey: "tmux~side~%253",
+        agentKey: "tmuxpane03",
       }),
     ];
 

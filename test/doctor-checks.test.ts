@@ -2,12 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { runDoctor, type CheckResult } from "../src/doctor/runner.ts";
+import { runDoctor } from "../src/doctor/runner.ts";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { loadConfig } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { CheckResult } from "../src/types/doctor.ts";
 
 const directories: string[] = [];
 

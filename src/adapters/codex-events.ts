@@ -4,10 +4,11 @@
 // these parsers without dragging the adapter's setup-time config and PATH probing
 // (and, through those, zod) into its bundle.
 import { readFileSync } from "node:fs";
-import { isRecord, textValue, type JsonRecord } from "../util.ts";
+import { isRecord, textValue } from "../util.ts";
 import { contentText } from "./transcript.ts";
 import type { AgentState } from "./adapter.ts";
 import type { CodexResultExtractionInput, SessionView, StateDetectionInput } from "../types/adapter.ts";
+import type { JsonRecord } from "../types/core.ts";
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
 export const CODEX_TURN_COMPLETE = "agent-turn-complete";

@@ -22,11 +22,12 @@ import {
   isInboxFilename,
   resetInbox,
 } from "../presence/inbox.ts";
-import { isRecord, isUnknownArray, optionalString, projectRoot, type JsonRecord } from "../util.ts";
+import { isRecord, isUnknownArray, optionalString, projectRoot } from "../util.ts";
 import { createModelControl, isControlCommand } from "./model-control.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { AgentPresenceOptions, AssistantMessageLike, HarnessContext, UsageLike } from "../types/agent.ts";
+import type { JsonRecord } from "../types/core.ts";
 
 export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */

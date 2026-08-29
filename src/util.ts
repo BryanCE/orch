@@ -1,16 +1,7 @@
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-/**
- * Absolute path of the package root — the directory holding package.json.
- * Walks up from this module's own location so it resolves correctly whether orch
- * runs from live source (`src/util.ts` → repo root) or the bundled entrypoint
- * (`dist/bin/orch.js` → repo root in dev, `node_modules/orch` when published).
- * A hardcoded "two levels up from the entry file" breaks the moment the entry
- * moves from `bin/` to `dist/bin/`.
- */
-export type OsSide = "linux" | "windows" | "darwin";
+import type { JsonRecord, OsSide } from "./types/core.ts";
 
 export function osSide(platform: NodeJS.Platform = process.platform): OsSide {
   if (platform === "win32") return "windows";
@@ -77,9 +68,6 @@ export function errnoCode(value: unknown): string | undefined {
 export function errorTrace(error: unknown): string {
   return error instanceof Error ? error.stack ?? error.message : String(error);
 }
-
-/** A parsed JSON object. The one spelling of this shape repo-wide. */
-export type JsonRecord = Record<string, unknown>;
 
 /**
  * True for a plain object — a JSON record, not an array.

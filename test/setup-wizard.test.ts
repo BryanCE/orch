@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { selectAllowedModels, selectDefaultModel, type CataloguePicker } from "../src/setup/wizard.ts";
+import { selectAllowedModels, selectDefaultModel } from "../src/setup/wizard.ts";
+import type { CataloguePicker } from "../src/types/command.ts";
 
 describe("setup model picker", () => {
   test("switches large catalogues to searchable bounded mode and preserves effort", async () => {

@@ -1,9 +1,9 @@
-import type { JsonRecord } from "../util.ts";
 // Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
 import type { subscribeEvents } from "../daemon/rpc.ts";
 import type { ThinkingLevel } from "./policy.ts";
+import type { JsonRecord } from "./core.ts";
 
 /**
  * The harness surface orch's in-agent control plane runs against.

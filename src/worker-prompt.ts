@@ -1,6 +1,7 @@
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
+import type { WorkerHeaderContext } from "./types/core.ts";
 
 /** Always-on worker header: the pane is unattended. */
 const WORKER_HEADER_BASE =
@@ -36,13 +37,6 @@ function lockedCommandsClause(lockedCommands: readonly string[]): string {
   if (lockedCommands.length === 0) return "";
   return ` These commands are locked machine-wide: ${lockedCommands.join(", ")}.` +
     ` Report rather than run them; the ${term("orch")} verifies.`;
-}
-
-export interface WorkerHeaderContext {
-  lockedCommands?: readonly string[];
-  /** The spawner's inbox is live and will accept a peer write. Default false: orch
-   *  never instructs a reply it has not established the worker can actually deliver. */
-  spawnerRepliable?: boolean;
 }
 
 /** Compose the worker header from the adapter's capabilities and this spawn's reachable peers. */

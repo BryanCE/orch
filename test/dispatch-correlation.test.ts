@@ -3,13 +3,14 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { isLogRecord, type LogRecord } from "../src/log.ts";
+import { isLogRecord } from "../src/log.ts";
 import { ACK_FILE } from "../src/presence/schema.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
 import { provenDaemonPid } from "../src/daemon/lifecycle.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { LogRecord } from "../src/types/core.ts";
 
 const directories: string[] = [];
 const discoveries = new Map<string, string>();

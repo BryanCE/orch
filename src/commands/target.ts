@@ -1,7 +1,7 @@
 import { loadConfig } from "../config.ts";
 import { getBackend } from "../backends/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { buildEntities, parseTarget, resolveTarget, type Entity } from "../entities.ts";
+import { buildEntities, parseTarget, resolveTarget } from "../entities.ts";
 import { selfId } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
@@ -18,6 +18,7 @@ import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { HostConfig } from "../types/config.ts";
 import type { LifecycleTarget } from "../types/command.ts";
+import type { Entity } from "../types/core.ts";
 
 export function die(msg: string): never {
   commandLogger().error("command.failed", { error: msg });

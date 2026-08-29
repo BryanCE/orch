@@ -32,12 +32,12 @@ function captureStdout(run: () => void): string {
  *  breaks the reader test instead of leaving it agreeing with a stale fixture. */
 function seedLogs(directory: string): void {
   const daemon = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_000_000 });
-  daemon.forCorrelation("dispatch-7").forAgent("agent-1").info("dispatch.accepted", { target: "headless~local~agent-1" });
+  daemon.forCorrelation("dispatch-7").forAgent("agentaaa01").info("dispatch.accepted", { target: "agentaaa01" });
   const later = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_005_000 });
-  later.forCorrelation("dispatch-7").forAgent("agent-1").error("dispatch.failed", { error: "no channel accepted the write" });
-  later.forCorrelation("dispatch-9").forAgent("agent-2").info("dispatch.accepted", { target: "headless~local~agent-2" });
+  later.forCorrelation("dispatch-7").forAgent("agentaaa01").error("dispatch.failed", { error: "no channel accepted the write" });
+  later.forCorrelation("dispatch-9").forAgent("agentbbb02").info("dispatch.accepted", { target: "agentbbb02" });
   const cli = createLogger({ file: join(directory, "orch.log"), level: "trace", now: () => 1_700_000_002_000 });
-  cli.forCorrelation("dispatch-7").forAgent("agent-1").info("dispatch.cli-accepted", { target: "headless~local~agent-1" });
+  cli.forCorrelation("dispatch-7").forAgent("agentaaa01").info("dispatch.cli-accepted", { target: "agentaaa01" });
 }
 
 function fixture(): string {
@@ -58,12 +58,12 @@ describe("orch logs", () => {
       "dispatch.failed",
     ]);
     expect(lines.every((line) => line.includes("dispatch-7"))).toBe(true);
-    expect(lines.every((line) => line.includes("agent=agent-1"))).toBe(true);
+    expect(lines.every((line) => line.includes("agent=agentaaa01"))).toBe(true);
   });
 
   test("--agent selects one agent's records", () => {
     seedLogs(fixture());
-    const lines = captureStdout(() => { cmdLogs(["--agent", "agent-2"]); }).trim().split("\n");
+    const lines = captureStdout(() => { cmdLogs(["--agent", "agentbbb02"]); }).trim().split("\n");
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("dispatch-9");
   });
@@ -97,7 +97,7 @@ describe("orch logs", () => {
     seedLogs(fixture());
     const lines = captureStdout(() => { cmdLogs(["--dispatch", "dispatch-9"]); }).trim().split("\n");
     expect(lines[0]).toBe(
-      `${new Date(1_700_000_005_000).toISOString()} info dispatch.accepted [dispatch-9] [agent=agent-2] {"target":"headless~local~agent-2"}`,
+      `${new Date(1_700_000_005_000).toISOString()} info dispatch.accepted [dispatch-9] [agent=agentbbb02] {"target":"agentbbb02"}`,
     );
   });
 
@@ -111,8 +111,8 @@ describe("orch logs", () => {
       level: "info",
       event: "dispatch.accepted",
       correlationId: "dispatch-9",
-      agentId: "agent-2",
-      fields: { target: "headless~local~agent-2" },
+      agentId: "agentbbb02",
+      fields: { target: "agentbbb02" },
     });
   });
 });

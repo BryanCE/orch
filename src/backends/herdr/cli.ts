@@ -1,9 +1,9 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
-import { type RetryPolicy } from "../../retry.ts";
 import { DEFAULT_TOOL_RETRY, runTool } from "../tool-exec.ts";
 import type { HerdrPane, HerdrTab } from "../../types/plexer.ts";
+import type { RetryPolicy } from "../../types/core.ts";
 
 interface HerdrAgent {
   pane_id?: string;

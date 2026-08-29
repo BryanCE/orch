@@ -1,10 +1,11 @@
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { retryingAsync, retryingSync, type RetryPolicy } from "../retry.ts";
+import { retryingAsync, retryingSync } from "../retry.ts";
 import { orchDir } from "../presence/writer.ts";
 import { clearCatalogues, readCatalogues, writeCatalogue } from "../store/catalogue-rows.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import type { StoredCatalogue } from "../types/store.ts";
+import type { RetryPolicy } from "../types/core.ts";
 
 /** A cold registry on a slow machine takes far longer to print than a warm one, and giving up
  *  early strips every model out of setup rather than failing loudly. */

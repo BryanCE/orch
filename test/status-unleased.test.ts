@@ -4,13 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { deriveView, formatOwnerCell, statusRowFromView } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
-import type { Entity } from "../src/entities.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { rmSync } from "node:fs";
+import type { Entity } from "../src/types/core.ts";
 
 const dirs: string[] = [];
 afterEach(() => {

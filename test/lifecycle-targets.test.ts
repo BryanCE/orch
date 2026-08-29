@@ -32,8 +32,8 @@ describe("lifecycle target resolution", () => {
   test("prefers one live agent over dead ones sharing its name", () => {
     const views = [view("live", "worker"), view("dead", "worker")];
     const found = resolveAgentView(views, new Map([
-      ["live", presence("headless~local~live", true)],
-      ["dead", presence("headless~local~dead", false)],
+      ["live", presence("liveagent1", true)],
+      ["dead", presence("deadagent1", false)],
     ]), "worker");
     expect(found?.id).toBe("live");
   });
@@ -41,13 +41,13 @@ describe("lifecycle target resolution", () => {
   test("reports the target and disambiguating ids for live ambiguity", () => {
     expect(() => resolveAgentView(
       [view("key-a", "worker"), view("key-b", "worker")],
-      new Map([["key-a", presence("headless~local~key-a", true)], ["key-b", presence("headless~local~key-b", true)]]),
+      new Map([["key-a", presence("keyaagent1", true)], ["key-b", presence("keybagent1", true)]]),
       "worker",
     )).toThrow(/Ambiguous target "worker".*key-a.*key-b/);
   });
 
   test("cleanup can still resolve a dead agent when no live match exists", () => {
-    const found = resolveAgentView([view("dead", "worker")], new Map([["dead", presence("headless~local~dead", false)]]), "worker");
+    const found = resolveAgentView([view("dead", "worker")], new Map([["dead", presence("deadagent1", false)]]), "worker");
     expect(found?.id).toBe("dead");
   });
 

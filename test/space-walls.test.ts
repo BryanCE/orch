@@ -2,11 +2,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { entitySpace, scopeEntitiesToSpace, spaceOf, type Entity } from "../src/entities.ts";
+import { entitySpace, scopeEntitiesToSpace, spaceOf } from "../src/entities.ts";
 import { checkWall } from "../src/policy/space.ts";
 import { recordSpawned } from "../src/presence/store.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { Entity } from "../src/types/core.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-space-walls-"));
 process.env.ORCH_DIR = orchDir;

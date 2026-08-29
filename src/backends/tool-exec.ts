@@ -1,6 +1,7 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
-import { retryingSync, type RetryPolicy } from "../retry.ts";
+import { retryingSync } from "../retry.ts";
 import type { ToolExecutor } from "../types/backend.ts";
+import type { RetryPolicy } from "../types/core.ts";
 
 const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   encoding: "utf8",

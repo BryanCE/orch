@@ -5,10 +5,10 @@ import type { HostSchema, NotifyEntrySchema } from "../config.ts";
 import type { AdapterId } from "./adapter.ts";
 import { AGENT_STATES } from "../agent-state.ts";
 import type { BackendId } from "./backend.ts";
-import type { LogLevel } from "../log.ts";
 import type { OrchRuntime } from "../runtimes.ts";
 import type { ThinkingLevel } from "./policy.ts";
 import type { TileFirstSplit } from "./backend.ts";
+import type { LogLevel } from "./core.ts";
 
 /** The shared agent-state vocabulary used by presence, events, and notify sinks. */
 export const NOTIFY_STATES = AGENT_STATES;

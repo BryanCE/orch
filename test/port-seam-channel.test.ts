@@ -27,7 +27,7 @@ afterEach(() => {
 describe("orch channel and capture roles", () => {
   test("headless delivery reaches the inbox and is acknowledged without a screen", () => {
     const orchDir = tempOrchDir();
-    const key = "headless~temp~worker";
+    const key = "workeragt1";
     const agentDir = presenceAgentDir(key, orchDir);
     fs.mkdirSync(agentDir, { recursive: true });
     writeStatus(agentDir, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "working" });
@@ -48,7 +48,7 @@ describe("orch channel and capture roles", () => {
 
   test("capture reads status and result from the orch presence record", () => {
     const orchDir = tempOrchDir();
-    const key = "headless~temp~captured";
+    const key = "capturedg1";
     const agentDir = presenceAgentDir(key, orchDir);
     fs.mkdirSync(agentDir, { recursive: true });
     writeStatus(agentDir, { schema: PRESENCE_SCHEMA, key, agent: "codex", pid: process.pid, state: "done" });

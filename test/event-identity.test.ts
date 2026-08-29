@@ -28,9 +28,9 @@ describe("published event identity", () => {
   test("stamps a per-agent ordinal so a redelivery is recognizable", () => {
     const published: NotifyEvent[] = [];
     const emit = (value: unknown): void => { published.push(value as NotifyEvent); };
-    emitAndNotify(emit, [], transition("headless~ws~seq-a", "idle", "working"));
-    emitAndNotify(emit, [], transition("headless~ws~seq-a", "working", "done"));
-    emitAndNotify(emit, [], transition("headless~ws~seq-b", "idle", "working"));
+    emitAndNotify(emit, [], transition("seqaagent1", "idle", "working"));
+    emitAndNotify(emit, [], transition("seqaagent1", "working", "done"));
+    emitAndNotify(emit, [], transition("seqbagent1", "idle", "working"));
 
     expect(published.map((event) => event.seq)).toEqual([1, 2, 1]);
   });
@@ -39,7 +39,7 @@ describe("published event identity", () => {
 describe("the work loop is not a second presence-transition source", () => {
   test("an agent state change publishes nothing from the queue loop", async () => {
     const orchDir = tempOrchDir();
-    const key = "headless~workspace~loop-agent";
+    const key = "loopagent1";
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
     seedStatus(orchDir, key, { state: "idle", label: "Loop agent", pid: process.pid });

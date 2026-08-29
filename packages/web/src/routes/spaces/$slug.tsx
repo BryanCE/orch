@@ -57,7 +57,7 @@ function SpaceDetail() {
   const [, orphans] = partitionAgents(space.agents);
   // Every orch section holds at least one agent by definition; the unheld group
   // is dropped here because the Orphans section already names that fact.
-  const heldOrchs = space.orchs.filter((orch) => orch.agents.some((agent) => agent.lease !== null && agent.lease.holderAlive));
+  const heldOrchs = space.orchs.filter((orch) => orch.agents.some((agent) => agent.lease?.holderAlive === true));
 
   return (
     <div className="flex flex-1 flex-col">

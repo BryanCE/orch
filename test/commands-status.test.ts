@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveView, displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromView, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
-import type { Entity } from "../src/entities.ts";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import type { AgentView } from "../src/types/store.ts";
+import type { Entity } from "../src/types/core.ts";
 
 /** A complete AgentView, so a fixture never has to lie to the compiler. */
 function agentViewFixture(id: string, holder: string | null): AgentView {

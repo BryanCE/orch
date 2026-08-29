@@ -12,31 +12,7 @@
  */
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-
-/** Ordered lowest severity last: an index into this array IS the verbosity. */
-export const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"] as const;
-
-export type LogLevel = (typeof LOG_LEVELS)[number];
-
-/** What a field may hold. A record is a row to be queried, not a place for objects:
- *  a nested shape has no stable column and cannot be filtered on. */
-export type LogValue = string | number | boolean | null;
-
-export interface LogRecord {
-  /** Epoch millis. Rule 11: instants are INTEGER epoch millis, never TEXT. */
-  readonly at: number;
-  readonly level: LogLevel;
-  /** A stable dotted name ("dispatch.delivered"), never a sentence. The readable
-   *  rendering is produced from the record, so wording can change without breaking
-   *  anything that greps. */
-  readonly event: string;
-  /** The dispatch id, or the RPC request id. Correlation is the point. */
-  readonly correlationId?: string;
-  /** orch's minted id and nothing else. A plexer handle is environment
-   *  (`TASKS/01-agent-model.md`) and belongs in `fields`. */
-  readonly agentId?: string;
-  readonly fields?: Readonly<Record<string, LogValue>>;
-}
+import { LOG_LEVELS, type LogContext, type LogLevel, type LogRecord, type LogValue, type Logger, type LoggerOptions } from "./types/core.ts";
 
 export function isLogLevel(value: unknown): value is LogLevel {
   return typeof value === "string" && LOG_LEVELS.some((level) => level === value);
@@ -66,31 +42,6 @@ export function isLogRecord(value: unknown): value is LogRecord {
   if (candidate.agentId !== undefined && typeof candidate.agentId !== "string") return false;
   if (candidate.fields !== undefined && !isFields(candidate.fields)) return false;
   return true;
-}
-
-/** Per-record context that is not a field: who this is about, and what it belongs to. */
-export interface LogContext {
-  readonly correlationId?: string;
-  readonly agentId?: string;
-}
-
-export interface Logger {
-  error(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
-  warn(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
-  info(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
-  debug(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
-  trace(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
-  /** A logger that stamps every record with one correlation id, so a caller cannot
-   *  forget to pass it halfway through a dispatch. */
-  forCorrelation(correlationId: string): Logger;
-  forAgent(agentId: string): Logger;
-}
-
-export interface LoggerOptions {
-  readonly file: string;
-  readonly level: LogLevel;
-  /** Injectable so a test can assert ordering without sleeping on the real clock. */
-  readonly now?: () => number;
 }
 
 function severity(level: LogLevel): number {

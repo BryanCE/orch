@@ -38,7 +38,7 @@ describe("orch presence notifications", () => {
     const orchDir = mkdtempSync(join(tmpdir(), "orch-work-notify-"));
     tempDirs.push(orchDir);
     const output = join(orchDir, "notification.json");
-    const key = "headless~workspace~test-agent";
+    const key = "testagent1";
     const command = nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`);
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;

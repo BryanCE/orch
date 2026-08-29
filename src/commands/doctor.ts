@@ -1,8 +1,9 @@
-import { applyFixes, runDoctor, type CheckResult } from "../doctor/runner.ts";
+import { applyFixes, runDoctor } from "../doctor/runner.ts";
 import { renderDoctorResults, pickFixes } from "../setup/doctor-wizard.ts";
 import { withSpinner } from "../setup/io.ts";
 import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
+import type { CheckResult } from "../types/doctor.ts";
 
 /** Only a genuine failure makes doctor exit non-zero. A warning names a situational condition
  * (outside a session, stale daemon code, a dead presence dir) that does not mean the install is

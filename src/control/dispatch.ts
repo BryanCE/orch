@@ -9,7 +9,7 @@ import { awaitControlOutcome } from "./outcome.ts";
 import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../types/adapter.ts";
-import type { ControlAck, ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
+import type { ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
 
 /**
  * Control-plane dispatcher (L5 facade). Runs inside the daemon only; the CLI

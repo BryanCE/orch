@@ -11,11 +11,12 @@ import { BACKEND_IDS, TILE_FIRST_SPLITS } from "./types/backend.ts";
 import { THINKING_LEVELS } from "./types/policy.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
 import { ensurePrivateDir, errnoCode, errorMessage, isRecord } from "./util.ts";
-import { isLogLevel, type LogLevel } from "./log.ts";
+import { isLogLevel } from "./log.ts";
 import type { BackendId } from "./types/backend.ts";
 import type { AdapterId } from "./types/adapter.ts";
 import type { ThinkingLevel } from "./types/policy.ts";
 import { NOTIFY_STATES, type ConfigWatch, type ConfigWatchOptions, type NotifyEntry, type NotifyState, type OrchConfig, type SettingSource } from "./types/config.ts";
+import type { LogLevel } from "./types/core.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is

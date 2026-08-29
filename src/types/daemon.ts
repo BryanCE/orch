@@ -1,6 +1,6 @@
-import type { OsSide } from "../util.ts";
 import type { SessionAgentIdentity } from "./store.ts";
 import type { NotifyEvent } from "./notify.ts";
+import type { OsSide } from "./core.ts";
 
 export interface LockRecord {
   pid: number;

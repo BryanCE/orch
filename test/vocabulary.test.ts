@@ -96,6 +96,10 @@ describe("vocabulary is a display map, and a role is tree position", () => {
     const offenders: string[] = [];
     for (const file of sourceFiles(join(import.meta.dir, "../src"))) {
       if (file.endsWith(join("policy", "vocabulary.ts"))) continue;
+      // The `Role` type is `Extract<Term, ...>` over that same map — the map's own
+      // declaration, in the types layer where every type now lives. It quotes the
+      // terms by necessity, exactly as reading the map does, and displays nothing.
+      if (file.endsWith(join("types", "policy.ts"))) continue;
       // Rule 10: a shipped bundle's OUTPUT name is an artifact the installed
       // tree and doctor already know. It is an identifier, not a word orch
       // displays, and renaming a term must never rename it.

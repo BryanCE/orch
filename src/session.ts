@@ -1,52 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isRecord } from "./util.ts";
-
-interface TextContentBlock {
-  type: "text";
-  text?: string;
-}
-
-export interface ToolCallContentBlock {
-  type: "toolCall";
-  name?: string;
-  arguments?: Record<string, unknown>;
-}
-
-interface OtherContentBlock {
-  type: string;
-  [key: string]: unknown;
-}
-
-type ContentBlock = TextContentBlock | ToolCallContentBlock | OtherContentBlock;
-type SessionContent = string | ContentBlock[];
-
-interface SessionUsage {
-  input?: number;
-  output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  cost?: number | { total?: number };
-}
-
-interface SessionMessage {
-  role: string;
-  timestamp?: string;
-  content?: SessionContent;
-  model?: string;
-  provider?: string;
-  usage?: SessionUsage;
-  toolName?: string;
-  isError?: boolean;
-}
-
-export interface SessionEntry {
-  type: string;
-  timestamp?: string;
-  modelId?: string;
-  provider?: string;
-  thinkingLevel?: string;
-  message?: SessionMessage;
-}
+import type { ContentBlock, SessionContent, SessionEntry, SessionMessage, SessionUsage, TextContentBlock, ToolCallContentBlock } from "./types/core.ts";
 
 interface SessionData {
   exists: boolean;

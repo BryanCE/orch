@@ -10,8 +10,9 @@ import {
 } from "../src/daemon/lifecycle.ts";
 import { checkOsExecutors } from "../src/doctor/daemon.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { osSide, type OsSide } from "../src/util.ts";
+import { osSide } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { OsSide } from "../src/types/core.ts";
 
 const oldDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
 const roots: string[] = [];

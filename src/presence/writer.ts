@@ -17,8 +17,9 @@ import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ANSWER_FILE, PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
-import { errorMessage, isRecord, type JsonRecord } from "../util.ts";
+import { errorMessage, isRecord } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord } from "../types/presence.ts";
+import type { JsonRecord } from "../types/core.ts";
 
 /** $ORCH_DIR, defaulting to ~/.orch. Read per call so tests can repoint the env. */
 export function orchDir(): string {

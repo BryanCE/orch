@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { orchDir } from "../presence/store.ts";
-import { isLogLevel, isLogRecord, type LogLevel, type LogRecord } from "../log.ts";
+import { isLogLevel, isLogRecord } from "../log.ts";
 import { die } from "./target.ts";
 import type { LogOptions } from "../types/command.ts";
+import type { LogRecord } from "../types/core.ts";
 
 /** Exported so the filter contract is testable without a process exit: every
  *  invalid flag ends in `die`, and `die` cannot be observed from in-process. */

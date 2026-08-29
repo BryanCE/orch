@@ -4,10 +4,9 @@ import { loadConfig } from "../config.ts";
 import { selfId } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { openStore } from "../store/connection.ts";
-import { ensurePlexer } from "../store/agent-rows.ts";
+import { clearHome, homeHandle, openHome } from "../store/home-rows.ts";
 import { die, splitOptionFlags } from "./target.ts";
 import { errorMessage, isRecord } from "../util.ts";
-import type { SpaceHomeRole } from "../types/backend.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
 
 /**
@@ -47,12 +46,11 @@ function readSpaceRows(directory: string): SpaceRecord[] {
 }
 
 /** This environment's live home coordinate for a space, or null when the space
- *  has none HERE — a home recorded in another plexer is not this one's to drive. */
+ *  has none HERE — a home recorded in another plexer is not this one's to drive.
+ *  The read lives in `src/store/home-rows.ts` with every other home row so a
+ *  space and a pack cannot drift into two shapes (E10, E11). */
 function readHome(env: SpaceEnvironment, spaceId: string): string | null {
-  const row = openStore(env.directory)
-    .query("SELECT handle FROM space_plexers WHERE space_id = ? AND plexer_id = ? AND until IS NULL")
-    .get(spaceId, env.plexerId);
-  return isRecord(row) && typeof row.handle === "string" ? row.handle : null;
+  return homeHandle(env.directory, { kind: "space", id: spaceId }, env.plexerId);
 }
 
 function findSpace(directory: string, target: string): SpaceRecord {
@@ -104,14 +102,16 @@ function createSpace(env: SpaceEnvironment, name: string, json: boolean): void {
   const role = env.spaceHome;
   // The home is part of what was asked for, so its failure fails the whole
   // create and leaves orch nothing to clean up.
-  const coordinate = role === null ? null : role.create({ kind: "space", id }, { cwd: process.cwd(), label: name }).coordinate;
-  const db = openStore(env.directory);
-  db.query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, ?, ?)").run(id, name, recordableActor(env), now);
-  if (coordinate !== null) {
-    ensurePlexer(env.directory, env.plexerId, env.plexerId);
-    db.query("INSERT INTO space_plexers (space_id, since, until, plexer_id, handle) VALUES (?, ?, NULL, ?, ?)")
-      .run(id, now, env.plexerId, coordinate);
-  }
+  // The spaces row lands FIRST: `openHome` records a `space_plexers` row whose
+  // foreign key names it, so opening the home before the space exists would fail
+  // on a reference orch itself had not written yet.
+  openStore(env.directory)
+    .query("INSERT INTO spaces (id, name, created_by, created_at) VALUES (?, ?, ?, ?)")
+    .run(id, name, recordableActor(env), now);
+  const coordinate = openHome({
+    directory: env.directory, subject: { kind: "space", id }, plexerId: env.plexerId,
+    home: role, cwd: process.cwd(), label: name,
+  });
   emit({ space: { id, name }, home: coordinate === null ? "none" : "created" }, `Created space "${name}".`, json);
 }
 
@@ -144,9 +144,8 @@ function deleteSpace(env: SpaceEnvironment, target: string | undefined, json: bo
   const role = env.spaceHome;
   const coordinate = role === null ? null : readHome(env, space.id);
   if (role !== null && coordinate !== null) role.close(coordinate);
-  const db = openStore(env.directory);
-  db.query("DELETE FROM space_plexers WHERE space_id = ?").run(space.id);
-  db.query("DELETE FROM spaces WHERE id = ?").run(space.id);
+  clearHome(env.directory, { kind: "space", id: space.id });
+  openStore(env.directory).query("DELETE FROM spaces WHERE id = ?").run(space.id);
   emit(
     { space: { id: space.id, name: space.name }, deleted: true, home: coordinate === null ? "none" : "closed" },
     `Deleted space "${space.name}".`,

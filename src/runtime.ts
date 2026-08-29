@@ -10,14 +10,7 @@ import type { OrchRuntime } from "./runtimes.ts";
 import { binaryPath } from "./util.ts";
 
 export { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
-
-/** Filesystem scope a shim invocation is granted. Paths must be absolute. */
-export interface ShimScope {
-  /** The resolved $ORCH_DIR — read AND written (presence records live here). */
-  orchDir: string;
-  /** Additional read-only roots, e.g. the directory holding claude transcripts. */
-  readOnly?: readonly string[];
-}
+import type { ShimScope } from "./types/core.ts";
 
 /**
  * The argv that executes a plain ESM JS file under one runtime — the ONE

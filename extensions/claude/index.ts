@@ -20,10 +20,11 @@ import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { ensurePresenceAgentDir, launchKey, launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { isRecord, parsePid, projectRoot, type JsonRecord } from "../../src/util.ts";
+import { isRecord, parsePid, projectRoot } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
 import { prepareWorkerTask } from "../../src/worker-prompt.ts";
+import type { JsonRecord } from "../../src/types/core.ts";
 
 const AGENT_ID = "claude";
 const MAX_TEXT = 400;

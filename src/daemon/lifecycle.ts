@@ -12,9 +12,10 @@ import {
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
-import { ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot, type OsSide } from "../util.ts";
+import { ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
+import type { OsSide } from "../types/core.ts";
 
 const HASH_LENGTH = 12;
 

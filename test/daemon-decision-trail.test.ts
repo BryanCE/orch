@@ -7,10 +7,11 @@ import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.
 import { openStore } from "../src/store/connection.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { governWrite, deliverWrite } from "../src/daemon/orchd.ts";
-import { isLogRecord, type LogRecord } from "../src/log.ts";
+import { isLogRecord } from "../src/log.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { LogRecord } from "../src/types/core.ts";
 
 const dirs: string[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;

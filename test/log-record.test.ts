@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLogger, isLogRecord, LOG_LEVELS, type LogRecord } from "../src/log.ts";
+import { createLogger, isLogRecord } from "../src/log.ts";
+import { LOG_LEVELS } from "../src/types/core.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { LogRecord } from "../src/types/core.ts";
 
 const dirs: string[] = [];
 function temp(): string {

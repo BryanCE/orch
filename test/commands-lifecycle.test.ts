@@ -45,9 +45,9 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
 describe("commands/lifecycle", () => {
   test("capability helpers fail closed when absent", () => {
     expect(paneForeground({} as never, "p1")).toEqual(NO_PANE_FOREGROUND);
-    expect(reloadPaneAndAwaitBridge({ sendKeys: () => false } as never, "p1", "headless~local~1", "reload")).toEqual(expect.objectContaining({ pane: "p1", ok: false }) as ReturnType<typeof reloadPaneAndAwaitBridge>);
+    expect(reloadPaneAndAwaitBridge({ sendKeys: () => false } as never, "p1", "agent00001", "reload")).toEqual(expect.objectContaining({ pane: "p1", ok: false }) as ReturnType<typeof reloadPaneAndAwaitBridge>);
   });
-  test("reports missing bridge pid without touching backend", () => expect(reloadPaneAndAwaitBridge({ sendKeys: () => { throw new Error("should not send"); } } as never, "p1", "missing~local~1", "reload")).toMatchObject({ ok: false }));
+  test("reports missing bridge pid without touching backend", () => expect(reloadPaneAndAwaitBridge({ sendKeys: () => { throw new Error("should not send"); } } as never, "p1", "missingag1", "reload")).toMatchObject({ ok: false }));
 
   test("--all targets the agents this orch holds a live lease on, and drops them when it releases", () => {
     withFleet((root, key, agentId) => {

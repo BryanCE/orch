@@ -1,21 +1,6 @@
 import { abstractAgentLabel } from "./notify/format.ts";
 import { optionalString } from "./util.ts";
-
-/**
- * Who a control message reached, split into what an operator reads and what routed it.
- *
- * Panes move, spaces are renamed and a plexer can be swapped without any of it
- * changing the agent, so `transportId` is a debug field and never a display name. This
- * module is a LEAF on purpose: the in-harness peer tools render the same identity as
- * the CLI, and importing the spawn registry there would drag the store into a bundle
- * that runs inside someone else's harness process.
- */
-export interface Recipient {
-  name: string;
-  harness: string | null;
-  multiplexer: string | null;
-  transportId: string;
-}
+import type { Recipient } from "./types/core.ts";
 
 /** The one human-facing spelling of an agent: `pi/herdr: snapshot-recon-1`. */
 export function recipientLabel(recipient: Recipient): string {

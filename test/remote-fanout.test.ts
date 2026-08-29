@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runRemoteAsync, type RemoteResult } from "../src/remote.ts";
+import { runRemoteAsync } from "../src/remote.ts";
+import type { RemoteResult } from "../src/types/core.ts";
 
 const directories: string[] = [];
 

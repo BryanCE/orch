@@ -33,7 +33,7 @@ afterEach(() => {
 /** A fully-injected step set that always reaches a clean round-trip; each test overrides one leg. */
 function steps(overrides: Partial<SmokeSteps>): Partial<SmokeSteps> {
   return {
-    spawnHeadless: () => Promise.resolve("headless~local~smoke"),
+    spawnHeadless: () => Promise.resolve("smokeagen1"),
     buildPrompt: () => "ready?",
     readResultText: () => "ready",
     cleanup: (key) => { cleanedKeys.push(key); },
@@ -51,14 +51,14 @@ describe("runSetupSmoke (12.5)", () => {
     expect(process.exitCode).toBeUndefined();
     expect(output).toContain("Smoke ok");
     expect(output).toContain("orch can deliver work");
-    expect(cleanedKeys).toEqual(["headless~local~smoke"]);
+    expect(cleanedKeys).toEqual(["smokeagen1"]);
   });
 
   test("the agent is launched on the prompt it built", async () => {
     let launchedOn = "";
     await runSetupSmoke("/tmp/smoke", steps({
       buildPrompt: () => "Reply with the single word: ready",
-      spawnHeadless: (_cwd, prompt) => { launchedOn = prompt; return Promise.resolve("headless~local~smoke"); },
+      spawnHeadless: (_cwd, prompt) => { launchedOn = prompt; return Promise.resolve("smokeagen1"); },
     }));
     expect(launchedOn).toBe("Reply with the single word: ready");
   });
@@ -81,7 +81,7 @@ describe("runSetupSmoke (12.5)", () => {
     expect(output).toContain("no result came back");
     expect(output).toContain("did not complete a work round-trip");
     // A timed-out smoke still tears down the spawned agent.
-    expect(cleaned).toBe("headless~local~smoke");
+    expect(cleaned).toBe("smokeagen1");
   });
 
   test("a rejected spawn fails loudly and never polls for a result", async () => {

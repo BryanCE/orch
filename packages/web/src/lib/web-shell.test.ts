@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { projectFleet, projectHistory, partitionAgents, type FleetProjectionRow } from "./fleet";
 
 const row = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow => ({
-  key: "herdr~wF~agent-key", paneId: null, name: null, state: "idle", exited: false,
+  key: "agentkey01", paneId: null, name: null, state: "idle", exited: false,
   model: "", lastText: null, cost: 0, ctxPercent: null, tokens: null,
   capabilities: { panes: false, focusable: false, canSendKeys: false, canPruneLogs: false },
-  lease: null, leaseKnown: false, spaceId: "space-1", spaceName: "Frontend", agentId: "agent-key",
+  lease: null, leaseKnown: false, spaceId: "space-1", spaceName: "Frontend", agentId: "agentkey01",
   spawnedBy: null, spawnedByLabel: null,
   ...overrides,
 });

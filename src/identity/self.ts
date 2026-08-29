@@ -4,35 +4,7 @@ import { allAdapters } from "../adapters/registry.ts";
 import { optionalString } from "../util.ts";
 import { orchDir } from "../presence/writer.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
-
-/**
- * Who this process is, as ONE answer for the whole CLI.
- *
- * Identity is the minted id and nothing else (TASKS/01). Where the process runs
- * — plexer, space, pane handle, cwd — is ENVIRONMENT: recorded on its own rows
- * beside the agent, never consulted to work out who someone is. Asking the plexer
- * "who am I" is what produced `<backend>~<workspace>~operator`, an id that named
- * an environment and matched no stored record, so orch refused its own fleet.
- *
- * Orch mints exactly once, in `hello`. Everything here READS that record.
- */
-/**
- * The harness session this `orch` process runs inside, as that harness's OWN
- * adapter declares it. Orch names no harness here (Rule 9): an adapter that
- * exports a session marker owns the env vocabulary, one that declares none has
- * no session identity, and adding a harness edits zero files outside its adapter.
- *
- * This is ENVIRONMENT — where the caller is running. The only identity it yields
- * is the token used to look up the id orch already minted.
- */
-export interface CallerSession {
-  readonly harnessId: string;
-  /** Stable per-session token, when the harness exports one. */
-  readonly sessionId: string | null;
-  /** The session's own pid, when it exports one. NEVER `process.ppid`: that is
-   *  the shell orch was run from, which differs on every invocation. */
-  readonly pid: number | null;
-}
+import type { CallerSession, SelfIdentity } from "../types/core.ts";
 
 export function callerSession(adapters: readonly AgentAdapter[] = allAdapters()): CallerSession | null {
   const marked = adapters.find((adapter) =>
@@ -42,11 +14,6 @@ export function callerSession(adapters: readonly AgentAdapter[] = allAdapters())
   const rawPid = marked.sessionPidEnv ? optionalString(process.env[marked.sessionPidEnv]) : undefined;
   const pid = rawPid !== undefined && /^[0-9]+$/.test(rawPid) ? Number(rawPid) : null;
   return { harnessId: marked.id, sessionId, pid: pid !== null && pid > 0 ? pid : null };
-}
-
-export interface SelfIdentity {
-  /** The id orch minted. Opaque, immutable, plexer-independent. */
-  readonly id: string;
 }
 
 /** The id orch handed this process, or null when orch has never registered it. */

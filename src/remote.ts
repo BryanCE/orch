@@ -1,34 +1,14 @@
 import { execFile, execFileSync } from "node:child_process";
 import { osSide, shellQuote } from "./util.ts";
 import type { HostConfig } from "./types/config.ts";
+import type { RemoteResult, SshResult } from "./types/core.ts";
 
 const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
-
-type RemoteFailureKind = "dead-host" | "timeout" | "non-json" | "invalid-config";
-
-interface RemoteFailure {
-  kind: RemoteFailureKind;
-  host: string;
-  message: string;
-  stderr?: string;
-  stdout?: string;
-}
-
-export type RemoteResult =
-  | { ok: true; value: unknown }
-  | { ok: false; failure: RemoteFailure };
 
 interface RemoteOptions {
   timeoutMs?: number;
   /** Primarily for hermetic callers; ORCH_SSH_BIN is used otherwise. */
   sshBin?: string;
-}
-
-export interface SshResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code?: number;
 }
 
 /** Execute an arbitrary command over SSH (used by diagnostics and remote probes). */

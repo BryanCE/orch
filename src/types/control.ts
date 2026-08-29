@@ -1,3 +1,4 @@
+import type { LifecycleVerb } from "./adapter.ts";
 export interface CommandLock {
   pid: number;
   start_token: string;

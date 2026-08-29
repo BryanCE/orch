@@ -1,6 +1,6 @@
-import type { JsonRecord } from "../util.ts";
 import type { AdapterId } from "./adapter.ts";
 import type { BackendId } from "./backend.ts";
+import type { JsonRecord } from "./core.ts";
 
 export interface PresenceStatus {
   /** Must equal PRESENCE_SCHEMA (src/presence/schema.ts); anything else is malformed. */

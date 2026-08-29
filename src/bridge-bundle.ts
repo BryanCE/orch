@@ -2,12 +2,8 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { binaryOnPath } from "./util.ts";
-import {
-  EXTENSION_NAMES,
-  RETIRED_EXTENSION_NAMES,
-  extensionBundlePath,
-  type ExtensionName,
-} from "./extensions/bundles.ts";
+import { EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, extensionBundlePath } from "./extensions/bundles.ts";
+import type { ExtensionName } from "./types/core.ts";
 
 export { EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, extensionBundlePath, type ExtensionName };
 

@@ -6,39 +6,18 @@ import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
-import type { Recipient } from "./recipient.ts";
 import { agentView, agentViews } from "./store/agent-view.ts";
 import { selfId } from "./identity/self.ts";
 import { CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
-export { recipientLabel, type Recipient } from "./recipient.ts";
+export { recipientLabel } from "./recipient.ts";
+export type { Recipient } from "./types/core.ts";
 import type { Backend, BackendTarget } from "./types/backend.ts";
 import type { AgentView } from "./types/store.ts";
 import type { PresenceEntry } from "./types/presence.ts";
 import type { HostConfig } from "./types/config.ts";
-
-export interface Entity {
-  key: string;
-  paneId: string | null;
-  /** True when orch spawned this agent. A backend reports every pane it owns,
-   *  including the orchestrator's own — false means "someone else's pane". */
-  managed: boolean;
-  name: string | null;
-  tabLabel: string | null;
-  agent: string | null;
-  focused: boolean;
-  backendStatus: string | null;
-  /** Backend that owns this agent; what its capabilities are read from. */
-  backend: string | null;
-  presence: PresenceEntry | null;
-  sessionPath: string | null;
-  presenceOnly: boolean;
-  /** Space from the backend view or orch's spawned registry. */
-  space: string | null;
-  /** Set when this entity was addressed with a configured host prefix. */
-  host?: string;
-}
+import type { Entity, Recipient } from "./types/core.ts";
 
 interface TargetRef {
   host: string | null;

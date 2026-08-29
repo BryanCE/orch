@@ -1,6 +1,7 @@
 import * as path from "node:path";
-import { runtimeArgv, type OrchRuntime, type ShimScope } from "../runtime.ts";
+import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
 import type { CodexNotifyEdit } from "../types/adapter.ts";
+import type { ShimScope } from "../types/core.ts";
 
 // Codex's notify wire format lives here, in the codex adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on

@@ -48,7 +48,7 @@ function records(entries: [string, string, number?, string?][]): { views: Map<st
   const live = new Map<string, PresenceEntry>();
   for (const [id, space, pid, spawnedBy] of entries) {
     views.set(id, agentViewFixture(id, space, spawnedBy ?? null));
-    live.set(id, presence(`headless~${space}~${id}`, pid));
+    live.set(id, presence(id, pid));
   }
   return { views, presence: live };
 }
@@ -151,7 +151,7 @@ describe("spawn limits", () => {
 
   test("foreign panes never count", () => {
     const data = records([["orch", "wD"]]);
-    data.presence.set("foreign", presence("headless~wD~foreign"));
+    data.presence.set("foreign", presence("foreignag1"));
     expect(liveSpawnCounts(data.views, data.presence).get("wD")).toBe(1);
   });
 

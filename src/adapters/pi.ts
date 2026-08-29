@@ -4,8 +4,8 @@ import * as path from "node:path";
 import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { loadPresence, readJSON, statusForPresence } from "../presence/store.ts";
 import { errnoCode, isRecord, shellQuote } from "../util.ts";
-import { blockText, isToolCallContentBlock, parseSession, type SessionEntry, type ToolCallContentBlock } from "../session.ts";
-import { extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES, type ExtensionName } from "../extensions/bundles.ts";
+import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
+import { extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES } from "../extensions/bundles.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { appendInbox } from "../presence/inbox.ts";
@@ -17,6 +17,7 @@ import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, Lifecyc
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
+import type { ExtensionName, SessionEntry, ToolCallContentBlock } from "../types/core.ts";
 
 /** pi's own config root, and the files under it orch reads or writes. */
 const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");

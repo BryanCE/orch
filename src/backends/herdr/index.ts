@@ -40,9 +40,10 @@ function callerPaneWorkspace(): string | undefined {
 function paneName(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
   if (opts.name) return opts.name;
   const adapterName = (adapter.id.trim() || "agent").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
-  // Identity keys contain '~', which herdr explicitly rejects. Keep only the
-  // id component and normalize it into herdr's 32-character naming grammar.
-  const rawId = opts.key?.trim().split("~").at(-1) ?? "";
+  // A1: identity is a minted id and nothing else, so there is no component to
+  // strip - the key IS the id. Normalization stays because herdr's pane names
+  // are a 32-character grammar, not because the key might carry coordinates.
+  const rawId = opts.key?.trim() ?? "";
   const id = rawId.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^[^a-z]+/, "");
   const suffix = id || "agent";
   return `${adapterName}-${suffix}`.slice(0, 32);

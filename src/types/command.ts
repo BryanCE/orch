@@ -1,3 +1,8 @@
+import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
+import type { Backend, BackendHandle, BackendId, SpaceHomeRole, TilePlacement } from "./backend.ts";
+import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { AgentView } from "./store.ts";
+import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
 export interface DeadAgentSweepOptions {
   /** Root to inspect; omitted for the operator's configured ORCH_DIR. */
   root?: string;
@@ -255,3 +260,18 @@ export interface LifecycleTarget {
   /** Backend-native handle, or a headless pid/key signal handle. */
   readonly handle: BackendHandle;
 }
+
+/** One option row of a catalogue multiselect. */
+export interface CatalogueOption {
+  value: string;
+  label: string;
+  hint?: string;
+  checked: boolean;
+}
+
+export type CataloguePicker = (
+  mode: "multiselect" | "autocomplete",
+  message: string,
+  options: readonly CatalogueOption[],
+  maxItems: number,
+) => Promise<string[] | null>;

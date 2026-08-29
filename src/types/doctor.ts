@@ -1,5 +1,5 @@
 import type { OrchRuntime } from "../runtimes.ts";
-import type { SshResult } from "../remote.ts";
+import type { SshResult } from "./core.ts";
 
 /** Shared result shape returned by doctor checks and adapter diagnostics. */
 export interface FixDescriptor {

@@ -1,0 +1,106 @@
+import { openStore } from "./connection.ts";
+import { ensurePlexer } from "./agent-rows.ts";
+import { isRecord } from "../util.ts";
+import type { HomeSubject, SpaceHomeRole } from "../types/backend.ts";
+
+/**
+ * The one reader and writer of a plexer HOME for orch's own structure.
+ *
+ * `TASKS/02-scope.md` E9: holding orch's structure is something an environment
+ * PROVIDES — create / rename / close a home for a space or a pack, branched on
+ * by what the environment provides and never by a plexer id.
+ *
+ * E10: there is no new noun and there must not be one. The thing being grouped
+ * is already a **space** or a **pack**; what the plexer groups by is a
+ * coordinate orch stores and hands back, never says. Minting an orch word for a
+ * plexer coordinate is exactly how `wF` got printed as a name a human chose.
+ *
+ * E11: everything has an environment, so the same interval shape holds both —
+ * `space_plexers` and `pack_plexers` differ only in which id column they key on,
+ * which is a branch on an ORCH noun (the subject's kind), never on a plexer.
+ */
+
+/** The mark every home orch opens carries (E8: "allowable, but never unmarked").
+ *  Without it a fleet's home is indistinguishable from the human's own panes and
+ *  its agents read as random agents with no discoverable origin. */
+export const ORCH_HOME_LABEL = "orch";
+
+interface SubjectTable {
+  readonly table: string;
+  readonly column: string;
+}
+
+/** Which interval table holds this subject's home. The branch is on orch's own
+ *  noun — the two subjects orch has — never on which plexer is answering. */
+function tableFor(subject: HomeSubject): SubjectTable {
+  return subject.kind === "space"
+    ? { table: "space_plexers", column: "space_id" }
+    : { table: "pack_plexers", column: "pack_id" };
+}
+
+/** The label orch asks a plexer to put on a home it opens for itself. */
+export function homeLabel(name: string): string {
+  return `${ORCH_HOME_LABEL}/${name}`;
+}
+
+/** This plexer's live home coordinate for a subject, or null when it has none
+ *  HERE — a home recorded in another plexer is not this one's to drive. */
+export function homeHandle(directory: string, subject: HomeSubject, plexerId: string): string | null {
+  const { table, column } = tableFor(subject);
+  const row = openStore(directory)
+    .query(`SELECT handle FROM ${table} WHERE ${column} = ? AND plexer_id = ? AND until IS NULL`)
+    .get(subject.id, plexerId);
+  return isRecord(row) && typeof row.handle === "string" ? row.handle : null;
+}
+
+/** Record a coordinate a plexer just handed back. */
+export function recordHome(
+  directory: string,
+  subject: HomeSubject,
+  plexerId: string,
+  handle: string,
+  now: number = Date.now(),
+): void {
+  const { table, column } = tableFor(subject);
+  ensurePlexer(directory, plexerId, plexerId);
+  openStore(directory)
+    .query(`INSERT INTO ${table} (${column}, since, until, plexer_id, handle) VALUES (?, ?, NULL, ?, ?)`)
+    .run(subject.id, now, plexerId, handle);
+}
+
+/** Drop every home row for a subject. The partial unique index (`one_pack_home`
+ *  / `one_space_home`) admits exactly one open interval, so a subject whose home
+ *  is gone must leave no open row behind or the next open is refused. */
+export function clearHome(directory: string, subject: HomeSubject): void {
+  const { table, column } = tableFor(subject);
+  openStore(directory).query(`DELETE FROM ${table} WHERE ${column} = ?`).run(subject.id);
+}
+
+export interface OpenHomeRequest {
+  readonly directory: string;
+  readonly subject: HomeSubject;
+  readonly plexerId: string;
+  /** `null` IS the answer that this environment holds nothing (E13) — there is
+   *  no probe here and no unsupported-operation path (E14). */
+  readonly home: SpaceHomeRole | null;
+  readonly cwd: string;
+  /** orch's own name for the thing being grouped. It is MARKED before it reaches
+   *  the plexer; the plexer never sees a bare directory basename. */
+  readonly label: string;
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Open a plexer home for one space or pack and record its coordinate.
+ *
+ * Returns the coordinate, or null when this environment holds nothing. The
+ * coordinate is for orch to STORE and to hand back to the plexer — never to
+ * display and never to use as an orch id (E10).
+ */
+export function openHome(request: OpenHomeRequest): string | null {
+  const { directory, subject, plexerId, home, cwd, label, env } = request;
+  if (home === null) return null;
+  const created = home.create(subject, { cwd, label: homeLabel(label), env });
+  recordHome(directory, subject, plexerId, created.coordinate);
+  return created.coordinate;
+}

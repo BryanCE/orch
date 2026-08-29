@@ -10,8 +10,9 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { blockText, isToolCallContentBlock, parseSession, type SessionEntry } from "../../session.ts";
+import { blockText, isToolCallContentBlock, parseSession } from "../../session.ts";
 import type { TranscriptCache } from "../../types/seat.ts";
+import type { SessionEntry } from "../../types/core.ts";
 
 const ANSI_PATTERN =
   // eslint-disable-next-line no-control-regex

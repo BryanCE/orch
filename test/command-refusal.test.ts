@@ -37,18 +37,18 @@ function fixture(): string {
 describe("a command refusal is thrown, not exited", () => {
   test("an unresolvable target throws a CommandRefusal instead of killing the process", () => {
     fixture();
-    expect(() => cmdRuns(["headless~runs~absent", "--json"])).toThrow(CommandRefusal);
+    expect(() => cmdRuns(["absentag01", "--json"])).toThrow(CommandRefusal);
   });
 
   test("the refusal carries the reason a human needs", () => {
     fixture();
-    expect(() => cmdRuns(["headless~runs~absent", "--json"])).toThrow(/No target matches/);
+    expect(() => cmdRuns(["absentag01", "--json"])).toThrow(/No target matches/);
   });
 
   test("the CLI boundary turns a refusal into exit 1 with the message on stderr", () => {
     const dir = fixture();
     const ran = Bun.spawnSync(
-      [process.execPath, join(import.meta.dir, "../bin/orch.ts"), "runs", "headless~runs~absent", "--json"],
+      [process.execPath, join(import.meta.dir, "../bin/orch.ts"), "runs", "absentag01", "--json"],
       { env: { ...process.env, ORCH_DIR: dir }, stdout: "pipe", stderr: "pipe" },
     );
     expect(ran.exitCode).toBe(1);

@@ -261,6 +261,94 @@ export function resolveAgentView(
   return preferred[0];
 }
 
+/** One resolution step's answer: the inventory row it found, the composed agent
+ *  it found, or neither. Both halves travel together because a step can learn
+ *  one without the other. */
+interface TargetResolution {
+  readonly ent: Entity | undefined;
+  readonly view: AgentView | undefined;
+}
+
+/** A direct hit in the backend inventory — by key, pane id, or name. A live row
+ *  beats a dead one; two live rows is an ambiguity, never a guess. */
+function directEntity(entities: readonly Entity[], target: string): Entity | undefined {
+  const direct = entities.filter((entity) => entity.key === target || entity.paneId === target || entity.name === target);
+  const liveDirect = direct.filter((entity) => entity.presence?.alive === true);
+  const matches = liveDirect.length > 0 ? liveDirect : direct;
+  if (matches.length > 1) {
+    die(ambiguousTargetRefusal(target, matches.map((entity) => ({ key: entity.key, detail: entity.tabLabel }))).message);
+  }
+  return matches[0];
+}
+
+/** A stale registry handle can make `buildEntities` expose the PANE ID as an
+ *  entity's key. Prefer the bridge's canonical presence identity for that pane
+ *  rather than carrying a malformed key onward. */
+function canonicalForStalePane(entities: readonly Entity[], ent: Entity): Entity | undefined {
+  const paneId = ent.paneId;
+  if (tryParseIdentity(ent.key) !== null || !paneId) return undefined;
+  return entities.find((candidate) => tryParseIdentity(candidate.key) !== null
+    && candidate.presence?.status?.paneId === paneId);
+}
+
+function resolveFromInventory(
+  entities: readonly Entity[],
+  views: ReadonlyMap<string, AgentView>,
+  target: string,
+): TargetResolution {
+  const ent = directEntity(entities, target);
+  if (!ent) return { ent: undefined, view: undefined };
+  const view = viewForKey(views, ent.key);
+  const canonical = canonicalForStalePane(entities, ent);
+  if (!canonical) return { ent, view };
+  return {
+    ent: canonical,
+    view: view ?? [...views.values()].find((row) => row.environment.handle === ent.paneId || row.name === target),
+  };
+}
+
+/** Nothing in the inventory: resolve the composed agent, then re-link it to an
+ *  entity when exactly one names it. */
+function resolveFromViews(
+  entities: readonly Entity[],
+  views: ReadonlyMap<string, AgentView>,
+  presence: ReadonlyMap<string, PresenceEntry>,
+  target: string,
+): TargetResolution {
+  let found: AgentView | undefined;
+  try {
+    found = resolveAgentView([...views.values()], presence, target);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  if (!found) return { ent: undefined, view: undefined };
+  const view = found;
+  const address = agentAddress(view, presence);
+  const linked = entities.filter((candidate) => candidate.key === address
+    || (view.environment.handle !== null && candidate.paneId === view.environment.handle)
+    || candidate.name === view.name);
+  return { ent: linked.length === 1 ? linked[0] : undefined, view };
+}
+
+/** An agent with no inventory entry is still closable: keep its composed facts
+ *  and let the backend-native handle perform the cleanup. */
+function entityFromView(view: AgentView, presence: ReadonlyMap<string, PresenceEntry>): Entity {
+  return {
+    key: agentAddress(view, presence), paneId: view.environment.handle, managed: true, name: view.name,
+    tabLabel: null, agent: view.harnessId, focused: false, backendStatus: null,
+    backend: view.environment.plexer, presence: presence.get(view.id) ?? null,
+    sessionPath: null, presenceOnly: true, space: view.environment.space,
+  };
+}
+
+/** The address orch reaches this agent by: the composed handle, else the pane
+ *  the inventory listed, else a pid/key signal handle. */
+function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandle {
+  const pid = ent.presence?.status?.pid;
+  const fallback: BackendHandle = typeof pid === "number" ? { pid, key: ent.key } : ent.key;
+  return view ? view.environment.handle ?? ent.paneId ?? fallback : ent.paneId ?? fallback;
+}
+
 /**
  * Resolve lifecycle targets from orch's registry, not the current space.
  * Close is cleanup, so it must still resolve a dead or headless record after
@@ -270,61 +358,13 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
   const views = agentViewIndex();
   const presence = presenceById();
   const entities = buildEntities();
-  // Prefer the live backend inventory. A registry row can retain an old pane
-  // key after a store wipe; its handle/name must not become a malformed identity.
-  const direct = entities.filter((entity) => entity.key === target || entity.paneId === target || entity.name === target);
-  const liveDirect = direct.filter((entity) => entity.presence?.alive === true);
-  const directMatches = liveDirect.length > 0 ? liveDirect : direct;
-  if (directMatches.length > 1) {
-    die(ambiguousTargetRefusal(target, directMatches.map((entity) => ({ key: entity.key, detail: entity.tabLabel }))).message);
-  }
-  let ent = directMatches[0];
-  let view = ent ? viewForKey(views, ent.key) : undefined;
-  // A stale registry handle can make buildEntities temporarily expose the pane
-  // id as its key. Prefer the bridge's canonical presence identity when one is
-  // available for that pane, rather than carrying the malformed key onward.
-  const stalePaneId = ent?.paneId;
-  if (ent && !tryParseIdentity(ent.key) && stalePaneId) {
-    const canonical = entities.find((candidate) => tryParseIdentity(candidate.key)
-      && candidate.presence?.status?.paneId === stalePaneId);
-    if (canonical) {
-      view = view ?? [...views.values()].find((row) => row.environment.handle === stalePaneId || row.name === target);
-      ent = canonical;
-    }
-  }
-  if (!ent) {
-    try {
-      view = resolveAgentView([...views.values()], presence, target);
-    } catch (error: unknown) {
-      die(errorMessage(error));
-    }
-    if (view) {
-      const found = view;
-      const address = agentAddress(found, presence);
-      const linked = entities.filter((candidate) => candidate.key === address
-        || (found.environment.handle !== null && candidate.paneId === found.environment.handle)
-        || candidate.name === found.name);
-      if (linked.length === 1) ent = linked[0];
-    }
-  }
-  if (!ent && !view) ent = resolveTarget(target, { all: true });
-  // An agent with no inventory entry is still closable; retain its composed
-  // facts and let the backend-native handle perform cleanup.
-  if (!ent) {
-    const found = view!;
-    ent = { key: agentAddress(found, presence), paneId: found.environment.handle, managed: true, name: found.name,
-      tabLabel: null, agent: found.harnessId, focused: false, backendStatus: null,
-      backend: found.environment.plexer, presence: presence.get(found.id) ?? null,
-      sessionPath: null, presenceOnly: true, space: found.environment.space };
-  }
-  view = view ?? viewForKey(views, ent.key);
+  const inventory = resolveFromInventory(entities, views, target);
+  const composed = inventory.ent ? inventory : resolveFromViews(entities, views, presence, target);
+  const view = composed.view ?? (composed.ent ? viewForKey(views, composed.ent.key) : undefined);
+  const ent = composed.ent
+    ?? (composed.view ? entityFromView(composed.view, presence) : resolveTarget(target, { all: true }));
   const backendId = view?.environment.plexer ?? ent.backend;
   const backend = backendId ? getBackend(backendId) : undefined;
   if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(backendId)}.`);
-  const pid = ent.presence?.status?.pid;
-  const fallback: BackendHandle = typeof pid === "number" ? { pid, key: ent.key } : ent.key;
-  const handle: BackendHandle = view
-    ? (view.environment.handle ?? ent.paneId ?? fallback)
-    : (ent.paneId ?? fallback);
-  return { entity: ent, key: ent.key, view: view ?? null, backend, handle };
+  return { entity: ent, key: ent.key, view: view ?? null, backend, handle: lifecycleHandle(ent, view) };
 }

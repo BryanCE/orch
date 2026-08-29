@@ -4,13 +4,13 @@
 // agent shown as `working` until it settles to `blocked`. Pure timing/decision
 // logic — it hands each resolved state to the injected sink and never dials a
 // socket itself.
-import type { AgentState } from "./pane-socket.ts";
+import type { PaneAgentState } from "./pane-socket.ts";
 
 export interface PaneStateMachineConfig {
   idleDebounceMs: number;
   retryGraceMs: number;
   /** Where a resolved state (deduped) is handed for delivery. */
-  enqueueState: (state: AgentState, message?: string) => void;
+  enqueueState: (state: PaneAgentState, message?: string) => void;
 }
 
 export interface PaneStateMachine {
@@ -35,7 +35,7 @@ export function createPaneStateMachine(config: PaneStateMachineConfig): PaneStat
   let failureMessage: string | undefined;
   let blockedCount = 0;
   let blockedMessage: string | undefined;
-  let lastState: AgentState | undefined;
+  let lastState: PaneAgentState | undefined;
   let lastMessage: string | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -53,7 +53,7 @@ export function createPaneStateMachine(config: PaneStateMachineConfig): PaneStat
     failureMessage = undefined;
   }
 
-  function desiredState(): { state: AgentState; message?: string } {
+  function desiredState(): { state: PaneAgentState; message?: string } {
     if (blockedCount > 0) return { state: "blocked", message: blockedMessage };
     if (failureBlocked) return { state: "blocked", message: failureMessage };
     if (agentActive || retryHoldActive) return { state: "working" };

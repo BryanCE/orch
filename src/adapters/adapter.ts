@@ -25,8 +25,8 @@ export function isLifecycleVerb(value: unknown): value is LifecycleVerb {
 }
 
 /** States an adapter may expose through orch's presence protocol. */
-export const AGENT_STATES = ["idle", "working", "blocked", "asking", "done", "error", "aborted", "exited", "unknown"] as const;
-export type AgentState = (typeof AGENT_STATES)[number];
+export { AGENT_STATES, type AgentState } from "../agent-state.ts";
+import type { AgentState } from "../agent-state.ts";
 
 /** Inputs shared by interactive and detached spawn commands. */
 export interface SpawnOpts {

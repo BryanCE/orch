@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { retryableErrorMessage, type AgentState } from "../src/backends/herdr/pane-socket.ts";
+import { retryableErrorMessage, type PaneAgentState } from "../src/backends/herdr/pane-socket.ts";
 import { createPaneStateMachine } from "../src/backends/herdr/pane-state-machine.ts";
 
 const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,7 +48,7 @@ describe("retryableErrorMessage classifier", () => {
 
 describe("createPaneStateMachine state ordering", () => {
   function machineWithSink(idleDebounceMs: number, retryGraceMs: number) {
-    const emitted: { state: AgentState; message?: string }[] = [];
+    const emitted: { state: PaneAgentState; message?: string }[] = [];
     const machine = createPaneStateMachine({
       idleDebounceMs,
       retryGraceMs,

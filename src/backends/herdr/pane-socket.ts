@@ -7,7 +7,11 @@ import { requestJsonLine } from "../../presence/socket-client.ts";
 import type { PaneHudContext } from "../hud.ts";
 
 /** Working/blocked/idle — the single state herdr shows for this pane's agent. */
-export type AgentState = "working" | "blocked" | "idle";
+/** The three states a herdr PANE can show. A strict subset of orch's vocabulary,
+ *  derived from it so it can never drift into meaning something else. */
+import type { AgentState } from "../../agent-state.ts";
+
+export type PaneAgentState = Extract<AgentState, "working" | "blocked" | "idle">;
 
 const RETRYABLE_ERROR_PATTERN =
   /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
@@ -60,7 +64,7 @@ export interface PaneStateSocket {
   /** Hand herdr's full-lifecycle authority for this pane back on a real quit. */
   releaseAgent(): Promise<void>;
   /** Queue a state report; drains in seq order, one dial in flight at a time. */
-  enqueueState: (state: AgentState, message?: string) => void;
+  enqueueState: (state: PaneAgentState, message?: string) => void;
 }
 
 export function createPaneStateSocket(config: PaneSocketConfig): PaneStateSocket {
@@ -70,7 +74,7 @@ export function createPaneStateSocket(config: PaneSocketConfig): PaneStateSocket
   let sessionId: string | undefined;
   let sessionPath: string | undefined;
   let sendInFlight = false;
-  let queuedState: { state: AgentState; message?: string; seq: number } | undefined;
+  let queuedState: { state: PaneAgentState; message?: string; seq: number } | undefined;
 
   function nextReportSeq(): number {
     reportSeq += 1;
@@ -117,7 +121,7 @@ export function createPaneStateSocket(config: PaneSocketConfig): PaneStateSocket
     });
   }
 
-  function sendState(state: AgentState, message: string | undefined, seq: number): Promise<void> {
+  function sendState(state: PaneAgentState, message: string | undefined, seq: number): Promise<void> {
     return sendRequest({
       id: `${source}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
       method: "pane.report_agent",
@@ -157,7 +161,7 @@ export function createPaneStateSocket(config: PaneSocketConfig): PaneStateSocket
     }
   }
 
-  function enqueueState(state: AgentState, message?: string): void {
+  function enqueueState(state: PaneAgentState, message?: string): void {
     queuedState = { state, message, seq: nextReportSeq() };
     if (!sendInFlight) void drainStateQueue();
   }

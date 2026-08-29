@@ -24,7 +24,8 @@ import {
   type TaskRow,
 } from "./store/task-rows.ts";
 
-export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled" | "unrunnable";
+import type { TaskState } from "./store/task-rows.ts";
+export type { TaskState };
 export const STALE_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 
 export interface TaskOptions {

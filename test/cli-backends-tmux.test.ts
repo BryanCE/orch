@@ -2,9 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { parseIdentity, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, parseIdentity, serializeIdentity } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
@@ -52,12 +51,16 @@ describe("tmux backend registry and capabilities", () => {
     expect(new TmuxBackend().isInsideSession()).toBe(false);
   });
 
-  test("serializes tmux identities as one flat key", () => {
-    const identity = { backend: "tmux", workspace: "main", id: "%5" } as const;
+  test("a tmux agent's key is the minted id, never its pane", () => {
+    // A pane id is ENVIRONMENT — it changes when the agent moves — so it is
+    // never promoted into the key. The key is one filesystem-safe segment
+    // because a minted id has nothing in it that needs escaping.
+    const identity = { id: mintAgentId() } as const;
     const key = serializeIdentity(identity);
-    expect(key).toBe("tmux~main~%255");
+    expect(key).toBe(identity.id);
     expect(key.includes("/")).toBe(false);
     expect(parseIdentity(key)).toEqual(identity);
+    expect(() => serializeIdentity({ id: "%5" })).toThrow(/minted id|lowercase alphanumerics/);
   });
 
   test("rejects an empty handle without invoking tmux", () => {
@@ -115,12 +118,21 @@ describe("tmux backend registry and capabilities", () => {
 
   test("refuses cross-session tmux steer without --cross-space", async () => {
     const { checkWall } = await import("../src/policy/space.ts");
+    const { recordSpawned } = await import("../src/presence/store.ts");
     const orchDir = mkdtempSync(join(tmpdir(), "orch-tmux-wall-"));
-    insertSpawnedRecord(orchDir, { pane: "tmux~main~operator", space: "main" });
-    insertSpawnedRecord(orchDir, { pane: "tmux~side~%25foreign", space: "side" });
-    const decision = checkWall(orchDir, "tmux~main~operator", "tmux~side~%25foreign", { crossSpace: false });
+    const previousOrchDir = process.env.ORCH_DIR;
+    process.env.ORCH_DIR = orchDir;
+    // The space is ENVIRONMENT, recorded beside the agent. The key carries none,
+    // so the wall can only read it from the store — which is the whole point.
+    const operator = "tmuxopera1";
+    const foreign = "tmuxforei1";
+    recordSpawned(operator, { adapter: "pi", backend: "tmux", space: "main" });
+    recordSpawned(foreign, { adapter: "pi", backend: "tmux", space: "side" });
+    if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
+    else process.env.ORCH_DIR = previousOrchDir;
+    const decision = checkWall(orchDir, operator, foreign, { crossSpace: false });
     removeTempDir(orchDir);
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toBe("space wall: actor space main cannot write to target space side (tmux~side~%25foreign)");
+    expect(decision.reason).toBe(`space wall: actor space main cannot write to target space side (${foreign})`);
   });
 });

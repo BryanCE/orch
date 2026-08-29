@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
-import { serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import {
   DaemonAbsentError,
   DaemonUnreachableError,
@@ -132,7 +132,9 @@ describe("daemon RPC", () => {
     process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
     process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/orchd.ts");
     writeSettingsFixture(dir, { defaults: { adapter: "claude" } });
-    const target = serializeIdentity({ backend: "headless", workspace: "local", id: "no-pane" });
+    // A1: the target IS the minted id. The plexer that cannot reach it and the
+    // space it is not in are environment, composed from their own tables.
+    const target = serializeIdentity({ id: mintAgentId() });
     seedStatus(dir, target, { agent: "claude", pid: process.pid, state: "working" });
     try {
       await rpcHello(dir);

@@ -6,7 +6,7 @@ import { cmdSpawn, parseSpawnFlags, workerPrompt } from "../src/commands/spawn.t
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { errorMessage } from "../src/util.ts";
-import { spawnedRecords } from "../src/presence/store.ts";
+import { agentViews } from "../src/store/agent-view.ts";
 import { openStore } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
@@ -46,7 +46,8 @@ describe("commands/spawn", () => {
     }
     expect(refusal).toBeInstanceOf(CommandRefusal);
     expect(errorMessage(refusal)).toMatch(/invalid agent name.*must match/i);
-    expect([...spawnedRecords().entries()]).toEqual([]);
+    // A refusal mints nothing: no identity, so no agent to compose (A1).
+    expect(agentViews(dir)).toEqual([]);
   });
 
   test("refuses spawn without a name before any spawn mutations", async () => {
@@ -57,7 +58,7 @@ describe("commands/spawn", () => {
       enabled: { adapters: ["pi"], backends: ["headless"] },
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
     });
-    const before = [...spawnedRecords().entries()];
+    const before = agentViews(dir).map((view) => view.id);
     const beforeTasks = (openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count;
     const backend = headlessBackend as unknown as { spawn: typeof headlessBackend.spawn };
     const originalSpawn = backend.spawn;
@@ -84,7 +85,7 @@ describe("commands/spawn", () => {
     expect(refusal).toBeInstanceOf(CommandRefusal);
     expect(errorMessage(refusal)).toMatch(/must be named at creation/i);
     expect(backendAllocations).toBe(0);
-    expect([...spawnedRecords().entries()]).toEqual(before);
+    expect(agentViews(dir).map((view) => view.id)).toEqual(before);
     expect((openStore(dir).query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(beforeTasks);
     expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);
   });
@@ -113,7 +114,8 @@ describe("commands/spawn", () => {
     }
     expect(refusal).toBeInstanceOf(CommandRefusal);
     expect(errorMessage(refusal)).toMatch(/unknown flag.*--detached/i);
-    expect([...spawnedRecords().entries()]).toEqual([]);
+    // A refusal mints nothing: no identity, so no agent to compose (A1).
+    expect(agentViews(dir)).toEqual([]);
   });
 
   // TASKS/02-scope.md F4: the positional arguments ARE the agent names, and how

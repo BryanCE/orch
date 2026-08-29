@@ -6,132 +6,210 @@ import { join } from "node:path";
 import { governWrite } from "../src/daemon/orchd.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { withTransaction, openStore } from "../src/store/connection.ts";
-import { getOwner, setOwner } from "../src/store/ownership-rows.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
+import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
+import { processStartToken } from "../src/process-identity.ts";
 
 const dirs: string[] = [];
 function freshDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-gov-"));
   dirs.push(dir);
+  ensureHarness(dir, "pi", "pi", 1);
+  ensureHost(dir, "host", "host", "linux", 1);
   return dir;
 }
 
-function registerPlacement(dir: string, pane: string, space: string): void {
-  insertSpawnedRecord(dir, { pane, space });
+/** Identity and nothing else: a minted id, with no environment welded into it. */
+function agent(dir: string, id: string): void {
+  insertAgent(dir, { id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
+}
+
+/** An orch whose recorded process instance is this test process: provably alive. */
+function liveOrch(dir: string, id: string): void {
+  agent(dir, id);
+  const token = processStartToken(process.pid);
+  if (!token) throw new Error("test process has no start token");
+  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
+    .run(id, 1, "host", process.pid, token);
+}
+
+/** An orch with a recorded process that is provably NOT this process instance. */
+function deadOrch(dir: string, id: string): void {
+  agent(dir, id);
+  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
+    .run(id, 1, "host", process.pid, "not-this-process-instance");
+}
+
+/** Environment is a satellite of the identity, on its own timeline. */
+function placeIn(dir: string, id: string, space: string): void {
+  openStore(dir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run(space, space, 1);
+  setSpace(dir, id, 1, space);
 }
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) removeTempDir(dir);
 });
 
+// A1: ownership is the lease and nothing else. There is no second `ownership`
+// id space beside `agent_leases`, so every gate below reads the one lease.
 describe("daemon governWrite enforcement", () => {
-  test("an unscoped actor is refused on an owned target", () => {
+  test("an unscoped actor is refused while a live orch holds the lease", () => {
     const dir = freshDir();
-    setOwner(dir, "herdr~wA~p1", "herdr~wA~p9");
-    // No actor field => the caller cannot own anything, so an owned agent refuses it.
-    expect(() => governWrite(dir, "herdr~wA~p1", { target: "herdr~wA~p1", text: "hi" })).toThrow(/owned by herdr~wA~p9/);
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "targetaaa1");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    // No actor field => the caller holds nothing, so a live holder excludes it.
+    expect(() => governWrite(dir, "targetaaa1", { target: "targetaaa1", text: "hi" })).toThrow(/leased by holderaaa1/);
   });
 
-  test("an unscoped actor may write to an unowned target", () => {
+  test("an unscoped actor may write to an unleased target", () => {
     const dir = freshDir();
-    expect(() => governWrite(dir, "herdr~wA~p1", { target: "herdr~wA~p1", text: "hi" })).not.toThrow();
+    agent(dir, "targetaaa1");
+    expect(() => governWrite(dir, "targetaaa1", { target: "targetaaa1", text: "hi" })).not.toThrow();
   });
 
-  test("owner may write to its own agent", () => {
+  test("the lease holder may write to its own agent", () => {
     const dir = freshDir();
-    setOwner(dir, "herdr~wA~p1", "herdr~wA~p9");
-    expect(() => governWrite(dir, "herdr~wA~p1", { actor: "herdr~wA~p9", text: "hi" })).not.toThrow();
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "targetaaa1");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    expect(() => governWrite(dir, "targetaaa1", { actor: "holderaaa1", text: "hi" })).not.toThrow();
   });
 
-  test("a foreign owner in the same workspace is refused", () => {
+  test("a foreign live holder in the same space is refused and named", () => {
     const dir = freshDir();
-    setOwner(dir, "herdr~wA~p1", "herdr~wA~p9");
-    expect(() => governWrite(dir, "herdr~wA~p1", { actor: "herdr~wA~p2", text: "hi" })).toThrow(/owned by herdr~wA~p9/);
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "actoraaaa1");
+    agent(dir, "targetaaa1");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    expect(() => governWrite(dir, "targetaaa1", { actor: "actoraaaa1", text: "hi" })).toThrow(/leased by holderaaa1/);
   });
 
-  test("a cross-space write is refused by the wall before ownership", () => {
+  // Rule 11: a dead holder is not a collision. Gating on one strands a whole
+  // fleet with nothing left able to drive it.
+  test("a dead holder is not a collision", () => {
     const dir = freshDir();
-    registerPlacement(dir, "herdr~wB~p1", "wB");
-    registerPlacement(dir, "herdr~wA~p9", "wA");
-    setOwner(dir, "herdr~wB~p1", "herdr~wB~p9");
-    expect(() => governWrite(dir, "herdr~wB~p1", { actor: "herdr~wA~p9", text: "hi" })).toThrow(/space wall/);
+    deadOrch(dir, "deadorcha1");
+    agent(dir, "actoraaaa1");
+    agent(dir, "targetaaa1");
+    acquireLease(dir, "targetaaa1", "deadorcha1", 2);
+    expect(() => governWrite(dir, "targetaaa1", { actor: "actoraaaa1", text: "hi" })).not.toThrow();
   });
 
-  test("--cross-space clears the wall but ownership still applies", () => {
+  // C4: taking an agent from a LIVE orch is a deliberate, named act with its own
+  // verb. A driving verb never transfers a holding as a side effect, so the
+  // refusal points at the verb that does.
+  test("--steal on a driving verb does not take a live holder's lease", () => {
     const dir = freshDir();
-    setOwner(dir, "herdr~wB~p1", "herdr~wB~p9");
-    expect(() => governWrite(dir, "herdr~wB~p1", { actor: "herdr~wA~p9", text: "hi", crossSpace: true })).toThrow(/owned by herdr~wB~p9/);
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "actoraaaa1");
+    agent(dir, "targetaaa1");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    expect(() => governWrite(dir, "targetaaa1", { actor: "actoraaaa1", text: "hi", steal: true }))
+      .toThrow(/orch adopt targetaaa1 --steal/);
+    expect(currentLease(dir, "targetaaa1")?.orchId).toBe("holderaaa1");
   });
 
-  test("--steal transfers ownership to the actor", () => {
+  test("a cross-space write is refused by the wall before the lease", () => {
     const dir = freshDir();
-    setOwner(dir, "herdr~wA~p1", "herdr~wA~p9");
-    expect(() => governWrite(dir, "herdr~wA~p1", { actor: "herdr~wA~p2", text: "hi", steal: true })).not.toThrow();
-    expect(getOwner(dir, "herdr~wA~p1")).toBe("herdr~wA~p2");
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "actoraaaa1");
+    agent(dir, "targetaaa1");
+    placeIn(dir, "targetaaa1", "wB");
+    placeIn(dir, "actoraaaa1", "wA");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    expect(() => governWrite(dir, "targetaaa1", { actor: "actoraaaa1", text: "hi" })).toThrow(/space wall/);
   });
 
-  test("ownership transfer rolls back when enqueue fails", () => {
+  test("--cross-space clears the wall but the lease still applies", () => {
     const dir = freshDir();
-    const target = "herdr~wA~p1";
-    const params = { actor: "herdr~wA~p2", target, text: "hi", steal: true };
-    setOwner(dir, target, "herdr~wA~p9");
-    openStore(dir).exec("CREATE TRIGGER reject_outbox BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'enqueue failed'); END");
-
-    expect(() => withTransaction(dir, () => {
-      governWrite(dir, target, params);
-      insertOutboxMessage(dir, { id: "failed", target, payload: { action: "dispatch", text: "hi" } });
-    })).toThrow();
-    expect(getOwner(dir, target)).toBe("herdr~wA~p9");
-    expect(selectPendingOutbox(dir, 0)).toEqual([]);
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "actoraaaa1");
+    agent(dir, "targetaaa1");
+    placeIn(dir, "targetaaa1", "wB");
+    placeIn(dir, "actoraaaa1", "wA");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    expect(() => governWrite(dir, "targetaaa1", { actor: "actoraaaa1", text: "hi", crossSpace: true }))
+      .toThrow(/leased by holderaaa1/);
   });
 
-  test("ownership transfer and enqueue commit together", () => {
+  // The human operator of a space keeps control of every fleet keyed into it,
+  // whichever orch spawned them; a spawned agent's actor token is its own id,
+  // never `operator`, so this lane grants an agent nothing.
+  test("the space operator writes to a same-space leased agent without taking the lease", () => {
     const dir = freshDir();
-    const target = "herdr~wA~p1";
-    const params = { actor: "herdr~wA~p2", target, text: "hi", steal: true };
-    setOwner(dir, target, "herdr~wA~p9");
-
-    withTransaction(dir, () => {
-      governWrite(dir, target, params);
-      insertOutboxMessage(dir, { id: "accepted", target, payload: { action: "dispatch", text: "hi" } });
-    });
-    expect(getOwner(dir, target)).toBe("herdr~wA~p2");
-    expect(selectPendingOutbox(dir, 0).map((message) => message.id)).toEqual(["accepted"]);
-  });
-
-  test("an unowned target is writable by any same-workspace actor", () => {
-    const dir = freshDir();
-    expect(() => governWrite(dir, "herdr~wA~p1", { actor: "herdr~wA~p9", text: "hi" })).not.toThrow();
-  });
-
-  // The human operator of a workspace keeps control of every fleet keyed into
-  // it, whichever agent spawned them; a spawned agent's actor token is its own
-  // key, never `operator`, so this lane grants an agent nothing.
-  test("the workspace operator writes to any same-workspace owned agent", () => {
-    const dir = freshDir();
-    registerPlacement(dir, "herdr~wA~p1", "wA");
-    registerPlacement(dir, "herdr~wA~operator", "wA");
-    setOwner(dir, "herdr~wA~p1", "herdr~wA~worker-9");
-    expect(() => governWrite(dir, "herdr~wA~p1", {
-      actor: "herdr~wA~operator",
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "operatora1");
+    agent(dir, "targetaaa1");
+    placeIn(dir, "targetaaa1", "wA");
+    placeIn(dir, "operatora1", "wA");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    expect(() => governWrite(dir, "targetaaa1", {
+      actor: "operatora1",
       actorSpace: "wA",
       actorIsOperator: true,
       text: "hi",
     })).not.toThrow();
-    // Supremacy is control, not theft: the spawner keeps its ownership record.
-    expect(getOwner(dir, "herdr~wA~p1")).toBe("herdr~wA~worker-9");
+    // Supremacy is control, not theft: the holder keeps its holding.
+    expect(currentLease(dir, "targetaaa1")?.orchId).toBe("holderaaa1");
   });
 
   test("a foreign space's operator still hits the wall", () => {
     const dir = freshDir();
-    registerPlacement(dir, "herdr~wB~p1", "wB");
-    registerPlacement(dir, "herdr~wA~operator", "wA");
-    setOwner(dir, "herdr~wB~p1", "herdr~wB~worker-9");
-    expect(() => governWrite(dir, "herdr~wB~p1", {
-      actor: "herdr~wA~operator",
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "operatora1");
+    agent(dir, "targetbbb1");
+    placeIn(dir, "targetbbb1", "wB");
+    placeIn(dir, "operatora1", "wA");
+    acquireLease(dir, "targetbbb1", "holderaaa1", 2);
+    expect(() => governWrite(dir, "targetbbb1", {
+      actor: "operatora1",
       actorSpace: "wA",
       actorIsOperator: true,
       text: "hi",
     })).toThrow(/space wall/);
+  });
+
+  // Governance is a DECISION, not a write. With ownership collapsed onto the
+  // lease there is nothing left for it to mutate, so a refused enqueue can leave
+  // no half-applied transfer behind.
+  test("a refused enqueue leaves the lease exactly as it was", () => {
+    const dir = freshDir();
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "targetaaa1");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    const params = { actor: "holderaaa1", target: "targetaaa1", text: "hi" };
+    openStore(dir).exec("CREATE TRIGGER reject_outbox BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'enqueue failed'); END");
+
+    expect(() => withTransaction(dir, () => {
+      governWrite(dir, "targetaaa1", params);
+      insertOutboxMessage(dir, { id: "failed", target: "targetaaa1", payload: { action: "dispatch", text: "hi" } });
+    })).toThrow();
+    expect(currentLease(dir, "targetaaa1")?.orchId).toBe("holderaaa1");
+    expect(selectPendingOutbox(dir, 0)).toEqual([]);
+  });
+
+  test("a granted write and its enqueue commit together", () => {
+    const dir = freshDir();
+    liveOrch(dir, "holderaaa1");
+    agent(dir, "targetaaa1");
+    acquireLease(dir, "targetaaa1", "holderaaa1", 2);
+    const params = { actor: "holderaaa1", target: "targetaaa1", text: "hi" };
+
+    withTransaction(dir, () => {
+      governWrite(dir, "targetaaa1", params);
+      insertOutboxMessage(dir, { id: "accepted", target: "targetaaa1", payload: { action: "dispatch", text: "hi" } });
+    });
+    expect(selectPendingOutbox(dir, 0).map((message) => message.id)).toEqual(["accepted"]);
+  });
+
+  test("an unleased target is writable by any same-space actor", () => {
+    const dir = freshDir();
+    agent(dir, "actoraaaa1");
+    agent(dir, "targetaaa1");
+    placeIn(dir, "targetaaa1", "wA");
+    placeIn(dir, "actoraaaa1", "wA");
+    expect(() => governWrite(dir, "targetaaa1", { actor: "actoraaaa1", text: "hi" })).not.toThrow();
   });
 });

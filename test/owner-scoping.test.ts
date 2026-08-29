@@ -8,7 +8,6 @@ import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { cmdClose } from "../src/commands/lifecycle.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { spawnedRecords, recordSpawned } from "../src/presence/store.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
 import { openStore } from "../src/store/connection.ts";
 import type { Backend } from "../src/backends/backend.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
@@ -126,7 +125,7 @@ describe("fleet ownership scoping", () => {
       preferredModels: [],
     });
 
-    expect(spawnedRecords().get(agent.key)?.owner).toBe("orch-owner");
+    expect(spawnedRecords().get(agent.key)?.heldBy?.orchId).toBe("orch-owner");
   });
 
   test("close --all works without an owner token", () => {
@@ -166,7 +165,6 @@ describe("fleet ownership scoping", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working" }));
     recordProcess(dir, key, pid, startToken);
-    insertSpawnedRecord(dir, { pane: key, backend: "headless", adapter: "pi", handle: JSON.stringify({ pid, key }) });
     recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
 
     const result = runCli(dir, ["close", key], "caller-orchestrator");
@@ -249,7 +247,6 @@ describe("fleet ownership scoping", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working" }));
     recordProcess(dir, key, pid, startToken);
-    insertSpawnedRecord(dir, { pane: key, backend: "headless", adapter: "pi", handle: JSON.stringify({ pid, key }) });
     recordSpawned(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
 
     const refused = runCli(dir, ["close", key, "--force"], "caller-orchestrator");

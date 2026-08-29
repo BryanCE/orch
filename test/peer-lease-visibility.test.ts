@@ -26,13 +26,17 @@ afterEach(() => {
   while (directories.length > 0) removeTempDir(directories.pop()!);
 });
 
-const CALLER = "headless~wF~caller0001";
-const HELD = "headless~wF~held0002";
-const LOOSE = "headless~wF~loose0003";
-const ORPHAN = "headless~wF~orphan0004";
+// A presence directory is named by the agent's minted id, and that id is the
+// whole key (TASKS/01): the row it addresses is found by the key itself, not by
+// a segment split out of a `<plexer>~<grouping>~<id>` string.
+const CALLER = "caller0001";
+const HELD = "held000002";
+const LOOSE = "loose00003";
+const ORPHAN = "orphan0004";
+const DEAD_ORCH = "deadorch01";
 
-/** Caller holds `held0002`; `loose0003` was never leased; `orphan0004`'s holder
- *  is a dead orch. Three lease facts, one fixture. */
+/** The caller holds HELD; LOOSE was never leased; ORPHAN's holder is a dead
+ *  orch. Three lease facts, one fixture. */
 function fixture(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-peer-lease-"));
   directories.push(directory);
@@ -43,15 +47,15 @@ function fixture(): string {
   ensureHarness(directory, "pi", "Pi", 1);
   const db = openStore(directory);
   db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
-  for (const id of ["caller0001", "held0002", "loose0003", "orphan0004", "deadorch1"]) {
+  for (const id of [CALLER, HELD, LOOSE, ORPHAN, DEAD_ORCH]) {
     insertAgent(directory, { id, harnessId: "pi", cwd: "/tmp", name: id, createdAt: 1 });
   }
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
   db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
-    .run("caller0001", 1, "host", process.pid, token);
-  acquireLease(directory, "held0002", "caller0001", 2);
-  acquireLease(directory, "orphan0004", "deadorch1", 2);
+    .run(CALLER, 1, "host", process.pid, token);
+  acquireLease(directory, HELD, CALLER, 2);
+  acquireLease(directory, ORPHAN, DEAD_ORCH, 2);
 
   seedStatus(directory, HELD, { agent: "pi", label: "held-1", pid: process.pid, state: "working" });
   seedStatus(directory, LOOSE, { agent: "pi", label: "loose-1", pid: process.pid, state: "idle" });
@@ -68,7 +72,7 @@ function summaryFor(label: string) {
 describe("peer summaries carry ownership as a lease", () => {
   test("a peer the caller holds reports the caller as the live holder", () => {
     fixture();
-    expect(summaryFor("held-1")?.drive).toEqual({ kind: "leased", owner: "caller0001", mine: true });
+    expect(summaryFor("held-1")?.drive).toEqual({ kind: "leased", owner: CALLER, mine: true });
   });
 
   test("a peer nobody ever took reports no orch driving it", () => {

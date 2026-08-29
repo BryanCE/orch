@@ -15,7 +15,7 @@ function claimedTask(): TaskRec {
   return {
     id: "t1", text: "x", opts: {}, enqueuedBy: "orch", scopeAgentId: null,
     scopePackId: "orch", scopeSpaceId: null, createdAt: "", updatedAt: "",
-    state: "claimed", stale: false, attempts: [{ since: 1, until: null, agentId: "worker", dispatchId: "mine", outcome: null, result: null, error: null }],
+    state: "claimed", stale: false, attempts: [{ since: 1, until: null, agentId: "worker0001", dispatchId: "mine", outcome: null, result: null, error: null }],
   };
 }
 
@@ -32,9 +32,9 @@ describe("work loop attempt binding", () => {
 const directories: string[] = [];
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });
 
-/** The runner's presence key is its environment; only its third segment is the
- *  minted id its attempts and events carry. */
-const RUNNER_KEY = serializeIdentity({ backend: "herdr", workspace: "wF", id: "runner" });
+/** A1: the presence key IS the minted id the runner's attempts and events carry
+ *  — the plexer and the space are environment, never segments of an address. */
+const RUNNER_KEY = serializeIdentity({ id: "runner0000" });
 
 /** An enqueuer and one runner in its pack, with the runner idle on disk. */
 function fleet(): string {
@@ -43,7 +43,7 @@ function fleet(): string {
   const db = openStore(dir);
   db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
   db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('enq',NULL,'enq','pi','/repo','enq',1)").run();
-  db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('runner','enq','enq','pi','/repo','runner',1)").run();
+  db.query("INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('runner0000','enq','enq','pi','/repo','runner',1)").run();
   seedStatus(dir, RUNNER_KEY, { state: "idle", label: "Runner", pid: process.pid });
   writeSettingsFixture(dir);
   return dir;

@@ -33,7 +33,7 @@ function presence(key: string, pid = process.pid): PresenceEntry {
 function agentViewFixture(id: string, space: string, spawnedBy: string | null): AgentView {
   return {
     id, name: id, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
-    spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
+    spawnedBy, spawnedByName: spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
     environment: { plexer: "headless", handle: null, space, worktree: null, branch: null },
     tuning: { model: null, thinking: null },
     endedAt: null,

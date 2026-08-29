@@ -2,8 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serializeIdentity } from "../src/backends/identity.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { isLogRecord, type LogRecord } from "../src/log.ts";
 import { ACK_FILE } from "../src/presence/schema.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
@@ -21,11 +20,14 @@ function fixture(): { orchDir: string; target: string } {
   directories.push(discovery, orchDir);
   discoveries.set(orchDir, discovery);
   writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi" } });
-  const target = serializeIdentity({ backend: "headless", workspace: "local", id: "corr01agent" });
+  // A1: the target IS the minted id. Nothing about where the agent runs is
+  // spelled into it, and its harness is a fact of the agent row.
+  const target = "corr01agnt";
   // A real presence dir with a live pid: the inbox channel refuses delivery to an
   // agent whose bridge is not running, so a dead fixture never reaches the outbox.
   seedStatus(orchDir, target, { agent: "pi", paneId: target, pid: process.pid, state: "idle", name: "corr" });
-  insertSpawnedRecord(orchDir, { pane: target, ts: Date.now(), adapter: "pi", name: "corr" });
+  ensureHarness(orchDir, "pi", "pi", Date.now());
+  insertAgent(orchDir, { id: target, name: "corr", spawnedBy: null, harnessId: "pi", cwd: orchDir, createdAt: Date.now() });
   return { orchDir, target };
 }
 

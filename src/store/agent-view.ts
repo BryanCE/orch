@@ -64,6 +64,10 @@ export interface AgentView {
   readonly createdAt: number;
   /** Provenance — who spawned it, immutable. */
   readonly spawnedBy: string | null;
+  /** The spawner's CURRENT name, read as a join. Never stored beside the child:
+   *  a copy goes stale the moment the spawner is renamed, and a name is mutable
+   *  by design while provenance is not. `null` when nothing spawned this agent. */
+  readonly spawnedByName: string | null;
   readonly rootAgentId: string;
   /** Ownership — a lease, mutable, and never authorization. */
   readonly heldBy: AgentHolder | null;
@@ -143,6 +147,13 @@ export function holderOf(orchDir: string, agentId: string): AgentHolder | null {
   return row ? { orchId: row.orchId, since: row.since } : null;
 }
 
+/** The spawner's name today, not the name it had when it spawned this agent. */
+function nameOf(orchDir: string, agentId: string | null): string | null {
+  if (agentId === null) return null;
+  const row = orm(orchDir).select({ name: agents.name }).from(agents).where(eq(agents.id, agentId)).get();
+  return row?.name ?? null;
+}
+
 function endedAt(orchDir: string, agentId: string): number | null {
   const row = orm(orchDir).select({ endedAt: agentEndings.endedAt }).from(agentEndings)
     .where(eq(agentEndings.agentId, agentId)).get();
@@ -160,6 +171,7 @@ export function agentView(orchDir: string, agentId: string): AgentView | null {
     cwd: hub.cwd,
     createdAt: hub.createdAt,
     spawnedBy: hub.spawnedBy,
+    spawnedByName: nameOf(orchDir, hub.spawnedBy),
     rootAgentId: hub.rootAgentId,
     heldBy: holderOf(orchDir, agentId),
     environment: environmentOf(orchDir, agentId),

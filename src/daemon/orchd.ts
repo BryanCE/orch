@@ -11,9 +11,8 @@ import {
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "./rpc.ts";
 import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, type ConfigWatch, type NotifyEntry, type OrchConfig, configuredLogLevel } from "../config.ts";
 import { runWorkLoop } from "./work-loop.ts";
-import { emitAndNotify, startPresenceWatch, type PresenceWatch } from "./events.ts";
+import { emitAndNotify, startPresenceWatch, type PresenceMetadata, type PresenceWatch } from "./events.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
-import { selectSpawnedRecord } from "../store/spawned-rows.ts";
 import { errorMessage, errorTrace, isRecord } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -21,7 +20,6 @@ import { randomUUID } from "node:crypto";
 import { openStore, withTransaction } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
-import { checkOwnerWrite, getOwner } from "../store/ownership-rows.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox, type OutboxDeps, type OutboxDelivery } from "./outbox.ts";
@@ -32,7 +30,7 @@ import { isLifecycleVerb, type LifecycleVerb } from "../adapters/adapter.ts";
 import { detachedBackend } from "../backends/registry.ts";
 import type { WorkerPolicy } from "../policy/workers.ts";
 import { fleetStatusRows, type StatusRow } from "../commands/status.ts";
-import { agentById } from "../store/agent-rows.ts";
+import { agentView } from "../store/agent-view.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { createLogger, type Logger, type LogContext, type LogLevel } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
@@ -84,8 +82,8 @@ function leaseHolderIsAlive(directory: string, holderId: string): boolean {
 /** Derive lease facts from the normalized agent/lease rows, never from presence or ownership files. */
 export function deriveLeasePayload(directory: string, key: string): LeaseStatusPayload {
   const db = openStore(directory);
-  // Presence keys carry an environment prefix around orch's opaque agent id. The
-  // agents table is keyed by that id; malformed/unparseable keys stay unknown.
+  // An agent key IS its minted id (A1); a key that is not one names no agent and
+  // stays unknown rather than being guessed at.
   const agentId = tryParseIdentity(key)?.id ?? key;
   const agent = db.query("SELECT id FROM agents WHERE id = ?").get(agentId) as { id: string } | null;
   if (!agent) return { lease: null, leaseKnown: false };
@@ -237,10 +235,15 @@ export function validateWriteParams(params: unknown): { target: string; text: st
   };
 }
 
-/** Enforce the space wall, then lease authority and ownership, before a write is
- * accepted. An open lease is mutual exclusion for every driving verb, but ONLY while
- * its holder is alive: Rule 11 - a dead holder is not a collision, it is a stale row.
- * Gating on a dead holder strands a whole fleet with no way to drive it. */
+/** Enforce the space wall, then lease authority, before a write is accepted.
+ *
+ * A1: ownership IS the lease. There is no second `ownership` id space beside
+ * `agent_leases` for this gate to consult, so the whole rule is stated once, on
+ * the one lease. An open lease is mutual exclusion for every driving verb, but
+ * ONLY while its holder is alive: Rule 11 - a dead holder is not a collision, it
+ * is a stale row, and gating on one strands a whole fleet with nothing able to
+ * drive it. Exclusion is never authorization: `abort`/`close`/`reap` do not come
+ * through here at all. */
 export function governWrite(directory: string, target: string, params: unknown, context: LogContext = {}): void {
   const value = rpcParams(params);
   const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
@@ -268,28 +271,24 @@ export function governWrite(directory: string, target: string, params: unknown, 
     });
   };
   if (foreignLease && lease !== null && holderAlive) {
-    decisionLogger(directory, { ...context, agentId: targetId }).debug("lease.refused", {
-      target,
-      holderId: holderId ?? lease.orchId,
-      holderAlive: true,
-    });
-    throw new Error(`agent is leased by ${lease.orchId}; only its lease holder may drive it`);
+    // The space's human operator keeps control of every fleet keyed into their
+    // space, whichever orch holds it; a spawned agent's actor token is its own
+    // id, never `operator`, so this lane grants an agent nothing.
+    if (!operatorControls(directory, actor, target, actorSpace, actorIsOperator)) {
+      decisionLogger(directory, { ...context, agentId: targetId }).debug("lease.refused", {
+        target,
+        holderId: holderId ?? lease.orchId,
+        holderAlive: true,
+        steal,
+      });
+      // C4: taking an agent from a LIVE orch is deliberate and has its own verb.
+      // A driving verb must never transfer a holding as a side effect, so the
+      // refusal names the verb that does it instead of doing it here.
+      throw new Error(steal
+        ? `agent is leased by ${lease.orchId}; take it deliberately with 'orch adopt ${target} --steal', then drive it`
+        : `agent is leased by ${lease.orchId}; only its lease holder may drive it`);
+    }
   }
-  if (actor === null) {
-    const owner = getOwner(directory, target);
-    if (owner !== undefined) throw new Error(`agent is owned by ${owner}; anonymous writes are refused - set ORCH_OWNER to identify this caller`);
-    logLeaseGrant();
-    return;
-  }
-  // The space's human operator keeps control of every fleet keyed into it;
-  // spawned agents carry their own key, never the operator id, so this grants
-  // an agent nothing beyond what it spawned.
-  if (operatorControls(directory, actor, target, actorSpace, actorIsOperator)) {
-    logLeaseGrant();
-    return;
-  }
-  const owned = checkOwnerWrite(directory, target, actor, { steal });
-  if (!owned.ok) throw new Error(owned.reason ?? "ownership denied the write");
   logLeaseGrant();
 }
 
@@ -535,16 +534,17 @@ async function main(): Promise<void> {
   presenceWatch = startPresenceWatch({
     orchDir: directory,
     metadataFor: (key) => {
-      const record = selectSpawnedRecord(directory, key);
+      // A1: identity, provenance and environment are read back together through
+      // the ONE composer. A spawner's label is READ from the spawner agent, never
+      // copied onto the agent it spawned - a copy goes stale the moment the
+      // spawner is renamed.
       const normalized = tryParseIdentity(key)?.id;
-      const agent = normalized ? agentById(directory, normalized) : null;
-      return {
-        name: agent?.name ?? null,
-        tab: null,
-        pid: undefined,
-        spawnedBy: record?.spawnedBy,
-        spawnedByLabel: record?.spawnedByLabel,
-      };
+      const view = normalized === undefined ? null : agentView(directory, normalized);
+      const spawner = view?.spawnedBy == null ? null : agentView(directory, view.spawnedBy);
+      const metadata: PresenceMetadata = { name: view?.name ?? null, tab: null };
+      if (view?.spawnedBy != null) metadata.spawnedBy = view.spawnedBy;
+      if (spawner) metadata.spawnedByLabel = spawner.name;
+      return metadata;
     },
     onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event); },
   });

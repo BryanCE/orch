@@ -102,8 +102,7 @@ export function ownedAgentKeys(): string[] {
   return buildEntities()
     .filter((ent) => {
       if (!ent.presence) return false;
-      const view = viewForKey(views, ent.key);
-      return ownsAgent(view ? { owner: view.heldBy?.orchId, pane: ent.key } : {});
+      return ownsAgent(viewForKey(views, ent.key) ?? { id: ent.key, heldBy: null });
     })
     .map((ent) => ent.key);
 }

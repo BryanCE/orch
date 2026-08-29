@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/agent/harness.ts";
+import type { HarnessApi, HarnessEventHandler } from "../src/agent/harness.ts";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
+import { peerSummaries } from "../src/agent/peers.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -34,6 +35,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 
 /** The composite this whole change deletes. Never a valid key again. */
 const COMPOSITE_KEY = "headless~local~7x5hd4h610";
+
+/** A pid no process holds, so a seeded record reads as a dead one: doctor holds
+ *  back its verdict on a record whose session is still running. */
+const DEAD_PID = 2147483646;
 
 const directories: string[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
@@ -71,21 +76,6 @@ function fakeHarness(): HarnessApi {
     getThinkingLevel: () => undefined,
     setThinkingLevel: () => undefined,
     events: { on: () => undefined },
-  };
-}
-
-function harnessContext(hasUI: boolean): HarnessContext {
-  return {
-    hasUI,
-    sessionManager: {
-      getSessionFile: () => undefined,
-      getSessionId: () => undefined,
-      getBranch: () => [],
-    },
-    modelRegistry: { find: () => undefined },
-    ui: { notify: () => undefined, setStatus: () => undefined, setWidget: () => undefined },
-    isIdle: () => true,
-    getContextUsage: () => undefined,
   };
 }
 
@@ -176,6 +166,41 @@ describe("this process's own identity is the id and nothing else", () => {
   });
 });
 
+describe("the fleet wall is lifted by the absence of a launch, not by a key's shape", () => {
+  /** Two agents in one space, in two different projects. The wall is what keeps
+   *  a worker's `all` flag from reaching the other project's fleet. */
+  function twoProjects(ownKey: string): string {
+    const directory = tempOrchDir();
+    seedStatus(directory, ownKey, { agent: "pi", label: "caller", pid: process.pid, state: "idle" });
+    seedStatus(directory, mintAgentId(), {
+      agent: "pi",
+      label: "foreigner",
+      pid: process.pid,
+      state: "working",
+      project: "/some/other/project",
+    });
+    return directory;
+  }
+
+  test("an agent orch launched may not cross into another project's fleet", () => {
+    const ownKey = mintAgentId();
+    twoProjects(ownKey);
+    process.env.ORCH_AGENT_KEY = ownKey;
+    expect(peerSummaries(ownKey, true)).toEqual([]);
+  });
+
+  test("a malformed launch key walls the caller in, it does not free them", () => {
+    // The wall asked whether the key PARSED, so a key it could not parse read as
+    // "no launch happened" — a human's own session — and widened a worker's
+    // reach across every fleet. Whether orch launched this process is provenance;
+    // it is never decided by picking a key apart.
+    const ownKey = mintAgentId();
+    twoProjects(ownKey);
+    process.env.ORCH_AGENT_KEY = COMPOSITE_KEY;
+    expect(peerSummaries(ownKey, true)).toEqual([]);
+  });
+});
+
 describe("who drives an agent is looked up by its id", () => {
   const HOLDER = "aaaaaaaaa1";
   const HELD = "bbbbbbbbb2";
@@ -214,7 +239,7 @@ describe("who drives an agent is looked up by its id", () => {
 describe("doctor reads a presence directory name as an id", () => {
   test("a composite directory name is a malformed identity key", () => {
     const directory = tempOrchDir();
-    seedStatus(directory, COMPOSITE_KEY, { schema: PRESENCE_SCHEMA, agent: "pi", pid: 1, state: "idle" });
+    seedStatus(directory, COMPOSITE_KEY, { schema: PRESENCE_SCHEMA, agent: "pi", pid: DEAD_PID, state: "idle" });
     const result = checkMalformedPresenceRecords(directory);
     expect(result.status).toBe("fail");
     expect(result.ignoredRecords?.[0]?.reason).toContain("malformed identity key");
@@ -222,7 +247,7 @@ describe("doctor reads a presence directory name as an id", () => {
 
   test("a minted id with a current stamp is well formed", () => {
     const directory = tempOrchDir();
-    seedStatus(directory, mintAgentId(), { schema: PRESENCE_SCHEMA, agent: "pi", pid: 1, state: "idle" });
+    seedStatus(directory, mintAgentId(), { schema: PRESENCE_SCHEMA, agent: "pi", pid: DEAD_PID, state: "idle" });
     const result = checkMalformedPresenceRecords(directory);
     expect(result.status).toBe("ok");
     expect(result.ignoredRecords).toEqual([]);

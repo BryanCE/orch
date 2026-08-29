@@ -77,12 +77,12 @@ describe("spawner identity", () => {
 
   test("an orch-spawned orchestrator acts as the id orch minted for it", () => {
     const orchDir = tempOrchDir();
-    const key = "headless~wF~lead0000ab";
+    const key = "lead0000ab";
     recordSpawned(key, { space: "wF", adapter: "pi" });
     seedStatus(orchDir, key, { agent: "pi", label: "lead-1", pid: process.pid, state: "working" });
     process.env.ORCH_AGENT_KEY = key;
-    // Identity is the minted id and nothing else: the plexer and workspace
-    // segments of the launch key are ENVIRONMENT and never travel as the id.
+    // Identity is the minted id and nothing else: the launch key IS that id, so
+    // there is no plexer and no grouping riding inside it to travel as identity.
     expect(spawnerIdentity().key).toBe("lead0000ab");
   });
 
@@ -111,20 +111,26 @@ describe("spawner identity", () => {
     expect(worktreeEnv(undefined, "orch/fix-1")).toEqual({});
   });
 
-  test("the registry keeps the exact spawning session distinct from the workspace owner", () => {
-    tempOrchDir();
-    const key = "headless~wF~stamp0001a";
+  test("the registry keeps the exact spawning session distinct from the lease holder", () => {
+    // Provenance and ownership are two facts on two timelines (Rule 11): who
+    // spawned this agent never changes, who holds it can change every minute.
+    // Both are keyed by a minted id — the spawner is an agent like any other.
+    const orchDir = tempOrchDir();
+    const session = getOrCreateSessionAgent(orchDir, {
+      pid: 4242, startToken: "tok", sessionToken: "e2277e83-74d9", harnessId: "claude",
+      cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
+    });
+    const key = "stamp0001a";
     recordSpawned(key, {
       name: "fix-1",
+      adapter: "pi",
       space: "wF",
-      owner: "herdr~wF~operator",
-      spawnedBy: "claude-session-e2277e83-74d9",
-      spawnedByLabel: "claude session",
+      owner: "operator01",
+      spawnedBy: session.id,
     });
     const record = spawnedRecords().get(key);
-    expect(record?.owner).toBe("herdr~wF~operator");
-    expect(record?.spawnedBy).toBe("claude-session-e2277e83-74d9");
-    expect(record?.spawnedByLabel).toBe("claude session");
+    expect(record?.spawnedBy).toBe(session.id);
+    expect(record?.heldBy?.orchId).toBe("operator01");
   });
 });
 
@@ -170,7 +176,7 @@ describe("the spawner address invariant", () => {
     process.env.ORCH_SPAWNER = address;
     process.env.ORCH_SPAWNER_LABEL = "claude session";
 
-    const resolved = resolvePeer("spawner", "headless~wF~worker0006");
+    const resolved = resolvePeer("spawner", "worker0006");
     expect("error" in resolved ? resolved.error : null).toBeNull();
   });
 });
@@ -178,8 +184,8 @@ describe("the spawner address invariant", () => {
 describe("peer identity in messaging", () => {
   test("peer summaries render an unplaced agent without a local place name", () => {
     const directory = tempOrchDir();
-    const ownKey = "headless~opaque~sender0001";
-    const peerKey = "headless~opaque~unplaced0002";
+    const ownKey = "sender0001";
+    const peerKey = "unplaced02";
     seedStatus(directory, peerKey, { agent: "pi", pid: process.pid, state: "idle", label: "unplaced" });
 
     const summary = peerSummaries(ownKey)[0];
@@ -191,8 +197,8 @@ describe("peer identity in messaging", () => {
 
   test("orch_send reports the peer's NAME, and stamps the sender's name on the message", () => {
     const orchDir = tempOrchDir();
-    const ownKey = "headless~wF~sender0001";
-    const peerKey = "headless~wF~sweep20002";
+    const ownKey = "sender0001";
+    const peerKey = "sweep20002";
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
 
@@ -204,8 +210,8 @@ describe("peer identity in messaging", () => {
 
   test("peers resolve by display name exactly like by key", () => {
     const orchDir = tempOrchDir();
-    const ownKey = "headless~wF~sender0001";
-    const peerKey = "headless~wF~recon30003";
+    const ownKey = "sender0001";
+    const peerKey = "recon30003";
     seedStatus(orchDir, peerKey, { agent: "pi", label: "recon-3", pid: process.pid, state: "idle" });
 
     const resolved = resolvePeer("recon-3", ownKey);
@@ -214,26 +220,26 @@ describe("peer identity in messaging", () => {
 
   test("\"spawner\" reaches the stamped spawner session across fleet scoping", () => {
     const orchDir = tempOrchDir();
-    const ownKey = "headless~wF~worker0004";
-    seedStatus(orchDir, "session-777", { agent: "pi", pid: process.pid, state: "idle" });
-    process.env.ORCH_SPAWNER = "session-777";
+    const ownKey = "worker0004";
+    seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
+    process.env.ORCH_SPAWNER = "session777";
     process.env.ORCH_SPAWNER_LABEL = "pi session";
 
     const sent = sendPeerMessage("spawner", "done with the sweep", ownKey);
     expect(sent).toStartWith("sent to ");
-    const inbox = readFileSync(join(presenceAgentDir("session-777"), INBOX_FILE), "utf8");
+    const inbox = readFileSync(join(presenceAgentDir("session777"), INBOX_FILE), "utf8");
     expect(inbox).toContain("done with the sweep");
 
     const summaries = peerSummaries(ownKey);
-    expect(summaries.find((peer) => peer.key === "session-777")?.isSpawner).toBe(true);
+    expect(summaries.find((peer) => peer.key === "session777")?.isSpawner).toBe(true);
   });
 
   test("a spawner with no inbox is refused BY NAME, not with a bare key", () => {
     tempOrchDir();
-    process.env.ORCH_SPAWNER = "herdr~wF~operator";
+    process.env.ORCH_SPAWNER = "operator01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";
 
-    const resolved = resolvePeer("spawner", "headless~wF~worker0005");
+    const resolved = resolvePeer("spawner", "worker0005");
     expect("error" in resolved && resolved.error).toContain("claude session");
   });
 });

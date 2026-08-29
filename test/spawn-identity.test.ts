@@ -62,22 +62,22 @@ describe("one key per pane spawn (12.1)", () => {
     // The key passed via ORCH_AGENT_KEY IS the identity key returned to the caller.
     expect(envKey()).toBe(agent.key);
 
+    // A1: identity is the minted id and NOTHING else — no plexer, no space, no
+    // handle, and never the human name. Environment is composed separately.
     const identity = parseIdentity(agent.key);
-    expect(identity.backend).toBe("herdr");
-    expect(identity.workspace).toBe("wsA");
-    // Identity is minted, so it carries neither the human name nor the pane handle.
+    expect(identity).toEqual({ id: agent.key });
     expect(identity.id).not.toBe("audit-1");
     expect(identity.id).not.toBe("%5");
 
-    const record = spawnedRecords().get(agent.key);
-    expect(record).toBeDefined();
-    // Registry row keyed on the env key — never a second identity re-minted from the pane.
-    expect(record!.pane).toBe(agent.key);
-    expect(record!.space).toBe("wsA");
-    expect(record!.backend).toBe("herdr");
-    // Name is normalized on the agent row; spawned rows carry placement only.
+    const view = spawnedRecords().get(identity.id);
+    expect(view).toBeDefined();
+    // The agent is keyed on the minted id; the plexer, the space and the pane
+    // handle are environment axes composed onto it, not parts of its key.
+    expect(view!.id).toBe(agent.key);
+    expect(view!.environment.space).toBe("wsA");
+    expect(view!.environment.plexer).toBe("herdr");
+    expect(view!.environment.handle).toBe("%5");
     expect(agentById(process.env.ORCH_DIR!, identity.id)?.name).toBe("audit-1");
-    expect(record!.handle).toBe("%5");
   });
 
   test("a name freed by a dead agent is reusable, and the two agents differ in identity", () => {

@@ -1,12 +1,5 @@
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
-import { agentById } from "../store/agent-rows.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
-
-function agentName(key: string): string | null {
-  const id = tryParseIdentity(key)?.id;
-  if (!id) return null;
-  try { return agentById(orchDir(), id)?.name ?? null; } catch { return null; }
-}
+import { sameSpace } from "./space.ts";
 
 export function assertValidAgentName(name: string): void {
   if (!/^[a-z][a-z0-9_-]{0,31}$/.test(name)) {
@@ -14,10 +7,22 @@ export function assertValidAgentName(name: string): void {
   }
 }
 
+/**
+ * Refuse a name a live agent in the same space already answers to.
+ *
+ * A1 / CLAUDE.md Rule 11: the space is read from the agent's composed
+ * ENVIRONMENT, never sliced out of its identity key. Scoping uniqueness by a
+ * key segment pinned the name to the space the agent was BORN in — a moved or
+ * adopted agent went on holding a name where it no longer was, and left the
+ * space it actually occupied open to a duplicate. The name itself is the
+ * agent's mutable label on the hub row, read through the same composed view.
+ */
 export function assertNameFree(name: string, space: string): void {
   assertValidAgentName(name);
   const presence = loadPresence();
-  const taken = [...spawnedRecords().values()].find((record) =>
-    agentName(record.pane) === name && record.space === space && presence.get(record.pane)?.alive);
-  if (taken) throw new Error(`name "${name}" is already live as ${taken.pane}; close it or pick another name`);
+  const taken = [...spawnedRecords(orchDir()).values()].find((view) =>
+    view.name === name
+    && sameSpace(view.environment.space, space)
+    && presence.get(view.id)?.alive === true);
+  if (taken) throw new Error(`name "${name}" is already live as ${taken.id}; close it or pick another name`);
 }

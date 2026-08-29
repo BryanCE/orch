@@ -35,7 +35,9 @@ afterEach(() => {
 describe("work reaches an agent through orch's channel, with the pane only a shortcut", () => {
   test("a headless agent receives a dispatch through the inbox, not a no-pane answer", async () => {
     const directory = tempDir();
-    const target = serializeIdentity({ backend: "headless", workspace: "local", id: "detached" });
+    // A1: the target IS the minted id. A paneless agent has no plexer and no
+    // space — missing rows, never a `headless~local~…` key inventing both.
+    const target = serializeIdentity({ id: "detached01" });
     seedStatus(directory, target, { agent: "pi", pid: process.pid, state: "idle" });
 
     const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-1" });
@@ -48,7 +50,7 @@ describe("work reaches an agent through orch's channel, with the pane only a sho
 
   test("a steer reaches a paneless agent the same way", async () => {
     const directory = tempDir();
-    const target = serializeIdentity({ backend: "headless", workspace: "local", id: "detached-2" });
+    const target = serializeIdentity({ id: "detached02" });
     seedStatus(directory, target, { agent: "pi", pid: process.pid, state: "working" });
 
     const outcome = await deliverControl(target, { kind: "steer", text: "adjust course", id: "steer-1" });

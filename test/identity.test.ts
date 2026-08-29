@@ -1,61 +1,82 @@
 import { describe, expect, test } from "bun:test";
-import { parseIdentity, serializeIdentity, tryParseIdentity, type Identity } from "../src/backends/identity.ts";
+import { isAgentId, mintAgentId, parseIdentity, serializeIdentity, tryParseIdentity, type Identity } from "../src/backends/identity.ts";
 
-describe("serializeIdentity / parseIdentity round-trip", () => {
-  const cases: readonly (readonly [string, Identity])[] = [
-    ["herdr", { backend: "herdr", workspace: "wD", id: "p2" }],
-    ["tmux with % handle", { backend: "tmux", workspace: "main", id: "%5" }],
-    ["tmux with : and % handle", { backend: "tmux", workspace: "main:pane", id: "%5" }],
-    ["headless pid handle", { backend: "headless", workspace: "local", id: "1234" }],
-    ["empty workspace", { backend: "headless", workspace: "", id: "1234" }],
-    ["separator inside parts", { backend: "he~rdr", workspace: "w~s", id: "p~2" }],
-    ["slash inside parts", { backend: "tmux", workspace: "a/b", id: "c/d" }],
-    ["percent-code-lookalike", { backend: "tmux", workspace: "%7E", id: "%3A" }],
-  ];
+/**
+ * TASKS/02-scope.md A1 — identity is a minted id and NOTHING else.
+ *
+ * These cases used to round-trip `<backend>~<workspace>~<handle>` through a
+ * percent-escaping codec. Every one of them was a test that environment SURVIVES
+ * a trip through identity, which is precisely the weld A1 removes: a key with
+ * segments to escape is a key with somewhere to hide a plexer.
+ *
+ * The structural half of this rule lives in `identity-is-not-environment.test.ts`
+ * (the module declares no plexer, no grouping, no sentinel). This file covers the
+ * behaviour: what a key IS, and what is refused as one.
+ */
 
-  for (const [name, id] of cases) {
-    test(`round-trips ${name}`, () => {
-      const key = serializeIdentity(id);
-      expect(parseIdentity(key)).toEqual(id);
-    });
-  }
+/** A minted id, built the one way anything ever builds one. */
+function mintedIdentity(): Identity {
+  return { id: mintAgentId() };
+}
 
-  test("serialized key is a single flat segment (no nested path)", () => {
-    const key = serializeIdentity({ backend: "tmux", workspace: "main", id: "%5" });
-    expect(key.includes("/")).toBe(false);
-    expect(key).toBe("tmux~main~%255");
+describe("serializeIdentity / parseIdentity", () => {
+  test("a key is the minted id verbatim", () => {
+    const identity = mintedIdentity();
+    expect(serializeIdentity(identity)).toBe(identity.id);
   });
 
-  test("backend namespaces prevent collisions across equal workspace/handle", () => {
-    const shared = { workspace: "main", id: "5" };
-    const herdrKey = serializeIdentity({ backend: "herdr", ...shared });
-    const tmuxKey = serializeIdentity({ backend: "tmux", ...shared });
-    expect(herdrKey).not.toBe(tmuxKey);
+  test("round-trips a minted id", () => {
+    const identity = mintedIdentity();
+    expect(parseIdentity(serializeIdentity(identity))).toEqual(identity);
+  });
+
+  test("a key is one flat filesystem-safe segment with nothing to split", () => {
+    const key = serializeIdentity(mintedIdentity());
+    expect(key).toMatch(/^[0-9a-z]{10}$/);
+    for (const separator of ["/", "~", ":", "%", "\\"]) expect(key.includes(separator)).toBe(false);
+  });
+
+  test("two spawns never collide, so no plexer is needed to namespace them", () => {
+    const keys = new Set(Array.from({ length: 200 }, () => serializeIdentity(mintedIdentity())));
+    expect(keys.size).toBe(200);
+  });
+});
+
+describe("isAgentId", () => {
+  test("accepts a minted id", () => expect(isAgentId(mintAgentId())).toBe(true));
+
+  test("rejects everything that is not one", () => {
+    for (const value of ["", "herdr~wF~p2", "headless~local~42", "ABCDEFGHIJ", "short", "eleven_char", "%5", 42, null, undefined, {}]) {
+      expect(isAgentId(value)).toBe(false);
+    }
   });
 });
 
 describe("malformed input", () => {
-  test("rejects wrong segment count", () => {
-    expect(() => parseIdentity("herdr~wD")).toThrow(/expected 3 segments/);
-    expect(() => parseIdentity("herdr~wD~p2~extra")).toThrow(/expected 3 segments/);
+  test("rejects a plexer-and-space key on parse", () => {
+    expect(() => parseIdentity("herdr~wF~p2")).toThrow(/malformed identity key/);
+    expect(() => parseIdentity("headless~local~worker0001")).toThrow(/malformed identity key/);
   });
 
-  test("rejects empty key", () => {
-    expect(() => parseIdentity("")).toThrow(/non-empty string/);
+  test("rejects an empty key", () => {
+    expect(() => parseIdentity("")).toThrow(/malformed identity key/);
   });
 
-  test("rejects empty backend or id on serialize", () => {
-    expect(() => serializeIdentity({ backend: "", workspace: "w", id: "h" })).toThrow(/backend/);
-    expect(() => serializeIdentity({ backend: "b", workspace: "w", id: "" })).toThrow(/id/);
+  test("rejects a pane handle, a name, and a wrong-length id on serialize", () => {
+    for (const id of ["%5", "audit-1", "", "worker"]) {
+      expect(() => serializeIdentity({ id })).toThrow(/10 lowercase alphanumerics/);
+    }
   });
 
   test("tryParseIdentity returns null for malformed and non-string input", () => {
-    expect(tryParseIdentity("herdr~wD")).toBeNull();
+    expect(tryParseIdentity("herdr~wF~p2")).toBeNull();
+    expect(tryParseIdentity("")).toBeNull();
     expect(tryParseIdentity(null)).toBeNull();
     expect(tryParseIdentity(undefined)).toBeNull();
   });
 
-  test("tryParseIdentity parses a valid key", () => {
-    expect(tryParseIdentity("herdr~wD~p2")).toEqual({ backend: "herdr", workspace: "wD", id: "p2" });
+  test("tryParseIdentity parses a minted id", () => {
+    const id = mintAgentId();
+    expect(tryParseIdentity(id)).toEqual({ id });
   });
 });

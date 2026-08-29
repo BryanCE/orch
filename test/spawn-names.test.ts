@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { recordSpawned } from "../src/presence/store.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
@@ -18,11 +19,21 @@ function tempOrchDir(): string {
   return directory;
 }
 
-/** A live named agent: a spawn record plus a presence status naming this pid. */
-function seedLiveAgent(orchDir: string, key: string, name: string, space: string): void {
-  recordSpawned(key, { space, handle: key });
-  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: key, cwd: orchDir, name, model: "test", spawner: null });
+/** Register one agent. The key IS the minted id (A1) — the space it sits in is a
+ *  separate fact written through the environment satellites, never a segment of
+ *  the key. */
+function seedAgent(orchDir: string, name: string, space: string): string {
+  const key = mintAgentId();
+  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: orchDir, name, model: "test", spawner: null });
+  recordSpawned(key, { adapter: "pi", space });
+  return key;
+}
+
+/** A live named agent: a registered agent plus a presence status naming this pid. */
+function seedLiveAgent(orchDir: string, name: string, space: string): string {
+  const key = seedAgent(orchDir, name, space);
   seedStatus(orchDir, key, { agent: "pi", pid: process.pid, state: "idle" });
+  return key;
 }
 
 beforeEach(() => {
@@ -55,7 +66,7 @@ describe("agent name validation", () => {
 describe("a live name is claimed and a dead one is released", () => {
   test("a live agent holds its name against a second spawn", () => {
     const orchDir = tempOrchDir();
-    seedLiveAgent(orchDir, "herdr~w1~a1", "recon", "w1");
+    seedLiveAgent(orchDir, "recon", "w1");
 
     expect(() => assertNameFree("recon", "w1")).toThrow(/already live/);
     expect(() => assertNameFree("recon-two", "w1")).not.toThrow();
@@ -63,17 +74,43 @@ describe("a live name is claimed and a dead one is released", () => {
 
   test("a dead agent frees its name", () => {
     const orchDir = tempOrchDir();
-    recordSpawned("herdr~w1~dead", { space: "w1", handle: "herdr~w1~dead" });
-    registerSpawnedAgent(orchDir, { key: "herdr~w1~dead", harnessId: "pi", backendId: "herdr", pane: true, handle: "herdr~w1~dead", cwd: orchDir, name: "recon", model: "test", spawner: null });
-    seedStatus(orchDir, "herdr~w1~dead", { agent: "pi", state: "idle" }); // no pid: process gone
+    const key = seedAgent(orchDir, "recon", "w1");
+    seedStatus(orchDir, key, { agent: "pi", state: "idle" }); // no pid: process gone
 
     expect(() => assertNameFree("recon", "w1")).not.toThrow();
   });
 
-  test("another workspace's agent never blocks a name here", () => {
+  test("another space's agent never blocks a name here", () => {
     const orchDir = tempOrchDir();
-    seedLiveAgent(orchDir, "herdr~w2~b1", "recon", "w2");
+    seedLiveAgent(orchDir, "recon", "w2");
 
     expect(() => assertNameFree("recon", "w1")).not.toThrow();
+  });
+});
+
+// A1 / Rule 11: uniqueness is scoped by the agent's CURRENT space, composed from
+// `agent_spaces`. Scoping it by a space sliced out of the identity key made a
+// moved agent go on holding its name in the space it was BORN in, and leave the
+// space it actually occupies open to a duplicate.
+describe("name scope follows the agent's current space, not its birthplace", () => {
+  test("moving an agent moves the name it holds", () => {
+    const orchDir = tempOrchDir();
+    const key = seedLiveAgent(orchDir, "recon", "w1");
+
+    expect(() => assertNameFree("recon", "w1")).toThrow(/already live/);
+    expect(() => assertNameFree("recon", "w2")).not.toThrow();
+
+    // The agent moves. Its identity is untouched — only the environment changed.
+    recordSpawned(key, { adapter: "pi", space: "w2" });
+
+    expect(() => assertNameFree("recon", "w1")).not.toThrow();
+    expect(() => assertNameFree("recon", "w2")).toThrow(/already live/);
+  });
+
+  test("the collision names the agent by its minted id", () => {
+    const orchDir = tempOrchDir();
+    const key = seedLiveAgent(orchDir, "recon", "w1");
+
+    expect(() => assertNameFree("recon", "w1")).toThrow(new RegExp(`already live as ${key}`));
   });
 });

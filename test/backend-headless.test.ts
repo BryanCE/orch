@@ -4,7 +4,9 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { SpawnOpts } from "../src/adapters/adapter.ts";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
-import { codexAdapter } from "../src/adapters/codex.ts";
+// The session-tail parse lives in the codex adapter family's leaf module;
+// reaching for it there keeps this test off the adapter registry's init graph.
+import { readCodexSessionView } from "../src/adapters/codex-events.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { recordSpawned } from "../src/presence/store.ts";
@@ -95,7 +97,7 @@ describe("HeadlessBackend", () => {
   });
 
   test("spawns a detached process and records its handle", async () => {
-    const key = "hfake0000a1";
+    const key = "hfakeaaaa1";
     // E13: capability is which roles are composed, not a flags bag. Headless owns
     // its own logs, is inside no space, and addresses agents by key.
     expect(backend.logPruning).not.toBeNull();
@@ -148,12 +150,12 @@ describe("HeadlessBackend", () => {
     expect(status.sessionPath).toMatch(/logs[\\/]/);
     expect(fs.existsSync(status.sessionPath)).toBe(true);
     await waitFor(() => fs.existsSync(status.sessionPath) && fs.readFileSync(status.sessionPath, "utf8").includes("headless tail"));
-    expect(codexAdapter.readSessionView({ sessionPath: status.sessionPath })).toEqual({ state: "idle", lastText: "headless tail" });
-    expect(codexAdapter.readSessionView({})).toBeUndefined();
+    expect(readCodexSessionView(status.sessionPath)).toEqual({ state: "idle", lastText: "headless tail" });
+    expect(readCodexSessionView(undefined)).toBeUndefined();
   }, 30000);
 
   test("closes only when registry and presence pid/key both match", async () => {
-    const key = "hfake0000a2";
+    const key = "hfakeaaaa2";
     const wrongKey = "hwrongkey1";
     const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep" });
     handles.push(handle);

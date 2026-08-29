@@ -35,12 +35,12 @@ describe("worktree ownership reads the composed environment", () => {
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
       ensureHarness(root, "pi", "pi", 1);
-      insertAgent(root, { id: "live1", harnessId: "pi", cwd: "/repo", name: "keeper", createdAt: 1 });
-      insertAgent(root, { id: "dead1", harnessId: "pi", cwd: "/repo", name: "goner", createdAt: 2 });
-      setWorktree(root, "live1", join(root, "wt-live"), "orch/keeper");
-      setWorktree(root, "dead1", join(root, "wt-dead"), "orch/goner");
-      seedStatus(root, "headless~local~live1", { key: "headless~local~live1", pid: process.pid });
-      seedStatus(root, "headless~local~dead1", { key: "headless~local~dead1", pid: 999999 });
+      insertAgent(root, { id: "live000001", harnessId: "pi", cwd: "/repo", name: "keeper", createdAt: 1 });
+      insertAgent(root, { id: "dead000001", harnessId: "pi", cwd: "/repo", name: "goner", createdAt: 2 });
+      setWorktree(root, "live000001", join(root, "wt-live"), "orch/keeper");
+      setWorktree(root, "dead000001", join(root, "wt-dead"), "orch/goner");
+      seedStatus(root, "live000001", { key: "live000001", pid: process.pid });
+      seedStatus(root, "dead000001", { key: "dead000001", pid: 999999 });
 
       const views = [...agentViewIndex(root).values()];
       const presence = presenceById();
@@ -62,7 +62,7 @@ describe("orch clean is destructive maintenance", () => {
     const oldKey = process.env.ORCH_AGENT_KEY;
     const oldExit = process.exit.bind(process);
     process.env.ORCH_DIR = root;
-    process.env.ORCH_AGENT_KEY = "herdr~w1~agent-1";
+    process.env.ORCH_AGENT_KEY = "agent00001";
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     try {
       seedStatus(root, "dead", { pid: 999999 });

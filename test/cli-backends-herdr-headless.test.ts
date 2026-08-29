@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { parseIdentity, serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, parseIdentity, serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
@@ -12,7 +12,7 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { resolveAdapter } from "../src/adapters/registry.ts";
 import type { AgentAdapter } from "../src/adapters/adapter.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { selectSpawnedRecords } from "../src/store/spawned-rows.ts";
+import { agentView } from "../src/store/agent-view.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 
@@ -119,26 +119,26 @@ describe("headless common path: identity key -> presence", () => {
     process.env.ORCH_DIR = dir;
     const backend = new HeadlessBackend();
 
-    // The spawner mints the name-based identity BEFORE launch (one key per
-    // agent) and passes it via opts.key; the backend never mints its own.
-    const key = serializeIdentity({ backend: "headless", workspace: "local", id: "detached-1" });
+    // The spawner mints the identity BEFORE launch (one id per agent) and passes
+    // it via opts.key; the backend never mints its own.
+    const key = serializeIdentity({ id: mintAgentId() });
     const handle = backend.spawn(fakeAdapter, { key, orchDir: dir, cwd: dir, prompt: "write your presence and exit" });
 
-    // The handle carries the caller's key unchanged — a flat serialized identity.
+    // The handle carries the caller's key unchanged — the minted id, nothing else.
     expect(handle.key).toBe(key);
-    const identity = parseIdentity(handle.key);
-    expect(identity).toEqual({ backend: "headless", workspace: "local", id: "detached-1" });
+    expect(parseIdentity(handle.key)).toEqual({ id: key });
     expect(handle.key.includes("/")).toBe(false);
 
     // The agent writes its presence under ~/.orch/agents/<key>/.
     const statusFile = path.join(dir, "agents", handle.key, "status.json");
     await waitFor(() => fs.existsSync(statusFile));
 
-    // The spawned table records the backend, handle, adapter, and cwd.
-    const record = selectSpawnedRecords(dir).find((entry) => entry.pane === key);
-    expect(record?.backend).toBe("headless");
-    expect(record?.cwd).toBe(dir);
-    expect(JSON.parse(record?.handle ?? "null")).toEqual({ pid: handle.pid, key });
+    // The four facts are recorded apart and composed back: the plexer and the
+    // handle are ENVIRONMENT, and neither is part of the identity above.
+    const view = agentView(dir, key);
+    expect(view?.cwd).toBe(dir);
+    expect(view?.environment.plexer).toBe("headless");
+    expect(JSON.parse(view?.environment.handle ?? "null")).toEqual({ pid: handle.pid, key });
 
     try { process.kill(handle.pid, "SIGTERM"); } catch {}
   });
@@ -160,16 +160,17 @@ describe("headless common path: identity key -> presence", () => {
     }
   }, 30_000);
 
-  test("one adapter uses opaque keys across headless and tmux backend routes", () => {
-    const key = "opaque~adapter~key";
-    expect(parseIdentity(key)).toEqual({ backend: "opaque", workspace: "adapter", id: "key" });
+  test("one adapter uses the same opaque key across headless and tmux routes", () => {
+    const key = mintAgentId();
+    expect(parseIdentity(key)).toEqual({ id: key });
     expect(claudeAdapter.headlessCmd("task", { key }).at(-1)).toBe("task");
     expect(piAdapter.interactiveCmd({ key })).toBe("pi");
   });
 
-  test("spaceOf reads the workspace from the structured key, not a regex", () => {
-    expect(tryParseIdentity("headless~local~123-1")?.workspace).toBe("local");
-    // A legacy ws:pane key no longer parses -> unscoped.
+  test("a key carries no environment to read back out of it", () => {
+    // The welded <plexer>~<space>~<id> key is gone: neither spelling parses, and
+    // a space is read from the agent's environment or it is simply absent.
+    expect(tryParseIdentity("headless~local~123-1")).toBeNull();
     expect(tryParseIdentity("wD:p1")).toBeNull();
   });
 });

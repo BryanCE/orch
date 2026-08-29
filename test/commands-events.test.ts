@@ -1,6 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { eventInMineScope, eventInScope, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { eventInMineScope, eventInScope, eventInSpaceScope, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
+import { recordSpawned } from "../src/presence/store.ts";
+import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc.ts";
 
@@ -86,5 +92,64 @@ describe("commands/events", () => {
     expect(isNotifyEvent({ key: "k", oldState: "idle", newState: "done", ts: "now" })).toBe(true);
     expect(isNotifyEvent({ key: "k" })).toBe(false);
     expect(sinkLabel({ id: "command", command: ["echo", "ok"] })).toBe("command echo ok");
+  });
+});
+
+// A1 / CLAUDE.md Rule 11: `orch events` scopes the stream by the agent's CURRENT
+// space, composed from `agent_spaces`. It used to read a space segment out of the
+// identity key, so a moved or adopted agent kept streaming into the space it was
+// BORN in and went silent in the one it actually occupies.
+describe("commands/events space scope", () => {
+  const directories: string[] = [];
+  let previousOrchDir: string | undefined;
+
+  function tempOrchDir(): string {
+    previousOrchDir ??= process.env.ORCH_DIR;
+    const directory = mkdtempSync(join(tmpdir(), "orch-events-space-"));
+    directories.push(directory);
+    process.env.ORCH_DIR = directory;
+    return directory;
+  }
+
+  function seedAgent(root: string, space: string): string {
+    const key = mintAgentId();
+    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", spawner: null });
+    recordSpawned(key, { adapter: "pi", space });
+    return key;
+  }
+
+  afterEach(() => {
+    if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
+    else process.env.ORCH_DIR = previousOrchDir;
+    previousOrchDir = undefined;
+    while (directories.length > 0) removeTempDir(directories.pop()!);
+  });
+
+  test("an agent streams into the space it currently occupies", () => {
+    const root = tempOrchDir();
+    const key = seedAgent(root, "w1");
+    expect(eventInSpaceScope(root, key, "w1", false)).toBe(true);
+    expect(eventInSpaceScope(root, key, "w2", false)).toBe(false);
+  });
+
+  test("moving an agent moves its events with it", () => {
+    const root = tempOrchDir();
+    const key = seedAgent(root, "w1");
+    recordSpawned(key, { adapter: "pi", space: "w2" });
+    // The identity key never changed; only the environment did.
+    expect(eventInSpaceScope(root, key, "w1", false)).toBe(false);
+    expect(eventInSpaceScope(root, key, "w2", false)).toBe(true);
+  });
+
+  test("--all streams every space, and an unplaced caller scopes to none", () => {
+    const root = tempOrchDir();
+    const key = seedAgent(root, "w1");
+    expect(eventInSpaceScope(root, key, "w2", true)).toBe(true);
+    expect(eventInSpaceScope(root, key, null, false)).toBe(false);
+  });
+
+  test("a key naming no registered agent is in no space", () => {
+    const root = tempOrchDir();
+    expect(eventInSpaceScope(root, mintAgentId(), "w1", false)).toBe(false);
   });
 });

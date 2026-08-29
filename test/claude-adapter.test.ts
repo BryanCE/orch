@@ -4,15 +4,16 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
 const { claudeAdapter } = await import("../src/adapters/claude.ts");
 const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
-// The hook receives its identity only through the opaque serialized key.
-const fakeKey = serializeIdentity({ backend: "herdr", workspace: "w9", id: "p1" });
+// A1: the hook receives its identity through ORCH_AGENT_KEY, and that key is the
+// minted id alone — no plexer, no space, nothing for the hook to decode.
+const fakeKey = serializeIdentity({ id: mintAgentId() });
 
 function agentDir(key: string): string {
   const directory = join(orchDir, "agents", key);

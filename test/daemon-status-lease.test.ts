@@ -18,7 +18,7 @@ function fixture(): string {
   const db = openStore(dir);
   db.query("INSERT INTO harnesses(id,name) VALUES ('pi','Pi')").run();
   db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
-  for (const [id, name] of [["worker", "Worker"], ["orch", "Lead"]]) {
+  for (const [id, name] of [[WORKER_ID, "Worker"], ["orch", "Lead"]]) {
     db.query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (?,?,?,?,?,?)")
       .run(id, id, "pi", "/tmp", name, 1);
   }
@@ -28,11 +28,16 @@ function fixture(): string {
   return dir;
 }
 
+/** A1: the agent a lease payload is asked about is named by its minted id — the
+ *  old fixture asked with `headless~local~worker`, a key that carried where the
+ *  agent sat inside the one fact that identifies it. */
+const WORKER_ID = "worker0001";
+
 describe("daemon status lease payload", () => {
   test("reports the current holder and its liveness", () => {
     const dir = fixture();
-    acquireLease(dir, "worker", "orch", 2);
-    expect(deriveLeasePayload(dir, serializeIdentity({ backend: "headless", workspace: "local", id: "worker" }))).toEqual({
+    acquireLease(dir, WORKER_ID, "orch", 2);
+    expect(deriveLeasePayload(dir, serializeIdentity({ id: WORKER_ID }))).toEqual({
       lease: { holderId: "orch", holderName: "Lead", holderAlive: true },
       leaseKnown: true,
     });
@@ -40,7 +45,7 @@ describe("daemon status lease payload", () => {
 
   test("distinguishes a known unleased agent from an unknown key", () => {
     const dir = fixture();
-    expect(deriveLeasePayload(dir, serializeIdentity({ backend: "headless", workspace: "local", id: "worker" }))).toEqual({ lease: null, leaseKnown: true });
-    expect(deriveLeasePayload(dir, "missing-key")).toEqual({ lease: null, leaseKnown: false });
+    expect(deriveLeasePayload(dir, serializeIdentity({ id: WORKER_ID }))).toEqual({ lease: null, leaseKnown: true });
+    expect(deriveLeasePayload(dir, "missingkey0")).toEqual({ lease: null, leaseKnown: false });
   });
 });

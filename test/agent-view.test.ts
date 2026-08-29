@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
-import { insertAgent, setWorktree } from "../src/store/agent-rows.ts";
+import { insertAgent, renameAgent, setWorktree } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { agentView, agentViews, environmentOf, liveAgentViews } from "../src/store/agent-view.ts";
@@ -101,6 +101,33 @@ describe("the agent composer", () => {
       const view = agentView(directory, "a1");
       expect(view?.spawnedBy).toBe("orch");
       expect(view?.heldBy).toBeNull();
+    });
+  });
+
+  test("provenance carries the spawner's name, read as a join and never stored twice", () => {
+    withStore((directory) => {
+      insertAgent(directory, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "release-orch", createdAt: 1 });
+      insertAgent(directory, { id: "a1", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
+
+      const view = agentView(directory, "a1");
+      expect(view?.spawnedBy).toBe("orch");
+      expect(view?.spawnedByName).toBe("release-orch");
+
+      // Renaming the spawner changes what its children report, because the name
+      // is READ from the spawner's row rather than copied onto each child. A
+      // stored copy would still say "release-orch" here, which is exactly the
+      // denormalization A1 forbids.
+      renameAgent(directory, "orch", "hotfix-orch");
+      expect(agentView(directory, "a1")?.spawnedByName).toBe("hotfix-orch");
+    });
+  });
+
+  test("an agent with no spawner reports no spawner name", () => {
+    withStore((directory) => {
+      insertAgent(directory, { id: "root", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "root", createdAt: 1 });
+      const view = agentView(directory, "root");
+      expect(view?.spawnedBy).toBeNull();
+      expect(view?.spawnedByName).toBeNull();
     });
   });
 

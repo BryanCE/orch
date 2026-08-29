@@ -8,7 +8,7 @@ import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import type { Recipient } from "./recipient.ts";
-import { agentViews, type AgentView } from "./store/agent-view.ts";
+import { agentView, agentViews, type AgentView } from "./store/agent-view.ts";
 import { selfId } from "./identity/self.ts";
 import { CommandRefusal } from "./refusal.ts";
 
@@ -134,9 +134,17 @@ export function entitySpace(e: Entity): string | null {
 }
 
 export function currentSpace(): string | null {
-  // The plexer's own grouping is what orch has stood a space up on so far; the
-  // word stays on the port's side of the boundary and never crosses it.
-  return resolveBackend({}).identity?.current()?.workspace ?? null;
+  // Where the calling process sits is ENVIRONMENT, read from the agent it IS —
+  // never a field on its identity, which is the minted id and nothing else.
+  // `null` is a real answer: a caller in no space is unscoped, and inventing a
+  // place for it is exactly what produced the fictional "local".
+  const id = resolveBackend({}).identity?.current()?.id;
+  if (id === undefined) return null;
+  try {
+    return agentView(orchDir(), id)?.environment.space ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function scopeEntitiesToSpace(entities: Entity[], opts?: { all?: boolean }): Entity[] {

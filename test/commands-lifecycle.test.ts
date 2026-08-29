@@ -20,17 +20,17 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
   const oldOwner = process.env.ORCH_OWNER;
   const oldAgentKey = process.env.ORCH_AGENT_KEY;
   process.env.ORCH_DIR = root;
-  process.env.ORCH_OWNER = "orch-a";
+  process.env.ORCH_OWNER = "orcha00001";
   delete process.env.ORCH_AGENT_KEY;
   try {
     writeSettingsFixture(root, {
       enabled: { adapters: ["pi"], backends: ["headless"] },
       defaults: { adapter: "pi", backend: "headless" },
     });
-    const key = "headless~local~worker1";
-    recordSpawned(key, { adapter: "pi", backend: "headless", space: "local", handle: "worker1", owner: "orch-a" });
+    const key = "worker0001";
+    recordSpawned(key, { adapter: "pi", backend: "headless", space: "local", handle: "w1:p1", owner: "orcha00001" });
     seedStatus(root, key, { key, pid: process.pid });
-    body(root, key, "worker1");
+    body(root, key, key);
   } finally {
     closeAllStores();
     if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
@@ -50,7 +50,7 @@ describe("commands/lifecycle", () => {
   test("--all targets the agents this orch holds a live lease on, and drops them when it releases", () => {
     withFleet((root, key, agentId) => {
       expect(ownedAgentKeys()).toContain(key);
-      releaseLease(root, agentId, "orch-a");
+      releaseLease(root, agentId, "orcha00001");
       expect(ownedAgentKeys()).not.toContain(key);
     });
   });

@@ -12,8 +12,8 @@ import { adoptLease } from "../store/lease-rows.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "../store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { isAdapterId, type AdapterId } from "../adapters/adapter.ts";
-import { isBackendId, type BackendId } from "../backends/backend.ts";
+import type { AdapterId } from "../adapters/adapter.ts";
+import type { BackendId } from "../backends/backend.ts";
 import { openStore } from "../store/connection.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 

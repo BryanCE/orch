@@ -31,7 +31,7 @@ const fleet = (pack_cap = 10): OrchConfig["fleet"] => ({
 function agentViewFixture(id: string, spawnedBy: string | null, space: string): AgentView {
   return {
     id, name: id, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
-    spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
+    spawnedBy, spawnedByName: spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
     environment: { plexer: "headless", handle: null, space, worktree: null, branch: null },
     tuning: { model: null, thinking: null },
     endedAt: null,

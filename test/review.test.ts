@@ -46,7 +46,9 @@ function commit(worktreePath: string, file: string, contents: string, message: s
 /** Seed one done agent the way orch itself records it: an identity, a harness,
  *  and a WORKTREE ENVIRONMENT axis — never one wide row keyed by its pane. */
 function registerDoneAgent(orchDir: string, id: string, worktreePath: string, branch: string): string {
-  const key = `headless~local~${id}`;
+  // The presence directory name IS the minted id: environment lives in the
+  // satellites, never in the key (A1).
+  const key = id;
   fs.mkdirSync(path.join(orchDir, "agents", key), { recursive: true });
   fs.writeFileSync(path.join(orchDir, "agents", key, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA, agent: "pi", key, pid: process.pid, state: "done", task: "finish the feature",
@@ -114,7 +116,7 @@ describe("review plumbing", () => {
     const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "feature-1");
     commit(worktreePath, "feature.txt", "feature\n", "add feature");
-    registerDoneAgent(orchDir, "agent1", worktreePath, worktreeBranch(worktreePath));
+    registerDoneAgent(orchDir, "agent00001", worktreePath, worktreeBranch(worktreePath));
 
     const result = JSON.parse(runOrch(repoRoot, orchDir, "review", "list", "--json")) as Record<string, unknown>[];
     expect(result).toHaveLength(1);
@@ -127,7 +129,7 @@ describe("review plumbing", () => {
     const orchDir = orchDirWithSettings();
     const worktreePath = createAgentWorktree(repoRoot, "iterate-1");
     commit(worktreePath, "feature.txt", "feature\n", "first pass");
-    const key = registerDoneAgent(orchDir, "agent1", worktreePath, worktreeBranch(worktreePath));
+    const key = registerDoneAgent(orchDir, "agent00001", worktreePath, worktreeBranch(worktreePath));
 
     expect(runOrch(repoRoot, orchDir, "review", "reject", "iterate-1", "-m", "handle the empty case")).toContain("re-dispatched");
     // The daemon accepts the steer and delivers it asynchronously; wait for the inbox write.
@@ -144,7 +146,7 @@ describe("review plumbing", () => {
     const worktreePath = createAgentWorktree(repoRoot, "approve-1");
     const branch = worktreeBranch(worktreePath);
     commit(worktreePath, "approved.txt", "approved\n", "approved change");
-    registerDoneAgent(orchDir, "agent1", worktreePath, branch);
+    registerDoneAgent(orchDir, "agent00001", worktreePath, branch);
 
     expect(runOrch(repoRoot, orchDir, "review", "approve", "approve-1")).toContain("fast-forward");
     expect(fs.existsSync(path.join(repoRoot, "approved.txt"))).toBe(true);

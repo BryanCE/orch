@@ -9,7 +9,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { HarnessApi, HarnessContext } from "./harness.ts";
-import { mintAgentId, serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId, mintAgentId } from "../backends/identity.ts";
 import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
   ensurePresenceAgentDir,
@@ -104,12 +104,17 @@ export function isAssistantMessageLike(value: unknown): value is AssistantMessag
 /** The key an interactive session orch did not spawn addresses itself by. A
  *  session is an agent, so it mints an id like any other and holds it for the
  *  life of the process; a pid is where it runs, and a key built from one reads
- *  back as a malformed identity every reader then has to ignore. Placement is
- *  orch's to record, so the key carries the unplaced pair, never a claim. */
+ *  back as a malformed identity every reader then has to ignore.
+ *
+ *  The id is the WHOLE key (TASKS/01-agent-model.md). This session is inside no
+ *  plexer and in no space, and that is a missing value, not a place called
+ *  `headless~local~`: stamping those two sentinels into the key is what made the
+ *  web bucket every session into a fake space named "local". Where a session
+ *  runs is orch's to record as environment, never the agent's to claim here. */
 let ownSessionKey: string | undefined;
 
 function sessionKey(): string {
-  ownSessionKey ??= serializeIdentity({ backend: "headless", workspace: "local", id: mintAgentId() });
+  ownSessionKey ??= mintAgentId();
   return ownSessionKey;
 }
 
@@ -117,10 +122,7 @@ function sessionKey(): string {
 // session mints its own; a session with no UI has nobody to address and skips presence.
 function computeKey(hasUI: boolean): string | undefined {
   const rawKey = process.env.ORCH_AGENT_KEY;
-  if (rawKey) {
-    const identity = tryParseIdentity(rawKey);
-    return identity ? serializeIdentity(identity) : undefined;
-  }
+  if (rawKey) return isAgentId(rawKey) ? rawKey : undefined;
   return hasUI ? sessionKey() : undefined;
 }
 

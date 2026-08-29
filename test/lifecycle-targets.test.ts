@@ -19,7 +19,7 @@ function view(id: string, name: string, handle: string | null = null): AgentView
     harnessId: "pi",
     cwd: "/repo",
     createdAt: 1,
-    spawnedBy: null,
+    spawnedBy: null, spawnedByName: null,
     rootAgentId: id,
     heldBy: null,
     environment: { plexer: handle === null ? null : "herdr", handle, space: null, worktree: null, branch: null },

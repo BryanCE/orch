@@ -15,7 +15,7 @@ import type { AgentView } from "../src/store/agent-view.ts";
 function agentViewFixture(id: string, holder: string | null): AgentView {
   return {
     id, name: "worker", label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
-    spawnedBy: null, rootAgentId: id,
+    spawnedBy: null, spawnedByName: null, rootAgentId: id,
     heldBy: holder === null ? null : { orchId: holder, since: 5 },
     environment: { plexer: "herdr", handle: "app:p1", space: "local", worktree: null, branch: null },
     tuning: { model: null, thinking: null },
@@ -24,10 +24,10 @@ function agentViewFixture(id: string, holder: string | null): AgentView {
 }
 
 const seededEntity = {
-  key: "herdr~local~app:p1", paneId: "app:p1", name: "worker", tabLabel: "app", agent: "pi",
+  key: "appagent01", paneId: "app:p1", name: "worker", tabLabel: "app", agent: "pi",
   focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, space: "local",
   presence: {
-    key: "herdr~local~app:p1", dir: "/tmp/pres", alive: true, result: { text: "done" },
+    key: "appagent01", dir: "/tmp/pres", alive: true, result: { text: "done" },
     status: {
       schema: 1, agent: "pi", state: "working", task: "build the thing", lastText: "on it",
       cost: 2.5, context: { percent: 33 }, model: { provider: "openai-codex", id: "gpt-5.6" },
@@ -58,12 +58,12 @@ describe("commands/status", () => {
     expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { all: false, allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
   });
   test("derives view fields from seeded presence", () => {
-    const entity = { key: "headless~local~1", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "headless~local~1", dir: "/tmp", alive: true, result: { text: "answer" }, status: { agent: "pi", state: "working", task: "task", cost: 1.25, context: { percent: 42 } } } } as unknown as Entity;
+    const entity = { key: "hless00001", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "hless00001", dir: "/tmp", alive: true, result: { text: "answer" }, status: { agent: "pi", state: "working", task: "task", cost: 1.25, context: { percent: 42 } } } } as unknown as Entity;
     const view = deriveView(entity, new Map());
     expect(view).toMatchObject({ agent: "pi", state: "working", task: "task", last: "answer", cost: 1.25, ctxPercent: 42, exited: false });
   });
   test("marks dead presence as exited", () => {
-    const entity = { key: "headless~local~1", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "headless~local~1", dir: "/tmp", alive: false, result: null, status: { agent: "pi", state: "working" } } } as unknown as Entity;
+    const entity = { key: "hless00001", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "hless00001", dir: "/tmp", alive: false, result: null, status: { agent: "pi", state: "working" } } } as unknown as Entity;
     const view = deriveView(entity, new Map());
     expect(view).toMatchObject({ state: "exited", exited: true });
     // The shared row is consumed by both table and JSON renderers.
@@ -79,7 +79,7 @@ describe("commands/status", () => {
     const view = deriveView(seededEntity, new Map());
     const row = statusRowFromView(view, {});
     expect(row).toMatchObject({
-      key: "herdr~local~app:p1", paneId: "app:p1", name: "worker", tab: "app", agent: "pi",
+      key: "appagent01", paneId: "app:p1", name: "worker", tab: "app", agent: "pi",
       focused: true, model: "openai-codex/gpt-5.6:medium", modelShort: "gpt-5.6:medium",
       state: "working", stateFallback: false, exited: false, cost: 2.5, ctxPercent: 33,
       task: "build the thing", lastText: "on it", presenceOnly: false, tokens: { input: 10 },
@@ -94,7 +94,7 @@ describe("commands/status", () => {
     const paned = statusRowFromView(deriveView(seededEntity, new Map()), {});
     expect(paned.capabilities).toEqual({ spaceHome: true, identity: true, handleLookup: false, logPruning: false });
 
-    const detached: Entity = { ...seededEntity, key: "headless~local~1", backend: "headless" };
+    const detached: Entity = { ...seededEntity, key: "hless00001", backend: "headless" };
     expect(statusRowFromView(deriveView(detached, new Map()), {}).capabilities).toEqual({ spaceHome: false, identity: false, handleLookup: true, logPruning: true });
   });
 
@@ -107,7 +107,7 @@ describe("commands/status", () => {
   test("status owner ignores spawning provenance when no lease exists", () => {
     // Keyed by the MINTED ID, never by the pane-bearing presence key: the key
     // welds environment onto identity, and the store is keyed by the id alone.
-    const owned = new Map([["app:p1", agentViewFixture("app:p1", "orch-a")]]);
+    const owned = new Map([["appagent01", agentViewFixture("appagent01", "orch-a")]]);
     expect(deriveView(seededEntity, owned).owner).toBe("orch-a");
     expect(statusRowFromView(deriveView(seededEntity, owned), {}).owner).toBe("no orch driving it");
     expect(statusRowFromView(deriveView(seededEntity, new Map()), {}).owner).toBe("no orch driving it");
@@ -117,20 +117,20 @@ describe("commands/status", () => {
     try {
       ensureHarness(dir, "pi", "pi", 1);
       insertAgent(dir, { id: "me", harnessId: "pi", cwd: "/tmp", name: "me", createdAt: 1 });
-      insertAgent(dir, { id: "worker", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
+      insertAgent(dir, { id: "worker0001", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
       insertAgent(dir, { id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
-      const key = "headless~local~worker";
+      const key = "worker0001";
       const db = openStore(dir);
       db.query("INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)").run();
       const token = processStartToken(process.pid);
       if (!token) throw new Error("test process has no start token");
       db.query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
         .run("me", 1, "host", process.pid, token);
-      acquireLease(dir, "worker", "me", 2);
+      acquireLease(dir, "worker0001", "me", 2);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "me", mine: true });
-      releaseLease(dir, "worker", "me", 3);
+      releaseLease(dir, "worker0001", "me", 3);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it", mine: false });
-      acquireLease(dir, "worker", "other", 4);
+      acquireLease(dir, "worker0001", "other", 4);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it (holder gone)", mine: false });
     } finally {
       closeAllStores();

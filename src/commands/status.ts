@@ -166,14 +166,14 @@ function viewAgent(ent: Entity, pres: PresenceEntry | null, view: AgentView | un
 function viewProvenance(
   pres: PresenceEntry | null,
   view: AgentView | undefined,
-  views: ReadonlyMap<string, AgentView>,
 ): Pick<View, "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd"> {
   const status = pres?.status ?? null;
-  const spawner = view?.spawnedBy === null || view?.spawnedBy === undefined ? undefined : views.get(view.spawnedBy);
   return {
     owner: view?.heldBy?.orchId ?? null,
     spawnedBy: view?.spawnedBy ?? status?.spawnedBy ?? null,
-    spawnedByLabel: spawner?.name ?? status?.spawnedByLabel ?? null,
+    // The spawner's name is a JOIN the composer already makes; a second copy
+    // beside the child goes stale the moment the spawner is renamed.
+    spawnedByLabel: view?.spawnedByName ?? status?.spawnedByLabel ?? null,
     worktree: view?.environment.worktree ?? status?.worktree ?? null,
     branch: view?.environment.branch ?? status?.branch ?? null,
     cwd: view?.cwd ?? status?.cwd ?? null,
@@ -187,7 +187,7 @@ export function deriveView(ent: Entity, views: ReadonlyMap<string, AgentView>, s
   const agent = viewForKey(views, ent.key);
   const modelFull = deriveModelString(pres, sview, adapter);
   const { state, stateFallback, exited } = deriveState(pres, ent, sview);
-  const provenance = viewProvenance(pres, agent, views);
+  const provenance = viewProvenance(pres, agent);
   return {
     entity: ent,
     paneLabel: (ent.paneId ?? ent.key) + (ent.focused ? "*" : ""),

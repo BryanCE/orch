@@ -102,7 +102,11 @@ NEXT ROW, IN ORDER — {nxt[0]} ({nxt[1]}), status {nxt[3]}:
   {nxt[2][:400]}
 
 Do this now, and do not stop until it is green:
-  1. Write the FAILING test for {nxt[0]} and run it. Paste the red output.
+  1. Write the test that DEFINES {nxt[0]}'s required behaviour — not merely a test
+     that fails. It must assert what the row REQUIRES, in the row's own terms, so
+     that passing it means the row is satisfied and failing it means the row is
+     not. A test that fails for an unrelated reason, or that asserts less than the
+     row demands, is not the row's test. Run it. Paste the red output.
   2. Write the smallest code that passes it. Run it. Paste the green output.
   3. Mark {nxt[0]} BUILT in TASKS/02-scope.md with the file:line that satisfies it.
   4. Then, and only then, move to the next row.

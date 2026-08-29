@@ -7,8 +7,8 @@ import { selfId } from "../identity/self.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { runSSH } from "../remote.ts";
-import { loadPresence, orchDir, type PresenceEntry } from "../presence/store.ts";
-import { agentViews, environmentOf, type AgentView } from "../store/agent-view.ts";
+import { loadPresence, orchDir, spawnedRecords, type PresenceEntry } from "../presence/store.ts";
+import { environmentOf, type AgentView } from "../store/agent-view.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { CommandRefusal } from "../refusal.ts";
@@ -67,15 +67,11 @@ export function agentIdOfKey(key: string | null | undefined): string | null {
   return tryParseIdentity(key)?.id ?? null;
 }
 
-/** Every agent the store knows, indexed by its minted id. */
+/** Every agent the store knows, indexed by its minted id. The index itself is
+ *  built in exactly ONE place (src/presence/store.ts); a second copy is how two
+ *  callers end up disagreeing about what the fleet is. */
 export function agentViewIndex(root = orchDir()): Map<string, AgentView> {
-  const index = new Map<string, AgentView>();
-  // A store that does not exist yet is an empty fleet, not a crash: `orch
-  // status` runs before anything has ever been spawned.
-  try {
-    for (const view of agentViews(root)) index.set(view.id, view);
-  } catch {}
-  return index;
+  return spawnedRecords(root);
 }
 
 /** Presence re-indexed by minted id so an {@link AgentView} joins to it without
@@ -185,12 +181,17 @@ export function actorSpace(token: string): string | null {
   return callerSpace() ?? spaceOfAgent(token);
 }
 
-export function ownsAgent(record: { owner?: string; pane?: string }): boolean {
+/** Whether the caller may drive this agent.
+ *
+ *  Ownership is the OPEN lease and nothing else (Rule 11) — `heldBy`, never a
+ *  column on a wide row and never a second id space. Failing that, the human
+ *  operator of a space controls every agent composed into it. */
+export function ownsAgent(agent: Pick<AgentView, "id" | "heldBy">): boolean {
   const token = callerOwnerToken();
   if (!token) return false;
-  if (record.owner === token) return true;
+  if (agent.heldBy?.orchId === token) return true;
   return !callerIsSpawnedAgent()
-    && operatorControls(orchDir(), token, record.pane ?? null, actorSpace(token), true);
+    && operatorControls(orchDir(), token, agent.id, actorSpace(token), true);
 }
 
 /** Return the exact session address that spawned this caller. */
@@ -216,7 +217,7 @@ export function assertAgentOwned(
   // Ownership is the open lease and nothing else. A closed one is history, and
   // history never gates a write (Rule 11).
   const holder = views ? viewForKey(views, entity.key)?.heldBy?.orchId ?? null : leaseHolderOf(entity.key);
-  if (holder !== null && !ownsAgent({ owner: holder, pane: entity.key })) {
+  if (holder !== null && !ownsAgent({ id: entity.key, heldBy: { orchId: holder, since: 0 } })) {
     die(`Target "${target}" is owned by ${holder}. Use --force to override.`);
   }
 }

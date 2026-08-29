@@ -15,9 +15,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 const directories: string[] = [];
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });
 
-/** The runner's presence key is its ENVIRONMENT — plexer, that plexer's own
- *  grouping, and the minted id. Only the third segment is identity. */
-const RUNNER_KEY = serializeIdentity({ backend: "herdr", workspace: "wF", id: "runner0000" });
+/** A1: the runner's presence key IS its minted id. The plexer and the space it
+ *  sits in are environment, composed from `agent_plexers`/`agent_spaces`, and
+ *  there is no longer anywhere in a key to weld them. */
+const RUNNER_KEY = serializeIdentity({ id: "runner0000" });
 
 function fleet(): { dir: string; runnerKey: string } {
   const dir = mkdtempSync(join(tmpdir(), "orch-work-loop-identity-"));
@@ -63,7 +64,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
 
   test("an idle process with no registered agent row is never handed pack work", async () => {
     const { dir } = fleet();
-    const stranger = serializeIdentity({ backend: "herdr", workspace: "wF", id: "stranger00" });
+    const stranger = serializeIdentity({ id: "stranger00" });
     seedStatus(dir, stranger, { state: "idle", label: "Stranger", pid: process.pid });
     openStore(dir).query("INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('runner0000',2,NULL)").run();
     await withOrchDir(dir, async () => {

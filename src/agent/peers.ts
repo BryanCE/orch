@@ -9,7 +9,7 @@
 import * as fs from "node:fs";
 import type { HarnessApi, HarnessContext } from "./harness.ts";
 import { Type } from "typebox";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { deriveDriveState, type DriveState } from "./drive-state.ts";
 import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
@@ -73,9 +73,14 @@ function peerModel(status: unknown): string | undefined {
 }
 
 /** Only a human's own session may lift the fleet wall. A spawned agent's view
- * and reach never widen past the fleet it belongs to — no flag changes that. */
+ * and reach never widen past the fleet it belongs to — no flag changes that.
+ *
+ * Every launch orch makes stamps ORCH_AGENT_KEY, so the ABSENCE of that stamp —
+ * and nothing read out of it — is what says "nobody launched me". Asking instead
+ * whether the key PARSED meant a key that did not parse read as no launch at
+ * all, which handed a worker the whole machine's fleets. */
 function callerMayCrossFleets(): boolean {
-  return tryParseIdentity(process.env.ORCH_AGENT_KEY) === null;
+  return (process.env.ORCH_AGENT_KEY ?? "").length === 0;
 }
 
 /** The fleet wall: same space AND same project, unless explicitly unscoped.
@@ -88,9 +93,9 @@ function scopeToFleet(peers: Peer[], ownKey: string, allRequested: boolean): Pee
   return sameSpacePeers.filter((peer) => optionalString(peer.status.project) === projectRoot());
 }
 
-// src/backends/identity.ts is the single escaping authority: every serialized
-// identity key segment is already percent-escaped on all platforms, so the
-// presence directory name IS the key — no remapping (see src/presence/store.ts).
+// A key is one minted id: lowercase alphanumerics, nothing a filesystem has to
+// escape and nothing to split apart. So the presence directory name IS the key,
+// with no encoding step either way (see src/presence/store.ts).
 function livePeers(ownKey: string, allSpaces = false): Peer[] {
   try {
     const peers = fs.readdirSync(presenceRoot(), { withFileTypes: true })
@@ -184,9 +189,11 @@ function hiddenSpawnerSummary(rows: PeerSummary[], spawnerKey: string | undefine
 }
 
 /** The caller's own agents.id, so "held by you" is answered by the lease table
- *  rather than by an environment the caller happens to sit in. */
+ *  rather than by an environment the caller happens to sit in. The key IS that
+ *  id — there is no segment to pull out of it — and a key that is not one
+ *  addresses no agent, so the caller holds nothing. */
 function callerAgentId(ownKey: string): string | null {
-  return tryParseIdentity(ownKey)?.id ?? (ownKey.length > 0 ? ownKey : null);
+  return isAgentId(ownKey) ? ownKey : null;
 }
 
 export function peerSummaries(ownKey: string, allSpaces = false): PeerSummary[] {

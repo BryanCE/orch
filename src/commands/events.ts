@@ -3,7 +3,7 @@ import { buildEntities, currentSpace, resolveTarget, spaceOf } from "../entities
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { scopeToSpace } from "../policy/space.ts";
+import { sameSpace, scopeToSpace } from "../policy/space.ts";
 import { type PresenceMetadata } from "../daemon/events.ts";
 import { rpcHello, subscribeEvents } from "../daemon/rpc.ts";
 import { deliver } from "../notify/router.ts";
@@ -64,6 +64,19 @@ export function eventInScope(input: EventScopeInput): boolean {
   return input.anyAgent || eventInMineScope(input);
 }
 
+/**
+ * Whether a streamed event belongs to the caller's space.
+ *
+ * A1 / CLAUDE.md Rule 11: the agent's space is an ENVIRONMENT axis composed from
+ * `agent_spaces` and read through {@link spaceOf}, never a segment sliced out of
+ * the identity key. Reading it out of the key pinned the stream to the space the
+ * agent was BORN in, so a moved or adopted agent kept appearing in a space it had
+ * left and vanished from the one it actually occupies.
+ */
+export function eventInSpaceScope(root: string, key: string, callerSpace: string | null, all: boolean): boolean {
+  return all || sameSpace(spaceOf(root, key), callerSpace);
+}
+
 export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
@@ -71,18 +84,18 @@ export async function cmdEvents(args: string[]) {
   const mineIdentity = options.mine ? await rpcHello(orchDir()) : undefined;
   const mineAddress = mineIdentity?.id;
   const accepts = (key: string): boolean => {
-    const parsed = tryParseIdentity(key);
+    // The key IS the minted id (A1), so there is one lookup and no second id space.
+    const agentId = tryParseIdentity(key)?.id ?? null;
     const inScope = options.targets.length
       ? items.has(key)
-      : parsed !== null && (options.all || parsed.workspace === currentSpace());
+      : agentId !== null && eventInSpaceScope(orchDir(), agentId, currentSpace(), options.all);
     if (!inScope) return false;
-    const agentId = tryParseIdentity(key)?.id ?? key;
-    const leaseOwner = currentLease(orchDir(), agentId)?.orchId ?? null;
+    const leaseOwner = currentLease(orchDir(), agentId ?? key)?.orchId ?? null;
     return eventInScope({
       anyAgent: !options.mine,
       mineAddress,
       leaseOwner,
-      recordSpawnedBy: spawnedRecords().get(key)?.spawnedBy,
+      recordSpawnedBy: spawnedRecords().get(agentId ?? key)?.spawnedBy ?? undefined,
     });
   };
   const context: EventsContext = {

@@ -1,4 +1,4 @@
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { agentIdBySessionToken } from "../store/agent-rows.ts";
 import { allAdapters } from "../adapters/registry.ts";
 import type { AgentAdapter } from "../adapters/adapter.ts";
@@ -9,8 +9,8 @@ import { orchDir } from "../presence/writer.ts";
  * Who this process is, as ONE answer for the whole CLI.
  *
  * Identity is the minted id and nothing else (TASKS/01). Where the process runs
- * — plexer, workspace, pane handle, cwd — is ENVIRONMENT: recorded as columns on
- * the agent row, never consulted to work out who someone is. Asking the plexer
+ * — plexer, space, pane handle, cwd — is ENVIRONMENT: recorded on its own rows
+ * beside the agent, never consulted to work out who someone is. Asking the plexer
  * "who am I" is what produced `<backend>~<workspace>~operator`, an id that named
  * an environment and matched no stored record, so orch refused its own fleet.
  *
@@ -52,8 +52,10 @@ export interface SelfIdentity {
 /** The id orch handed this process, or null when orch has never registered it. */
 export function selfIdentity(): SelfIdentity | null {
   // A spawned agent was handed its own id at launch; that IS orch's record of it.
-  const spawned = tryParseIdentity(process.env.ORCH_AGENT_KEY);
-  if (spawned) return { id: spawned.id };
+  // The key is the whole id, so there is nothing to parse out of it — and a key
+  // that is not a minted id names no agent orch ever registered.
+  const spawned = process.env.ORCH_AGENT_KEY;
+  if (isAgentId(spawned)) return { id: spawned };
   // A driving session: its harness's session token is the pointer to the row
   // `hello` minted. The token is environment; the id it resolves to is identity.
   const token = callerSession()?.sessionId;

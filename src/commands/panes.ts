@@ -144,7 +144,11 @@ export function cmdTabs(args: string[]) {
   const all = enabled.has("--all");
   const json = enabled.has("--json");
   const { backend, groups } = selectedGroups();
-  const workspace = backend.identity?.current()?.workspace ?? null;
+  // A tab is the PLEXER's grouping, so the grouping to filter by is the plexer's
+  // own answer for the calling pane — never read off an identity, which carries
+  // no environment (A1). Outside a pane there is no grouping, and `null` is that
+  // answer: every tab is listed rather than an invented one being matched.
+  const workspace = backend.paneInventory?.current()?.workspace ?? null;
   const tabs = groups.filter((tab) => all || workspace === null || tab.workspace === workspace);
   if (!tabs.length) {
     if (json) process.stdout.write("[]\n");
@@ -180,9 +184,8 @@ function assertGroupAgentsOwned(backend: Backend, group: string, force: boolean)
     const holder = view.heldBy?.orchId;
     const handle = view.environment.handle;
     if (holder === undefined || handle === null || !handles.has(handle)) continue;
-    const address = agentAddress(view, presence);
-    if (!ownsAgent({ owner: holder, pane: address })) {
-      die(`Group ${group} holds agent ${address} owned by ${holder}. Use --force to override.`);
+    if (!ownsAgent(view)) {
+      die(`Group ${group} holds agent ${agentAddress(view, presence)} owned by ${holder}. Use --force to override.`);
     }
   }
 }
@@ -202,7 +205,7 @@ function parseTabNewArgs(args: string[]): { label: string | null; workspace: str
 function cmdTabNew(rest: string[], json: boolean, backend: Backend): void {
   const parsed = parseTabNewArgs(rest);
   const { label, cwd } = parsed;
-  const workspace = parsed.workspace ?? backend.identity?.current()?.workspace ?? null;
+  const workspace = parsed.workspace ?? backend.paneInventory?.current()?.workspace ?? null;
   if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
   const created = backend.groupHome!.create({ workspace, cwd, label });
   if (json) process.stdout.write(JSON.stringify(created) + "\n");

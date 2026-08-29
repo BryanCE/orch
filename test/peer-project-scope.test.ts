@@ -28,32 +28,32 @@ afterEach(() => {
 });
 
 // One machine runs many projects against one $ORCH_DIR, and one shared plexer
-// session gives them all one workspace — so the project is the fleet boundary.
+// session gives them all one space — so the project is the fleet boundary.
 // This is the regression wall for the bleed where an agent in project A saw and
 // could steer project B's whole worker fleet through orch_agents/orch_send.
 describe("peer discovery walls on the project", () => {
-  const ownKey = "headless~wShared~caller";
+  const ownKey = "caller0001";
 
   test("a same-workspace peer from another project is invisible by default", () => {
     const directory = makeOrchDir();
-    seedStatus(directory, "headless~wShared~sibling", { pid: process.pid, state: "working" });
-    seedStatus(directory, "headless~wShared~foreigner", { pid: process.pid, state: "working", project: "/some/other/project" });
+    seedStatus(directory, "sibling001", { pid: process.pid, state: "working" });
+    seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
     const keys = peerSummaries(ownKey).map((peer) => peer.key);
-    expect(keys).toEqual(["headless~wShared~sibling"]);
+    expect(keys).toEqual(["sibling001"]);
   });
 
   test("all_workspaces deliberately lifts the project wall", () => {
     const directory = makeOrchDir();
-    seedStatus(directory, "headless~wShared~foreigner", { pid: process.pid, state: "working", project: "/some/other/project" });
+    seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
     const keys = peerSummaries(ownKey, true).map((peer) => peer.key);
-    expect(keys).toEqual(["headless~wShared~foreigner"]);
+    expect(keys).toEqual(["foreigner1"]);
   });
 
   test("a cross-project target does not resolve for sends without the explicit flag", () => {
     const directory = makeOrchDir();
-    seedStatus(directory, "headless~wShared~foreigner", { pid: process.pid, state: "working", project: "/some/other/project" });
+    seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
     const refused = resolvePeer("foreigner", ownKey);
     expect("error" in refused).toBe(true);
@@ -64,14 +64,14 @@ describe("peer discovery walls on the project", () => {
 
   test("a record with no project stamp is malformed and never listed", () => {
     const directory = makeOrchDir();
-    seedStatus(directory, "headless~wShared~unstamped", { pid: process.pid, state: "working", project: undefined });
+    seedStatus(directory, "unstamped1", { pid: process.pid, state: "working", project: undefined });
 
     expect(peerSummaries(ownKey)).toEqual([]);
   });
 
   test("a spawned agent's all_workspaces flag is ignored", () => {
     const directory = makeOrchDir();
-    seedStatus(directory, "headless~wShared~foreigner", { pid: process.pid, state: "working", project: "/some/other/project" });
+    seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
     process.env.ORCH_AGENT_KEY = ownKey;
     expect(peerSummaries(ownKey, true)).toEqual([]);

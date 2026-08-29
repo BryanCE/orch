@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { addTask, claimTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { openStore } from "../src/store/connection.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
-import { checkOwnerWrite, getOwner, setOwner } from "../src/store/ownership-rows.ts";
+import { acquireLease, adoptLease, currentLease, leaseHistory } from "../src/store/lease-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const tempDirs: string[] = [];
@@ -53,14 +53,26 @@ describe("store hardening", () => {
     expect(() => listTasks(dir)).not.toThrow();
   });
 
-  test("a steal updates ownership only when the observed owner still matches", () => {
+  // A1: ownership is the lease, and the STORE is what makes it single. Two open
+  // holdings for one agent is not a race to resolve in application code - the
+  // `one_lease` index refuses the second outright, so ownership cannot fork.
+  test("the store refuses a second open holding, so ownership cannot fork", () => {
     const dir = tempDir("orch-routing-owner-");
-    setOwner(dir, "pane-1", "orch-a");
-    expect(checkOwnerWrite(dir, "pane-1", "orch-b")).toEqual({ ok: false, reason: "agent is owned by orch-a" });
-    expect(checkOwnerWrite(dir, "pane-1", "orch-b", { steal: true })).toEqual({ ok: true, reassigned: true });
-    expect(getOwner(dir, "pane-1")).toBe("orch-b");
-    expect(checkOwnerWrite(dir, "pane-1", "orch-a", { steal: true })).toEqual({ ok: true, reassigned: true });
-    expect(getOwner(dir, "pane-1")).toBe("orch-a");
+    seedPack(dir);
+    expect(acquireLease(dir, "worker", "orch", 1)).toBeGreaterThan(0);
+    expect(() => acquireLease(dir, "worker", "orch", 2)).toThrow("one_lease");
+    expect(currentLease(dir, "worker")?.orchId).toBe("orch");
+  });
+
+  test("adoption closes the prior holding in the same step that opens the new one", () => {
+    const dir = tempDir("orch-routing-adopt-");
+    seedPack(dir);
+    openStore(dir).query("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch2','orch2','pi','/tmp','orch2',1)").run();
+    acquireLease(dir, "worker", "orch", 1);
+    adoptLease(dir, "worker", "orch2", 2);
+    expect(currentLease(dir, "worker")?.orchId).toBe("orch2");
+    expect(leaseHistory(dir, "worker").map((lease) => [lease.orchId, lease.until, lease.releaseReason]))
+      .toEqual([["orch", 2, "adopted"], ["orch2", null, null]]);
   });
 
   test("the attempt insert claim is exactly once", () => {

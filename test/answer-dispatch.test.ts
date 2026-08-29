@@ -6,9 +6,11 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { governWrite } from "../src/daemon/orchd.ts";
-import { setOwner } from "../src/store/ownership-rows.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
+import { openStore } from "../src/store/connection.ts";
+import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
+import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
+import { processStartToken } from "../src/process-identity.ts";
 import { rpcCall, startRpcServer, type RpcHandlers, type RpcServer } from "../src/daemon/rpc.ts";
 import { refusalOf } from "./helpers/refusal.ts";
 
@@ -22,8 +24,26 @@ function tempDir(prefix = "orch-answer-"): string {
   return dir;
 }
 
-function key(workspace: string, id: string): string {
-  return serializeIdentity({ backend: "headless", workspace, id });
+/** A1: an agent key IS its minted id. There is no environment inside it, so a
+ *  fixture that wants an agent in a space puts it in one - it cannot spell it. */
+function agent(dir: string, id: string): void {
+  ensureHarness(dir, "pi", "pi", 1);
+  insertAgent(dir, { id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
+}
+
+function placeIn(dir: string, id: string, space: string): void {
+  openStore(dir).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run(space, space, 1);
+  setSpace(dir, id, 1, space);
+}
+
+/** An orch whose recorded process instance is this test process: provably alive. */
+function liveOrch(dir: string, id: string): void {
+  ensureHost(dir, "host", "host", "linux", 1);
+  agent(dir, id);
+  const token = processStartToken(process.pid);
+  if (!token) throw new Error("test process has no start token");
+  openStore(dir).query("INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (?,?,?,?,?)")
+    .run(id, 1, "host", process.pid, token);
 }
 
 function answerFile(directory: string, agentKey: string): string {
@@ -61,7 +81,7 @@ describe("answer via the control dispatcher", () => {
   test("writes pi's answer.json through the adapter's answer port", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const agentKey = key("local", "pi-answer");
+    const agentKey = "pianswera1";
     seedStatus(directory, agentKey, { agent: "pi", pid: process.pid });
 
     await deliverControl(agentKey, { kind: "answer", text: "yes, ship it" });
@@ -77,7 +97,7 @@ describe("answer via the control dispatcher", () => {
   test("answers, rather than failing, when the adapter composes no question role", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const agentKey = key("local", "claude-noask");
+    const agentKey = "claudenoas";
     seedStatus(directory, agentKey, { agent: "claude", pid: process.pid });
 
     const result = await deliverControl(agentKey, { kind: "answer", text: "no" });
@@ -92,7 +112,7 @@ describe("answer via the control dispatcher", () => {
   test("refuses answer for a target with no recorded adapter identity", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const agentKey = key("local", "identity-less");
+    const agentKey = "identityls";
     // A presence record with no `agent` field and no spawn-registry adapter is malformed, never pi.
     seedStatus(directory, agentKey, { pid: process.pid });
 
@@ -106,7 +126,7 @@ describe("answer over the daemon control socket", () => {
   test("delivers a pi answer end-to-end through the real socket", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const agentKey = key("local", "socket-answer");
+    const agentKey = "socketansw";
     seedStatus(directory, agentKey, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
@@ -119,10 +139,12 @@ describe("answer over the daemon control socket", () => {
   test("refuses a cross-space answer at the daemon wall", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const foreign = key("wB", "foreign");
-    const actor = key("wA", "boss");
-    insertSpawnedRecord(directory, { pane: foreign, space: "wB" });
-    insertSpawnedRecord(directory, { pane: actor, space: "wA" });
+    const foreign = "foreignaa1";
+    const actor = "bossaaaaa1";
+    agent(directory, foreign);
+    agent(directory, actor);
+    placeIn(directory, foreign, "wB");
+    placeIn(directory, actor, "wA");
     seedStatus(directory, foreign, { agent: "pi", pid: process.pid });
     await startAnswerServer(directory);
 
@@ -131,16 +153,22 @@ describe("answer over the daemon control socket", () => {
     expect(fs.existsSync(answerFile(directory, foreign))).toBe(false);
   });
 
-  test("refuses a non-owner answer, naming the owning orchestrator", async () => {
+  // A1: ownership is the lease. The daemon refuses a foreign answer by naming the
+  // orch that HOLDS the agent - there is no second ownership record to consult.
+  test("refuses an answer from outside the lease, naming the holder", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const agentKey = key("wA", "owned");
+    const agentKey = "ownedaaaa1";
+    agent(directory, agentKey);
+    liveOrch(directory, "ownerorch1");
+    agent(directory, "intruderr1");
+    acquireLease(directory, agentKey, "ownerorch1", 2);
     seedStatus(directory, agentKey, { agent: "pi", pid: process.pid });
-    setOwner(directory, agentKey, key("wA", "owner"));
     await startAnswerServer(directory);
 
-    expect(await refusalOf(rpcCall(directory, "answer", { target: agentKey, text: "yes", actor: key("wA", "intruder") })))
-      .toMatch(/owned by/);
+    expect(await refusalOf(rpcCall(directory, "answer", { target: agentKey, text: "yes", actor: "intruderr1" })))
+      .toMatch(/leased by ownerorch1/);
     expect(fs.existsSync(answerFile(directory, agentKey))).toBe(false);
+    expect(currentLease(directory, agentKey)?.orchId).toBe("ownerorch1");
   });
 });

@@ -21,10 +21,11 @@ describe("commands/target", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-target-"));
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
-      for (const [key, pid] of [["headless~local~1", process.pid], ["not-an-identity", process.pid], ["headless~local~2", 999999]] as const) {
+      // Only a minted id names an agent; a plexer/space key names an environment.
+      for (const [key, pid] of [["live000001", process.pid], ["not-an-identity", process.pid], ["dead000001", 999999]] as const) {
         seedStatus(root, key, { key, pid });
       }
-      expect(livePanePresenceEntries().map((entry) => entry.key)).toEqual(["headless~local~1"]);
+      expect(livePanePresenceEntries().map((entry) => entry.key)).toEqual(["live000001"]);
     } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 });

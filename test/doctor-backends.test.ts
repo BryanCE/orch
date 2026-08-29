@@ -102,8 +102,10 @@ describe("doctor backend and presence checks", () => {
     process.env.ORCH_DIR = directory;
     try {
       const agents = path.join(directory, "agents");
-      fs.mkdirSync(path.join(agents, "herdr~wD~p2"), { recursive: true });
-      fs.writeFileSync(path.join(agents, "herdr~wD~p2", "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA }));
+      // A presence directory is named by the agent's minted id and nothing else
+      // (TASKS/01), so a well-formed record is one whose NAME is that id.
+      fs.mkdirSync(path.join(agents, "goodrec001"), { recursive: true });
+      fs.writeFileSync(path.join(agents, "goodrec001", "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA }));
       fs.mkdirSync(path.join(agents, "wD-p1"), { recursive: true });
       fs.writeFileSync(path.join(agents, "wD-p1", "status.json"), JSON.stringify({}));
 

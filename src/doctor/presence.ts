@@ -1,6 +1,6 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { loadPresence, presenceDir, type PresenceEntry } from "../presence/store.ts";
 import { placementOf } from "../agent/registry.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
@@ -46,7 +46,10 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
   const held: IgnoredPresenceRecord[] = [];
   for (const entry of entries.values()) {
     const reasons: string[] = [];
-    if (!tryParseIdentity(entry.key)) reasons.push("malformed identity key");
+    // The directory name IS the agent id (TASKS/01): anything else — a
+    // `<plexer>~<grouping>~<id>` key, a pane handle, a name — is a record no
+    // agent answers to, whatever wrote it.
+    if (!isAgentId(entry.key)) reasons.push("malformed identity key");
     if (entry.status === null) reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
     if (!reasons.length) continue;
     // A record whose process is still running is a live session on older bridge

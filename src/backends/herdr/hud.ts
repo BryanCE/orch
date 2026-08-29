@@ -9,7 +9,7 @@
 // the port wires these functions in as its herdr provider — no herdr socket,
 // event name, or shell-out ever appears inside a harness directory.
 import { execFile } from "node:child_process";
-import { tryParseIdentity } from "../identity.ts";
+import { isAgentId } from "../identity.ts";
 import type {
   BridgeNotifyEvent,
   PaneHudContext,
@@ -20,36 +20,61 @@ import type {
   PaneStatusSnapshot,
 } from "../hud.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
+import { orchDir } from "../../presence/writer.ts";
+import { environmentOf } from "../../store/agent-view.ts";
 import { createPaneStateSocket, retryableErrorMessage } from "./pane-socket.ts";
 import { createPaneStateMachine } from "./pane-state-machine.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
 
-const HERDR_ENV = process.env.HERDR_ENV;
-const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH;
-const AGENT_IDENTITY = tryParseIdentity(process.env.ORCH_AGENT_KEY);
-const HERDR_INTEGRATION_ACTIVE =
-  HERDR_ENV === "1" && !!HERDR_SOCKET_PATH && AGENT_IDENTITY?.backend === "herdr";
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
 
-/** Herdr pane handle for this process, or null when this is not a herdr pane. */
+/** This plexer's id, as the plexer's OWN provider writes and reads it. Rule 11
+ *  bans branching on an environment id in core code; a provider recognising its
+ *  own rows inside `src/backends/<plexer>/` is the one place it is the answer. */
+const HERDR_PLEXER = "herdr";
+
+/** Herdr's control socket for this process, when it published one. */
+function herdrSocketPath(): string | undefined {
+  return process.env.HERDR_ENV === "1" ? process.env.HERDR_SOCKET_PATH : undefined;
+}
+
+/**
+ * Herdr pane handle for this process, or null when this is not a herdr pane.
+ *
+ * A1 / CLAUDE.md Rule 11: the plexer and the handle are ENVIRONMENT, composed
+ * from `agent_plexers` and `agent_handles`. They used to be two segments of the
+ * identity key, so the HUD reported against the pane the agent was BORN in and
+ * an agent that moved kept writing into a pane it had left. Environment is
+ * mutable, so it is asked for on every call and never frozen at import.
+ */
 export function herdrPaneHandle(): string | null {
-  return AGENT_IDENTITY?.backend === "herdr" ? AGENT_IDENTITY.id : null;
+  const id = process.env.ORCH_AGENT_KEY;
+  // A key that is not a minted id names no agent orch registered, so there is no
+  // environment to compose — never a pane handle to fall back on.
+  if (!isAgentId(id)) return null;
+  try {
+    const environment = environmentOf(orchDir(), id);
+    return environment.plexer === HERDR_PLEXER ? environment.handle : null;
+  } catch {
+    // No store to read yet is "no pane", not a crash: this runs inside the agent.
+    return null;
+  }
 }
 
 /**
  * Capability probe for the pane-HUD port (`src/backends/hud.ts`): true when this
  * process is a herdr pane.
  *
- * Deliberately the BROADEST gate any HUD entry point applies — identity alone.
+ * Deliberately the BROADEST gate any HUD entry point applies — placement alone.
  * The socket- and env-dependent entry points keep their own stricter checks
  * internally, so selecting this provider never grants more than each function
  * already allowed itself.
  */
 export function herdrHudActive(): boolean {
-  return AGENT_IDENTITY?.backend === "herdr";
+  return herdrPaneHandle() !== null;
 }
 
 // ---- pane custom-status metadata ----
@@ -61,19 +86,20 @@ function nextMetadataSeq(): number {
   return metadataSeq;
 }
 
-function sendHerdrMetadata(customStatus: string): void {
-  if (HERDR_ENV !== "1" || !HERDR_SOCKET_PATH || AGENT_IDENTITY?.backend !== "herdr") return;
+function sendHerdrMetadata(paneId: string, customStatus: string): void {
+  const socketPath = herdrSocketPath();
+  if (!socketPath) return;
   const request = {
     id: `${HERDR_METADATA_SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.report_metadata",
     params: {
-      pane_id: AGENT_IDENTITY.id,
+      pane_id: paneId,
       source: HERDR_METADATA_SOURCE,
       custom_status: customStatus,
       seq: nextMetadataSeq(),
     },
   };
-  void requestJsonLine(HERDR_SOCKET_PATH, request, 500);
+  void requestJsonLine(socketPath, request, 500);
 }
 
 /**
@@ -84,11 +110,11 @@ function sendHerdrMetadata(customStatus: string): void {
 export function createPaneStatusReporter(paneId: string | null): (snapshot: PaneStatusSnapshot) => void {
   let lastCustomStatus: string | undefined;
 
-  function metadataEnabledForState(): boolean {
-    return (
-      HERDR_INTEGRATION_ACTIVE &&
-      paneId === AGENT_IDENTITY?.id
-    );
+  // Report only against the pane this process actually occupies right now: a
+  // stale handle would paint someone else's pane with this agent's status.
+  function reportablePane(): string | null {
+    if (!herdrSocketPath() || paneId === null) return null;
+    return paneId === herdrPaneHandle() ? paneId : null;
   }
 
   function currentCustomStatus(snapshot: PaneStatusSnapshot): string | undefined {
@@ -102,11 +128,12 @@ export function createPaneStatusReporter(paneId: string | null): (snapshot: Pane
   }
 
   return (snapshot: PaneStatusSnapshot): void => {
-    if (!metadataEnabledForState()) return;
+    const pane = reportablePane();
+    if (pane === null) return;
     const customStatus = currentCustomStatus(snapshot);
     if (!customStatus || customStatus === lastCustomStatus) return;
     lastCustomStatus = customStatus;
-    sendHerdrMetadata(customStatus);
+    sendHerdrMetadata(pane, customStatus);
   };
 }
 
@@ -147,10 +174,10 @@ function isHerdrEntity(value: unknown): value is HerdrEntityLike {
     && (value.label === undefined || typeof value.label === "string");
 }
 
-function findHerdrPane(panes: unknown): HerdrEntityLike | undefined {
+function findHerdrPane(panes: unknown, handle: string): HerdrEntityLike | undefined {
   if (!isUnknownArray(panes)) return undefined;
   return panes.find((candidate: unknown): candidate is HerdrEntityLike =>
-    isHerdrEntity(candidate) && candidate.pane_id === AGENT_IDENTITY?.id);
+    isHerdrEntity(candidate) && candidate.pane_id === handle);
 }
 
 function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEntityLike | undefined {
@@ -166,13 +193,14 @@ function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEnt
  * place but still reports true.
  */
 export async function readPaneLabels(apply: (labels: PaneLabels) => void): Promise<boolean> {
-  if (AGENT_IDENTITY?.backend !== "herdr") return false;
+  const handle = herdrPaneHandle();
+  if (handle === null) return false;
   try {
     const [paneOutput, tabOutput] = await Promise.all([
       runHerdrJson(["pane", "list"]),
       runHerdrJson(["tab", "list"]),
     ]);
-    const pane = findHerdrPane(herdrCollection(paneOutput, "panes"));
+    const pane = findHerdrPane(herdrCollection(paneOutput, "panes"), handle);
     const tab = findPaneTab(herdrCollection(tabOutput, "tabs"), pane);
     apply({
       label: optionalString(pane?.label) ?? null,
@@ -243,14 +271,16 @@ export function registerPaneStateHud(
   events: PaneHudEventBus,
   options: PaneHudOptions,
 ): void {
-  if (HERDR_ENV !== "1" || !HERDR_SOCKET_PATH || AGENT_IDENTITY?.backend !== "herdr") return;
+  const socketPath = herdrSocketPath();
+  const paneHandle = herdrPaneHandle();
+  if (!socketPath || paneHandle === null) return;
 
   const agentId = options.agentId;
   const source = `herdr:${agentId}`;
 
   const socket = createPaneStateSocket({
-    socketPath: HERDR_SOCKET_PATH,
-    paneId: AGENT_IDENTITY.id,
+    socketPath,
+    paneId: paneHandle,
     source,
     agentId,
     extensionHash: options.extensionHash,

@@ -6,7 +6,9 @@ import { cmdRuns, renderRuns } from "../src/commands/runs.ts";
 import { cmdResult } from "../src/commands/results.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
-import { insertSpawnedRecord } from "../src/store/spawned-rows.ts";
+import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
+import { openStore } from "../src/store/connection.ts";
+import { setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -23,10 +25,17 @@ function capture(run: () => void): { stdout: string; stderr: string } {
   return { stdout: out.join(""), stderr: err.join("") };
 }
 
+/** Seed one agent the way A1 stores it: a minted id in `agents`, with its space
+ *  and pane handle as environment satellites of that id - never a wide row keyed
+ *  by the pane. */
 function seedPresence(root: string, key: string): void {
   const dir = presenceAgentDir(key, root);
   mkdirSync(dir, { recursive: true });
-  insertSpawnedRecord(root, { pane: key, backend: "headless", space: "runs", handle: key });
+  ensureHarness(root, "pi", "pi", 1);
+  insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
+  openStore(root).query("INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)").run("runs", "runs", 1);
+  setSpace(root, key, 1, "runs");
+  setHandle(root, key, 1, key);
   writeFileSync(join(dir, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done",
   }));
@@ -39,9 +48,9 @@ describe("commands/runs", () => {
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-      seedPresence(root, "headless~runs~one");
-      upsertRun(root, { dispatchId: "old", agentKey: "headless~runs~one", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), task: "old task" });
-      upsertRun(root, { dispatchId: "new", agentKey: "headless~runs~one", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z"), task: "new task" });
+      seedPresence(root, "runsoneaaa");
+      upsertRun(root, { dispatchId: "old", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), task: "old task" });
+      upsertRun(root, { dispatchId: "new", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z"), task: "new task" });
       const output = capture(() => cmdRuns(["-n", "1"])).stdout;
       expect(output).toContain("new task");
       expect(output).not.toContain("old task");
@@ -54,12 +63,12 @@ describe("commands/runs", () => {
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-      seedPresence(root, "headless~runs~one");
-      seedPresence(root, "headless~runs~two");
-      upsertRun(root, { dispatchId: "one", agentKey: "headless~runs~one", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z") });
-      upsertRun(root, { dispatchId: "two", agentKey: "headless~runs~two", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z") });
-      const output = capture(() => cmdRuns(["headless~runs~one", "--json"])).stdout;
-      expect(JSON.parse(output)).toEqual([expect.objectContaining({ dispatchId: "one", agentKey: "headless~runs~one" })]);
+      seedPresence(root, "runsoneaaa");
+      seedPresence(root, "runstwoaaa");
+      upsertRun(root, { dispatchId: "one", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z") });
+      upsertRun(root, { dispatchId: "two", agentKey: "runstwoaaa", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z") });
+      const output = capture(() => cmdRuns(["runsoneaaa", "--json"])).stdout;
+      expect(JSON.parse(output)).toEqual([expect.objectContaining({ dispatchId: "one", agentKey: "runsoneaaa" })]);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 
@@ -73,7 +82,7 @@ describe("commands/runs", () => {
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-      const key = "headless~runs~gone";
+      const key = "runsgoneaa";
       upsertRun(root, { dispatchId: "history", agentKey: key, state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), result: { text: "from history" } });
       const output = capture(() => cmdResult([key]));
       expect(output.stdout).toBe("from history\n");

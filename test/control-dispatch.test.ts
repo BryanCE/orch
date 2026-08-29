@@ -6,8 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { recordSpawned } from "../src/presence/store.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
-import type { BackendId } from "../src/backends/backend.ts";
+import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { refusalOf } from "./helpers/refusal.ts";
 
@@ -23,8 +22,12 @@ function tempDir(prefix = "orch-control-dispatch-"): string {
   return dir;
 }
 
-function target(backend: BackendId, id: string): string {
-  return serializeIdentity({ backend, workspace: backend === "headless" ? "local" : "test", id });
+/** A1: an address is a minted id and NOTHING else. This helper used to build
+ *  `headless~local~<id>`, which welded the plexer and an invented place called
+ *  "local" into identity. The plexer is now STATED as environment through
+ *  `recordSpawned({ backend })` and read back through the composer. */
+function target(): string {
+  return serializeIdentity({ id: mintAgentId() });
 }
 
 function presence(directory: string, key: string, agent: string): string {
@@ -42,7 +45,7 @@ describe("deliverControl", () => {
   test("steers pi through its presence inbox", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "pi-inbox");
+    const key = target();
     const dir = presence(directory, key, "pi");
 
     return deliverControl(key, { kind: "steer", text: "check the inbox" }).then(() => {
@@ -54,7 +57,7 @@ describe("deliverControl", () => {
   test("refuses to steer a pane awaiting an answer, naming the primitive that lands", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "pi-asking");
+    const key = target();
     const dir = presence(directory, key, "pi");
     seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
 
@@ -70,7 +73,7 @@ describe("deliverControl", () => {
   test("still answers a pane awaiting an answer", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "pi-answerable");
+    const key = target();
     const dir = presence(directory, key, "pi");
     seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
 
@@ -82,7 +85,7 @@ describe("deliverControl", () => {
   test("a run dispatch is not blocked by an asking pane", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "pi-run-asking");
+    const key = target();
     const dir = presence(directory, key, "pi");
     seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
 
@@ -94,7 +97,7 @@ describe("deliverControl", () => {
   test("does not fall back from a keys strategy to the orch channel", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "claude-ok");
+    const key = target();
     const dir = presence(directory, key, "claude");
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
 
@@ -106,7 +109,7 @@ describe("deliverControl", () => {
   test("a run to a keys-strategy agent with no pane is answered, never queued on the channel", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "claude-fail");
+    const key = target();
     const dir = presence(directory, key, "claude");
     recordSpawned(key, { adapter: "claude", backend: "headless", handle: key });
 
@@ -121,7 +124,7 @@ describe("deliverControl", () => {
   test("refuses steer and model on an adapter that composes neither role", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "unsupported");
+    const key = target();
     presence(directory, key, "claude");
 
     expect(claudeAdapter.inboxSteering).toBeNull();
@@ -141,7 +144,7 @@ describe("deliverControl", () => {
   test("requires presence for inbox delivery", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "missing-presence");
+    const key = target();
     recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
 
     expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/no presence dir/);
@@ -153,7 +156,7 @@ describe("deliverControl", () => {
   test("refuses inbox delivery to an agent whose bridge never registered", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "no-bridge");
+    const key = target();
     fs.mkdirSync(path.join(directory, "agents", key), { recursive: true });
     recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
 
@@ -163,7 +166,7 @@ describe("deliverControl", () => {
   test("refuses inbox delivery to an agent whose process is gone", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
-    const key = target("headless", "dead-bridge");
+    const key = target();
     seedStatus(directory, key, { agent: "pi", pid: DEAD_PID });
     recordSpawned(key, { adapter: "pi", backend: "headless", handle: key });
 

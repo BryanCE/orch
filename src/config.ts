@@ -10,7 +10,7 @@ import { BACKEND_IDS, HERDR_SINK_ID, type BackendId } from "./backends/backend.t
 import { TILE_FIRST_SPLITS, type TileFirstSplit } from "./backends/tiling.ts";
 import { THINKING_LEVELS, type ThinkingLevel } from "./policy/thinking.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "./runtime.ts";
-import { errnoCode, errorMessage, isRecord } from "./util.ts";
+import { ensurePrivateDir, errnoCode, errorMessage, isRecord } from "./util.ts";
 import { isLogLevel, type LogLevel } from "./log.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
@@ -547,7 +547,7 @@ export function watchConfig(orchDir: string, opts: ConfigWatchOptions): ConfigWa
   };
 
   try {
-    filesystem.mkdirSync(orchDir, { recursive: true });
+    ensurePrivateDir(orchDir);
     // The first load is deliberately unguarded: a config that cannot be read at
     // startup is fatal to the caller, not something to warn about and continue on.
     const initial = loadConfig(orchDir);
@@ -670,7 +670,7 @@ function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile
   const root: Partial<SettingsFile> = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
   const updated = SETTINGS_FILE_SCHEMA.parse(mutate(root));
   requireEnabledComposition(file, updated);
-  filesystem.mkdirSync(orchDir, { recursive: true });
+  ensurePrivateDir(orchDir);
   const tmp = settingsTemporaryPath(file);
   filesystem.writeFileSync(tmp, JSON.stringify(updated, null, 2) + "\n");
   filesystem.renameSync(tmp, file);

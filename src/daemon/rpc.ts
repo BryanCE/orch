@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { liveDaemonRegistration, readDaemonLock } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortPath } from "../presence/socket-client.ts";
-import { errorMessage } from "../util.ts";
+import { ensurePrivateDir, errorMessage } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
 import { callerSession } from "../identity/self.ts";
 import { currentHostOs, getOrCreateSessionAgent, isLiveAgentIdentity, type HostOs, type SessionAgentIdentity } from "../store/agent-rows.ts";
@@ -641,7 +641,7 @@ export async function startRpcServer(
   handlers: RpcHandlers,
   options: RpcServerOptions = {},
 ): Promise<RpcServer> {
-  mkdirSync(orchDir, { recursive: true });
+  ensurePrivateDir(orchDir);
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
   const sockets = new Set<Socket>();

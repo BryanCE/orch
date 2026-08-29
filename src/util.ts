@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -189,4 +189,24 @@ export function parsePid(text: unknown): number | undefined {
     if (Number.isInteger(parsed) && parsed > 0) return parsed;
   }
   return undefined;
+}
+
+/**
+ * Create a directory orch owns, private to this uid, and tighten it if it is not.
+ *
+ * TASKS/02-scope.md B2: the credential is the `0600` token file in `$ORCH_DIR`
+ * and SAME-UID IS THE WHOLE TRUST BOUNDARY — B4 rejects peer credentials
+ * outright, so the file modes are the only boundary there is. A plain
+ * `mkdirSync(orchDir, { recursive: true })` takes the user's umask, which on a
+ * default 022 is `0755`: the token stays unreadable, but every presence dir,
+ * agent name, cwd and session path beside it is readable by any other account
+ * on the machine.
+ *
+ * The chmod is not redundant with the `mode` option: `mkdirSync` applies mode
+ * only when it CREATES, so a directory an earlier run left at `0755` would keep
+ * it forever.
+ */
+export function ensurePrivateDir(path: string): void {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  if ((statSync(path).mode & 0o777) !== 0o700) chmodSync(path, 0o700);
 }

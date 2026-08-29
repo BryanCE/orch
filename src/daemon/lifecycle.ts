@@ -12,7 +12,7 @@ import {
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
-import { errnoCode, isRecord, osSide, packageRoot, type OsSide } from "../util.ts";
+import { ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot, type OsSide } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 
 const HASH_LENGTH = 12;
@@ -257,7 +257,7 @@ function canReclaim(record: LockRecord | undefined, probe: SocketProbe, orchDir:
 
 /** Acquire the one-per-host daemon lock. Returns false when another instance owns it. */
 export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = () => false): boolean {
-  mkdirSync(orchDir, { recursive: true });
+  ensurePrivateDir(orchDir);
   const file = lockPath(orchDir);
   const record: LockRecord = {
     pid: process.pid,
@@ -393,7 +393,7 @@ export function daemonize(
   args: string[] = [],
   orchDir = resolveOrchDir(),
 ): number {
-  mkdirSync(orchDir, { recursive: true });
+  ensurePrivateDir(orchDir);
   const log = openSync(logPath(orchDir), "a");
   const [command, commandArgs] = commandFor(entrypoint, args);
   try {

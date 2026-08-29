@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { join } from "node:path";
 import { defineRelations } from "drizzle-orm";
@@ -6,7 +6,7 @@ import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { presenceRoot, readStatus } from "../presence/writer.ts";
-import { pidAlive } from "../util.ts";
+import { ensurePrivateDir, pidAlive } from "../util.ts";
 
 interface StatementLike {
   run(...params: unknown[]): { changes: number };
@@ -216,7 +216,7 @@ function openDatabase(orchDir: string): OpenDatabase {
   const path = databasePath(orchDir);
   const cached = connections.get(path);
   if (cached) return cached;
-  mkdirSync(orchDir, { recursive: true });
+  ensurePrivateDir(orchDir);
   const opened = createDatabase(path);
   const db = opened.port;
   db.exec("PRAGMA foreign_keys = ON;");

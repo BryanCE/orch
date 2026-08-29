@@ -62,7 +62,11 @@ describe("command lock serialization", () => {
       "fs.appendFileSync(file, JSON.stringify({ label, phase: 'start', at: Date.now() }) + '\\n');",
       "setTimeout(() => fs.appendFileSync(file, JSON.stringify({ label, phase: 'end', at: Date.now() }) + '\\n'), 220);",
     ].join(" ");
-    const args = ["lock", "run", "--timeout", "5000", "--", process.execPath, "-e", script];
+    // The invariant under test is NON-OVERLAP, not speed. The waiter's budget
+    // has to cover two node startups plus the holder's work on a machine
+    // running the whole suite at once, or the second acquirer times out and the
+    // test fails for load rather than for a lock that let two commands overlap.
+    const args = ["lock", "run", "--timeout", "20000", "--", process.execPath, "-e", script];
     const [first, second] = await Promise.all([
       runCli(root, [...args, "first"]),
       runCli(root, [...args, "second"]),
@@ -95,7 +99,7 @@ describe("command lock serialization", () => {
       ? [firstEnd.at, secondStart.at]
       : [secondEnd.at, firstStart.at];
     expect(earlierEnd).toBeLessThan(laterStart);
-  }, 10_000);
+  }, 40_000);
 
   test("evicts a lock whose process instance token no longer matches", async () => {
     const root = tempOrchDir();

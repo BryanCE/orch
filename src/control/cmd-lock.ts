@@ -1,8 +1,8 @@
-import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 import { processInstanceMatches, processStartToken } from "../process-identity.ts";
-import { errnoCode, sleep } from "../util.ts";
+import { ensurePrivateDir, errnoCode, sleep } from "../util.ts";
 
 export interface CommandLock {
   pid: number;
@@ -81,7 +81,7 @@ export async function acquireCommandLock(orchDir: string, options: CommandLockOp
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const path = lockPath(orchDir);
-  mkdirSync(orchDir, { recursive: true });
+  ensurePrivateDir(orchDir);
   const started = Date.now();
   const startToken = processStartToken(process.pid);
   if (!startToken) throw new Error("cannot identify current process instance for command lock");

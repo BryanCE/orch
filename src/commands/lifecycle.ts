@@ -497,6 +497,28 @@ function endClosedAgent(key: string): void {
   removePresenceAgentDir(presenceAgentDir(key, root));
 }
 
+/** One target's result from a multi-target close, with the reason it failed. */
+interface CloseOutcome {
+  readonly target: string;
+  readonly handle: string;
+  readonly outcome: "done" | "error";
+  readonly error: string | null;
+}
+
+/** Whether the ENVIRONMENT still lists this handle (U1). A plexer with no
+ *  inventory, or one this process is not inside a session of, was not asked and
+ *  says nothing either way, so the recorded handle stands. */
+function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boolean {
+  const inventory = backend?.paneInventory;
+  if (!inventory || backend?.isInsideSession() !== true) return true;
+  try {
+    return inventory.list().some((entry) => String(entry.handle) === String(handle));
+  } catch {
+    // A plexer that cannot answer has not said the pane is gone.
+    return true;
+  }
+}
+
 export function cmdClose(args: string[]) {
   const usage = "usage: orch close <target>... | --all [--stream] [--json]";
   const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
@@ -530,14 +552,17 @@ export function cmdClose(args: string[]) {
         lifecycleLogger(address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
         process.stderr.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
       }
+      const handle = view.environment.handle ?? address;
       targets.push({
         backend,
-        handle: view.environment.handle ?? address,
+        handle,
         key: address,
         recorded: recordedProcess(address),
-        // A registry handle is not proof of a live pane. Bulk close may still
-        // ask the backend to verify because it enumerates every managed row.
-        paneKnown: true,
+        // U1: a registry handle is not proof of a live pane, and asking a plexer
+        // to close one it no longer has turns a throw into a permanent failure -
+        // a row nothing can ever close. The inventory ANSWERS the question; a
+        // plexer that was not asked says nothing either way and the handle stands.
+        paneKnown: plexerStillHasPane(backend, handle),
       });
     }
   }
@@ -562,6 +587,11 @@ export function cmdClose(args: string[]) {
 
   let ok = 0;
   const closed: string[] = [];
+  // TASKS/07-port-seam.md, "Multi-target commands": one recorded outcome per
+  // target, with the real error text. Prose on stderr is not something a caller
+  // can act on, and a payload carrying only the successes cannot tell a full
+  // sweep from a half one.
+  const results: CloseOutcome[] = [];
   const seen = new Set<string>();
   for (const target of targets) {
     if (seen.has(target.key)) continue;
@@ -569,6 +599,7 @@ export function cmdClose(args: string[]) {
     let signalled = false;
     let closeFailed = false;
     let closedByBackend = false;
+    let failure: string | null = null;
     const recorded = target.recorded;
     const recordedLive = recorded !== null && processIsAlive(recorded.pid);
     const identityProven = recorded !== null
@@ -582,21 +613,27 @@ export function cmdClose(args: string[]) {
       // Signal only the recorded process instance. Reaping waits until that
       // same (pid,start_token) instance is gone, never merely until kill(2)
       // accepts the request.
-      try { process.kill(recorded.pid, "SIGTERM"); signalled = true; } catch { closeFailed = true; }
-      if (signalled && recordedProcessRemains(recorded)) closeFailed = true;
+      try { process.kill(recorded.pid, "SIGTERM"); signalled = true; }
+      catch (error: unknown) { closeFailed = true; failure = errorMessage(error); }
+      if (signalled && recordedProcessRemains(recorded)) {
+        closeFailed = true;
+        failure = `process ${recorded.pid} is still running after SIGTERM`;
+      }
     } else if (paneCapable) {
       // A pane host owns closure when process identity is unavailable.
       try {
         if (!paneHost) throw new Error("target environment has no pane host");
         paneHost.close(target.handle);
         closedByBackend = true;
-      } catch {
+      } catch (error: unknown) {
         closeFailed = true;
+        failure = errorMessage(error);
       }
     } else if (recordedLive && typeof recorded?.startToken !== "string") {
       // A live process without a launch token cannot be safely signalled or
       // reaped: losing the row would make that process unreachable.
       closeFailed = true;
+      failure = `process ${recorded.pid} is live but carries no start token, so orch cannot prove it is this agent`;
     }
 
     // A backend's successful close is not proof when the plexer still lists
@@ -605,20 +642,27 @@ export function cmdClose(args: string[]) {
       try {
         const inventory = target.backend?.paneInventory;
         const list = inventory?.list();
-        if (list?.some((entry) => entry.handle === target.handle)) closeFailed = true;
-      } catch {
+        if (list?.some((entry) => entry.handle === target.handle)) {
+          closeFailed = true;
+          failure = `${String(target.handle)} is still listed by ${target.backend?.id ?? "the plexer"} after the close`;
+        }
+      } catch (error: unknown) {
         closeFailed = true;
+        failure = errorMessage(error);
       }
     }
 
     if (closeFailed) {
-      lifecycleLogger(target.key).error("close.failed", { handle: String(target.handle) });
-      process.stderr.write(`Could not close ${String(target.handle)}; process or pane remains registered.\n`);
+      const reason = failure ?? "process or pane remains registered";
+      lifecycleLogger(target.key).error("close.failed", { handle: String(target.handle), error: reason });
+      results.push({ target: target.key, handle: String(target.handle), outcome: "error", error: reason });
+      process.stderr.write(`Could not close ${String(target.handle)}: ${reason}\n`);
       continue;
     }
     endClosedAgent(target.key);
     ok++;
     closed.push(String(target.handle));
+    results.push({ target: target.key, handle: String(target.handle), outcome: "done", error: null });
     if (!json) process.stdout.write(`Closed ${String(target.handle)}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
   }
   const targetCount = seen.size;
@@ -633,8 +677,11 @@ export function cmdClose(args: string[]) {
     for (const p of kill) { try { process.kill(p, "SIGTERM"); } catch {} }
     if (!json) process.stdout.write(kill.length ? `Killed ${kill.length} orch events process(es).\n` : "No orch events stream running.\n");
   }
-  if (json) process.stdout.write(JSON.stringify({ closed, requested: targetCount, ok, stream }) + "\n");
-  if (targetCount && ok !== targetCount) process.exit(1);
+  if (json) process.stdout.write(JSON.stringify({ closed, results, requested: targetCount, ok, stream }) + "\n");
+  // `process.exitCode`, never `process.exit()`: the JSON above is buffered, and
+  // exiting here truncates the very payload a caller reads to find out WHICH
+  // target failed (src/commands/index.ts:272 states the same rule).
+  if (targetCount && ok !== targetCount) process.exitCode = 1;
 }
 
 export function cmdAbort(args: string[]) {

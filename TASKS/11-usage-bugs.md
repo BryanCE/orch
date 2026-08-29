@@ -61,7 +61,7 @@ Rule 11 — a pane is an optimisation, losing one costs a shortcut and never a l
 row stays listed, managed and reachable through its inbox. Tests:
 `test/a-row-is-not-a-pane.test.ts` (3).
 
-## U2 — `orch close --all` leaves rows it just failed to close, and says so only in prose — OPEN
+## U2 — `orch close --all` leaves rows it just failed to close, and says so only in prose — FIXED
 
 ```
 Could not close w7:p2B; process or pane remains registered.
@@ -75,6 +75,24 @@ the next `orch dispatch <name>` resolved to two agents and refused. `orch clean`
 **Expected:** a multi-target command records `outcome: "done" | "error"` per target plus the
 real error text (`TASKS/07-port-seam.md`, "Multi-target commands"), and a close that cannot
 complete does not leave a half-registered row that shadows a live agent's name.
+
+**FIXED.** `--json` now carries `results: [{ target, handle, outcome, error }]` — one entry
+per target it was handed, so a caller can tell a full sweep from a half one and say which
+target failed and why. The reason is the REAL one at each of the four failure points (the
+signal threw; the process outlived SIGTERM; the plexer refused, with its message; the plexer
+still lists the handle after the close), not the single sentence "process or pane remains
+registered" that covered all of them.
+
+Two further defects fixed with it:
+- `process.exit(1)` became `process.exitCode = 1`. Exiting truncated the buffered JSON — the
+  very payload a caller reads to find out which target failed. `src/commands/index.ts:272`
+  already states this rule; close was the one command breaking it.
+- The rows that "failed" were U1's: `--all` hard-coded `paneKnown: true`, so orch asked the
+  plexer to close a pane it no longer had, took the throw as a failure, and left a row
+  nothing could ever close. `plexerStillHasPane` asks the inventory first; a plexer that was
+  not asked says nothing either way and the handle stands.
+
+Tests: `test/close-reports-every-target.test.ts` (4).
 
 ## U3 — an ambiguous dispatch target prints a bare unlabelled list — OPEN
 

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { adapterCommand, spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { optionalModelSpecs } from "../src/daemon/orchd.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
+import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS, type OrchConfig } from "../src/config.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/adapters/adapter.ts";
@@ -123,8 +124,11 @@ describe("the preferred quicklist reaches every launch route", () => {
       },
     } as unknown as AgentAdapter;
 
+    // The key a real spawn hands a backend is the minted id alone — registration parses it
+    // through the one identity boundary, and a `<plexer>~<space>~<name>` key welds environment
+    // into identity, which Rule 11 / TASKS/01-agent-model.md forbids.
     new HeadlessBackend().spawn(adapter, {
-      key: "headless~local~quick",
+      key: serializeIdentity({ id: mintAgentId() }),
       cwd: directory,
       orchDir: directory,
       prompt: "go",

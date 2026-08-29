@@ -21,7 +21,9 @@ function fixture(): string {
 }
 
 function register(dir: string, overrides: Partial<Parameters<typeof registerSpawnedAgent>[1]> = {}): string {
-  const key = "herdr~wF~worker0001";
+  // A1: the key IS the minted id. The plexer and the space are environment,
+  // written to their own satellites below — never welded into the identity.
+  const key = "worker0001";
   registerSpawnedAgent(dir, {
     key,
     harnessId: "pi",
@@ -52,7 +54,7 @@ describe("spawn agent registration", () => {
 
   test("headless writes no plexer or handle row", () => {
     const dir = fixture();
-    register(dir, { key: "headless~local~worker0002", backendId: "headless", pane: false, handle: undefined });
+    register(dir, { key: "worker0002", backendId: "headless", pane: false, handle: undefined });
     expect(openStore(dir).query("SELECT * FROM agent_plexers WHERE agent_id = ?").get("worker0002")).toBeNull();
     expect(currentHandle(dir, "worker0002")).toBeNull();
   });
@@ -63,7 +65,7 @@ describe("spawn agent registration", () => {
     expect(openStore(dir).query("SELECT path, branch FROM agent_worktrees WHERE agent_id = ?").get("worker0001"))
       .toEqual({ path: "/trees/worker", branch: "orch/worker" });
 
-    register(dir, { key: "herdr~wF~worker0002", name: "worker-2", spawner: null });
+    register(dir, { key: "worker0002", name: "worker-2", spawner: null });
     expect(openStore(dir).query("SELECT * FROM agent_worktrees WHERE agent_id = ?").get("worker0002")).toBeNull();
   });
 

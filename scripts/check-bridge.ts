@@ -211,28 +211,22 @@ function quotedLiteralPattern(literal: string): RegExp {
  * Documented core-scope exemptions, keyed by repo-relative path → the set of
  * exact (trimmed) source lines that may violate an otherwise-strict core rule.
  *
- * The ONLY current entry is the setup end-to-end smoke test (tasks.md 12.5):
- * `spawnHeadlessSmokeAgent` spawns with `--backend headless` and then filters
- * the freshly-recorded rows by `backend === "headless"` to find the one it just
- * created. That is a deliberate, legitimate pin on the headless backend — the
- * smoke round-trip is defined to run headless (no external process), not a
- * caps-negotiated dispatch branch — so the string-form identity check is
- * exempted for exactly that line and no other.
+ * EMPTY, and that is the goal state. The last entry was the setup smoke test
+ * (`spawnHeadlessSmokeAgent`), which re-filtered the freshly-recorded rows by
+ * the headless plexer id after already spawning with `--backend headless`. The
+ * comparison was redundant — the row absent from the pre-spawn set IS the agent
+ * that spawn just created — so it was deleted rather than re-blessed. Rule 11:
+ * branch on declared capabilities, never on an environment id. An exemption is
+ * a hole in the rule; deleting the branch is always the better fix.
  *
  * Keyed by exact (trimmed) line content rather than line number: other tasks in
  * this change edit these same files concurrently, and a line-number key would
  * silently stop matching (or silently match the wrong line) on every unrelated
  * insertion/deletion above it. Add an entry ONLY with a comment justifying why
- * the site legitimately declares an id — every entry is a hole in the rule.
+ * the site legitimately declares an id — and only after establishing the branch
+ * genuinely cannot be removed.
  */
-export const CORE_SCOPE_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  [
-    "src/commands/setup.ts",
-    new Set([
-      'const key = [...after.keys()].find((candidate) => !before.has(candidate) && after.get(candidate)?.backend === "headless");',
-    ]),
-  ],
-]);
+export const CORE_SCOPE_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 
 /** Eh13: the explicit adapter-id -> herdr-kind map is the ONE sanctioned place a
  *  backend spells a harness name — it is herdr's wire vocabulary, not a branch. */

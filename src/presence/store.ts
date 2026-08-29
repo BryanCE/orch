@@ -7,7 +7,7 @@ import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
-import { agentViews, environmentOf, holderOf, tuningOf, type AgentView } from "../store/agent-view.ts";
+import { liveAgentViews, environmentOf, holderOf, tuningOf, type AgentView } from "../store/agent-view.ts";
 import { adoptLease } from "../store/lease-rows.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "../store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../store/interval-rows.ts";
@@ -284,7 +284,7 @@ export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
   // A store that does not exist yet is an empty fleet, not a crash: `orch
   // status` runs before anything has ever been spawned.
   try {
-    for (const view of agentViews(root)) index.set(view.id, view);
+    for (const view of liveAgentViews(root)) index.set(view.id, view);
   } catch { /* nothing spawned yet */ }
   return index;
 }

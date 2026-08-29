@@ -21,14 +21,8 @@ import { QueryBuilder, alias, check, index, integer, primaryKey, real, sqliteTab
 
 // ── runtime operational tables ───────────────────────────────────────────────
 
-export const ownership = sqliteTable("ownership", {
-  agentKey: text("agent_key").primaryKey(),
-  owner: text("owner").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 export const outbox = sqliteTable("outbox", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   target: text("target").notNull(),
   payload: text("payload").notNull(),
   state: text("state").notNull(),
@@ -37,24 +31,8 @@ export const outbox = sqliteTable("outbox", {
   nextAttemptAt: integer("next_attempt_at").notNull().default(0),
 }, (table) => [index("outbox_pending").on(table.state, table.nextAttemptAt)]);
 
-export const spawned = sqliteTable("spawned", {
-  pane: text("pane").primaryKey(),
-  ts: integer("ts"),
-  adapter: text("adapter"),
-  model: text("model"),
-  backend: text("backend"),
-  space: text("space"),
-  handle: text("handle"),
-  name: text("name"),
-  cwd: text("cwd"),
-  worktree: text("worktree"),
-  branch: text("branch"),
-  spawnedBy: text("spawned_by"),
-  spawnedByLabel: text("spawned_by_label"),
-});
-
 export const catalogues = sqliteTable("catalogues", {
-  command: text("command").primaryKey(),
+  command: text("command").notNull().primaryKey(),
   at: integer("at").notNull(),
   stdout: text("stdout").notNull(),
 });
@@ -66,7 +44,7 @@ export const events = sqliteTable("events", {
 });
 
 export const runs = sqliteTable("runs", {
-  dispatchId: text("dispatch_id").primaryKey(),
+  dispatchId: text("dispatch_id").notNull().primaryKey(),
   agentKey: text("agent_key").notNull(),
   adapter: text("adapter"),
   model: text("model"),
@@ -88,19 +66,19 @@ export const runs = sqliteTable("runs", {
 // ── lookup tables ────────────────────────────────────────────────────────────
 
 export const harnesses = sqliteTable("harnesses", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   name: text("name").notNull(),
   enabledAt: integer("enabled_at"),
 });
 
 export const plexers = sqliteTable("plexers", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   name: text("name").notNull(),
   enabledAt: integer("enabled_at"),
 });
 
 export const hosts = sqliteTable("hosts", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   name: text("name").notNull(),
   os: text("os").notNull(),
   createdAt: integer("created_at").notNull(),
@@ -119,7 +97,7 @@ export const hostPlexers = sqliteTable("host_plexers", {
 ]);
 
 export const spaces = sqliteTable("spaces", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   name: text("name").notNull(),
   createdBy: text("created_by").references((): AnySQLiteColumn => agents.id),
   createdAt: integer("created_at").notNull(),
@@ -128,7 +106,7 @@ export const spaces = sqliteTable("spaces", {
 // ── the agent hub ────────────────────────────────────────────────────────────
 
 export const agents = sqliteTable("agents", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   spawnedBy: text("spawned_by").references((): AnySQLiteColumn => agents.id),
   rootAgentId: text("root_agent_id").notNull().references((): AnySQLiteColumn => agents.id),
   harnessId: text("harness_id").notNull().references(() => harnesses.id),
@@ -153,19 +131,19 @@ export const agents = sqliteTable("agents", {
 // ── facts only some agents have ──────────────────────────────────────────────
 
 export const agentWorktrees = sqliteTable("agent_worktrees", {
-  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   path: text("path").notNull(),
   branch: text("branch").notNull(),
 });
 
 export const agentEndings = sqliteTable("agent_endings", {
-  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   endedAt: integer("ended_at").notNull(),
   closedBy: text("closed_by").references(() => agents.id),
 });
 
 export const agentPlexers = sqliteTable("agent_plexers", {
-  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   plexerId: text("plexer_id").notNull().references(() => plexers.id),
 });
 
@@ -274,7 +252,7 @@ export const packIntakes = sqliteTable("pack_intakes", {
 // ── work ─────────────────────────────────────────────────────────────────────
 
 export const tasks = sqliteTable("tasks", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   text: text("text").notNull(),
   opts: text("opts").notNull(),
   enqueuedBy: text("enqueued_by").notNull().references(() => agents.id),
@@ -294,7 +272,7 @@ export const tasks = sqliteTable("tasks", {
 ]);
 
 export const taskCancellations = sqliteTable("task_cancellations", {
-  taskId: text("task_id").primaryKey().references(() => tasks.id, { onDelete: "cascade" }),
+  taskId: text("task_id").notNull().primaryKey().references(() => tasks.id, { onDelete: "cascade" }),
   cancelledAt: integer("cancelled_at").notNull(),
   cancelledBy: text("cancelled_by").notNull().references(() => agents.id),
 });
@@ -322,7 +300,7 @@ export const taskAttempts = sqliteTable("task_attempts", {
 // ── human consent ────────────────────────────────────────────────────────────
 
 export const grantRequests = sqliteTable("grant_requests", {
-  id: text("id").primaryKey(),
+  id: text("id").notNull().primaryKey(),
   actionHash: text("action_hash").notNull(),
   kind: text("kind").notNull(),
   requestedBy: text("requested_by").references(() => agents.id),
@@ -336,19 +314,19 @@ export const grantRequestParams = sqliteTable("grant_request_params", {
 }, (table) => [primaryKey({ columns: [table.requestId, table.name] })]);
 
 export const grantApprovals = sqliteTable("grant_approvals", {
-  requestId: text("request_id").primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
+  requestId: text("request_id").notNull().primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
   approvedAt: integer("approved_at").notNull(),
   expiresAt: integer("expires_at").notNull(),
   hostId: text("host_id").notNull().references(() => hosts.id),
 }, (table) => [check("grant_approvals_expiry", sql`${table.expiresAt} > ${table.approvedAt}`)]);
 
 export const grantDenials = sqliteTable("grant_denials", {
-  requestId: text("request_id").primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
+  requestId: text("request_id").notNull().primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
   deniedAt: integer("denied_at").notNull(),
 });
 
 export const grantSpends = sqliteTable("grant_spends", {
-  requestId: text("request_id").primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
+  requestId: text("request_id").notNull().primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
   spentAt: integer("spent_at").notNull(),
   spentBy: text("spent_by").references(() => agents.id),
 });

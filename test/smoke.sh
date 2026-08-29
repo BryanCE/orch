@@ -131,11 +131,6 @@ check tabs-all.txt "$BUN" "$ROOT/bin/orch.ts" tabs --all
 check review-list.json "$BUN" "$ROOT/bin/orch.ts" review list --json
 check queue-list.json "$BUN" "$ROOT/bin/orch.ts" queue list --json
 
-# Spawned-table entries provide the adapter fallback when presence status predates
-# the adapter field. Keep this separate from status --json's existing golden.
-(cd "$ROOT" && "$BUN" -e 'import { insertSpawnedRecord } from "./src/store/spawned-rows.ts"; insertSpawnedRecord(process.env.ORCH_DIR!, { pane: "w0:p1", ts: "2020-01-01T00:00:00.000Z", adapter: "codex" });')
-check status-adapter.txt "$BUN" "$ROOT/bin/orch.ts" status --local
-
 check_fail() {
   local name=$1; shift
   local raw="$TMP/$name.raw" actual="$TMP/$name.actual" expected="$GOLDEN_DIR/$name"

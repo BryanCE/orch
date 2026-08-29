@@ -13,16 +13,6 @@ function fixture() { const d = mkdtempSync(join(tmpdir(), "orch-interval-")); di
 describe("interval satellites", () => {
   test("closeThenOpen is atomic", () => { const db = fixture(); setHandle(db, "a", 10, "one"); expect(() => closeThenOpen(db, "agent_handles", "a", 20, { handle: null })).toThrow(); expect(currentHandle(db, "a")).toEqual({ agent_id: "a", since: 0 + 10, until: null, handle: "one" }); });
   test("only one open interval is allowed", () => { const db = fixture(); db.query("INSERT INTO agent_spaces VALUES ('a',1,NULL,'s')").run(); expect(() => db.query("INSERT INTO agent_spaces VALUES ('a',2,NULL,'s')").run()).toThrow(); });
-  test("closed process intervals cannot overlap", () => {
-    const db = fixture();
-    db.query("INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token) VALUES ('a', 10, 20, 'h', 1, NULL)").run();
-    expect(() => db.query("INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token) VALUES ('a', 15, 25, 'h', 2, NULL)").run()).toThrow("overlapping interval");
-  });
-  test("closed space intervals cannot overlap", () => {
-    const db = fixture();
-    db.query("INSERT INTO agent_spaces (agent_id, since, until, space_id) VALUES ('a', 10, 20, 's')").run();
-    expect(() => db.query("INSERT INTO agent_spaces (agent_id, since, until, space_id) VALUES ('a', 15, 25, 's')").run()).toThrow("overlapping interval");
-  });
   test("half-open adjacency is legal", () => { const db = fixture(); setHandle(db, "a", 10, "one"); setHandle(db, "a", 20, "two"); expect(currentHandle(db, "a")?.handle).toBe("two"); });
   test("clearSpace closes without opening", () => { const db = fixture(); setSpace(db, "a", 10, "s"); clearSpace(db, "a", 20); expect(currentSpace(db, "a")).toBeNull(); expect(db.query("SELECT until FROM agent_spaces").get()).toEqual({ until: 20 }); });
   test("agent plexer is immutable one-shot", () => { const db = fixture(); setAgentPlexer(db, "a", "herdr"); expect(() => setAgentPlexer(db, "a", "herdr")).toThrow(); });

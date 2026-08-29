@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { projectFleet, projectHistory, partitionAgents, type FleetProjectionRow } from "./fleet";
 
 const row = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow => ({
-  key: "herdr~wF~agent-key", paneId: null, name: null, agent: null, state: "idle", exited: false,
+  key: "herdr~wF~agent-key", paneId: null, name: null, state: "idle", exited: false,
   model: "", lastText: null, cost: 0, ctxPercent: null, tokens: null,
   capabilities: { panes: false, focusable: false, canSendKeys: false, canPruneLogs: false },
   lease: null, leaseKnown: false, spaceId: "space-1", spaceName: "Frontend", agentId: "agent-key",
@@ -50,7 +50,9 @@ describe("web shell and fleet views", () => {
     expect(output.toLowerCase()).not.toContain("workspace");
     const rendered = [
       await source("../routes/index.tsx"),
-      await source("../routes/ws/$slug.tsx"),
+      await source("../routes/spaces/$slug.tsx"),
+      await source("../routes/queue.tsx"),
+      await source("../routes/events.tsx"),
       await source("../components/AppSidebar.tsx"),
       await source("../components/AgentCard.tsx"),
     ].join("\n");

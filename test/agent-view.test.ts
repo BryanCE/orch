@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, openStore } from "../src/store/connection.ts";
 import { insertAgent, renameAgent, setWorktree } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
-import { agentView, agentViews, environmentOf, liveAgentViews } from "../src/store/agent-view.ts";
+import { ENVIRONMENT_AXES, agentView, agentViews, environmentOf, liveAgentViews } from "../src/store/agent-view.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
@@ -138,6 +138,36 @@ describe("the agent composer", () => {
       openStore(directory).query("INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES ('a1', 99, NULL)").run();
       expect(agentViews(directory).map((view) => view.id)).toEqual(["a1", "a2"]);
       expect(liveAgentViews(directory).map((view) => view.id)).toEqual(["a2"]);
+    });
+  });
+
+  /**
+   * A15 — "Adding an axis that can change is one table plus ONE LINE in the
+   * composer, zero consumer changes."
+   *
+   * The line is the {@link ENVIRONMENT_AXES} entry. If any second construct in
+   * the composer also names every axis — a hand-written `AgentEnvironment`
+   * interface, or the seeded object literal `environmentOf` folds into — then
+   * adding an axis costs two edits and a forgotten one silently composes as
+   * absent. The shape must be DERIVED from the axis list, so that the list is
+   * the only place the set of axes is written down.
+   */
+  test("the axis list is the only place every axis is enumerated", () => {
+    const source = readFileSync(new URL("../src/store/agent-view.ts", import.meta.url), "utf8");
+    const withoutAxisList = source.replace(/export const ENVIRONMENT_AXES[\s\S]*?\n\][^\n]*;\n/, "");
+    const alsoEnumerated = ENVIRONMENT_AXES.filter(
+      (axis) => new RegExp(`\\b${axis.key}\\b`).test(withoutAxisList),
+    ).map((axis) => axis.key);
+    // A single reader naming its own axis is fine; naming them ALL is the
+    // second enumeration A15 forbids.
+    expect(alsoEnumerated).not.toEqual(ENVIRONMENT_AXES.map((axis) => axis.key));
+  });
+
+  test("the composed shape is exactly the axis list, with nothing extra and nothing missing", () => {
+    withStore((directory) => {
+      insertAgent(directory, { id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "solo", createdAt: 10 });
+      expect(Object.keys(environmentOf(directory, "a1")).sort())
+        .toEqual(ENVIRONMENT_AXES.map((axis) => axis.key).sort());
     });
   });
 

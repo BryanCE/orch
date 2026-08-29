@@ -81,21 +81,49 @@ so a move closes one interval and opens the next instead of rewriting a pane-key
 `commands-target`, `lifecycle-targets`, `commands-clean` (new `liveWorktreeOwner` case),
 `commands-review`, `commands-lifecycle` (new lease-release case), `commands-panes`,
 `commands-spawn`, `commands-status`, `spawn-limits`, `spawn-policy`, `review`.
-**65 pass, 0 fail.** Fixtures build complete `AgentView` values through typed factories —
+Fixtures build complete `AgentView` values through typed factories —
 no `as`, no `as unknown as`, no `any`, no schema constant touched.
 
-## Not done — blocked on other workers
+## Follow-on repairs the same slice needed
 
-1. `src/commands/panes.ts:147` and `:205` — `backend.identity?.current()?.workspace`.
-   `Identity` was reduced to `{ id }` by the identity refactor, so
-   `EnvironmentIdentityRole.current()` (`src/backends/backend.ts:149-152`) no longer
-   carries a workspace. `src/entities.ts:139` and `src/commands/events.ts:77` have the
-   identical error. Needs the backend-port owner to decide the new role shape; guessing
-   one here would fork the contract. These are the only two `tsc` errors left in my files.
-2. `test/command-space-fields.test.ts`, `test/space-policy.test.ts`,
-   `test/commands-results.test.ts`, `test/commands-runs.test.ts` still import
-   `insertSpawnedRecord`. Each seeds fixtures for a module I do not own
-   (`src/entities.ts`, `src/policy/space.ts`, `src/agent/registry.ts`,
-   `src/commands/results.ts`, `src/commands/runs.ts`); they also use legacy
-   `<plexer>~<space>~<handle>` keys that are no longer valid identities. They belong with
-   whoever migrates those modules.
+The identity refactor landed mid-run (`Identity` is now `{ id }`; a key IS the minted
+id), so these came with it:
+
+- `src/commands/panes.ts` — the two `backend.identity?.current()?.workspace` reads became
+  `backend.paneInventory?.current()?.workspace`. A *tab* is the plexer's grouping, which
+  is a different question from orch's space; `null` (outside a pane) still lists every
+  tab rather than matching an invented one. `resolveTab` compares
+  `view.environment.plexer` instead of `parseIdentity(key).backend`.
+- `src/commands/spawn.ts` — three `serializeIdentity({ backend, workspace, id })` calls
+  became `serializeIdentity({ id: mintAgentId() })`; `spawnBackend`'s "am I inside a
+  plexer" check became `backend.isInsideSession()`.
+- `src/commands/target.ts` — `callerSpace()`/`actorSpace()` read
+  `environmentOf(orchDir, id).space` instead of slicing a key segment.
+- `src/commands/status.ts` — `spawnedByLabel` now reads `view.spawnedByName`, the join
+  the composer already makes, rather than a second lookup here.
+- `ownsAgent` takes `Pick<AgentView, "id" | "heldBy">`, matching what
+  `src/commands/control.ts:91` now passes.
+- Fixtures across `commands-*`, `lifecycle-targets`, `review`, `spawn-*`, `space-policy`
+  and `command-space-fields` moved to bare 10-char minted ids.
+
+### `test/space-policy.test.ts` and `test/command-space-fields.test.ts` (rewritten)
+Both now seed through `insertAgent` + `setAgentPlexer` + `setSpace` + `setHandle` and read
+back through `agentView(...).environment`. The composite `herdr~wD~p2` /
+`headless~local~1234` keys are gone, and `space: "local"` is gone with them: an agent in
+no space gets **no** `agent_spaces` row and asserts `environment.space === null`.
+`test/spawn-registry.test.ts` fixtures moved to bare ids the same way.
+
+## Verification
+- `bunx tsc --noEmit` — **0 errors, tree-wide.**
+- 17 test files (`commands-target`, `lifecycle-targets`, `commands-clean`,
+  `commands-review`, `commands-lifecycle`, `commands-panes`, `commands-spawn`,
+  `commands-status`, `spawn-limits`, `spawn-policy`, `spawn-identity`, `spawn-names`,
+  `spawn-registry`, `review`, `space-walls`, `space-policy`, `command-space-fields`) —
+  **102 pass, 0 fail.**
+
+## Left for the deleter
+`test/smoke.sh:136` still shells out to `insertSpawnedRecord` from
+`./src/store/spawned-rows.ts`. It is a shell script, not a TypeScript import, so it does
+not block the module deletion at type level — but the line must go with it.
+No other file in `src/`, `test/` or `scripts/` imports `spawned-rows.ts` or
+`ownership-rows.ts` any more.

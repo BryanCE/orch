@@ -5,7 +5,7 @@ import { refreshStaleShims } from "../doctor/runner.ts";
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../entities.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus, reapSpawnedRecord } from "../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir } from "../presence/store.ts";
 import { assertNameFree } from "../policy/name.ts";
 import { liveAgentViews, type AgentView } from "../store/agent-view.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
@@ -477,6 +477,23 @@ function recordedProcessRemains(recorded: RecordedProcess): boolean {
   return processInstanceMatches(recorded.pid, recorded.startToken);
 }
 
+/** Close is the SECOND ending verb. TASKS/01-agent-model.md §11: close "ends
+ *  the process; an `agent_endings` row is written, row and history stay", and
+ *  only `reap` deletes. Deleting the hub row here cascaded away the agent's
+ *  lease and its whole lease history — so a live orch's holding vanished the
+ *  moment anyone closed the agent it drove, and retention (which sweeps ended
+ *  rows) had nothing left to sweep. */
+function endClosedAgent(key: string): void {
+  const root = orchDir();
+  const agentId = agentIdOf(key);
+  const row = agentById(root, agentId);
+  if (row && !row.ending) {
+    const by = selfId();
+    endAgent(root, agentId, Date.now(), by !== undefined && agentById(root, by) ? by : null);
+  }
+  removePresenceAgentDir(presenceAgentDir(key, root));
+}
+
 export function cmdClose(args: string[]) {
   const usage = "usage: orch close <target>... | --all [--stream] [--json]";
   const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
@@ -587,7 +604,7 @@ export function cmdClose(args: string[]) {
       process.stderr.write(`Could not close ${String(target.handle)}; process or pane remains registered.\n`);
       continue;
     }
-    reapSpawnedRecord(target.key);
+    endClosedAgent(target.key);
     ok++;
     closed.push(String(target.handle));
     if (!json) process.stdout.write(`Closed ${String(target.handle)}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);

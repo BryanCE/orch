@@ -2,6 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
+// Imported FIRST of the orch modules on purpose, and for its evaluation order
+// alone: every other import below enters the pre-existing
+// runtime.ts -> adapters/registry.ts -> <adapter> -> config.ts -> runtime.ts
+// cycle at runtime.ts, so config.ts's body then reads ORCH_RUNTIMES inside
+// runtime.ts's own TDZ. Entering at the registry evaluates runtime.ts and
+// config.ts as its dependencies instead, in an order that resolves.
+import "../src/adapters/registry.ts";
 import { editCodexNotifyConfig } from "../src/adapters/codex-notify.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import {
@@ -10,6 +17,7 @@ import {
   codexStateFallback,
 } from "../src/adapters/codex-events.ts";
 import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
+import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
@@ -102,7 +110,10 @@ describe("CodexAdapter", () => {
   test("notify shim writes schema-current done presence and result atomically", () => {
     const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-codex-notify-"));
     try {
-      const key = "headless~local~notify-test";
+      // The shim parses ORCH_AGENT_KEY through the one identity boundary, so the fixture
+      // must be what a real spawn mints: the id alone. A `<plexer>~<space>~<name>` key is
+      // environment welded into identity, which Rule 11 / TASKS/01-agent-model.md forbids.
+      const key = serializeIdentity({ id: mintAgentId() });
       const payload = JSON.stringify({ type: CODEX_TURN_COMPLETE, "last-assistant-message": "finished" });
       const result = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
         cwd: path.join(import.meta.dir, ".."),

@@ -132,19 +132,20 @@ describe("10.4 string-form identity branches are forbidden in core (checkCoreSco
     expect(checkCoreScopeLine("  const adapter = resolveAdapter(spawned.adapter);", relPath)).toBeUndefined();
   });
 
-  test("the setup smoke-test exemption is documented and load-bearing", () => {
-    const exemptLine =
-      'const key = [...after.keys()].find((candidate) => !before.has(candidate) && after.get(candidate)?.backend === "headless");';
-    // The raw line IS a violation — proving the allowlist entry is what keeps the clean tree green.
-    expect(checkCoreScopeLine(exemptLine, "src/commands/setup.ts")).toContain("identity branch");
-    expect(CORE_SCOPE_ALLOWLIST.get("src/commands/setup.ts")?.has(exemptLine)).toBe(true);
+  test("the setup smoke test holds no exemption: the branch was deleted, not blessed", () => {
+    // The shape the smoke test used to carry. It IS still a violation — the rule did not
+    // soften — but setup.ts no longer contains it, so nothing exempts it any more (Rule 11:
+    // branch on declared capabilities, never on an environment id).
+    const formerlyExemptLine =
+      'const key = after.find((view) => !before.has(view.id) && view.environment.plexer === "headless")?.id;';
+    expect(checkCoreScopeLine(formerlyExemptLine, "src/commands/setup.ts")).toContain("identity branch");
+    expect(CORE_SCOPE_ALLOWLIST.get("src/commands/setup.ts")).toBeUndefined();
+    expect(CORE_SCOPE_ALLOWLIST.size).toBe(0);
   });
 
-  test("passes the clean tree: setup.ts has exactly one identity-branch line and it is exempted", () => {
-    const allowed = CORE_SCOPE_ALLOWLIST.get("src/commands/setup.ts") ?? new Set<string>();
+  test("passes the clean tree: setup.ts has no identity-branch line, exempted or otherwise", () => {
     const unexempted: string[] = [];
     for (const line of readRepoLines("src/commands/setup.ts")) {
-      if (allowed.has(line.trim())) continue;
       const reason = checkCoreScopeLine(line, "src/commands/setup.ts");
       if (reason?.includes("identity branch")) unexempted.push(line.trim());
     }

@@ -29,16 +29,17 @@ import {
  * read {@link AgentView.environment} as a whole.
  */
 
-/** Where an agent is. Every field is nullable because an axis that has no row
- *  is genuinely absent — a headless agent has no handle, and that is an answer,
- *  not a missing value to paper over. */
-export interface AgentEnvironment {
-  readonly plexer: string | null;
-  readonly handle: string | null;
-  readonly space: string | null;
-  readonly worktree: string | null;
-  readonly branch: string | null;
-}
+/** Where an agent is — DERIVED from {@link ENVIRONMENT_AXES}, never written out
+ *  a second time. Every field is nullable because an axis that has no row is
+ *  genuinely absent: a headless agent has no handle, and that is an answer, not
+ *  a missing value to paper over. */
+export type AgentEnvironment = Readonly<Record<EnvironmentAxisKey, string | null>>;
+
+type EnvironmentAxisKey = typeof ENVIRONMENT_AXES[number]["key"];
+
+/** The accumulator {@link environmentOf} fills: same keys, writable and not yet
+ *  complete. Derived from the same union, so it can never list a different set. */
+type ComposingEnvironment = Partial<Record<EnvironmentAxisKey, string | null>>;
 
 /** How an agent is configured. Not environment: it survives a move. */
 export interface AgentTuning {
@@ -83,7 +84,7 @@ export interface AgentView {
  * value. Adding an axis is one entry here — that is the whole of A15.
  */
 interface EnvironmentAxis {
-  readonly key: keyof AgentEnvironment;
+  readonly key: string;
   readonly read: (orchDir: string, agentId: string) => string | null;
 }
 
@@ -118,19 +119,28 @@ function worktreeBranch(orchDir: string, agentId: string): string | null {
   return row?.branch ?? null;
 }
 
-export const ENVIRONMENT_AXES: readonly EnvironmentAxis[] = [
+// `as const` pins the keys so the shape can be read off this list; `satisfies`
+// checks each entry without widening it. This array is the ONE place the set of
+// axes is written down — that is what makes adding one a single line (A15).
+export const ENVIRONMENT_AXES = [
   { key: "plexer", read: currentPlexer },
   { key: "handle", read: currentHandle },
   { key: "space", read: currentSpace },
   { key: "worktree", read: worktreePath },
   { key: "branch", read: worktreeBranch },
-];
+] as const satisfies readonly EnvironmentAxis[];
+
+/** Every axis produced a value, so the partial is the whole environment. The
+ *  check is real: it asks the axis list itself, which is the same list the type
+ *  is derived from, so it cannot drift from what `AgentEnvironment` requires. */
+function isComplete(composed: ComposingEnvironment): composed is AgentEnvironment {
+  return ENVIRONMENT_AXES.every((axis) => axis.key in composed);
+}
 
 export function environmentOf(orchDir: string, agentId: string): AgentEnvironment {
-  const composed: Record<keyof AgentEnvironment, string | null> = {
-    plexer: null, handle: null, space: null, worktree: null, branch: null,
-  };
+  const composed: ComposingEnvironment = {};
   for (const axis of ENVIRONMENT_AXES) composed[axis.key] = axis.read(orchDir, agentId);
+  if (!isComplete(composed)) throw new Error("orch: an environment axis produced no value");
   return composed;
 }
 

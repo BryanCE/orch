@@ -1,4 +1,4 @@
-import { bridgeRegistered, loadPresence, orchDir, recordSpawned, type PresenceEntry } from "../presence/store.ts";
+import { bridgeRegistered, orchDir, recordSpawned, type PresenceEntry } from "../presence/store.ts";
 import { recordGrantRequest, spendGrant, type GrantAction } from "../store/grant-rows.ts";
 import type { AgentView } from "../store/agent-view.ts";
 import { loadConfig, resolveSetting, type OrchConfig } from "../config.ts";

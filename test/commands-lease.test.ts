@@ -11,6 +11,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { reapAgent, adoptAgent, detachAgent, cmdReap } from "../src/commands/lease.ts";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { recordSpawned, spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -115,7 +116,7 @@ describe("lease commands", () => {
   test("abort proceeds with a foreign live-holder lease", () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
-    const key = "headless~workspace~abort-worker";
+    const key = mintAgentId();
     agent(dir, key, "abort-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
@@ -138,7 +139,7 @@ describe("lease commands", () => {
   test("close proceeds with a foreign live-holder lease", () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
-    const key = "headless~workspace~close-worker";
+    const key = mintAgentId();
     agent(dir, key, "close-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
@@ -157,7 +158,7 @@ describe("lease commands", () => {
   test("reap proceeds with a foreign live-holder lease", () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
-    const key = "headless~workspace~reap-worker";
+    const key = mintAgentId();
     agent(dir, key, "reap-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);

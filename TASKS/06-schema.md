@@ -24,8 +24,8 @@ describe one event — a process instance, a lease, a claim.
 |---|---|
 | Validity is the **half-open interval** `[since, until)`; `until IS NULL` is open | adjacent rows meet exactly — no gap, no shared instant, and the convention survives a change of granularity |
 | Instants are `INTEGER` epoch **milliseconds** | the dominant operation is arithmetic, not display; 8 bytes, native sort, no timezone can be wrong |
-| Every column declares `NULL` or `NOT NULL` explicitly | never rely on the implicit default in a `STRICT` table |
-| `STRICT` on every table | declared types enforced, not advisory |
+| Every column declares `NULL` or `NOT NULL` explicitly — **including every `PRIMARY KEY`** | without `STRICT` and `WITHOUT ROWID`, SQLite lets a `TEXT PRIMARY KEY` hold `NULL`, so the constraint has to be written |
+| ~~`STRICT` on every table~~ — **removed on Bryan's ruling 2026-08-29** | it needed a hand-written post-pass over the drizzle-kit migration, and one schema file with nothing on top outranks it (row A4) |
 | `WITHOUT ROWID` where the primary key *is* the access path and rows are small | removes a redundant B-tree and clusters by the key actually queried |
 | A fact **every** row has is a column; a fact **only some** have is its own table; a fact that **changes** is a satellite with `since`/`until` | this is the whole placement rule. It is why `cwd` is a column, `agent_worktrees` and `agent_endings` are tables, and `agent_spaces` has a timeline |
 | Absence is `NULL` and never a sentinel | `"local"` as a workspace value is why this is written down |
@@ -316,27 +316,16 @@ LEFT JOIN task_attempts a
       AND a.since = (SELECT MAX(since) FROM task_attempts WHERE task_id = t.id);
 
 -- ══ no overlapping history ══════════════════════════════════════════════════
--- The partial unique indexes above forbid two OPEN intervals. They do not forbid
--- two CLOSED intervals overlapping. SQLite has no exclusion constraint, so the
--- enforcement is a trigger — NOT application code, which races between its check
--- and its insert. One per satellite, identical but for the table name.
-
-CREATE TRIGGER agent_handles_no_overlap
-BEFORE INSERT ON agent_handles
-BEGIN
-  SELECT RAISE(ABORT, 'overlapping interval')
-  WHERE EXISTS (
-    SELECT 1 FROM agent_handles
-    WHERE agent_id = NEW.agent_id
-      AND NEW.since < COALESCE(until, 9223372036854775807)
-      AND COALESCE(NEW.until, 9223372036854775807) > since
-  );
-END;
-
--- …and the same trigger for agent_processes, agent_spaces, agent_tunings,
--- agent_leases, space_plexers, pack_plexers, host_plexers, task_attempts, and
--- pack_intakes — keyed on (host_id, plexer_id), task_id and (pack_id, space_id)
--- respectively.
+-- REMOVED on Bryan's ruling 2026-08-29, with STRICT and for the same reason: the
+-- ten `<table>_no_overlap` triggers cannot be emitted from src/db/schema.ts, so
+-- keeping them meant hand-editing every generated migration. One schema file
+-- with nothing on top outranks the extra guard (row A4).
+--
+-- What survives is the partial unique index above, which drizzle-kit emits
+-- natively and which forbids two OPEN intervals — the only overlap orch's
+-- writers can actually produce, because every one of them goes through
+-- closeThenOpen() in src/store/interval-rows.ts. Two overlapping CLOSED
+-- intervals are now unenforced at the database.
 ```
 
 ---
@@ -362,11 +351,7 @@ schema (not a second legacy schema) until their callers are replaced.
 
 **View:** `task_states`.
 
-**Triggers:** `agent_handles_no_overlap`, `agent_processes_no_overlap`,
-`agent_spaces_no_overlap`, `agent_tunings_no_overlap`,
-`agent_leases_no_overlap`, `space_plexers_no_overlap`,
-`pack_plexers_no_overlap`, `host_plexers_no_overlap`,
-`task_attempts_no_overlap`, `pack_intakes_no_overlap`.
+**Triggers:** none. See the ruling above.
 
 ## Why each table is where it is
 

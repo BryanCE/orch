@@ -32,7 +32,7 @@ function base(d: ReturnType<typeof openStore>) {
 // Keep it independent of src/db/schema.ts: a missing or superseded object must
 // make this test fail rather than being silently excluded as a legacy name.
 const expectedInventory = new Set([
-  ...["ownership", "outbox", "spawned", "catalogues", "events", "runs", "harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes", "grant_requests", "grant_request_params", "grant_approvals", "grant_denials", "grant_spends", "__drizzle_migrations"].map(name => `table:${name}`),
+  ...["outbox", "catalogues", "events", "runs", "harnesses", "plexers", "hosts", "host_plexers", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes", "grant_requests", "grant_request_params", "grant_approvals", "grant_denials", "grant_spends", "__drizzle_migrations"].map(name => `table:${name}`),
   ...["outbox_pending", "runs_agent_started", "one_install", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running", "grants_by_action", "one_agent_per_session"].map(name => `index:${name}`),
   `view:task_states`,
   `view:grant_states`,
@@ -74,22 +74,6 @@ describe("rebuild schema", () => {
       expect((d.query(`PRAGMA table_info(${table})`).all() as TableColumn[]).map(c => [c.name,c.type,c.notnull])).toEqual(cols);
     }
   });
-  test("all satellite overlap triggers use documented keys", () => {
-    const cases = [
-      ["agent_processes", "agent_id", (d: Db) => d.query("INSERT INTO agent_processes(agent_id,since,until,host_id,pid) VALUES (?,?,?,?,?)").run("a", 1, 5, "h", 1), (d: Db) => d.query("INSERT INTO agent_processes(agent_id,since,until,host_id,pid) VALUES (?,?,?,?,?)").run("a", 4, 6, "h", 2)],
-      ["agent_spaces", "agent_id", (d: Db) => d.query("INSERT INTO agent_spaces(agent_id,since,until,space_id) VALUES (?,?,?,?)").run("a", 1, 5, "s"), (d: Db) => d.query("INSERT INTO agent_spaces(agent_id,since,until,space_id) VALUES (?,?,?,?)").run("a", 4, 6, "s")],
-      ["agent_tunings", "agent_id", (d: Db) => d.query("INSERT INTO agent_tunings(agent_id,since,until,model) VALUES (?,?,?,?)").run("a", 1, 5, "m"), (d: Db) => d.query("INSERT INTO agent_tunings(agent_id,since,until,model) VALUES (?,?,?,?)").run("a", 4, 6, "m")],
-      ["agent_handles", "agent_id", (d: Db) => d.query("INSERT INTO agent_handles(agent_id,since,until,handle) VALUES (?,?,?,?)").run("a", 1, 5, "h1"), (d: Db) => d.query("INSERT INTO agent_handles(agent_id,since,until,handle) VALUES (?,?,?,?)").run("a", 4, 6, "h2")],
-      ["agent_leases", "agent_id", (d: Db) => d.query("INSERT INTO agent_leases(id,agent_id,orch_id,since,until,release_reason) VALUES (?,?,?,?,?,?)").run(1,"a","b",1,5,"released"), (d: Db) => d.query("INSERT INTO agent_leases(id,agent_id,orch_id,since,until,release_reason) VALUES (?,?,?,?,?,?)").run(2,"a","b",4,6,"released")],
-      ["space_plexers", "space_id", (d: Db) => d.query("INSERT INTO space_plexers(space_id,since,until,plexer_id,handle) VALUES (?,?,?,?,?)").run("s",1,5,"px","h1"), (d: Db) => d.query("INSERT INTO space_plexers(space_id,since,until,plexer_id,handle) VALUES (?,?,?,?,?)").run("s",4,6,"px","h2")],
-      ["pack_plexers", "pack_id", (d: Db) => d.query("INSERT INTO pack_plexers(pack_id,since,until,plexer_id,handle) VALUES (?,?,?,?,?)").run("a",1,5,"px","h1"), (d: Db) => d.query("INSERT INTO pack_plexers(pack_id,since,until,plexer_id,handle) VALUES (?,?,?,?,?)").run("a",4,6,"px","h2")],
-      ["host_plexers", "host_id+plexer_id", (d: Db) => d.query("INSERT INTO host_plexers(host_id,plexer_id,since,until,version) VALUES (?,?,?,?,?)").run("h","px",1,5,"v1"), (d: Db) => d.query("INSERT INTO host_plexers(host_id,plexer_id,since,until,version) VALUES (?,?,?,?,?)").run("h","px",4,6,"v2")],
-      ["task_attempts", "task_id", (d: Db) => d.query("INSERT INTO task_attempts(task_id,since,until,agent_id,dispatch_id,outcome) VALUES (?,?,?,?,?,?)").run("t",1,5,"a","d1","done"), (d: Db) => d.query("INSERT INTO task_attempts(task_id,since,until,agent_id,dispatch_id,outcome) VALUES (?,?,?,?,?,?)").run("t",4,6,"a","d2","done")],
-      ["pack_intakes", "pack_id+space_id", (d: Db) => d.query("INSERT INTO pack_intakes(pack_id,space_id,since,until) VALUES (?,?,?,?)").run("a","s",1,5), (d: Db) => d.query("INSERT INTO pack_intakes(pack_id,space_id,since,until) VALUES (?,?,?,?)").run("a","s",4,6)],
-    ] as const;
-    for (const [, , first, second] of cases) { const d = db(); base(d); addDeps(d); if (["task_attempts"].includes(cases.find(c => c[2] === first)?.[0] as string)) d.query("INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?)").run("t","T","{}","a","a",null,null,1); first(d); expect(() => second(d)).toThrow("overlapping interval"); }
-  });
-
   test("all ten partial unique indexes allow only one open row", () => {
     const cases = [
       ["host_plexers", (d: Db) => { d.query("INSERT INTO host_plexers(host_id,plexer_id,since,version) VALUES (?,?,?,?)").run("h","px",1,"v"); return () => d.query("INSERT INTO host_plexers(host_id,plexer_id,since,version) VALUES (?,?,?,?)").run("h","px",2,"v"); }],
@@ -130,11 +114,6 @@ describe("rebuild schema", () => {
     expect(() => d.query("INSERT INTO agent_leases(id,agent_id,orch_id,since) VALUES (?,?,?,?)").run(3, "b", "b", 1)).toThrow();
     expect(() => d.query("INSERT INTO agent_leases(id,agent_id,orch_id,since,until) VALUES (?,?,?,?,?)").run(4, "b", "a", 1, 2)).toThrow();
   });
-  test("rejects overlapping closed intervals", () => {
-    const d = db(); base(d); d.query("INSERT INTO agent_handles(agent_id,since,until,handle) VALUES (?,?,?,?)").run("a", 1, 5, "h");
-    expect(() => d.query("INSERT INTO agent_handles(agent_id,since,until,handle) VALUES (?,?,?,?)").run("a", 4, 6, "i")).toThrow("overlapping interval");
-  });
-  test("STRICT rejects text in integer instant", () => { const d = db(); expect(() => d.query("INSERT INTO hosts(id,name,os,created_at) VALUES (?,?,?,?)").run("h", "H", "linux", "x")).toThrow(); });
   test("remaining documented CHECKs and cascades are enforced", () => {
     const d = db(); base(d); addDeps(d);
     expect(() => d.query("INSERT INTO hosts(id,name,os,created_at) VALUES (?,?,?,?)").run("bad","Bad","plan9",1)).toThrow();

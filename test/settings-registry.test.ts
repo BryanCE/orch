@@ -63,11 +63,10 @@ function completeSettings(): Record<string, unknown> {
       worktree: true,
     },
     fleet: {
-      spawn_cap: 3,
-      pack_cap: 4,
+      max_agents_per_pack: 4,
       max_depth: 2,
-      max_agents: 5,
-      space_caps: { main: 2 },
+      max_agents_total: 5,
+      max_agents_per_space: { main: 2 },
       worker_peer_tools: true,
       cross_space: true,
     },
@@ -106,6 +105,14 @@ describe("settings registry", () => {
     const config = loadConfig(directory);
     for (const setting of SETTINGS_REGISTRY) {
       expect(setting.read(config), setting.key).not.toBeUndefined();
+    }
+  });
+
+  test("fleet help explains what each limit counts", () => {
+    for (const key of ["fleet.max_depth", "fleet.max_agents_per_pack", "fleet.max_agents_per_space", "fleet.max_agents_total"]) {
+      const setting = SETTINGS_REGISTRY.find((entry) => entry.key === key);
+      expect(setting, key).toBeDefined();
+      expect(setting?.help.toLowerCase()).toMatch(/agents|levels/);
     }
   });
 

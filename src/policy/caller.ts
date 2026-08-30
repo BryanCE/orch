@@ -11,7 +11,8 @@ export function callerKind(): CallerKind {
   const id = launchCredential();
   if (id === null) return "human";
   const row = agentById(orchDir(), id);
-  if (row === null || row.claimedAt === null || row.sessionToken === null) return "human";
+  if (row === null) return "human";
+  if (row.claimedAt === null || row.sessionToken === null) return "human";
   const sessionToken = callerSession()?.sessionId;
   return sessionToken !== undefined && sessionToken !== null && row.sessionToken === sessionToken ? "agent" : "human";
 }

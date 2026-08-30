@@ -129,11 +129,10 @@ const HELP: Readonly<Record<string, string>> = {
   "defaults.thinking": "Default thinking effort for launches.",
   "defaults.thinking_by_harness": "Per-harness thinking effort overrides.",
   "defaults.worktree": "Whether launches use worktrees by default.",
-  "fleet.spawn_cap": "Maximum concurrent agents.",
-  "fleet.pack_cap": "Maximum agents in a pack.",
-  "fleet.max_depth": "How deep spawning may nest: 1 means only a root spawns.",
-  "fleet.max_agents": "Optional global agent limit.",
-  "fleet.space_caps": "Agent limits by space.",
+  "fleet.max_depth": "How many levels deep spawning may go. 1 = only a root spawns. Counts levels, not agents.",
+  "fleet.max_agents_per_pack": "Most live agents under one root, root included. Counts agents at every depth.",
+  "fleet.max_agents_per_space": "Most live agents in one space, keyed by space name.",
+  "fleet.max_agents_total": "Most live agents on this machine across every space and pack.",
   "fleet.worker_peer_tools": "Whether workers may use peer tools.",
   "fleet.cross_space": "Whether workers may cross space boundaries.",
   "models.allowed": "Model allowlist patterns by harness.",
@@ -172,7 +171,6 @@ const ENV_OVERRIDES: Readonly<Record<string, string>> = {
   "defaults.adapter": "ORCH_ADAPTER",
   "defaults.backend": "ORCH_BACKEND",
   "daemon.tcp_port": "ORCH_DAEMON_PORT",
-  "fleet.spawn_cap": "ORCH_SPAWN_CAP",
 };
 
 /** `runtime` is the one declared setting orch will not rewrite: it names how orch

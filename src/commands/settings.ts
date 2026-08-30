@@ -386,7 +386,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
   // that includes whether the CLI shows it at all and what it is called. The
   // hand-written switch that used to stand here dropped 23 of the 42 declared
   // keys out of both the table and --json — every retention.*, every workers.*,
-  // logging.level, fleet.pack_cap, locked_commands — and gave two of them a
+  // logging.level, fleet.max_agents_per_pack, locked_commands — and gave two of them a
   // second name. A setting nobody can print is a setting nobody can find.
   for (const spec of SETTINGS_REGISTRY) {
     const configured = spec.read(config);

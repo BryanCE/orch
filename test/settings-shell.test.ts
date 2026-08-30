@@ -46,22 +46,22 @@ describe("settings shell decisions", () => {
   test("an overridden setting cannot be written", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-settings-override-"));
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
-    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, "../bin/orch.ts"), "settings", "fleet.spawn_cap", "4"], {
-      env: { ...process.env, ORCH_DIR: directory, ORCH_SPAWN_CAP: "9" },
+    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, "../bin/orch.ts"), "settings", "defaults.worktree", "false"], {
+      env: { ...process.env, ORCH_DIR: directory, ORCH_WORKTREE: "true" },
       stdout: "pipe",
       stderr: "pipe",
     });
     expect(result.success).toBe(false);
-    expect(result.stdout.toString()).toContain("ORCH_SPAWN_CAP");
+    expect(result.stdout.toString()).toContain("ORCH_WORKTREE");
   });
 
   test("registered writes use the registry entry", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-settings-shell-"));
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
-    writeRegisteredSetting(directory, "fleet.spawn_cap", 4);
-    expect(loadConfig(directory).fleet.spawn_cap).toBe(4);
+    writeRegisteredSetting(directory, "fleet.max_depth", 4);
+    expect(loadConfig(directory).fleet.max_depth).toBe(4);
     const text = readFileSync(join(directory, "settings.json"), "utf8");
-    expect(text).toContain('"spawn_cap": 4');
+    expect(text).toContain('"max_depth": 4');
   });
 
   test("registry exposes writable subcommand entries", () => {

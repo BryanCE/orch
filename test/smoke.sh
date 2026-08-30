@@ -19,7 +19,7 @@ mkdir -p "$ORCH_FIXTURE/agents/w0:p1" "$BIN_DIR"
 # opt into the deterministic fake below, so no live herdr server is needed.
 export PATH="$BIN_DIR:/usr/bin:/bin"
 export ORCH_DIR="$ORCH_FIXTURE"
-unset ORCH_ADAPTER ORCH_BACKEND ORCH_MODEL ORCH_SPAWN_CAP ORCH_WORKTREE
+unset ORCH_ADAPTER ORCH_BACKEND ORCH_MODEL ORCH_WORKTREE
 
 cat > "$BIN_DIR/herdr" <<'EOF_HERDR'
 #!/usr/bin/env bash
@@ -51,7 +51,7 @@ EOF_HERDR
 chmod +x "$BIN_DIR/herdr"
 
 cat > "$ORCH_FIXTURE/settings.json" <<'EOF_CONFIG'
-{"schemaVersion":1,"runtime":"node","enabled":{"adapters":["pi"],"backends":[]},"defaults":{"adapter":"pi"},"fleet":{"spawn_cap":1}}
+{"schemaVersion":1,"runtime":"node","enabled":{"adapters":["pi"],"backends":[]},"defaults":{"adapter":"pi"}}
 EOF_CONFIG
 
 cat > "$ORCH_FIXTURE/agents/w0:p1/status.json" <<EOF_STATUS
@@ -150,19 +150,6 @@ check_fail() {
     printf 'PASS %s\n' "$name"
   fi
 }
-
-# Config precedence is observable through spawn's cap guard and the fake herdr
-# lifecycle. Successful launches use a custom command so they do not wait for
-# a real pi bridge.
-check_fail spawn-cap-config.txt "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke
-check spawn-cap-flag-config.txt env ORCH_SMOKE_FAKE_HERDR=1 "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke --spawn-cap 2 --cmd claude
-check spawn-cap-env.txt env ORCH_SMOKE_FAKE_HERDR=1 ORCH_SPAWN_CAP=2 "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke --cmd claude
-check_fail spawn-cap-flag-env.txt env ORCH_SMOKE_FAKE_HERDR=1 ORCH_SPAWN_CAP=2 "$BUN" "$ROOT/bin/orch.ts" spawn 2 --workspace ws-smoke --spawn-cap 1
-
-# With no config file, the built-in cap (8) is observable too.
-mv "$ORCH_FIXTURE/config.toml" "$ORCH_FIXTURE/config.toml.saved"
-check_fail spawn-cap-default.txt "$BUN" "$ROOT/bin/orch.ts" spawn 9 --workspace ws-smoke
-mv "$ORCH_FIXTURE/config.toml.saved" "$ORCH_FIXTURE/config.toml"
 
 if (( failures )); then
   printf 'FAIL smoke (%d check(s) failed)\n' "$failures" >&2

@@ -81,7 +81,7 @@ orch reset api-1                              # fresh context, same pane, name a
 ```
 
 `spawn` opens one tab of balanced, tiled agents named `<prefix>-1..N` and never steals
-focus. The cap is `fleet.spawn_cap` (default 8). Always pass `--cwd` — it silently defaults
+focus. Always pass `--cwd` — it silently defaults
 to wherever you ran the command.
 
 Detached, no plexer required:
@@ -159,7 +159,7 @@ workers are never told to reply to an address that would refuse them.
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
 | `restart <target>… \| --all [--cmd C]` | Close the harness process and relaunch it. |
 | `lock run \| check \| status \| release` | One heavy command machine-wide; see `locked_commands`. |
-| `spawn <N> [--tab L] [--cwd P] [--name PREFIX] [--model M] [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]` | Fresh tab of tiled agents. |
+| `spawn <N> [--tab L] [--cwd P] [--name PREFIX] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents. |
 | `tile <tab\|pane> [--name X] …` | Add one pane to an existing tab. |
 | `grant [<hash>\|--list]` | Approve an action an agent was refused. Needs a terminal; no flag answers the prompt for you. |
 | `rename <target> <name> [--pane]` | Rename the agent, or the pane border. |
@@ -210,7 +210,7 @@ Work survives its spawner, always. Losing an orchestrator costs a driver, never 
 
 A **space** is orch's own grouping of agents — orch names it, orch owns it, and it is
 independent of whatever the plexer calls its own groupings. `orch space create/list/rename/
-delete/focus` manages them; `fleet.space_caps` limits agents per space and `fleet.cross_space`
+delete/focus` manages them; `fleet.max_agents_per_space` limits agents per space and `fleet.cross_space`
 decides whether one orch may reach across them. Notifications carry the originating space and
 a stable per-space color so an alert keeps its context.
 
@@ -268,7 +268,7 @@ effective value with the source that won.
     "thinking_by_harness": { "claude": "high" },
     "worktree": false
   },
-  "fleet": { "spawn_cap": 8, "pack_cap": 10, "worker_peer_tools": false, "cross_space": false },
+  "fleet": { "max_agents_per_pack": 10, "max_depth": 1, "worker_peer_tools": false, "cross_space": false },
   "models": {
     "preferred": { "pi": ["provider/fast", "provider/deep"] },
     "allowed": { "pi": ["provider/*"] }

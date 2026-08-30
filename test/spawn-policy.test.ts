@@ -27,10 +27,10 @@ afterEach(() => {
   if (oldAgentKey === undefined) delete process.env.ORCH_AGENT_KEY; else process.env.ORCH_AGENT_KEY = oldAgentKey;
 });
 
-const fleet = (pack_cap = 10): OrchConfig["fleet"] => ({
+const fleet = (max_agents_per_pack = 10): OrchConfig["fleet"] => ({
   ...SETTINGS_DEFAULTS.fleet,
-  space_caps: {},
-  pack_cap,
+  max_agents_per_space: {},
+  max_agents_per_pack,
 });
 
 function fixtureMaps(agents: AgentView[]): { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> } {
@@ -46,9 +46,9 @@ function fixtureMaps(agents: AgentView[]): { views: Map<string, AgentView>; pres
   };
 }
 
-function policy(pack_cap: number, agents: AgentView[], spawnerId = "root", requested = 1): string | null {
+function policy(max_agents_per_pack: number, agents: AgentView[], spawnerId = "root", requested = 1): string | null {
   const { views, presence } = fixtureMaps(agents);
-  return spawnPolicyError({ fleet: fleet(pack_cap) }, "space", requested, views, presence, spawnerId);
+  return spawnPolicyError({ fleet: fleet(max_agents_per_pack) }, "space", requested, views, presence, spawnerId);
 }
 
 describe("spawn policy caps", () => {
@@ -65,6 +65,7 @@ describe("spawn policy caps", () => {
     }));
     const error = policy(10, agents);
     expect(error).toContain("pack cap 10");
+    expect(error).toContain("fleet.max_agents_per_pack");
     expect(error).toContain("orch dispatch <name>");
     expect(error).toContain("orch queue add");
   });
@@ -102,9 +103,9 @@ describe("spawn policy caps", () => {
   test("reads a pack cap override from settings", () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-"));
     tempDirs.push(dir);
-    writeSettingsFixture(dir, { fleet: { pack_cap: 2 } });
+    writeSettingsFixture(dir, { fleet: { max_agents_per_pack: 2 } });
     const config = loadConfig(dir);
-    expect(config.fleet.pack_cap).toBe(2);
+    expect(config.fleet.max_agents_per_pack).toBe(2);
     const { views, presence } = fixtureMaps([agentViewFixture("slave", {
       spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
     })]);
@@ -118,7 +119,7 @@ describe("spawn policy caps", () => {
     writeSettingsFixture(dir, {
       enabled: { adapters: ["pi"], backends: ["headless"] },
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
-      fleet: { pack_cap: 1 },
+      fleet: { max_agents_per_pack: 1 },
     });
     const key = "liveagent1";
     // A space is USER-created and never minted (A7), so the fixture creates the

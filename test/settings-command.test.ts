@@ -24,7 +24,7 @@ afterEach(() => {
 function runSettings(orchDir: string, extraEnv: Record<string, string>, ...args: string[]): string {
   const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: orchDir, ...extraEnv };
   // An empty ORCH_* var still counts as env-provided; only deletion restores lower precedence.
-  for (const name of ["ORCH_ADAPTER", "ORCH_BACKEND", "ORCH_MODEL", "ORCH_SPAWN_CAP", "ORCH_WORKTREE"]) {
+  for (const name of ["ORCH_ADAPTER", "ORCH_BACKEND", "ORCH_MODEL", "ORCH_WORKTREE"]) {
     if (!(name in extraEnv)) delete env[name];
   }
   const ran = runSettingsCli(env, args);
@@ -72,7 +72,7 @@ describe("orch settings", () => {
   // setting, and a setting the CLI cannot show is a setting nobody can find. A
   // hand-written switch beside the registry loop dropped 23 of the 42 declared
   // keys from both the table and --json — every retention.*, every workers.*,
-  // logging.level, fleet.pack_cap, locked_commands — which is exactly the
+  // logging.level, fleet.max_agents_per_pack, locked_commands — which is exactly the
   // invisibility this file exists to prevent.
   test("every registered setting is reachable through --json", () => {
     const dir = tempDir();
@@ -101,7 +101,7 @@ describe("orch settings", () => {
     expect(report["defaults.backend"]).toEqual({ value: "headless", source: "settings.json" });
     expect(report["model (pi)"]!.source).toBe("default");
     expect(report["model (claude)"]!.source).toBe("default");
-    expect(report["fleet.spawn_cap"]).toEqual({ value: 8, source: "default" });
+    expect(report["fleet.max_depth"]).toEqual({ value: 1, source: "default" });
     expect(report.enabled!.value).toEqual({ adapters: ["pi", "claude"], backends: ["headless"] });
   }, 30_000);
 
@@ -171,7 +171,7 @@ describe("orch settings", () => {
   test("sets an integer through its registry entry", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    expect(runSettings(directory, {}, "fleet.spawn_cap", "5")).toContain("fleet.spawn_cap = 5");
+    expect(runSettings(directory, {}, "fleet.max_depth", "5")).toContain("fleet.max_depth = 5");
   }, 30_000);
 
   test("single-setting set delegates to the registry writer", async () => {
@@ -181,9 +181,9 @@ describe("orch settings", () => {
     process.env.ORCH_DIR = directory;
     const writer = spyOn(registry, "writeRegisteredSetting");
     try {
-      await cmdSettings(["fleet.spawn_cap", "6"]);
+      await cmdSettings(["fleet.max_depth", "6"]);
       expect(writer).toHaveBeenCalledTimes(1);
-      expect(writer).toHaveBeenCalledWith(directory, "fleet.spawn_cap", 6);
+      expect(writer).toHaveBeenCalledWith(directory, "fleet.max_depth", 6);
     } finally {
       writer.mockRestore();
       if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
@@ -220,8 +220,8 @@ describe("orch settings", () => {
   test("refuses an invalid integer and names the allowed range", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "fleet.spawn_cap", "zero");
-    expect(failed.stdout).toContain("fleet.spawn_cap");
+    const failed = runSettingsExpectingFailure(directory, "fleet.max_depth", "zero");
+    expect(failed.stdout).toContain("fleet.max_depth");
     expect(failed.stdout).toContain("integer");
   }, 30_000);
 
@@ -252,9 +252,9 @@ describe("orch settings", () => {
   test("refuses an unknown key and suggests nearest valid keys", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "fleet.spawn_cpa", "5");
-    expect(failed.stdout).toContain("fleet.spawn_cpa");
-    expect(failed.stdout).toContain("fleet.spawn_cap");
+    const failed = runSettingsExpectingFailure(directory, "fleet.max_dept", "5");
+    expect(failed.stdout).toContain("fleet.max_dept");
+    expect(failed.stdout).toContain("fleet.max_depth");
   }, 30_000);
 
   test("refuses read-only runtime and names the editing subcommand", () => {

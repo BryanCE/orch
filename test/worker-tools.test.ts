@@ -9,7 +9,7 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
   enabled: { adapters: [], backends: [] },
   locked_commands: [],
   defaults: { models: {}, worktree: false },
-  fleet: { worker_peer_tools: workerPeerTools ?? false, spawn_cap: 8, max_depth: 1, cross_space: false, space_caps: {} },
+  fleet: { worker_peer_tools: workerPeerTools ?? false, max_depth: 1, cross_space: false, max_agents_per_space: {} },
   models: { allowed: {}, preferred: {} },
   workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: allowTools },
   queue: { max_retries: 1 },

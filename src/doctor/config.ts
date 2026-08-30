@@ -9,16 +9,16 @@ import type { OrchConfig } from "../types/config.ts";
 export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const fleet: OrchConfig["fleet"] | undefined = loadConfigOrNull(orchDir)?.fleet;
-  const globalCap = fleet?.max_agents;
+  const globalCap = fleet?.max_agents_total;
   const violations = globalCap === undefined || fleet === undefined
     ? []
-    : Object.entries(fleet.space_caps).filter(([, cap]) => cap > globalCap);
+    : Object.entries(fleet.max_agents_per_space).filter(([, cap]) => cap > globalCap);
   if (!violations.length) return { id: "spawn-limits", label: "Spawn limits", status: "ok", detail: "spawn limits are satisfiable" };
   return {
     id: "spawn-limits",
     label: "Spawn limits",
     status: "warn",
-    detail: violations.map(([space, cap]) => `fleet.space_caps.${space} (${cap}) exceeds fleet.max_agents (${globalCap})`).join("; "),
+    detail: violations.map(([space, cap]) => `fleet.max_agents_per_space.${space} (${cap}) exceeds fleet.max_agents_total (${globalCap})`).join("; "),
   };
 }
 

@@ -78,7 +78,7 @@ describe("loadConfig", () => {
     writeSettingsFixture(directory, {
       enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: { adapter: "claude", backend: "headless", models: { claude: "sonnet" }, worktree: true },
-      fleet: { spawn_cap: 4, max_agents: 12, space_caps: { wD: 4 }, worker_peer_tools: true, cross_space: true, max_depth: 2 },
+      fleet: { max_agents_total: 12, max_agents_per_space: { wD: 4 }, worker_peer_tools: true, cross_space: true, max_depth: 2 },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
@@ -103,7 +103,7 @@ describe("loadConfig", () => {
         thinking_by_harness: {},
         worktree: true,
       },
-      fleet: { spawn_cap: 4, max_agents: 12, pack_cap: 10, max_depth: 2, space_caps: { wD: 4 }, worker_peer_tools: true, cross_space: true },
+      fleet: { max_agents_total: 12, max_agents_per_pack: 10, max_depth: 2, max_agents_per_space: { wD: 4 }, worker_peer_tools: true, cross_space: true },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 3 },
@@ -149,6 +149,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig(directory)).toThrow(/Unrecognized key.*junk/);
   });
 
+  test("rejects removed spawn cap setting by name", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { fleet: { ["spawn_" + "cap"]: 4 } });
+
+    expect(() => loadConfig(directory)).toThrow(new RegExp("Unrecognized key.*spawn_" + "cap"));
+  });
+
   test("parses models.allowed as a per-harness pattern map", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { models: { allowed: { pi: ["openrouter/a", "openrouter/b"] } } });
@@ -156,10 +163,23 @@ describe("loadConfig", () => {
     expect(loadConfig(directory).models.allowed.pi).toEqual(["openrouter/a", "openrouter/b"]);
   });
 
+  test("rejects renamed fleet keys and loads their replacements", () => {
+    const oldKeys = ["pack" + "_cap", "max" + "_agents", "space" + "_caps"];
+    for (const key of oldKeys) {
+      const directory = tempDir();
+      writeSettingsFixture(directory, { fleet: { [key]: key === oldKeys[2] ? { main: 2 } : 2 } });
+      expect(() => loadConfig(directory)).toThrow(/Unrecognized key/);
+      expect(() => loadConfig(directory)).toThrow(new RegExp(key));
+    }
+    const directory = tempDir();
+    writeSettingsFixture(directory, { fleet: { max_agents_per_pack: 2, max_agents_total: 4, max_agents_per_space: { main: 2 } } });
+    expect(loadConfig(directory).fleet).toMatchObject({ max_agents_per_pack: 2, max_agents_total: 4, max_agents_per_space: { main: 2 } });
+  });
+
   test("rejects old settings keys", () => {
     for (const settings of [
       { limits: {} },
-      { defaults: { spawn_cap: 4 } },
+      { defaults: { max_depth: 4 } },
       { defaults: { allowed_models: ["openrouter/a"] } },
       { defaults: { worker_peer_tools: true } },
     ]) {
@@ -185,7 +205,7 @@ describe("loadConfig", () => {
       runtime: "node",
       enabled: { adapters: [], backends: [] },
       defaults: { models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
-      fleet: { spawn_cap: 8, max_agents: undefined, pack_cap: 10, max_depth: 1, space_caps: {}, worker_peer_tools: false, cross_space: false },
+      fleet: { max_agents_total: undefined, max_agents_per_pack: 10, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
       models: { allowed: {}, preferred: {} },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
       queue: { max_retries: 1 },
@@ -206,7 +226,7 @@ describe("loadConfig", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
       defaults: { worktree: true },
-      fleet: { spawn_cap: 3 },
+      fleet: { max_depth: 3 },
       workers: { allow_tools: ["read"] },
       retention: { logs_days: 2 },
       timeouts: { wait_ms: 1234 },
@@ -217,7 +237,7 @@ describe("loadConfig", () => {
 
     expect(loadConfig(directory)).toMatchObject({
       defaults: { models: {}, worktree: true },
-      fleet: { spawn_cap: 3, pack_cap: 10, max_depth: 1, space_caps: {}, worker_peer_tools: false, cross_space: false },
+      fleet: { max_depth: 3, max_agents_per_pack: 10, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: ["read"] },
       retention: { logs_days: 2, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, ended_agents_days: 90 },
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000 },
@@ -400,15 +420,15 @@ describe("writeSettingsDefault", () => {
 });
 
 describe("writeSettingsFullTree", () => {
-  test("round-trips defaults without inventing max_agents", () => {
+  test("round-trips defaults without inventing max_agents_total", () => {
     const directory = tempDir();
     writeSettingsRuntime(directory, "node");
     writeSettingsFullTree(directory);
 
     const raw = readSettingsRecord(directory);
-    expect(raw.fleet).toEqual({ spawn_cap: 8, pack_cap: 10, max_depth: 1, space_caps: {}, worker_peer_tools: false, cross_space: false });
-    expect(Object.hasOwn(isRecord(raw.fleet) ? raw.fleet : {}, "max_agents")).toBe(false);
-    expect(loadConfig(directory).fleet.max_agents).toBeUndefined();
+    expect(raw.fleet).toEqual({ max_agents_per_pack: 10, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false });
+    expect(Object.hasOwn(isRecord(raw.fleet) ? raw.fleet : {}, "max_agents_total")).toBe(false);
+    expect(loadConfig(directory).fleet.max_agents_total).toBeUndefined();
   });
 });
 
@@ -419,25 +439,25 @@ describe("config precedence", () => {
     writeSettingsFixture(directory);
     const config = loadConfig(directory);
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.max_agents, fallback: 2 })).toBe(2);
+    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.max_agents_total, fallback: 2 })).toBe(2);
   });
 
   test("uses the settings.json value over the fallback", () => {
     delete process.env.ORCH_CONFIG_PRECEDENCE;
     const directory = tempDir();
-    writeSettingsFixture(directory, { fleet: { spawn_cap: 4 } });
+    writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
     const config = loadConfig(directory);
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.spawn_cap, fallback: 2 })).toBe(4);
+    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.max_depth, fallback: 2 })).toBe(4);
   });
 
   test("uses the ORCH_* environment value over settings.json", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { fleet: { spawn_cap: 4 } });
+    writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
     process.env.ORCH_CONFIG_PRECEDENCE = "7";
     const config = loadConfig(directory);
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.spawn_cap, fallback: 2 })).toBe(7);
+    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", config: config.fleet.max_depth, fallback: 2 })).toBe(7);
   });
 
   test("uses an explicit flag override over the environment", () => {

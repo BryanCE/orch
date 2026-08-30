@@ -69,7 +69,7 @@ export const NotifyEntrySchema = z.discriminatedUnion("id", [
 export const NOTIFY_IDS: readonly string[] = NotifyEntrySchema.options.map((option) => option.shape.id.value);
 
 export const SETTINGS_DEFAULTS = {
-  fleet: { spawn_cap: 8, pack_cap: 10, max_depth: 1, worker_peer_tools: false, cross_space: false },
+  fleet: { max_agents_per_pack: 10, max_depth: 1, worker_peer_tools: false, cross_space: false },
   queue: { max_retries: 1 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7 },
   logging: { level: "info" },
@@ -108,14 +108,13 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     worktree: z.boolean().optional(),
   }).optional(),
   fleet: z.strictObject({
-    spawn_cap: PositiveInt.optional(),
-    pack_cap: PositiveInt.optional(),
+    max_agents_per_pack: PositiveInt.optional(),
     /** How deep a provenance tree may grow by spawning: 1 = only a root may spawn
      *  (a slave calling `orch spawn` is refused); N lets an agent at depth < N spawn.
      *  TASKS/identity/02-provenance-depth.md. */
     max_depth: PositiveInt.optional(),
-    max_agents: PositiveInt.optional(),
-    space_caps: z.record(z.string(), PositiveInt).optional(),
+    max_agents_total: PositiveInt.optional(),
+    max_agents_per_space: z.record(z.string(), PositiveInt).optional(),
     worker_peer_tools: z.boolean().optional(),
     cross_space: z.boolean().optional(),
   }).optional(),
@@ -332,11 +331,10 @@ const configValueExtractors = {
     worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree,
   }),
   fleet: (root: Partial<SettingsFile>) => ({
-    spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
-    pack_cap: root.fleet?.pack_cap ?? SETTINGS_DEFAULTS.fleet.pack_cap,
+    max_agents_per_pack: root.fleet?.max_agents_per_pack ?? SETTINGS_DEFAULTS.fleet.max_agents_per_pack,
     max_depth: root.fleet?.max_depth ?? SETTINGS_DEFAULTS.fleet.max_depth,
-    max_agents: root.fleet?.max_agents,
-    space_caps: root.fleet?.space_caps ?? {},
+    max_agents_total: root.fleet?.max_agents_total,
+    max_agents_per_space: root.fleet?.max_agents_per_space ?? {},
     worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
     cross_space: root.fleet?.cross_space ?? SETTINGS_DEFAULTS.fleet.cross_space,
   }),
@@ -739,12 +737,12 @@ export function writeSettingsEnabled(orchDir: string, enabled: { adapters: reado
 export function writeSettingsFullTree(orchDir: string): void {
   updateSettingsFile(orchDir, (root) => {
     const values = configValues(root);
-    const { max_agents: maxAgents, ...fleet } = values.fleet;
+    const { max_agents_total: maxAgents, ...fleet } = values.fleet;
     return {
       ...root,
       enabled: root.enabled ?? { adapters: [], backends: [] },
       ...values,
-      fleet: { ...fleet, ...(maxAgents === undefined ? {} : { max_agents: maxAgents }) },
+      fleet: { ...fleet, ...(maxAgents === undefined ? {} : { max_agents_total: maxAgents }) },
     };
   });
 }

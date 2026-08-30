@@ -230,7 +230,6 @@ type SpawnFlags = AgentFlags & {
   cmd: string;
   commandFlag: boolean;
   space: string | null;
-  spawnCapFlag?: number;
   worktreeFlag?: boolean;
   /** Initial task for a detached agent, which runs it and exits. */
   promptFlags: string[];
@@ -253,8 +252,6 @@ function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number
     case "--agent":
     case "--adapter": flags.adapterFlag = args[index + 1]!; return 1;
     case "--backend": flags.backendFlag = args[index + 1]!; return 1;
-    case "--spawn-cap":
-    case "--cap": flags.spawnCapFlag = Number(args[index + 1]); return 1;
     default: return -1;
   }
 }
@@ -304,9 +301,7 @@ type SpawnSettings = AgentSettings & {
 function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   const config = loadConfig(orchDir());
   const settings = resolveAgentSettings(flags, config);
-  const spawnCap = resolveSetting({ flag: flags.spawnCapFlag, env: "ORCH_SPAWN_CAP", config: config.fleet.spawn_cap, fallback: config.fleet.spawn_cap });
   const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", config: config.defaults.worktree, fallback: config.defaults.worktree });
-  if (!Number.isInteger(spawnCap) || spawnCap < 1) die(`Invalid spawn cap ${spawnCap}; expected a positive integer.`);
   if (flags.unknownFlags.length > 0) die(`Unknown flag ${flags.unknownFlags.join(", ")}.`);
   // The names ARE the positional arguments, and how many you give is how many
   // panes you get. Resolving here means a nameless or malformed spawn is refused
@@ -314,10 +309,9 @@ function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   let names: string[];
   try { names = resolveSpawnNames(flags.positional); }
   catch (error: unknown) {
-    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--cwd <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--spawn-cap <N>] [--worktree]`);
+    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--cwd <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--worktree]`);
   }
   const n = names.length;
-  if (n > spawnCap) die(`Refusing to spawn ${n} panes - cap is ${spawnCap}.`);
   if (flags.promptFlags.length > 1 && flags.promptFlags.length !== n) die(`--prompt accepts one value for all agents or exactly ${n} values`);
   let prompts: string[] = [...flags.promptFlags];
   if (flags.tasksFile) {
@@ -388,9 +382,9 @@ export function spawnPolicyError(
   }
   // The root itself counts as a live member when it holds no row of its own.
   if (packRoot === null || !views.has(packRoot)) live++;
-  const cap = settings.fleet.pack_cap ?? 10;
+  const cap = settings.fleet.max_agents_per_pack ?? 10;
   if (live + requested > cap) {
-    return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested). ${SPAWN_POLICY_OFFERS}`;
+    return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested; fleet.max_agents_per_pack). ${SPAWN_POLICY_OFFERS}`;
   }
   return null;
 }
@@ -410,13 +404,13 @@ export function assertSpawnCapacity(
   const counts = liveSpawnCounts(views, presence);
   const live = [...counts.values()].reduce((total, count) => total + count, 0);
   const spaceLive = space === null ? 0 : counts.get(space) ?? 0;
-  const spaceCap = space === null ? undefined : settings.fleet.space_caps[space];
+  const spaceCap = space === null ? undefined : settings.fleet.max_agents_per_space[space];
   if (spaceCap !== undefined && spaceLive + requested > spaceCap) {
-    throw new SpawnRefusalError(`spawn refused: would put ${space} at ${spaceLive + requested}/${spaceCap} agents (${spaceLive} live + ${requested} requested; fleet.space_caps.${space})`);
+    throw new SpawnRefusalError(`spawn refused: would put ${space} at ${spaceLive + requested}/${spaceCap} agents (${spaceLive} live + ${requested} requested; fleet.max_agents_per_space.${space})`);
   }
-  const globalCap = settings.fleet.max_agents;
+  const globalCap = settings.fleet.max_agents_total;
   if (globalCap !== undefined && live + requested > globalCap) {
-    throw new SpawnRefusalError(`spawn refused: would put all spaces at ${live + requested}/${globalCap} agents (${live} live + ${requested} requested; fleet.max_agents)`);
+    throw new SpawnRefusalError(`spawn refused: would put all spaces at ${live + requested}/${globalCap} agents (${live} live + ${requested} requested; fleet.max_agents_total)`);
   }
 }
 

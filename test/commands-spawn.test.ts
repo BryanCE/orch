@@ -93,6 +93,12 @@ describe("commands/spawn", () => {
     expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);
   });
 
+  test("rejects removed spawn cap flag as unknown", () => {
+    const removedFlag = "--spawn-" + "cap";
+    const flags = parseSpawnFlags(["worker", removedFlag, "2"]);
+    expect(flags.unknownFlags).toContain(removedFlag);
+  });
+
   test("rejects --detached as an unknown spawn flag", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-spawn-unknown-flag-"));
     tempDirs.push(dir);

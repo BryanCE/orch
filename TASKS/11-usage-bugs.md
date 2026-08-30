@@ -280,3 +280,54 @@ transitions. `orch events --all --since-seq 0 --status done` shows all four. So 
 wall (`--all` lifts it) drops events whose space matches the caller's — both are NULL (no space,
 A7) and NULL never equals NULL in the filter. Expected: no space on both sides IS the same place;
 the default scope must deliver them. Workaround in the orch skill: arm the watch with `--all`.
+
+## U10 — `orch close --all` asks the plexer to close a pane named after an AGENT ID — OPEN
+
+**Severity: high.** A bulk close reports failure for agents it should have ended cleanly, and
+leaves their records live.
+
+```
+orch > orch close --all
+Closed b10z3xket4.
+Could not close 2d6biywurb: herdr pane close 2d6biywurb failed after 4 attempts:
+{"error":{"code":"pane_not_found","message":"pane 2d6biywurb not found"},"id":"cli:pane:close"}
+... same for 7eh83quhwd, z4460fgnr7, iv6ox2djmj
+Closed zcixvdjos8.
+Closed w7:p3C.
+```
+
+`2d6biywurb` is a **minted agent id**, not a pane handle — the successful rows show what a real
+handle looks like (`w7:p3C`). herdr has never heard of it, so it answers `pane_not_found`, orch
+retries a terminal error four times, and reports a failure for an agent that had no pane to begin
+with. Three defects compound:
+
+1. **`src/commands/lifecycle.ts:647` — `const handle = view.environment.handle ?? address;`**
+   `agent_handles` is an interval table: when a pane goes, `until` is stamped and
+   `environmentOf` returns `handle: null`. An agent whose handle interval closed without an
+   `agent_endings` row is live-with-no-pane, and this line fabricates a handle out of its
+   identity. Rule 11 forbids exactly this — `handle === null` is a missing value, not a name,
+   and identity is never an environment coordinate.
+2. **`src/commands/lifecycle.ts:606` — `if (!inventory || backend?.isInsideSession() !== true) return true;`**
+   Run from a plain shell (not inside a pane), "I cannot check" returns "the pane exists", so
+   every agent comes back `paneKnown: true` and `closeRoute` (`:737`) picks the pane route for
+   agents that have no pane.
+3. **`pane_not_found` is retried and then reported as an error.** A pane that does not exist is
+   the end state close wants; it is "already stopped", never a failure, and never retryable.
+   `retryingSync` already takes a `retryable` predicate and `herdrErrorCode`
+   (`src/backends/herdr/cli.ts:140`) already parses herdr's codes — neither is wired into
+   `paneHost.close` (`src/backends/herdr/index.ts:155`).
+
+**Expected:** no recorded handle → route `none` (end the record, never call the plexer);
+`plexerStillHasPane` answers *unknown* rather than `true` when it cannot see the session; and
+`pane_not_found` settles the close as done.
+
+## U11 — `orch tab new --workspace <ID>` puts a plexer's word in orch's own CLI — OPEN
+
+**Severity: low, but it is a Rule 11 violation in the user-facing surface.**
+
+`src/commands/panes.ts:195-211` parses `--workspace`, and both the usage text
+(`src/commands/index.ts:135`) and `orch help tab` (`src/commands/help.ts:208`) advertise it;
+the failure message is `Could not determine workspace id. Pass --workspace <id>.` Rule 11 and
+ADR-0001: "workspace is a plexer's word and never appears in orch's model, CLI, or UI." The
+value itself is legitimately the plexer coordinate — it is the *name* that leaks. Needs a
+rename decision from the user before it is sliced, since it is a public flag.

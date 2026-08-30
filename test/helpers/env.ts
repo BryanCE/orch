@@ -1,8 +1,6 @@
-/** Environment variables that carry orch identity, scope, and launch context. */
-export const ORCH_ENV_VARS = [
-  "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT",
-  "ORCH_AGENT_NAME", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_SPACE", "ORCH_HARNESS",
-] as const;
+import { ORCH_ENV_VARS } from "../../src/policy/spawner.ts";
+
+export { ORCH_ENV_VARS };
 
 let saved: Record<string, string | undefined> = {};
 

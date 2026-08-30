@@ -119,7 +119,7 @@ Specific deletions:
 
 ### T3 — A claim, recorded
 
-**Decision pending** — the shape is under discussion (see §5). What is settled:
+**Decided** — the claim binds to the harness session token; §5 has the full shape. Settled:
 
 - The agent row gains a **nullable instant** `claimed_at` (Rule 11: an instant says *when*,
   a boolean only *whether*). `NULL` means launched-but-never-heard-from — which is itself a
@@ -129,8 +129,8 @@ Specific deletions:
 - `callerKind()` (T2) then answers from the claim, not from the variable's presence.
 - No version bump (Rule 14). `insertAgent` and every fixture gain the column in one change.
 
-What is *not* settled, and decides the rest of the shape: how the second claimant is told
-apart from the first without peer credentials. §5 lays out the candidates.
+The second claimant is told apart by the harness session token recorded at first contact;
+`claimAgent(id, sessionToken, now)` is the one writer (§5).
 
 ### T4 — Rename to `ORCH_AGENT_ID`
 
@@ -163,43 +163,54 @@ stale the moment the rule moves (`08` §"why prose does not hold").
 | 4 | The credential is identity, never authorization. | `callerAuthority` takes `SelfIdentity`, not a string; the lease gates driving verbs (`01` §ownership); `abort`/`close`/`reap` are never gated |
 | 5 | A second claimant is recorded, never merged. | `claimed_at` + collision row (T3) — **NONE until T3 lands** |
 
-## 5. Open: what a claim binds to
+## 5. Decided: a claim binds to the harness session token
 
-The handshake idea — "env carries a one-shot bootstrap token, first contact exchanges it for
-the lease" — has to answer one question before it is a design: **after the token is spent,
-how does the next `orch` invocation from inside that pane prove it is the same agent?**
+**Decision 2026-08-29 (Bryan).** The "bootstrap token → lease" idea was weighed and reduced to
+what it actually buys in this trust model. After a one-shot token is spent, every later `orch`
+the agent runs is a fresh child that has only what env gave it — and anything a child can
+find, a nested shell in the same pane can also find, because it is the same uid (`08`: same
+uid *is* the trust boundary; node sees no smaller one portably, Rule 6). So a single-use
+token detects a **second claimant** and nothing more. It cannot isolate children from the
+parent. No env scheme can.
 
-The harness process cannot have its env changed after launch; every `orch` the agent runs
-is a fresh child that only has what env gave it. Whatever the first contact hands back must
-be findable by those children — and anything they can find, a nested shell in the same pane
-can also find, because it is the same uid (`08`: same uid *is* the trust boundary; there is
-no smaller one that node can see portably).
+The correlator that gives exactly that detection already exists: every adapter declares
+`sessionIdEnv`, the harness's own session id, which `hello` already uses for driving
+sessions. **The claim records it. Nothing new is minted.**
 
-So a single-use token buys exactly one thing in this trust model: **detecting a second
-claimant** (recycled pane, copied env, double launch). It does **not** isolate children from
-the parent, and no env-based scheme can.
+### Two moments, two actors
 
-Candidates for what the claim binds to, cheapest first:
+| moment | who acts | what happens |
+| --- | --- | --- |
+| **spawn** | the spawner | mints the id, inserts the agent row (`claimed_at = NULL`), stamps `ORCH_AGENT_ID=<id>` into the pane env, hands off to the plexer. The spawner never sees a session token — the harness process does not exist yet. |
+| **first contact** | the spawned agent | the harness boots, its extension (`extensions/<harness>/`) fires carrying **both** `ORCH_AGENT_ID` (from orch) and the harness's session id (from the harness). Its first write says "I am `<id>`, my session is `<token>`". orch stamps `claimed_at` and `session_token` on the row. |
 
-1. **Nothing new — bind to the harness's own session token.** Every adapter already declares
-   `sessionIdEnv` (`08`, used by `hello` for driving sessions). First contact records
-   `(claimed_at, session_token)` on the row. A later caller presenting the same id with a
-   *different* session token, or none, is not the agent — it is a human in the pane, or a
-   stale copy. Zero new secrets, and it makes `callerKind()` a real answer: id present +
-   matching session token ⇒ agent; id present + no/other token ⇒ human-in-pane. Falls back to
-   the open process instance for a harness that exports no token (as `08` already does).
-2. **Bind to a spawn nonce.** Env carries `ORCH_AGENT_ID` *and* `ORCH_SPAWN_NONCE`; first
-   contact consumes the nonce (`claimed_at`) and writes a `session` file into the presence
-   dir; children read the file. Detects double-launch; a human-in-pane still reads the file.
-   Strictly more machinery than 1 for the same reach.
-3. **Bind to nothing; just stamp `claimed_at`.** Detects "never heard from"; cannot tell a
-   second claimant apart. The minimum, if 1 turns out not to hold on one of the harnesses.
+The spawner's own identity is untouched: it registered via `hello`, or was itself claimed
+the same way when *it* was spawned.
 
-Decision points for Bryan:
+### What `callerKind()` becomes
 
-- **Which binding** — 1 unless a harness cannot export a session token into its children.
-- **Collision policy** — refuse the second claimant's write, or accept and flag? (Refusing
-  can strand a legitimately recycled pane; flagging keeps `abort`/`close` always reachable.)
-- **Claim point** — the presence writer's first `status.json`, or the daemon's `hello`?
-  The presence writer runs with no daemon; `hello` is "the only place a participant enters
-  the system" (`08` invariant 1). If both, they must stamp the same column from one function.
+| caller carries | verdict |
+| --- | --- |
+| id + the recorded session token | **the agent** — including `orch` run from its own Bash tool, which inherits both |
+| id + a different token, or none | **not the agent** — a human who dropped into the pane, or a stale/copied env |
+| no id | human at a terminal |
+
+A harness that exports no session token falls back to its open process instance, as `08`
+already specifies for `hello`. A second claim whose token differs from the recorded one is a
+**collision**, recorded as an event, never merged into the row.
+
+### The three calls
+
+- **Binding:** the harness session token (above). Rejected: a spawn nonce + presence-dir
+  file (same reach, more machinery); `claimed_at` alone (cannot tell a second claimant apart).
+- **Collision policy:** **accept and flag.** Refusing the second claimant's writes could
+  strand a legitimately recycled pane, and `abort`/`close`/`reap` must stay reachable from
+  anywhere (Rule 11). A collision is an event row `doctor` and `status` surface; the driving
+  verbs stay gated on the lease, which was never the credential.
+- **Claim point:** the daemon's `hello` is the entry point (`08` invariant 1). The presence
+  writer runs without a daemon, so it may write `status.json` for an unclaimed id **only
+  while no daemon is reachable**; once one is, an unclaimed id is refused with the
+  instruction to `hello`. One function, `claimAgent(id, sessionToken, now)`, stamps the
+  column from either path.
+
+T3 in §3 is unblocked by this section; invariant 5 in §4 gets its enforcement when T3 lands.

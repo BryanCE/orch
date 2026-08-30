@@ -2,7 +2,6 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
-import type { AgentAdapter } from "../src/types/adapter.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 
 // Stubbing the cli module replaces it for every test file in the process, which
@@ -112,14 +111,6 @@ describe("herdr and notification hardening", () => {
     expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
     expect(name).not.toContain("~");
     expect(name.length).toBeLessThanOrEqual(32);
-  });
-
-  test("falls back to a real name when an adapter id is blank", () => {
-    // Deliberately violate the closed adapter-id type to exercise runtime fallback for malformed input.
-    const blankAdapter = { ...adapter, id: "" as AgentAdapter["id"] };
-    new HerdrBackend().spawn(blankAdapter, { workspace: "ws-test" });
-    expect(lastCall("pane", "rename")?.[3]).toBe("agent-agent");
-    expect(lastCall("pane", "rename")?.[3]?.trim()).not.toBe("");
   });
 
   test("nameless notifications use a space label, never a bare pane key", () => {

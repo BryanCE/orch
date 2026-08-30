@@ -1,4 +1,3 @@
-import { isAdapterId } from "../../adapters/adapter.ts";
 import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
 import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
@@ -14,19 +13,6 @@ import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../typ
 
 const HERDR_BACKEND: BackendId = "herdr";
 
-/** Resolve the caller's declared harness at the runtime boundary. A malformed
- * blank id uses the caller-provided default rather than naming one harness here. */
-function herdrKind(adapterId: string, fallback: string): string {
-  const normalized = adapterId.trim();
-  if (normalized) {
-    if (!isAdapterId(normalized)) throw new Error(`unsupported herdr harness kind: ${adapterId}`);
-    return normalized;
-  }
-  const defaultKind = fallback.trim();
-  if (!defaultKind) throw new Error("herdr harness kind is required");
-  return defaultKind;
-}
-
 /** Workspace of the invoking pane, and ONLY of the invoking pane. A caller outside
  *  herdr has no workspace: falling back to the first listed pane spawned orch's
  *  agents into whichever workspace happened to be listed first — someone else's. */
@@ -36,11 +22,10 @@ function callerPaneWorkspace(): string | undefined {
   return herdrPanes().find((pane) => pane.pane_id === caller)?.workspace_id;
 }
 
-/** The pane's border label; empty ids are invalid at runtime even though
- *  AdapterId is a closed union. */
+/** The pane's border label. */
 function paneName(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
   if (opts.name) return opts.name;
-  const adapterName = (adapter.id.trim() || "agent").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+  const adapterName = adapter.id.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
   // A1: identity is a minted id and nothing else, so there is no component to
   // strip - the key IS the id. Normalization stays because herdr's pane names
   // are a 32-character grammar, not because the key might carry coordinates.
@@ -315,7 +300,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     // only then submits the launch. Polling for a shell here raced that retry and
     // blocked orch's loop doing it. `herdrStartAgent` supplies `--timeout`.
     const args = this.launchArgs(adapter, opts);
-    herdrStartAgent(["agent", "start", name, "--kind", herdrKind(adapter.id, name), "--pane", handle], args);
+    herdrStartAgent(["agent", "start", name, "--kind", adapter.id, "--pane", handle], args);
   }
 
   /** The arguments herdr appends to its own canonical executable.

@@ -716,6 +716,8 @@ interface CloseAttempt {
   readonly failure: string | null;
   readonly signalled: boolean;
   readonly closedByBackend: boolean;
+  /** True when the backend explicitly said the pane was already absent. */
+  readonly alreadyAbsent: boolean;
 }
 
 /** Signal the recorded process INSTANCE, never merely the pid: reaping waits
@@ -724,29 +726,29 @@ function closeByProcess(recorded: RecordedProcess): CloseAttempt {
   try {
     process.kill(recorded.pid, "SIGTERM");
   } catch (error: unknown) {
-    return { failure: errorMessage(error), signalled: false, closedByBackend: false };
+    return { failure: errorMessage(error), signalled: false, closedByBackend: false, alreadyAbsent: false };
   }
   const failure = recordedProcessRemains(recorded) ? `process ${recorded.pid} is still running after SIGTERM` : null;
-  return { failure, signalled: true, closedByBackend: false };
+  return { failure, signalled: true, closedByBackend: false, alreadyAbsent: false };
 }
 
 /** A pane host owns closure when process identity is unavailable. */
 function closeByPane(paneHost: PaneHostRole, handle: BackendHandle): CloseAttempt {
   try {
     paneHost.close(handle);
-    return { failure: null, signalled: false, closedByBackend: true };
+    return { failure: null, signalled: false, closedByBackend: true, alreadyAbsent: false };
   } catch (error: unknown) {
     // A pane that is already gone is the desired end state, not a close error.
     const message = errorMessage(error);
     if (message.includes("pane_not_found")) {
-      return { failure: null, signalled: false, closedByBackend: true };
+      return { failure: null, signalled: false, closedByBackend: true, alreadyAbsent: true };
     }
-    return { failure: message, signalled: false, closedByBackend: false };
+    return { failure: message, signalled: false, closedByBackend: false, alreadyAbsent: false };
   }
 }
 
-/** A plexer's successful close is not proof: verify the handle is really gone
- *  after EVERY close attempt, a process kill included. */
+/** A plexer's successful close is not proof when its inventory can answer: verify
+ *  the handle is really gone after every close attempt we can observe. */
 function stillListed(target: CloseTarget): string | null {
   // An inventory that cannot see this session is UNKNOWN, so it cannot prove
   // that a successfully closed handle remains present.
@@ -790,13 +792,13 @@ function takeRoute(route: CloseRoute, handle: BackendHandle | null): CloseAttemp
   switch (route.kind) {
     case "process": return closeByProcess(route.recorded);
     case "pane": return handle === null
-      ? { failure: "pane route had no environment handle", signalled: false, closedByBackend: false }
+      ? { failure: "pane route had no environment handle", signalled: false, closedByBackend: false, alreadyAbsent: false }
       : closeByPane(route.paneHost, handle);
     case "untokenized": return {
       failure: `process ${route.pid} is live but carries no start token, so orch cannot prove it is this agent`,
-      signalled: false, closedByBackend: false,
+      signalled: false, closedByBackend: false, alreadyAbsent: false,
     };
-    case "none": return { failure: null, signalled: false, closedByBackend: false };
+    case "none": return { failure: null, signalled: false, closedByBackend: false, alreadyAbsent: false };
   }
 }
 
@@ -805,7 +807,7 @@ function attemptClose(target: CloseTarget): CloseAttempt {
   const paneHost = target.backend?.paneHost ?? null;
   const paneCapable = target.paneKnown && paneHost !== null && target.handle !== null;
   const attempt = takeRoute(closeRoute(target, paneHost), target.handle);
-  if (attempt.failure !== null || !paneCapable) return attempt;
+  if (attempt.failure !== null || !paneCapable || attempt.alreadyAbsent) return attempt;
   const lingering = stillListed(target);
   return lingering === null ? attempt : { ...attempt, failure: lingering };
 }

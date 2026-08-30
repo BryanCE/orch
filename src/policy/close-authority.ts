@@ -1,5 +1,6 @@
 import { agentView } from "../store/agent-view.ts";
 import { isDescendantOf } from "./provenance.ts";
+import type { SelfIdentity } from "../types/core.ts";
 import type { CloseAuthority } from "../types/policy.ts";
 
 /**
@@ -26,9 +27,8 @@ import type { CloseAuthority } from "../types/policy.ts";
 /** The human may end anything. An agent's reach is what it spawned. */
 export type { CloseAuthority };
 
-export function callerAuthority(agentKey: string | undefined): CloseAuthority {
-  const key = agentKey?.trim();
-  return key === undefined || key.length === 0 ? { kind: "human" } : { kind: "agent", agentId: key };
+export function callerAuthority(self: SelfIdentity | null): CloseAuthority {
+  return self === null ? { kind: "human" } : { kind: "agent", agentId: self.id };
 }
 
 /**

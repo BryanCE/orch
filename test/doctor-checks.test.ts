@@ -3,10 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor } from "../src/doctor/runner.ts";
+import { checkProvenanceDepth } from "../src/doctor/provenance-depth.ts";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { loadConfig } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 
@@ -47,6 +49,39 @@ function writeConfig(directory: string, settings: Record<string, unknown>): void
 
 afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
+});
+
+describe("doctor provenance-depth checks", () => {
+  test("finds a live agent deeper than fleet.max_depth", () => {
+    const directory = tempDir();
+    writeConfig(directory, { fleet: { max_depth: 1 } });
+    seedAgent("root000001", { name: "root" }, directory);
+    seedAgent("child00001", { name: "child", spawnedBy: "root000001" }, directory);
+    seedAgent("deep000001", { name: "deep-worker", spawnedBy: "child00001" }, directory);
+
+    const result = checkProvenanceDepth(directory);
+
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("deep-worker (deep000001)");
+    expect(result.detail).toContain("depth 2");
+    expect(result.detail).toContain("fleet.max_depth (1)");
+  });
+
+  test("accepts a live agent at fleet.max_depth", () => {
+    const directory = tempDir();
+    writeConfig(directory, { fleet: { max_depth: 1 } });
+    seedAgent("root000002", { name: "root" }, directory);
+    seedAgent("child00002", { name: "child", spawnedBy: "root000002" }, directory);
+
+    const result = checkProvenanceDepth(directory);
+
+    expect(result).toMatchObject({
+      id: "provenance-depth",
+      label: "Provenance depth",
+      status: "ok",
+      detail: "no agents exceed fleet.max_depth",
+    });
+  });
 });
 
 describe("doctor notification-sink checks", () => {

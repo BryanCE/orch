@@ -21,17 +21,13 @@ import { sql } from "drizzle-orm";
  */
 
 const dirs: string[] = [];
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
 afterEach(() => {
   closeAllStores();
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
 function fixture(): string {
-  // Authority is passed explicitly; this fixture models a human/agent caller, not inherited env.
-  delete process.env.ORCH_AGENT_KEY;
+  // Authority is passed explicitly; this fixture models a human/agent caller.
   const d = mkdtempSync(join(tmpdir(), "orch-close-authority-"));
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
@@ -44,9 +40,9 @@ function fixture(): string {
 }
 
 describe("who may end an agent (D7)", () => {
-  test("the human may close anything — no ORCH_AGENT_KEY is the human at a terminal", () => {
+  test("the human may close anything", () => {
     const d = fixture();
-    const human = callerAuthority(undefined);
+    const human = callerAuthority(null);
     expect(human).toEqual({ kind: "human" });
     for (const id of ["orchA", "slaveA", "grandA", "orchB", "slaveB"]) {
       expect(refuseClose(d, human, id)).toBeNull();
@@ -55,7 +51,7 @@ describe("who may end an agent (D7)", () => {
 
   test("an orch may close the slaves it owns, at any depth", () => {
     const d = fixture();
-    const orchA = callerAuthority("orchA");
+    const orchA = callerAuthority({ id: "orchA" });
     expect(refuseClose(d, orchA, "slaveA")).toBeNull();
     // A grandchild is still inside orchA's provenance subtree.
     expect(refuseClose(d, orchA, "grandA")).toBeNull();
@@ -63,33 +59,33 @@ describe("who may end an agent (D7)", () => {
 
   test("an agent may NOT close another orch's slaves, and is told whose it is", () => {
     const d = fixture();
-    const refusal = refuseClose(d, callerAuthority("orchA"), "slaveB");
+    const refusal = refuseClose(d, callerAuthority({ id: "orchA" }), "slaveB");
     expect(refusal).toContain("cannot close slaveB");
     expect(refusal).toContain("orchB");
   });
 
   test("an agent may not close a peer orch either", () => {
     const d = fixture();
-    expect(refuseClose(d, callerAuthority("orchA"), "orchB")).toContain("not yours to close");
+    expect(refuseClose(d, callerAuthority({ id: "orchA" }), "orchB")).toContain("not yours to close");
   });
 
   test("an agent may always close itself — acting on yourself is not driving a fleet", () => {
     const d = fixture();
-    expect(refuseClose(d, callerAuthority("slaveA"), "slaveA")).toBeNull();
+    expect(refuseClose(d, callerAuthority({ id: "slaveA" }), "slaveA")).toBeNull();
   });
 
   test("the LEASE never decides it: a foreign holder does not block the owner", () => {
     const d = fixture();
     // orchB is driving orchA's slave. orchA still owns it and may end it.
     acquireLease(d, "slaveA", "orchB", 10);
-    expect(refuseClose(d, callerAuthority("orchA"), "slaveA")).toBeNull();
+    expect(refuseClose(d, callerAuthority({ id: "orchA" }), "slaveA")).toBeNull();
     // And holding the lease confers no right to end it.
-    expect(refuseClose(d, callerAuthority("orchB"), "slaveA")).toContain("orchA");
+    expect(refuseClose(d, callerAuthority({ id: "orchB" }), "slaveA")).toContain("orchA");
   });
 
   test("a provenance cycle terminates instead of hanging", () => {
     const d = fixture();
     orm(d).run(sql`UPDATE agents SET spawned_by='grandA' WHERE id='orchA'`);
-    expect(() => refuseClose(d, callerAuthority("orchB"), "grandA")).not.toThrow();
+    expect(() => refuseClose(d, callerAuthority({ id: "orchB" }), "grandA")).not.toThrow();
   });
 });

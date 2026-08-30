@@ -2,13 +2,14 @@ import { spawnSync } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
+import { selfId } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { errnoCode } from "../util.ts";
 import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock } from "../control/cmd-lock.ts";
 import type { CommandLock } from "../types/control.ts";
 
-function holderName(): string {
-  return process.env.ORCH_AGENT_KEY ?? `user:${process.pid}`;
+export function holderName(): string {
+  return selfId() ?? `user:${process.pid}`;
 }
 
 function numberOption(args: string[], name: string, index: number): number | undefined {

@@ -11,7 +11,7 @@ import { liveAgentViews } from "../store/agent-view.ts";
 import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
 import type { CloseAuthority } from "../types/policy.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
-import { selfId } from "../identity/self.ts";
+import { selfId, selfIdentity } from "../identity/self.ts";
 
 import { retryingSync } from "../retry.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
@@ -889,8 +889,7 @@ export function cmdClose(args: string[]) {
   if (positional.some((argument) => argument.startsWith("--"))) die(usage);
   if (!all && !positional.length) die(usage);
 
-  // No ORCH_AGENT_KEY is the human at a terminal; a key present is an agent.
-  const authority = callerAuthority(process.env.ORCH_AGENT_KEY);
+  const authority = callerAuthority(selfIdentity());
   const targets = [...(all ? sweepTargets(authority) : []), ...namedTargets(positional, authority)];
 
   reportClose(closeEachTarget(targets, json), { all, stream, json });

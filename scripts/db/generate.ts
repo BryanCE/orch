@@ -4,21 +4,16 @@ import { spawnSync } from "node:child_process";
 import { assertHostOwnsStore } from "./store.ts";
 
 /**
- * Generate the migration folder from `src/db/schema.ts`, from scratch.
+ * Generate migrations from `src/db/schema.ts` the way drizzle-kit does it:
+ * diffed against the snapshot already in `drizzle/`, so an unchanged schema
+ * emits nothing and a store built from the current folder keeps opening.
  *
- * Nothing has published (Rule 14): there is no installed base whose store has to
- * be walked forward, so orch keeps ONE migration describing the current schema
- * rather than a chain describing how it got here. Regenerating from an empty
- * folder is what makes generation boring:
- *
- *  - drizzle-kit never asks "created or renamed?", because against an empty
- *    baseline every column is simply created. Those prompts are unanswerable in
- *    CI and are how `runs.workspace` became a hand-written migration.
- *  - a view or trigger cannot be created twice, because there is only one
- *    migration to carry it. A changed view definition used to land beside the
- *    old one and the replay died with "table task_states already exists".
- *  - the snapshot can never disagree with the schema, because it is rebuilt with
- *    it. A stale snapshot silently reports "no changes" for a real edit.
+ * `--from-scratch` is the occasional reset, not the default: it empties
+ * `drizzle/` first so drizzle-kit emits ONE migration describing the current
+ * schema. Reach for it when dev work has left the chain unreplayable (a view
+ * or trigger created twice, a snapshot that disagrees with the schema, a
+ * "created or renamed?" prompt nobody can answer). Every store built from the
+ * previous folder must then be rebuilt with `bun db:reset`.
  *
  * The store itself is NOT touched here. `bun db:reset` rebuilds that, and backs
  * it up first.
@@ -26,6 +21,7 @@ import { assertHostOwnsStore } from "./store.ts";
 const REPO = join(import.meta.dirname, "..", "..");
 const MIGRATIONS = join(REPO, "drizzle");
 const isDryRun = process.argv.includes("--dry-run");
+const fromScratch = process.argv.includes("--from-scratch");
 
 assertHostOwnsStore("db:gen");
 
@@ -43,9 +39,10 @@ function existingMigrations(): string[] {
 
 const previous = existingMigrations();
 report("");
-report(`db:gen  ${isDryRun ? "preview - " : ""}regenerating drizzle/ from src/db/schema.ts`);
-if (previous.length) report(`  replacing        ${String(previous.length).padStart(2)}  ${previous.join(", ")}`);
-else report("  replacing         0  (empty folder)");
+report(`db:gen  ${isDryRun ? "preview - " : ""}${fromScratch ? "regenerating" : "generating"} drizzle/ from src/db/schema.ts`);
+const verb = fromScratch ? "replacing" : "existing";
+if (previous.length) report(`  ${verb.padEnd(16)} ${String(previous.length).padStart(2)}  ${previous.join(", ")}`);
+else report(`  ${verb.padEnd(16)}  0  (empty folder)`);
 
 if (isDryRun) {
   report("");
@@ -54,10 +51,12 @@ if (isDryRun) {
   process.exit(0);
 }
 
-// A partial folder is worse than none: drizzle-kit would diff against whatever
-// snapshot survived and emit half a schema.
-rmSync(MIGRATIONS, { recursive: true, force: true });
-mkdirSync(MIGRATIONS, { recursive: true });
+if (fromScratch) {
+  // A partial folder is worse than none: drizzle-kit would diff against whatever
+  // snapshot survived and emit half a schema.
+  rmSync(MIGRATIONS, { recursive: true, force: true });
+  mkdirSync(MIGRATIONS, { recursive: true });
+}
 
 function run(step: string, argv: readonly string[]): void {
   const [bin, ...args] = argv;
@@ -74,7 +73,7 @@ function run(step: string, argv: readonly string[]): void {
 // store open from the generated migrations, so nothing post-processes what it wrote.
 run("drizzle-kit generate", [process.execPath, join(REPO, "node_modules/drizzle-kit/bin.cjs"), "generate"]);
 
-const written = existingMigrations();
+const added = fromScratch ? existingMigrations() : existingMigrations().filter((name) => !previous.includes(name));
 report("");
-report(`db:gen  wrote ${written.length === 1 ? written[0]! : `${String(written.length)} migrations`}`);
+report(added.length ? `db:gen  wrote ${added.join(", ")}` : "db:gen  no schema change; nothing written");
 report("");

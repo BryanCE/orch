@@ -28,4 +28,13 @@
   mean the old records carry no transitions. Either the skill's smoke test needs a caveat or replay
   should say "0 events" instead of nothing.
 
+- 2026-08-30. orch. Workers under a Claude Code spawner still call `orch_send` and get the L6
+  paragraph ("no live presence inbox ... do NOT route through another agent"). The spawner's
+  unreachability is known at compose time (`spawnerRepliable: false`), so the fix is upstream:
+  do not register `orch_send` for that worker at all, or refuse in one line. A paragraph the
+  worker cannot act on is context spent on a dead end.
+- 2026-08-30. Task 13's row named only `spawn.ts` and `lifecycle.ts` as `rpcHello` callers;
+  `events.ts`, `lease.ts`, `queue.ts` also imported it. A task that renames an export should
+  say "every importer (grep)" rather than list files, or the list is stale the day it's written.
+
 GIT COMMIT IS NOT BEING RUN OFTEN ENOUGH 

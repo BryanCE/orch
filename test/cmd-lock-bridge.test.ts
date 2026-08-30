@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ import { readCommandLock, releaseCommandLock } from "../src/control/cmd-lock.ts"
 // settings file in place before the bridge registers anything.
 const orchDir = mkdtempSync(join(tmpdir(), "orch-cmd-lock-bridge-"));
 const previousOrchDir = process.env.ORCH_DIR;
-const previousAgentKey = process.env.ORCH_AGENT_KEY;
+const previousAgentKey = process.env[LAUNCH_ENV];
 const previousOwner = process.env.ORCH_OWNER;
 const previousSessionKey = process.env.ORCH_SESSION_KEY;
 const previousProject = process.env.ORCH_PROJECT;
@@ -26,7 +27,7 @@ const previousSpawnerLabel = process.env.ORCH_SPAWNER_LABEL;
 process.env.ORCH_DIR = orchDir;
 // This bridge test drives a plain human session.  In particular, the lock-run
 // child must not inherit an orch identity from the pane that launched the suite.
-delete process.env.ORCH_AGENT_KEY;
+delete process.env[LAUNCH_ENV];
 delete process.env.ORCH_OWNER;
 delete process.env.ORCH_SESSION_KEY;
 delete process.env.ORCH_PROJECT;
@@ -52,8 +53,8 @@ const orchestratorBridgeExtension = (await import("../extensions/pi/index.ts")).
 afterAll(() => {
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousOrchDir;
-  if (previousAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = previousAgentKey;
+  if (previousAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = previousAgentKey;
   if (previousOwner === undefined) delete process.env.ORCH_OWNER;
   else process.env.ORCH_OWNER = previousOwner;
   if (previousSessionKey === undefined) delete process.env.ORCH_SESSION_KEY;
@@ -102,7 +103,7 @@ function driveBridge(): {
   };
   orchestratorBridgeExtension(pi as never);
 
-  // hasUI:false + no ORCH_AGENT_KEY → the bridge skips presence init entirely
+  // hasUI:false + no launch env → the bridge skips presence init entirely
   // (no timers, no watchers, no status files), so only the lock file appears.
   const emit = async (name: string, event: unknown, ctx: unknown = { hasUI: false }): Promise<void> => {
     for (const fn of handlers.get(name) ?? []) await fn(event, ctx);

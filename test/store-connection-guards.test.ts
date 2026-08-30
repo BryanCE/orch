@@ -1,28 +1,43 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { claimAgent } from "../src/store/agent-rows.ts";
 import { assertStoreRecreatable, closeAllStores, orm } from "../src/store/connection.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const dirs: string[] = [];
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalOrchDir = process.env.ORCH_DIR;
+const originalAgentKey = process.env[LAUNCH_ENV];
+const originalHarnessMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
+const originalSessionId = process.env[HARNESS_SESSION_ENV.pi.sessionId];
+const SPAWNED_SESSION_TOKEN = "store-guard-session";
 
-/** A1: `ORCH_AGENT_KEY` carries a minted agent id and nothing else. */
+/** A1: `launch env` carries a minted agent id and nothing else. */
 const SPAWNED_AGENT_KEY = "s3p4wn3d01";
 
 afterEach(() => {
   closeAllStores();
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
+  if (originalHarnessMarker === undefined) delete process.env[HARNESS_SESSION_ENV.pi.marker];
+  else process.env[HARNESS_SESSION_ENV.pi.marker] = originalHarnessMarker;
+  if (originalSessionId === undefined) delete process.env[HARNESS_SESSION_ENV.pi.sessionId];
+  else process.env[HARNESS_SESSION_ENV.pi.sessionId] = originalSessionId;
   while (dirs.length > 0) removeTempDir(dirs.pop()!);
 });
 
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-store-guard-"));
   dirs.push(dir);
+  process.env.ORCH_DIR = dir;
   return dir;
 }
 
@@ -79,6 +94,18 @@ function refusalMessage(body: () => unknown): string {
   throw new Error("expected a refusal, got none");
 }
 
+function claimSpawnedAgent(dir: string): void {
+  seedAgent(SPAWNED_AGENT_KEY, { adapter: "pi" }, dir);
+  const result = claimAgent(dir, SPAWNED_AGENT_KEY, SPAWNED_SESSION_TOKEN, 1);
+  if (result.kind !== "stamped") throw new Error(`failed to claim fixture agent: ${result.kind}`);
+}
+
+function exportSpawnedIdentity(): void {
+  process.env[LAUNCH_ENV] = SPAWNED_AGENT_KEY;
+  process.env[HARNESS_SESSION_ENV.pi.marker] = "1";
+  process.env[HARNESS_SESSION_ENV.pi.sessionId] = SPAWNED_SESSION_TOKEN;
+}
+
 function seedLivePresence(dir: string, key: string, pid: number): void {
   const presenceDir = join(dir, "agents", key);
   mkdirSync(presenceDir, { recursive: true });
@@ -88,9 +115,10 @@ function seedLivePresence(dir: string, key: string, pid: number): void {
 describe("a slave never reaps or recreates the store", () => {
   test("a spawned agent hitting a schema-mismatched store errors and mutates nothing", () => {
     const dir = fixture();
+    claimSpawnedAgent(dir);
     const path = unmigrated(dir);
     const before = readFileSync(path);
-    process.env.ORCH_AGENT_KEY = SPAWNED_AGENT_KEY;
+    exportSpawnedIdentity();
 
     const message = refusalMessage(() => orm(dir));
 
@@ -112,7 +140,7 @@ describe("a slave never reaps or recreates the store", () => {
     // found, and must not silently skip one whose name it cannot parse.
     seedLivePresence(dir, "herdr~w1~p1", process.pid);
 
-    // No ORCH_AGENT_KEY: this is the user, and the living agent's identity is
+    // No [LAUNCH_ENV]: this is the user, and the living agent's identity is
     // still not collateral.
     const message = refusalMessage(() => assertStoreRecreatable(dir));
 
@@ -132,9 +160,9 @@ describe("a slave never reaps or recreates the store", () => {
 
   test("a spawned agent is refused a recreate even with nothing live", () => {
     const dir = fixture();
-    orm(dir);
+    claimSpawnedAgent(dir);
     closeAllStores();
-    process.env.ORCH_AGENT_KEY = SPAWNED_AGENT_KEY;
+    exportSpawnedIdentity();
 
     expect(refusalMessage(() => assertStoreRecreatable(dir))).toMatch(/spawned agent/i);
   });

@@ -3,8 +3,8 @@
  * saying in a human sentence why it stayed silent.
  *
  * This is its own layer because the transport below it must not depend on it.
- * `src/daemon/rpc.ts` speaks the wire and owns the error vocabulary; `rpcHello`
- * needed a daemon to be RUNNING first, so it reached up into `src/commands/`
+ * `src/daemon/rpc.ts` speaks the wire and owns the error vocabulary; identity
+ * registration needs a daemon to be RUNNING first, so it reaches up into `src/commands/`
  * for `ensureDaemon` and the two files imported each other. Rule 9's stack runs
  * one way — transport, then reachability, then the CLI verb — so the function
  * that starts a daemon lives between them and nothing above it is imported here.
@@ -26,16 +26,16 @@ import {
   DaemonAbsentError,
   DaemonUnreachableError,
   DEFAULT_TIMEOUT_MS,
-  helloClaim,
-  isHelloResponse,
+  isRegisterSessionResponse,
+  sessionClaim,
   RpcError,
   rpcCall,
 } from "./rpc.ts";
 import { isLiveAgentIdentity } from "../store/agent-rows.ts";
 import { orchDir } from "../presence/store.ts";
 import { commandLogger } from "../commands/logging.ts";
-import { errorMessage, pidAlive, sleep } from "../util.ts";
-import type { HelloResponse } from "../types/daemon.ts";
+import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
+import type { ClaimIdentityResponse, RegisterSessionResponse } from "../types/daemon.ts";
 
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
  *  A pid alone is never authority to signal — see {@link provenDaemonPid}. */
@@ -202,17 +202,13 @@ export function translateDaemonError(directory: string, error: unknown): unknown
   return error;
 }
 
-/** Register this process with the daemon and return the identity it issued. Reading the
- *  `0600` token file IS the credential, so there is nothing else to enroll. The session
- *  is this process's parent — the shell or harness that outlives one `orch` invocation. */
-export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<HelloResponse> {
+/** Register a driving session and return the identity issued by the daemon. */
+export async function rpcRegisterSession(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<RegisterSessionResponse> {
   try {
-    // Ensure the daemon first: its token exists only for the lifetime of a running
-    // daemon, so reading it before this probe turns a fresh store into raw ENOENT.
     await ensureDaemon(orchDir);
-    const identity = await rpcCall(orchDir, "hello", helloClaim(orchDir, label), timeoutMs);
-    if (!isLiveAgentIdentity(orchDir, identity) || !isHelloResponse(identity)) {
-      throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity");
+    const identity = await rpcCall(orchDir, "register-session", sessionClaim(orchDir, label), timeoutMs);
+    if (!isLiveAgentIdentity(orchDir, identity) || !isRegisterSessionResponse(identity)) {
+      throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed session registration");
     }
     announceUnleasedAgents(orchDir, identity);
     if (identity.registrationWarning) {
@@ -220,6 +216,20 @@ export async function rpcHello(orchDir: string, label?: string, timeoutMs = DEFA
       process.stdout.write(`warning: ${identity.registrationWarning}\n`);
     }
     return identity;
+  } catch (error: unknown) {
+    throw translateDaemonError(orchDir, error);
+  }
+}
+
+/** Claim the minted identity carried by a spawned agent. */
+export async function rpcClaimIdentity(orchDir: string, id: string, token: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ClaimIdentityResponse> {
+  try {
+    await ensureDaemon(orchDir);
+    const identity = await rpcCall(orchDir, "claim-identity", { ...sessionClaim(orchDir), id, sessionToken: token }, timeoutMs);
+    if (!isRecord(identity) || typeof identity.id !== "string" || identity.id !== id) {
+      throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity claim");
+    }
+    return { id: identity.id };
   } catch (error: unknown) {
     throw translateDaemonError(orchDir, error);
   }

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { endpointPaths, helloClaim } from "../src/daemon/rpc.ts";
+import { endpointPaths, sessionClaim } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { sql } from "drizzle-orm";
@@ -107,7 +107,7 @@ describe("hello records the environment in full", () => {
     // runs in one place and the caller may be in another (a WSL daemon and a
     // Windows-side session is the case this repo lives with). Every fact B9
     // names travels in the claim.
-    const claim = helloClaim(directory);
+    const claim = sessionClaim(directory);
     for (const field of ["harness", "cwd", "space", "plexer", "hostName", "hostOs"]) {
       expect(Object.keys(claim)).toContain(field);
     }

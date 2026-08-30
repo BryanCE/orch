@@ -43,7 +43,7 @@ const config = (preferred: string[]): OrchConfig => ({
   enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: [],
   defaults: { models: {}, worktree: false },
-  fleet: { worker_peer_tools: false, max_depth: 1, cross_space: false, max_agents_per_space: {} },
+  fleet: { worker_peer_tools: false, max_agents_per_pack: 10, max_depth: 1, cross_space: false, max_agents_per_space: {} },
   models: { allowed: {}, preferred: { pi: preferred } },
   workers: { inherit_extensions: false, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
   queue: { max_retries: 1 },

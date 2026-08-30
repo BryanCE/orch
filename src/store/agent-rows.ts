@@ -122,8 +122,8 @@ export function childrenOf(orchDir: string, spawnedBy: string): AgentRow[] {
   return selectAgents(orchDir).where(eq(agents.spawnedBy, spawnedBy)).orderBy(agents.id).all().map(mapAgent);
 }
 
-/** The hello response retains its existing wire shape while its id is backed by
- * the one agent entity. An ending makes the named agent non-live. */
+/** A session registration response is backed by the one agent entity.
+ * An ending makes the named agent non-live. */
 export function isLiveAgentIdentity(orchDir: string, value: unknown): value is SessionAgentIdentity {
   if (!isRecord(value)
     || typeof value.id !== "string" || value.id.length === 0
@@ -176,7 +176,7 @@ function liveAgentId(orchDir: string, where: SQL): string | null {
 
 
 /**
- * B9: record the registering session's own environment, at hello.
+ * B9: record the registering session's own environment at registration.
  *
  * `host_plexers` says which plexer is INSTALLED on a machine (E17); it does not
  * say where this agent is. The agent's own axes are satellites (A14), so they
@@ -185,7 +185,7 @@ function liveAgentId(orchDir: string, where: SQL): string | null {
  * wrong first.
  *
  * Both are idempotent: the plexer is an immutable one-shot, and the space
- * already open is left alone rather than reopened, so a second hello from the
+ * already open is left alone rather than reopened, so a second registration from the
  * same session opens no second interval.
  */
 function placeSession(orchDir: string, agentId: string, input: SessionAgentInput): void {
@@ -250,7 +250,7 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
   });
   // Placement runs AFTER the registration transaction: `closeThenOpen` opens its
   // own, and sqlite has no nested one. It is idempotent, so a crash in between
-  // is repaired by the session's next hello rather than leaving a second row.
+  // is repaired by the session's next registration rather than leaving a second row.
   placeSession(orchDir, identity.id, input);
   return identity;
 }

@@ -1,12 +1,13 @@
 import { loadConfig } from "../config.ts";
 import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
 import { callerSpace } from "../identity/self.ts";
+import { launchCredential } from "../identity/launch.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { sameSpace, scopeToSpace } from "../policy/space.ts";
 import { subscribeEvents } from "../daemon/rpc.ts";
-import { ensureDaemon, rpcHello } from "../daemon/reach.ts";
+import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { notificationText } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
@@ -75,8 +76,7 @@ export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
   const items = eventsItems(options);
-  const mineIdentity = options.mine ? await rpcHello(orchDir()) : undefined;
-  const mineAddress = mineIdentity?.id;
+  const mineAddress = options.mine ? launchCredential() ?? (await rpcRegisterSession(orchDir())).id : undefined;
   const accepts = (key: string): boolean => {
     // The key IS the minted id (A1), so there is one lookup and no second id space.
     const agentId = tryParseIdentity(key)?.id ?? null;

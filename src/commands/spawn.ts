@@ -22,11 +22,11 @@ import { dispatchToAgent } from "./control.ts";
 import { errorMessage, sleep } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
 import { callDaemon } from "./daemon.ts";
-import { daemonOutage, rpcHello } from "../daemon/reach.ts";
+import { daemonOutage, rpcRegisterSession } from "../daemon/reach.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { agentViewIndex, callerOwnerToken, die, presenceById } from "./target.ts";
 import { callerSpace, selfId } from "../identity/self.ts";
-import { LAUNCH_ENV } from "../identity/launch.ts";
+import { LAUNCH_ENV, launchCredential } from "../identity/launch.ts";
 import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendGroup, BackendHandle, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../types/backend.ts";
@@ -950,7 +950,8 @@ function placeSpawn(
 
 async function executeSpawn(settings: SpawnSettings): Promise<void> {
   await admitSpawn(settings);
-  const spawnerAgentId = (await rpcHello(orchDir())).id;
+  // A spawned agent already carries its id; only a driving session registers.
+  const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
   const backend = spawnBackend(settings);
   // A backend without group creation has no panes to tile into: spawn detached.
   if (!backend.groupHome) return executeDetachedSpawn(settings, backend, spawnerAgentId);
@@ -1013,7 +1014,8 @@ export async function cmdTile(args: string[]) {
   const space = callerSpace();
   const workspace = tab.workspace ?? undefined;
   assertSpawnCapacity(config, space, 1);
-  const spawnerAgentId = (await rpcHello(orchDir())).id;
+  // A spawned agent already carries its id; only a driving session registers.
+  const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
   let agent: CreatedAgent;
   try {
     agent = spawnOneIntoTab({

@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
-import { DaemonAbsentError, DaemonUnreachableError, RpcError, isHelloResponse, rpcCall, subscribeEvents, ReplayBuffer, startRpcServer } from "../src/daemon/rpc";
-import { rpcHello } from "../src/daemon/reach.ts";
+import { DaemonAbsentError, DaemonUnreachableError, RpcError, isRegisterSessionResponse, rpcCall, subscribeEvents, ReplayBuffer, startRpcServer } from "../src/daemon/rpc";
+import { rpcRegisterSession } from "../src/daemon/reach.ts";
 import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { selectPendingOutbox } from "../src/store/outbox-rows.ts";
@@ -71,7 +71,7 @@ async function tcpHello(server: RpcServer, params?: unknown): Promise<Record<str
       resolve(parsed);
     });
     socket.once("error", reject);
-    socket.once("connect", () => socket.write(`${JSON.stringify({ id: 1, method: "hello", params })}\n`));
+    socket.once("connect", () => socket.write(`${JSON.stringify({ id: 1, method: "register-session", params })}\n`));
   });
 }
 
@@ -95,7 +95,7 @@ afterEach(async () => {
 
 describe("daemon RPC", () => {
   test("rejects a hello response with a malformed optional field", () => {
-    expect(isHelloResponse({
+    expect(isRegisterSessionResponse({
       id: "session-id",
       label: "session",
       kind: "session",
@@ -112,7 +112,7 @@ describe("daemon RPC", () => {
     process.env.ORCHD_ENTRYPOINT = failingEntrypoint;
     expect(existsSync(daemonRuntimeFiles(dir).token)).toBe(false);
     try {
-      const failure = await rejectionOf(rpcHello(dir));
+      const failure = await rejectionOf(rpcRegisterSession(dir));
       if (!(failure instanceof Error)) throw new Error("hello did not reject with an Error");
       expect(failure.message).toContain("orch daemon unavailable");
       expect(failure.message).not.toContain("ENOENT");
@@ -137,7 +137,7 @@ describe("daemon RPC", () => {
     const target = serializeIdentity({ id: mintAgentId() });
     seedStatus(dir, target, { agent: "claude", pid: process.pid, state: "working" });
     try {
-      await rpcHello(dir);
+      await rpcRegisterSession(dir);
       // TASKS/02-scope.md E14: an environment that offers no way to reach this agent
       // is an ABSENCE, and an absence is an answer to a human, never a failure path.
       // Claude composes no inbox steering and headless has no pane, so the dispatch
@@ -166,8 +166,8 @@ describe("daemon RPC", () => {
   test("issues one session identity to sequential invocations from one session", async () => {
     const dir = tempOrchDir();
     await start(dir);
-    const first = await rpcHello(dir);
-    const second = await rpcHello(dir);
+    const first = await rpcRegisterSession(dir);
+    const second = await rpcRegisterSession(dir);
     expect(second).toEqual(first);
     // An issued id is opaque; a plexer coordinate would carry `~` separators.
     expect(first.id).not.toContain("~");

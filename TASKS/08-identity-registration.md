@@ -47,13 +47,25 @@ addressability — the empty plexer fields are honest, because a session is not 
 ## Registration
 
 Identity is **issued by orchd, never derived by the caller.** A CLI process does not compute
-who it is; it asks.
+who it is; it reaches the daemon through one of two identity RPCs.
 
-1. The process connects and calls `hello` before any other method, presenting the daemon
-   token it read from `$ORCH_DIR`, its session pid, and a display label.
-2. orchd verifies the token, which is the whole credential.
-3. orchd returns the id recorded for that session pid, minting and recording one on first
-   sight.
+Both RPCs use one shared base in `rpc.ts`: the daemon token check, verified session facts, and
+one row write. `reach.ts` exposes the two callers that reach this base.
+
+### Driving sessions: `register-session`
+
+A driving session has no launch credential. `rpcRegisterSession` calls `register-session` with
+its session facts. orchd mints an id and inserts the row with `spawned_by = NULL`. Registering
+again with the same session token returns the same id.
+
+### Spawned agents: `claim-identity`
+
+A spawned agent carries the minted id and its harness session token. `rpcClaimIdentity` calls
+`claim-identity`; orchd passes the id and token to `claimAgent`. An unclaimed row is stamped,
+the same token is a no-op, a different token is refused, and an unknown id is refused.
+
+Restart and reset call `reclaimAgent` before relaunch. That clears the old claim so the new
+session can claim the same minted id.
 
 Continuity is keyed on the harness's own **session token**, not on a pid. `process.ppid` was
 specified here first and is wrong: when a harness runs `orch` from a shell (Claude Code's Bash
@@ -64,8 +76,8 @@ one Claude session. Each adapter declares the env var carrying its session id
 resolves the id from it. A harness exporting no token falls back to its open process instance.
 The pid remains recorded as liveness, never as identity.
 
-`hello` is the only place a participant enters the system. `selfActor()` and the four-branch
-fallback in `spawnerIdentity()` are deleted, not adapted.
+The two identity RPCs are the only way a participant enters the system. The caller never mints
+or derives an id.
 
 ### Transports and how each one vouches
 
@@ -87,11 +99,11 @@ exposes neither `SO_PEERCRED` nor a peer's process ancestry, so obtaining them m
 `/proc` and `ss`, which works on Linux alone. orch ships to node on every platform (Rule 6),
 and an attribution path that exists on one OS is not an attribution path.
 
-The pid and label in `hello` are the caller's own report. They serve continuity and display,
-**never authorization** — a same-uid caller that misreports its session gains nothing it could
-not already do by dialing again. A caller that presents no token, or no session pid, is
-refused; it is never assigned a synthetic identity, and it is never asked to supply an id it
-has no defined way to obtain.
+The pid and label in either identity RPC are the caller's own report. They serve continuity
+and display, **never authorization** — a same-uid caller that misreports its session gains
+nothing it could already do by dialing again. A caller that presents no token, or no session
+pid, is refused; it is never assigned a synthetic identity, and it is never asked to supply an
+id it has no defined way to obtain.
 
 ### Commands that run without a daemon
 
@@ -128,8 +140,8 @@ the gap is visible to the next reader instead of discovered by the next bug.
 
 | # | Invariant | Enforced by |
 | --- | --- | --- |
-| 1 | A live daemon knows every participant. No anonymous invocation. | `hello` is the only entry point; there is no other way to obtain an identity |
-| 2 | An id is minted by orchd, never derived from a plexer, harness, name, pane id, or pid. | `checkIdentityConstructionLine` in `scripts/check-bridge.ts` confines construction to the issuer (with fresh `mintAgentId()` spawn keys allowed); `src/entities.ts`'s `selfActor()` line is a registered exemption until that caller is removed |
+| 1 | A live daemon knows every participant. No anonymous invocation. | `register-session` and `claim-identity` are the only identity entry points; there is no other way to obtain an identity |
+| 2 | An id is minted by orchd, never derived from a plexer, harness, name, pane id, or pid. | `checkIdentityConstructionLine` in `scripts/check-bridge.ts` confines construction to the issuer (with fresh `mintAgentId()` spawn keys allowed); the identity RPCs issue ids and claim only existing ones |
 | 3 | A reply address is not an owner token. | `checkSpawnerReplyFallbackLine` in `scripts/check-bridge.ts` catches the fallback shape; branded types would make it a compile error |
 | 4 | `spawnedBy` names an id orchd issued, or the write is refused — never a governance actor. | same rule as #3 |
 | 5 | Liveness is discovered at send time, never encoded in an identity. | the identity type carries no liveness field, so there is nothing to go stale |

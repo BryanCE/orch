@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { addTask, cancelTask, closePackIntake, editTask, listTasks, openPackIntake, packIntakes, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
-import { ensureDaemon, rpcHello } from "../daemon/reach.ts";
+import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
+import { launchCredential } from "../identity/launch.ts";
 import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
@@ -30,6 +31,10 @@ export function renderQueueTasks(tasks: TaskRec[]): void {
 function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
   if (json) process.stdout.write(JSON.stringify(task, null, 2) + "\n");
   else process.stdout.write(plainText + "\n");
+}
+
+async function resolveSelfId(directory: string): Promise<string> {
+  return launchCredential() ?? (await rpcRegisterSession(directory)).id;
 }
 
 function takeValue(args: string[], flag: string): { value?: string; rest: string[] } {
@@ -120,7 +125,7 @@ async function queueAdd(invocation: QueueInvocation, args: string[]): Promise<vo
   }
   const directory = orchDir();
   await ensureDaemon(directory);
-  const identity = await rpcHello(directory);
+  const callerId = await resolveSelfId(directory);
   let options = {};
   if (invocation.worktree) {
     const name = `queue-${randomUUID()}`;
@@ -128,7 +133,7 @@ async function queueAdd(invocation: QueueInvocation, args: string[]): Promise<vo
     options = { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
   }
   const scope: TaskScopeSelection = scopeFromFlags(directory, invocation);
-  const task = addTask(directory, text, options, identity.id, scope);
+  const task = addTask(directory, text, options, callerId, scope);
   writeQueueTask(task, invocation.json, task.id);
 }
 
@@ -155,8 +160,8 @@ async function queueEdit(invocation: QueueInvocation): Promise<void> {
   try {
     const directory = orchDir();
     await ensureDaemon(directory);
-    const identity = await rpcHello(directory);
-    const task = editTask(directory, id, identity.id, { text });
+    const callerId = await resolveSelfId(directory);
+    const task = editTask(directory, id, callerId, { text });
     if (task.error) die(task.error);
     writeQueueTask(task, invocation.json, `Edited ${task.id}`);
   } catch (error: unknown) {
@@ -172,8 +177,8 @@ async function queueTakeOn(invocation: QueueInvocation): Promise<void> {
   try {
     const directory = orchDir();
     await ensureDaemon(directory);
-    const identity = await rpcHello(directory);
-    const taker = invocation.agent ? resolveAgent(directory, invocation.agent) : identity.id;
+    const callerId = await resolveSelfId(directory);
+    const taker = invocation.agent ? resolveAgent(directory, invocation.agent) : callerId;
     const task = takeOnTask(directory, id, taker);
     writeQueueTask(task, invocation.json, `Took on ${task.id}`);
   } catch (error: unknown) {
@@ -189,8 +194,8 @@ async function queueReap(invocation: QueueInvocation): Promise<void> {
   try {
     const directory = orchDir();
     await ensureDaemon(directory);
-    const identity = await rpcHello(directory);
-    reapTask(directory, id, identity.id);
+    const callerId = await resolveSelfId(directory);
+    reapTask(directory, id, callerId);
     if (invocation.json) process.stdout.write(JSON.stringify({ id, state: "reaped" }) + "\n");
     else process.stdout.write(`Reaped ${id}\n`);
   } catch (error: unknown) {
@@ -217,13 +222,13 @@ async function queueIntake(invocation: QueueInvocation): Promise<void> {
   try {
     const directory = orchDir();
     await ensureDaemon(directory);
-    const identity = await rpcHello(directory);
-    const pack = packOfCaller(directory, invocation, identity.id);
+    const callerId = await resolveSelfId(directory);
+    const pack = packOfCaller(directory, invocation, callerId);
     const intakes = space === undefined
       ? packIntakes(directory, pack)
       : invocation.close
-        ? closePackIntake(directory, pack, space, identity.id)
-        : openPackIntake(directory, pack, space, identity.id);
+        ? closePackIntake(directory, pack, space, callerId)
+        : openPackIntake(directory, pack, space, callerId);
     if (invocation.json) process.stdout.write(JSON.stringify(intakes, null, 2) + "\n");
     else if (intakes.length === 0) process.stdout.write("No space intakes.\n");
     else for (const intake of intakes) process.stdout.write(`${intake.spaceId} ${intake.until === null ? "open" : "closed"}\n`);
@@ -240,8 +245,8 @@ async function queueCancel(invocation: QueueInvocation): Promise<void> {
   try {
     const directory = orchDir();
     await ensureDaemon(directory);
-    const identity = await rpcHello(directory);
-    const task = cancelTask(directory, id, identity.id, { human: true });
+    const callerId = await resolveSelfId(directory);
+    const task = cancelTask(directory, id, callerId, { human: true });
     if (task.error) die(task.error);
     writeQueueTask(task, invocation.json, `Cancelled ${task.id}`);
   } catch (error: unknown) {

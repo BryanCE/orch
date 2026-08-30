@@ -26,8 +26,12 @@ export interface UnleasedAgent {
   readonly name: string;
 }
 
-/** The hello identity retains its existing fields and appends the adoptable agents summary. */
-export type HelloResponse = SessionAgentIdentity & { readonly unleased: readonly UnleasedAgent[]; readonly registrationWarning?: string };
+/** A driving session registration retains its identity fields and appends adoptable agents. */
+export type RegisterSessionResponse = SessionAgentIdentity & { readonly unleased: readonly UnleasedAgent[]; readonly registrationWarning?: string };
+
+export interface ClaimIdentityResponse {
+  readonly id: string;
+}
 
 export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter, context: RpcRequestContext) => unknown;
 
@@ -208,7 +212,7 @@ export interface DaemonRuntimeFiles {
   readonly socket: string;
   /** The TCP port orchd advertises where unix sockets are unavailable. */
   readonly port: string;
-  /** Owner-readable credential for loopback TCP hello. */
+  /** Owner-readable credential for loopback TCP identity RPCs. */
   readonly token: string;
   /** Where the daemon's structured JSONL diagnostics are written. */
   readonly log: string;

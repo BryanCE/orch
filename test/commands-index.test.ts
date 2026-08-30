@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { needsFirstRunSetup, readOrchVersion, runCommand } from "../src/commands/index.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { announceUnleasedAgents } from "../src/daemon/rpc.ts";
-import type { HelloResponse } from "../src/types/daemon.ts";
+import type { RegisterSessionResponse } from "../src/types/daemon.ts";
 
 describe("commands/index", () => {
   test("does not gate help or noninteractive commands", () => {
@@ -20,7 +20,7 @@ describe("commands/index", () => {
       label: "session",
       kind: "session",
       unleased: [{ id: "worker", name: "worker" }],
-    } satisfies HelloResponse;
+    } satisfies RegisterSessionResponse;
     announceUnleasedAgents("/tmp/commands-index-seam", identity, (text) => output.push(text));
     announceUnleasedAgents("/tmp/commands-index-seam", identity, (text) => output.push(text));
     expect(output).toEqual(["1 unleased agent(s) exist - orch adopt worker to take one, orch status to see them.\n"]);

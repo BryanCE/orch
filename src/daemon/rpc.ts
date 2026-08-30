@@ -9,14 +9,15 @@ import { readPortPath } from "../presence/socket-client.ts";
 import { ensurePrivateDir, errorMessage, isRecord, osSide } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
 import { callerSession } from "../identity/self.ts";
-import { currentHostOs, getOrCreateSessionAgent } from "../store/agent-rows.ts";
+import { launchCredential } from "../identity/launch.ts";
+import { claimAgent, currentHostOs, getOrCreateSessionAgent } from "../store/agent-rows.ts";
 import { processStartToken } from "../process-identity.ts";
 
 import { allBackends } from "../backends/registry.ts";
 import { supportedPlexerVersion, supportedRange } from "../backends/versions.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { HostOs, SessionAgentIdentity } from "../types/store.ts";
-import type { BufferedEvent, EndpointPaths, EventSubscription, HelloResponse, ReplayResult, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
+import type { BufferedEvent, ClaimIdentityResponse, EndpointPaths, EventSubscription, RegisterSessionResponse, ReplayResult, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions, UnleasedAgent } from "../types/daemon.ts";
 import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agentEndings, agentLeases, agentProcesses, agents } from "../db/schema.ts";
@@ -152,8 +153,8 @@ function isUnleasedAgent(value: unknown): value is UnleasedAgent {
   return isRecord(value) && typeof value.id === "string" && typeof value.name === "string";
 }
 
-/** Validate every field carried by the hello response before trusting it. */
-export function isHelloResponse(value: unknown): value is HelloResponse {
+/** Validate every field carried by a session registration before trusting it. */
+export function isRegisterSessionResponse(value: unknown): value is RegisterSessionResponse {
   return isRecord(value)
     && typeof value.id === "string"
     && value.id.length > 0
@@ -176,7 +177,7 @@ let nextRequestId = 1;
  * command output testable without changing the wire response. */
 export function announceUnleasedAgents(
   orchDir: string,
-  identity: HelloResponse,
+  identity: RegisterSessionResponse,
   write: (text: string) => void = (text) => { process.stdout.write(text); },
 ): void {
   if (identity.unleased.length === 0) return;
@@ -273,7 +274,7 @@ function isHostOs(value: unknown): value is HostOs {
 /** B9: the OS side is the CALLER's, not the daemon's. A daemon that answers with
  *  its own platform mislabels every session on the other side of a WSL boundary. */
 function claimedHostOs(claim: Readonly<Record<string, unknown>>): HostOs {
-  if (!isHostOs(claim.hostOs)) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's host OS");
+  if (!isHostOs(claim.hostOs)) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's host OS");
   return claim.hostOs;
 }
 
@@ -297,12 +298,12 @@ function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
  */
 function verifiedSessionProcess(claim: Record<string, unknown>): { pid: number; startToken: string; harness: string; cwd: string } {
   const pid = typeof claim.pid === "number" ? claim.pid : Number.NaN;
-  if (!Number.isSafeInteger(pid) || pid <= 0) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's session pid");
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's session pid");
   const harness = typeof claim.harness === "string" ? claim.harness.trim() : "";
   const cwd = typeof claim.cwd === "string" ? claim.cwd.trim() : "";
-  if (!harness || !cwd) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's harness and cwd");
+  if (!harness || !cwd) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's harness and cwd");
   const startToken = processStartToken(pid);
-  if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "hello could not verify the caller's session process");
+  if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration could not verify the caller's session process");
   return { pid, startToken, harness, cwd };
 }
 
@@ -334,12 +335,9 @@ function plexerRegistrationWarning(plexerId: string | null, plexerVersion: strin
   return `plexer ${plexerId} ${plexerVersion} is outside orch's supported ${range}; update orch`;
 }
 
-/**
- * Whether this process instance has said hello before. A CLI invocation is
- * short-lived while its parent session is not, so the first hello for a process
- * instance is what the startup hint keys on — otherwise it repeats on every
- * subsequent `orch` command from the same session.
- */
+/** Whether this process instance has registered before. A CLI invocation is
+ * short-lived while its parent session is not, so the first registration for a
+ * process instance is what the startup hint keys on. */
 function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: string): boolean {
   return orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
@@ -348,35 +346,62 @@ function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: stri
     .limit(1).get() !== undefined;
 }
 
-function helloIdentity(orchDir: string, params: unknown, daemonToken: string): HelloResponse {
+interface CallerFacts {
+  readonly claim: Record<string, unknown>;
+  readonly pid: number;
+  readonly startToken: string;
+  readonly harness: string;
+  readonly cwd: string;
+  readonly environment: ReturnType<typeof claimedEnvironment>;
+  readonly hostOs: HostOs;
+}
+
+/** Shared authenticated caller facts for both identity RPCs. */
+function callerFacts(params: unknown, daemonToken: string): CallerFacts {
   const claim = isRecord(params) ? params : {};
-  if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "hello requires the daemon token");
+  if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "identity RPC requires the daemon token");
   const { pid, startToken, harness, cwd } = verifiedSessionProcess(claim);
-  const alreadyRegistered = sessionAlreadyRegistered(orchDir, pid, startToken);
-  const environment = claimedEnvironment(claim);
+  return { claim, pid, startToken, harness, cwd, environment: claimedEnvironment(claim), hostOs: claimedHostOs(claim) };
+}
+
+function registerSession(orchDir: string, params: unknown, daemonToken: string): RegisterSessionResponse {
+  const facts = callerFacts(params, daemonToken);
+  const alreadyRegistered = sessionAlreadyRegistered(orchDir, facts.pid, facts.startToken);
   const identity = getOrCreateSessionAgent(orchDir, {
-    pid,
-    startToken,
-    sessionToken: environment.sessionToken,
-    harnessId: harness,
-    cwd,
-    label: environment.label || `${harness} session ${pid}`,
-    hostId: environment.host,
-    hostName: environment.host,
-    hostOs: claimedHostOs(claim),
-    plexerId: environment.plexerId,
-    plexerVersion: environment.plexerVersion,
-    space: environment.space,
+    pid: facts.pid,
+    startToken: facts.startToken,
+    sessionToken: facts.environment.sessionToken,
+    harnessId: facts.harness,
+    cwd: facts.cwd,
+    label: facts.environment.label || `${facts.harness} session ${facts.pid}`,
+    hostId: facts.environment.host,
+    hostName: facts.environment.host,
+    hostOs: facts.hostOs,
+    plexerId: facts.environment.plexerId,
+    plexerVersion: facts.environment.plexerVersion,
+    space: facts.environment.space,
     now: Date.now(),
   });
-  const registrationWarning = plexerRegistrationWarning(environment.plexerId, environment.plexerVersion);
+  const registrationWarning = plexerRegistrationWarning(facts.environment.plexerId, facts.environment.plexerVersion);
   return {
     ...identity,
     ...(registrationWarning ? { registrationWarning } : {}),
-    // The summary belongs to session startup. Later invocations retain the
-    // field for wire stability but have no announcement to make.
     unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id),
   };
+}
+
+function claimIdentity(orchDir: string, params: unknown, daemonToken: string): ClaimIdentityResponse {
+  const facts = callerFacts(params, daemonToken);
+  const id = typeof facts.claim.id === "string" ? facts.claim.id : "";
+  if (!id) throw new RpcError("IDENTITY_REQUIRED", "claim-identity requires an agent id");
+  const token = facts.environment.sessionToken;
+  if (!token) throw new RpcError("IDENTITY_REQUIRED", "claim-identity requires a session token");
+  const result = claimAgent(orchDir, id, token, Date.now());
+  if (result.kind === "refused") {
+    if (result.reason === "unknown-agent") throw new RpcError("UNKNOWN_AGENT", `unknown agent: ${id}`);
+    throw new RpcError("IDENTITY_REQUIRED", "not the agent");
+  }
+  return { id };
 }
 
 function handleLine(
@@ -395,11 +420,13 @@ function handleLine(
     lineResponse(socket, request);
     return;
   }
-  if (request.method === "hello") {
+  if (request.method === "register-session" || request.method === "claim-identity") {
     Promise.resolve()
-      .then(() => helloIdentity(orchDir, request.params, daemonToken))
+      .then(() => request.method === "register-session"
+        ? registerSession(orchDir, request.params, daemonToken)
+        : claimIdentity(orchDir, request.params, daemonToken))
       .then((identity) => {
-        state.identity = identity;
+        if (isRegisterSessionResponse(identity)) state.identity = identity;
         lineResponse(socket, { id: request.id, result: identity });
       })
       .catch((error: unknown) => {
@@ -804,14 +831,12 @@ export async function rpcCall(
 }
 
 /**
- * The one hello claim. TASKS/08-identity-registration.md: a session presents a
- * STABLE token the harness itself carries, and orch resolves the id it already
- * minted. `process.ppid` is the shell this `orch` ran under — it differs on every
- * invocation, so claiming it re-mints a fresh agent id per CLI call (finding 1.15).
- * Both the request path and the subscription's inline handshake build the claim
- * HERE so the two can never present different facts for the same session.
+ * Build the authenticated caller facts. A session presents a STABLE token the
+ * harness itself carries; the process pair is only a fallback when it has none.
+ * Both request and subscription handshakes build the claim HERE so they cannot
+ * present different facts for the same session.
  */
-export function helloClaim(orchDir: string, label?: string): Record<string, unknown> {
+export function sessionClaim(orchDir: string, label?: string): Record<string, unknown> {
   const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   // The calling harness identifies ITSELF through its adapter's declared env
   // vocabulary; orch names no harness here (Rule 9). An empty ORCH_HARNESS is
@@ -858,7 +883,7 @@ export function subscribeEvents(
   opts: { since?: number },
   onEvent: (event: unknown, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
-  hello = false,
+  identify = false,
 ): EventSubscription {
   let last = opts.since ?? 0;
   let socket: Socket | undefined;
@@ -912,12 +937,14 @@ export function subscribeEvents(
         // Re-register bridge sessions on every daemon instance. The token is
         // read fresh because a restart mints a new credential; this handshake
         // shares the same socket as the event subscription.
-        if (hello) {
+        if (identify) {
           // The token is read fresh because a restart mints a new credential.
+          const credential = launchCredential();
+          const claim = sessionClaim(orchDir);
           connected.write(`${JSON.stringify({
             id: nextRequestId++,
-            method: "hello",
-            params: helloClaim(orchDir),
+            method: credential === null ? "register-session" : "claim-identity",
+            params: credential === null ? claim : { ...claim, id: credential },
           })}\n`);
         }
         // The first dial honours the caller's `since` (undefined = live only).

@@ -218,7 +218,7 @@ export type ExtensionName = keyof typeof EXTENSION_SOURCE_DIR;
  * "who am I" is what produced `<backend>~<workspace>~operator`, an id that named
  * an environment and matched no stored record, so orch refused its own fleet.
  *
- * Orch mints exactly once, in `hello`. Everything here READS that record.
+ * Orch mints exactly once, in `register-session`. Everything here READS that record.
  */
 /**
  * The harness session this `orch` process runs inside, as that harness's OWN

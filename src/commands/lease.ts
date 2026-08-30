@@ -1,7 +1,8 @@
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir } from "../presence/store.ts";
-import { rpcHello } from "../daemon/reach.ts";
+import { rpcRegisterSession } from "../daemon/reach.ts";
+import { launchCredential } from "../identity/launch.ts";
 import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
@@ -14,10 +15,9 @@ import type { AgentRow } from "../types/store.ts";
 import type { LeaseCommandResult, LeaseOptions } from "../types/command.ts";
 export type { LeaseCommandResult, LeaseOptions };
 
-/** Transitional seam: the daemon hello identity is the caller's orch identity.
- * The agent hello rework should only need to replace this one function. */
+/** Resolve the caller's orch identity in one seam for every lease command. */
 async function resolveSelfOrchId(): Promise<string> {
-  return (await rpcHello(orchDir())).id;
+  return launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
 }
 
 

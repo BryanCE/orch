@@ -10,7 +10,7 @@ import { assertNameFree } from "../policy/name.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
 import type { CloseAuthority } from "../types/policy.ts";
-import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
+import { agentById, endAgent, reclaimAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId, selfIdentity } from "../identity/self.ts";
 
 import { retryingSync } from "../retry.ts";
@@ -175,6 +175,7 @@ export async function cmdNew(args: string[]): Promise<void> {
     const sentAt = Date.now();
     // The daemon owns every lifecycle mechanism: a console gets the adapter's
     // text, a detached agent has none and is refused. Neither is the CLI's to choose.
+    reclaimAgent(orchDir(), agentIdOf(ent.key));
     await writeRpc("lifecycle", { target: ent.key, verb: "reset" });
     if (!awaitIdleAfter(statusPath, beforeUpdated, sentAt)) die(`${pane}: reset did not become ready within 75s.`);
     cleared.push({ key: ent.key, pane, name: ent.name ?? pane });
@@ -282,6 +283,7 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
     process.stdout.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
+  reclaimAgent(orchDir(), agentIdOf(presenceKey));
   backend.paneInput.submit(pane, cmd);
   const refreshed = retryingSync(
     "await relaunched bridge",
@@ -433,6 +435,7 @@ async function restartOneTarget(target: string, cmd: string | null, config: Orch
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
   if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
   if (!backend.paneInput) {
+    reclaimAgent(orchDir(), agentIdOf(ent.key));
     const restarted = await lifecycleThroughDaemon("restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
       if (!flags.json) process.stdout.write(`${restarted.pane}: bridge live.\n`);

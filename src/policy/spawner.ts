@@ -17,7 +17,7 @@ export const ORCH_ENV_VARS = [
 /**
  * The launching session's identity: the id orch issued it, plus a label to show.
  *
- * There is ONE source (TASKS/08): orch mints in `hello` and this reads the record.
+ * There is ONE source (TASKS/08): orch mints in `register-session` and this reads the record.
  * The four-branch env ladder that used to live here asked the plexer, then two
  * harness env vars, then fell back to the literal id `"operator"` — four answers
  * that could not agree, so a spawner's address never matched its own lease.

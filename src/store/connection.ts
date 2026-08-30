@@ -6,7 +6,7 @@ import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { presenceRoot, readStatus } from "../presence/writer.ts";
-import { callerKind } from "../policy/caller.ts";
+import { launchCredential } from "../identity/launch.ts";
 import { ensurePrivateDir, errorMessage, pidAlive } from "../util.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
@@ -69,14 +69,16 @@ export function livePresenceHolders(orchDir: string): string[] {
 }
 
 /**
- * True when the caller is an agent according to the shared caller policy.
+ * True when orch launched this process with a credential.
  *
- * The identity codec lives in `backends/identity.ts`, which reaches this module
- * through the presence store, so parsing here would be both a second parser and
- * an import cycle.
+ * This is the store's own guard, so it cannot ask `callerKind()`: that answers
+ * from the claim row, which lives in the store this guard protects (the call
+ * would recurse `orm → callerKind → agentById → orm`). Presence of the launch
+ * credential is enough here — a spawned agent, claimed or not, never rebuilds
+ * the store — and it is read through the one leaf that owns the env var.
  */
 function callerIsSpawnedAgent(): boolean {
-  return callerKind() === "agent";
+  return launchCredential() !== null;
 }
 
 /**

@@ -206,7 +206,7 @@ export interface SpawnRegistration {
    */
   space?: string;
   model: string;
-  /** The hello-registered agent id of the spawning session, when it has one. */
+  /** The register-session id of the spawning session, when it has one. */
   spawner: string | null;
   /**
    * Ownership: the orch that HOLDS this agent once it is running.

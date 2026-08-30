@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdClean, liveWorktreeOwner, removeDeadAgentDirs } from "../src/commands/clean.ts";
-import { ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
+import { claimAgent, ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
 import { agentViewIndex, presenceById } from "../src/commands/target.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
@@ -59,12 +62,20 @@ describe("orch clean is destructive maintenance", () => {
   test("a spawned agent is refused the sweep, and the dirs it does not own survive", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-clean-slave-"));
     const oldDir = process.env.ORCH_DIR;
-    const oldKey = process.env.ORCH_AGENT_KEY;
+    const oldKey = process.env[LAUNCH_ENV];
     const oldExit = process.exit.bind(process);
+    const oldMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
+    const oldSessionId = process.env[HARNESS_SESSION_ENV.pi.sessionId];
+    const agentId = "agent00001";
+    const sessionId = "clean-session";
     process.env.ORCH_DIR = root;
-    process.env.ORCH_AGENT_KEY = "agent00001";
+    process.env[LAUNCH_ENV] = agentId;
+    process.env[HARNESS_SESSION_ENV.pi.marker] = "1";
+    process.env[HARNESS_SESSION_ENV.pi.sessionId] = sessionId;
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     try {
+      seedAgent(agentId, { adapter: "pi" }, root);
+      expect(claimAgent(root, agentId, sessionId, 1)).toEqual({ kind: "stamped" });
       seedStatus(root, "deadagent1", { pid: 999999 });
       // A refusal is a thrown value carrying its reason, not a process exit and
       // not a stderr side effect (src/refusal.ts): the CLI boundary renders it.
@@ -75,7 +86,9 @@ describe("orch clean is destructive maintenance", () => {
     } finally {
       process.exit = oldExit;
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
-      if (oldKey === undefined) delete process.env.ORCH_AGENT_KEY; else process.env.ORCH_AGENT_KEY = oldKey;
+      if (oldKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldKey;
+      if (oldMarker === undefined) delete process.env[HARNESS_SESSION_ENV.pi.marker]; else process.env[HARNESS_SESSION_ENV.pi.marker] = oldMarker;
+      if (oldSessionId === undefined) delete process.env[HARNESS_SESSION_ENV.pi.sessionId]; else process.env[HARNESS_SESSION_ENV.pi.sessionId] = oldSessionId;
       removeTempDir(root);
     }
   });

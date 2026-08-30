@@ -25,7 +25,7 @@ export function selfIdentity(): SelfIdentity | null {
   const spawned = launchCredential();
   if (spawned !== null) return { id: spawned };
   // A driving session: its harness's session token is the pointer to the row
-  // `hello` minted. The token is environment; the id it resolves to is identity.
+  // `register-session` minted. The token is environment; the id it resolves to is identity.
   const token = callerSession()?.sessionId;
   if (!token) return null;
   const id = agentIdBySessionToken(orchDir(), token);

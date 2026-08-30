@@ -71,7 +71,7 @@ const input = readJsonStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const pid = agentPid(input);
-const paneId = activePaneHud().paneHandle;
+const paneId = activePaneHud(key).paneHandle;
 const directory = ensurePresenceAgentDir(key);
 if (!directory) process.exit(0);
 

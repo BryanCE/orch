@@ -141,7 +141,7 @@ export interface SpaceHomeRole<Handle = BackendHandle> {
  */
 export interface EnvironmentIdentityRole {
   /** Where the calling process sits, or null when it is not inside one at all. */
-  current(): Identity | null;
+  current(id: string | null): Identity | null;
 }
 
 /** Turning an agent key into this environment's native handle. A separate role

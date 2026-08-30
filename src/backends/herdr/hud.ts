@@ -42,9 +42,8 @@ function herdrSocketPath(): string | undefined {
  * an agent that moved kept writing into a pane it had left. Environment is
  * mutable, so it is asked for on every call and never frozen at import.
  */
-export function herdrPaneHandle(): string | null {
-  const id = process.env.ORCH_AGENT_KEY;
-  // A key that is not a minted id names no agent orch registered, so there is no
+export function herdrPaneHandle(id: string | null): string | null {
+  // An id that is not minted names no agent orch registered, so there is no
   // environment to compose — never a pane handle to fall back on.
   if (!isAgentId(id)) return null;
   try {
@@ -65,8 +64,8 @@ export function herdrPaneHandle(): string | null {
  * internally, so selecting this provider never grants more than each function
  * already allowed itself.
  */
-export function herdrHudActive(): boolean {
-  return herdrPaneHandle() !== null;
+export function herdrHudActive(id: string | null): boolean {
+  return herdrPaneHandle(id) !== null;
 }
 
 // ---- pane custom-status metadata ----
@@ -99,14 +98,14 @@ function sendHerdrMetadata(paneId: string, customStatus: string): void {
  * emits when this process owns the herdr pane it would report against and the
  * derived status line actually changed.
  */
-export function createPaneStatusReporter(paneId: string | null): (snapshot: PaneStatusSnapshot) => void {
+export function createPaneStatusReporter(id: string | null, paneId: string | null): (snapshot: PaneStatusSnapshot) => void {
   let lastCustomStatus: string | undefined;
 
   // Report only against the pane this process actually occupies right now: a
   // stale handle would paint someone else's pane with this agent's status.
   function reportablePane(): string | null {
     if (!herdrSocketPath() || paneId === null) return null;
-    return paneId === herdrPaneHandle() ? paneId : null;
+    return paneId === herdrPaneHandle(id) ? paneId : null;
   }
 
   function currentCustomStatus(snapshot: PaneStatusSnapshot): string | undefined {
@@ -184,8 +183,8 @@ function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEnt
  * status write entirely; a lookup that fails leaves the previous labels in
  * place but still reports true.
  */
-export async function readPaneLabels(apply: (labels: PaneLabels) => void): Promise<boolean> {
-  const handle = herdrPaneHandle();
+export async function readPaneLabels(id: string | null, apply: (labels: PaneLabels) => void): Promise<boolean> {
+  const handle = herdrPaneHandle(id);
   if (handle === null) return false;
   try {
     const [paneOutput, tabOutput] = await Promise.all([
@@ -259,12 +258,13 @@ function parsePaneDurationEnv(name: string, fallback: number): number {
 }
 
 export function registerPaneStateHud(
+  id: string | null,
   registrar: PaneHudRegistrar,
   events: PaneHudEventBus,
   options: PaneHudOptions,
 ): void {
   const socketPath = herdrSocketPath();
-  const paneHandle = herdrPaneHandle();
+  const paneHandle = herdrPaneHandle(id);
   if (!socketPath || paneHandle === null) return;
 
   const agentId = options.agentId;

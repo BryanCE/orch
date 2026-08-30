@@ -6,6 +6,7 @@ import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 // Replace the CLI boundary before loading HerdrBackend. This records argv without
 // ever starting a herdr process (and therefore cannot create a live pane).
@@ -131,6 +132,21 @@ afterAll(() => {
 });
 
 describe("HerdrBackend", () => {
+  test("current identity uses the explicit id, not the launch environment", () => {
+    isolateOrchEnv();
+    const previousPane = process.env.HERDR_PANE_ID;
+    try {
+      process.env.HERDR_PANE_ID = "w0:p1";
+      const id = mintAgentId();
+      expect(backend.identity?.current(id)).toEqual({ id });
+      expect(backend.identity?.current(null)).toBeNull();
+    } finally {
+      restoreOrchEnv();
+      if (previousPane === undefined) delete process.env.HERDR_PANE_ID;
+      else process.env.HERDR_PANE_ID = previousPane;
+    }
+  });
+
   test("composes a complete group role bundle", () => {
     expect(typeof backend.groupHome.list).toBe("function");
     expect(typeof backend.groupHome.create).toBe("function");

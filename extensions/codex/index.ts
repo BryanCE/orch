@@ -42,7 +42,7 @@ if (!directory) process.exit(0);
 
 const previous = readStatus(directory);
 const now = new Date().toISOString();
-const paneId = activePaneHud().paneHandle;
+const paneId = activePaneHud(key).paneHandle;
 // Every codex notify event today is `agent-turn-complete`, fired only after a
 // settled successful turn (design D1) — synthesizing exitCode: 0 here (never
 // inside detectState itself) is what makes that resolve to "done" rather than

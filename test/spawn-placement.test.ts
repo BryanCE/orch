@@ -82,7 +82,7 @@ class HomedBackend extends FakePanedBackend {
     super({ id: "herdr" });
     this.spaceHome = home;
     this.inside = inside;
-    this.identity = { current: (): Identity | null => self };
+    this.identity = { current: (_id: string | null): Identity | null => self };
   }
 
   /** Rule 11: WHERE the caller sits is environment. It is answered by the
@@ -149,7 +149,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
   // Rule 11: environment is never identity. A human's own pane has HERDR_PANE_ID
   // and NO ORCH_AGENT_KEY — it is inside the plexer and has no orch identity, and
   // those are two different facts. 2026-08-29: the placement answered "inside?"
-  // with `identity.current() !== null`, so a Claude session the user launched in
+  // with a non-null identity result, so a Claude session the user launched in
   // a herdr pane was told it was OUTSIDE herdr and asked for a grant to open a
   // window it never needed.
   test("a caller INSIDE the plexer with NO orch identity (a human's pane) spawns beside itself", () => {

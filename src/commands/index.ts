@@ -104,9 +104,9 @@ COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
 
 PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
-                   [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]
+                   [--agent A] [--backend B] [--prompt T] [--worktree]
                                  Fresh tab with N balanced-tiled named agents (2=side-by-side,
-                                 3=2+1, 4=2x2, ...; cap 8). Names <prefix>-1..N.
+                                 3=2+1, 4=2x2, ...). Names <prefix>-1..N.
                                  Run from outside a pane, opening a space is REFUSED until a
                                  human approves it with 'orch grant'; --space <id> uses an open one.
                                  --backend headless needs --prompt: a detached agent runs it and exits.

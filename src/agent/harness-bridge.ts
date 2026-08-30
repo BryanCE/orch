@@ -13,6 +13,7 @@ import { createDaemonAck } from "./daemon-ack.ts";
 import { registerFleetMonitor } from "./monitor.ts";
 import { createAgentPresence } from "./presence.ts";
 import { orchDir } from "../presence/writer.ts";
+import { selfIdentity } from "../identity/self.ts";
 import { registerAgentTools } from "./tools.ts";
 import { isRecord } from "../util.ts";
 import type { FleetStatusRenderer, HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
@@ -29,7 +30,7 @@ export function registerHarnessBridge(
   extensionHash: string,
   ui?: { renderFleetStatus?: FleetStatusRenderer; fleet?: boolean },
 ): HarnessBridge {
-  const hud = activePaneHud();
+  const hud = activePaneHud(selfIdentity()?.id ?? null);
   const paneId = hud.paneHandle;
 
   hud.registerPaneState(

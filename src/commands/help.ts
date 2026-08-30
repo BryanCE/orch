@@ -147,8 +147,8 @@ One heavy command machine-wide (see settings.locked_commands).
   release       Evict the current holder, naming it. Requires --force.
 `,
   spawn: `orch spawn <name> [<name> ...] [--tab L] [--cwd P] [--cmd C] [--model M]
-          [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--spawn-cap N] [--worktree]
-Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...; cap 8).
+          [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--worktree]
+Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...).
 NAMING AN AGENT IS PART OF CREATING IT: the positional arguments ARE the names,
 one per agent, and how many you give is how many panes you get. There is no
 default name, no prefix numbering, and no --name flag — name each pane for the

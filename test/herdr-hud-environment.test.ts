@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { herdrHudActive, herdrPaneHandle } from "../src/backends/herdr/hud.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { placeAgent } from "./helpers/agent.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 // A1 / CLAUDE.md Rule 11: the pane HUD's two questions — "am I in a herdr pane"
 // and "which pane am I" — are ENVIRONMENT, composed from `agent_plexers` and
@@ -16,8 +17,6 @@ import { placeAgent } from "./helpers/agent.ts";
 describe("the herdr HUD reads its pane from the composer, never from the key", () => {
   const directories: string[] = [];
   const saved = {
-    orchDir: process.env.ORCH_DIR,
-    agentKey: process.env.ORCH_AGENT_KEY,
     herdrEnv: process.env.HERDR_ENV,
     socket: process.env.HERDR_SOCKET_PATH,
   };
@@ -32,12 +31,16 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
   function seedPaneAgent(root: string, plexer: string, handle: string): string {
     const key = mintAgentId();
     registerSpawnedAgent(root, { key, harnessId: "pi", backendId: plexer, pane: true, handle, cwd: root, name: "recon", model: "test", spawner: null });
-    process.env.ORCH_AGENT_KEY = key;
     return key;
   }
 
+  beforeEach(() => {
+    isolateOrchEnv();
+  });
+
   afterEach(() => {
-    for (const [name, value] of [["ORCH_DIR", saved.orchDir], ["ORCH_AGENT_KEY", saved.agentKey], ["HERDR_ENV", saved.herdrEnv], ["HERDR_SOCKET_PATH", saved.socket]] as const) {
+    restoreOrchEnv();
+    for (const [name, value] of [["HERDR_ENV", saved.herdrEnv], ["HERDR_SOCKET_PATH", saved.socket]] as const) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
@@ -46,9 +49,10 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
 
   test("a herdr-placed agent reports the handle its environment carries", () => {
     const root = tempOrchDir();
-    seedPaneAgent(root, "herdr", "%3");
-    expect(herdrPaneHandle()).toBe("%3");
-    expect(herdrHudActive()).toBe(true);
+    const key = seedPaneAgent(root, "herdr", "%3");
+    expect(process.env.ORCH_AGENT_KEY).toBeUndefined();
+    expect(herdrPaneHandle(key)).toBe("%3");
+    expect(herdrHudActive(key)).toBe(true);
   });
 
   test("the handle follows the agent when it moves pane", () => {
@@ -56,30 +60,29 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     const key = seedPaneAgent(root, "herdr", "%3");
     // The identity key never changes; only the environment does.
     placeAgent(key, { adapter: "pi", handle: "%9" });
-    expect(herdrPaneHandle()).toBe("%9");
-    expect(process.env.ORCH_AGENT_KEY).toBe(key);
+    expect(herdrPaneHandle(key)).toBe("%9");
+    expect(process.env.ORCH_AGENT_KEY).toBeUndefined();
   });
 
   test("an agent on another plexer is not a herdr pane", () => {
     const root = tempOrchDir();
-    seedPaneAgent(root, "tmux", "%1");
-    expect(herdrPaneHandle()).toBeNull();
-    expect(herdrHudActive()).toBe(false);
+    const key = seedPaneAgent(root, "tmux", "%1");
+    expect(herdrPaneHandle(key)).toBeNull();
+    expect(herdrHudActive(key)).toBe(false);
   });
 
   test("a process orch never launched is not a herdr pane", () => {
     tempOrchDir();
-    delete process.env.ORCH_AGENT_KEY;
-    expect(herdrPaneHandle()).toBeNull();
-    expect(herdrHudActive()).toBe(false);
+    expect(herdrPaneHandle(null)).toBeNull();
+    expect(herdrHudActive(null)).toBe(false);
   });
 
   test("a key that is not a minted id resolves to no pane at all", () => {
     tempOrchDir();
     // A NEGATIVE case, kept verbatim: the dead composite key looks like it
     // carries a plexer and a handle, and nothing may read them back out of it.
-    process.env.ORCH_AGENT_KEY = "herdr~wF~%3";
-    expect(herdrPaneHandle()).toBeNull();
-    expect(herdrHudActive()).toBe(false);
+    const malformed = "herdr~wF~%3";
+    expect(herdrPaneHandle(malformed)).toBeNull();
+    expect(herdrHudActive(malformed)).toBe(false);
   });
 });

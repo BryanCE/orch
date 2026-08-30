@@ -64,7 +64,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     this.homeExec = deps.homeExec ?? ((args) => execTmux(args));
   }
   readonly identity: EnvironmentIdentityRole = {
-    current: (): Identity | null => this.ownIdentity(),
+    current: (id: string | null): Identity | null => this.ownIdentity(id),
   };
   // No key -> handle lookup: a pane is addressed by its own handle here.
   readonly handleLookup: null = null;
@@ -213,13 +213,13 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return bestEffortTmux(["display-message", "-p", "-t", pane, "#{@orch_agent_key}"])?.trim() ?? "";
   }
 
-  /** Identity of the calling pane, resolved from tmux's environment. */
-  private ownIdentity(): Identity | null {
+  /** Identity of the calling pane, resolved from the explicit orch id. */
+  private ownIdentity(id: string | null): Identity | null {
     const handle = process.env.TMUX_PANE;
     if (!handle) return null;
-    // See the herdr backend: identity is minted by orch and arrives in the
-    // environment. A pane this process merely happens to occupy is not one.
-    return tryParseIdentity(process.env.ORCH_AGENT_KEY);
+    // See the herdr backend: identity is minted by orch and arrives as an
+    // explicit argument. A pane this process merely happens to occupy is not one.
+    return tryParseIdentity(id);
   }
 
   /** Split one pane (or the group's active pane) to place a new pane inside a group (D8). */

@@ -95,7 +95,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   // Composes identity (it knows which space this process sits in) and nothing for
   // log pruning: herdr keeps no logs orch owns. Absence IS the answer (E13).
   readonly identity: EnvironmentIdentityRole = {
-    current: (): Identity | null => this.ownIdentity(),
+    current: (id: string | null): Identity | null => this.ownIdentity(id),
   };
   // No key -> handle lookup: a pane is addressed by its own handle here.
   readonly handleLookup: null = null;
@@ -240,15 +240,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return process.env.HERDR_ENV === "1" || process.env.HERDR_PANE_ID !== undefined;
   }
 
-  /** Identity of the calling pane, resolved from herdr's own environment. */
-  private ownIdentity(): Identity | null {
+  /** Identity of the calling pane, resolved from the explicit orch id. */
+  private ownIdentity(id: string | null): Identity | null {
     const handle = process.env.HERDR_PANE_ID;
     if (!handle) return null;
     // Identity is orch's, not the plexer's: it exists only if orch minted one and
-    // handed it over at launch. A pane orch never spawned has NO orch identity,
+    // handed it over at launch. A pane orch never spawned has no orch identity,
     // and that is an answer — the pane id is a plexer coordinate that renumbers
     // on a move, so promoting it to an identity forks the agent in two (A1).
-    return tryParseIdentity(process.env.ORCH_AGENT_KEY);
+    return tryParseIdentity(id);
   }
 
   /** Create a pane first, then start herdr's canonical harness in that pane. */

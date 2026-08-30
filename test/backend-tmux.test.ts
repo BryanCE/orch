@@ -8,6 +8,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
 import { projectRoot } from "../src/util.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /** One synthetic tmux pane row served by the fake `list-panes -a` query. */
 interface FakePane {
@@ -171,6 +172,21 @@ afterAll(() => {
 });
 
 describe("TmuxBackend", () => {
+  test("current identity uses the explicit id, not the launch environment", () => {
+    isolateOrchEnv();
+    const previousPane = process.env.TMUX_PANE;
+    try {
+      process.env.TMUX_PANE = "%1";
+      const id = mintAgentId();
+      expect(new TmuxBackend().identity?.current(id)).toEqual({ id });
+      expect(new TmuxBackend().identity?.current(null)).toBeNull();
+    } finally {
+      restoreOrchEnv();
+      if (previousPane === undefined) delete process.env.TMUX_PANE;
+      else process.env.TMUX_PANE = previousPane;
+    }
+  });
+
   test("does not expose legacy top-level group methods", () => {
     const backend = new TmuxBackend();
     for (const method of ["createGroup", "groups", "renameGroup", "closeGroup", "focusGroup", "movePane", "moveToGroup", "groupLayoutFor"]) expect(method in backend).toBe(false);

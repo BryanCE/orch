@@ -89,6 +89,7 @@ CREATE TABLE `agents` (
 	`name` text NOT NULL,
 	`label` text,
 	`session_token` text,
+	`claimed_at` integer,
 	`created_at` integer NOT NULL,
 	CONSTRAINT `fk_agents_spawned_by_agents_id_fk` FOREIGN KEY (`spawned_by`) REFERENCES `agents`(`id`),
 	CONSTRAINT `fk_agents_root_agent_id_agents_id_fk` FOREIGN KEY (`root_agent_id`) REFERENCES `agents`(`id`),

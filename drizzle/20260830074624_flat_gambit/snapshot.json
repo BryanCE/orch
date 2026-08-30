@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "219ae488-bb47-49e5-a3a8-e38786c99c73",
+  "id": "14648259-581a-496c-b25a-1c99d0090cd8",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -529,6 +529,16 @@
       "default": null,
       "generated": null,
       "name": "session_token",
+      "entityType": "columns",
+      "table": "agents"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "claimed_at",
       "entityType": "columns",
       "table": "agents"
     },

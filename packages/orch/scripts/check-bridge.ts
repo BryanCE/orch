@@ -3,6 +3,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
+const packageRoot = join(import.meta.dirname, "..");
+const repoRoot = join(packageRoot, "..", "..");
+
 function fail(file: string, line: number, reason: string): never {
   console.log(`check:bridge FAIL ${file}:${line} ${reason}`);
   process.exit(1);
@@ -45,9 +48,9 @@ function directoryIds(directory: string, label: string): readonly string[] {
 }
 
 /** Every plexer: one directory under `src/backends/`. */
-export const PLEXER_IDS: readonly string[] = directoryIds("src/backends", "plexer");
+export const PLEXER_IDS: readonly string[] = directoryIds(join(packageRoot, "src/backends"), "plexer");
 /** Every harness: one directory under `extensions/` (Rule 10). */
-export const HARNESS_IDS: readonly string[] = directoryIds("extensions", "harness");
+export const HARNESS_IDS: readonly string[] = directoryIds(join(packageRoot, "extensions"), "harness");
 /** The union both identity rules branch on. */
 export const ENVIRONMENT_IDS: readonly string[] = [...new Set([...HARNESS_IDS, ...PLEXER_IDS])].sort((left, right) => left.localeCompare(right));
 
@@ -104,20 +107,20 @@ function scanSrcOutsideBackends(check: LineCheck): number {
  * `.tsx`, and a concrete backend/adapter import can hide in one just as easily
  * as in a `.ts` server module.
  */
-function scanSourceTree(directory: string, check: LineCheck): number {
+function scanSourceTree(directory: string, check: LineCheck, relativeDirectory = directory): number {
   const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name));
   let count = 0;
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (entry.name === "node_modules") continue;
-      count += scanSourceTree(join(directory, entry.name), check);
+      count += scanSourceTree(join(directory, entry.name), check, join(relativeDirectory, entry.name));
       continue;
     }
     if (!entry.isFile() || (!entry.name.endsWith(".ts") && !entry.name.endsWith(".tsx"))) continue;
     const file = join(directory, entry.name);
     const lines = readFileSync(file, "utf8").split(/\r?\n/);
     for (let index = 0; index < lines.length; index++) {
-      const reason = check(lines[index]!, relPathOf(file));
+      const reason = check(lines[index]!, relPathOf(join(relativeDirectory, entry.name)));
       if (reason) fail(file, index + 1, reason);
     }
     count++;
@@ -130,8 +133,8 @@ function scanSourceTree(directory: string, check: LineCheck): number {
 function scanPackagesSrc(check: LineCheck): number {
   let packageDirs: string[];
   try {
-    packageDirs = readdirSync("packages", { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+    packageDirs = readdirSync(join(repoRoot, "packages"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && join(repoRoot, "packages", entry.name) !== packageRoot)
       .map((entry) => entry.name)
       .sort((left, right) => left.localeCompare(right));
   } catch {
@@ -139,13 +142,13 @@ function scanPackagesSrc(check: LineCheck): number {
   }
   let count = 0;
   for (const pkg of packageDirs) {
-    const srcDir = join("packages", pkg, "src");
+    const srcDir = join(repoRoot, "packages", pkg, "src");
     try {
       readdirSync(srcDir);
     } catch {
       continue;
     }
-    count += scanSourceTree(srcDir, check);
+    count += scanSourceTree(srcDir, check, join("packages", pkg, "src"));
   }
   return count;
 }
@@ -286,7 +289,7 @@ function backendEnvNames(): ReadonlyMap<string, string> {
     const prefix = `${backend.toUpperCase()}_`;
     owners.set(prefix, backend);
     for (const extra of BACKEND_ENV_PREFIX_EXTRAS.get(backend) ?? []) owners.set(extra, backend);
-    const lines = scanBackendEnvReferences(join("src/backends", backend));
+    const lines = scanBackendEnvReferences(join(packageRoot, "src/backends", backend));
     for (const name of lines) if (!name.startsWith("ORCH_")) owners.set(name, backend);
   }
   return owners;
@@ -531,7 +534,7 @@ const METHOD_OWNER = "(?:provider|backend|adapter|resolvedBackend|resolvedAdapte
  */
 function portRoleMembers(): readonly string[] {
   const names = new Set<string>();
-  for (const file of ["src/types/backend.ts", "src/types/adapter.ts"]) {
+  for (const file of [join(packageRoot, "src/types/backend.ts"), join(packageRoot, "src/types/adapter.ts")]) {
     const source = readFileSync(file, "utf8");
     // A composed role is a member whose TYPE is a Role or a Strategy — `readonly
     // paneHost: PaneHostRole<Handle> | null`, `readonly thinking: ThinkingStrategy
@@ -546,7 +549,7 @@ function portRoleMembers(): readonly string[] {
   // The adapter port's declared-optional fields are an absence the core reads
   // directly too. Scoped to that interface: an optional field on a REQUEST type
   // is not a capability, and exempting those would gut the rule.
-  const adapter = readFileSync("src/types/adapter.ts", "utf8");
+  const adapter = readFileSync(join(packageRoot, "src/types/adapter.ts"), "utf8");
   const port = /^export interface AgentAdapter\b[^{]*\{([\s\S]*?)^\}/m.exec(adapter)?.[1] ?? "";
   for (const member of port.matchAll(/^\s*readonly\s+([A-Za-z_$][\w$]*)\s*\?\s*:/gm)) names.add(member[1]!);
   if (names.size === 0) throw new Error("check-bridge: found no role members on the ports - the port shape changed under this rule");

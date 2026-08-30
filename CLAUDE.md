@@ -1,5 +1,7 @@
 # CLAUDE.md. Rules for this repo. Non-negotiable.
 
+Layout: the repo root is a private bun workspace. The orch package (`@bryance/orch`) lives in `packages/orch/` — its `src/`, `test/`, `bin/`, `extensions/`, `scripts/`, `skills/`, `drizzle/`. The web UI is `packages/web/`. Root scripts delegate via `bun --filter`, so `bun check`, `bun test`, `bun run build:dev`, `bun db:gen` all still run from the root. Relative paths in the rules below are inside `packages/orch/` unless they start with `packages/`.
+
 # RULE #1. NEVER BUILD. NEVER MIGRATE. NEVER GENERATE. NEVER RELOAD. ASK BRYAN.
 User-only, no exceptions, not through a worker or subagent or orch verb, not "just to test":
 - `bun run build:dev`, `bun run build`, `bun run build:cli`, `bun build`, `npm pack`, `npm install -g`, `npm i -g`
@@ -25,7 +27,7 @@ Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch 
 - `reload` = live-reload code in place. `reset` = new session. `restart` = close and relaunch. Use `reload`, never `restart`, to pick up code.
 
 # RULE 6. NODE RUNTIME. BUN IS A BUILD TOOL ONLY.
-Runtime code in `src/` and `extensions/` must run on node. No `Bun.*` API, no `bun:*` import, except `bun:sqlite` as a guarded fallback behind `node:sqlite` (already in `src/store/connection.ts`). Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`; CLI source edits need Bryan's `bun run build:dev` to take effect.
+Runtime code in `src/` and `extensions/` must run on node. No `Bun.*` API, no `bun:*` import, except `bun:sqlite` as a guarded fallback behind `node:sqlite` (already in `packages/orch/src/store/connection.ts`). Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`; CLI source edits need Bryan's `bun run build:dev` to take effect.
 
 # RULE 7. FRESH CONTEXT PER TASK. `reset` BEFORE DISPATCH.
 `orch reset <target>` (alias `new`) every target you are about to redispatch, in the same shot as the dispatch. Never stack a new task on a used session.

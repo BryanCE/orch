@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { assertHostOwnsStore } from "./store.ts";
 
 /**
@@ -20,6 +21,10 @@ import { assertHostOwnsStore } from "./store.ts";
  */
 const REPO = join(import.meta.dirname, "..", "..");
 const MIGRATIONS = join(REPO, "drizzle");
+const require = createRequire(import.meta.url);
+// drizzle-kit does not export its CLI subpath; resolve its package entry through
+// the hoisted dependency tree, then address the shipped bin within that package.
+const DRIZZLE_KIT_BIN = join(dirname(require.resolve("drizzle-kit")), "bin.cjs");
 const isDryRun = process.argv.includes("--dry-run");
 const fromScratch = process.argv.includes("--from-scratch");
 
@@ -71,7 +76,7 @@ function run(step: string, argv: readonly string[]): void {
 
 // Tables only. The views and triggers drizzle-kit cannot build are created at
 // store open from the generated migrations, so nothing post-processes what it wrote.
-run("drizzle-kit generate", [process.execPath, join(REPO, "node_modules/drizzle-kit/bin.cjs"), "generate"]);
+run("drizzle-kit generate", [process.execPath, DRIZZLE_KIT_BIN, "generate"]);
 
 const added = fromScratch ? existingMigrations() : existingMigrations().filter((name) => !previous.includes(name));
 report("");

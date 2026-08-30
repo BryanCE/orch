@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { partitionAgents, projectFleet, projectHistory, type FleetProjectionRow } from "../packages/web/src/lib/fleet.ts";
+import { partitionAgents, projectFleet, projectHistory, type FleetProjectionRow } from "../../web/src/lib/fleet.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 
 // A1: a row's key is a minted agent id and nothing else. The plexer coordinates

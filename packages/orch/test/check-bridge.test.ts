@@ -27,16 +27,21 @@ import {
 // stay silent on them.
 
 const repoRoot = join(import.meta.dir, "..");
+const monorepoRoot = join(import.meta.dir, "..", "..", "..");
 function readRepoLines(relPath: string): string[] {
   return readFileSync(join(repoRoot, relPath), "utf8").split(/\r?\n/);
 }
 
-function sourceFiles(relDir: string): string[] {
-  const directory = join(repoRoot, relDir);
+function readWebRepoLines(relPath: string): string[] {
+  return readFileSync(join(monorepoRoot, relPath), "utf8").split(/\r?\n/);
+}
+
+function sourceFiles(relDir: string, root = repoRoot): string[] {
+  const directory = join(root, relDir);
   const files: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(relDir, entry.name);
-    if (entry.isDirectory()) files.push(...sourceFiles(path));
+    if (entry.isDirectory()) files.push(...sourceFiles(path, root));
     else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(path);
   }
   return files;
@@ -66,7 +71,7 @@ describe("10.1 packages must not import concrete backends/adapters (checkPackage
   });
 
   test("passes the clean tree: no line of the real web server is flagged", () => {
-    for (const line of readRepoLines("packages/web/src/server/orch.ts")) {
+    for (const line of readWebRepoLines("packages/web/src/server/orch.ts")) {
       expect(checkPackageImportLine(line)).toBeUndefined();
     }
   });
@@ -309,9 +314,10 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
     const scopes = ["src", "extensions", "packages/web/src"];
     const violations: string[] = [];
     for (const scope of scopes) {
-      for (const file of sourceFiles(scope)) {
+      const root = scope === "packages/web/src" ? monorepoRoot : repoRoot;
+      for (const file of sourceFiles(scope, root)) {
         const relPath = file.replace(/\\/g, "/");
-        const lines = readRepoLines(file);
+        const lines = scope === "packages/web/src" ? readWebRepoLines(file) : readRepoLines(file);
         for (let index = 0; index < lines.length; index++) {
           const reason = checkEnvironmentCapabilityLine(lines[index]!, relPath);
           if (reason) violations.push(`${relPath}:${index + 1}: ${lines[index]!.trim()}`);
@@ -410,7 +416,7 @@ describe("the closed plexer-id set is spelled in exactly one line", () => {
   });
 
   test("the line src/types/backend.ts actually carries is the allowed one", () => {
-    const source = readFileSync("src/types/backend.ts", "utf8").split("\n");
+    const source = readRepoLines("src/types/backend.ts");
     const spelled = source.flatMap((line, index) =>
       checkPlexerLiteralLine(line, "src/types/backend.ts", "outside backends") ? [`src/types/backend.ts:${index + 1}`] : []);
     expect(spelled).toEqual([]);

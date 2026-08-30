@@ -18,6 +18,8 @@ backend = "copyfile"
 
 # Every test file loads through this first. It strips the ambient plexer's
 # environment so the suite behaves the same inside a herdr pane, inside tmux and
-# in CI — see test/preload.ts for what that leakage used to cost.
+# in CI — see packages/orch/test/preload.ts for what that leakage used to cost.
+# The path is repeated in packages/orch/bunfig.toml so `bun test` works from the
+# root (Bryan's gate command) and from inside the package alike.
 [test]
-preload = ["./test/preload.ts"]
+preload = ["./packages/orch/test/preload.ts"]

@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 /**
- * A paned environment that records the key it would stamp as ORCH_AGENT_KEY
+ * A paned environment that records the key it would stamp as launch env
  * (real herdr/tmux put `opts.key` into the launch env verbatim) and returns a
  * pane-native handle distinct from that key.
  *
@@ -87,7 +87,7 @@ describe("one key per pane spawn (12.1)", () => {
       preferredModels: [],
     });
 
-    // The key passed via ORCH_AGENT_KEY IS the identity key returned to the caller.
+    // The key passed via launch env IS the identity key returned to the caller.
     expect(envKey()).toBe(agent.key);
 
     // A1: identity is the minted id and NOTHING else — no plexer, no space, no

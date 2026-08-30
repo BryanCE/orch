@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -372,23 +373,23 @@ describe("10.7 leases and provenance stay in separate columns (checkLeaseProvena
 // still hard-coding a plexer, which is what this rule exists to stop.
 describe("launch env reads stay in identity/launch.ts (checkLaunchEnvLine)", () => {
   test("flags a launch env read outside launch.ts with the file and constant named", () => {
-    const reason = checkLaunchEnvLine("const key = process.env.ORCH_AGENT_KEY;", "src/commands/spawn.ts");
+    const reason = checkLaunchEnvLine(`const key = process.env.${LAUNCH_ENV};`, "src/commands/spawn.ts");
     expect(reason).toContain("src/identity/launch.ts");
     expect(reason).toContain("LAUNCH_ENV");
   });
 
   test("allows the launch env read inside identity/launch.ts", () => {
-    expect(checkLaunchEnvLine("const key = process.env.ORCH_AGENT_KEY;", "src/identity/launch.ts")).toBeUndefined();
+    expect(checkLaunchEnvLine(`const key = process.env.${LAUNCH_ENV};`, "src/identity/launch.ts")).toBeUndefined();
   });
 
   test("flags a bare launch env name literal outside launch.ts", () => {
-    const reason = checkLaunchEnvLine('const name = "ORCH_AGENT_KEY";', "src/commands/spawn.ts");
+    const reason = checkLaunchEnvLine(`const name = "${LAUNCH_ENV}";`, "src/commands/spawn.ts");
     expect(reason).toContain("src/identity/launch.ts");
     expect(reason).toContain("LAUNCH_ENV");
   });
 
   test("flags a comment mentioning the launch env name outside launch.ts", () => {
-    expect(checkLaunchEnvLine("// ORCH_AGENT_KEY is absent for humans", "src/commands/spawn.ts")).toContain("LAUNCH_ENV");
+    expect(checkLaunchEnvLine(`// ${LAUNCH_ENV} is absent for humans`, "src/commands/spawn.ts")).toContain("LAUNCH_ENV");
   });
 });
 

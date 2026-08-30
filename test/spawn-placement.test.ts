@@ -147,7 +147,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
   });
 
   // Rule 11: environment is never identity. A human's own pane has HERDR_PANE_ID
-  // and NO ORCH_AGENT_KEY — it is inside the plexer and has no orch identity, and
+  // and NO launch env — it is inside the plexer and has no orch identity, and
   // those are two different facts. 2026-08-29: the placement answered "inside?"
   // with a non-null identity result, so a Claude session the user launched in
   // a herdr pane was told it was OUTSIDE herdr and asked for a grant to open a

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,10 +21,10 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
   const root = mkdtempSync(join(tmpdir(), "orch-owned-keys-"));
   const oldDir = process.env.ORCH_DIR;
   const oldOwner = process.env.ORCH_OWNER;
-  const oldAgentKey = process.env.ORCH_AGENT_KEY;
+  const oldAgentKey = process.env[LAUNCH_ENV];
   process.env.ORCH_DIR = root;
   process.env.ORCH_OWNER = "orcha00001";
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
   try {
     writeSettingsFixture(root, {
       enabled: { adapters: ["pi"], backends: ["headless"] },
@@ -38,7 +39,7 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
     closeAllStores();
     if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
     if (oldOwner === undefined) delete process.env.ORCH_OWNER; else process.env.ORCH_OWNER = oldOwner;
-    if (oldAgentKey !== undefined) process.env.ORCH_AGENT_KEY = oldAgentKey;
+    if (oldAgentKey !== undefined) process.env[LAUNCH_ENV] = oldAgentKey;
     removeTempDir(root);
   }
 }

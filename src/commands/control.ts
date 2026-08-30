@@ -242,6 +242,7 @@ export async function cmdDispatch(args: string[]) {
   // Dispatching to a bare pane adopts it: the record carries the dispatcher's
   // owner token, or the adopted pane stays open to every other orchestrator.
   if (!spawnedRecords().has(key)) {
+    const adoptedModel = settings.model ?? "";
     registerSpawnedAgent(orchDir(), {
       key,
       harnessId: settings.adapter,
@@ -257,7 +258,7 @@ export async function cmdDispatch(args: string[]) {
       ...(settings.ent.space === null ? {} : { space: settings.ent.space }),
       cwd: process.cwd(),
       name: settings.ent.name ?? key,
-      model: settings.model ?? "",
+      model: adoptedModel,
       spawner: spawnerIdentity().key,
       owner: callerOwnerToken(),
     });

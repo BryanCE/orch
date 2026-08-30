@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 const originalOrchDir = process.env.ORCH_DIR;
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalAgentKey = process.env[LAUNCH_ENV];
 const originalSpawner = process.env.ORCH_SPAWNER;
 const directories: string[] = [];
 
@@ -20,8 +21,8 @@ afterEach(() => {
   closeAllStores();
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
   if (originalSpawner === undefined) delete process.env.ORCH_SPAWNER;
   else process.env.ORCH_SPAWNER = originalSpawner;
   while (directories.length > 0) removeTempDir(directories.pop()!);
@@ -42,7 +43,7 @@ function fixture(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-peer-lease-"));
   directories.push(directory);
   process.env.ORCH_DIR = directory;
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
   delete process.env.ORCH_SPAWNER;
 
   ensureHarness(directory, "pi", "Pi", 1);

@@ -1,3 +1,4 @@
+import { LAUNCH_ENV } from "../identity/launch.ts";
 import { callerSession, selfIdentity } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -8,7 +9,7 @@ import type { SpawnerIdentity } from "../types/policy.ts";
 /** Every ORCH_* variable carried through a spawn; tests import this vocabulary
  * so isolation cannot drift from the launch boundary. */
 export const ORCH_ENV_VARS = [
-  "ORCH_AGENT_KEY", "ORCH_DIR", "ORCH_PROJECT", "ORCH_AGENT_NAME",
+  LAUNCH_ENV, "ORCH_DIR", "ORCH_PROJECT", "ORCH_AGENT_NAME",
   "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH",
   "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_SPACE", "ORCH_HARNESS",
 ] as const;
@@ -77,7 +78,7 @@ export function agentLaunchEnv(
   extra: Readonly<Record<string, string | undefined>> = {},
 ): Record<string, string> {
   const values: Partial<Record<(typeof ORCH_ENV_VARS)[number], string | undefined>> = {
-    ORCH_AGENT_KEY: opts.key,
+    [LAUNCH_ENV]: opts.key,
     ORCH_DIR: opts.orchDir,
     ORCH_PROJECT: projectRoot(),
   };

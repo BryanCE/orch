@@ -6,6 +6,7 @@ import {  } from "../../presence/store.ts";
 import { errorMessage, pidAlive } from "../../util.ts";
 import { decisionLogger } from "../../daemon/decision-log.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
+import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
@@ -150,11 +151,11 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const directory = orchDirectory(opts.orchDir);
     // The caller mints the serialized identity BEFORE launch (one key per agent)
-    // and passes it via ORCH_AGENT_KEY; the backend never mints a second one. The
+    // and passes it via LAUNCH_ENV; the backend never mints a second one. The
     // OS pid is recorded separately (below) for close-time ownership checks; it is
     // not part of the identity handle.
     const key = opts.key;
-    if (!safeKey(key)) throw new Error(`headless spawn requires a caller-minted presence key (ORCH_AGENT_KEY); got ${JSON.stringify(key)}`);
+    if (!safeKey(key)) throw new Error(`headless spawn requires a caller-minted presence key (${LAUNCH_ENV}); got ${JSON.stringify(key)}`);
 
     const adapterOpts: SpawnOpts = {
       key,

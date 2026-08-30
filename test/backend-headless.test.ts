@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -13,7 +14,7 @@ import type { SpawnOpts } from "../src/types/adapter.ts";
 import { processStartToken } from "../src/process-identity.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalAgentKey = process.env[LAUNCH_ENV];
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
 
 const { HeadlessBackend } = await import("../src/backends/headless/index.ts");
@@ -31,7 +32,7 @@ const fakeAdapter = makeFakeAdapter({
     const script = [
       "const fs = require(\"node:fs\");",
       `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
-      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ schema: ${PRESENCE_SCHEMA}, pid: process.pid, state: \"working\", key: process.env.ORCH_AGENT_KEY }));`,
+      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ schema: ${PRESENCE_SCHEMA}, pid: process.pid, state: \"working\", key: process.env[${JSON.stringify(LAUNCH_ENV)}] }));`,
       "setTimeout(() => {}, 5000);",
     ].join(" ");
     return [process.execPath, "-e", script];
@@ -65,14 +66,14 @@ async function waitFor(check: () => boolean): Promise<void> {
 function restoreOrchDir(): void {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
 }
 
 beforeEach(() => {
   process.env.ORCH_DIR = testOrchDir;
   // Headless tests launch agents with an explicit minted key; this session has no identity.
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
 });
 
 afterEach(() => {

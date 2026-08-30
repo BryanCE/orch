@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -132,7 +133,7 @@ const { TmuxBackend } = await import("../src/backends/tmux/index.ts");
 const { paneForeground } = await import("../src/commands/lifecycle.ts");
 
 const originalOrchDir = process.env.ORCH_DIR;
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalAgentKey = process.env[LAUNCH_ENV];
 const originalTmuxEnv = process.env.TMUX;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-tmux-"));
 
@@ -149,7 +150,7 @@ function callArgs(file: string, cmd: string): string[] | undefined {
 beforeEach(() => {
   process.env.ORCH_DIR = testOrchDir;
   // Pane fixtures pass identity explicitly; this caller is not an orch agent.
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
   process.env.TMUX = "/tmp/fake-tmux,0,0";
   panes = [];
   nextPaneSeq = 0;
@@ -160,8 +161,8 @@ beforeEach(() => {
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
   if (originalTmuxEnv === undefined) delete process.env.TMUX;
   else process.env.TMUX = originalTmuxEnv;
 });
@@ -328,11 +329,11 @@ describe("TmuxBackend", () => {
   test("paneHost.open splits the requested target with cwd and environment", () => {
     const backend = new TmuxBackend();
     const key = mintAgentId();
-    const created = backend.paneHost.open({ cwd: "/work", group: "@1", split: "right", targetPane: "%7", env: { ORCH_AGENT_KEY: key, FOO: "bar" } });
+    const created = backend.paneHost.open({ cwd: "/work", group: "@1", split: "right", targetPane: "%7", env: { [LAUNCH_ENV]: key, FOO: "bar" } });
     expect(created.handle).toBe("%1");
     expect(callArgs("tmux", "split-window")).toEqual([
       "split-window", "-t", "%7", "-h", "-P", "-F", "#{pane_id}", "-c", "/work",
-      "-e", `ORCH_AGENT_KEY=${key}`, "-e", "FOO=bar", "--", "bash",
+      "-e", `${LAUNCH_ENV}=${key}`, "-e", "FOO=bar", "--", "bash",
     ]);
     backend.paneHost.close(created.handle);
     expect(execCalls.some((call) => call.args.join(" ") === "kill-pane -t %1")).toBe(true);
@@ -345,7 +346,7 @@ describe("TmuxBackend", () => {
 
     expect(handle).toBe("%1");
     const split = callArgs("tmux", "split-window");
-    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `ORCH_AGENT_KEY=${key}`, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
+    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `${LAUNCH_ENV}=${key}`, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
     expect(execCalls.some((call) => call.args.join(" ") === `set-option -p -t %1 @orch_agent_key ${key}`)).toBe(true);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent pi")).toBe(true);
     // The tiling planner owns geometry; a blanket select-layout would overwrite it.

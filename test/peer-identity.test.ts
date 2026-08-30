@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 
 const IDENTITY_ENV = [
-  "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
+  "ORCH_DIR", LAUNCH_ENV, "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
   "ORCH_AGENT_NAME", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH",
   ...allAdapters().flatMap((adapter) => [adapter.sessionEnvMarker, adapter.sessionIdEnv, adapter.sessionPidEnv])
     .filter((name): name is string => name !== undefined),
@@ -83,7 +84,7 @@ describe("spawner identity", () => {
     seedSpace(orchDir, "wF");
     seedAgent(key, { space: "wF", adapter: "pi" });
     seedStatus(orchDir, key, { agent: "pi", label: "lead-1", pid: process.pid, state: "working" });
-    process.env.ORCH_AGENT_KEY = key;
+    process.env[LAUNCH_ENV] = key;
     // Identity is the minted id and nothing else: the launch key IS that id, so
     // there is no plexer and no grouping riding inside it to travel as identity.
     expect(spawnerIdentity().key).toBe("lead0000ab");

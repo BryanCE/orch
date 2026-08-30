@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,13 +35,13 @@ import { seedAgent } from "./helpers/agent.ts";
 
 const dirs: string[] = [];
 const oldDir = process.env.ORCH_DIR;
-const oldKey = process.env.ORCH_AGENT_KEY;
+const oldKey = process.env[LAUNCH_ENV];
 const originalWrite = process.stdout.write.bind(process.stdout);
 
 afterEach(() => {
   process.stdout.write = originalWrite;
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
-  if (oldKey === undefined) delete process.env.ORCH_AGENT_KEY; else process.env.ORCH_AGENT_KEY = oldKey;
+  if (oldKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldKey;
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
@@ -52,7 +53,7 @@ function fixture(): string {
     defaults: { adapter: "pi", backend: "headless" },
   });
   process.env.ORCH_DIR = dir;
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
   orm(dir);
   seedSpace(dir, "space00001");
   return dir;

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -18,7 +19,7 @@ const shimBuilt = fs.existsSync(shim);
 const runtimes = ORCH_RUNTIMES.filter(binaryOnPath);
 
 const directories: string[] = [];
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalAgentKey = process.env[LAUNCH_ENV];
 
 function tempOrchDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-claude-hooks-shim-"));
@@ -28,12 +29,12 @@ function tempOrchDir(): string {
 
 beforeEach(() => {
   // Every shim invocation states its own key (or its deliberate absence).
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
 });
 
 afterEach(() => {
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
@@ -60,7 +61,7 @@ function runShim(runtime: OrchRuntime, event: string, env: Record<string, string
     execFileSync(bin, args, {
       input: "{}",
       timeout: 25_000,
-      env: { ...process.env, ORCH_AGENT_KEY: undefined, ...env },
+      env: { ...process.env, [LAUNCH_ENV]: undefined, ...env },
     });
     return { status: 0, stderr: "" };
   } catch (error: unknown) {
@@ -73,7 +74,7 @@ function runShim(runtime: OrchRuntime, event: string, env: Record<string, string
 // every runtime present on this machine — users may run node, deno, or bun.
 describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
   describe.each(runtimes)("under %s", (runtime) => {
-    test("exits 0 silently in a non-orch session (no ORCH_AGENT_KEY)", () => {
+    test("exits 0 silently in a non-orch session (no launch env)", () => {
       const result = runShim(runtime, "Stop", { ORCH_DIR: tempOrchDir() });
 
       expect(result.status).toBe(0);
@@ -88,7 +89,7 @@ describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
     // could never be green together.
     test("exits 1 loudly on a present-but-malformed key", () => {
       const directory = tempOrchDir();
-      const result = runShim(runtime, "Stop", { ORCH_AGENT_KEY: "garbage", ORCH_DIR: directory });
+      const result = runShim(runtime, "Stop", { [LAUNCH_ENV]: "garbage", ORCH_DIR: directory });
 
       expect(result.status).toBe(1);
       // Nothing on either output channel: a hook that a harness runs must not print
@@ -104,7 +105,7 @@ describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
     test("writes status.json for a valid key", () => {
       const orchDir = tempOrchDir();
       const key = mintAgentId();
-      const result = runShim(runtime, "SessionStart", { ORCH_AGENT_KEY: key, ORCH_DIR: orchDir });
+      const result = runShim(runtime, "SessionStart", { [LAUNCH_ENV]: key, ORCH_DIR: orchDir });
 
       expect(result.status).toBe(0);
       const statusFile = path.join(orchDir, "agents", key, "status.json");

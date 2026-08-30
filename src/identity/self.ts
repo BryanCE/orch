@@ -56,7 +56,7 @@ export function spaceOfAgent(id: string): string | null {
  * on its identity. Asking the PLEXER "which workspace am I in" answers with a
  * plexer coordinate, which is environment wearing identity's hat (Rule 11); and
  * a second copy that asked the backend instead of resolving the minted id could
- * not see a driving session, which carries no ORCH_AGENT_KEY at all.
+ * not see a driving session, which carries no launch credential at all.
  */
 export function callerSpace(): string | null {
   const id = selfId();

@@ -10,6 +10,8 @@ import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { maySpawnFrom } from "../src/worker-prompt.ts";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 import type { OrchConfig } from "../src/types/config.ts";
@@ -20,11 +22,11 @@ import { sql } from "drizzle-orm";
 import { numberField, row } from "./helpers/rows.ts";
 const tempDirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
-const oldAgentKey = process.env.ORCH_AGENT_KEY;
+const oldAgentKey = process.env[LAUNCH_ENV];
 afterEach(() => {
   while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldOrchDir;
-  if (oldAgentKey === undefined) delete process.env.ORCH_AGENT_KEY; else process.env.ORCH_AGENT_KEY = oldAgentKey;
+  if (oldAgentKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldAgentKey;
 });
 
 const fleet = (max_agents_per_pack = 10): OrchConfig["fleet"] => ({
@@ -52,6 +54,18 @@ function policy(max_agents_per_pack: number, agents: AgentView[], spawnerId = "r
 }
 
 describe("spawn policy caps", () => {
+  test("launch env uses the minted agent id name", () => {
+    expect(LAUNCH_ENV).toBe("ORCH_AGENT_ID");
+  });
+  describe("worker prompt depth", () => {
+    test("root worker maySpawn follows max_depth", () => {
+      const dir = mkdtempSync(join(tmpdir(), "orch-worker-depth-"));
+      tempDirs.push(dir);
+      expect(maySpawnFrom(dir, "root", 1)).toBe(false);
+      expect(maySpawnFrom(dir, "root", 2)).toBe(true);
+    });
+  });
+
   test("allows a pack spawn while under the cap", () => {
     const agents = Array.from({ length: 8 }, (_, index) => agentViewFixture(`slave-${index}`, {
       spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
@@ -81,6 +95,7 @@ describe("spawn policy caps", () => {
     expect(error).toContain("fleet.max_depth");
     expect(error).toContain("orch dispatch <name>");
     expect(error).toContain("orch queue add");
+    expect(error).toContain("orch settings");
   });
 
   test("fleet.max_depth 2 lets a slave spawn and refuses its child", () => {

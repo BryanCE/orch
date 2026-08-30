@@ -29,8 +29,8 @@ function agentPid(): number {
   return parsePid(process.env.CODEX_PID) ?? parsePid(process.ppid) ?? process.pid;
 }
 
-// No ORCH_AGENT_KEY means a regular (non-orch) codex session — nothing to
-// record, exit silently. Only a present-but-malformed key is a wiring error.
+// No launch credential means a regular (non-orch) codex session — nothing to
+// record, exit silently. Only a present-but-malformed credential is a wiring error.
 const key = launchCredential();
 if (key === null) process.exit(0);
 

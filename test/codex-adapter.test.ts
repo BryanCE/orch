@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -121,14 +122,14 @@ describe("CodexAdapter", () => {
   test("notify shim writes schema-current done presence and result atomically", () => {
     const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-codex-notify-"));
     try {
-      // The shim parses ORCH_AGENT_KEY through the one identity boundary, so the fixture
+      // The shim parses launch env through the one identity boundary, so the fixture
       // must be what a real spawn mints: the id alone. A `<plexer>~<space>~<name>` key is
       // environment welded into identity, which Rule 11 / TASKS/01-agent-model.md forbids.
       const key = serializeIdentity({ id: mintAgentId() });
       const payload = JSON.stringify({ type: CODEX_TURN_COMPLETE, "last-assistant-message": "finished" });
       const result = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
         cwd: path.join(import.meta.dir, ".."),
-        env: { ...process.env, ORCH_DIR: orchDir, ORCH_AGENT_KEY: key },
+        env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: key },
       });
       expect(result.exitCode).toBe(0);
       const dir = path.join(orchDir, "agents", key);
@@ -141,7 +142,7 @@ describe("CodexAdapter", () => {
       removeTempDir(orchDir);
       const silent = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
         cwd: path.join(import.meta.dir, ".."),
-        env: { ...process.env, ORCH_DIR: orchDir, ORCH_AGENT_KEY: "" },
+        env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: "" },
       });
       expect(silent.exitCode).toBe(0);
       expect(fs.existsSync(path.join(orchDir, "agents"))).toBe(false);

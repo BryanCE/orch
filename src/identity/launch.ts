@@ -3,7 +3,7 @@ import { isAgentId } from "../backends/identity.ts";
 import { createLogger } from "../log.ts";
 import { orchDir } from "../presence/writer.ts";
 
-export const LAUNCH_ENV = "ORCH_AGENT_KEY";
+export const LAUNCH_ENV = "ORCH_AGENT_ID";
 
 export function launchCredential(): string | null {
   const value = process.env[LAUNCH_ENV];

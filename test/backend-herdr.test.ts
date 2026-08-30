@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
@@ -117,17 +118,17 @@ const fakeAdapter = makeFakeAdapter();
 // These tests decide the split-vs-new-tab path on whether a caller pane exists,
 // so the real one must not leak in when the suite is run from inside herdr.
 const callerPane = process.env.HERDR_PANE_ID;
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalAgentKey = process.env[LAUNCH_ENV];
 delete process.env.HERDR_PANE_ID;
 // Backend tests model a plain session; spawned agents receive keys through opts.
-delete process.env.ORCH_AGENT_KEY;
+delete process.env[LAUNCH_ENV];
 
 afterAll(() => {
   restoreExecutor();
   if (callerPane === undefined) delete process.env.HERDR_PANE_ID;
   else process.env.HERDR_PANE_ID = callerPane;
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
   fs.rmSync(testDir, { recursive: true, force: true });
 });
 
@@ -235,7 +236,7 @@ describe("HerdrBackend", () => {
     const split = herdrArgv[0] ?? [];
     expect(split).toContain("--env");
     expect(split).toContain("FOO=bar");
-    expect(split).toContain(`ORCH_AGENT_KEY=${key}`);
+    expect(split).toContain(`${LAUNCH_ENV}=${key}`);
     expect(split).toContain("ORCH_DIR=/tmp/orchdir");
     expect(split).not.toContain("env");
   });
@@ -259,12 +260,12 @@ describe("HerdrBackend", () => {
   test("a group is created with the environment its own pane will launch under", () => {
     herdrArgv.length = 0;
     const key = mintAgentId();
-    const created = backend.groupHome.create({ workspace: "ws-test", cwd: testDir, label: "fleet", env: { ORCH_AGENT_KEY: key } });
+    const created = backend.groupHome.create({ workspace: "ws-test", cwd: testDir, label: "fleet", env: { [LAUNCH_ENV]: key } });
 
     expect(created.rootHandle).toBe("w0:p9");
     expect(herdrArgv[0]).toEqual([
       "tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--no-focus",
-      "--label", "fleet", "--env", `ORCH_AGENT_KEY=${key}`, "--env", `ORCH_PROJECT=${projectRoot()}`,
+      "--label", "fleet", "--env", `${LAUNCH_ENV}=${key}`, "--env", `ORCH_PROJECT=${projectRoot()}`,
     ]);
   });
 

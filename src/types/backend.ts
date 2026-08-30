@@ -345,7 +345,7 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
  * The backend owns its workspace/session identity (design D2): it reports the
  * calling process's own {@link Identity} via {@link Backend.currentIdentity} and
  * probes its own availability. An agent's stable identity is minted BEFORE
- * launch by the spawner and passed opaquely via `ORCH_AGENT_KEY`; the backend
+ * launch by the spawner and passed opaquely via `LAUNCH_ENV`; the backend
  * never re-mints a second identity from a post-spawn handle. The backend is also
  * the control authority: delivery, focus, keystrokes, and layout route through
  * this port, never through a concrete plexer CLI at the call site. The port is
@@ -405,7 +405,7 @@ export interface Backend<Handle = BackendHandle> {
  */
 export interface Identity {
   /**
-   * Opaque agent id minted BEFORE launch and passed via ORCH_AGENT_KEY.
+   * Opaque agent id minted BEFORE launch and passed via `LAUNCH_ENV`.
    *
    * Carries no meaning and is never derived from anything the user can change.
    * It is NOT the agent's name: a name is a mutable label stored beside the

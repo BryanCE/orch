@@ -26,6 +26,7 @@ import { daemonOutage, rpcHello } from "../daemon/reach.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { agentViewIndex, callerOwnerToken, die, presenceById } from "./target.ts";
 import { callerSpace, selfId } from "../identity/self.ts";
+import { LAUNCH_ENV } from "../identity/launch.ts";
 import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendGroup, BackendHandle, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../types/backend.ts";
@@ -355,6 +356,7 @@ export function liveSpawnCounts(
 // the term renames this message with it.
 const SPAWN_POLICY_OFFERS = `bind the task to a live ${term("slave")} (orch dispatch <name>) or put it on the pack queue (orch queue add)`;
 
+
 /** Return a spawn policy refusal without allocating a pane, tab, worktree, or queue entry. */
 export function spawnPolicyError(
   settings: Pick<OrchConfig, "fleet">,
@@ -371,7 +373,7 @@ export function spawnPolicyError(
   const depth = spawnerId === null ? 0 : depthOf((id) => views.get(id), spawnerId);
   const maxDepth = settings.fleet.max_depth;
   if (depth >= maxDepth) {
-    return `maximum spawn depth is ${maxDepth} (this spawner is at depth ${depth}; fleet.max_depth). ${SPAWN_POLICY_OFFERS}`;
+    return `maximum spawn depth is ${maxDepth} (this spawner is at depth ${depth}; fleet.max_depth). ${SPAWN_POLICY_OFFERS} Raise it with \`orch settings\`.`;
   }
   const packRoot = spawnerId === null ? null : views.get(spawnerId)?.rootAgentId ?? spawnerId;
   // A bare operator session has no pack; its scope is the space it is spawning into.
@@ -382,7 +384,7 @@ export function spawnPolicyError(
   }
   // The root itself counts as a live member when it holds no row of its own.
   if (packRoot === null || !views.has(packRoot)) live++;
-  const cap = settings.fleet.max_agents_per_pack ?? 10;
+  const cap = settings.fleet.max_agents_per_pack;
   if (live + requested > cap) {
     return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested; fleet.max_agents_per_pack). ${SPAWN_POLICY_OFFERS}`;
   }
@@ -437,7 +439,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
     try {
       // ONE key per agent: mint the name-based identity BEFORE launch and pass
-      // it via ORCH_AGENT_KEY, exactly like the pane paths (spawnOneIntoTab).
+      // it as the launch credential, exactly like the pane paths (spawnOneIntoTab).
       // The backend records the OS pid separately for close ownership; the key
       // never encodes it, and the backend never re-mints a second identity.
       const key = serializeIdentity({ id: mintAgentId() });
@@ -548,8 +550,8 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   // Already inside this plexer: the fleet lands beside the caller. There is no
   // window to open, so there is nothing to ask the human for. WHERE the caller
   // sits is an environment fact answered by the plexer's own environment (Rule
-  // 11) — never by whether orch minted the caller an id: a human's own pane has
-  // no ORCH_AGENT_KEY and is inside all the same.
+  // 11) — never by whether orch minted the caller an id: a human's own pane
+  // carries no launch credential and is inside all the same.
   const inside = backend.isInsideSession();
   if (home === null || inside || packRootId === null) return { space: null, workspace: undefined };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
@@ -565,14 +567,14 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
 
 // The single spawn-into-a-tab pipeline shared by `orch spawn` (additional panes)
 // and `orch tile`. ONE key per agent: the identity is minted before launch and
-// passed via ORCH_AGENT_KEY — the name and the backend pane handle are recorded
+// passed as the launch credential — the name and the backend pane handle are recorded
 // beside it as plain fields, never folded into it. The caller owns error policy
 // (warn-and-continue vs die); this throws on backend failure.
 export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   assertNameFree(spec.name, spec.space);
   const key = spec.key ?? serializeIdentity({ id: mintAgentId() });
   const spawner = spawnerIdentity();
-  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), ORCH_AGENT_KEY: key, ORCH_DIR: orchDir() };
+  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir() };
   let pane: BackendHandle | undefined;
   if (spec.placement) {
     if (!spec.backend.paneHost) throw new Error("backend has no pane host");
@@ -847,7 +849,7 @@ function prepareAgents(settings: SpawnSettings, adapter: AgentAdapter, names: re
     const env = {
       ...agentIdentityEnv(name, spawnerIdentity()),
       ...worktreeEnv(settings.worktree ? cwd : undefined, branch),
-      ORCH_AGENT_KEY: key, ORCH_DIR: orchDir(),
+      [LAUNCH_ENV]: key, ORCH_DIR: orchDir(),
     };
     return { name, cwd, key, env, branch, pane: undefined };
   });

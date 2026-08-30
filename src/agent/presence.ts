@@ -8,7 +8,8 @@
 // transport are all injected by the composition root.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isAgentId, mintAgentId } from "../backends/identity.ts";
+import { mintAgentId } from "../backends/identity.ts";
+import { launchCredential } from "../identity/launch.ts";
 import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
   ensurePresenceAgentDir,
@@ -79,11 +80,11 @@ function sessionKey(): string {
   return ownSessionKey;
 }
 
-// Orch-spawned agents use the identity their launch handed them; an interactive
-// session mints its own; a session with no UI has nobody to address and skips presence.
+// Orch-spawned agents use the launch credential; an interactive session mints its
+// own; a session with no UI has nobody to address and skips presence.
 function computeKey(hasUI: boolean): string | undefined {
-  const rawKey = process.env.ORCH_AGENT_KEY;
-  if (rawKey) return isAgentId(rawKey) ? rawKey : undefined;
+  const credential = launchCredential();
+  if (credential !== null) return credential;
   return hasUI ? sessionKey() : undefined;
 }
 

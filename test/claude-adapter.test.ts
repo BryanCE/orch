@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,9 +18,9 @@ import { readJsonRecord } from "./helpers/json.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
-const previousAgentKey = process.env.ORCH_AGENT_KEY;
+const previousAgentKey = process.env[LAUNCH_ENV];
 const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
-// A1: the hook receives its identity through ORCH_AGENT_KEY, and that key is the
+// A1: the hook receives its identity through launch env, and that key is the
 // minted id alone — no plexer, no space, nothing for the hook to decode.
 const fakeKey = serializeIdentity({ id: mintAgentId() });
 
@@ -34,7 +35,7 @@ function runHook(event: string, input: Record<string, unknown> = {}): Record<str
   const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
   try {
     execFileSync(process.execPath, [hookScript, event], {
-      env: { ...process.env, ORCH_DIR: hookOrchDir, ORCH_AGENT_KEY: fakeKey },
+      env: { ...process.env, ORCH_DIR: hookOrchDir, [LAUNCH_ENV]: fakeKey },
       input: JSON.stringify(input),
       encoding: "utf8",
     });
@@ -47,14 +48,14 @@ function runHook(event: string, input: Record<string, unknown> = {}): Record<str
 function restoreEnvironment(): void {
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousOrchDir;
-  if (previousAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = previousAgentKey;
+  if (previousAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = previousAgentKey;
 }
 
 beforeEach(() => {
   process.env.ORCH_DIR = orchDir;
   // Hook launches state identity explicitly; the adapter test session has none.
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
 });
 
 afterEach(() => {
@@ -149,11 +150,11 @@ describe("Claude adapter", () => {
     expect(runHook("Stop", { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "done" });
   }, 20_000);
 
-  test("exits silently and writes no presence without ORCH_AGENT_KEY (a non-orch session)", () => {
+  test("exits silently and writes no presence without launch env (a non-orch session)", () => {
     const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
     try {
       const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir };
-      delete env.ORCH_AGENT_KEY;
+      delete env[LAUNCH_ENV];
       expect(() => execFileSync(process.execPath, [hookScript, "SessionStart"], {
         env,
         input: JSON.stringify({ pid: process.pid }),
@@ -166,10 +167,10 @@ describe("Claude adapter", () => {
     }
   });
 
-  test("fails hard and writes no presence on a malformed ORCH_AGENT_KEY", () => {
+  test("fails hard and writes no presence on a malformed launch env", () => {
     const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
     try {
-      const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir, ORCH_AGENT_KEY: "garbage" };
+      const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir, [LAUNCH_ENV]: "garbage" };
       expect(() => execFileSync(process.execPath, [hookScript, "SessionStart"], {
         env,
         input: JSON.stringify({ pid: process.pid }),

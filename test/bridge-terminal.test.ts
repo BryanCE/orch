@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,7 +54,7 @@ const { registerAgentTools } = await import("../src/agent/tools.ts");
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
   delete process.env.ORCH_DIR;
 });
 
@@ -62,7 +63,7 @@ describe("bridge terminal turn seam", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-bridge-terminal-"));
     roots.push(root);
     process.env.ORCH_DIR = root;
-    process.env.ORCH_AGENT_KEY = key;
+    process.env[LAUNCH_ENV] = key;
     const harness = fakeHarness();
     const presence = createAgentPresence({
       harness,

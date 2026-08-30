@@ -62,8 +62,8 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
   return undefined;
 }
 
-// No ORCH_AGENT_KEY means a regular (non-orch) Claude session — nothing to
-// record, exit silently. Only a present-but-malformed key is a wiring error.
+// No launch credential means a regular (non-orch) Claude session — nothing to
+// record, exit silently. Only a present-but-malformed credential is a wiring error.
 const key = launchCredential();
 if (key === null) process.exit(0);
 

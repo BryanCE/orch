@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,7 +51,7 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
   test("a herdr-placed agent reports the handle its environment carries", () => {
     const root = tempOrchDir();
     const key = seedPaneAgent(root, "herdr", "%3");
-    expect(process.env.ORCH_AGENT_KEY).toBeUndefined();
+    expect(process.env[LAUNCH_ENV]).toBeUndefined();
     expect(herdrPaneHandle(key)).toBe("%3");
     expect(herdrHudActive(key)).toBe(true);
   });
@@ -61,7 +62,7 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     // The identity key never changes; only the environment does.
     placeAgent(key, { adapter: "pi", handle: "%9" });
     expect(herdrPaneHandle(key)).toBe("%9");
-    expect(process.env.ORCH_AGENT_KEY).toBeUndefined();
+    expect(process.env[LAUNCH_ENV]).toBeUndefined();
   });
 
   test("an agent on another plexer is not a herdr pane", () => {

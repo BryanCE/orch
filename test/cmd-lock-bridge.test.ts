@@ -16,7 +16,23 @@ import { readCommandLock, releaseCommandLock } from "../src/control/cmd-lock.ts"
 // settings file in place before the bridge registers anything.
 const orchDir = mkdtempSync(join(tmpdir(), "orch-cmd-lock-bridge-"));
 const previousOrchDir = process.env.ORCH_DIR;
+const previousAgentKey = process.env.ORCH_AGENT_KEY;
+const previousOwner = process.env.ORCH_OWNER;
+const previousSessionKey = process.env.ORCH_SESSION_KEY;
+const previousProject = process.env.ORCH_PROJECT;
+const previousAgentName = process.env.ORCH_AGENT_NAME;
+const previousSpawner = process.env.ORCH_SPAWNER;
+const previousSpawnerLabel = process.env.ORCH_SPAWNER_LABEL;
 process.env.ORCH_DIR = orchDir;
+// This bridge test drives a plain human session.  In particular, the lock-run
+// child must not inherit an orch identity from the pane that launched the suite.
+delete process.env.ORCH_AGENT_KEY;
+delete process.env.ORCH_OWNER;
+delete process.env.ORCH_SESSION_KEY;
+delete process.env.ORCH_PROJECT;
+delete process.env.ORCH_AGENT_NAME;
+delete process.env.ORCH_SPAWNER;
+delete process.env.ORCH_SPAWNER_LABEL;
 
 const LOCKED_COMMAND = "bun run check";
 mkdirSync(orchDir, { recursive: true });
@@ -36,6 +52,20 @@ const orchestratorBridgeExtension = (await import("../extensions/pi/index.ts")).
 afterAll(() => {
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousOrchDir;
+  if (previousAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
+  else process.env.ORCH_AGENT_KEY = previousAgentKey;
+  if (previousOwner === undefined) delete process.env.ORCH_OWNER;
+  else process.env.ORCH_OWNER = previousOwner;
+  if (previousSessionKey === undefined) delete process.env.ORCH_SESSION_KEY;
+  else process.env.ORCH_SESSION_KEY = previousSessionKey;
+  if (previousProject === undefined) delete process.env.ORCH_PROJECT;
+  else process.env.ORCH_PROJECT = previousProject;
+  if (previousAgentName === undefined) delete process.env.ORCH_AGENT_NAME;
+  else process.env.ORCH_AGENT_NAME = previousAgentName;
+  if (previousSpawner === undefined) delete process.env.ORCH_SPAWNER;
+  else process.env.ORCH_SPAWNER = previousSpawner;
+  if (previousSpawnerLabel === undefined) delete process.env.ORCH_SPAWNER_LABEL;
+  else process.env.ORCH_SPAWNER_LABEL = previousSpawnerLabel;
   removeTempDir(orchDir);
 });
 

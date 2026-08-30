@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { SETTINGS_SCHEMA, allowedModelPatterns, declaredRuntime, loadConfig, loadConfigOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource, writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/config.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { isRecord } from "../src/util.ts";
 
 const directories: string[] = [];
 const originalConfigTest = process.env.ORCH_CONFIG_TEST;
@@ -14,6 +15,12 @@ function tempDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-config-"));
   directories.push(directory);
   return directory;
+}
+
+function readSettingsRecord(directory: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8"));
+  if (!isRecord(value)) throw new Error("settings.json is not an object");
+  return value;
 }
 
 afterEach(() => {
@@ -279,10 +286,10 @@ describe("writeSettingsRuntime", () => {
     const directory = tempDir();
     writeSettingsRuntime(directory, "node");
 
-    const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as Record<string, unknown>;
+    const raw = readSettingsRecord(directory);
     expect(raw.runtime).toBe("node");
-    expect((raw.defaults as Record<string, unknown> | undefined)?.runtime).toBeUndefined();
-    expect((raw.enabled as Record<string, unknown> | undefined)?.runtimes).toBeUndefined();
+    expect(isRecord(raw.defaults) ? raw.defaults.runtime : undefined).toBeUndefined();
+    expect(isRecord(raw.enabled) ? raw.enabled.runtimes : undefined).toBeUndefined();
     expect(loadConfig(directory).runtime).toBe("node");
   });
 
@@ -300,7 +307,7 @@ describe("writeSettingsRuntime", () => {
     writeSettingsRuntime(directory, "node");
     writeSettingsRuntime(directory, "bun");
 
-    const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as Record<string, unknown>;
+    const raw = readSettingsRecord(directory);
     expect(raw.runtime).toBe("bun");
     expect(Object.keys(raw).filter((key) => key === "runtime")).toHaveLength(1);
   });
@@ -346,7 +353,7 @@ describe("writeSettingsDefault", () => {
     writeSettingsDefault(directory, "adapter", "pi");
     writeSettingsDefault(directory, "backend", "herdr");
 
-    const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as Record<string, unknown>;
+    const raw = readSettingsRecord(directory);
     expect(raw.schemaVersion).toBe(SETTINGS_SCHEMA);
     const config = loadConfig(directory);
     expect(config.defaults.adapter).toBe("pi");
@@ -398,11 +405,9 @@ describe("writeSettingsFullTree", () => {
     writeSettingsRuntime(directory, "node");
     writeSettingsFullTree(directory);
 
-    const raw = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8")) as {
-      fleet?: Record<string, unknown>;
-    };
+    const raw = readSettingsRecord(directory);
     expect(raw.fleet).toEqual({ spawn_cap: 8, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false });
-    expect(Object.hasOwn(raw.fleet ?? {}, "max_agents")).toBe(false);
+    expect(Object.hasOwn(isRecord(raw.fleet) ? raw.fleet : {}, "max_agents")).toBe(false);
     expect(loadConfig(directory).fleet.max_agents).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +27,27 @@ import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, 
  */
 
 const dirs: string[] = [];
-afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
+const ENV = [
+  "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT",
+  "ORCH_AGENT_NAME", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
+] satisfies readonly string[];
+let saved: Record<string, string | undefined> = {};
+
+beforeEach(() => {
+  saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+  // Placement receives identity explicitly from the fake backend; this caller
+  // fixture models a human/driver session with no inherited orch stamp.
+  for (const name of ENV) delete process.env[name];
+});
+
+afterEach(() => {
+  while (dirs.length) removeTempDir(dirs.pop()!);
+  for (const name of ENV) {
+    const value = saved[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+});
 
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-placement-"));

@@ -13,6 +13,7 @@ import type { SpawnOpts } from "../src/types/adapter.ts";
 import { processStartToken } from "../src/process-identity.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
+const originalAgentKey = process.env.ORCH_AGENT_KEY;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
 
 const { HeadlessBackend } = await import("../src/backends/headless/index.ts");
@@ -64,10 +65,14 @@ async function waitFor(check: () => boolean): Promise<void> {
 function restoreOrchDir(): void {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
+  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
+  else process.env.ORCH_AGENT_KEY = originalAgentKey;
 }
 
 beforeEach(() => {
   process.env.ORCH_DIR = testOrchDir;
+  // Headless tests launch agents with an explicit minted key; this session has no identity.
+  delete process.env.ORCH_AGENT_KEY;
 });
 
 afterEach(() => {

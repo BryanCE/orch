@@ -15,7 +15,7 @@ export function processIsAlive(pid: number): boolean {
   } catch (error: unknown) {
     return errnoCode(error) !== "ESRCH";
   }
-  if (process.platform === "linux") {
+  if (osSide() === "linux") {
     try {
       const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
       const closingParen = stat.lastIndexOf(")");

@@ -21,9 +21,17 @@ import { sql } from "drizzle-orm";
  */
 
 const dirs: string[] = [];
-afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
+const originalAgentKey = process.env.ORCH_AGENT_KEY;
+afterEach(() => {
+  closeAllStores();
+  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
+  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  while (dirs.length) removeTempDir(dirs.pop()!);
+});
 
 function fixture(): string {
+  // Authority is passed explicitly; this fixture models a human/agent caller, not inherited env.
+  delete process.env.ORCH_AGENT_KEY;
   const d = mkdtempSync(join(tmpdir(), "orch-close-authority-"));
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);

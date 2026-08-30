@@ -22,7 +22,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
  */
 
 const dirs: string[] = [];
-const ENV = ["ORCH_DIR", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_KEY"];
+const ENV = [
+  "ORCH_DIR", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_KEY",
+  "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT", "ORCH_AGENT_NAME",
+];
 let saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {

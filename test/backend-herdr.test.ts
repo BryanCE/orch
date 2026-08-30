@@ -115,12 +115,17 @@ const fakeAdapter = makeFakeAdapter();
 // These tests decide the split-vs-new-tab path on whether a caller pane exists,
 // so the real one must not leak in when the suite is run from inside herdr.
 const callerPane = process.env.HERDR_PANE_ID;
+const originalAgentKey = process.env.ORCH_AGENT_KEY;
 delete process.env.HERDR_PANE_ID;
+// Backend tests model a plain session; spawned agents receive keys through opts.
+delete process.env.ORCH_AGENT_KEY;
 
 afterAll(() => {
   restoreExecutor();
   if (callerPane === undefined) delete process.env.HERDR_PANE_ID;
   else process.env.HERDR_PANE_ID = callerPane;
+  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
+  else process.env.ORCH_AGENT_KEY = originalAgentKey;
   fs.rmSync(testDir, { recursive: true, force: true });
 });
 

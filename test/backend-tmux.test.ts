@@ -130,6 +130,7 @@ const { TmuxBackend } = await import("../src/backends/tmux/index.ts");
 const { paneForeground } = await import("../src/commands/lifecycle.ts");
 
 const originalOrchDir = process.env.ORCH_DIR;
+const originalAgentKey = process.env.ORCH_AGENT_KEY;
 const originalTmuxEnv = process.env.TMUX;
 const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-tmux-"));
 
@@ -145,6 +146,8 @@ function callArgs(file: string, cmd: string): string[] | undefined {
 
 beforeEach(() => {
   process.env.ORCH_DIR = testOrchDir;
+  // Pane fixtures pass identity explicitly; this caller is not an orch agent.
+  delete process.env.ORCH_AGENT_KEY;
   process.env.TMUX = "/tmp/fake-tmux,0,0";
   panes = [];
   nextPaneSeq = 0;
@@ -155,6 +158,8 @@ beforeEach(() => {
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
+  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
+  else process.env.ORCH_AGENT_KEY = originalAgentKey;
   if (originalTmuxEnv === undefined) delete process.env.TMUX;
   else process.env.TMUX = originalTmuxEnv;
 });

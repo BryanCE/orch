@@ -5,16 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { loadConfig } from "../src/config.ts";
+import { isRecord } from "../src/util.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 
 const tempDirs: string[] = [];
 
 function nodeCommand(script: string): [string, string, string] {
   return [process.execPath, "-e", script];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseRecord(text: string): Record<string, unknown> {

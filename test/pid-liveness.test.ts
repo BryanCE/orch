@@ -5,6 +5,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { pidAlive } from "../src/util.ts";
 
+class TestErrno extends Error {
+  readonly code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 const realKill = process.kill.bind(process);
 
 afterEach(() => {
@@ -13,9 +21,7 @@ afterEach(() => {
 
 function stubKill(code: string | undefined): void {
   process.kill = (_pid: number, _signal?: string | number): true => {
-    const error = new Error(`kill ${code ?? "ok"}`) as NodeJS.ErrnoException;
-    if (code !== undefined) error.code = code;
-    throw error;
+    throw new TestErrno(`kill ${code ?? "ok"}`, code);
   };
 }
 

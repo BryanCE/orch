@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 // Imported FIRST of the orch modules on purpose, and for its evaluation order
 // alone: every other import below enters the pre-existing
 // runtime.ts -> adapters/registry.ts -> <adapter> -> config.ts -> runtime.ts
@@ -21,6 +21,26 @@ import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
+const ENV = [
+  "ORCH_AGENT_KEY", "ORCH_DIR", "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT",
+  "ORCH_AGENT_NAME", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
+] satisfies readonly string[];
+let saved: Record<string, string | undefined> = {};
+
+beforeEach(() => {
+  saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+  // The parent is a plain test session. The one child that represents a
+  // spawned Codex agent states its minted key in its explicit env object below.
+  for (const name of ENV) delete process.env[name];
+});
+
+afterEach(() => {
+  for (const name of ENV) {
+    const value = saved[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+});
 
 afterAll(() => {
   removeTempDir(tempDir);

@@ -14,6 +14,7 @@ import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 import type { OrchConfig } from "../src/types/config.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
 
 import { numberField, row } from "./helpers/rows.ts";
@@ -31,17 +32,6 @@ const fleet = (pack_cap = 10): OrchConfig["fleet"] => ({
   space_caps: {},
   pack_cap,
 });
-
-/** A complete AgentView; provenance is the spawner's ID, never a pane key. */
-function agentViewFixture(id: string, spawnedBy: string | null, space: string): AgentView {
-  return {
-    id, name: id, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
-    spawnedBy, spawnedByName: spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
-    environment: { plexer: "headless", handle: null, space, worktree: null, branch: null },
-    tuning: { model: null, thinking: null },
-    endedAt: null,
-  };
-}
 
 function fixtureMaps(agents: AgentView[]): { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> } {
   return {
@@ -63,12 +53,16 @@ function policy(pack_cap: number, agents: AgentView[], spawnerId = "root", reque
 
 describe("spawn policy caps", () => {
   test("allows a pack spawn while under the cap", () => {
-    const agents = Array.from({ length: 8 }, (_, index) => agentViewFixture(`slave-${index}`, "root", "space"));
+    const agents = Array.from({ length: 8 }, (_, index) => agentViewFixture(`slave-${index}`, {
+      spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
+    }));
     expect(policy(10, agents)).toBeNull();
   });
 
   test("blocks an at-cap spawn and offers dispatch or the pack queue", () => {
-    const agents = Array.from({ length: 9 }, (_, index) => agentViewFixture(`slave-${index}`, "root", "space"));
+    const agents = Array.from({ length: 9 }, (_, index) => agentViewFixture(`slave-${index}`, {
+      spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
+    }));
     const error = policy(10, agents);
     expect(error).toContain("pack cap 10");
     expect(error).toContain("orch dispatch <name>");
@@ -77,8 +71,12 @@ describe("spawn policy caps", () => {
 
   test("blocks a spawn that would create depth three", () => {
     const error = policy(10, [
-      agentViewFixture("child", "root", "space"),
-      agentViewFixture("grandchild", "child", "space"),
+      agentViewFixture("child", {
+        spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
+      }),
+      agentViewFixture("grandchild", {
+        spawnedBy: "child", spawnedByName: "child", rootAgentId: "root", environment: { space: "space" },
+      }),
     ], "grandchild");
     expect(error).toContain("depth 2");
     expect(error).toContain("orch dispatch <name>");
@@ -91,7 +89,9 @@ describe("spawn policy caps", () => {
     writeSettingsFixture(dir, { fleet: { pack_cap: 2 } });
     const config = loadConfig(dir);
     expect(config.fleet.pack_cap).toBe(2);
-    const { views, presence } = fixtureMaps([agentViewFixture("slave", "root", "space")]);
+    const { views, presence } = fixtureMaps([agentViewFixture("slave", {
+      spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
+    })]);
     expect(spawnPolicyError(config, "space", 1, views, presence, "root")).toContain("pack cap 2");
   });
 

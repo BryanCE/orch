@@ -16,6 +16,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
+const previousAgentKey = process.env.ORCH_AGENT_KEY;
 const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
 // A1: the hook receives its identity through ORCH_AGENT_KEY, and that key is the
 // minted id alone — no plexer, no space, nothing for the hook to decode.
@@ -42,23 +43,27 @@ function runHook(event: string, input: Record<string, unknown> = {}): Record<str
   }
 }
 
-function restoreOrchDir(): void {
+function restoreEnvironment(): void {
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousOrchDir;
+  if (previousAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
+  else process.env.ORCH_AGENT_KEY = previousAgentKey;
 }
 
 beforeEach(() => {
   process.env.ORCH_DIR = orchDir;
+  // Hook launches state identity explicitly; the adapter test session has none.
+  delete process.env.ORCH_AGENT_KEY;
 });
 
 afterEach(() => {
   rmSync(join(orchDir, "agents"), { recursive: true, force: true });
-  restoreOrchDir();
+  restoreEnvironment();
 });
 
 afterAll(() => {
   removeTempDir(orchDir);
-  restoreOrchDir();
+  restoreEnvironment();
 });
 
 describe("Claude adapter", () => {

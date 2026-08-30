@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtime.ts";
 import { binaryOnPath } from "../src/util.ts";
@@ -16,6 +16,7 @@ const shimBuilt = fs.existsSync(shim);
 const runtimes = ORCH_RUNTIMES.filter(binaryOnPath);
 
 const directories: string[] = [];
+const originalAgentKey = process.env.ORCH_AGENT_KEY;
 
 function tempOrchDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-claude-hooks-shim-"));
@@ -23,7 +24,14 @@ function tempOrchDir(): string {
   return directory;
 }
 
+beforeEach(() => {
+  // Every shim invocation states its own key (or its deliberate absence).
+  delete process.env.ORCH_AGENT_KEY;
+});
+
 afterEach(() => {
+  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
+  else process.env.ORCH_AGENT_KEY = originalAgentKey;
   while (directories.length) removeTempDir(directories.pop()!);
 });
 

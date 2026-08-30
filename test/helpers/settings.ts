@@ -1,12 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SETTINGS_SCHEMA } from "../../src/config.ts";
+import { isRecord } from "../../src/util.ts";
 
 /** Derive an `enabled` composition from `defaults.adapter`/`defaults.backend` so fixtures that only set
  * a default stay valid under settings.json's membership validation, unless the fixture already specifies one. */
 function deriveEnabled(settings: Record<string, unknown>): { adapters: string[]; backends: string[] } | undefined {
   if ("enabled" in settings) return undefined;
-  const defaults = settings.defaults as Record<string, unknown> | undefined;
+  const defaults = isRecord(settings.defaults) ? settings.defaults : undefined;
   const adapter = defaults?.adapter;
   const backend = defaults?.backend;
   if (typeof adapter !== "string" && typeof backend !== "string") return undefined;

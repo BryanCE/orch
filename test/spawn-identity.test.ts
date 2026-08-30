@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { mintAgentId, parseIdentity } from "../src/backends/identity.ts";
 import { normalizeControlTarget } from "../src/control/normalize-target.ts";
@@ -20,8 +20,19 @@ import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { sql } from "drizzle-orm";
 
-const oldOrchDir = process.env.ORCH_DIR;
+const ENV = [
+  "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT",
+  "ORCH_AGENT_NAME", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
+] satisfies readonly string[];
+let saved: Record<string, string | undefined> = {};
 const dirs: string[] = [];
+
+beforeEach(() => {
+  saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+  // These tests drive the spawning orchestrator, not an already spawned worker.
+  // Each child identity is minted and passed through the spawn spec itself.
+  for (const name of ENV) delete process.env[name];
+});
 
 function tempOrchDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-spawn-identity-"));
@@ -33,8 +44,11 @@ function tempOrchDir(): string {
 afterEach(() => {
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
-  if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
-  else process.env.ORCH_DIR = oldOrchDir;
+  for (const name of ENV) {
+    const value = saved[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 });
 
 /**

@@ -479,7 +479,7 @@ function attachConnection(
  *  itself; a Windows named pipe never does, so a client probing the path would
  *  call a live daemon absent. `close()` unlinks the path either way. */
 function markSocketBound(socketPath: string): void {
-  if (process.platform !== "win32") return;
+  if (osSide() !== "windows") return;
   try {
     writeFileSync(socketPath, "", { mode: 0o600 });
   } catch {

@@ -2,6 +2,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
 import { shellQuote } from "../util.ts";
+import { LAUNCH_ENV } from "../identity/launch.ts";
 
 // Claude's hook wire format lives here, in the claude adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
@@ -31,5 +32,5 @@ export function claudeHookCommand(shim: string, event: string, runtime: OrchRunt
   // named in the hook payload to recover the last assistant message.
   const transcriptRoot = path.join(os.homedir(), ".claude");
   const argv = runtimeArgv(runtime, shim, [event], { orchDir, readOnly: [transcriptRoot] });
-  return `[ -n "$ORCH_AGENT_KEY" ] || exit 0; ${argv.map(shellQuote).join(" ")}`;
+  return `[ -n "$${LAUNCH_ENV}" ] || exit 0; ${argv.map(shellQuote).join(" ")}`;
 }

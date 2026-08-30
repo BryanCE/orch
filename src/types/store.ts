@@ -52,6 +52,8 @@ export interface AgentRow {
   cwd: string;
   name: string;
   label: string | null;
+  claimedAt: number | null;
+  sessionToken: string | null;
   createdAt: number;
   ending?: AgentEnding | null;
 }

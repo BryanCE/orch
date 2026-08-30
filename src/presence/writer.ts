@@ -17,8 +17,7 @@ import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ANSWER_FILE, PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
-import { errorMessage, isRecord } from "../util.ts";
-import { createLogger } from "../log.ts";
+import { isRecord } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord } from "../types/presence.ts";
 import type { JsonRecord } from "../types/core.ts";
 
@@ -107,19 +106,6 @@ export function readStatus(directory: string): PresenceRecord {
 /** Write the agent's status record. */
 export function writeStatus(directory: string, status: PresenceRecord): void {
   atomicWrite(presenceFile(directory, STATUS_FILE), status);
-}
-
-/** Read the launch vocabulary once, at the presence boundary. */
-export function launchKey(validate: (key: string) => void): string | undefined {
-  const key = process.env.ORCH_AGENT_KEY;
-  if (!key) return undefined;
-  try {
-    validate(key);
-  } catch (error: unknown) {
-    createLogger({ file: join(orchDir(), "orch.log"), level: "error" }).error("launch.invalid-key", { error: errorMessage(error) });
-    process.exit(1);
-  }
-  return key;
 }
 
 export function readJsonStdin(): JsonRecord {

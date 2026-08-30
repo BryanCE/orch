@@ -1,4 +1,4 @@
-import { isAgentId } from "../backends/identity.ts";
+import { launchCredential } from "./launch.ts";
 import { agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
 import { allAdapters } from "../adapters/registry.ts";
@@ -22,8 +22,8 @@ export function selfIdentity(): SelfIdentity | null {
   // A spawned agent was handed its own id at launch; that IS orch's record of it.
   // The key is the whole id, so there is nothing to parse out of it — and a key
   // that is not a minted id names no agent orch ever registered.
-  const spawned = process.env.ORCH_AGENT_KEY;
-  if (isAgentId(spawned)) return { id: spawned };
+  const spawned = launchCredential();
+  if (spawned !== null) return { id: spawned };
   // A driving session: its harness's session token is the pointer to the row
   // `hello` minted. The token is environment; the id it resolves to is identity.
   const token = callerSession()?.sessionId;

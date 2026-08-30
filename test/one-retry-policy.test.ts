@@ -39,12 +39,16 @@ describe("one retry policy", () => {
   test("surfaces the last error after exactly attempts tries", async () => {
     let calls = 0;
     // T is named because this operation only ever throws: left to inference it
-    // resolves to `never`, the call's own type collapses to `Promise<never>`, and
-    // the await then reads as an await of a non-thenable.
-    await expect(retryingAsync<string>("always flaky", () => {
+    // resolves to `never` and the call's own type collapses to `Promise<never>`.
+    const outcome = await retryingAsync<string>("always flaky", () => {
       calls += 1;
       throw new Error(`failure ${calls}`);
-    }, POLICY, { sleepAsync: () => Promise.resolve() })).rejects.toThrow("failure 3");
+    }, POLICY, { sleepAsync: () => Promise.resolve() }).then(
+      (value) => ({ kind: "resolved" as const, value }),
+      (error: unknown) => ({ kind: "rejected" as const, error }),
+    );
+    expect(outcome.kind).toBe("rejected");
+    expect(outcome.kind === "rejected" && outcome.error instanceof Error ? outcome.error.message : "").toContain("failure 3");
     expect(calls).toBe(3);
 
     let syncCalls = 0;

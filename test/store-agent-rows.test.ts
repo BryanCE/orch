@@ -15,6 +15,13 @@ function seed(d: string) { ensureHarness(d, "pi", "Pi"); ensurePlexer(d, "headle
 function agent(d: string, id: string, spawnedBy: string | null = null) { return insertAgent(d, { id, spawnedBy, harnessId: "pi", cwd: "/repo", name: id, createdAt: 2_000 }); }
 
 describe("agent store rows", () => {
+  test("insertAgent writes both NULL; agentById reads both back", () => {
+    const d = fixture();
+    seed(d);
+    insertAgent(d, { id: "A", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "A", createdAt: 1 });
+    expect(row(orm(d), sql`SELECT claimed_at, session_token FROM agents WHERE id = ${"A"}`)).toEqual({ claimed_at: null, session_token: null });
+    expect(agentById(d, "A")).toMatchObject({ claimedAt: null, sessionToken: null });
+  });
   test("insertAgent materializes the provenance root", () => { const d = fixture(); seed(d); expect(agent(d, "A").rootAgentId).toBe("A"); agent(d, "B", "A"); expect(agent(d, "C", "B").rootAgentId).toBe("A"); });
   test("endAgent records who closed it, nullable for death", () => { const d = fixture(); seed(d); agent(d, "A"); agent(d, "B"); endAgent(d, "A", 3_000, null); endAgent(d, "B", 4_000, "A"); expect(agentById(d, "A")?.ending).toEqual({ endedAt: 3_000, closedBy: null }); expect(agentById(d, "B")?.ending).toEqual({ endedAt: 4_000, closedBy: "A" }); });
   test("liveAgents excludes agents with an ending", () => { const d = fixture(); seed(d); agent(d, "A"); agent(d, "B"); endAgent(d, "B", 3_000, null); expect(liveAgents(d).map(a => a.id)).toEqual(["A"]); });

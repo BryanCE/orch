@@ -14,10 +14,10 @@
  * write goes through the one shared writer (src/presence/writer.ts).
  */
 import { detectCodexState, extractCodexResult } from "../../src/adapters/codex-events.ts";
-import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { ensurePresenceAgentDir, launchKey, launchStamp, parseJsonArgument, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { launchCredential } from "../../src/identity/launch.ts";
+import { ensurePresenceAgentDir, launchStamp, parseJsonArgument, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
 import { parsePid, projectRoot } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import type { JsonRecord } from "../../src/types/core.ts";
@@ -31,8 +31,8 @@ function agentPid(): number {
 
 // No ORCH_AGENT_KEY means a regular (non-orch) codex session — nothing to
 // record, exit silently. Only a present-but-malformed key is a wiring error.
-const key = launchKey(parseIdentity);
-if (!key) process.exit(0);
+const key = launchCredential();
+if (key === null) process.exit(0);
 
 const raw = process.argv[2];
 const payload = parseJsonArgument(raw);

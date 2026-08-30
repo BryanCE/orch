@@ -2,7 +2,7 @@
  * The env vars a harness session exports, and the full allowlist an orch shim may
  * read.
  *
- * A LEAF on purpose: this module imports NOTHING. `src/runtime.ts` builds deno's
+ * A LEAF on purpose: this module imports only the launch env constant. `src/runtime.ts` builds deno's
  * `--allow-env` list from it, which is the only reason `runtime.ts` used to import
  * `adapters/registry.ts` — the import that closed two module cycles
  * (`runtime -> registry -> claude -> claude-hooks -> runtime`, and the same shape
@@ -13,6 +13,8 @@
  * has exactly ONE definition site — and adding a harness updates the allowlist by
  * construction, because the allowlist is derived from this table.
  */
+
+import { LAUNCH_ENV } from "../identity/launch.ts";
 
 export const HARNESS_SESSION_ENV = {
   /** pi exports these into every subprocess of an interactive session. */
@@ -26,7 +28,7 @@ export const HARNESS_SESSION_ENV = {
 } as const;
 
 /** Env vars orch's own shims read, independent of any harness. */
-const ORCH_SHIM_ENV_VARS: readonly string[] = ["ORCH_AGENT_KEY", "ORCH_DIR", "ORCH_AGENT_LOG", "ORCH_PROJECT", "HOME", "USERPROFILE"];
+const ORCH_SHIM_ENV_VARS: readonly string[] = [LAUNCH_ENV, "ORCH_DIR", "ORCH_AGENT_LOG", "ORCH_PROJECT", "HOME", "USERPROFILE"];
 
 /** The complete `--allow-env` grant for a shim: orch's own vars plus every harness's. */
 export const SHIM_ENV_VARS: readonly string[] = [...new Set<string>([

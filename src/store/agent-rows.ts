@@ -24,7 +24,7 @@ function mapAgent({ agent, ending }: JoinedAgent): AgentRow {
   return {
     id: agent.id, spawnedBy: agent.spawnedBy, rootAgentId: agent.rootAgentId,
     harnessId: agent.harnessId, cwd: agent.cwd, name: agent.name,
-    label: agent.label, createdAt: agent.createdAt,
+    label: agent.label, claimedAt: agent.claimedAt, sessionToken: agent.sessionToken, createdAt: agent.createdAt,
     ending: ending === null ? null : { endedAt: ending.endedAt, closedBy: ending.closedBy },
   };
 }
@@ -47,7 +47,8 @@ export function insertAgent(orchDir: string, input: AgentInput): AgentRow {
   }
   const row = {
     id: input.id, spawnedBy, rootAgentId: root, harnessId: input.harnessId,
-    cwd: input.cwd, name: input.name, label: input.label ?? null, createdAt: input.createdAt,
+    cwd: input.cwd, name: input.name, label: input.label ?? null,
+    claimedAt: null, sessionToken: null, createdAt: input.createdAt,
   };
   db.insert(agents).values(row).run();
   return { ...row, ending: null };

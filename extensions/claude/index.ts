@@ -16,10 +16,10 @@
  * tool/token/cost transitions between them (unlike pi's live extension).
  */
 import { readFileSync } from "node:fs";
-import { parseIdentity } from "../../src/backends/identity.ts";
 import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { ensurePresenceAgentDir, launchKey, launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { launchCredential } from "../../src/identity/launch.ts";
+import { ensurePresenceAgentDir, launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
 import { isRecord, parsePid, projectRoot } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
@@ -64,8 +64,8 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
 
 // No ORCH_AGENT_KEY means a regular (non-orch) Claude session — nothing to
 // record, exit silently. Only a present-but-malformed key is a wiring error.
-const key = launchKey(parseIdentity);
-if (!key) process.exit(0);
+const key = launchCredential();
+if (key === null) process.exit(0);
 
 const input = readJsonStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));

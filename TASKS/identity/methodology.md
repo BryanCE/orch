@@ -24,3 +24,5 @@ Never: dispatch on uncommitted work; revert to get green; two orchs on one file;
 "after" is uncommitted; skip or reorder a phase.
 
 The doc is the spec. Doc wrong → note in doc and why, commit, then the code.
+
+If you notice this methodology could be improved add suggestion to feedback.md in this directory. 

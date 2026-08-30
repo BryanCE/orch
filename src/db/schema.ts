@@ -119,6 +119,8 @@ export const agents = sqliteTable("agents", {
    *  tree mints a new identity on every invocation. NULL = not a harness
    *  session (a spawned worker), never a sentinel. */
   sessionToken: text("session_token"),
+  /** The instant the spawned agent first claimed its minted id through the daemon; NULL = never claimed, never a sentinel. */
+  claimedAt: integer("claimed_at"),
   createdAt: integer("created_at").notNull(),
 }, (table) => [
   index("agents_by_pack").on(table.rootAgentId),

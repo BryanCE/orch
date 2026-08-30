@@ -495,9 +495,9 @@ export function checkCommandsParserLine(line: string): string | undefined {
 /** Build-only bridge bundle code must never be imported by runtime source. */
 export function checkBridgeBundleImportLine(line: string, relPath: string): string | undefined {
   const normalizedPath = relPath.replace(/\\/g, "/");
-  if (!normalizedPath.startsWith("src/") || normalizedPath === "src/bridge-bundle.ts") return undefined;
-  if (/(?:from\s+|import\s*\()\s*["'][^"']*bridge-bundle\.ts["']/.test(line)) {
-    return "bridge-bundle.ts is build tooling; runtime src/** must use shipped bundle metadata without importing it";
+  if (!normalizedPath.startsWith("src/") || normalizedPath === "src/bridge-bundles/build.ts") return undefined;
+  if (/(?:from\s+|import\s*\()\s*["'][^"']*bridge-bundles\/build\.ts["']/.test(line)) {
+    return "bridge-bundles/build.ts is build tooling; runtime src/** must use shipped bundle metadata without importing it";
   }
   return undefined;
 }

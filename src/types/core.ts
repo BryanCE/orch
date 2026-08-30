@@ -1,6 +1,6 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
-import type { EXTENSION_SOURCE_DIR } from "../extensions/bundles.ts";
+import type { EXTENSION_SOURCE_DIR } from "../bridge-bundles/metadata.ts";
 
 import type { PresenceEntry } from "./presence.ts";
 /** Ordered lowest severity last: an index into this array IS the verbosity. */

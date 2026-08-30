@@ -11,7 +11,7 @@ bundlePaths.forEach((file) => writeFileSync(file, `installed-${file}\n`));
 // Keep the test isolated from the checkout's real installed bundles. The old
 // reload path still invokes this mocked builder, which deliberately overwrites
 // these fixture files and makes the RED assertion fail.
-void mock.module("../src/bridge-bundle.ts", () => ({
+void mock.module("../src/bridge-bundles/build.ts", () => ({
   EXTENSION_NAMES: bundleNames,
   buildExtensionBundle: (_root: string, name: string) => {
     const file = join(bundleDir, `${name}.js`);

@@ -98,21 +98,21 @@ describe("10.2 adapter control strategies are dispatcher-only (checkDispatcherCa
 });
 
 describe("10.3 bridge bundles stay in build tooling (checkBridgeBundleImportLine)", () => {
-  test("flags a runtime adapter importing bridge-bundle.ts", () => {
+  test("flags a runtime adapter importing bridge-bundles/build.ts", () => {
     expect(checkBridgeBundleImportLine(
-      'import { buildExtensionBundle } from "../bridge-bundle.ts";',
+      'import { buildExtensionBundle } from "../bridge-bundles/build.ts";',
       "src/adapters/pi.ts",
     )).toContain("build tooling");
   });
 
   test("allows scripts and the build-tool module itself", () => {
     expect(checkBridgeBundleImportLine(
-      'import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";',
+      'import { EXTENSION_NAMES } from "../src/bridge-bundles/build.ts";',
       "scripts/reset.ts",
     )).toBeUndefined();
     expect(checkBridgeBundleImportLine(
-      'import { extensionBundlePath } from "./extensions/bundles.ts";',
-      "src/bridge-bundle.ts",
+      'import { extensionBundlePath } from "./metadata.ts";',
+      "src/bridge-bundles/build.ts",
     )).toBeUndefined();
   });
 });

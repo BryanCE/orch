@@ -3,7 +3,7 @@ import { lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSy
 import { homedir } from "node:os";
 import { dirname, join, sep, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { EXTENSION_NAMES } from "../src/bridge-bundle.ts";
+import { EXTENSION_NAMES } from "../src/bridge-bundles/build.ts";
 import { SETTINGS_DEFAULTS } from "../src/config.ts";
 import { provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle.ts";
 import { loadPresence } from "../src/presence/store.ts";

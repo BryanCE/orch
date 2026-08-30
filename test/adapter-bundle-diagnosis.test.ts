@@ -6,7 +6,7 @@ import { join } from "node:path";
 const tempRoot = mkdtempSync(join(tmpdir(), "orch-missing-bundle-"));
 const missingBundle = join(tempRoot, "dist", "extensions", "pi-bridge.js");
 
-void mock.module("../src/extensions/bundles.ts", () => ({
+void mock.module("../src/bridge-bundles/metadata.ts", () => ({
   EXTENSION_NAMES: ["pi-bridge", "omp-bridge"],
   extensionBundlePath: () => missingBundle,
 }));

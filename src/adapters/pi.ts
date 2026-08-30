@@ -5,7 +5,7 @@ import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { loadPresence, readJSON, statusForPresence } from "../presence/store.ts";
 import { errnoCode, isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
-import { extensionBundlePath, EXTENSION_NAMES } from "../extensions/bundles.ts";
+import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { appendInbox } from "../presence/inbox.ts";

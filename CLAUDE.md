@@ -8,7 +8,7 @@ User-only, no exceptions, not through a worker or subagent or orch verb, not "ju
 When a change needs one of these, stop, hand Bryan the command, and wait until he says it ran. Never poll, never assume, never retry.
 
 # RULE 0. THE GATE IS `bun check`. ORCHS RUN IT ON THEIR FILES. THE DELEGATOR RUNS THE ONE THAT COUNTS.
-Every orch runs `bun check` on what it touched and pastes it clean in its result. The delegator runs `bun check` once over the whole tree before every commit; that run is the gate. `bun test` scoped to touched files, always. Nothing commits on a dirty gate or a red test. See `TASKS/identity/methodology.md`.
+Every orch runs `bun check` on what it touched and pastes it clean in its result. The delegator runs `bun check` once over the whole tree before every commit; that run is the gate. `bun test` scoped to touched files, always. Nothing commits on a dirty gate or a red test.
 
 # RULE 1. BRYAN'S FILE IS GROUND TRUTH. NEVER ARGUE WITH IT.
 A file or output he hands you is the current state. Never call it stale, cached, a snapshot, or outdated. Never re-characterize it as "just warnings" or "only fallow". Open it. Fix every item.
@@ -17,7 +17,7 @@ A file or output he hands you is the current state. Never call it stale, cached,
 No debating counts, severity, or whether it matters. If it is in the file or Bryan said fix it, fix it. Zero pushback, zero caveats, zero "actually".
 
 # RULE 3. BE FAST. DISPATCH IN ONE SHOT.
-Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch every slice in one message. No serial setup, no re-reading state you already have. Passes, file ownership, and mark-off are in `TASKS/identity/methodology.md`; it is binding.
+Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch every slice in one message. No serial setup, no re-reading state you already have. One pass per slice, one owner per file: no two agents touch the same file in a wave, and a slice is done only when its owner's scoped check and tests are green.
 
 # RULE 4. FLEET DISCIPLINE. See the `orch` skill.
 - `luna:high` is the default. Escalate `luna:xhigh`, then `sol:low`, then `sol:high` (cap), only for the one agent whose task failed. Never terra. `luna:low` for trivially mechanical slices.
@@ -34,17 +34,17 @@ Runtime code in `src/` and `extensions/` must run on node. No `Bun.*` API, no `b
 Nothing has published. There is exactly one current shape for every record, config, and file. Never write code that accepts, migrates, or special-cases old data. Old records are malformed; reap them or error. When a shape changes, fix every writer, reader, fixture, and test in the same change.
 
 # RULE 9. THE HARNESS x PLEXER ARCHITECTURE IS BINDING.
-`learnings/2026-07-16-harness-plexer-architecture.md` is law. Hexagonal ports, then Bridge, then per-tool Adapter, then capability-negotiated Strategy, then Provider factory, then one control dispatcher, then static enforcement. No pair code. Wire formats live in exactly one adapter. Branch on caps, never on adapter or backend id. All control traffic through the one dispatcher. Composition lives in `$ORCH_DIR/settings.json`, JSON, never TOML. Doctor verifies declared vs reality. Reference `docs/reference/design-patterns.md`. Read `learnings/` before touching adapters, backends, daemon, or setup. Deviating = fired.
+`learnings/2026-07-16-harness-plexer-architecture.md` is law. Hexagonal ports, then Bridge, then per-tool Adapter, then capability-negotiated Strategy, then Provider factory, then one control dispatcher, then static enforcement. No pair code. Wire formats live in exactly one adapter. Branch on caps, never on adapter or backend id. All control traffic through the one dispatcher. Composition lives in `$ORCH_DIR/settings.json`, JSON, never TOML. Doctor verifies declared vs reality. Read `learnings/` before touching adapters, backends, daemon, or setup. Deviating = fired.
 
 # RULE 10. PER-HARNESS CODE LIVES IN `extensions/<harness>/`.
 `extensions/pi/`, `extensions/claude/`, `extensions/codex/`. Never a generic name (`bridge`, `shim`), never in `scripts/`. `scripts/` is build tooling.
 - Harness is not backend. Code gated on a plexer (`backend === "herdr"`, `HERDR_SOCKET_PATH`, tmux panes) goes in `src/backends/<plexer>/`, never `extensions/`.
 - The presence protocol is orch's. `status.json`, `result.json`, `inbox.jsonl`, `ack.jsonl` and their writers live in `src/presence/`. Every harness imports that writer. Nobody reimplements `atomicWrite`.
-- Bundle output names are decoupled from source dirs in `src/bridge-bundle.ts`. Renaming a source dir must not rename a shipped artifact.
+- Bundle output names are decoupled from source dirs in `src/bridge-bundles/metadata.ts`. Renaming a source dir must not rename a shipped artifact. The bundler itself (`src/bridge-bundles/build.ts`) is build tooling; runtime `src/**` never imports it.
 - `scripts/check-bridge.ts` enforces this. Its `extensions` scan must stay recursive or it scans nothing and passes.
 
 # RULE 11. ORCH OWNS EVERY AGENT. AN ORCHESTRATOR IS AN AGENT. ENVIRONMENT IS NEVER IDENTITY.
-`TASKS/01-agent-model.md` is law, same standing as Rule 9. Read it before touching identity, keys, registration, spawn, ownership, environment, reaping, or the backend port. Every plan and task list lives in `TASKS/` and nowhere else.
+The agent model below is law, same standing as Rule 9. It binds identity, keys, registration, spawn, ownership, environment, reaping, and the backend port. The code is the documentation; there are no plan files. `learnings/` holds outside research only — never plans, never task lists.
 - One entity. Orchestrator, worker, and a Claude session driving orch are all agents. No second id space, no second liveness mechanism.
 - Four facts, never welded. Identity is a minted id and nothing else. Provenance is who spawned it, immutable. Ownership is a lease. Environment is where it is (cwd, repo, worktree, branch, plexer, handle, OS side), mutable. No fifth fact, no lifetime column.
 - Everything has an environment. orch's grouping is a space. "Workspace" is a plexer's word and never appears in orch's model, CLI, or UI.

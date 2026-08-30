@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { binaryOnPath } from "./util.ts";
-import { EXTENSION_NAMES, extensionBundlePath } from "./extensions/bundles.ts";
-import type { ExtensionName } from "./types/core.ts";
+import { binaryOnPath } from "../util.ts";
+import { EXTENSION_NAMES, EXTENSION_SOURCE_DIR, extensionBundlePath } from "./metadata.ts";
+import type { ExtensionName } from "../types/core.ts";
 
 export { EXTENSION_NAMES, extensionBundlePath, type ExtensionName };
 
@@ -12,15 +12,6 @@ export { EXTENSION_NAMES, extensionBundlePath, type ExtensionName };
 // harness's config dir and break outside a checkout). So every shipped extension
 // is bundled to dist/ — prebuilt in the npm tarball (see package.json
 // prepublishOnly), and built from a checkout only by the user's build tooling.
-
-/** Source directory per shipped extension: each harness owns extensions/<harness>/.
- * The bundle OUTPUT name is unrelated to the directory — it stays the name the
- * harness's loader and doctor's staleness check already know, so renaming a source
- * directory never renames a shipped artifact an installed tree knows about. */
-const EXTENSION_SOURCE_DIR = {
-  "pi-bridge": "pi",
-  "omp-bridge": "omp",
-} as const;
 
 function extensionSourcePath(root: string, name: ExtensionName): string {
   return path.join(root, "extensions", EXTENSION_SOURCE_DIR[name], "index.ts");

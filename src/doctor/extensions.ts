@@ -1,5 +1,5 @@
 import { computeCodeHash } from "../daemon/lifecycle.ts";
-import { EXTENSION_NAMES, extensionBundlePath } from "../extensions/bundles.ts";
+import { EXTENSION_NAMES, extensionBundlePath } from "../bridge-bundles/metadata.ts";
 import { loadPresence, presenceRootFault } from "../presence/store.ts";
 import { packageRoot } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";

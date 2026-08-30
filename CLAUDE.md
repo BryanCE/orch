@@ -1,46 +1,28 @@
 # CLAUDE.md. Rules for this repo. Non-negotiable.
 
-# RULE #0. EVERY FILE EDIT GOES THROUGH Edit OR Write. NO SHELL EDITS.
-Bryan sees every change as a diff or it does not happen. No `sed -i`, `perl -i`, `python3 - <<EOF`, `python -c`, `node -e`, `cat > file`, `tee`, `echo > file`, heredoc redirection, or any script that rewrites a file. Not for one-liners, not for fixture sweeps, not for docs. `.claude/hooks/no-shell-edits.sh` blocks these. If it fires, redo the change with Edit. Never hunt for a shape that gets past it. The only shell writes allowed are to `/tmp/claude-*`.
-
 # RULE #1. NEVER BUILD. NEVER MIGRATE. NEVER GENERATE. NEVER RELOAD. ASK BRYAN.
 User-only, no exceptions, not through a worker or subagent or orch verb, not "just to test":
 - `bun run build:dev`, `bun run build`, `bun run build:cli`, `bun build`, `npm pack`, `npm install -g`, `npm i -g`
 - `bun db:gen`, `bun db:mig`, `bun db:reset`, `drizzle-kit`, editing `drizzle/` or any `migration.sql`
 - `orch daemon reload`, `orch daemon restart`, `orch daemon stop`
-- `bun check`, `bun run check`, `bun run check:bridge`
 When a change needs one of these, stop, hand Bryan the command, and wait until he says it ran. Never poll, never assume, never retry.
 
-# GROUND TRUTH. READ THE RESULT FILES. NEVER RUN THE GATE.
-Bryan runs the gate on Windows. You read the files. `bun test` is fine and encouraged, especially scoped to the files you touched. `bun run check` yourself = fired.
-- `test-results.md` is the full `bun test` output.
-- `current-errors.md` is the `bun run check` + `check:bridge` output.
-After any change that needs verifying, ask Bryan to rerun, then reopen the file. Never trust an earlier read.
-
-# RULE 0. QUOTE THE GATE COMMANDS EXACTLY.
-Exactly two commands ever go to Bryan, character for character:
-```
-bun check > .\current-errors.md
-bun run test *> .\test-results.md
-```
-No `orch` prefix, no `cd`, no path, no `&&`, no expanding `bun check` to `bun run check` or `bunx`. Copy the line. Stop.
+# RULE 0. THE GATE IS `bun check`. ORCHS RUN IT ON THEIR FILES. THE DELEGATOR RUNS THE ONE THAT COUNTS.
+Every orch runs `bun check` on what it touched and pastes it clean in its result. The delegator runs `bun check` once over the whole tree before every commit; that run is the gate. `bun test` scoped to touched files, always. Nothing commits on a dirty gate or a red test. See `TASKS/identity/methodology.md`.
 
 # RULE 1. BRYAN'S FILE IS GROUND TRUTH. NEVER ARGUE WITH IT.
-A file he hands you, especially `current-errors.md` or anything named "current", is the current state. Never call it stale, cached, a snapshot, or outdated. Never re-characterize it as "just warnings" or "only fallow". Open it. Fix every item.
+A file or output he hands you is the current state. Never call it stale, cached, a snapshot, or outdated. Never re-characterize it as "just warnings" or "only fallow". Open it. Fix every item.
 
 # RULE 2. DO NOT ARGUE. FIX IT.
 No debating counts, severity, or whether it matters. If it is in the file or Bryan said fix it, fix it. Zero pushback, zero caveats, zero "actually".
 
 # RULE 3. BE FAST. DISPATCH IN ONE SHOT.
-Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch every slice in one message. No serial setup, no re-reading state you already have.
+Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch every slice in one message. No serial setup, no re-reading state you already have. Passes, file ownership, and mark-off are in `TASKS/identity/methodology.md`; it is binding.
 
 # RULE 4. FLEET DISCIPLINE. See the `orch` skill.
 - `luna:high` is the default. Escalate `luna:xhigh`, then `sol:low`, then `sol:high` (cap), only for the one agent whose task failed. Never terra. `luna:low` for trivially mechanical slices.
 - Max 4 agents per tab, tiled. Split bigger fleets across tabs.
 - `reload` = live-reload code in place. `reset` = new session. `restart` = close and relaunch. Use `reload`, never `restart`, to pick up code.
-
-# RULE 5. `bun run check` IS USER-ONLY.
-Never run it, never delegate it. Wait for Bryan's output and fix every item in it. Never call the check clean without his passing output.
 
 # RULE 6. NODE RUNTIME. BUN IS A BUILD TOOL ONLY.
 Runtime code in `src/` and `extensions/` must run on node. No `Bun.*` API, no `bun:*` import, except `bun:sqlite` as a guarded fallback behind `node:sqlite` (already in `src/store/connection.ts`). Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`; CLI source edits need Bryan's `bun run build:dev` to take effect.

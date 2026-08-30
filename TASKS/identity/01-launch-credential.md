@@ -1,234 +1,134 @@
-# The launch credential — what `ORCH_AGENT_KEY` is, and what it is not
+# The launch credential
 
-Companion to `TASKS/08-identity-registration.md` (how a *driving session* gets an id via
-`hello`) and `TASKS/01-agent-model.md` (four facts, never welded). This document covers the
-other entry: how a *spawned* agent learns the id orch minted for it, and the four unrelated
-jobs that one env var has quietly been made to do.
+How a spawned agent knows which agent it is, who may read that fact, and what it means.
+Companion to `TASKS/01-agent-model.md` (four facts, never welded) and
+`TASKS/08-identity-registration.md` (how a driving session registers).
 
----
+## 1. The carrier
 
-## 1. The verdict on the mechanism
+The spawner stamps `ORCH_AGENT_ID=<minted id>` into the pane env before the plexer launches
+the harness. Env is the only channel that survives the plexer hop on every OS, needs no daemon
+at boot, and reaches every harness's in-process extension without touching argv.
 
-**An env var is the right carrier. Keep it.**
+The variable is the minted id and nothing else. It is identity. It is never authorization.
 
-The id is minted before launch (Rule 11, invariant 2 of `08`), and the process it must reach
-is exec'd by the plexer, not by orch. Env is the only channel that survives that hop on every
-OS, needs no daemon at startup, has no race, and lands in every harness's in-process extension
-without touching any harness's argv. `TMUX_PANE`, `SLURM_JOB_ID`, `GITHUB_RUN_ID`,
-`INVOCATION_ID`, the Kubernetes downward API — same pattern, same reason.
+## 2. One reader
 
-Every alternative was weighed and loses on a Rule, not on taste:
+`process.env.ORCH_AGENT_ID` is read in exactly one file, `src/identity/launch.ts`, a leaf that
+imports only `backends/identity.ts` and the logger. (Note, pass 1: the logger's file path needs
+`orchDir()`, which `presence/writer.ts:26` defines; `launch.ts` imports it from there. Both sides
+are function declarations used at call time, so the import cycle is harmless.)
 
-| carrier | why not |
-| --- | --- |
-| CLI flag on the harness | the extension is in-process; three harnesses filter argv three ways |
-| a file in cwd / the worktree | environment wearing identity's hat — the exact 2026-08-26 bug |
-| ask the plexer "which pane am I" → DB | branches on an environment id; a capless environment has no handle |
-| pid / ppid chain, `SO_PEERCRED` | pids recycle, shells wrap, the plexer is the real parent, node exposes none of it portably (Rule 6, `08` §transports) |
-| inherited fd / first line of stdin | does not survive the plexer hop; stdin belongs to the TUI |
+- `launchCredential(): string | null` reads the var and validates it with `isAgentId`. Unset
+  is `null`. Present but malformed is a wiring error: log `launch.invalid-key`, exit 1.
+- `LAUNCH_ENV` is the exported constant holding the name. Nothing else spells it. The shim
+  allow-list (`adapters/session-env.ts`) and the Claude hooks shell string
+  (`adapters/claude-hooks.ts`) import it.
+- `identity/self.ts` calls `launchCredential()`. Everything else calls `selfIdentity()` or
+  `selfId()`.
+- `scripts/check-bridge.ts` fails the gate on any read of the var, or any string literal of
+  its name, outside `launch.ts`.
 
-Every "discover yourself" scheme still needs *some* correlator, and that correlator has to
-ride in env. So the design question is not *whether* env, but **what rides in it, who reads
-it, and what it is allowed to mean.**
+## 3. Four questions, four functions
 
-## 2. What is wrong today
-
-Twenty-one runtime files read `process.env.ORCH_AGENT_KEY` directly, and use it as **four
-different facts**:
-
-| meaning | readers |
-| --- | --- |
-| **identity** — "my minted id" | `identity/self.ts:25`, `presence/writer.ts:114` (`launchKey`), `agent/presence.ts:85`, `backends/herdr/hud.ts:46`, `backends/herdr/index.ts:266`, `backends/tmux/index.ts:222` |
-| **caller kind** — "am I a human or an agent?" | `agent/peers.ts:41`, `agent/monitor.ts:170`, `store/connection.ts:79`, `policy/close-authority.ts:20`, `commands/lifecycle.ts:860`, `commands/target.ts:163`, `daemon/rpc.ts:831`, `extensions/claude/index.ts:65`, `extensions/codex/index.ts:32` |
-| **lock owner** | `commands/lock.ts:11` — `ORCH_AGENT_KEY ?? user:<pid>` |
-| **authority** — "what may I end?" | `callerAuthority(process.env.ORCH_AGENT_KEY)` |
-
-Plus two carriers that copy the *name* of the variable: the shim env allow-list
-(`adapters/session-env.ts:29`) and a shell string baked into Claude hooks
-(`adapters/claude-hooks.ts:34` — `[ -n "$ORCH_AGENT_KEY" ] || exit 0`).
-
-Three consequences, all live:
-
-1. **"No key = human" is a guess.** Env is inherited by everything the agent spawns: a `bash`
-   the agent opens, a tool that shells out to `orch`, a human who drops into the pane. All of
-   them carry the key and are treated as *that agent* — with its lease, its lock name, its
-   close authority, its fleet wall. `peers.ts` already had to widen from "did it parse" to
-   "is it present" once, because a malformed key read as *no launch at all* and handed a
-   worker the whole machine.
-2. **A copied or stale key is indistinguishable from the real one.** A recycled pane, a
-   respawn that reuses a key, or two processes launched with the same env all write into
-   the same presence dir and the same row. Nothing records that a second claimant appeared.
-3. **The carrier cannot be changed.** Swapping the mechanism means editing twenty-one files
-   and a shell string. That is the definition of a leak: a decision made in one place that
-   every other place has memorised.
-
-And one naming debt: the variable is called **KEY** because it once carried
-`<backend>~<workspace>~<handle>`. It now carries the bare minted id (`self.ts:25`: "the key is
-the whole id, so there is nothing to parse"). The word is the retired shape.
-
-## 3. The tasks
-
-Each task is independently landable. Order is the order that keeps the gate green.
-
-### T1 — One reader
-
-`process.env.ORCH_AGENT_KEY` is read in **exactly one** module, and that module is a leaf.
-
-- New leaf `src/identity/launch.ts`: `launchCredential(): string | null` — reads the var,
-  validates with `isAgentId`, returns the id or `null`. Present-but-malformed is a wiring
-  error and exits the way `launchKey` does today (that logic moves here; `launchKey` in
-  `presence/writer.ts` is deleted).
-- It must be a **leaf** (imports only `backends/identity.ts` and the logger) because
-  `store/connection.ts` documents an import cycle that forced it to re-read env rather than
-  call the identity layer. A leaf breaks the cycle instead of working around it.
-- `identity/self.ts` calls `launchCredential()`. Every other reader in §2 goes through
-  `selfIdentity()` / `selfId()` — or through the caller-kind function in T2.
-- The two *name carriers* (`session-env.ts` allow-list, `claude-hooks.ts` shell string)
-  import the variable name from one exported constant `LAUNCH_ENV` in `launch.ts`. No
-  string literal of the name exists anywhere else.
-- **Enforcement:** `scripts/check-bridge.ts` gains `checkLaunchEnvReadLine` — any
-  `process.env.ORCH_AGENT_KEY` (or its successor name, T4) outside `src/identity/launch.ts`
-  fails the gate. The `extensions/` scan is already recursive (Rule 10); this check rides it.
-
-### T2 — Four meanings, four functions
-
-The four uses in §2 become four named questions, each answered in exactly one place.
-
-| question | function | lives in | replaces |
-| --- | --- | --- | --- |
-| who am I | `selfIdentity()` (exists) | `identity/self.ts` | six identity readers |
-| was I launched by orch | `callerKind(): "human" \| "agent"` | `policy/caller.ts` (new) | nine presence-checks |
-| who holds this lock | `selfId() ?? \`user:${pid}\`` inline in `lock.ts` via `selfId()` | `commands/lock.ts` | the raw read |
-| what may I end | `callerAuthority(self: SelfIdentity \| null)` | `policy/close-authority.ts` | the `string \| undefined` parameter |
-
-`callerKind()` is the single home for the human/agent distinction. Its rule today is
-"launch credential present ⇒ agent" — the same guess as before, but now stated once, so
-when T3 gives it a better answer (a *claimed* identity rather than a present variable) nine
-sites change to zero.
-
-Specific deletions:
-- `peers.ts` `callerMayCrossFleets`, `monitor.ts` `registerFleetMonitor` guard,
-  `connection.ts` `callerIsSpawnedAgent`, `target.ts:163`, `lifecycle.ts:860` → `callerKind()`.
-- `extensions/claude/index.ts` / `extensions/codex/index.ts` → `launchCredential()` from
-  the presence writer's re-export (extensions import orch's presence layer, never env —
-  Rule 10).
-- `backends/herdr/index.ts:266`, `backends/tmux/index.ts:222`,
-  `backends/herdr/hud.ts:46` → `selfIdentity()`. A backend asking "who is the caller" is
-  not a backend concern at all; the call sites that need it should receive the id as a
-  parameter from the command layer. Audit each and prefer passing it down.
-
-### T3 — A claim, recorded
-
-**Decided** — the claim binds to the harness session token; §5 has the full shape. Settled:
-
-- The agent row gains a **nullable instant** `claimed_at` (Rule 11: an instant says *when*,
-  a boolean only *whether*). `NULL` means launched-but-never-heard-from — which is itself a
-  reportable state (`doctor`: "spawned N minutes ago, never claimed").
-- The first contact from the launched process stamps it. A **second** claim that is not the
-  same process lineage is a **collision**, recorded, never silent.
-- `callerKind()` (T2) then answers from the claim, not from the variable's presence.
-- No version bump (Rule 14). `insertAgent` and every fixture gain the column in one change.
-- `claimed_at` and `session_token` are new columns on `agents`, so this task lands in the
-  same wave as T1/T2 and the wave's first handoff is `bun db:gen` (Rule #1, Bryan runs it).
-  Holding the column back would leave T3 with nothing to write.
-
-The second claimant is told apart by the harness session token recorded at first contact;
-`claimAgent(id, sessionToken, now)` is the one writer (§5).
-
-### T4 — Rename to `ORCH_AGENT_ID`
-
-Mechanical, after T1 (so it is one constant, one shell string, and the test helpers):
-
-- `LAUNCH_ENV = "ORCH_AGENT_ID"` in `launch.ts`.
-- `policy/spawner.ts:72`, `commands/spawn.ts:600,871`, `backends/headless/index.ts:144-148`
-  and the `types/backend.ts` doc comments: `key` → `id` in the env record. `SpawnRegistration.key`
-  stays for now — that is the store's word and is a separate rename.
-- `launchKey` (deleted in T1), `computeKey` in `agent/presence.ts`, `holderName` in
-  `lock.ts`: rename to what they return.
-- `test/helpers/presence.ts` and every test that sets the env by literal name → the constant.
-- Not a schema change; nothing published (Rule 14). Every writer, reader and fixture in one
-  commit.
-
-### T5 — The doc comments that memorised the guess
-
-`close-authority.ts:20`, `rpc.ts:831`, `spawn.ts:577`, `monitor.ts:164`, `peers.ts:36`,
-`connection.ts:70` each *explain* the "no key = human" rule in prose. After T2/T3 they point
-at `callerKind()` and say nothing else — prose that restates a rule enforced elsewhere goes
-stale the moment the rule moves (`08` §"why prose does not hold").
-
-## 4. Invariants
-
-| # | invariant | enforced by |
+| question | function | lives in |
 | --- | --- | --- |
-| 1 | The launch env var is read in one file. | `checkLaunchEnvReadLine` in `scripts/check-bridge.ts` (T1) |
-| 2 | The variable's *name* exists as one exported constant. | same check, extended to the string literal |
-| 3 | Human-vs-agent is decided by `callerKind()` and nowhere else. | invariant 1 makes any other decision impossible to write — there is nothing else to read |
-| 4 | The credential is identity, never authorization. | `callerAuthority` takes `SelfIdentity`, not a string; the lease gates driving verbs (`01` §ownership); `abort`/`close`/`reap` are never gated |
-| 5 | A second claimant is recorded, never merged. | `claimed_at` + collision row (T3) — **NONE until T3 lands** |
+| who am I | `selfIdentity()` | `identity/self.ts` |
+| was I launched by orch | `callerKind(): "human" \| "agent"` | `policy/caller.ts` |
+| who holds this lock | `selfId()` with `user:<pid>` when unregistered | `commands/lock.ts` |
+| what may I end | `callerAuthority(self: SelfIdentity \| null)` | `policy/close-authority.ts` |
 
-## 5. Decided: a claim binds to the harness session token
+`callerKind()` is the only place the human/agent distinction is made. Backends never ask who
+the caller is; the command layer passes the id down as a parameter.
 
-**Decision 2026-08-29 (Bryan).** The "bootstrap token → lease" idea was weighed and reduced to
-what it actually buys in this trust model. After a one-shot token is spent, every later `orch`
-the agent runs is a fresh child that has only what env gave it — and anything a child can
-find, a nested shell in the same pane can also find, because it is the same uid (`08`: same
-uid *is* the trust boundary; node sees no smaller one portably, Rule 6). So a single-use
-token detects a **second claimant** and nothing more. It cannot isolate children from the
-parent. No env scheme can.
+## 4. The claim
 
-The correlator that gives exactly that detection already exists: every adapter declares
-`sessionIdEnv`, the harness's own session id, which `hello` already uses for driving
-sessions. **The claim records it. Nothing new is minted.**
-
-### Two moments, two actors
+The agent row carries two nullable columns, `claimed_at` (instant) and `session_token`.
 
 | moment | who acts | what happens |
 | --- | --- | --- |
-| **spawn** | the spawner | mints the id, inserts the agent row (`claimed_at = NULL`), stamps `ORCH_AGENT_ID=<id>` into the pane env, hands off to the plexer. The spawner never sees a session token — the harness process does not exist yet. |
-| **first contact** | the spawned agent | the harness boots, its extension (`extensions/<harness>/`) fires carrying **both** `ORCH_AGENT_ID` (from orch) and the harness's session id (from the harness). Its first write says "I am `<id>`, my session is `<token>`". orch stamps `claimed_at` and `session_token` on the row. |
+| spawn | the spawner | mints the id, inserts the row with `claimed_at = NULL`, stamps `ORCH_AGENT_ID` into the pane env, hands off to the plexer |
+| first contact | the spawned agent | the harness boots, its extension calls `claim-identity` carrying `ORCH_AGENT_ID` and the harness's own session id (`AgentAdapter.sessionIdEnv`); the daemon stamps `claimed_at` and `session_token` |
 
-The spawner's own identity is untouched: it registered via `hello`, or was itself claimed
-the same way when *it* was spawned.
+First claim wins. orch's own `restart`/`reset` re-claims as part of the relaunch. Any other
+claim with a different token is refused: that caller is not the agent. There is no collision
+event and no collision policy.
 
-### What `callerKind()` becomes
+The claim happens through the daemon only. A spawned agent cannot exist without one
+(`spawn.ts` fails the launch when the control plane is unreachable), so the presence writer
+never stamps a claim.
+
+`callerKind()` answers from the claim:
 
 | caller carries | verdict |
 | --- | --- |
-| id + the recorded session token | **the agent** — including `orch` run from its own Bash tool, which inherits both |
-| id + a different token, or none | **not the agent** — a human who dropped into the pane, or a stale/copied env |
+| id + the recorded session token | agent, including `orch` run from its own Bash tool |
+| id + a different token, or no token | human in the pane, or a stale env |
 | no id | human at a terminal |
 
 A harness that exports no session token falls back to its open process instance, as `08`
-already specifies for `hello`. A second claim whose token differs from the recorded one is a
-**collision**, recorded as an event, never merged into the row.
+specifies.
 
-### The three calls
+## 5. Two RPCs
 
-- **Binding:** the harness session token (above). Rejected: a spawn nonce + presence-dir
-  file (same reach, more machinery); `claimed_at` alone (cannot tell a second claimant apart).
-- **Collision policy:** **accept and flag.** Refusing the second claimant's writes could
-  strand a legitimately recycled pane, and `abort`/`close`/`reap` must stay reachable from
-  anywhere (Rule 11). A collision is an event row `doctor` and `status` surface; the driving
-  verbs stay gated on the lease, which was never the credential.
-- **Claim point:** the daemon's `hello` is the entry point (`08` invariant 1). The presence
-  writer runs without a daemon, so it may write `status.json` for an unclaimed id **only
-  while no daemon is reachable**; once one is, an unclaimed id is refused with the
-  instruction to `hello`. One function, `claimAgent(id, sessionToken, now)`, stamps the
-  column from either path.
-
-T3 in §3 is unblocked by this section; invariant 5 in §4 gets its enforcement when T3 lands.
-
-## 6. Wave plan
-
-One wave, four agents, `luna:high`, one tab. Slices are disjoint by file so nothing merges.
-
-| agent | slice | files | blocks on |
+| RPC | caller | says | daemon does |
 | --- | --- | --- | --- |
-| A | T1 one reader + T4 rename + invariant 1/2 check in `check-bridge.ts` | `src/identity/launch.ts` (new), `identity/self.ts`, `presence/writer.ts`, `adapters/session-env.ts`, `adapters/claude-hooks.ts`, `scripts/check-bridge.ts`, `test/helpers/presence.ts`, every test setting the env literal | nothing |
-| B | T2 `callerKind()` + `callerAuthority(SelfIdentity)` + T5 comment cleanup + `02` T4 fleet wall | `policy/caller.ts` (new), `policy/close-authority.ts`, `agent/peers.ts`, `agent/monitor.ts`, `store/connection.ts`, `commands/target.ts`, `commands/lifecycle.ts`, `daemon/rpc.ts`, `extensions/claude/index.ts`, `extensions/codex/index.ts` | A's `launchCredential()` export name (agreed up front: `launchCredential`, `LAUNCH_ENV`) |
-| C | T3 claim: schema columns `claimed_at`, `session_token` on `agents`; `claimAgent()` in `store/agent-rows.ts`; `hello` stamps it; presence writer refuses an unclaimed id when a daemon is reachable; collision event; `doctor` "never claimed" | `src/db/schema.ts`, `store/agent-rows.ts`, `daemon/rpc.ts` (hello only), `presence/writer.ts` (claim gate only), `doctor/` | Bryan runs `bun db:gen` after C edits the schema, BEFORE C's tests can pass |
-| D | `02` T3 worker prompt follows `fleet.max_depth`, T7 settings editor row + tests, T8 refusal names `orch settings`, T9 kill `?? 10` and sweep `src/` for `?? <literal>` on settings reads | `worker-prompt.ts`, `types/core.ts`, `commands/spawn.ts`, `commands/control.ts`, `commands/lifecycle.ts` (compose sites only), `test/settings-registry.test.ts`, `test/worker-prompt.test.ts` | nothing |
+| `claim-identity` | a spawned agent | "orch minted me `<id>`; my session is `<token>`" | unclaimed → stamp; same token → no-op; different token → refuse; unknown id → refuse |
+| `register-session` | a driving session | "I have no id; mint one for session `<token>`" | mint, insert with `spawned_by = NULL`, return the id; same token again returns the same id |
 
-`daemon/rpc.ts` and `presence/writer.ts` appear in two slices; the split is by function (B touches `rpc.ts:831` caller-kind only, C touches `hello` only; A deletes `launchKey`, C adds the claim gate). Named in the dispatch so neither agent widens.
+Both call one shared base (daemon token check, session-token lookup, row write). Neither
+contains the other. `hello` is deleted, not aliased. `08` is updated in the same commit.
 
-Handoffs to Bryan, in order: `bun db:gen` (after C's schema edit), then the two gate commands from Rule 0.
+## 6. The name
+
+`ORCH_AGENT_ID`. `ORCH_AGENT_KEY` does not exist after task 5. `SpawnRegistration.key` is the
+store's word and is not part of this rename.
+
+## 7. Invariants
+
+| # | invariant | enforced by |
+| --- | --- | --- |
+| 1 | The launch env var is read in one file. | `check-bridge` (task 1) |
+| 2 | The variable's name exists as one exported constant. | `check-bridge` (task 1) |
+| 3 | Human-vs-agent is decided by `callerKind()` and nowhere else. | invariant 1 leaves nothing else to read |
+| 4 | The credential is identity, never authorization. | `callerAuthority` takes `SelfIdentity`; the lease gates driving verbs; `abort`/`close`/`reap` are never gated |
+| 5 | First claim wins; a different token is not the agent. | `claimAgent()` is the one writer and refuses (task 11) |
+
+## 8. Tasks
+
+Numbered in completion order. A task never depends on one below it. "After" names the
+prerequisites.
+
+TDD, every task. Write the test in the "test first" column, run it, see it fail for the right
+reason, write the code, run it green. "Gate" means the static check is the test and must be
+seen failing before and passing after. "Covered by" means a named test already fails until
+the task lands.
+
+| # | task | files | test first | after | done |
+| --- | --- | --- | --- | --- | --- |
+| 0 | New leaf `src/identity/launch.ts`: `launchCredential()`, `LAUNCH_ENV`; `self.ts` calls it; `launchKey` deleted from `presence/writer.ts`. **Note (pass 1):** `extensions/claude/index.ts:22` and `extensions/codex/index.ts:20` import `launchKey`; deleting it here breaks typecheck until task 3. So `launchKey` is kept as `launchKey(): string \| undefined { return launchCredential() ?? undefined }` with the env read gone, and the two extension call sites drop their argument; task 3 deletes it | `identity/launch.ts` (new), `identity/self.ts`, `presence/writer.ts`, `extensions/claude/index.ts`, `extensions/codex/index.ts` | new `test/identity-launch.test.ts`: env unset → `null`; a minted id → that id; a malformed value → exit 1 and log `launch.invalid-key`. `test/identity-self.test.ts`: `selfIdentity()` returns the env id without touching the store. | — | |
+| 1 | `check-bridge` rule: any read of the var, or string literal of its name, outside `identity/launch.ts` fails the gate | `scripts/check-bridge.ts` + its test | `test/check-bridge.test.ts`: a fixture with the read outside `launch.ts` fails with file:line; the same read inside `launch.ts` passes; a bare literal of the name outside `launch.ts` fails. | 0 | |
+| 2 | Name carriers import `LAUNCH_ENV`: shim allow-list and Claude hooks shell string | `adapters/session-env.ts`, `adapters/claude-hooks.ts` | `test/claude-hooks.test.ts`: the shell string contains `LAUNCH_ENV`'s value, asserted through the constant. `test/session-env.test.ts`: the allow-list contains `LAUNCH_ENV`. Gate (1) catches a literal. | 0 | |
+| 3 | Extensions read `launchCredential()` via the presence layer, never env. **Note (pass 1):** task 0 keeps `launchKey` as the wrapper (see its note); this task deletes `launchKey` and has the extensions import `launchCredential` from `identity/launch.ts` | `extensions/claude/index.ts`, `extensions/codex/index.ts`, `presence/writer.ts` | covered by gate (1) plus `test/cli-backends-*-headless.test.ts` staying green | 0, 1 | |
+| 4 | Backends stop reading env: `herdr/index.ts`, `tmux/index.ts`, `herdr/hud.ts` take the id as a parameter from the command layer | those three + callers | each backend's existing test calls the function with an explicit id, env unset; passes only when the parameter is used. Gate (1) catches a leftover read. | 0, 1 | |
+| 5 | Rename to `ORCH_AGENT_ID`: `LAUNCH_ENV`, spawner env, headless, `computeKey`/`holderName`, test helpers | `policy/spawner.ts`, `commands/spawn.ts`, `backends/headless/index.ts`, `agent/presence.ts`, `test/helpers/presence.ts`, tests | `test/spawn-policy.test.ts` reads the key through `LAUNCH_ENV` and asserts `"ORCH_AGENT_ID"`. `test/one-spelling-per-fact.test.ts`: zero `ORCH_AGENT_KEY` in `src/`, `extensions/`, `test/`. | 0–4 | |
+| 6 | New `policy/caller.ts` with `callerKind()`; replace the presence-checks in `peers.ts`, `monitor.ts`, `connection.ts`, `target.ts`, `lifecycle.ts`, `rpc.ts` | those files + `policy/caller.ts` (new) | new `test/caller-kind.test.ts`: no credential → `"human"`; a credential → `"agent"`. Each replaced site's existing test (`owner-scoping`, `agent-monitor`, `store-outbox`, `close-authority`) stubs `callerKind`, not the env. | 0 | |
+| 7 | `callerAuthority(self: SelfIdentity \| null)`; `lock.ts` holder via `selfId()` | `policy/close-authority.ts`, `commands/lock.ts` | `test/close-authority.test.ts`: `callerAuthority(null)` / `callerAuthority({ id: "orchA" })` and every assertion holds. New `test/lock-holder.test.ts`: self id when registered, `user:<pid>` otherwise. | 0 | |
+| 8 | Delete the comments that restate "no key = human" in `close-authority.ts`, `rpc.ts`, `spawn.ts`, `monitor.ts`, `peers.ts`, `connection.ts` | those files | no test. Reviewer greps `src/` for `no ORCH_AGENT` and expects zero. | 6 | |
+| 9 | `peers.ts` fleet wall = `depthOf(caller) === 0` | `agent/peers.ts` | `test/owner-scoping.test.ts`: a root sees every fleet; a depth-1 agent only its own; depth-2 likewise. Caller injected, env never set. | 6 | |
+| 10 | Schema: `claimed_at` (nullable instant), `session_token` on `agents`; `insertAgent` + fixtures. **Handoff: `bun db:gen`.** **Note (pass 1):** `session_token` already exists (`src/db/schema.ts:121`); only `claimed_at` is new. `AgentRow` carries both | `src/db/schema.ts`, `store/agent-rows.ts`, `test/helpers/agent.ts` | `test/store-agent-rows.test.ts`: `insertAgent` writes both `NULL`; `agentById` reads both back. Fails until the migration exists; that is the signal to hand Bryan `bun db:gen`. | — | |
+| 11 | One writer `claimAgent(id, sessionToken, now)` | `store/agent-rows.ts` + test | `test/claim-agent.test.ts`: unclaimed + A → stamped; claimed A, claim A → no-op; claimed A, `reclaim(id)` then B → B; claimed A, plain claim B → refused, row unchanged; unknown id → refused. | 10 | |
+| 12 | `doctor`: "spawned N min ago, never claimed" | `doctor/` | `test/doctor-checks.test.ts`: `claimed_at = NULL` older than threshold → finding with name and age; a claimed row → nothing. | 10 | |
+| 13 | RPCs `claim-identity` and `register-session` over one shared base; `hello` deleted; `rpcHello` callers in `spawn.ts` and the `restart`/`reset` relaunch sites re-claim | `daemon/rpc.ts`, `daemon/reach.ts`, `commands/spawn.ts`, `commands/lifecycle.ts` | `test/daemon-rpc-identity.test.ts`: `claim-identity` with minted id + token stamps; unknown id → error naming it; `register-session` mints and returns an id, same token again returns the same id; method `hello` → unknown method. `test/one-spelling-per-fact.test.ts`: zero `hello` in `src/`. Lifecycle restart test: `session_token` changed, `claimed_at` moved. | 11 | |
+| 14 | `08-identity-registration.md` describes the two RPCs | `TASKS/08-identity-registration.md` | no test. Reviewer greps `08` for `hello` and expects zero. | 13 | |
+| 15 | `callerKind()` answers from the claim | `policy/caller.ts` | extend `test/caller-kind.test.ts`: id + recorded token → `"agent"`; id + other token → `"human"`; id + no token → `"human"`; no id → `"human"`. | 6, 11 | |
+| 16 | Rename `pack_cap` → `max_agents_per_pack`, `max_agents` → `max_agents_total`, `space_caps` → `max_agents_per_space`; help lines say what each counts; refusals quote the new key | `config.ts`, `types/config.ts`, `settings/registry.ts`, `commands/spawn.ts`, `doctor/config.ts`, `README.md`, every fleet fixture | `test/config.test.ts`: the old key fails zod naming it; the new key loads. `spawn-policy` / `spawn-limits`: refusal strings contain the new keys. `test/settings-registry.test.ts`: each help line contains "agents" or "levels". | — | |
+| 17 | Delete `spawn_cap`, `ORCH_SPAWN_CAP`, `--spawn-cap`, its `resolveSetting` in `spawn.ts`, README line, fixtures | `config.ts`, `types/config.ts`, `settings/registry.ts`, `commands/spawn.ts`, `README.md`, fixtures | `test/config.test.ts`: `spawn_cap` fails zod. `test/commands-spawn.test.ts`: `--spawn-cap` is unknown. `test/one-spelling-per-fact.test.ts`: zero `spawn_cap` / `ORCH_SPAWN_CAP` in `src/`, `README.md`. | 16 | |
+| 18 | Type `max_agents_per_pack: number`, delete `?? 10`; sweep `src/` for every `?? <literal>` on a settings read | `commands/spawn.ts`, `types/config.ts`, whatever the sweep finds | `test/one-spelling-per-fact.test.ts`: regex `settings\.\w+(\.\w+)* \?\? [0-9"']` over `src/` matches zero. Gate typecheck fails if the type stays optional. | 16 | |
+| 19 | `orch settings` shows `fleet.max_depth` and the renamed limits | `test/settings-registry.test.ts` | `SETTINGS_REGISTRY` has `fleet.max_depth` as `integer, min 1`; full-tree fixture round-trips it; write of `0` refused; `2` lands in `settings.json`. | 16, 17 | |
+| 20 | Spawn depth refusal appends `orch settings` | `commands/spawn.ts` | `test/spawn-policy.test.ts`: the depth refusal contains `orch settings`. | 16 | |
+| 21 | Worker prompt follows `fleet.max_depth` via `WorkerHeaderContext.maySpawn`; strip survives both variants | `worker-prompt.ts`, `types/core.ts`, `spawn.ts`, `control.ts`, `lifecycle.ts` compose sites, `test/worker-prompt.test.ts` | `test/worker-prompt.test.ts`: `maySpawn: false` → "never spawn"; `maySpawn: true` → "you may `orch spawn`" and not "never spawn"; `stripWorkerHeader` returns the bare task for both. `test/spawn-policy.test.ts`: `max_depth: 1` composes never; `max_depth: 2` composes may. | 16 | |
+| 22 | `doctor`: agent deeper than `fleet.max_depth` | `doctor/` | `test/doctor-checks.test.ts`: a depth-2 row under `max_depth: 1` → finding with agent, depth, setting; a depth-1 row → nothing. | 16 | |
+
+`done` holds the short hash of the commit that landed the task. Empty means not done.
+Handoff to Bryan: `bun db:gen` after 10.

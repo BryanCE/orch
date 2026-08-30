@@ -15,6 +15,12 @@ set -euo pipefail
 cmd="$(jq -r '.tool_input.command // empty')"
 [ -n "$cmd" ] || exit 0
 
+# Skill scripts own their own writes (e.g. ~/.claude/skills/handoff/scripts/write.sh
+# takes its body on a heredoc). A command that starts with one is not a tree edit.
+if grep -Eq '^[[:space:]]*(~|/home/[^/]+)/\.claude/skills/[^/]+/scripts/[^[:space:]]+' <<<"$cmd"; then
+  exit 0
+fi
+
 deny() {
   jq -cn --arg reason "$1" '{
     hookSpecificOutput: {

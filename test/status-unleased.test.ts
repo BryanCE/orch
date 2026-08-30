@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { deriveView, formatOwnerCell, statusRowFromView } from "../src/commands/status.ts";
+import { formatOwnerCell, statusRowFromEntity } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -56,7 +56,7 @@ describe("status owner rendering", () => {
     const dir = fixture();
     acquireLease(dir, WORKER_ID, "live", 2);
     const drive = deriveDriveState(entity().key, { directory: dir, currentOrchId: "caller" });
-    const row = statusRowFromView(deriveView(entity(), new Map()), {}, "caller", dir);
+    const row = statusRowFromEntity(entity(), new Map(), undefined, {}, "caller", dir);
     expect(drive.owner).toBe("live");
     expect(formatOwnerCell(row)).toBe("live");
     expect(JSON.stringify(row)).toContain('"owner":"live"');
@@ -66,7 +66,7 @@ describe("status owner rendering", () => {
     const dir = fixture();
     acquireLease(dir, WORKER_ID, "dead", 2);
     const drive = deriveDriveState(entity().key, { directory: dir, currentOrchId: "caller" });
-    const row = statusRowFromView(deriveView(entity(), new Map()), {}, "caller", dir);
+    const row = statusRowFromEntity(entity(), new Map(), undefined, {}, "caller", dir);
     expect(drive.owner).toBe("no orch driving it (holder gone)");
     expect(formatOwnerCell(row)).toBe("no orch driving it (holder gone)");
     expect(JSON.stringify(row)).toContain('"owner":"no orch driving it (holder gone)"');
@@ -75,7 +75,7 @@ describe("status owner rendering", () => {
   test("an agent never leased shows no orch driving it", () => {
     const dir = fixture();
     const drive = deriveDriveState(entity().key, { directory: dir, currentOrchId: "caller" });
-    const row = statusRowFromView(deriveView(entity(), new Map()), {}, "caller", dir);
+    const row = statusRowFromEntity(entity(), new Map(), undefined, {}, "caller", dir);
     expect(drive.owner).toBe("no orch driving it");
     expect(formatOwnerCell(row)).toBe("no orch driving it");
     expect(JSON.stringify(row)).toContain('"owner":"no orch driving it"');

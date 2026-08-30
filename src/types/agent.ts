@@ -291,28 +291,6 @@ export interface AgentToolsOptions {
   refreshLabels: () => Promise<void>;
 }
 
-/**
- * Where an agent runs, read back from the environment satellites that own each
- * axis (src/store/agent-view.ts).
- *
- * A1: environment is one of four facts and is MUTABLE — an agent that moves
- * plexer, space or pane keeps the identity it was minted with. It is never
- * derived from the agent key, and the agent never reports it. Every field is
- * nullable because an axis with no row is genuinely absent: a headless agent
- * has no pane handle, and that is an answer, not a missing value.
- */
-export interface Placement {
-  /** The key this lookup was made with. Identity is `agentId`, never this. */
-  readonly key: string;
-  readonly agentId: string;
-  readonly backend: string | null;
-  readonly space: string | null;
-  readonly handle: string | null;
-  readonly cwd: string;
-  readonly worktree: string | null;
-  readonly branch: string | null;
-}
-
 /** Ack transport + dedupe set handed to the inbox drain. */
 export interface DaemonAck {
   /** Message id carried by a parsed inbox line, when it has one. */

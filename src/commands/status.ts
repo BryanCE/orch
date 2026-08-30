@@ -3,12 +3,9 @@ import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extension
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
-import { agentById } from "../store/agent-rows.ts";
-import { currentSpace } from "../store/interval-rows.ts";
 
 import { getAdapter } from "../adapters/registry.ts";
 import { collapse, buildEntities, entitySpace, sortEntities } from "../entities.ts";
-import type {  } from "../backends/backend.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir } from "../presence/store.ts";
@@ -25,15 +22,11 @@ import {
 } from "./target.ts";
 import { isRecord, truncate } from "../util.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
-import type { DriveState } from "../types/agent.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchConfig } from "../types/config.ts";
 import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
-import { eq } from "drizzle-orm";
-import { orm } from "../store/connection.ts";
-import { spaces } from "../db/schema.ts";
 
 const isTTY = process.stdout.isTTY;
 const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
@@ -47,36 +40,12 @@ export function displaySpace(id: string | null | undefined, resolver: OrchConfig
   return formatSpace(id, resolveSpaceName(id, resolver));
 }
 
-interface View {
-  entity: Entity;
-  paneLabel: string;
-  name: string;
-  tab: string;
-  agent: string;
-  /** Orchestrator that spawned this agent; null for panes orch never recorded. */
-  owner: string | null;
-  /** Exact session that spawned this agent; null when unreported. */
+interface Provenance {
   spawnedBy: string | null;
-  /** Human label for the spawning session; null when unreported. */
   spawnedByLabel: string | null;
-  /** Git worktree and branch used for this agent; null when unreported. */
   worktree: string | null;
   branch: string | null;
-  /** Directory the agent works in; the repo boundary a wandering worker crossed. */
   cwd: string | null;
-  model: string; // display, provider stripped
-  modelFull: string;
-  state: string;
-  stateFallback: boolean; // true → append †
-  staleExtension: boolean; // true → append (stale)
-  cost: number;
-  ctxPercent: number | null;
-  task: string;
-  /** Id of the dispatch the agent reports running, for diffing against what was sent. */
-  dispatchId: string | null;
-  last: string;
-  exited: boolean;
-  sview: SessionView | null;
 }
 
 /** Resolve the adapter recorded for one entity (spawn registry, then presence, then backend report). */
@@ -85,8 +54,7 @@ export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>
 }
 
 function currentOrchId(): string | null {
-  const key = spawnerIdentity().key;
-  return tryParseIdentity(key)?.id ?? null;
+  return tryParseIdentity(spawnerIdentity().key)?.id ?? null;
 }
 
 export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
@@ -162,10 +130,6 @@ function deriveViewLast(pres: PresenceEntry | null, sview: SessionView | null): 
   return firstNonEmptyText(pres?.status?.lastText, resultText(pres?.result), sview?.lastText);
 }
 
-function viewAgent(ent: Entity, pres: PresenceEntry | null, view: AgentView | undefined): string {
-  return pres?.status?.agent ?? view?.harnessId ?? ent.agent ?? "-";
-}
-
 /**
  * The four facts, read apart (A1). Ownership is the open lease; provenance is
  * the immutable spawner; worktree/branch are environment axes; cwd is the
@@ -174,10 +138,9 @@ function viewAgent(ent: Entity, pres: PresenceEntry | null, view: AgentView | un
 function viewProvenance(
   pres: PresenceEntry | null,
   view: AgentView | undefined,
-): Pick<View, "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd"> {
+): Provenance {
   const status = pres?.status ?? null;
   return {
-    owner: view?.heldBy?.orchId ?? null,
     spawnedBy: view?.spawnedBy ?? status?.spawnedBy ?? null,
     // The spawner's name is a JOIN the composer already makes; a second copy
     // beside the child goes stale the moment the spawner is renamed.
@@ -185,36 +148,6 @@ function viewProvenance(
     worktree: view?.environment.worktree ?? status?.worktree ?? null,
     branch: view?.environment.branch ?? status?.branch ?? null,
     cwd: view?.cwd ?? status?.cwd ?? null,
-  };
-}
-
-export function deriveView(ent: Entity, views: ReadonlyMap<string, AgentView>, staleHashes?: ReadonlySet<string>): View {
-  const pres = ent.presence;
-  const adapter = entityAdapter(ent, views);
-  const sview = sessionViewFor(ent, adapter);
-  const agent = viewForKey(views, ent.key);
-  const modelFull = deriveModelString(pres, sview, adapter);
-  const { state, stateFallback, exited } = deriveState(pres, ent, sview);
-  const provenance = viewProvenance(pres, agent);
-  return {
-    entity: ent,
-    paneLabel: (ent.paneId ?? ent.key) + (ent.focused ? "*" : ""),
-    name: ent.name ?? "",
-    tab: ent.tabLabel ?? "-",
-    agent: viewAgent(ent, pres, agent),
-    ...provenance,
-    model: modelFull.replace(/^openai-codex\//, ""),
-    modelFull,
-    state,
-    stateFallback,
-    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash, undefined, staleHashes),
-    cost: deriveCost(pres, sview),
-    ctxPercent: deriveContextPercent(pres),
-    task: collapse(deriveViewTask(pres, sview)),
-    dispatchId: pres?.status?.dispatchId ?? null,
-    last: collapse(deriveViewLast(pres, sview)),
-    exited,
-    sview,
   };
 }
 
@@ -330,13 +263,22 @@ function parseSpace(args: readonly string[]): string | undefined {
   return undefined;
 }
 
-interface TableFlags {
+export interface TableFlags {
   showSpace: boolean;
   showOwner: boolean;
   showBranch: boolean;
 }
 
-function localStatusOptions(args: readonly string[]): { json: boolean; all: boolean; allPanes: boolean; local: boolean; offline: boolean; space?: string } {
+interface StatusOptions {
+  json: boolean;
+  all: boolean;
+  allPanes: boolean;
+  local: boolean;
+  offline: boolean;
+  space?: string;
+}
+
+function parseStatusOptions(args: readonly string[]): StatusOptions {
   const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline"]);
   return {
     json: enabled.has("--json"),
@@ -365,11 +307,12 @@ function tableOptionalCells(row: StatusRow, flags: TableFlags): string[] {
 }
 
 function localPaneCell(row: StatusRow): string {
+  if (row.warning) return "-";
   return (row.paneId ?? row.key) + (row.focused ? "*" : "");
 }
 
 function localNameCell(row: StatusRow, flags: TableFlags): string {
-  const name = row.name ?? "";
+  const name = row.name ?? (row.warning ? "WARNING" : "");
   return flags.showSpace ? `${formatSpace(row.spaceId, row.spaceName)} / ${name}` : name;
 }
 
@@ -385,11 +328,14 @@ function tableContextCell(row: StatusRow): string {
   return row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "";
 }
 
-function localTableRow(row: StatusRow, flags: TableFlags): string[] {
+function tableRow(row: StatusRow, flags: TableFlags, host: boolean): string[] {
+  const prefix = host
+    ? [row.host ?? "local", localPaneCell(row), localNameCell(row, flags)]
+    : [localPaneCell(row), localNameCell(row, flags)];
   return [
-    localPaneCell(row), localNameCell(row, flags), ...tableOptionalCells(row, flags),
-    row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", tableStateCell(row, true),
-    tableCostCell(row), tableContextCell(row), truncate(collapse(row.task ?? ""), 40), truncate(collapse(row.lastText ?? ""), 50),
+    ...prefix, ...tableOptionalCells(row, flags), row.tab ?? "-", row.agent ?? "-",
+    row.modelShort || row.model || "-", tableStateCell(row, true), tableCostCell(row),
+    tableContextCell(row), truncate(collapse(row.task ?? ""), 40), truncate(collapse(row.lastText ?? ""), 50),
   ];
 }
 
@@ -410,10 +356,10 @@ function ownerBranchCaps(flags: TableFlags): number[] {
   return caps;
 }
 
-function localTableColumns(flags: TableFlags): { headers: string[]; caps: number[] } {
+function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; caps: number[] } {
   return {
-    headers: ["PANE", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [12, 14, ...ownerBranchCaps(flags), 10, 6, 30, 12, 8, 5, 40, 50],
+    headers: [...(host ? ["HOST"] : []), "PANE", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
+    caps: [...(host ? [10] : []), 12, 14, ...ownerBranchCaps(flags), 10, 6, 30, 12, 8, 5, 40, 50],
   };
 }
 
@@ -424,25 +370,29 @@ function localTableColumns(flags: TableFlags): { headers: string[]; caps: number
  * header announces must carry its cell in every row. Verifying the owner FACT on
  * a row said nothing about whether the rendered table still shows it.
  */
-export function localStatusTable(visible: readonly StatusRow[], all: boolean): string {
-  const flags = tableFlags(visible, all);
-  const rows = visible.map((row) => localTableRow(row, flags));
+/** Render either local or merged rows. The merged form differs only by HOST. */
+export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags, options: { host: boolean }): string {
   if (!rows.length) return "";
-  const { headers, caps } = localTableColumns(flags);
-  const lines = renderTable(headers, rows, caps).split("\n");
-  const out: string[] = [lines[0] ?? "", lines[1] ?? ""];
-  for (let i = 0; i < rows.length; i++) out.push(visible[i]?.exited ? dim(lines[i + 2] ?? "") : lines[i + 2] ?? "");
+  const { headers, caps } = tableColumns(flags, options.host);
+  const rendered = renderTable(headers, rows.map((row) => tableRow(row, flags, options.host)), caps).split("\n");
+  const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];
+  for (let index = 0; index < rows.length; index++) {
+    const line = rendered[index + 2] ?? "";
+    out.push(rows[index]?.exited ? dim(line) : line);
+  }
   return out.join("\n");
+}
+
+export function localStatusTable(visible: readonly StatusRow[], all: boolean): string {
+  return renderStatusTable(visible, tableFlags(visible, all), { host: false });
 }
 
 function renderLocalTable(visible: readonly StatusRow[], all: boolean): void {
   const table = localStatusTable(visible, all);
-  if (!table) return;
-  process.stdout.write(table + "\n");
+  if (table) process.stdout.write(table + "\n");
 }
 
-async function cmdStatusLocal(args: string[], spaces: OrchConfig["spaces"]): Promise<void> {
-  const options = localStatusOptions(args);
+async function cmdStatusLocal(options: StatusOptions, spaces: OrchConfig["spaces"]): Promise<void> {
   const fleet = await readFleetRows(spaces, options.offline);
   const visible = scopeFleetRows(fleet.rows, options);
   if (options.json) {
@@ -465,98 +415,27 @@ interface OrchNames {
   spaceName: string | null;
 }
 
-/** Read display names from orch's normalized rows. Plexer coordinates are never names. */
-function emptyOrchNames(agentId: string | null): OrchNames {
-  return { agentId, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
-}
-
-function agentOrchNames(agentId: string, agent: ReturnType<typeof agentById>, root: ReturnType<typeof agentById>): OrchNames {
+/** Read names and environment from the already-loaded normalized agent views. */
+function orchNames(key: string, views: ReadonlyMap<string, AgentView>): OrchNames {
+  const identity = tryParseIdentity(key);
+  if (!identity) return { agentId: null, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
+  const agent = views.get(identity.id);
+  if (!agent) return { agentId: identity.id, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
+  const root = views.get(agent.rootAgentId);
   return {
-    agentId,
-    agentName: agent?.name ?? null,
-    rootAgentId: root?.id ?? agent?.rootAgentId ?? null,
+    agentId: identity.id,
+    agentName: agent.name,
+    rootAgentId: agent.rootAgentId,
     rootAgentName: root?.name ?? null,
-    spaceId: null,
+    spaceId: agent.environment.space,
     spaceName: null,
   };
 }
 
-function readSpaceInfo(directory: string, spaceId: string): { id: string | null; name: string | null } {
-  const space = orm(directory).select({ id: spaces.id, name: spaces.name }).from(spaces)
-    .where(eq(spaces.id, spaceId)).get();
-  return { id: space?.id ?? null, name: space?.name ?? null };
-}
-
-function orchNames(key: string, directory = orchDir()): OrchNames {
-  const identity = tryParseIdentity(key);
-  if (!identity) return emptyOrchNames(null);
-  try {
-    const agent = agentById(directory, identity.id);
-    const root = agent ? agentById(directory, agent.rootAgentId) : null;
-    const names = agentOrchNames(identity.id, agent, root);
-    const current = currentSpace(directory, identity.id);
-    if (!current) return names;
-    const space = readSpaceInfo(directory, current.spaceId);
-    return { ...names, spaceId: space.id, spaceName: space.name };
-  } catch {
-    return emptyOrchNames(identity.id);
-  }
-}
-
-/** Format the task cell: a pending question wins, else the presence/session task text, else null. */
-function viewTask(v: View): string | null {
-  const question = v.entity.presence?.status?.asking?.question;
-  if (question) return `Q: ${question}`;
-  return v.entity.presence?.status?.task ?? v.sview?.task ?? null;
-}
-
-/** Pick the last-message text: presence lastText, then result payload, then session tail. */
-function viewLastText(v: View): string | null {
-  return v.entity.presence?.status?.lastText ?? resultText(v.entity.presence?.result) ?? v.sview?.lastText ?? null;
-}
-
-function rowIdentity(v: View, drive: DriveState, names: OrchNames): Pick<StatusRow, "key" | "agentId" | "rootAgentId" | "rootAgentName" | "paneId" | "managed" | "name" | "tab" | "agent" | "owner" | "spawnedBy" | "spawnedByLabel" | "worktree" | "branch" | "cwd" | "focused"> {
-  return {
-    key: v.entity.key,
-    agentId: names.agentId,
-    rootAgentId: names.rootAgentId,
-    rootAgentName: names.rootAgentName,
-    paneId: v.entity.paneId,
-    managed: v.entity.managed,
-    name: names.agentName ?? (v.entity.managed === false ? null : v.entity.name),
-    tab: v.entity.tabLabel,
-    agent: v.entity.agent,
-    owner: drive.owner,
-    spawnedBy: v.spawnedBy ?? null,
-    spawnedByLabel: v.spawnedByLabel ?? null,
-    worktree: v.worktree ?? null,
-    branch: v.branch ?? null,
-    cwd: v.cwd ?? null,
-    focused: v.entity.focused,
-  };
-}
-
-function rowRuntime(v: View): Pick<StatusRow, "state" | "stateFallback" | "exited" | "alive" | "cost" | "ctxPercent" | "task" | "dispatchId" | "lastText"> {
-  const alive = v.entity.presence?.alive ?? false;
-  return {
-    state: displayStatusState({ state: v.state, alive, exited: v.exited }),
-    stateFallback: v.stateFallback,
-    exited: v.exited,
-    alive,
-    cost: v.cost,
-    ctxPercent: v.ctxPercent,
-    task: viewTask(v),
-    dispatchId: v.dispatchId,
-    lastText: viewLastText(v),
-  };
-}
-
-/** What this environment can actually do, read from WHICH ROLES IT COMPOSES rather
- *  than from a flags bag (`TASKS/02-scope.md` E13 deleted `BackendCapabilities`).
- *  Reported as data for the human and the web view, never branched on. */
-function backendCapabilities(v: View): EnvironmentCapabilityView | null {
-  if (v.entity.backend === null) return null;
-  const backend = getBackend(v.entity.backend);
+/** What this environment can actually do, read from the roles it composes. */
+function backendCapabilities(entity: Entity): EnvironmentCapabilityView | null {
+  if (entity.backend === null) return null;
+  const backend = getBackend(entity.backend);
   if (!backend) return null;
   return {
     spaceHome: backend.spaceHome !== null,
@@ -566,38 +445,62 @@ function backendCapabilities(v: View): EnvironmentCapabilityView | null {
   };
 }
 
-function rowTokens(v: View): unknown {
-  return v.sview?.tokens ?? v.entity.presence?.status?.tokens ?? null;
-}
-
-function rowTurns(v: View): unknown {
-  return v.entity.presence?.status?.turns ?? v.sview?.turns ?? null;
-}
-
-function rowBackend(v: View, spaces: OrchConfig["spaces"], names: OrchNames): Pick<StatusRow, "backendStatus" | "backend" | "capabilities" | "sessionPath" | "presenceDir" | "presenceOnly" | "tokens" | "turns" | "spaceId" | "spaceName" | "staleExtension"> {
-  // One space identity per row: orch's own when the agent has been put in a
-  // space, else the grouping its environment was recorded under.
-  const spaceId = names.spaceId ?? entitySpace(v.entity);
+/** Compose one entity directly into the single row shape used everywhere. */
+export function statusRowFromEntity(
+  entity: Entity,
+  views: ReadonlyMap<string, AgentView>,
+  staleHashes: ReadonlySet<string> | undefined = new Set(shippedBundleHashes()),
+  spaces: OrchConfig["spaces"] = {},
+  orchId: string | null = currentOrchId(),
+  directory: string = orchDir(),
+): StatusRow {
+  const pres = entity.presence;
+  const adapter = entityAdapter(entity, views);
+  const sview = sessionViewFor(entity, adapter);
+  const agentView = viewForKey(views, entity.key);
+  const modelFull = deriveModelString(pres, sview, adapter);
+  const { state, stateFallback, exited } = deriveState(pres, entity, sview);
+  const provenance = viewProvenance(pres, agentView);
+  const alive = pres?.alive ?? false;
+  const spaceNames = orchNames(entity.key, views);
+  const spaceId = spaceNames.spaceId ?? entitySpace(entity);
   return {
-    backendStatus: v.entity.backendStatus,
-    backend: v.entity.backend,
-    capabilities: backendCapabilities(v),
-    sessionPath: v.entity.sessionPath,
-    presenceDir: v.entity.presence?.dir ?? null,
-    presenceOnly: v.entity.presenceOnly,
-    tokens: rowTokens(v),
-    turns: rowTurns(v),
+    key: entity.key,
+    agentId: spaceNames.agentId,
+    rootAgentId: spaceNames.rootAgentId,
+    rootAgentName: spaceNames.rootAgentName,
+    paneId: entity.paneId,
+    managed: entity.managed,
+    name: spaceNames.agentName ?? (entity.managed === false ? null : entity.name),
+    tab: entity.tabLabel,
+    agent: entity.agent,
+    owner: deriveDriveState(entity.key, { currentOrchId: orchId, directory }).owner,
+    ...provenance,
+    focused: entity.focused,
+    model: modelFull,
+    modelShort: modelFull.replace(/^openai-codex\//, ""),
+    state: displayStatusState({ state, alive, exited }),
+    stateFallback,
+    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash, undefined, staleHashes),
+    exited,
+    alive,
+    cost: deriveCost(pres, sview),
+    ctxPercent: deriveContextPercent(pres),
+    // Collapse deliberately at the row boundary so JSON and table cells agree.
+    task: collapse(deriveViewTask(pres, sview)),
+    dispatchId: pres?.status?.dispatchId ?? null,
+    lastText: collapse(deriveViewLast(pres, sview)),
+    backendStatus: entity.backendStatus,
+    backend: entity.backend,
+    capabilities: backendCapabilities(entity),
+    sessionPath: entity.sessionPath,
+    presenceDir: pres?.dir ?? null,
+    presenceOnly: entity.presenceOnly,
+    tokens: sview?.tokens ?? pres?.status?.tokens ?? null,
+    turns: pres?.status?.turns ?? sview?.turns ?? null,
     spaceId,
-    spaceName: names.spaceName ?? resolveSpaceName(spaceId, spaces),
-    staleExtension: v.staleExtension,
+    spaceName: spaceNames.spaceName ?? resolveSpaceName(spaceId, spaces),
   };
-}
-
-/** The one status-row shape shared by the local json branch and the merged table rows. */
-export function statusRowFromView(v: View, spaces: OrchConfig["spaces"], orchId: string | null = currentOrchId(), directory: string = orchDir()): StatusRow {
-  const drive = deriveDriveState(v.entity.key, { currentOrchId: orchId, directory });
-  const names = orchNames(v.entity.key, directory);
-  return { ...rowIdentity(v, drive, names), model: v.modelFull, modelShort: v.model, ...rowRuntime(v), ...rowBackend(v, spaces, names) };
 }
 
 /**
@@ -609,25 +512,25 @@ interface FleetStatusOptions {
   offline?: boolean;
   bundleHashes?: () => ReadonlySet<string>;
   orchId?: () => string | null;
+  /** Resolve the store root once per fleet build (injectable for cost tests). */
+  directory?: () => string;
 }
 
 export function fleetStatusRows(spaces: OrchConfig["spaces"], options: FleetStatusOptions = {}): StatusRow[] {
+  const directory = options.directory?.() ?? orchDir();
   const views = agentViewIndex();
   const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
+  // Resolve these process-wide inputs once so a fleet never performs a caller
+  // lookup for every individual row.
   const orchId = options.orchId?.() ?? currentOrchId();
   return sortEntities(buildEntities({ skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromView(deriveView(entity, views, staleHashes), spaces, orchId));
+    .map((entity) => statusRowFromEntity(entity, views, staleHashes, spaces, orchId, directory));
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
-async function localStatusRows(args: string[], spaces: OrchConfig["spaces"]): Promise<FleetSnapshot> {
-  const { enabled } = splitOptionFlags(args, ["--json", "--all", "--local", "--all-panes", "--offline"]);
-  const snapshot = await readFleetRows(spaces, enabled.has("--offline"));
-  const scoped = scopeFleetRows(snapshot.rows, {
-    all: enabled.has("--all"),
-    allPanes: enabled.has("--all-panes"),
-    space: parseSpace(args),
-  });
+async function localStatusRows(options: StatusOptions, spaces: OrchConfig["spaces"]): Promise<FleetSnapshot> {
+  const snapshot = await readFleetRows(spaces, options.offline);
+  const scoped = scopeFleetRows(snapshot.rows, options);
   return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 
@@ -673,45 +576,17 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
   return { rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
 }
 
-function remotePaneCell(row: StatusRow): string {
-  return row.warning ? "-" : row.paneId ?? row.key;
-}
-
-function remoteNameCell(row: StatusRow): string {
-  return row.name ?? (row.warning ? "WARNING" : "");
-}
-
-function remoteTableRow(row: StatusRow, flags: TableFlags): string[] {
-  return [
-    row.host ?? "local", remotePaneCell(row), ...(flags.showSpace ? [formatSpace(row.spaceId, row.spaceName)] : []), remoteNameCell(row), ...tableOptionalCells(row, flags),
-    row.tab ?? "-", row.agent ?? "-", row.modelShort || row.model || "-", tableStateCell(row, false),
-    tableCostCell(row), tableContextCell(row), truncate(row.task ?? "", 40), truncate(row.lastText ?? "", 50),
-  ];
-}
-
-function remoteTableColumns(flags: TableFlags): { headers: string[]; caps: number[] } {
-  return {
-    headers: ["HOST", "PANE", ...(flags.showSpace ? ["WORKSPACE"] : []), "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [10, 14, ...(flags.showSpace ? [20] : []), 14, ...ownerBranchCaps(flags), 10, 8, 30, 12, 8, 5, 40, 50],
-  };
-}
-
-function renderRemoteTable(rows: readonly StatusRow[], flags: TableFlags): void {
-  const { headers, caps } = remoteTableColumns(flags);
-  process.stdout.write(renderTable(headers, rows.map((row) => remoteTableRow(row, flags)), caps) + "\n");
-}
-
 export async function cmdStatus(args: string[]): Promise<void> {
-  const options = localStatusOptions(args);
+  const options = parseStatusOptions(args);
   if (!options.offline) await ensureDaemonOrWarn(orchDir());
   const config = loadConfigOrNull(orchDir());
   const hosts = config?.hosts ?? {};
   const spaces = config?.spaces ?? {};
   if (options.local || Object.keys(hosts).length === 0) {
-    await cmdStatusLocal(args, spaces);
+    await cmdStatusLocal(options, spaces);
     return;
   }
-  const localSnapshot = await localStatusRows(args, spaces);
+  const localSnapshot = await localStatusRows(options, spaces);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
   const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, options.space);
   if (options.json) {
@@ -727,5 +602,5 @@ export async function cmdStatus(args: string[]): Promise<void> {
     }));
     return;
   }
-  renderRemoteTable(rows, tableFlags(rows, options.all));
+  process.stdout.write(renderStatusTable(rows, tableFlags(rows, options.all), { host: true }) + "\n");
 }

@@ -1,7 +1,7 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
-import { placementOf } from "../agent/registry.ts";
+import { agentView } from "../store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
@@ -27,7 +27,7 @@ function describePresenceDir(entry: PresenceEntry, orchDir?: string): string {
   const cwd = description.cwd ?? null;
   const project = cwd ? path.basename(cwd) : null;
   const agent = description.agent ?? null;
-  const space = orchDir ? placementOf(orchDir, key)?.space ?? null : null;
+  const space = orchDir ? agentView(orchDir, key)?.environment.space ?? null : null;
   const stamp = description.updatedAt ?? description.finishedAt ?? null;
   const seen = stamp ? `last seen ${humanAge(Date.now() - Date.parse(stamp))}` : null;
   const head = label ? `${label} (${key})` : key;

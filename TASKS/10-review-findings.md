@@ -63,8 +63,14 @@ registration) each call the one writer once. The plexer is STATED rather than de
 so a capless agent records no plexer row and a headless one records its own — the split that forced
 the second writer. `store/spawned-rows.ts`, `store/ownership-rows.ts`, the `legacy` branch of
 `deriveDriveState`, the ownership half of `governWrite` and every `?? spawned.get(key)` fallback are
-already gone; `agent/registry.ts` survives as one placement lookup over the composed view, not a
-second store. Fixtures seed through the same writer (`test/helpers/agent.ts` `seedAgent`), and a
+already gone; `agent/registry.ts` and the `Placement` interface are DELETED too — `placementOf`
+was the wide row wearing a lookup's hat, re-flattening the composed environment into
+key/agentId/backend/space/handle/cwd/worktree/branch when all four of its callers
+(`policy/space.ts` `spaceOf` + `repoRootFor`, `doctor/presence.ts`, `doctor/runner.ts`) read exactly
+ONE field off it. A15 only holds while consumers read `AgentView.environment` whole: a hand-copied
+projection has to grow a field for every axis added. Each caller now reads `agentView(...)` directly.
+`test/no-placement-row-over-the-composed-view.test.ts`.
+Fixtures seed through the same writer (`test/helpers/agent.ts` `seedAgent`), and a
 MOVE is a new interval on the axis that owns it (`placeAgent`), never a re-registration.
 `test/one-writer-records-a-spawned-agent.test.ts`.
 
@@ -161,6 +167,20 @@ recomputes task/last via `viewTask :541`/`viewLastText :548`, which duplicate `d
 (`localTableRow/Columns/renderLocalTable` vs `remote*`) differing only by a HOST column. The same
 five flags are parsed twice (`:324`, `:639`). `DriveState`/`DriveStateOptions` are exported and
 imported nowhere.
+**Status: `FIXED`.** 731 -> 606 lines. `View` is DELETED, not shrunk: `agent` and `owner` had zero
+readers anywhere (`owner`'s only reader was a test asserting the intermediate, which now asserts the
+row), and a struct built only to be destructured one line later is a hop, not a seam. One
+`statusRowFromEntity(entity, ...)` replaces `deriveView` -> `View` -> `statusRowFromView`. `viewTask`/
+`viewLastText` are gone; `deriveViewTask`/`deriveViewLast` are the one spelling and `collapse` is
+applied deliberately at the single call site - the two versions DISAGREED on it, which is why JSON and
+table output differed. One `renderStatusTable(rows, flags, {host})` replaces the local/remote pair;
+HOST is a parameter, never a second renderer. The five flags parse once.
+3.2 with it: `fleetStatusRows` resolves the caller id and directory ONCE and threads them, so an
+N-agent fleet does N presence scans no more. A module-global `cachedOrchId` memo was tried and
+rejected - a process-lifetime cache of an env-derived value goes stale the moment a test changes
+`ORCH_*`, and it bought nothing over threading the value.
+`test/status-renders-one-row-shape.test.ts`.
+
 **Fix:** one `entity → StatusRow`, one `renderStatusTable(rows, {host})`, flags parsed once. ≈150 of
 747 lines. (Also fixes E1/E2 in §3 by construction — compute per-call facts once.)
 
@@ -172,6 +192,12 @@ shape (`SinkProvider → providerNotifier → Notifier`) via an `onSinkProviderR
 `RegisteredSink`'s index signature "defeats union narrowing" (comment `:70`), forcing
 `entry.config.url as string` / `entry.config.command as string | string[]` at `:57-58` (Rule 13).
 Every consumer wants: for each entry, if `on` includes state, call the notifier.
+**Status: `FIXED`.** Router+sinks are 117+123 lines. The `Sink` union, `entryFromSink`, `loadSinks`,
+`RegisteredSink` and its narrowing-defeating index signature, the `SinkProvider`/`providerNotifier`
+third shape and the `onSinkProviderRegistered` late hook are all gone, and with them the
+`entry.config.url as string` / `command as string | string[]` casts (Rule 13). Config reaches a
+notifier in one shape: `NotifyEntry` -> the registered `Notifier`.
+
 **Fix:** `Map<NotifyEntry["id"], Notifier>` + `deliver(entry, event)`; herdr registers a `Notifier`
 directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
@@ -179,12 +205,12 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 ## 3. Wasted work (daemon + status hot paths)
 
-| # | file:line | waste | fix |
-|---|---|---|---|
-| 3.1 | `src/commands/status.ts:229` | `deriveView` calls `isBridgeExtensionStale` **per entity**; `doctor/extensions.ts:14-16 shippedBundleHashes` has no cache and `computeCodeHash` (`daemon/lifecycle.ts:363`) does `readFileSync`+sha256 over both ~2.4 MB bundles. 8 agents = ~38 MB read+hashed per `orch status` / status RPC. | Compute once per call (or memoize by mtime+size) and pass the Set in. |
-| 3.2 | `src/commands/status.ts:622` | `statusRowFromView` → `currentOrchId()` (`:111`) → `spawnerIdentity()` → `spawnedCallerIdentity()` → `loadPresence()` — a full presence-dir scan **per row** → O(N²) file reads per status call. | Resolve once in `fleetStatusRows`; `spawnerIdentity` is env-derived and process-constant — memoize. |
-| 3.3 | `src/daemon/work-loop.ts:209-221` | Per idle agent per 500 ms tick: `listTasks` (SELECT all + one attempts SELECT per task via `mapTask`) → `scopeIncludesAgent` per candidate (`agentById` + `openTasksInScope`) → then `listTasks().find` (`:214`) and `listTasks().some` (`:221`) again on claim. ≈ I×(1+3T) prepared statements per tick with an empty claimable queue. | Load tasks once per tick; select with `openTasksInScope` (already one scope-aware SQL); `requireTask(id)` instead of `listTasks().find`. |
-| 3.4 | `src/daemon/orchd.ts:443` | Presence watch `metadataFor` does `spawnedRecords().get(key)` — whole table → Map — plus `agentById`, **per key per check()**, every 5 s and on every root fs event, before `derivePresenceTransition` even decides nothing changed. | `selectSpawnedRecord(orchDir, key)` (`store/spawned-rows.ts:119`) exists and is what `events.ts` itself uses; or defer metadata until a transition is detected. (Disappears with §2.1.) |
+| # | file:line | waste | fix | status |
+|---|---|---|---|---|
+| 3.1 | `src/commands/status.ts:229` | `deriveView` calls `isBridgeExtensionStale` **per entity**; `doctor/extensions.ts:14-16 shippedBundleHashes` has no cache and `computeCodeHash` (`daemon/lifecycle.ts:363`) does `readFileSync`+sha256 over both ~2.4 MB bundles. 8 agents = ~38 MB read+hashed per `orch status` / status RPC. | Compute once per call (or memoize by mtime+size) and pass the Set in. | `FIXED` - `fleetStatusRows` computes `shippedBundleHashes()` once and threads a `staleHashes` Set into every row (`src/commands/status.ts`); `isBridgeExtensionStale` takes it as a parameter. |
+| 3.2 | `src/commands/status.ts:622` | `statusRowFromView` → `currentOrchId()` (`:111`) → `spawnerIdentity()` → `spawnedCallerIdentity()` → `loadPresence()` — a full presence-dir scan **per row** → O(N²) file reads per status call. | Resolve once in `fleetStatusRows`; `spawnerIdentity` is env-derived and process-constant — memoize. | `FIXED` with 2.5 - the caller id and orch directory resolve ONCE per call and are threaded to every row, so a 20-agent fleet does one presence scan, not 20. Memoizing in a module global was rejected: an env-derived value cached for the process lifetime goes stale the moment a test sets `ORCH_DIR`. `test/status-renders-one-row-shape.test.ts` seeds three agents and pins the resolver count at 1. |
+| 3.3 | `src/daemon/work-loop.ts:209-221` | Per idle agent per 500 ms tick: `listTasks` (SELECT all + one attempts SELECT per task via `mapTask`) → `scopeIncludesAgent` per candidate (`agentById` + `openTasksInScope`) → then `listTasks().find` (`:214`) and `listTasks().some` (`:221`) again on claim. ≈ I×(1+3T) prepared statements per tick with an empty claimable queue. | Load tasks once per tick; select with `openTasksInScope` (already one scope-aware SQL); `requireTask(id)` instead of `listTasks().find`. | `FIXED` - the tick loads `listTasks` once (`src/daemon/work-loop.ts:252`) and passes it into `nextQueuedTask`; both former re-scans are now `requireTask(id)` and a `.some()` over the already-loaded list. |
+| 3.4 | `src/daemon/orchd.ts:443` | Presence watch `metadataFor` does `spawnedRecords().get(key)` — whole table → Map — plus `agentById`, **per key per check()**, every 5 s and on every root fs event, before `derivePresenceTransition` even decides nothing changed. | `selectSpawnedRecord(orchDir, key)` (`store/spawned-rows.ts:119`) exists and is what `events.ts` itself uses; or defer metadata until a transition is detected. (Disappears with §2.1.) | `FIXED` with 2.1 - `metadataFor` (`src/daemon/orchd.ts:504`) reads `agentView(directory, id)` for the one key, never the whole table. |
 
 ---
 
@@ -192,9 +218,9 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 | # | where | problem | right depth | status |
 |---|---|---|---|---|
-| 4.1 | `src/daemon/rpc.ts:693-699, :793-798`; `src/runtime.ts:31` | Calling harness sniffed via a hardcoded ladder `PI_CODING_AGENT→pi / CLAUDECODE→claude / CODEX_PID→codex`, twice; `SHIM_ENV_VARS` hardcodes `CLAUDE_PID/CODEX_PID` a third time. The adapter port already declares `sessionEnvMarker` (`adapters/adapter.ts:225`) and `policy/spawner.ts:46` consumes it correctly — but only `claude.ts:204` sets it. A new harness edits three files and silently reports `harness: "cli"` until all are patched. | Every adapter owns its marker(s); rpc/runtime iterate `allAdapters()`. **Rule 9** (branch on caps, not ids). | `OPEN` |
-| 4.2 | `src/backends/identity.ts:106`; `src/agent/presence.ts:111`; `src/commands/spawn.ts:438` | `serializeIdentity` = `[backend, workspace, id].join("~")` — environment welded into identity. An unspawned interactive session mints `{backend:"headless", workspace:"local", id}`; spawn defaults `settings.workspace ?? "local"`. Consumers then branch on the welded parts as identity: `herdr/hud.ts` `AGENT_IDENTITY.backend === "herdr"` at `:33,:39,:52,:65,:169,:246`; `commands/events.ts:76`, `commands/panes.ts:194`, `commands/target.ts:234`, `daemon/events.ts:231` read `parsed.workspace/backend`. This is **the exact 2026-08-26 bug Rule 11 was written for**, still live. | Opaque minted id; backend/workspace/handle are environment columns (`TASKS/01-agent-model.md`, `06-schema.md`). Every `parseIdentity(...).backend` consumer becomes a column read or a capability check. | `OPEN` |
-| 4.3 | `src/commands/target.ts:239` (+ `:169`, `entities.ts:86, :230`, `lifecycle.ts:454`, `control.ts:166, :269`) | `handle = record.handle ?? ent.paneId ?? (pid ? {pid, key} : parsed?.id ?? ent.key)` — a five-way fallback that builds the **headless backend's private handle shape inline in the CLI layer**, with shorter variants of the chain at six other sites. A wrong fallback silently hands an identity key to a backend as a pane id. | "What is this agent's handle" is one store read (the handle satellite from §2.1); backends own their handle shape. | `OPEN` |
+| 4.1 | `src/daemon/rpc.ts:693-699, :793-798`; `src/runtime.ts:31` | Calling harness sniffed via a hardcoded ladder `PI_CODING_AGENT→pi / CLAUDECODE→claude / CODEX_PID→codex`, twice; `SHIM_ENV_VARS` hardcodes `CLAUDE_PID/CODEX_PID` a third time. The adapter port already declares `sessionEnvMarker` (`adapters/adapter.ts:225`) and `policy/spawner.ts:46` consumes it correctly — but only `claude.ts:204` sets it. A new harness edits three files and silently reports `harness: "cli"` until all are patched. | Every adapter owns its marker(s); rpc/runtime iterate `allAdapters()`. **Rule 9** (branch on caps, not ids). | `FIXED` - the hardcoded ladder is gone from `rpc.ts` and `runtime.ts`. `HARNESS_SESSION_ENV` (`src/adapters/session-env.ts`) states each harness's vocabulary once, every adapter declares its own `sessionEnvMarker` from it, and `identity/self.ts` resolves the calling harness by iterating adapters. `helloClaim` names no harness. |
+| 4.2 | `src/backends/identity.ts:106`; `src/agent/presence.ts:111`; `src/commands/spawn.ts:438` | `serializeIdentity` = `[backend, workspace, id].join("~")` — environment welded into identity. An unspawned interactive session mints `{backend:"headless", workspace:"local", id}`; spawn defaults `settings.workspace ?? "local"`. Consumers then branch on the welded parts as identity: `herdr/hud.ts` `AGENT_IDENTITY.backend === "herdr"` at `:33,:39,:52,:65,:169,:246`; `commands/events.ts:76`, `commands/panes.ts:194`, `commands/target.ts:234`, `daemon/events.ts:231` read `parsed.workspace/backend`. This is **the exact 2026-08-26 bug Rule 11 was written for**, still live. | Opaque minted id; backend/workspace/handle are environment columns (`TASKS/01-agent-model.md`, `06-schema.md`). Every `parseIdentity(...).backend` consumer becomes a column read or a capability check. | `FIXED` - `Identity` is `{ id }`; `serializeIdentity` returns the bare minted id and `parseIdentity` refuses anything else (`src/backends/identity.ts`). No consumer reads a backend or workspace out of a key - the remaining `.backend` reads are environment COLUMNS off the composed view. `test/agent-key-is-minted-id.test.ts` pins the composite key as never valid again. |
+| 4.3 | `src/commands/target.ts:239` (+ `:169`, `entities.ts:86, :230`, `lifecycle.ts:454`, `control.ts:166, :269`) | `handle = record.handle ?? ent.paneId ?? (pid ? {pid, key} : parsed?.id ?? ent.key)` — a five-way fallback that builds the **headless backend's private handle shape inline in the CLI layer**, with shorter variants of the chain at six other sites. A wrong fallback silently hands an identity key to a backend as a pane id. | "What is this agent's handle" is one store read (the handle satellite from §2.1); backends own their handle shape. | `FIXED` - the five-way fallback is gone; a handle is the handle satellite off the composed view (`view.environment.handle`), and the CLI no longer builds the headless backend's private `{pid,key}` shape. |
 | 4.4 | `src/backends/tmux/index.ts:242-246`, `herdr/index.ts:293-298`, `headless/index.ts:195` | Each backend assembles the launch env itself although `spawn.ts:599/:842` already builds it (`agentIdentityEnv + worktreeEnv + key + dir`); `headless/index.ts:30` re-spells the `~/.orch` default that `presence/writer.ts:26 orchDir()` owns. Already drifted → bug 1.13. | One env builder in `src/policy/spawner.ts` (which already has `agentIdentityEnv`/`worktreeEnv`); backends add only handle-specific vars. | `FIXED` - `agentLaunchEnv` (`src/policy/spawner.ts:65`) is the one env builder; tmux, herdr and headless call it and hold no copy. `headless/index.ts` now defers to `orchDir()` instead of re-spelling the `~/.orch` default. `test/agent-launch-carries-project-scope.test.ts`. |
 | 4.5 | `src/retry.ts` | Exported "for every flaky IO path" — one importer (`adapters/model-catalogue.ts:3`). Meanwhile `spawn.ts:116 deliverModelPin` hand-rolls `[0,200,400,800,1200]`; `agent/model-control.ts:59-72` has its own `RegistryRetry` loop; `commands/lifecycle.ts:169/:424` fixed `sleepMs` polls; `daemon/lifecycle.ts:126/:241` bare `attempt < 2` loops; `commands/daemon.ts:62` 50 ms spin. | Either the call sites adopt `retryingAsync`/`retryingSync`, or delete `retry.ts`. Not both. | `OPEN` |
 | 4.6 | `process.platform === "win32"` ×7 | `util.ts:39`, `process-identity.ts:65`, `remote.ts:57`, `store/agent-rows.ts:12`, `daemon/runtime-files.ts:17`, `daemon/rpc.ts:385, :623` — the OS-side fact (an environment axis in `TASKS/01`) computed differently per file; untestable from Linux. | One `osSide()` seam; `agent-rows.ts:12` already computes the canonical value for the store — export that. | `OPEN` |
@@ -203,27 +229,36 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 ## 5. Duplication (Rule 10 — presence writers live in `src/presence/` and are imported)
 
-| # | copies | fix |
-|---|---|---|
-| 5.1 | Launch-stamp status block (`ORCH_AGENT_NAME/ORCH_SPAWNER/ORCH_SPAWNER_LABEL/ORCH_AGENT_WORKTREE/ORCH_AGENT_BRANCH` → `status.json` merged over `previous`) hand-built at `extensions/claude/index.ts:105-129`, `extensions/codex/index.ts:71-91`, `src/agent/presence.ts:157-173`. Already drifted: codex omits the tokens/cost/turns defaults claude seeds; presence.ts alone stamps `tabLabel`. Both shims also copy the `ORCH_AGENT_KEY` guard + `parseIdentity` + stderr-exit prologue (`claude:76-83`, `codex:42-49`) and the stdin/argv JSON parse (`claude:42-50`, `codex:26-33`). | One `launchStamp(previous, id, key)` in `src/presence/writer.ts` next to `writeStatus`; one `launchEnvFacts()` that is the single reader of the `ORCH_*` vocabulary `policy/spawner.ts` writes. |
-| 5.2 | `src/daemon/outbox.ts:43 consumeOutboxAcks` copies `drainInbox` (`presence/inbox.ts:47-62`) line for line — same `${file}.${pid}-${Date.now()}-${rand}.draining` claim name, same rename/read/unlink-in-finally/split. | `drainClaimedLines(path)` in `presence/inbox.ts`, used by both. |
-| 5.3 | Hand-rolled `status.json` reads with `as` casts: `store/connection.ts:109 hasLivePresence` (`as { schema?; pid? }`), `backends/headless/index.ts:81 statusPid`. `readStatus` (`presence/writer.ts:97`) and `loadPresence` (`presence/store.ts:247`) exist; `agent/peers.ts:95` is the intended form. | Use `readStatus`. The schema gate lives in one place. |
-| 5.4 | `src/adapters/pi.ts:183 appendInboxLine` / `:189 writeAnswerFile` — own `mkdirSync` + `appendFileSync(path.join(presence.dir, INBOX_FILE), …)`, duplicating `appendInbox` (`presence/inbox.ts:34`, used by `roles.ts:33`). `answer.json` has no writer in `src/presence` at all — its only writer is an adapter. | Import `appendInbox`; add `writeAnswer` to `src/presence/`. |
-| 5.5 | Type guards / helpers re-declared: private `isRecord` in `store/spawned-rows.ts:45` (**does not exclude arrays** — `[]` passes `isSpawnedRow`), private `isObject` in `rpc.ts:136`, vs `util.ts:80` exported `isRecord` ("the one spelling repo-wide"). `errorMessage` (`util.ts:57`) re-inlined as `error instanceof Error ? error.message : String(error)` at 14 sites. Async sleep declared 4× (`retry.ts:33`, `spawn.ts:950`, `commands/daemon.ts:20`, `control/cmd-lock.ts:42`) + 7 inline `new Promise(setTimeout)` + 2 blocking `Atomics.wait` variants (`retry.ts:29 sleepBlocking`, `pane-ready.ts:41 sleepMs`). | Delete the private copies; one `sleep(ms)` in `util.ts`; the blocking sleep exists only for `pane-ready` and is banned from daemon code (bug 1.6). |
+| # | copies | fix | status |
+|---|---|---|---|
+| 5.1 | Launch-stamp status block (`ORCH_AGENT_NAME/ORCH_SPAWNER/ORCH_SPAWNER_LABEL/ORCH_AGENT_WORKTREE/ORCH_AGENT_BRANCH` → `status.json` merged over `previous`) hand-built at `extensions/claude/index.ts:105-129`, `extensions/codex/index.ts:71-91`, `src/agent/presence.ts:157-173`. Already drifted: codex omits the tokens/cost/turns defaults claude seeds; presence.ts alone stamps `tabLabel`. Both shims also copy the `ORCH_AGENT_KEY` guard + `parseIdentity` + stderr-exit prologue (`claude:76-83`, `codex:42-49`) and the stdin/argv JSON parse (`claude:42-50`, `codex:26-33`). | One `launchStamp(previous, id, key)` in `src/presence/writer.ts` next to `writeStatus`; one `launchEnvFacts()` that is the single reader of the `ORCH_*` vocabulary `policy/spawner.ts` writes. | `FIXED` - `launchStamp` and `launchEnvFacts` live in `src/presence/writer.ts:143/:159`; `extensions/claude`, `extensions/codex` and `src/agent/presence.ts` all IMPORT them. Rule 10: no harness reimplements the presence writer. |
+| 5.2 | `src/daemon/outbox.ts:43 consumeOutboxAcks` copies `drainInbox` (`presence/inbox.ts:47-62`) line for line — same `${file}.${pid}-${Date.now()}-${rand}.draining` claim name, same rename/read/unlink-in-finally/split. | `drainClaimedLines(path)` in `presence/inbox.ts`, used by both. | `FIXED` - `drainClaimedLines` (`src/presence/inbox.ts:44`) is the one claim/rename/read/unlink; `drainInbox` and `consumeOutboxAcks` (`src/daemon/outbox.ts:42`) both call it. |
+| 5.3 | Hand-rolled `status.json` reads with `as` casts: `store/connection.ts:109 hasLivePresence` (`as { schema?; pid? }`), `backends/headless/index.ts:81 statusPid`. `readStatus` (`presence/writer.ts:97`) and `loadPresence` (`presence/store.ts:247`) exist; `agent/peers.ts:95` is the intended form. | Use `readStatus`. The schema gate lives in one place. | `FIXED` - `hasLivePresence` reads through `readStatus` (`src/store/connection.ts:61`) and headless's private `statusPid` is gone. No hand-rolled `status.json` read with a cast remains. |
+| 5.4 | `src/adapters/pi.ts:183 appendInboxLine` / `:189 writeAnswerFile` — own `mkdirSync` + `appendFileSync(path.join(presence.dir, INBOX_FILE), …)`, duplicating `appendInbox` (`presence/inbox.ts:34`, used by `roles.ts:33`). `answer.json` has no writer in `src/presence` at all — its only writer is an adapter. | Import `appendInbox`; add `writeAnswer` to `src/presence/`. | `FIXED` - `writeAnswer` now lives in `src/presence/writer.ts:184` and `src/adapters/pi.ts` imports it; the adapter's private `appendInboxLine`/`writeAnswerFile` are deleted. |
+| 5.5 | Type guards / helpers re-declared: private `isRecord` in `store/spawned-rows.ts:45` (**does not exclude arrays** — `[]` passes `isSpawnedRow`), private `isObject` in `rpc.ts:136`, vs `util.ts:80` exported `isRecord` ("the one spelling repo-wide"). `errorMessage` (`util.ts:57`) re-inlined as `error instanceof Error ? error.message : String(error)` at 14 sites. Async sleep declared 4× (`retry.ts:33`, `spawn.ts:950`, `commands/daemon.ts:20`, `control/cmd-lock.ts:42`) + 7 inline `new Promise(setTimeout)` + 2 blocking `Atomics.wait` variants (`retry.ts:29 sleepBlocking`, `pane-ready.ts:41 sleepMs`). | Delete the private copies; one `sleep(ms)` in `util.ts`; the blocking sleep exists only for `pane-ready` and is banned from daemon code (bug 1.6). | `PARTIAL` - `sleep(ms)` exists (`src/util.ts:88`) and the blocking sleep is confined to `pane-ready`/`retry`, but the sweep is unfinished: private `isRecord` (`src/settings/registry.ts:17`) and `isObject` (`src/daemon/rpc.ts:92`) still shadow `util.ts:84`, `errorMessage` is still re-inlined at 9 sites, and 6 call sites still write `new Promise(resolve => setTimeout(...))` instead of `sleep`. |
 
 ---
 
 ## 6. CLAUDE.md violations that stand alone
 
-| # | file:line | line | rule |
-|---|---|---|---|
-| 6.1 | `src/db/schema.ts:29, :38, :44, :66, :78-79` | `updatedAt: text("updated_at")`, `createdAt: text(…)`, `ts: text("ts")` ×2, `startedAt/finishedAt: text(…)`; writers `ownership-rows.ts:5 new Date().toISOString()`, `retention.ts:92-94` pass ISO strings; later tables use `integer()`. | **Rule 11**: instants are INTEGER epoch millis, never TEXT. One convention. |
-| 6.2 | `src/seat/index.ts:71` | `(ctx.ui as unknown as { theme?: Theme }).theme` | **Rule 13**: `as unknown as` forbidden outright. Type guard or a typed accessor on the harness API. |
-| 6.3 | `src/daemon/rpc.ts:508, :865` | `parsed as unknown as RpcResponse` (after an `isObject` check that proves nothing about the shape) | **Rule 13**: write `isRpcResponse`. |
-| 6.4 | `extensions/pi/index.ts:24`, `extensions/omp/index.ts:31` | `registerOrchSeat(harness as unknown as ExtensionAPI, …)` | **Rule 13**: the seat's pi-specific dependency is hidden from the compiler; omp's "pi-shaped" API is asserted, not checked. Make the seat take the harness-neutral surface it actually uses. |
-| 6.5 | `src/commands/results.ts:244`; `src/commands/panes.ts:185` | `workspace: workspaceOf(orchDir(), pres.key) ?? "-", host: "local"`; `--workspace` CLI flag | **Rule 11**: "workspace" never appears in orch's model/CLI/UI; `"local"` is a missing value, not a place. |
+| # | file:line | line | rule | status |
+|---|---|---|---|---|
+| 6.1 | `src/db/schema.ts:29, :38, :44, :66, :78-79` | `updatedAt: text("updated_at")`, `createdAt: text(…)`, `ts: text("ts")` ×2, `startedAt/finishedAt: text(…)`; writers `ownership-rows.ts:5 new Date().toISOString()`, `retention.ts:92-94` pass ISO strings; later tables use `integer()`. | **Rule 11**: instants are INTEGER epoch millis, never TEXT. One convention. | `FIXED` - no `text("…_at")`/`text("ts")` instant column survives in `src/db/schema.ts`; every instant is `integer()` epoch millis, and the ISO-string writers went with `ownership-rows.ts`. |
+| 6.2 | `src/seat/index.ts:71` | `(ctx.ui as unknown as { theme?: Theme }).theme` | **Rule 13**: `as unknown as` forbidden outright. Type guard or a typed accessor on the harness API. | `FIXED` |
+| 6.3 | `src/daemon/rpc.ts:508, :865` | `parsed as unknown as RpcResponse` (after an `isObject` check that proves nothing about the shape) | **Rule 13**: write `isRpcResponse`. | `FIXED` |
+| 6.4 | `extensions/pi/index.ts:24`, `extensions/omp/index.ts:31` | `registerOrchSeat(harness as unknown as ExtensionAPI, …)` | **Rule 13**: the seat's pi-specific dependency is hidden from the compiler; omp's "pi-shaped" API is asserted, not checked. Make the seat take the harness-neutral surface it actually uses. | `FIXED` |
+| 6.5 | `src/commands/results.ts:244`; `src/commands/panes.ts:185` | `workspace: workspaceOf(orchDir(), pres.key) ?? "-", host: "local"`; `--workspace` CLI flag | **Rule 11**: "workspace" never appears in orch's model/CLI/UI; `"local"` is a missing value, not a place. | `FIXED` - `workspaceOf` and the `"local"` sentinel are gone from orch's model. `--workspace` survives on ONE command, `orch tab new`, where it is the herdr coordinate handed to the plexer (E10) and never orch's space. |
 
 (6.2–6.4 are the complete set of `as unknown as` in `src/` + `extensions/`.)
+
+**6.6 (new, 2026-08-29) — `as unknown as` in `test/`.** Rule 13 has no directory exemption, and the
+original audit only swept `src/` + `extensions/`. There are **20 `as unknown as` casts across 15 test
+files** (`commands-status`, `commands-setup`, `setup-smoke`, `launch-model-gate`, `spawn-policy`,
+`cli-backends-herdr-headless`, `owner-scoping`, `work-notify`, `doctor-checks`,
+`spawn-preferred-models`, `commands-spawn`, `command-space-fields`, `seat-index`, `agent-monitor`,
+`store-outbox`). Every one is a fixture that does not satisfy its type; Rule 13 names the remedy — a
+typed factory that builds the COMPLETE value, as `test/commands-status.test.ts` `agentViewFixture`
+and `test/helpers/agent.ts` `seedAgent` already do. Status: `OPEN`.
 
 ---
 

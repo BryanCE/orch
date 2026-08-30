@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deriveView, displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromView, warningStatusRow } from "../src/commands/status.ts";
+import { displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromEntity, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -58,27 +58,25 @@ describe("commands/status", () => {
     } as never);
     expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { all: false, allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
   });
-  test("derives view fields from seeded presence", () => {
+  test("derives status row fields from seeded presence", () => {
     const entity = { key: "hless00001", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "hless00001", dir: "/tmp", alive: true, result: { text: "answer" }, status: { agent: "pi", state: "working", task: "task", cost: 1.25, context: { percent: 42 } } } } as unknown as Entity;
-    const view = deriveView(entity, new Map());
-    expect(view).toMatchObject({ agent: "pi", state: "working", task: "task", last: "answer", cost: 1.25, ctxPercent: 42, exited: false });
+    const row = statusRowFromEntity(entity, new Map());
+    expect(row).toMatchObject({ agent: "pi", state: "working", task: "task", lastText: "answer", cost: 1.25, ctxPercent: 42, exited: false });
   });
   test("marks dead presence as exited", () => {
     const entity = { key: "hless00001", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "hless00001", dir: "/tmp", alive: false, result: null, status: { agent: "pi", state: "working" } } } as unknown as Entity;
-    const view = deriveView(entity, new Map());
-    expect(view).toMatchObject({ state: "exited", exited: true });
+    const row = statusRowFromEntity(entity, new Map());
+    expect(row).toMatchObject({ state: "exited", exited: true });
     // The shared row is consumed by both table and JSON renderers.
-    expect(statusRowFromView(view, {})).toMatchObject({ state: "exited", alive: false });
+    expect(row).toMatchObject({ state: "exited", alive: false });
   });
   test("asking presence is surfaced as a question while still reporting live state", () => {
     const entity = { ...seededEntity, presence: { ...seededEntity.presence, status: { ...seededEntity.presence?.status, state: "working", asking: { question: "Need approval" }, task: "ignored task" } } } as unknown as Entity;
-    const view = deriveView(entity, new Map());
-    expect(view).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval" });
-    expect(statusRowFromView(view, {})).toMatchObject({ state: "asking", task: "Q: Need approval", alive: true });
+    const row = statusRowFromEntity(entity, new Map());
+    expect(row).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval", alive: true });
   });
   test("shared status row carries presence-derived fields", () => {
-    const view = deriveView(seededEntity, new Map());
-    const row = statusRowFromView(view, {});
+    const row = statusRowFromEntity(seededEntity, new Map());
     expect(row).toMatchObject({
       key: "appagent01", paneId: "app:p1", name: "worker", tab: "app", agent: "pi",
       focused: true, model: "openai-codex/gpt-5.6:medium", modelShort: "gpt-5.6:medium",
@@ -92,26 +90,25 @@ describe("commands/status", () => {
   // Renderers branch on caps, never on a backend id (Rule 9), so the row must carry
   // what the backend DECLARES — a new plexer changes no renderer.
   test("row carries the owning backend's declared capabilities", () => {
-    const paned = statusRowFromView(deriveView(seededEntity, new Map()), {});
+    const paned = statusRowFromEntity(seededEntity, new Map());
     expect(paned.capabilities).toEqual({ spaceHome: true, identity: true, handleLookup: false, logPruning: false });
 
     const detached: Entity = { ...seededEntity, key: "hless00001", backend: "headless" };
-    expect(statusRowFromView(deriveView(detached, new Map()), {}).capabilities).toEqual({ spaceHome: false, identity: false, handleLookup: true, logPruning: true });
+    expect(statusRowFromEntity(detached, new Map()).capabilities).toEqual({ spaceHome: false, identity: false, handleLookup: true, logPruning: true });
   });
 
   test("an agent whose backend orch cannot name reports no capabilities", () => {
     const orphan: Entity = { ...seededEntity, backend: null };
-    expect(statusRowFromView(deriveView(orphan, new Map()), {}).capabilities).toBeNull();
+    expect(statusRowFromEntity(orphan, new Map()).capabilities).toBeNull();
   });
-  // Provenance remains visible on the internal view, while the status OWNER
-  // column answers the current driving lease and never falls back to provenance.
+  // The status OWNER column answers the current driving lease and never falls
+  // back to spawning provenance.
   test("status owner ignores spawning provenance when no lease exists", () => {
     // Keyed by the MINTED ID, never by the pane-bearing presence key: the key
     // welds environment onto identity, and the store is keyed by the id alone.
     const owned = new Map([["appagent01", agentViewFixture("appagent01", "orch-a")]]);
-    expect(deriveView(seededEntity, owned).owner).toBe("orch-a");
-    expect(statusRowFromView(deriveView(seededEntity, owned), {}).owner).toBe("no orch driving it");
-    expect(statusRowFromView(deriveView(seededEntity, new Map()), {}).owner).toBe("no orch driving it");
+    expect(statusRowFromEntity(seededEntity, owned).owner).toBe("no orch driving it");
+    expect(statusRowFromEntity(seededEntity, new Map()).owner).toBe("no orch driving it");
   });
   test("lease-backed status attribution distinguishes my lease, another lease, and unleased rows", () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-status-"));
@@ -138,9 +135,8 @@ describe("commands/status", () => {
     }
   });
   test("json branch and local table branch derive identical rows apart from host", () => {
-    const view = deriveView(seededEntity, new Map());
-    const jsonRow = statusRowFromView(view, {}); // cmdStatusLocal json branch shape
-    const localRow = { ...statusRowFromView(view, {}), host: "local" }; // localStatusRows table shape
+    const jsonRow = statusRowFromEntity(seededEntity, new Map()); // cmdStatusLocal json branch shape
+    const localRow = { ...statusRowFromEntity(seededEntity, new Map()), host: "local" }; // localStatusRows table shape
     expect(localRow).toEqual({ ...jsonRow, host: "local" });
     expect(jsonRow.host).toBeUndefined();
   });

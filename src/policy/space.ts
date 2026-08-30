@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { placementOf } from "../agent/registry.ts";
+import { agentView } from "../store/agent-view.ts";
 import type { SpaceResolver, WallDecision } from "../types/policy.ts";
 
 export function spaceOf(orchDir: string, id: string | null | undefined): string | null {
   if (id === null || id === undefined) return null;
-  return placementOf(orchDir, id)?.space ?? null;
+  return agentView(orchDir, id)?.environment.space ?? null;
 }
 
 /** Resolve a raw space id without coupling policy to config or a plexer. */
@@ -57,7 +57,7 @@ function repoRootOf(cwd: string | null | undefined): string | null {
 
 function repoRootFor(orchDir: string, key: string | null | undefined): string | null {
   if (key === null || key === undefined) return null;
-  return repoRootOf(placementOf(orchDir, key)?.cwd);
+  return repoRootOf(agentView(orchDir, key)?.cwd);
 }
 
 /** Decide whether a caller may cross the space wall. */

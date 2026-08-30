@@ -17,7 +17,7 @@ import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDae
 import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion } from "./remote.ts";
 import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
-import { placementOf } from "../agent/registry.ts";
+import { agentView } from "../store/agent-view.ts";
 import { commandLogger } from "../commands/logging.ts";
 
 export type { CheckResult } from "../types/doctor.ts";
@@ -38,7 +38,7 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
   for (const entry of loadPresence(orchDir).values()) {
     if (!entry.alive) continue;
     const adapter = typeof entry.status?.agent === "string" ? entry.status.agent : undefined;
-    const backend = placementOf(orchDir, entry.key)?.backend;
+    const backend = agentView(orchDir, entry.key)?.environment.plexer;
     if (adapter && backend) pairs.add(`${adapter}\u0000${backend}`);
   }
   return Promise.all([...pairs].map(async (encoded) => {

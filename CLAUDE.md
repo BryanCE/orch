@@ -103,3 +103,13 @@ Rules:
 - A version mismatch in a test is the FIXTURE being wrong, never a reason to move the constant.
 **Why:** 2026-08-29 — a build wave walked `SETTINGS_SCHEMA` to 5 for an added `logging` section
 and left three fixtures stamped 3 and 4, breaking six tests for a version that guards nothing.
+
+## Rule 15 — ☢️ NEVER `cd` INTO THE DIRECTORY YOU ARE ALREADY IN. ☢️
+The working directory is `/home/bryan/orch`. It persists across every Bash call. Prefixing a
+command with `cd /home/bryan/orch;` is pure waste — tokens, usage, and a permission prompt —
+and it is now habitual. **Run the command bare.** `grep -n foo src/x.ts`, not
+`cd /home/bryan/orch; grep -n foo src/x.ts`.
+- No `cd` prefix, no `cd "$(git rev-parse --show-toplevel)"`, no `pushd`, no `(cd … && …)`.
+- Paths relative to the repo root ALREADY WORK. So do absolute paths.
+- The ONE exception: a command that must genuinely run somewhere else (a different repo, a
+  temp dir). Then `cd` that one command and say why.

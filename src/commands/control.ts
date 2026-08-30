@@ -7,11 +7,12 @@ import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadConfig } from "../config.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
+import { selfId } from "../identity/self.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel } from "./selection.ts";
-import { spawnerIsRepliable, workerPrompt } from "../worker-prompt.ts";
+import { maySpawnFrom, spawnerIsRepliable, workerPrompt } from "../worker-prompt.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId } from "../types/adapter.ts";
@@ -234,7 +235,7 @@ export async function cmdDispatch(args: string[]) {
   // control target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = settings.ent.key;
   if (settings.model) await setAgentModel(key, settings.model, gov);
-  const headerContext = { lockedCommands: config.locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth), lockedCommands: config.locked_commands, spawnerRepliable: spawnerIsRepliable() };
   const { dispatchId } = await dispatchToAgent(key, settings.prompt, { raw: settings.raw, adapter: entityAdapter(settings.ent), context: headerContext, gov });
   // A spawned agent is already registered under its key; only an unrecorded
   // bare pane needs a row, and it must carry the same key we just dispatched to.

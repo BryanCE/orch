@@ -1,6 +1,8 @@
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
 import { spawnerIdentity } from "./policy/spawner.ts";
+import { depthOf } from "./policy/provenance.ts";
+import { agentView } from "./store/agent-view.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
 import type { WorkerHeaderContext } from "./types/core.ts";
 
@@ -8,8 +10,13 @@ import type { WorkerHeaderContext } from "./types/core.ts";
 const WORKER_HEADER_BASE =
   "[orch worker] No human watches this pane." +
   " Run your own tests and typechecks directly in this pane; verify your slice before reporting." +
-  " Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden; never spawn subagents." +
+  " Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden." +
   " Do the work yourself in this pane. A slice too big for one pane is reported back, not split by you.";
+
+/** Tell the worker whether it may create another provenance level. */
+function workerSpawnClause(maySpawn: boolean): string {
+  return maySpawn ? " You may `orch spawn`; your children may not." : " Never spawn subagents.";
+}
 
 /** Appended only for adapters that support orch's blocking ask flow. */
 const WORKER_HEADER_ASK_CLAUSE =
@@ -41,12 +48,12 @@ function lockedCommandsClause(lockedCommands: readonly string[]): string {
 }
 
 /** Compose the worker header from the adapter's capabilities and this spawn's reachable peers. */
-export function workerHeaderFor(adapter: AgentAdapter | undefined, context: WorkerHeaderContext = {}): string {
+export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {
   const ask = adapter?.question ? WORKER_HEADER_ASK_CLAUSE : "";
   const spawner = adapter?.inboxSteering && context.spawnerRepliable
     ? WORKER_HEADER_SPAWNER_CLAUSE
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
-  return WORKER_HEADER_BASE + ask + spawner + lockedCommandsClause(context.lockedCommands ?? []);
+  return WORKER_HEADER_BASE + workerSpawnClause(context.maySpawn === true) + ask + spawner + lockedCommandsClause(context.lockedCommands ?? []);
 }
 
 /** Strip the composed worker header (base + any clauses) from a dispatched task's text. */
@@ -61,8 +68,14 @@ export function prepareWorkerTask(task: string, max: number): string {
   return truncate(stripWorkerHeader(task), max);
 }
 
-export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: WorkerHeaderContext = {}): string {
+export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {
   return raw ? prompt : `${workerHeaderFor(adapter, context)}\n\n${prompt}`;
+}
+
+/** Whether a child launched by this spawner may itself spawn under the depth limit. */
+export function maySpawnFrom(orchDir: string, spawnerId: string | undefined, maxDepth: number): boolean {
+  const depth = spawnerId === undefined ? 0 : depthOf((id) => agentView(orchDir, id), spawnerId);
+  return depth + 1 < maxDepth;
 }
 
 /** This session's own reply address, live only when it writes presence of its own.

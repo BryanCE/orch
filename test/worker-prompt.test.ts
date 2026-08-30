@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
-import { workerPrompt } from "../src/worker-prompt.ts";
+import { stripWorkerHeader, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -21,6 +21,17 @@ afterEach(() => {
 });
 
 describe("worker prompt capability composition", () => {
+  test("spawn clause follows maySpawn and stripping preserves the task", () => {
+    const never = workerPrompt("bare task", false, getAdapter("pi"), { maySpawn: false });
+    expect(never.toLowerCase()).toContain("never spawn");
+    expect(stripWorkerHeader(never)).toBe("bare task");
+
+    const may = workerPrompt("bare task", false, getAdapter("pi"), { maySpawn: true });
+    expect(may.toLowerCase()).toContain("you may `orch spawn`");
+    expect(may.toLowerCase()).not.toContain("never spawn");
+    expect(stripWorkerHeader(may)).toBe("bare task");
+  });
+
   test("orch run composition selects the same header per adapter", () => {
     expect(workerPrompt("task", false, getAdapter("codex"))).toBe(`${workerHeaderFor(getAdapter("codex"))}\n\ntask`);
     expect(workerPrompt("task", false, getAdapter("pi"))).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ntask`);
@@ -35,7 +46,7 @@ describe("worker prompt capability composition", () => {
     expect(header).not.toContain("orch lock run");
     expect(header).toContain("Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden");
     expect(header).toContain("Run your own tests and typechecks directly in this pane");
-    expect(header).toContain("never spawn subagents");
+    expect(header.toLowerCase()).toContain("never spawn subagents");
   });
 
   test("locked-commands clause names the commands, and asks for a report rather than a lock", () => {

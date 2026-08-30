@@ -200,6 +200,7 @@ export interface ShimScope {
 }
 
 export interface WorkerHeaderContext {
+  maySpawn: boolean;
   lockedCommands?: readonly string[];
   /** The spawner's inbox is live and will accept a peer write. Default false: orch
    *  never instructs a reply it has not established the worker can actually deliver. */

@@ -23,7 +23,7 @@ import { loadConfig } from "../config.ts";
 import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { adapterCommand, assertLaunchModelAllowed, launchModel, pinModels } from "./spawn.ts";
 import { pickAdapter, resolveAdapterOrDie } from "./selection.ts";
-import { spawnerIsRepliable, workerPrompt } from "../worker-prompt.ts";
+import { maySpawnFrom, spawnerIsRepliable, workerPrompt } from "../worker-prompt.ts";
 import { entityAdapter } from "./status.ts";
 import { parseGovernance, writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, assertAgentOwned, ownsAgent, presenceById, requireCallerOwnerToken, splitOptionFlags, die, backendTarget, parseTargetPrompt, resolveLifecycleTarget, viewForKey } from "./target.ts";
@@ -47,7 +47,8 @@ export async function cmdRun(args: string[]): Promise<void> {
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
   const { ent, pane } = resolvePane(target, { crossSpace: gov.crossSpace });
-  const headerContext = { lockedCommands: loadConfig(orchDir()).locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const config = loadConfig(orchDir());
+  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth), lockedCommands: config.locked_commands, spawnerRepliable: spawnerIsRepliable() };
   const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), headerContext) }, gov);
   const recipient = recipientFor(ent.key);
   if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");

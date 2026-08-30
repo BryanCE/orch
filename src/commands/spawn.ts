@@ -9,7 +9,7 @@ import { depthOf } from "../policy/provenance.ts";
 import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../policy/workers.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
-import { workerPrompt } from "../worker-prompt.ts";
+import { maySpawnFrom, workerPrompt } from "../worker-prompt.ts";
 import { pickAdapter, requestedModel, resolveAdapterOrDie } from "./selection.ts";
 import { SpawnRefusalError } from "../refusal.ts";
 import { mintAgentId, serializeIdentity, tryParseIdentity } from "../backends/identity.ts";
@@ -25,7 +25,7 @@ import { callDaemon } from "./daemon.ts";
 import { daemonOutage, rpcHello } from "../daemon/reach.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { agentViewIndex, callerOwnerToken, die, presenceById } from "./target.ts";
-import { callerSpace } from "../identity/self.ts";
+import { callerSpace, selfId } from "../identity/self.ts";
 import { resolveTab } from "./panes.ts";
 import { commandLogger } from "./logging.ts";
 import type { Backend, BackendGroup, BackendHandle, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../types/backend.ts";
@@ -429,6 +429,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
   assertSpawnCapacity(settings, space, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
   const config = loadConfig(orchDir());
+  const maySpawn = maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth);
   const created: CreatedAgent[] = [];
   const names = claimSpawnNames(settings.names, space);
   for (const [index, name] of names.entries()) {
@@ -459,7 +460,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { lockedCommands: config.locked_commands, spawnerRepliable: spawner.key !== null }),
+        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { maySpawn, lockedCommands: config.locked_commands, spawnerRepliable: spawner.key !== null }),
         tools: settings.tools,
         workers: settings.workers,
       }, {}, config.timeouts.adapter_command_ms);
@@ -733,6 +734,8 @@ async function reportControlPlaneOutage(paneCount: number): Promise<string | nul
 }
 
 async function reportSpawnResults(settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
+  const config = loadConfig(orchDir());
+  const maySpawn = maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth);
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${tabLabel}" (no focus stolen).\n`);
@@ -763,7 +766,7 @@ async function reportSpawnResults(settings: SpawnSettings, group: string, tabLab
       try {
         const { dispatchId } = await dispatchToAgent(agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
-          context: { lockedCommands: loadConfig(orchDir()).locked_commands, spawnerRepliable: true },
+          context: { maySpawn, lockedCommands: config.locked_commands, spawnerRepliable: true },
         });
         dispatches.push({ name: agent.name, key: agent.key, dispatchId });
         if (!settings.json) process.stdout.write(`dispatched ${agent.name} ${dispatchId}\n`);

@@ -3,6 +3,7 @@ import { SETTINGS_FILE_SCHEMA, writeSettingsDefault, writeSettingsValue } from "
 import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
 import type { OrchConfig, SettingKind, SettingSpec } from "../types/config.ts";
+import { isRecord } from "../util.ts";
 
 interface JsonSchemaNode {
   readonly type?: string;
@@ -12,10 +13,6 @@ interface JsonSchemaNode {
   readonly minimum?: number;
   readonly exclusiveMinimum?: number;
   readonly maximum?: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function jsonSchemaNode(value: unknown): JsonSchemaNode | null {

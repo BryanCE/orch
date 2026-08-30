@@ -10,7 +10,8 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS } from "../src/config.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { Backend } from "../src/types/backend.ts";
+import { FakePanedBackend } from "./helpers/backend.ts";
+import type { Backend, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/types/adapter.ts";
 import type { OrchConfig } from "../src/types/config.ts";
 
@@ -56,16 +57,26 @@ const config = (preferred: string[]): OrchConfig => ({
 });
 
 /** A pane backend that records the launch options it was handed. */
-function capturingPaneBackend(): { backend: Backend; seen: () => { preferredModels?: readonly string[] } | undefined } {
-  let captured: { preferredModels?: readonly string[] } | undefined;
-  const backend = {
-    id: "herdr",
-    spawn(_adapter: unknown, opts: { preferredModels?: readonly string[] }) {
-      captured = opts;
-      return "%7";
-    },
-  } as unknown as Backend;
-  return { backend, seen: () => captured };
+class CapturingPaneBackend extends FakePanedBackend {
+  private captured: BackendSpawnOpts | undefined;
+
+  constructor() {
+    super({ id: "herdr" });
+  }
+
+  override spawn(_adapter: AgentAdapter, opts: BackendSpawnOpts): string {
+    this.captured = opts;
+    return "%7";
+  }
+
+  seen(): BackendSpawnOpts | undefined {
+    return this.captured;
+  }
+}
+
+function capturingPaneBackend(): { backend: Backend; seen: () => BackendSpawnOpts | undefined } {
+  const backend = new CapturingPaneBackend();
+  return { backend, seen: () => backend.seen() };
 }
 
 describe("the preferred quicklist reaches every launch route", () => {
@@ -119,13 +130,14 @@ describe("the preferred quicklist reaches every launch route", () => {
   test("a headless launch forwards the quicklist into the adapter's own options", () => {
     const directory = tempOrchDir();
     let captured: SpawnOpts | undefined;
-    const adapter = {
-      id: "fake",
+    const adapter: AgentAdapter = {
+      ...piAdapter,
+      workerLaunch: null,
       headlessCmd(_prompt: string, opts: SpawnOpts): string[] {
         captured = opts;
         return [process.execPath, "-e", ""];
       },
-    } as unknown as AgentAdapter;
+    };
 
     // The key a real spawn hands a backend is the minted id alone — registration parses it
     // through the one identity boundary, and a `<plexer>~<space>~<name>` key welds environment

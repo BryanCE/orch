@@ -14,8 +14,8 @@ import { selfId } from "../src/identity/self.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
+import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
-import type { Backend } from "../src/types/backend.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
@@ -110,14 +110,11 @@ describe("fleet ownership scoping", () => {
     process.env.ORCH_OWNER = "orch-owner";
     seedSpace(dir, "local");
     delete process.env.HERDR_PANE_ID;
-    const backend = {
-      id: "headless",
-      spawn: () => "native-handle",
-    } as unknown as Backend;
+    const backend = new FakePanedBackend({ id: "headless" });
 
     const agent = spawnOneIntoTab({
       backend,
-      adapter: {} as never,
+      adapter: fakeAdapter(),
       adapterId: "pi",
       name: "worker-1",
       cwd: dir,
@@ -180,12 +177,12 @@ describe("fleet ownership scoping", () => {
   }, 15_000);
 
   test("driving verbs remain gated against a live foreign holder", () => {
-    const commands = [
+    const commands: readonly (readonly [string, string?])[] = [
       ["dispatch", "hello"],
       ["steer", "hello"],
       ["model", "openai/gpt-5.6"],
       ["reset"],
-    ] as const;
+    ];
     for (const [verb, arg] of commands) {
       const dir = makeDir();
       const key = `kfrgn${verb.slice(0, 5).padEnd(5, "x")}`;

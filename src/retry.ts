@@ -3,6 +3,12 @@ import type { RetryPolicy } from "./types/core.ts";
 
 const DEFAULT_RETRY: RetryPolicy = { attempts: 3, delayMs: 250, backoff: 3 };
 
+export interface RetryOptions<T> {
+  readonly sleepAsync?: (ms: number) => Promise<void>;
+  readonly sleepSync?: (ms: number) => void;
+  readonly retryOnResult?: (value: T) => boolean;
+}
+
 function waitMs(policy: RetryPolicy, attempt: number): number {
   return policy.delayMs * policy.backoff ** attempt;
 }
@@ -21,15 +27,22 @@ export async function retryingAsync<T>(
   label: string,
   operation: () => Promise<T>,
   policy: RetryPolicy = DEFAULT_RETRY,
+  options: RetryOptions<T> = {},
 ): Promise<T> {
   let last: unknown;
   for (let attempt = 0; attempt < policy.attempts; attempt++) {
     try {
-      return await operation();
+      const value = await operation();
+      if (options.retryOnResult?.(value) !== true || attempt >= policy.attempts - 1) return value;
+      const delay = waitMs(policy, attempt);
+      await (options.sleepAsync?.(delay) ?? sleep(delay));
     } catch (error: unknown) {
       last = error;
       if (policy.retryable !== undefined && !policy.retryable(error)) throw error;
-      if (attempt < policy.attempts - 1) await sleep(waitMs(policy, attempt));
+      if (attempt < policy.attempts - 1) {
+        const delay = waitMs(policy, attempt);
+        await (options.sleepAsync?.(delay) ?? sleep(delay));
+      }
     }
   }
   throw exhausted(label, policy, last);
@@ -40,15 +53,18 @@ export function retryingSync<T>(
   label: string,
   operation: () => T,
   policy: RetryPolicy = DEFAULT_RETRY,
+  options: RetryOptions<T> = {},
 ): T {
   let last: unknown;
   for (let attempt = 0; attempt < policy.attempts; attempt++) {
     try {
-      return operation();
+      const value = operation();
+      if (options.retryOnResult?.(value) !== true || attempt >= policy.attempts - 1) return value;
+      (options.sleepSync ?? sleepBlocking)(waitMs(policy, attempt));
     } catch (error: unknown) {
       last = error;
       if (policy.retryable !== undefined && !policy.retryable(error)) throw error;
-      if (attempt < policy.attempts - 1) sleepBlocking(waitMs(policy, attempt));
+      if (attempt < policy.attempts - 1) (options.sleepSync ?? sleepBlocking)(waitMs(policy, attempt));
     }
   }
   throw exhausted(label, policy, last);

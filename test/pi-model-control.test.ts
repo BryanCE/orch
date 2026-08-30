@@ -23,7 +23,7 @@ function fakeModel(provider: string, id: string): ResolvedModel {
   return { provider, id };
 }
 
-const noRetry = { attempts: 1, delayMs: 0 };
+const noRetry = { attempts: 1, delayMs: 0, backoff: 1 };
 
 /** The outcome record applyControlCommand writes to control.json. */
 interface ControlOutcome {
@@ -79,7 +79,7 @@ describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
     const { model } = await resolveRegistryModel(
       "openai-codex/gpt-5.6-luna",
       find,
-      { attempts: 8, delayMs: 0 },
+      { attempts: 8, delayMs: 0, backoff: 1 },
     );
     expect(calls).toBe(3);
     expect(model).toEqual(fakeModel("openai-codex", "gpt-5.6-luna"));

@@ -11,6 +11,7 @@ import {
 import * as path from "node:path";
 import { orchDir as resolveOrchDir } from "../presence/store.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
+import { retryingAsync, retryingSync } from "../retry.ts";
 import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
@@ -103,22 +104,28 @@ export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationRe
   };
   const file = registrationPath();
   mkdirSync(path.dirname(file), { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt++) {
-    // Created atomically: a half-written registration reads as NO registration,
-    // and this code would then evict the LIVE machine-wide one and let a second
-    // orchd start (M1/M6). See `createFileExclusively`.
-    if (createFileExclusively(file, `${JSON.stringify(registration)}\n`)) return { acquired: true, registration };
-    const existing = readDaemonRegistration();
-    if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
-      return { acquired: false, registration: existing };
-    }
-    try {
-      unlinkSync(file);
-    } catch (unlinkError: unknown) {
-      if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false };
-    }
-  }
-  return { acquired: false };
+  const result = retryingSync(
+    "acquire daemon registration",
+    (): { acquired: boolean; registration?: DaemonRegistration; retry: boolean } => {
+      // Created atomically: a half-written registration reads as NO registration,
+      // and this code would then evict the LIVE machine-wide one and let a second
+      // orchd start (M1/M6). See `createFileExclusively`.
+      if (createFileExclusively(file, `${JSON.stringify(registration)}\n`)) return { acquired: true, registration, retry: false };
+      const existing = readDaemonRegistration();
+      if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
+        return { acquired: false, registration: existing, retry: false };
+      }
+      try {
+        unlinkSync(file);
+      } catch (unlinkError: unknown) {
+        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false, retry: false };
+      }
+      return { acquired: false, retry: true };
+    },
+    { attempts: 2, delayMs: 0, backoff: 1 },
+    { retryOnResult: (value) => value.retry },
+  );
+  return { acquired: result.acquired, registration: result.registration };
 }
 
 /**
@@ -229,19 +236,25 @@ export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = ()
     startToken: processStartToken(process.pid),
   };
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    // Same atomicity requirement as the registration above: `canReclaim` reads an
-    // unparseable record as "nobody holds this", so a half-written lock file is a
-    // live daemon's lock being handed to the next starter.
-    if (createFileExclusively(file, `${JSON.stringify(record)}\n`)) return true;
-    if (!canReclaim(readLock(file), socketProbe, orchDir)) return false;
-    try {
-      unlinkSync(file);
-    } catch (unlinkError: unknown) {
-      if (errnoCode(unlinkError) !== "ENOENT") return false;
-    }
-  }
-  return false;
+  const result = retryingSync(
+    "acquire daemon lock",
+    (): { acquired: boolean; retry: boolean } => {
+      // Same atomicity requirement as the registration above: `canReclaim` reads an
+      // unparseable record as "nobody holds this", so a half-written lock file is a
+      // live daemon's lock being handed to the next starter.
+      if (createFileExclusively(file, `${JSON.stringify(record)}\n`)) return { acquired: true, retry: false };
+      if (!canReclaim(readLock(file), socketProbe, orchDir)) return { acquired: false, retry: false };
+      try {
+        unlinkSync(file);
+      } catch (unlinkError: unknown) {
+        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false, retry: false };
+      }
+      return { acquired: false, retry: true };
+    },
+    { attempts: 2, delayMs: 0, backoff: 1 },
+    { retryOnResult: (value) => value.retry },
+  );
+  return result.acquired;
 }
 
 /** Release the daemon lock. Missing locks are already released. */
@@ -271,10 +284,15 @@ export function clearDaemonRuntime(orchDir: string): string[] {
 /** SIGTERM a daemon and wait for the OS to reap it so its lock frees. */
 export async function terminateDaemon(pid: number, graceMs: number): Promise<void> {
   try { process.kill(pid, "SIGTERM"); } catch { return; }
-  const deadline = Date.now() + graceMs;
-  while (Date.now() < deadline && processIsAlive(pid)) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+  const attempts = Math.max(1, Math.ceil(graceMs / 50));
+  await retryingAsync(
+    `wait for daemon ${pid} to exit`,
+    async () => {
+      if (!processIsAlive(pid)) return;
+      throw new Error("daemon is still alive");
+    },
+    { attempts, delayMs: 50, backoff: 1 },
+  ).catch(() => undefined);
 }
 
 /** The side orch itself runs on. Its three questions are the ones this process

@@ -87,9 +87,9 @@ describe("command space fields", () => {
 
     const entities: Entity[] = buildEntities();
     const expected: Partial<Entity>[] = [
-      expect.objectContaining({ key, agent: "pi", space: "reported-space" }) as Partial<Entity>,
-      expect.objectContaining({ key: claudeKey, agent: "claude", space: "reported-claude" }) as Partial<Entity>,
+      expect.objectContaining({ key, agent: "pi", space: "reported-space" }),
+      expect.objectContaining({ key: claudeKey, agent: "claude", space: "reported-claude" }),
     ];
-    expect(entities).toEqual(expect.arrayContaining(expected) as unknown as Entity[]);
+    expect(entities).toEqual(expect.arrayContaining(expected));
   }, 30_000);
 });

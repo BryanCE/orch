@@ -43,5 +43,12 @@ describe("one retry policy", () => {
       throw new Error(`failure ${calls}`);
     }, POLICY, { sleepAsync: async () => undefined })).rejects.toThrow("failure 3");
     expect(calls).toBe(3);
+
+    let syncCalls = 0;
+    expect(() => retryingSync("always sync flaky", () => {
+      syncCalls += 1;
+      throw new Error(`sync failure ${syncCalls}`);
+    }, POLICY, { sleepSync: () => undefined })).toThrow("sync failure 3");
+    expect(syncCalls).toBe(3);
   });
 });

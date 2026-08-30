@@ -75,7 +75,7 @@ describe("doctor notification-sink checks", () => {
 
     const result = await withPath(path.join(directory, "empty-path"), () => checkNotifiers(directory));
     const install = PREREQUISITES["notify-send"]!.install!;
-    expect(result).toMatchObject({ status: "fail", detail: expect.stringContaining(`fix: install notify-send (\`${install}\`)`) as unknown as string });
+    expect(result).toMatchObject({ status: "fail", detail: expect.stringContaining(`fix: install notify-send (\`${install}\`)`) });
   });
 
   test("warns for a command binary missing from PATH", async () => {
@@ -83,7 +83,7 @@ describe("doctor notification-sink checks", () => {
     writeConfig(directory, { notify: [{ id: "command", command: ["missing-notify-command"] }] });
 
     const result = await withPath<CheckResult>(path.join(directory, "empty-path"), async (): Promise<CheckResult> => notifyResult(await runDoctor(directory)));
-    expect(result).toMatchObject({ status: "warn", detail: expect.stringContaining('command sink #1 binary "missing-notify-command" is not on PATH') as unknown as string });
+    expect(result).toMatchObject({ status: "warn", detail: expect.stringContaining('command sink #1 binary "missing-notify-command" is not on PATH') });
   });
 
   test("accepts a command binary present on the injected PATH", async () => {

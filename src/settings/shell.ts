@@ -3,7 +3,7 @@ import { promptMultiselect, promptSelect, promptText } from "../setup/io.ts";
 import { createEditorState, editorReducer } from "./editor.ts";
 import { SETTINGS_REGISTRY } from "./registry.ts";
 import * as files from "node:fs";
-import { isRecord } from "../util.ts";
+import { errorMessage, isRecord } from "../util.ts";
 import type { EditorSetting, EditorState, SettingKind, SettingSource, SettingSpec } from "../types/config.ts";
 
 function rawValue(root: unknown, key: string): unknown {
@@ -102,7 +102,7 @@ export async function runSettingsEditor(orchDir: string): Promise<void> {
     const parsed: unknown = JSON.parse(files.readFileSync(settingsPath(orchDir), "utf8"));
     if (isRecord(parsed)) raw = parsed;
   } catch (error: unknown) {
-    throw new Error(`Could not read ${settingsPath(orchDir)}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Could not read ${settingsPath(orchDir)}: ${errorMessage(error)}`);
   }
   const settings: EditorSetting[] = SETTINGS_REGISTRY.map((spec) => ({ spec, value: spec.read(config), ...sourceFor(spec, raw) }));
   let state: EditorState = createEditorState(settings);

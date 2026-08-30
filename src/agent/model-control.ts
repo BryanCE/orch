@@ -11,8 +11,10 @@
 // the suffix is split off before lookup and applied through pi's own mechanism.
 import { isThinkingLevel, splitThinkingSuffix } from "../policy/thinking.ts";
 import { atomicWrite } from "../presence/writer.ts";
+import { retryingAsync } from "../retry.ts";
 import { isRecord } from "../util.ts";
-import type { ControlCommand, FindRegistryModel, ModelControlDeps, RegistryRetry, ResolvedModel } from "../types/agent.ts";
+import type { ControlCommand, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
+import type { RetryPolicy } from "../types/core.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { JsonRecord } from "../types/core.ts";
 
@@ -22,7 +24,7 @@ export function isControlCommand(value: unknown): value is ControlCommand {
   return isRecord(value) && typeof value.cmd === "string";
 }
 
-const DEFAULT_REGISTRY_RETRY: RegistryRetry = { attempts: 8, delayMs: 250 };
+const DEFAULT_REGISTRY_RETRY: RetryPolicy = { attempts: 8, delayMs: 250, backoff: 1 };
 
 /**
  * Resolve a requested model token to a concrete registry model plus any thinking
@@ -37,7 +39,7 @@ const DEFAULT_REGISTRY_RETRY: RegistryRetry = { attempts: 8, delayMs: 250 };
 export async function resolveRegistryModel(
   requestedModel: unknown,
   findModel: FindRegistryModel,
-  retry: RegistryRetry = DEFAULT_REGISTRY_RETRY,
+  retry: RetryPolicy = DEFAULT_REGISTRY_RETRY,
 ): Promise<{ model: ResolvedModel; thinking?: ThinkingLevel }> {
   if (typeof requestedModel !== "string") throw new Error("Model must be a provider/id string");
   const { bare, thinking } = splitThinkingSuffix(requestedModel);
@@ -47,12 +49,13 @@ export async function resolveRegistryModel(
   }
   const provider = bare.slice(0, slash);
   const id = bare.slice(slash + 1);
-  let model: ResolvedModel | undefined;
-  for (let attempt = 0; attempt < retry.attempts && !model; attempt++) {
-    model = findModel(provider, id);
-    if (!model) await new Promise((resolve) => setTimeout(resolve, retry.delayMs));
-  }
-  if (!model) throw new Error(`Model not in registry (session still booting?): ${bare}`);
+  const model = await retryingAsync(
+    `Model not in registry (session still booting?): ${bare}`,
+    async () => findModel(provider, id),
+    retry,
+    { retryOnResult: (value) => value === undefined },
+  );
+  if (model === undefined) throw new Error(`Model not in registry (session still booting?): ${bare}`);
   return { model, thinking };
 }
 

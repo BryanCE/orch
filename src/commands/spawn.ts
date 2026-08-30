@@ -19,6 +19,7 @@ import { refreshStaleShims } from "../doctor/runner.ts";
 import { readFileSync } from "node:fs";
 import { dispatchToAgent } from "./control.ts";
 import { errorMessage, sleep } from "../util.ts";
+import { retryingAsync } from "../retry.ts";
 import { callDaemon } from "./daemon.ts";
 import { daemonOutage, rpcHello } from "../daemon/reach.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
@@ -31,6 +32,7 @@ import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { AgentView, GrantAction } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
+import type { RetryPolicy } from "../types/core.ts";
 import type { OrchConfig } from "../types/config.ts";
 import { homeHandle, openHome } from "../store/home-rows.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -125,19 +127,19 @@ export function adapterCommand(
  *  routine race between a fresh spawn and its bridge coming up.
  *  Resolves to the agent's own refusal reason, never to a bare boolean: a pin
  *  that reports success without one is how a fleet silently ran the wrong model. */
+const MODEL_PIN_RETRY: RetryPolicy = { attempts: 5, delayMs: 200, backoff: 2 };
+
 async function deliverModelPin(key: string, model: string): Promise<string | null> {
-  const backoffMs = [0, 200, 400, 800, 1200];
-  let reason = "no attempt made";
-  for (const wait of backoffMs) {
-    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
-    try {
-      await callDaemon("set-model", { target: key, model });
-      return null;
-    } catch (error: unknown) {
-      reason = errorMessage(error);
-    }
+  try {
+    await retryingAsync(
+      `pin model for ${key}`,
+      () => callDaemon("set-model", { target: key, model }),
+      MODEL_PIN_RETRY,
+    );
+    return null;
+  } catch (error: unknown) {
+    return errorMessage(error);
   }
-  return reason;
 }
 
 /** Pin every agent to the launch model and return the refusals as warning text.

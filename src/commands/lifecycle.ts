@@ -13,6 +13,7 @@ import type { CloseAuthority } from "../types/policy.ts";
 import { agentById, endAgent, renameAgent as renameNormalizedAgent } from "../store/agent-rows.ts";
 import { selfId } from "../identity/self.ts";
 
+import { retryingSync } from "../retry.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -88,17 +89,19 @@ export function cmdWait(args: string[]) {
 /** Block until the agent's own presence status reports idle from a write newer than
  *  the one we replaced. A stale idle is the pre-reset session answering for the new one. */
 function awaitIdleAfter(statusPath: string, beforeUpdated: number, sentAt: number): boolean {
-  const deadline = sentAt + 75_000;
-  while (Date.now() < deadline) {
-    const status = readPresenceStatus(statusPath);
-    const updated = Date.parse(typeof status?.updatedAt === "string" ? status.updatedAt : "");
-    const advanced = Number.isFinite(updated)
-      && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
-      && updated >= sentAt - 1000;
-    if (advanced && status?.state === "idle") return true;
-    sleepMs(250);
-  }
-  return false;
+  return retryingSync(
+    "await idle presence",
+    () => {
+      const status = readPresenceStatus(statusPath);
+      const updated = Date.parse(typeof status?.updatedAt === "string" ? status.updatedAt : "");
+      const advanced = Number.isFinite(updated)
+        && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
+        && updated >= sentAt - 1000;
+      return advanced && status?.state === "idle";
+    },
+    { attempts: 300, delayMs: 250, backoff: 1 },
+    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+  );
 }
 
 /** Every orch-owned live agent, addressed by identity key. Keying on paneId instead
@@ -197,13 +200,16 @@ interface ReloadResult {
 /** Block until the agent's bridge republishes status.json under a live pid, proving
  *  the harness came back. Backend-agnostic: it reads only the presence protocol. */
 function awaitBridgeRefresh(statusPath: string, wasUpdatedAt: string, tries: number): boolean {
-  for (let attempt = 0; attempt < tries; attempt++) {
-    sleepMs(500);
-    const status = readPresenceStatus(statusPath);
-    if (typeof status?.pid === "number" && typeof status.updatedAt === "string"
-      && pidAlive(status.pid) && Date.parse(status.updatedAt) > Date.parse(wasUpdatedAt)) return true;
-  }
-  return false;
+  return retryingSync(
+    "await bridge refresh",
+    () => {
+      const status = readPresenceStatus(statusPath);
+      return typeof status?.pid === "number" && typeof status.updatedAt === "string"
+        && pidAlive(status.pid) && Date.parse(status.updatedAt) > Date.parse(wasUpdatedAt);
+    },
+    { attempts: tries, delayMs: 500, backoff: 1 },
+    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+  );
 }
 
 /** Apply a lifecycle verb to an agent with no console through the daemon, which owns
@@ -234,12 +240,17 @@ export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenc
     sleepMs(500);
     if (!backend.paneInput) throw new Error("target environment has no pane input role");
     backend.paneInput.submit(pane, reloadText);
-    for (let i = 0; i < 60; i++) {
-      sleepMs(500);
-      const st = readPresenceStatus(statusPath);
-      if (typeof st?.pid === "number" && typeof st.updatedAt === "string"
-        && pidAlive(st.pid) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt)) return { pane, ok: true };
-    }
+    const refreshed = retryingSync(
+      "await bridge refresh",
+      () => {
+        const st = readPresenceStatus(statusPath);
+        return typeof st?.pid === "number" && typeof st.updatedAt === "string"
+          && pidAlive(st.pid) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt);
+      },
+      { attempts: 60, delayMs: 500, backoff: 1 },
+      { sleepSync: sleepMs, retryOnResult: (value) => !value },
+    );
+    if (refreshed) return { pane, ok: true };
     return { pane, ok: false, reason: errorMessage(`bridge status.json did not refresh within 30s after ${reloadText}`) };
   } catch (error: unknown) {
     return { pane, ok: false, reason: errorMessage(error) };
@@ -259,22 +270,28 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
   sleepMs(500);
   if (!backend.paneInput) throw new Error("target environment has no pane input role");
   backend.paneInput.submit(pane, quitText);
-  let shellSeen = false;
-  for (let i = 0; i < 16; i++) {
-    sleepMs(500);
-    if (paneAtShellPrompt(paneForeground(backend, pane))) { shellSeen = true; break; }
-  }
+  const shellSeen = retryingSync(
+    "await shell prompt",
+    () => paneAtShellPrompt(paneForeground(backend, pane)),
+    { attempts: 16, delayMs: 500, backoff: 1 },
+    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+  );
   if (!shellSeen) {
     lifecycleLogger(presenceKey).warn("lifecycle.restart-exit-timeout", { handle: pane, command: quitText });
     process.stdout.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
   backend.paneInput.submit(pane, cmd);
-  for (let i = 0; i < 40; i++) {
-    sleepMs(500);
-    const st = readPresenceStatus(statusPath);
-    if (typeof st?.pid === "number" && st.pid !== oldPid && pidAlive(st.pid)) return true;
-  }
+  const refreshed = retryingSync(
+    "await relaunched bridge",
+    () => {
+      const st = readPresenceStatus(statusPath);
+      return typeof st?.pid === "number" && st.pid !== oldPid && pidAlive(st.pid);
+    },
+    { attempts: 40, delayMs: 500, backoff: 1 },
+    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+  );
+  if (refreshed) return true;
   lifecycleLogger(presenceKey).warn("lifecycle.restart-bridge-timeout", { handle: pane });
   process.stdout.write(`${pane}: relaunched but bridge status.json did not refresh within 20s.\n`);
   return false;
@@ -569,8 +586,13 @@ function recordedProcess(key: string): RecordedProcess | null {
 /** Whether the recorded process instance is still present after a close attempt. */
 function recordedProcessRemains(recorded: RecordedProcess): boolean {
   if (typeof recorded.startToken !== "string") return processIsAlive(recorded.pid);
-  for (let attempt = 0; attempt < 40 && processInstanceMatches(recorded.pid, recorded.startToken); attempt++) sleepMs(50);
-  return processInstanceMatches(recorded.pid, recorded.startToken);
+  const exited = retryingSync(
+    "await closed process",
+    () => !processInstanceMatches(recorded.pid, recorded.startToken),
+    { attempts: 40, delayMs: 50, backoff: 1 },
+    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+  );
+  return !exited;
 }
 
 /** Close is the SECOND ending verb. TASKS/01-agent-model.md §11: close "ends

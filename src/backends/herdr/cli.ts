@@ -1,5 +1,5 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
-import { isRecord } from "../../util.ts";
+import { errorMessage, isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
 import { DEFAULT_TOOL_RETRY, runTool } from "../tool-exec.ts";
 import type { HerdrPane, HerdrTab } from "../../types/plexer.ts";
@@ -31,7 +31,7 @@ function errorDetail(error: unknown): string {
     const message = error.message === undefined ? outputText(error) : outputText(error.message);
     return [status, stderr && `stderr: ${stderr}`, stdout && `stdout: ${stdout}`, message].filter(Boolean).join("; ");
   }
-  return error instanceof Error ? error.message : outputText(error);
+  return error instanceof Error ? errorMessage(error) : outputText(error);
 }
 
 type HerdrExecutor = (

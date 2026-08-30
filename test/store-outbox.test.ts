@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
 import { bumpOutboxAttempt, deleteDeliveredBefore, insertOutboxMessage, markOutboxDelivered, outboxMessageUnsent, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { OutboxMessage } from "../src/types/store.ts";
 
 const tempDirs: string[] = [];
 
@@ -51,7 +50,7 @@ describe("outbox store rows", () => {
 
     expect(selectPendingOutbox(orchDir, 4999)).toEqual([]);
     expect(selectPendingOutbox(orchDir, 5000)[0]).toEqual(
-      expect.objectContaining({ id: "retry", attempts: 1, nextAttemptAt: 5000 }) as unknown as OutboxMessage,
+      expect.objectContaining({ id: "retry", attempts: 1, nextAttemptAt: 5000 }),
     );
   });
 

@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, type SQL } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
-import { isRecord } from "../util.ts";
+import { isRecord, osSide } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
@@ -9,11 +9,8 @@ import type { AgentInput, AgentRow, AgentWorktree, HostOs, HostPlexerRow, Sessio
 
 /** This machine's OS as the store names it. Throws rather than guess: an
  *  unsupported platform is a host orch cannot record, not a host it may mislabel. */
-export function currentHostOs(): HostOs {
-  if (process.platform === "win32") return "windows";
-  if (process.platform === "darwin") return "darwin";
-  if (process.platform === "linux") return "linux";
-  throw new Error(`unsupported host OS ${process.platform}`);
+export function currentHostOs(platform: NodeJS.Platform = process.platform): HostOs {
+  return osSide(platform);
 }
 
 /** An agent joined to the ending it may not have. The join is left, so `ending`

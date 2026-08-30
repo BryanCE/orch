@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { CONTROL_FILE } from "../presence/schema.ts";
 import { inboxPath } from "../presence/inbox.ts";
+import { retryingAsync } from "../retry.ts";
 import { isRecord } from "../util.ts";
 
 /**
@@ -70,11 +71,21 @@ function silenceReason(dir: string, id: string, timeoutMs: number): string {
  */
 export async function awaitControlOutcome(dir: string, id: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const outcome = readOutcome(dir, id);
-    if (outcome?.success) return;
-    if (outcome) throw new Error(outcome.error ?? "agent refused the control command");
-    if (Date.now() >= deadline) throw new Error(silenceReason(dir, id, timeoutMs));
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-  }
+  await retryingAsync(
+    `await control outcome ${id}`,
+    async () => {
+      const outcome = readOutcome(dir, id);
+      if (outcome?.success) return outcome;
+      if (outcome) throw new Error(outcome.error ?? "agent refused the control command");
+      if (Date.now() >= deadline) throw new Error(silenceReason(dir, id, timeoutMs));
+      return undefined;
+    },
+    {
+      attempts: Math.max(1, Math.ceil(timeoutMs / POLL_MS) + 1),
+      delayMs: POLL_MS,
+      backoff: 1,
+      retryable: () => false,
+    },
+    { retryOnResult: (value) => value === undefined },
+  );
 }

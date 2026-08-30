@@ -23,7 +23,7 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { ompAdapter } from "../src/adapters/omp.ts";
 import { sql } from "drizzle-orm";
 
-import { row } from "./helpers/rows.ts";
+import { numberField, row } from "./helpers/rows.ts";
 describe("commands/spawn", () => {
   test("refuses an invalid name before resolving or creating a workspace", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-spawn-invalid-name-"));
@@ -62,8 +62,8 @@ describe("commands/spawn", () => {
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
     });
     const before = agentViews(dir).map((view) => view.id);
-    const beforeTasks = (row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count;
-    const backend = headlessBackend as unknown as { spawn: typeof headlessBackend.spawn };
+    const beforeTasks = numberField(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`), "count");
+    const backend = headlessBackend;
     const originalSpawn = backend.spawn;
     let backendAllocations = 0;
     backend.spawn = (...args: Parameters<typeof backend.spawn>): ReturnType<typeof backend.spawn> => {
@@ -89,7 +89,7 @@ describe("commands/spawn", () => {
     expect(errorMessage(refusal)).toMatch(/must be named at creation/i);
     expect(backendAllocations).toBe(0);
     expect(agentViews(dir).map((view) => view.id)).toEqual(before);
-    expect((row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count).toBe(beforeTasks);
+    expect(numberField(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`), "count")).toBe(beforeTasks);
     expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);
   });
 

@@ -315,12 +315,6 @@ export interface ControlCommand {
 /** Look up a registry model by bare provider + id; a fresh value each call so a retry sees a just-loaded registry. */
 export type FindRegistryModel = (provider: string, id: string) => ResolvedModel | undefined;
 
-/** Bounded retry while a fresh session's model registry finishes loading. */
-export interface RegistryRetry {
-  attempts: number;
-  delayMs: number;
-}
-
 export interface ModelControlDeps {
   harness: HarnessApi;
   /** The running agent's context, read fresh so a retry sees a registry that just loaded. */

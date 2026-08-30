@@ -87,7 +87,16 @@ describe("agent fleet monitor", () => {
   test("worker process registers no monitor regardless of events", () => {
     process.env.ORCH_AGENT_KEY = "worker-key";
     const noop = (): void => { void 0; };
-    const harness = { on: noop, registerTool: noop, registerCommand: noop, sendUserMessage: noop, setModel: noop, getThinkingLevel: () => undefined, setThinkingLevel: noop, events: { on: noop } } as unknown as HarnessApi;
+    const harness: HarnessApi = {
+      on: noop,
+      registerTool: noop,
+      registerCommand: noop,
+      sendUserMessage: noop,
+      setModel: noop,
+      getThinkingLevel: () => undefined,
+      setThinkingLevel: noop,
+      events: { on: noop },
+    };
     expect(registerFleetMonitor(harness, dir(), options("worker-key"))).toBeUndefined();
     expect(subscriptions).toHaveLength(0);
   });

@@ -26,6 +26,7 @@ import {
 } from "../daemon/reach.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
+import { retryingAsync } from "../retry.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 
@@ -47,14 +48,22 @@ async function fetchDaemonStatus(timeoutMs = 5000): Promise<DaemonStatus> {
 
 async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> {
   const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    try {
-      const status = await fetchDaemonStatus(300);
-      if (!previousStartedAt || status.startedAt !== previousStartedAt) return status;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error("timed out waiting for orchd");
+  return retryingAsync(
+    "wait for orchd",
+    async () => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error("wait deadline reached");
+      const status = await fetchDaemonStatus(Math.min(300, remaining));
+      if (previousStartedAt && status.startedAt === previousStartedAt) throw new Error("orchd is still restarting");
+      return status;
+    },
+    {
+      attempts: 100,
+      delayMs: 50,
+      backoff: 1,
+      retryable: (error) => error instanceof Error && error.message !== "wait deadline reached",
+    },
+  ).catch(() => { throw new Error("timed out waiting for orchd"); });
 }
 
 /** Extract governance flags and strip them from the positional args. */

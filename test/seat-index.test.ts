@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { Theme } from "@earendil-works/pi-coding-agent";
 import { countStates, formatSeatStatus, hasTheme } from "../src/seat/index.ts";
 import { reconcileDashboardSelection } from "../src/seat/ui/takeover.ts";
 import { errorMessage } from "../src/util.ts";
@@ -18,10 +18,32 @@ function snapshot(state: string, key = state): PackSnapshot {
   };
 }
 
+const plainFgColors: ConstructorParameters<typeof Theme>[0] = {
+  accent: 0, border: 0, borderAccent: 0, borderMuted: 0, success: 0, error: 0, warning: 0,
+  muted: 0, dim: 0, text: 0, thinkingText: 0, userMessageText: 0, customMessageText: 0,
+  customMessageLabel: 0, toolTitle: 0, toolOutput: 0, mdHeading: 0, mdLink: 0, mdLinkUrl: 0,
+  mdCode: 0, mdCodeBlock: 0, mdCodeBlockBorder: 0, mdQuote: 0, mdQuoteBorder: 0, mdHr: 0,
+  mdListBullet: 0, toolDiffAdded: 0, toolDiffRemoved: 0, toolDiffContext: 0, syntaxComment: 0,
+  syntaxKeyword: 0, syntaxFunction: 0, syntaxVariable: 0, syntaxString: 0, syntaxNumber: 0,
+  syntaxType: 0, syntaxOperator: 0, syntaxPunctuation: 0, thinkingOff: 0, thinkingMinimal: 0,
+  thinkingLow: 0, thinkingMedium: 0, thinkingHigh: 0, thinkingXhigh: 0, bashMode: 0,
+};
+const plainBgColors: ConstructorParameters<typeof Theme>[1] = {
+  selectedBg: 0, userMessageBg: 0, customMessageBg: 0, toolPendingBg: 0, toolSuccessBg: 0, toolErrorBg: 0,
+};
+
+class PlainTheme extends Theme {
+  constructor() {
+    super(plainFgColors, plainBgColors, "truecolor");
+  }
+
+  override fg(_color: Parameters<Theme["fg"]>[0], text: string): string {
+    return text;
+  }
+}
+
 function plainTheme(): Theme {
-  return {
-    fg: (_color: ThemeColor, text: string) => text,
-  } as unknown as Theme;
+  return new PlainTheme();
 }
 
 describe("seat pure seams", () => {

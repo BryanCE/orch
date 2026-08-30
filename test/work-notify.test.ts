@@ -13,6 +13,16 @@ function nodeCommand(script: string): [string, string, string] {
   return [process.execPath, "-e", script];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseRecord(text: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(text);
+  if (!isRecord(value)) throw new Error("notification payload is not an object");
+  return value;
+}
+
 async function waitForFile(file: string): Promise<Record<string, unknown>> {
   // A command sink cold-starts a fresh node runtime to write the file; under a
   // loaded full-suite run on Windows that spawn can take several seconds.
@@ -20,7 +30,7 @@ async function waitForFile(file: string): Promise<Record<string, unknown>> {
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
-      return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      return parseRecord(readFileSync(file, "utf8"));
     } catch (error) {
       lastError = error;
     }
@@ -64,11 +74,8 @@ describe("orch presence notifications", () => {
         // startPresenceWatch seeds the initial idle state during its first scan.
         seedStatusInDir(agentsDir, { state: "working", label: "Test agent", pid: process.pid });
         const payload: Record<string, unknown> = await waitForFile(output);
-        expect(payload).toMatchObject({
-          title: expect.stringContaining("WORKING [space] Test agent") as unknown as string,
-          space: "space",
-          newState: "working",
-        });
+        expect(payload).toMatchObject({ space: "space", newState: "working" });
+        expect(payload.title).toEqual(expect.stringContaining("WORKING [space] Test agent"));
       } finally {
         watch.stop();
       }

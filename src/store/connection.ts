@@ -6,7 +6,7 @@ import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { presenceRoot, readStatus } from "../presence/writer.ts";
-import { ensurePrivateDir, pidAlive } from "../util.ts";
+import { ensurePrivateDir, errorMessage, pidAlive } from "../util.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
  *  driver it was built on. The driver is reached for exactly two things drizzle
@@ -146,7 +146,7 @@ function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): v
     migrate(opened.orm, { migrationsFolder: migrationsFolder() });
   } catch (error) {
     opened.client.close();
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = errorMessage(error);
     const live = livePresenceHolders(orchDir).length > 0 ? " Live agents hold this store; close them first." : "";
     throw new Error(`orch: ${path} does not match orch's migrations (${reason}).${live} ${openRemedy(orchDir, reason)}`);
   }

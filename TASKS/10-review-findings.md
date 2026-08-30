@@ -14,7 +14,37 @@ model), 13 (no casts).
 
 ---
 
+## Scoreboard — 2026-08-29
+
+Per-item evidence lives in each item's `status` cell; in the wide tables that cell is the LAST
+column, so read it here instead.
+
+| section | items | state |
+|---|---|---|
+| §1 correctness bugs | 1.1 – 1.15 (15) | **all FIXED** |
+| §2 structural | 2.1 – 2.6 (6) | **all FIXED** |
+| §3 wasted work | 3.1 – 3.4 (4) | **all FIXED** |
+| §4 wrong altitude | 4.1 – 4.6 (6) | 4.1 4.2 4.3 4.4 FIXED · **4.5 4.6 in progress** |
+| §5 duplication | 5.1 – 5.5 (5) | 5.1 5.2 5.3 5.4 FIXED · **5.5 PARTIAL, in progress** |
+| §6 rule violations | 6.1 – 6.6 (6) | 6.1 – 6.5 FIXED · **6.6 OPEN, in progress** |
+
+Still open, and nothing else:
+- **4.5** — `retry.ts` has 2 importers while 5 sites hand-roll their own backoff ladder.
+- **4.6** — 3 surviving raw `process.platform === "win32"`, one of them a second implementation of
+  `osSide()` inside `src/store/agent-rows.ts`.
+- **5.5** — private `isRecord`/`isObject` shadowing `util.ts`; 6 re-inlined `errorMessage`; 6 inline
+  `setTimeout` sleeps beside the one `sleep()`.
+- **6.6** — 20 `as unknown as` across 15 files in `test/`, which the original audit never swept
+  because it only looked at `src/` and `extensions/`.
+
+---
+
+# ✅ SECTION 1 — COMPLETE (15/15)
+
 ## 1. Correctness bugs (15) — ranked by blast radius
+
+> **All 15 correctness bugs are FIXED.** Nothing in this section is outstanding.
+> Rows are kept for the record; each `status` cell carries its evidence.
 
 | # | file:line | bug | fix | status |
 |---|---|---|---|---|
@@ -36,7 +66,12 @@ model), 13 (no casts).
 
 ---
 
+# ✅ SECTION 2 — COMPLETE (6/6)
+
 ## 2. Structural over-engineering — the big deletions
+
+> **All 6 structural items are FIXED** — 2.1 through 2.6. There is no 2.7.
+> Rows are kept for the record; each `Status:` line carries its evidence.
 
 These are where the complexity actually lives. Each is a *design* fix, not a patch; each one
 deletes several of the §3–§5 items with it.
@@ -203,7 +238,12 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 ---
 
+# ✅ SECTION 3 — COMPLETE (4/4)
+
 ## 3. Wasted work (daemon + status hot paths)
+
+> **All 4 hot-path items are FIXED.** Nothing in this section is outstanding.
+> Rows are kept for the record; each `status` cell carries its evidence.
 
 | # | file:line | waste | fix | status |
 |---|---|---|---|---|
@@ -222,8 +262,8 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 | 4.2 | `src/backends/identity.ts:106`; `src/agent/presence.ts:111`; `src/commands/spawn.ts:438` | `serializeIdentity` = `[backend, workspace, id].join("~")` — environment welded into identity. An unspawned interactive session mints `{backend:"headless", workspace:"local", id}`; spawn defaults `settings.workspace ?? "local"`. Consumers then branch on the welded parts as identity: `herdr/hud.ts` `AGENT_IDENTITY.backend === "herdr"` at `:33,:39,:52,:65,:169,:246`; `commands/events.ts:76`, `commands/panes.ts:194`, `commands/target.ts:234`, `daemon/events.ts:231` read `parsed.workspace/backend`. This is **the exact 2026-08-26 bug Rule 11 was written for**, still live. | Opaque minted id; backend/workspace/handle are environment columns (`TASKS/01-agent-model.md`, `06-schema.md`). Every `parseIdentity(...).backend` consumer becomes a column read or a capability check. | `FIXED` - `Identity` is `{ id }`; `serializeIdentity` returns the bare minted id and `parseIdentity` refuses anything else (`src/backends/identity.ts`). No consumer reads a backend or workspace out of a key - the remaining `.backend` reads are environment COLUMNS off the composed view. `test/agent-key-is-minted-id.test.ts` pins the composite key as never valid again. |
 | 4.3 | `src/commands/target.ts:239` (+ `:169`, `entities.ts:86, :230`, `lifecycle.ts:454`, `control.ts:166, :269`) | `handle = record.handle ?? ent.paneId ?? (pid ? {pid, key} : parsed?.id ?? ent.key)` — a five-way fallback that builds the **headless backend's private handle shape inline in the CLI layer**, with shorter variants of the chain at six other sites. A wrong fallback silently hands an identity key to a backend as a pane id. | "What is this agent's handle" is one store read (the handle satellite from §2.1); backends own their handle shape. | `FIXED` - the five-way fallback is gone; a handle is the handle satellite off the composed view (`view.environment.handle`), and the CLI no longer builds the headless backend's private `{pid,key}` shape. |
 | 4.4 | `src/backends/tmux/index.ts:242-246`, `herdr/index.ts:293-298`, `headless/index.ts:195` | Each backend assembles the launch env itself although `spawn.ts:599/:842` already builds it (`agentIdentityEnv + worktreeEnv + key + dir`); `headless/index.ts:30` re-spells the `~/.orch` default that `presence/writer.ts:26 orchDir()` owns. Already drifted → bug 1.13. | One env builder in `src/policy/spawner.ts` (which already has `agentIdentityEnv`/`worktreeEnv`); backends add only handle-specific vars. | `FIXED` - `agentLaunchEnv` (`src/policy/spawner.ts:65`) is the one env builder; tmux, herdr and headless call it and hold no copy. `headless/index.ts` now defers to `orchDir()` instead of re-spelling the `~/.orch` default. `test/agent-launch-carries-project-scope.test.ts`. |
-| 4.5 | `src/retry.ts` | Exported "for every flaky IO path" — one importer (`adapters/model-catalogue.ts:3`). Meanwhile `spawn.ts:116 deliverModelPin` hand-rolls `[0,200,400,800,1200]`; `agent/model-control.ts:59-72` has its own `RegistryRetry` loop; `commands/lifecycle.ts:169/:424` fixed `sleepMs` polls; `daemon/lifecycle.ts:126/:241` bare `attempt < 2` loops; `commands/daemon.ts:62` 50 ms spin. | Either the call sites adopt `retryingAsync`/`retryingSync`, or delete `retry.ts`. Not both. | `OPEN` |
-| 4.6 | `process.platform === "win32"` ×7 | `util.ts:39`, `process-identity.ts:65`, `remote.ts:57`, `store/agent-rows.ts:12`, `daemon/runtime-files.ts:17`, `daemon/rpc.ts:385, :623` — the OS-side fact (an environment axis in `TASKS/01`) computed differently per file; untestable from Linux. | One `osSide()` seam; `agent-rows.ts:12` already computes the canonical value for the store — export that. | `OPEN` |
+| 4.5 | `src/retry.ts` | Exported "for every flaky IO path" — one importer (`adapters/model-catalogue.ts:3`). Meanwhile `spawn.ts:116 deliverModelPin` hand-rolls `[0,200,400,800,1200]`; `agent/model-control.ts:59-72` has its own `RegistryRetry` loop; `commands/lifecycle.ts:169/:424` fixed `sleepMs` polls; `daemon/lifecycle.ts:126/:241` bare `attempt < 2` loops; `commands/daemon.ts:62` 50 ms spin. | Either the call sites adopt `retryingAsync`/`retryingSync`, or delete `retry.ts`. Not both. | `FIXED` - adopted, not deleted: `retry.ts` went from 2 importers to 8. `deliverModelPin`'s literal `[0,200,400,800,1200]` ladder, `model-control`'s own loop, both `daemon/lifecycle` `attempt < 2` loops, `commands/daemon`'s 50 ms spin and `control/outcome`'s poll all run through the one helper. `RegistryRetry` is DELETED - one policy type, `RetryPolicy`. A `RetryOptions` injectable sleep makes the backoff schedule assertable without a test waiting 1.2s for real. Zero inline `setTimeout` sleeps remain in `src/`. `test/one-retry-policy.test.ts`. |
+| 4.6 | `process.platform === "win32"` ×7 | `util.ts:39`, `process-identity.ts:65`, `remote.ts:57`, `store/agent-rows.ts:12`, `daemon/runtime-files.ts:17`, `daemon/rpc.ts:385, :623` — the OS-side fact (an environment axis in `TASKS/01`) computed differently per file; untestable from Linux. | One `osSide()` seam; `agent-rows.ts:12` already computes the canonical value for the store — export that. | `FIXED` - zero raw `process.platform === "win32"` remain in `src/`. `store/agent-rows.ts` held a SECOND implementation of `osSide()` and now calls the one in `util.ts`, which takes an injectable platform - which is what finally makes the win32 side testable from Linux, the thing the finding said was impossible. `test/one-spelling-per-fact.test.ts` seeds a store on an injected win32 platform and reads back `windows`. |
 
 ---
 
@@ -235,7 +275,7 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 | 5.2 | `src/daemon/outbox.ts:43 consumeOutboxAcks` copies `drainInbox` (`presence/inbox.ts:47-62`) line for line — same `${file}.${pid}-${Date.now()}-${rand}.draining` claim name, same rename/read/unlink-in-finally/split. | `drainClaimedLines(path)` in `presence/inbox.ts`, used by both. | `FIXED` - `drainClaimedLines` (`src/presence/inbox.ts:44`) is the one claim/rename/read/unlink; `drainInbox` and `consumeOutboxAcks` (`src/daemon/outbox.ts:42`) both call it. |
 | 5.3 | Hand-rolled `status.json` reads with `as` casts: `store/connection.ts:109 hasLivePresence` (`as { schema?; pid? }`), `backends/headless/index.ts:81 statusPid`. `readStatus` (`presence/writer.ts:97`) and `loadPresence` (`presence/store.ts:247`) exist; `agent/peers.ts:95` is the intended form. | Use `readStatus`. The schema gate lives in one place. | `FIXED` - `hasLivePresence` reads through `readStatus` (`src/store/connection.ts:61`) and headless's private `statusPid` is gone. No hand-rolled `status.json` read with a cast remains. |
 | 5.4 | `src/adapters/pi.ts:183 appendInboxLine` / `:189 writeAnswerFile` — own `mkdirSync` + `appendFileSync(path.join(presence.dir, INBOX_FILE), …)`, duplicating `appendInbox` (`presence/inbox.ts:34`, used by `roles.ts:33`). `answer.json` has no writer in `src/presence` at all — its only writer is an adapter. | Import `appendInbox`; add `writeAnswer` to `src/presence/`. | `FIXED` - `writeAnswer` now lives in `src/presence/writer.ts:184` and `src/adapters/pi.ts` imports it; the adapter's private `appendInboxLine`/`writeAnswerFile` are deleted. |
-| 5.5 | Type guards / helpers re-declared: private `isRecord` in `store/spawned-rows.ts:45` (**does not exclude arrays** — `[]` passes `isSpawnedRow`), private `isObject` in `rpc.ts:136`, vs `util.ts:80` exported `isRecord` ("the one spelling repo-wide"). `errorMessage` (`util.ts:57`) re-inlined as `error instanceof Error ? error.message : String(error)` at 14 sites. Async sleep declared 4× (`retry.ts:33`, `spawn.ts:950`, `commands/daemon.ts:20`, `control/cmd-lock.ts:42`) + 7 inline `new Promise(setTimeout)` + 2 blocking `Atomics.wait` variants (`retry.ts:29 sleepBlocking`, `pane-ready.ts:41 sleepMs`). | Delete the private copies; one `sleep(ms)` in `util.ts`; the blocking sleep exists only for `pane-ready` and is banned from daemon code (bug 1.6). | `PARTIAL` - `sleep(ms)` exists (`src/util.ts:88`) and the blocking sleep is confined to `pane-ready`/`retry`, but the sweep is unfinished: private `isRecord` (`src/settings/registry.ts:17`) and `isObject` (`src/daemon/rpc.ts:92`) still shadow `util.ts:84`, `errorMessage` is still re-inlined at 9 sites, and 6 call sites still write `new Promise(resolve => setTimeout(...))` instead of `sleep`. |
+| 5.5 | Type guards / helpers re-declared: private `isRecord` in `store/spawned-rows.ts:45` (**does not exclude arrays** — `[]` passes `isSpawnedRow`), private `isObject` in `rpc.ts:136`, vs `util.ts:80` exported `isRecord` ("the one spelling repo-wide"). `errorMessage` (`util.ts:57`) re-inlined as `error instanceof Error ? error.message : String(error)` at 14 sites. Async sleep declared 4× (`retry.ts:33`, `spawn.ts:950`, `commands/daemon.ts:20`, `control/cmd-lock.ts:42`) + 7 inline `new Promise(setTimeout)` + 2 blocking `Atomics.wait` variants (`retry.ts:29 sleepBlocking`, `pane-ready.ts:41 sleepMs`). | Delete the private copies; one `sleep(ms)` in `util.ts`; the blocking sleep exists only for `pane-ready` and is banned from daemon code (bug 1.6). | `FIXED` - the private `isRecord` (`settings/registry.ts`) and `isObject` (`rpc.ts`) are deleted; `util.ts`'s guard is the one spelling and an array passes neither. `errorMessage` is imported at every former inline site. Every `new Promise(resolve => setTimeout(...))` in `src/` is gone - the retry helper (4.5) took them, so the async sleep is declared once. The blocking `Atomics.wait` sleep survives only in `pane-ready`/`retry` and stays banned from daemon code (bug 1.6). One deliberate exception, documented in place: `herdr/cli.ts` keeps its `instanceof Error` branch because the non-Error arm decodes a `Uint8Array` through `outputText`, which `String()` would mangle. |
 
 ---
 
@@ -259,6 +299,19 @@ files** (`commands-status`, `commands-setup`, `setup-smoke`, `launch-model-gate`
 `store-outbox`). Every one is a fixture that does not satisfy its type; Rule 13 names the remedy — a
 typed factory that builds the COMPLETE value, as `test/commands-status.test.ts` `agentViewFixture`
 and `test/helpers/agent.ts` `seedAgent` already do. Status: `OPEN`.
+
+**6.7 (new, 2026-08-29) — tests inherit `ORCH_AGENT_KEY` from the ambient environment.** A test that
+reads `process.env.ORCH_AGENT_KEY` without first setting or clearing it passes on a bare shell and
+FAILS inside an orch pane, because orch sets that var in every agent it spawns so the harness can find
+its own presence directory. The failure is environment-dependent, so it never reproduces for whoever
+did not run it from a pane. Discovered 2026-08-29 when a worker had to run
+`env -u ORCH_AGENT_KEY bun test …` to get a green scoped run — a workaround at the CALL SITE, which
+means the next person who forgets the flag gets a red suite and no idea why.
+Eleven of the twenty-five files that touch the var never state it: `backend-headless`, `backend-herdr`,
+`backend-tmux`, `claude-adapter`, `claude-hooks-shim`, `close-authority`, `cmd-lock-bridge`,
+`codex-adapter`, `no-sibling-relay`, `spawn-identity`, `spawn-placement`. The other fourteen already
+save the value, set or `delete` it, and restore in `afterEach` — that is the pattern.
+A test's environment is part of its fixture: it is STATED, never inherited. Status: `OPEN`.
 
 ---
 

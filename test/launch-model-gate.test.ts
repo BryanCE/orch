@@ -24,9 +24,9 @@ function makeDir(settings: Record<string, unknown> = {}): string {
 }
 
 /** A harness with a catalogue, built through the typed factory so it is a COMPLETE
- *  AgentAdapter. The previous `as unknown as AgentAdapter` cast let this fixture keep
- *  the deleted `listModels` method and hid the port change from these tests entirely
- *  — which is exactly why Rule 13 forbids it. */
+ *  AgentAdapter. An unchecked fixture used to keep the deleted catalogue method
+ *  and hide the port change from these tests entirely — which is exactly why Rule 13
+ *  requires complete typed values. */
 function harness(id: AdapterId, specs: readonly string[]): AgentAdapter {
   const models: HarnessModel[] = specs.map((spec) => ({ spec }));
   return fakeAdapter({ id, models: { listModels: (): readonly HarnessModel[] => models } });

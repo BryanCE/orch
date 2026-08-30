@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { agentById } from "./store/agent-rows.ts";
 import { currentSpace } from "./store/interval-rows.ts";
 import { currentLease, leasesByOrch } from "./store/lease-rows.ts";
-import { isRecord } from "./util.ts";
+import { errorMessage, isRecord } from "./util.ts";
 import {
   agentsInTaskScope,
   allTasks,
@@ -218,7 +218,7 @@ export function editTask(
     updateTask(orchDir, id, editedBy, changes);
     return requireTask(orchDir, id);
   } catch (error: unknown) {
-    return { ...task, error: error instanceof Error ? error.message : String(error) };
+    return { ...task, error: errorMessage(error) };
   }
 }
 

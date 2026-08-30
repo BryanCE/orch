@@ -37,7 +37,7 @@ export function shellQuote(value: string): string {
 
 export function binaryPath(bin: string): string | null {
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  const exts = osSide() === "windows" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
   for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = join(dir, bin + ext);

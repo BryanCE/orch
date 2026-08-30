@@ -16,7 +16,7 @@ import type { OrchConfig } from "../src/types/config.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
-import { row } from "./helpers/rows.ts";
+import { numberField, row } from "./helpers/rows.ts";
 const tempDirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 const oldAgentKey = process.env.ORCH_AGENT_KEY;
@@ -113,15 +113,15 @@ describe("spawn policy caps", () => {
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));
     const beforeRegistry = agentViews(dir).map((view) => view.id);
-    const beforeTasks = (row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count;
+    const beforeTasks = numberField(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`), "count");
     // Inject a backend claimant: policy refusal must happen before allocation.
-    const backend = headlessBackend as unknown as { spawn: typeof headlessBackend.spawn };
-    const originalSpawn = backend.spawn;
+    const originalSpawn = headlessBackend.spawn;
     let backendAllocations = 0;
-    backend.spawn = (..._args: Parameters<typeof backend.spawn>): ReturnType<typeof backend.spawn> => {
+    const refusingSpawn: typeof headlessBackend.spawn = (..._args) => {
       backendAllocations++;
       throw new Error("backend allocation should not occur after policy refusal");
     };
+    Object.defineProperty(headlessBackend, "spawn", { value: refusingSpawn, configurable: true, writable: true });
     const originalExit = process.exit.bind(process);
     const originalWrite = process.stdout.write.bind(process.stdout);
     let stdout = "";
@@ -141,7 +141,7 @@ describe("spawn policy caps", () => {
     } finally {
       process.exit = originalExit;
       process.stdout.write = originalWrite;
-      backend.spawn = originalSpawn;
+      Object.defineProperty(headlessBackend, "spawn", { value: originalSpawn, configurable: true, writable: true });
     }
     // A refusal THROWS a typed error and prints nothing itself: `die()` belongs to
     // the CLI boundary, never inside a function another command calls (bug 1.11).
@@ -153,7 +153,7 @@ describe("spawn policy caps", () => {
     expect(backendAllocations).toBe(0);
     // The live registry row above is the injected name claimant; it must remain the sole claim.
     expect(agentViews(dir).map((view) => view.id)).toEqual(beforeRegistry);
-    expect((row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`) as { count: number }).count).toBe(beforeTasks);
+    expect(numberField(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`), "count")).toBe(beforeTasks);
     expect(existsSync(join(dir, "agents", key))).toBe(true);
     expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);
   });

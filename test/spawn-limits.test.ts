@@ -11,6 +11,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { agentViewFixture } from "./helpers/views.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 
@@ -30,25 +31,18 @@ function presence(key: string, pid = process.pid): PresenceEntry {
   return { key, dir, status: { schema: PRESENCE_SCHEMA, key, pid }, result: null, alive: pid === process.pid };
 }
 
-/** A complete AgentView: the space is an ENVIRONMENT axis and provenance is its
- *  own immutable fact — neither is a column on a wide row (A1). */
-function agentViewFixture(id: string, space: string, spawnedBy: string | null): AgentView {
-  return {
-    id, name: id, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
-    spawnedBy, spawnedByName: spawnedBy, rootAgentId: spawnedBy ?? id, heldBy: null,
-    environment: { plexer: "headless", handle: null, space, worktree: null, branch: null },
-    tuning: { model: null, thinking: null },
-    endedAt: null,
-  };
-}
-
 /** Both maps are keyed by the MINTED ID; presence joins to an agent by identity,
  *  never by the pane-bearing key. */
 function records(entries: [string, string, number?, string?][]): { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> } {
   const views = new Map<string, AgentView>();
   const live = new Map<string, PresenceEntry>();
   for (const [id, space, pid, spawnedBy] of entries) {
-    views.set(id, agentViewFixture(id, space, spawnedBy ?? null));
+    views.set(id, agentViewFixture(id, {
+      spawnedBy: spawnedBy ?? null,
+      spawnedByName: spawnedBy ?? null,
+      rootAgentId: spawnedBy ?? id,
+      environment: { space },
+    }));
     live.set(id, presence(id, pid));
   }
   return { views, presence: live };

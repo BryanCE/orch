@@ -13,11 +13,16 @@ beforeEach(() => {
   stdout = "";
   cleanedKeys = [];
   process.exitCode = undefined;
-  const originalOut = process.stdout.write.bind(process.stdout);
-  const capture = (chunk: string | Uint8Array): boolean => { stdout += chunk.toString(); return true; };
-  (process.stdout as unknown as { write: typeof capture }).write = capture;
+  const originalOut = process.stdout.write;
+  function capture(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;
+  function capture(chunk: string | Uint8Array, _encoding: BufferEncoding, _callback?: (error: Error | null | undefined) => void): boolean;
+  function capture(chunk: string | Uint8Array): boolean {
+    stdout += chunk.toString();
+    return true;
+  }
+  Object.defineProperty(process.stdout, "write", { value: capture, configurable: true, writable: true });
   restore = () => {
-    process.stdout.write = originalOut;
+    Object.defineProperty(process.stdout, "write", { value: originalOut, configurable: true, writable: true });
   };
 });
 

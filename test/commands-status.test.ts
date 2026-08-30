@@ -8,34 +8,43 @@ import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import type { AgentView } from "../src/types/store.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { Entity } from "../src/types/core.ts";
+import type { StatusRow } from "../src/types/command.ts";
+import { presenceEntryFixture } from "./helpers/presence.ts";
+import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
 
-/** A complete AgentView, so a fixture never has to lie to the compiler. */
-function agentViewFixture(id: string, holder: string | null): AgentView {
+/** A complete Entity, so a fixture never has to lie to the compiler. */
+function entityFixture(overrides: Partial<Entity> = {}): Entity {
   return {
-    id, name: "worker", label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
-    spawnedBy: null, spawnedByName: null, rootAgentId: id,
-    heldBy: holder === null ? null : { orchId: holder, since: 5 },
-    environment: { plexer: "herdr", handle: "app:p1", space: "local", worktree: null, branch: null },
-    tuning: { model: null, thinking: null },
-    endedAt: null,
+    key: "appagent01", paneId: "app:p1", managed: true, name: "worker", tabLabel: "app", agent: "pi",
+    focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, space: "local",
+    presence: presenceEntryFixture({
+      key: "appagent01", dir: "/tmp/pres",
+      status: {
+        schema: PRESENCE_SCHEMA, agent: "pi", state: "working", task: "build the thing", lastText: "on it",
+        cost: 2.5, context: { percent: 33 }, model: { provider: "openai-codex", id: "gpt-5.6" },
+        thinking: "medium", tokens: { input: 10 }, turns: 4,
+      },
+    }),
+    ...overrides,
   };
 }
 
-const seededEntity = {
-  key: "appagent01", paneId: "app:p1", name: "worker", tabLabel: "app", agent: "pi",
-  focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, space: "local",
-  presence: {
-    key: "appagent01", dir: "/tmp/pres", alive: true, result: { text: "done" },
-    status: {
-      schema: 1, agent: "pi", state: "working", task: "build the thing", lastText: "on it",
-      cost: 2.5, context: { percent: 33 }, model: { provider: "openai-codex", id: "gpt-5.6" },
-      thinking: "medium", tokens: { input: 10 }, turns: 4,
-    },
-  },
-} as unknown as Entity;
+function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
+  return {
+    key: "row", paneId: null, managed: true, name: null, tab: null, agent: null, owner: null,
+    spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, focused: false,
+    model: "-", modelShort: "-", state: "unknown", stateFallback: false, exited: false, alive: true,
+    cost: 0, ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
+    backend: null, capabilities: null, sessionPath: null, presenceDir: null, presenceOnly: false,
+    tokens: null, turns: null,
+    ...overrides,
+  };
+}
+
+const seededEntity = entityFixture();
 
 describe("commands/status", () => {
   test("zero-row message reports gathered counts and backend response", () => {
@@ -49,29 +58,48 @@ describe("commands/status", () => {
     expect(displayStatusState({ state: "working", alive: true, exited: false })).toBe("working");
   });
   test("shared row boundary normalizes stale state for every renderer", () => {
-    const row = { key: "dead", state: "working", alive: false, exited: false } as never;
+    const row = statusRowFixture({ key: "dead", state: "working", alive: false, exited: false });
     expect(normalizeStatusRow(row)).toMatchObject({ state: "exited" });
   });
   test("default status reads span every workspace", () => {
-    const row = (key: string, workspace: string) => ({
-      key, workspace, managed: true, presenceOnly: false, alive: true, exited: false,
-    } as never);
+    const row = (key: string, spaceId: string): StatusRow => statusRowFixture({ key, spaceId });
     expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { all: false, allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
   });
   test("derives status row fields from seeded presence", () => {
-    const entity = { key: "hless00001", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "hless00001", dir: "/tmp", alive: true, result: { text: "answer" }, status: { agent: "pi", state: "working", task: "task", cost: 1.25, context: { percent: 42 } } } } as unknown as Entity;
+    const entity = entityFixture({
+      key: "hless00001", paneId: null, name: null, tabLabel: null, focused: false,
+      presenceOnly: true, space: "local",
+      presence: {
+        key: "hless00001", dir: "/tmp", alive: true, result: { text: "answer" },
+        status: { schema: PRESENCE_SCHEMA, agent: "pi", state: "working", task: "task", cost: 1.25, context: { percent: 42 } },
+      },
+    });
     const row = statusRowFromEntity(entity, new Map());
     expect(row).toMatchObject({ agent: "pi", state: "working", task: "task", lastText: "answer", cost: 1.25, ctxPercent: 42, exited: false });
   });
   test("marks dead presence as exited", () => {
-    const entity = { key: "hless00001", paneId: null, name: null, tabLabel: null, agent: "pi", focused: false, backendStatus: null, sessionPath: null, presenceOnly: true, workspace: "local", presence: { key: "hless00001", dir: "/tmp", alive: false, result: null, status: { agent: "pi", state: "working" } } } as unknown as Entity;
+    const entity = entityFixture({
+      key: "hless00001", paneId: null, name: null, tabLabel: null, focused: false,
+      presenceOnly: true, space: "local",
+      presence: {
+        key: "hless00001", dir: "/tmp", alive: false, result: null,
+        status: { schema: PRESENCE_SCHEMA, agent: "pi", state: "working" },
+      },
+    });
     const row = statusRowFromEntity(entity, new Map());
     expect(row).toMatchObject({ state: "exited", exited: true });
     // The shared row is consumed by both table and JSON renderers.
     expect(row).toMatchObject({ state: "exited", alive: false });
   });
   test("asking presence is surfaced as a question while still reporting live state", () => {
-    const entity = { ...seededEntity, presence: { ...seededEntity.presence, status: { ...seededEntity.presence?.status, state: "working", asking: { question: "Need approval" }, task: "ignored task" } } } as unknown as Entity;
+    const entity = entityFixture({
+      presence: presenceEntryFixture({
+        status: {
+          schema: PRESENCE_SCHEMA, agent: "pi", state: "working", asking: { question: "Need approval", id: "q1", ts: "now" },
+          task: "ignored task",
+        },
+      }),
+    });
     const row = statusRowFromEntity(entity, new Map());
     expect(row).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval", alive: true });
   });
@@ -106,7 +134,7 @@ describe("commands/status", () => {
   test("status owner ignores spawning provenance when no lease exists", () => {
     // Keyed by the MINTED ID, never by the pane-bearing presence key: the key
     // welds environment onto identity, and the store is keyed by the id alone.
-    const owned = new Map([["appagent01", agentViewFixture("appagent01", "orch-a")]]);
+    const owned = new Map([["appagent01", agentViewFixture("appagent01", { heldBy: { orchId: "orch-a", since: 5 } })]]);
     expect(statusRowFromEntity(seededEntity, owned).owner).toBe("no orch driving it");
     expect(statusRowFromEntity(seededEntity, new Map()).owner).toBe("no orch driving it");
   });

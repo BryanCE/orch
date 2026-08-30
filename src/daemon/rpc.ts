@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { liveDaemonRegistration, readDaemonLock } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { readPortPath } from "../presence/socket-client.ts";
-import { ensurePrivateDir, errorMessage } from "../util.ts";
+import { ensurePrivateDir, errorMessage, isRecord, osSide } from "../util.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../store/event-rows.ts";
 import { callerSession } from "../identity/self.ts";
 import { currentHostOs, getOrCreateSessionAgent } from "../store/agent-rows.ts";
@@ -89,10 +89,6 @@ interface RpcResponse {
   error?: { code?: string | number; message?: string; data?: unknown } | string;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * Which members a line actually carries. `hasOwnProperty`, not `in` and not an
  * `undefined` check: an explicitly-null `id` or an event whose payload is
@@ -111,7 +107,7 @@ type PresentMembers = ReturnType<typeof presentMembers>;
 /** The `error` member of a reply: bare text, or `{ code, message, data? }`. */
 function isRpcErrorField(error: unknown): boolean {
   if (typeof error === "string") return true;
-  if (!isObject(error)) return false;
+  if (!isRecord(error)) return false;
   return (typeof error.code === "string" || typeof error.code === "number") && typeof error.message === "string";
 }
 
@@ -142,7 +138,7 @@ function wellFormedPayload(value: Record<string, unknown>, has: PresentMembers):
 }
 
 export function isRpcResponse(value: unknown): value is RpcResponse {
-  if (!isObject(value)) return false;
+  if (!isRecord(value)) return false;
   const has = presentMembers(value);
   // A line is one of three things: a reply (id), an event push, or a gap notice.
   if (!has.id && !has.event && !has.gap) return false;
@@ -153,12 +149,12 @@ export function isRpcResponse(value: unknown): value is RpcResponse {
 }
 
 function isUnleasedAgent(value: unknown): value is UnleasedAgent {
-  return isObject(value) && typeof value.id === "string" && typeof value.name === "string";
+  return isRecord(value) && typeof value.id === "string" && typeof value.name === "string";
 }
 
 /** Validate every field carried by the hello response before trusting it. */
 export function isHelloResponse(value: unknown): value is HelloResponse {
-  return isObject(value)
+  return isRecord(value)
     && typeof value.id === "string"
     && value.id.length > 0
     && typeof value.label === "string"
@@ -238,7 +234,7 @@ function parseRequest(line: string): { id: unknown; method: string; params: unkn
   } catch {
     return errorResponse(null, "INVALID_REQUEST", "Malformed JSON request");
   }
-  if (!isObject(request)) {
+  if (!isRecord(request)) {
     return errorResponse(null, "INVALID_REQUEST", "Request must be a JSON object");
   }
   const value = request;
@@ -358,7 +354,7 @@ function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: stri
 }
 
 function helloIdentity(orchDir: string, params: unknown, daemonToken: string): HelloResponse {
-  const claim = isObject(params) ? params : {};
+  const claim = isRecord(params) ? params : {};
   if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "hello requires the daemon token");
   const { pid, startToken, harness, cwd } = verifiedSessionProcess(claim);
   const alreadyRegistered = sessionAlreadyRegistered(orchDir, pid, startToken);
@@ -417,7 +413,7 @@ function handleLine(
     return;
   }
   if (request.method === "subscribe-events") {
-    const params = isObject(request.params) ? request.params : undefined;
+    const params = isRecord(request.params) ? request.params : undefined;
     const since = params?.since;
     if (typeof since === "number" && Number.isInteger(since)) {
       const replay = replayBuffer.since(since);
@@ -552,7 +548,7 @@ const NOT_LISTENING_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
 type DialSilence = "not-listening" | "unreachable";
 
 function silenceOf(error: unknown): DialSilence {
-  const code = isObject(error) && typeof error.code === "string" ? error.code : undefined;
+  const code = isRecord(error) && typeof error.code === "string" ? error.code : undefined;
   return code !== undefined && NOT_LISTENING_CODES.has(code) ? "not-listening" : "unreachable";
 }
 
@@ -750,7 +746,7 @@ async function startTcpServer(
  *  ephemeral one on Windows, where a client cannot stat an AF_UNIX socket path
  *  and needs the port file as its fallback dial to a live daemon. */
 function companionTcpPort(options: RpcServerOptions): number | undefined {
-  return options.tcpPort ?? (process.platform === "win32" ? 0 : undefined);
+  return options.tcpPort ?? (osSide() === "windows" ? 0 : undefined);
 }
 
 function tcpEndpointOf(tcpServer: Server | undefined): string | undefined {

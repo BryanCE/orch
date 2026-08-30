@@ -1,7 +1,7 @@
 import { isAdapterId } from "../../adapters/adapter.ts";
 import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
-import { binaryOnPath, isRecord } from "../../util.ts";
+import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrStartAgent, herdrTabs, version } from "./cli.ts";
 import { homeLabel } from "../backend.ts";
@@ -294,8 +294,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       try {
         herdrAck(["pane", "close", handle]);
       } catch (cleanupError: unknown) {
-        const original = error instanceof Error ? error.message : String(error);
-        const cleanup = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+        const original = errorMessage(error);
+        const cleanup = errorMessage(cleanupError);
         throw new Error(`${original}; cleanup failed: ${cleanup}`);
       }
       throw error;

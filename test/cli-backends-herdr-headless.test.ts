@@ -12,7 +12,7 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { resolveAdapter } from "../src/adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import type { AgentAdapter } from "../src/types/adapter.ts";
+import { fakeAdapter } from "./helpers/adapter.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 
@@ -29,14 +29,14 @@ async function waitFor(check: () => boolean): Promise<void> {
   expect(check()).toBe(true);
 }
 
-// A fake adapter whose headless command writes a presence status.json so the
-// common path (spawn -> identity key -> presence dir) is exercised end-to-end
+// A complete fake adapter whose headless command writes a presence status.json so
+// the common path (spawn -> identity key -> presence dir) is exercised end-to-end
 // without any real agent CLI.
-const fakeAdapter = {
-  id: "fake",
-  headlessCmd(_prompt: string, opts: { key?: string; orchDir?: string }): string[] {
-    const key = opts.key!;
-    const directory = opts.orchDir!;
+const spawnAdapter = fakeAdapter({
+  headlessCmd: (_prompt, opts) => {
+    const key = opts.key;
+    const directory = opts.orchDir;
+    if (key === undefined || directory === undefined) throw new Error("test launch requires key and orch dir");
     const statusDir = path.join(directory, "agents", key);
     const statusFile = path.join(statusDir, "status.json");
     const script = [
@@ -47,7 +47,7 @@ const fakeAdapter = {
     ].join(" ");
     return [process.execPath, "-e", script];
   },
-} as unknown as AgentAdapter;
+});
 
 describe("backend registry selection is backend-independent", () => {
   test("herdr, headless, and tmux are all registered", () => {
@@ -122,7 +122,7 @@ describe("headless common path: identity key -> presence", () => {
     // The spawner mints the identity BEFORE launch (one id per agent) and passes
     // it via opts.key; the backend never mints its own.
     const key = serializeIdentity({ id: mintAgentId() });
-    const handle = backend.spawn(fakeAdapter, { key, orchDir: dir, cwd: dir, prompt: "write your presence and exit" });
+    const handle = backend.spawn(spawnAdapter, { key, orchDir: dir, cwd: dir, prompt: "write your presence and exit" });
 
     // The handle carries the caller's key unchanged — the minted id, nothing else.
     expect(handle.key).toBe(key);

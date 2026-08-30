@@ -84,9 +84,22 @@ function livePeers(ownKey: string, allSpaces = false): Peer[] {
  * sibling has no more access to the spawner than the caller does, so a relay
  * costs a turn and delivers nothing.
  */
-const UNREACHABLE_SPAWNER_ADVICE =
-  " Write your result and END the turn - it is collected from your result file."
-  + " Do NOT route your report through another agent; a sibling cannot reach it either.";
+const UNREACHABLE_SPAWNER_ADVICE = " Write your result and end the turn; it is collected from your result file.";
+
+/** Resolve the stamped spawner only when its live presence can receive a message. */
+function liveSpawnerPeer(): Peer | undefined {
+  const key = optionalString(process.env.ORCH_SPAWNER);
+  if (!key) return undefined;
+  const dir = presenceAgentDir(key);
+  const status = readStatus(dir);
+  if (!pidAlive(status.pid) || !fs.existsSync(presenceFile(dir, INBOX_FILE))) return undefined;
+  return { key, dir, status };
+}
+
+/** Whether the stamped spawner has a live process and a mailbox to receive messages. */
+export function spawnerReachable(): boolean {
+  return liveSpawnerPeer() !== undefined;
+}
 
 /** The caller's own orchestrator, resolved by the address its launch stamped.
  *  The fleet wall never applies here: the spawner handed this worker its own
@@ -95,12 +108,11 @@ function resolveSpawnerPeer(): PeerResolution {
   const key = optionalString(process.env.ORCH_SPAWNER);
   const label = optionalString(process.env.ORCH_SPAWNER_LABEL);
   if (!key) return { error: `error: no spawner address recorded for this agent${label ? ` (spawned by ${label})` : ""}.${UNREACHABLE_SPAWNER_ADVICE}` };
-  const dir = presenceAgentDir(key);
-  const status = readStatus(dir);
-  if (!pidAlive(status.pid)) {
+  const peer = liveSpawnerPeer();
+  if (!peer) {
     return { error: `error: spawner ${label ?? key} (${key}) has no live presence inbox to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
   }
-  return { peer: { key, dir, status } };
+  return { peer };
 }
 
 export function resolvePeer(target: string, ownKey: string, allRequested = false): PeerResolution {
@@ -314,26 +326,28 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
     },
   });
 
-  harness.registerTool({
-    name: "orch_send",
-    label: `Send to ${term("orch")} Agent`,
-    description: "Send a coordination message to a live peer agent.",
-    promptSnippet: `Send a finding or request to a live ${term("orch")} peer agent`,
-    promptGuidelines: ["Use orch_send to hand findings, requests, or coordination notes to another agent. Target \"spawner\" reaches the session that spawned you."],
-    parameters: Type.Object({
-      target: Type.String({ description: "Peer name, key, unique key suffix, or \"spawner\" (the session that spawned this agent)" }),
-      text: Type.String({ description: "Message to send" }),
-      cross_spaces: Type.Optional(Type.Boolean({ description: "Allow sending across spaces" })),
-      allSpaces: Type.Optional(Type.Boolean({ description: "Allow sending across spaces" })),
-    }),
-    async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: HarnessContext) {
-      const crossSpace = params.cross_spaces === true || params.allSpaces === true;
-      return executeTool(
-        () => sendPeerMessage(params.target, params.text, presence.ownPresenceKey(ctx), crossSpace),
-        "error: unable to send peer message",
-      );
-    },
-  });
+  if (spawnerReachable()) {
+    harness.registerTool({
+      name: "orch_send",
+      label: `Send to ${term("orch")} Agent`,
+      description: "Send a coordination message to a live peer agent.",
+      promptSnippet: `Send a finding or request to a live ${term("orch")} peer agent`,
+      promptGuidelines: ["Use orch_send to hand findings, requests, or coordination notes to another agent. Target \"spawner\" reaches the session that spawned you."],
+      parameters: Type.Object({
+        target: Type.String({ description: "Peer name, key, unique key suffix, or \"spawner\" (the session that spawned this agent)" }),
+        text: Type.String({ description: "Message to send" }),
+        cross_spaces: Type.Optional(Type.Boolean({ description: "Allow sending across spaces" })),
+        allSpaces: Type.Optional(Type.Boolean({ description: "Allow sending across spaces" })),
+      }),
+      async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: HarnessContext) {
+        const crossSpace = params.cross_spaces === true || params.allSpaces === true;
+        return executeTool(
+          () => sendPeerMessage(params.target, params.text, presence.ownPresenceKey(ctx), crossSpace),
+          "error: unable to send peer message",
+        );
+      },
+    });
+  }
 
   harness.registerTool({
     name: "orch_read",

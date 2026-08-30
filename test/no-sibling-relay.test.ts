@@ -53,9 +53,9 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     // to invent something; it has to be told to write its result and stop.
     expect(error).toContain("no spawner");
     expect(error.toLowerCase()).toContain("result");
-    // And it must close the door it left open: relaying is named and refused,
-    // rather than left as the obvious thing to try next.
-    expect(error).toContain("Do NOT route your report through another agent");
+    // The unavailable tool is not offered, so the refusal does not need to
+    // suggest or forbid sibling relays.
+    expect(error).not.toContain("Do NOT route your report through another agent");
   });
 
   test("the refusal never suggests another agent as an alternative route", () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { allAdapters } from "../src/adapters/registry.ts";
@@ -174,7 +174,8 @@ describe("the spawner address invariant", () => {
       pid: 4242, startToken: "tok", sessionToken: "c0f80035-1859", harnessId: "claude",
       cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
     });
-    seedStatus(orchDir, registered.id, { agent: "pi", pid: process.pid, state: "idle" });
+    const spawnerDir = seedStatus(orchDir, registered.id, { agent: "pi", pid: process.pid, state: "idle" });
+    writeFileSync(join(spawnerDir, INBOX_FILE), "");
 
     const address = stampedSpawnerAddress();
     expect(address).toBe(registered.id);
@@ -226,7 +227,8 @@ describe("peer identity in messaging", () => {
   test("\"spawner\" reaches the stamped spawner session across fleet scoping", () => {
     const orchDir = tempOrchDir();
     const ownKey = "worker0004";
-    seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
+    const spawnerDir = seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
+    writeFileSync(join(spawnerDir, INBOX_FILE), "");
     process.env.ORCH_SPAWNER = "session777";
     process.env.ORCH_SPAWNER_LABEL = "pi session";
 

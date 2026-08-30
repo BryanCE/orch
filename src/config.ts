@@ -76,6 +76,7 @@ export const SETTINGS_DEFAULTS = {
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
+  doctor: { unclaimed_after_ms: 120_000 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
   // Writing into a user's harness directories needs their say-so, so setup asks and
@@ -169,6 +170,10 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     tcp_port: PositiveInt.optional(),
     /** Minutes of no live agents, no subscribers, and no RPC before orchd exits; 0 = never. */
     idle_shutdown_minutes: z.number().int().min(0).optional(),
+  }).optional(),
+  doctor: z.strictObject({
+    /** Milliseconds an agent may remain unclaimed after spawn before doctor reports it. */
+    unclaimed_after_ms: PositiveInt.optional(),
   }).optional(),
   /** How a tab lays its agents out. `first_split` runs the tab's opening split;
    * every split after it halves the biggest pane's longer side regardless. */
@@ -369,6 +374,9 @@ const configValueExtractors = {
     tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
     idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
   }),
+  doctor: (root: Partial<SettingsFile>) => ({
+    unclaimed_after_ms: root.doctor?.unclaimed_after_ms ?? SETTINGS_DEFAULTS.doctor.unclaimed_after_ms,
+  }),
   tiling: (root: Partial<SettingsFile>) => ({ first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
@@ -392,6 +400,7 @@ function configValues(root: Partial<SettingsFile>): Omit<OrchConfig, "runtime" |
     hosts: configValueExtractors.hosts(root),
     spaces: configValueExtractors.spaces(root),
     daemon: configValueExtractors.daemon(root),
+    doctor: configValueExtractors.doctor(root),
     tiling: configValueExtractors.tiling(root),
     skills: configValueExtractors.skills(root),
   };

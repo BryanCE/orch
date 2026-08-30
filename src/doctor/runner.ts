@@ -10,6 +10,7 @@ import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
 import { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
 import { checkProvenanceDepth } from "./provenance-depth.ts";
+import { checkUnclaimedAgents } from "./unclaimed-agents.ts";
 import { checkHarnessModels } from "./models.ts";
 import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./config.ts";
 import { checkStore } from "./store.ts";
@@ -112,6 +113,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
     isolated("spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
     isolated("provenance-depth", "Provenance depth", () => checkProvenanceDepth(orchDir)),
+    isolated("unclaimed-agents", "Unclaimed agents", () => checkUnclaimedAgents(orchDir)),
     isolated("command-locks", "Command locks", () => checkCommandLocks(orchDir)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),

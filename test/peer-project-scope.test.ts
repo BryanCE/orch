@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { peerSummaries, resolvePeer } from "../src/agent/peers.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalAgentKey = process.env[LAUNCH_ENV];
 const tempDirs: string[] = [];
 
 function makeOrchDir(): string {
@@ -15,15 +17,15 @@ function makeOrchDir(): string {
   tempDirs.push(directory);
   process.env.ORCH_DIR = directory;
   // The caller is a human session unless a test explicitly becomes an agent.
-  delete process.env.ORCH_AGENT_KEY;
+  delete process.env[LAUNCH_ENV];
   return directory;
 }
 
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
   while (tempDirs.length) removeTempDir(tempDirs.pop()!);
 });
 
@@ -72,8 +74,11 @@ describe("peer discovery walls on the project", () => {
   test("a spawned agent's all_workspaces flag is ignored", () => {
     const directory = makeOrchDir();
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
+    const rootKey = "root000001";
+    seedAgent(rootKey, {}, directory);
+    seedAgent(ownKey, { spawnedBy: rootKey }, directory);
 
-    process.env.ORCH_AGENT_KEY = ownKey;
+    process.env[LAUNCH_ENV] = ownKey;
     expect(peerSummaries(ownKey, true)).toEqual([]);
     expect("error" in resolvePeer("foreigner", ownKey, true)).toBe(true);
   });

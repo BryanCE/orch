@@ -159,6 +159,7 @@ const HELP: Readonly<Record<string, string>> = {
   spaces: "Named space paths.",
   "daemon.tcp_port": "TCP port used by the daemon.",
   "daemon.idle_shutdown_minutes": "Minutes before an idle daemon shuts down.",
+  "doctor.unclaimed_after_ms": "How long after spawn an agent may stay unclaimed before doctor reports it. Milliseconds.",
   "tiling.first_split": "Direction used for the first pane split.",
   "skills.install": "Whether orch installs packaged skills.",
   "skills.roots": "Harness skill directories managed by orch.",

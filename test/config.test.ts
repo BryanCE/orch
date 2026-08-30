@@ -88,6 +88,7 @@ describe("loadConfig", () => {
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       spaces: { wD: "Design" },
       daemon: { tcp_port: 4321 },
+      doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
       logging: { level: "debug" },
     });
@@ -114,6 +115,7 @@ describe("loadConfig", () => {
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       spaces: { wD: "Design" },
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30 },
+      doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
       logging: { level: "debug" },
       skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
@@ -216,6 +218,7 @@ describe("loadConfig", () => {
       hosts: {},
       spaces: {},
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
+      doctor: { unclaimed_after_ms: 120_000 },
       tiling: { first_split: "rows" },
       logging: { level: "info" },
       skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
@@ -231,6 +234,7 @@ describe("loadConfig", () => {
       retention: { logs_days: 2 },
       timeouts: { wait_ms: 1234 },
       daemon: { idle_shutdown_minutes: 0 },
+      doctor: { unclaimed_after_ms: 120_000 },
       tiling: { first_split: "columns" },
       skills: { install: false },
     });

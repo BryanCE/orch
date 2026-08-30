@@ -10,13 +10,14 @@ import * as fs from "node:fs";
 import { Type } from "typebox";
 import { isAgentId } from "../backends/identity.ts";
 import { deriveDriveState } from "./drive-state.ts";
-import { callerKind } from "../policy/caller.ts";
+import { depthOf, isDescendantOf } from "../policy/provenance.ts";
 import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
 import { orchDir } from "../presence/store.ts";
+import { agentView } from "../store/agent-view.ts";
 import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
@@ -31,17 +32,25 @@ function peerModel(status: unknown): string | undefined {
   return `${provider}/${id}:${thinking}`;
 }
 
-/** Only a human's own session may lift the fleet wall. A spawned agent's view
- * and reach never widen past the fleet it belongs to — no flag changes that. */
-function callerMayCrossFleets(): boolean {
-  return callerKind() === "human";
+/** Provenance as the store records it, for the one walker in policy/provenance.ts. */
+function provenanceLookup(id: string) {
+  return agentView(orchDir(), id);
 }
 
-/** The fleet wall: same space AND same project, unless explicitly unscoped.
- * One machine runs many projects against one $ORCH_DIR, and a shared plexer
- * session gives them all one space — the project is what separates fleets. */
+/** Only a root agent or an unregistered caller may lift the fleet wall. */
+function callerMayCrossFleets(callerId: string | null): boolean {
+  if (callerId === null) return true;
+  return depthOf(provenanceLookup, callerId) === 0;
+}
+
+/** The fleet wall: roots may request every space/project; deeper callers stay
+ * inside their provenance subtree regardless of the all-spaces flag. */
 function scopeToFleet(peers: Peer[], ownKey: string, allRequested: boolean): Peer[] {
-  const all = allRequested && callerMayCrossFleets();
+  const mayCross = callerMayCrossFleets(ownKey);
+  if (!mayCross) {
+      return peers.filter((peer) => isDescendantOf(provenanceLookup, peer.key, ownKey));
+  }
+  const all = allRequested;
   const sameSpacePeers = scopeToSpace(orchDir(), peers, (peer) => peer.key, spaceOf(orchDir(), ownKey), { all });
   if (all) return sameSpacePeers;
   return sameSpacePeers.filter((peer) => optionalString(peer.status.project) === projectRoot());
@@ -101,7 +110,7 @@ export function resolvePeer(target: string, ownKey: string, allRequested = false
     return resolveSpawnerPeer();
   }
   // A spawned agent's flag never lifts the wall; only a human session's does.
-  const allSpaces = allRequested && callerMayCrossFleets();
+  const allSpaces = allRequested && callerMayCrossFleets(ownKey);
   const peers = livePeers(ownKey, true);
   const exact = peers.find((peer) => peer.key === target);
   // Names are addresses too: `orch_send sweep-2 ...` must work exactly like the key.

@@ -36,6 +36,7 @@ export interface OrchConfig {
   hosts: Record<string, HostConfig>;
   spaces: Record<string, string>;
   daemon: { tcp_port: number; idle_shutdown_minutes: number };
+  doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
   skills: { install: boolean; roots: string[] };
 }

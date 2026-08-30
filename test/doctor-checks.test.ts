@@ -4,6 +4,10 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor } from "../src/doctor/runner.ts";
 import { checkProvenanceDepth } from "../src/doctor/provenance-depth.ts";
+import { checkUnclaimedAgents } from "../src/doctor/unclaimed-agents.ts";
+import { claimAgent } from "../src/store/agent-rows.ts";
+import { orm } from "../src/store/connection.ts";
+import { sql } from "drizzle-orm";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { loadConfig } from "../src/config.ts";
@@ -81,6 +85,47 @@ describe("doctor provenance-depth checks", () => {
       status: "ok",
       detail: "no agents exceed fleet.max_depth",
     });
+  });
+});
+
+describe("doctor unclaimed-agent checks", () => {
+  test("finds an old unclaimed live agent with its age", () => {
+    const directory = tempDir();
+    const now = 600_000;
+    writeConfig(directory, { doctor: { unclaimed_after_ms: 120_000 } });
+    seedAgent("unclaim001", { name: "stuck-worker" }, directory);
+    orm(directory).run(sql`UPDATE agents SET created_at = ${now - 180_000} WHERE id = ${"unclaim001"}`);
+
+    const result = checkUnclaimedAgents(directory, now);
+
+    expect(result).toMatchObject({ id: "unclaimed-agents", label: "Unclaimed agents", status: "warn" });
+    expect(result.detail).toContain("stuck-worker (unclaim001)");
+    expect(result.detail).toContain("3 min ago");
+  });
+
+  test("ignores a claimed agent", () => {
+    const directory = tempDir();
+    const now = 600_000;
+    writeConfig(directory, { doctor: { unclaimed_after_ms: 120_000 } });
+    seedAgent("claimed001", { name: "claimed-worker" }, directory);
+    orm(directory).run(sql`UPDATE agents SET created_at = ${now - 180_000} WHERE id = ${"claimed001"}`);
+    expect(claimAgent(directory, "claimed001", "session-token", now - 100_000)).toEqual({ kind: "stamped" });
+
+    const result = checkUnclaimedAgents(directory, now);
+
+    expect(result).toMatchObject({ status: "ok", detail: "no live agents remain unclaimed past doctor.unclaimed_after_ms" });
+  });
+
+  test("ignores a fresh unclaimed agent under the threshold", () => {
+    const directory = tempDir();
+    const now = 600_000;
+    writeConfig(directory, { doctor: { unclaimed_after_ms: 120_000 } });
+    seedAgent("fresh00001", { name: "fresh-worker" }, directory);
+    orm(directory).run(sql`UPDATE agents SET created_at = ${now - 60_000} WHERE id = ${"fresh00001"}`);
+
+    const result = checkUnclaimedAgents(directory, now);
+
+    expect(result).toMatchObject({ status: "ok", detail: "no live agents remain unclaimed past doctor.unclaimed_after_ms" });
   });
 });
 

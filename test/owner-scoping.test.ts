@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +9,7 @@ import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { cmdClose } from "../src/commands/lifecycle.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
+import { claimAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
@@ -17,6 +19,8 @@ import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/bac
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
+import { seedStatus } from "./helpers/presence.ts";
+import { peerSummaries } from "../src/agent/peers.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
@@ -61,7 +65,7 @@ function runCli(dir: string, args: string[], owner?: string, extraEnv?: Record<s
   if (owner === undefined) delete env.ORCH_OWNER;
   else env.ORCH_OWNER = owner;
   // The caller is an operator unless a test explicitly makes it a spawned agent.
-  delete env.ORCH_AGENT_KEY;
+  delete env[LAUNCH_ENV];
   Object.assign(env, extraEnv);
   const result = Bun.spawnSync([process.execPath, binPath, ...args], {
     env,
@@ -102,6 +106,30 @@ afterEach(async () => {
 });
 
 describe("fleet ownership scoping", () => {
+  test("fleet visibility follows provenance depth, not caller environment", () => {
+    const dir = makeDir();
+    const root = "root000001";
+    const child = "child00001";
+    const grandchild = "grand00001";
+    const foreignRoot = "other00001";
+    seedSpace(dir, "space-root");
+    seedSpace(dir, "space-child");
+    seedAgent(root, { adapter: "pi", backend: "headless", space: "space-root" });
+    seedAgent(child, { adapter: "pi", backend: "headless", space: "space-child", spawnedBy: root });
+    seedAgent(grandchild, { adapter: "pi", backend: "headless", space: "space-child", spawnedBy: child });
+    seedAgent(foreignRoot, { adapter: "pi", backend: "headless", space: "space-root" });
+    seedStatus(dir, root, { pid: process.pid, state: "working", project: "/other/project" });
+    seedStatus(dir, child, { pid: process.pid, state: "working", project: process.cwd() });
+    seedStatus(dir, grandchild, { pid: process.pid, state: "working", project: process.cwd() });
+    seedStatus(dir, foreignRoot, { pid: process.pid, state: "working", project: "/other/project" });
+    // Identity is injected through ownKey; no launch credential is set.
+    delete process.env[LAUNCH_ENV];
+
+    expect(peerSummaries(root, true).map((peer) => peer.key)).toEqual([child, grandchild, foreignRoot]);
+    expect(peerSummaries(child, true).map((peer) => peer.key)).toEqual([grandchild]);
+    expect(peerSummaries(grandchild, true)).toEqual([]);
+  });
+
   test("owner token uses ORCH_OWNER, else this process's own minted id", () => {
     process.env.ORCH_OWNER = "override";
     expect(callerOwnerToken()).toBe("override");
@@ -306,11 +334,11 @@ describe("a spawned agent touches only what it spawned", () => {
   // TASKS/01: identity is a minted id and NOTHING else. A launch key carries no
   // plexer and no space, so there is nothing left to mistake for identity.
   test("a spawned agent acts as its own minted id, not its launch key", () => {
-    process.env.ORCH_AGENT_KEY = agentKey;
+    process.env[LAUNCH_ENV] = agentKey;
     try {
       expect(selfId()).toBe(agentKey);
     } finally {
-      delete process.env.ORCH_AGENT_KEY;
+      delete process.env[LAUNCH_ENV];
     }
   });
 
@@ -320,9 +348,18 @@ describe("a spawned agent touches only what it spawned", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wB");
+    const rootKey = "kwfroot001";
+    const sessionToken = "owner-scope-session";
+    seedAgent(rootKey, { adapter: "pi", backend: "headless" });
+    seedAgent(agentKey, { adapter: "pi", backend: "headless", spawnedBy: rootKey });
+    expect(claimAgent(dir, agentKey, sessionToken, 1_000)).toEqual({ kind: "stamped" });
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wB", handle: key });
 
-    const result = runCli(dir, ["dispatch", key, "hi", "--cross-space"], undefined, { ORCH_AGENT_KEY: agentKey });
+    const result = runCli(dir, ["dispatch", key, "hi", "--cross-space"], undefined, {
+      [LAUNCH_ENV]: agentKey,
+      PI_CODING_AGENT: "1",
+      PI_SESSION_ID: sessionToken,
+    });
     expect(result.status).not.toBe(0);
     expect(result.output).toContain("operator-only");
   }, 15_000);
@@ -340,7 +377,7 @@ describe("a spawned agent touches only what it spawned", () => {
     seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
     seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
 
-    const result = runCli(dir, ["close", "--all", "--json"], undefined, { ORCH_AGENT_KEY: agentKey });
+    const result = runCli(dir, ["close", "--all", "--json"], undefined, { [LAUNCH_ENV]: agentKey });
     expect(result.status).toBe(0);
     expect(spawnedRecords().has("kwfmine001")).toBe(false);
     // Another orch's slave survives a sibling's sweep. A `--all` that reached it
@@ -355,7 +392,7 @@ describe("a spawned agent touches only what it spawned", () => {
     seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
     seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
 
-    // No ORCH_AGENT_KEY: the caller is a person at a terminal. Rule 11 - the
+    // No [LAUNCH_ENV]: the caller is a person at a terminal. Rule 11 - the
     // human must ALWAYS be able to stop a runaway agent, so nothing gates this.
     const result = runCli(dir, ["close", "--all", "--json"]);
     expect(result.status).toBe(0);
@@ -371,7 +408,7 @@ describe("a spawned agent touches only what it spawned", () => {
     seedSpace(dir, "wF");
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" });
 
-    const result = runCli(dir, ["close", key], undefined, { ORCH_AGENT_KEY: agentKey });
+    const result = runCli(dir, ["close", key], undefined, { [LAUNCH_ENV]: agentKey });
     // An agent reaches only its own provenance subtree. The refusal has to say
     // whose it is and who to ask, or the agent has nothing to do but retry.
     expect(result.status).not.toBe(0);
@@ -388,7 +425,7 @@ describe("a spawned agent touches only what it spawned", () => {
     seedAgent(agentKey, { backend: "headless", adapter: "pi", space: "wF", handle: agentKey });
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: agentKey });
 
-    const result = runCli(dir, ["close", key], undefined, { ORCH_AGENT_KEY: agentKey });
+    const result = runCli(dir, ["close", key], undefined, { [LAUNCH_ENV]: agentKey });
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
     expect(spawnedRecords().has(key)).toBe(false);
   }, 15_000);

@@ -12,6 +12,16 @@
   "never dispatch on uncommitted work" together mean its files sit uncommitted while the next pass
   runs. The doc should say which one gives: commit 10's code red-but-typechecked, or hold 10 out of
   every pass until the migration exists.
+- 2026-08-30. "`done` gets the short hash ... in the same commit" is impossible: the hash depends on
+  the tree, and the tree would contain the hash. The doc row is marked in the next commit instead.
+- 2026-08-30. Pass boundaries dissolved once "keep moving" allowed dispatch on uncommitted work: a
+  whole-tree `bun check` is always red with a pane mid-TDD, so commits are per finished task set
+  (files nobody else holds), with tc/lint judged outside in-flight files. Works, but the doc
+  should say so.
+- 2026-08-30. A test that reads `selfId()` with no launch credential falls through to the real
+  `~/.orch` store when ORCH_DIR is not isolated and passes in a pane but fails in the delegator's
+  Claude session (which is registered). `isolateOrchEnv` should also point ORCH_DIR at an empty
+  temp dir, or every such test must (test/lock-holder.test.ts now does).
 - 2026-08-30. `bun db:gen` is not idempotent: it wipes `drizzle/` and drizzle-kit stamps a new
   timestamp+name every run, schema unchanged or not. A store built from the previous tag then fails
   to open ("does not match orch's migrations"), and the only way out is another `db:reset`. Fix in

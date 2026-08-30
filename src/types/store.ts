@@ -58,6 +58,11 @@ export interface AgentRow {
   ending?: AgentEnding | null;
 }
 
+export type ClaimResult =
+  | { kind: "stamped" }
+  | { kind: "unchanged" }
+  | { kind: "refused"; reason: "unknown-agent" | "claimed-by-other" };
+
 export interface AgentWorktree {
   path: string;
   branch: string;

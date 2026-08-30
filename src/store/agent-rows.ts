@@ -5,7 +5,7 @@ import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setSpace } from "./interval-rows.ts";
-import type { AgentInput, AgentRow, AgentWorktree, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
+import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 
 /** This machine's OS as the store names it. Throws rather than guess: an
  *  unsupported platform is a host orch cannot record, not a host it may mislabel. */
@@ -52,6 +52,32 @@ export function insertAgent(orchDir: string, input: AgentInput): AgentRow {
   };
   db.insert(agents).values(row).run();
   return { ...row, ending: null };
+}
+
+export function claimAgent(orchDir: string, id: string, sessionToken: string, now: number): ClaimResult {
+  return withTransaction(orchDir, () => {
+    const db = orm(orchDir);
+    const row = db.select({ claimedAt: agents.claimedAt, sessionToken: agents.sessionToken })
+      .from(agents).where(eq(agents.id, id)).get();
+    if (!row) return { kind: "refused", reason: "unknown-agent" };
+    if (row.claimedAt !== null) {
+      return row.sessionToken === sessionToken
+        ? { kind: "unchanged" }
+        : { kind: "refused", reason: "claimed-by-other" };
+    }
+    db.update(agents).set({ claimedAt: now, sessionToken })
+      .where(and(eq(agents.id, id), isNull(agents.claimedAt))).run();
+    return { kind: "stamped" };
+  });
+}
+
+export function reclaimAgent(orchDir: string, id: string): void {
+  withTransaction(orchDir, () => {
+    const db = orm(orchDir);
+    const result = db.update(agents).set({ claimedAt: null, sessionToken: null })
+      .where(eq(agents.id, id)).run();
+    if (result.changes !== 1) throw new Error(`unknown agent: ${id}`);
+  });
 }
 
 export function endAgent(orchDir: string, agentId: string, endedAt: number, closedBy: string | null): void {

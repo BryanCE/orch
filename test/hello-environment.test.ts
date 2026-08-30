@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 /**
  * TASKS/02-scope.md B9 — "`hello` is also where the ENVIRONMENT is recorded in
  * full — harness, plexer, directory, space, OS side. It is NOT filled in later
@@ -22,20 +23,18 @@ import { row } from "./helpers/rows.ts";
  */
 
 const dirs: string[] = [];
-const saved: Record<string, string | undefined> = {};
-const ENV = ["ORCH_DIR", "ORCH_SPACE", "ORCH_HARNESS"];
+
+beforeEach(() => {
+  isolateOrchEnv();
+});
 
 afterEach(() => {
   closeAllStores();
-  for (const name of ENV) {
-    if (saved[name] === undefined) delete process.env[name];
-    else process.env[name] = saved[name];
-  }
+  restoreOrchEnv();
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
 function storeDir(): string {
-  for (const name of ENV) saved[name] = process.env[name];
   const directory = mkdtempSync(join(tmpdir(), "orch-hello-env-"));
   dirs.push(directory);
   const db = orm(directory);
@@ -111,7 +110,7 @@ describe("hello records the environment in full", () => {
     const claim = helloClaim(directory);
     expect(Object.keys(claim)).toEqual(expect.arrayContaining([
       "harness", "cwd", "space", "plexer", "hostName", "hostOs",
-    ]) as string[]);
+    ]));
     expect(claim.space).toBe("server");
     expect(claim.cwd).toBe(process.cwd());
   });

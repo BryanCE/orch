@@ -15,6 +15,7 @@ import { ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows
 import { closeAllStores } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fixtureRepo, git } from "./helpers/git-repo.ts";
+import { isRecord } from "../src/util.ts";
 
 const directories: string[] = [];
 const daemonDiscoveries = new Map<string, string>();
@@ -79,6 +80,12 @@ function runOrch(repoRoot: string, orchDir: string, ...args: string[]): string {
   return ran.stdout.toString();
 }
 
+function parseReviewList(output: string): Record<string, unknown>[] {
+  const value: unknown = JSON.parse(output);
+  if (!Array.isArray(value) || !value.every(isRecord)) throw new Error("review list is not an array of records");
+  return value;
+}
+
 async function stopDaemon(orchDir: string): Promise<void> {
   // Only signal a daemon whose lock identity is proven for this exact store.
   const pid = provenDaemonPid(orchDir);
@@ -118,7 +125,7 @@ describe("review plumbing", () => {
     commit(worktreePath, "feature.txt", "feature\n", "add feature");
     registerDoneAgent(orchDir, "agent00001", worktreePath, worktreeBranch(worktreePath));
 
-    const result = JSON.parse(runOrch(repoRoot, orchDir, "review", "list", "--json")) as Record<string, unknown>[];
+    const result = parseReviewList(runOrch(repoRoot, orchDir, "review", "list", "--json"));
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ target: "feature-1", state: "done", commitsAhead: 1, summary: "add feature" });
     expect(result[0]!.diff).toContain("feature.txt");

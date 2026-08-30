@@ -11,6 +11,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { isRecord } from "../src/util.ts";
 
 /**
  * TASKS/02-scope.md B7 — "EVERY agent has an inbox; reading it promptly is the
@@ -53,7 +54,11 @@ function deliveredTo(directory: string, id: string): Record<string, unknown>[] {
   const path = inboxPath(join(directory, "agents", id));
   if (!existsSync(path)) return [];
   return readFileSync(path, "utf8").trim().split("\n").filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
+    .map((line) => {
+      const value: unknown = JSON.parse(line);
+      if (!isRecord(value)) throw new Error("inbox line was not an object");
+      return value;
+    });
 }
 
 describe("every agent has an inbox", () => {

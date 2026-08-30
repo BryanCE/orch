@@ -116,7 +116,11 @@ export function launchKey(validate: (key: string) => void): string | undefined {
   try {
     validate(key);
   } catch (error: unknown) {
+    // A wiring error must reach the PERSON who caused it. The log file records it
+    // for later, but a harness that dies with an empty stderr is indistinguishable
+    // from one that crashed, so the reason goes to stderr as well.
     createLogger({ file: join(orchDir(), "orch.log"), level: "error" }).error("launch.invalid-key", { error: errorMessage(error) });
+    process.stderr.write(`orch: ORCH_AGENT_KEY is set but unusable - ${errorMessage(error)}\n`);
     process.exit(1);
   }
   return key;

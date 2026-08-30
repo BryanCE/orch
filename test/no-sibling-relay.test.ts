@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { resolvePeer } from "../src/agent/peers.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /**
  * TASKS/02-scope.md L6 — "A slave with no reachable spawner relays through a
@@ -22,22 +23,13 @@ import { removeTempDir } from "./helpers/tempdir.ts";
  */
 
 const dirs: string[] = [];
-const ENV = [
-  "ORCH_DIR", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_KEY",
-  "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT", "ORCH_AGENT_NAME",
-];
-let saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
-  saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
-  for (const name of ENV) delete process.env[name];
+  isolateOrchEnv();
 });
 
 afterEach(() => {
-  for (const name of ENV) {
-    if (saved[name] === undefined) delete process.env[name];
-    else process.env[name] = saved[name];
-  }
+  restoreOrchEnv();
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 

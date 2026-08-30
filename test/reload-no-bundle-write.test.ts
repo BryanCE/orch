@@ -13,7 +13,6 @@ bundlePaths.forEach((file) => writeFileSync(file, `installed-${file}\n`));
 // these fixture files and makes the RED assertion fail.
 void mock.module("../src/bridge-bundle.ts", () => ({
   EXTENSION_NAMES: bundleNames,
-  RETIRED_EXTENSION_NAMES: [],
   buildExtensionBundle: (_root: string, name: string) => {
     const file = join(bundleDir, `${name}.js`);
     writeFileSync(file, `rebuilt-${Date.now()}\n`);

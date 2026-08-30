@@ -3,7 +3,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { cmdClose } from "../src/commands/lifecycle.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -18,6 +18,7 @@ import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: string[] = [];
@@ -31,6 +32,10 @@ const oldTmuxPane = process.env.TMUX_PANE;
 delete process.env.HERDR_PANE_ID;
 delete process.env.HERDR_TAB_ID;
 delete process.env.HERDR_WORKSPACE_ID;
+
+beforeEach(() => {
+  isolateOrchEnv();
+});
 
 function makeDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-owner-scope-"));
@@ -93,6 +98,7 @@ afterEach(async () => {
   delete process.env.HERDR_TAB_ID;
   delete process.env.HERDR_WORKSPACE_ID;
   if (oldTmuxPane === undefined) delete process.env.TMUX_PANE; else process.env.TMUX_PANE = oldTmuxPane;
+  restoreOrchEnv();
 });
 
 describe("fleet ownership scoping", () => {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
 import { describeBackendEnvironments } from "../src/doctor/backends.ts";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -16,13 +16,13 @@ afterEach(() => {
 });
 
 describe("one current shape only", () => {
-  test("a live presence record with an invalid schema is a doctor failure", () => {
+  test("a live presence record with a malformed identity is a doctor failure", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-shape-only-presence-"));
     dirs.push(directory);
-    const key = serializeIdentity({ id: mintAgentId() });
+    const key = `not-an-agent-${mintAgentId()}`;
     const agentDirectory = join(directory, "agents", key);
     mkdirSync(agentDirectory, { recursive: true });
-    writeFileSync(join(agentDirectory, "status.json"), JSON.stringify({ schema: 0, pid: process.pid, agent: "pi" }));
+    writeFileSync(join(agentDirectory, "status.json"), JSON.stringify({ schema: 1, pid: process.pid, agent: "pi" }));
 
     const result = checkMalformedPresenceRecords(directory);
     expect(result.status).toBe("fail");

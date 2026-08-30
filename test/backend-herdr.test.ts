@@ -5,6 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 
 // Replace the CLI boundary before loading HerdrBackend. This records argv without
 // ever starting a herdr process (and therefore cannot create a live pane).
@@ -212,12 +213,13 @@ describe("HerdrBackend", () => {
 
   test("env reaches the pane through herdr's --env, not an argv prefix", () => {
     herdrArgv.length = 0;
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetPane: "w0:p1", key: "k1", orchDir: "/tmp/orchdir", env: { FOO: "bar" } });
+    const key = mintAgentId();
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetPane: "w0:p1", key, orchDir: "/tmp/orchdir", env: { FOO: "bar" } });
 
     const split = herdrArgv[0] ?? [];
     expect(split).toContain("--env");
     expect(split).toContain("FOO=bar");
-    expect(split).toContain("ORCH_AGENT_KEY=k1");
+    expect(split).toContain(`ORCH_AGENT_KEY=${key}`);
     expect(split).toContain("ORCH_DIR=/tmp/orchdir");
     expect(split).not.toContain("env");
   });
@@ -240,12 +242,13 @@ describe("HerdrBackend", () => {
 
   test("a group is created with the environment its own pane will launch under", () => {
     herdrArgv.length = 0;
-    const created = backend.groupHome.create({ workspace: "ws-test", cwd: testDir, label: "fleet", env: { ORCH_AGENT_KEY: "k9" } });
+    const key = mintAgentId();
+    const created = backend.groupHome.create({ workspace: "ws-test", cwd: testDir, label: "fleet", env: { ORCH_AGENT_KEY: key } });
 
     expect(created.rootHandle).toBe("w0:p9");
     expect(herdrArgv[0]).toEqual([
       "tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--no-focus",
-      "--label", "fleet", "--env", "ORCH_AGENT_KEY=k9", "--env", `ORCH_PROJECT=${projectRoot()}`,
+      "--label", "fleet", "--env", `ORCH_AGENT_KEY=${key}`, "--env", `ORCH_PROJECT=${projectRoot()}`,
     ]);
   });
 

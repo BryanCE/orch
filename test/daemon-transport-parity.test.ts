@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { endpointPaths, startRpcServer } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import { isRecord } from "../src/util.ts";
 
 /**
  * TASKS/02-scope.md B3 — "ONE MECHANISM on both transports; TCP is a FALLBACK,
@@ -49,7 +50,12 @@ function ask(target: { path: string } | { port: number }, request: unknown): Pro
       const newline = data.indexOf("\n");
       if (newline < 0) return;
       socket.destroy();
-      resolve(JSON.parse(data.slice(0, newline)) as Record<string, unknown>);
+      const value: unknown = JSON.parse(data.slice(0, newline));
+      if (!isRecord(value)) {
+        reject(new Error("RPC response was not an object"));
+        return;
+      }
+      resolve(value);
     });
     socket.once("error", reject);
     socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));

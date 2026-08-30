@@ -52,8 +52,7 @@ export interface NotifierConfigField {
 
 /** Host-integration metadata kept separate from delivery behavior. */
 export interface NotifierMetadata {
-  /** Rich fields are used by setup; bare names remain contract-compatible. */
-  requiredConfig: readonly (NotifierConfigField | string)[];
+  requiredConfig: readonly NotifierConfigField[];
   description?: string;
 };
 
@@ -65,8 +64,7 @@ export interface Notifier {
   metadata: NotifierMetadata;
   /** A rejected availability probe is treated as unavailable by the registry. */
   available(config?: Record<string, unknown>): boolean | Promise<boolean>;
-  /** Config is optional so phase-1 custom notifiers remain source-compatible. */
-  deliver(event: NotifyEvent, config?: Record<string, unknown>): Promise<boolean>;
+  deliver(event: NotifyEvent, config: Record<string, unknown>): Promise<boolean>;
 };
 
 export interface NotifierChoice {

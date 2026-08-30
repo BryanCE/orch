@@ -115,6 +115,7 @@ describe("herdr and notification hardening", () => {
   });
 
   test("falls back to a real name when an adapter id is blank", () => {
+    // Deliberately violate the closed adapter-id type to exercise runtime fallback for malformed input.
     const blankAdapter = { ...adapter, id: "" as AgentAdapter["id"] };
     new HerdrBackend().spawn(blankAdapter, { workspace: "ws-test" });
     expect(lastCall("pane", "rename")?.[3]).toBe("agent-agent");

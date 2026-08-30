@@ -4,8 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtime.ts";
-import { binaryOnPath } from "../src/util.ts";
+import { binaryOnPath, isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const shim = claudeHookShimPath(process.cwd());
@@ -40,6 +41,17 @@ interface ShimRun {
   stderr: string;
 }
 
+interface ExecFailure {
+  status?: number;
+  stderr?: Buffer | string;
+}
+
+function isExecFailure(value: unknown): value is ExecFailure {
+  return isRecord(value)
+    && (value.status === undefined || typeof value.status === "number")
+    && (value.stderr === undefined || typeof value.stderr === "string" || Buffer.isBuffer(value.stderr));
+}
+
 /** Run the built shim under one runtime, exactly as the enabled settings.json hook does. */
 function runShim(runtime: OrchRuntime, event: string, env: Record<string, string | undefined>): ShimRun {
   const [bin, ...args] = runtime === "deno" ? ["deno", "run", "--allow-all", shim, event] : [runtime, shim, event];
@@ -51,8 +63,8 @@ function runShim(runtime: OrchRuntime, event: string, env: Record<string, string
     });
     return { status: 0, stderr: "" };
   } catch (error: unknown) {
-    const failure = error as { status?: number; stderr?: Buffer | string };
-    return { status: failure.status ?? -1, stderr: String(failure.stderr ?? "") };
+    if (!isExecFailure(error)) return { status: -1, stderr: String(error) };
+    return { status: error.status ?? -1, stderr: String(error.stderr ?? "") };
   }
 }
 
@@ -76,12 +88,13 @@ describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
 
     test("writes status.json for a valid key", () => {
       const orchDir = tempOrchDir();
-      const result = runShim(runtime, "SessionStart", { ORCH_AGENT_KEY: "k7m2q9x4b1", ORCH_DIR: orchDir });
+      const key = mintAgentId();
+      const result = runShim(runtime, "SessionStart", { ORCH_AGENT_KEY: key, ORCH_DIR: orchDir });
 
       expect(result.status).toBe(0);
-      const statusFile = path.join(orchDir, "agents", "k7m2q9x4b1", "status.json");
+      const statusFile = path.join(orchDir, "agents", key, "status.json");
       const status = JSON.parse(fs.readFileSync(statusFile, "utf8")) as Record<string, unknown>;
-      expect(status.key).toBe("k7m2q9x4b1");
+      expect(status.key).toBe(key);
       expect(status.state).toBe("working");
     }, 30_000);
   });

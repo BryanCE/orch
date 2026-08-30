@@ -4,7 +4,8 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createModelControl, resolveRegistryModel } from "../src/agent/model-control.ts";
 import { splitThinkingSuffix } from "../src/policy/thinking.ts";
-import type { ResolvedModel } from "../src/types/agent.ts";
+import type { HarnessApi, HarnessContext, ResolvedModel } from "../src/types/agent.ts";
+import { isRecord } from "../src/util.ts";
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -27,10 +28,36 @@ const noRetry = { attempts: 1, delayMs: 0, backoff: 1 };
 
 /** The outcome record applyControlCommand writes to control.json. */
 interface ControlOutcome {
-  id?: string;
+  id?: unknown;
   success: boolean;
   requested?: unknown;
   error?: string;
+}
+
+function readControlOutcome(file: string): ControlOutcome {
+  const value: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!isRecord(value) || typeof value.success !== "boolean") throw new Error("invalid control outcome");
+  if (value.error !== undefined && typeof value.error !== "string") throw new Error("invalid control outcome error");
+  return { id: value.id, success: value.success, requested: value.requested, error: value.error };
+}
+
+function modelContext(find: (provider: string, id: string) => ResolvedModel | undefined): HarnessContext {
+  return {
+    hasUI: false,
+    sessionManager: {
+      getSessionFile: () => undefined,
+      getSessionId: () => undefined,
+      getBranch: () => [],
+    },
+    modelRegistry: { find },
+    ui: {
+      notify: () => undefined,
+      setStatus: () => undefined,
+      setWidget: () => undefined,
+    },
+    isIdle: () => true,
+    getContextUsage: () => undefined,
+  };
 }
 
 describe("splitThinkingSuffix", () => {
@@ -99,19 +126,22 @@ describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
 });
 
 describe("createModelControl.applyControlCommand", () => {
-  function makePi() {
-    const calls = {
-      model: undefined as ResolvedModel | undefined,
-      thinking: undefined as string | undefined,
-    };
-    const pi = {
-      setModel: (model: ResolvedModel) => {
+  function makePi(): { pi: HarnessApi; calls: { model?: ResolvedModel; thinking?: string } } {
+    const calls: { model?: ResolvedModel; thinking?: string } = {};
+    const pi: HarnessApi = {
+      on: () => undefined,
+      registerTool: () => undefined,
+      registerCommand: () => undefined,
+      sendUserMessage: () => undefined,
+      setModel: (model) => {
         calls.model = model;
-        return Promise.resolve();
+        return Promise.resolve(true);
       },
-      setThinkingLevel: (level: string) => {
+      getThinkingLevel: () => undefined,
+      setThinkingLevel: (level) => {
         calls.thinking = level;
       },
+      events: { on: () => undefined },
     };
     return { pi, calls };
   }
@@ -122,8 +152,8 @@ describe("createModelControl.applyControlCommand", () => {
     const { pi, calls } = makePi();
     let refreshed = 0;
     const control = createModelControl({
-      harness: pi as never,
-      context: () => ({ modelRegistry: { find: (p: string, id: string) => fakeModel(p, id) } }) as never,
+      harness: pi,
+      context: () => modelContext((p, id) => fakeModel(p, id)),
       controlFile: () => controlFile,
       refreshPresence: () => {
         refreshed += 1;
@@ -135,7 +165,7 @@ describe("createModelControl.applyControlCommand", () => {
     expect(calls.model).toEqual(fakeModel("openai-codex", "gpt-5.6-luna"));
     expect(calls.thinking).toBe("medium");
     expect(refreshed).toBe(1);
-    const outcome = JSON.parse(fs.readFileSync(controlFile, "utf8")) as ControlOutcome;
+    const outcome = readControlOutcome(controlFile);
     expect(outcome.success).toBe(true);
     expect(outcome.requested).toEqual({ model: "openai-codex/gpt-5.6-luna:medium" });
     // The dispatcher matches the outcome to its own request by this id.
@@ -147,8 +177,8 @@ describe("createModelControl.applyControlCommand", () => {
     const controlFile = path.join(dir, "control.json");
     const { pi, calls } = makePi();
     const control = createModelControl({
-      harness: pi as never,
-      context: () => ({ modelRegistry: { find: () => undefined } }) as never,
+      harness: pi,
+      context: () => modelContext(() => undefined),
       controlFile: () => controlFile,
       refreshPresence: () => undefined,
     });
@@ -156,7 +186,7 @@ describe("createModelControl.applyControlCommand", () => {
     await control.applyControlCommand({ cmd: "model", model: "openrouter/bad/model" });
 
     expect(calls.model).toBeUndefined();
-    const outcome = JSON.parse(fs.readFileSync(controlFile, "utf8")) as ControlOutcome;
+    const outcome = readControlOutcome(controlFile);
     expect(outcome.success).toBe(false);
     expect(outcome.error).toMatch(/Model not in registry/);
   });
@@ -166,7 +196,7 @@ describe("createModelControl.applyControlCommand", () => {
     const controlFile = path.join(dir, "control.json");
     const { pi, calls } = makePi();
     const control = createModelControl({
-      harness: pi as never,
+      harness: pi,
       context: () => undefined,
       controlFile: () => controlFile,
       refreshPresence: () => undefined,
@@ -175,7 +205,7 @@ describe("createModelControl.applyControlCommand", () => {
     await control.applyControlCommand({ cmd: "thinking", level: "high" });
 
     expect(calls.thinking).toBe("high");
-    const outcome = JSON.parse(fs.readFileSync(controlFile, "utf8")) as ControlOutcome;
+    const outcome = readControlOutcome(controlFile);
     expect(outcome.success).toBe(true);
     expect(outcome.requested).toEqual({ thinking: "high" });
   });

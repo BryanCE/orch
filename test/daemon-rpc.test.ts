@@ -19,6 +19,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { sql } from "drizzle-orm";
+import { isRecord } from "../src/util.ts";
 
 import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
@@ -61,7 +62,12 @@ async function tcpHello(server: RpcServer, params?: unknown): Promise<Record<str
       const newline = data.indexOf("\n");
       if (newline < 0) return;
       socket.destroy();
-      resolve(JSON.parse(data.slice(0, newline)) as Record<string, unknown>);
+      const parsed: unknown = JSON.parse(data.slice(0, newline));
+      if (!isRecord(parsed)) {
+        reject(new Error("TCP hello returned a non-object"));
+        return;
+      }
+      resolve(parsed);
     });
     socket.once("error", reject);
     socket.once("connect", () => socket.write(`${JSON.stringify({ id: 1, method: "hello", params })}\n`));
@@ -276,7 +282,8 @@ describe("daemon RPC", () => {
     await start(dir);
     const failure = await rejectionOf(rpcCall(dir, "missing"));
     expect(failure).toBeInstanceOf(RpcError);
-    expect((failure as Error).message).toContain("Unknown method");
+    if (!(failure instanceof Error)) throw new Error("unknown method did not reject with Error");
+    expect(failure.message).toContain("Unknown method");
   });
 
   test("reports malformed lines and keeps the connection alive", async () => {

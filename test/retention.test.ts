@@ -31,9 +31,23 @@ function fixture(): string {
 
 function config(days: Partial<OrchConfig["retention"]> = {}): OrchConfig {
   return {
-    retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7, ...days },
+    runtime: "node",
+    enabled: { adapters: ["pi"], backends: [] },
+    defaults: { models: {}, worktree: false },
+    fleet: { spawn_cap: 8, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false },
+    models: { allowed: {}, preferred: {} },
+    workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
     queue: { max_retries: 1 },
-  } as OrchConfig;
+    retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7, ...days },
+    timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
+    notify: [],
+    locked_commands: [],
+    hosts: {},
+    spaces: {},
+    daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
+    tiling: { first_split: "rows" },
+    skills: { install: true, roots: [] },
+  };
 }
 
 function seedQueueTask(dir: string, text: string, state: "queued" | "claimed" | "done", ts: string): void {

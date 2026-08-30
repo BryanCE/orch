@@ -11,7 +11,7 @@ function notifier(id: Notifier["id"], seen: (config: Record<string, unknown>) =>
     label: id,
     metadata: { requiredConfig: [] },
     available: () => true,
-    deliver: (_event, config = {}) => { seen(config); return Promise.resolve(result); },
+    deliver: (_event, config) => { seen(config); return Promise.resolve(result); },
   };
 }
 

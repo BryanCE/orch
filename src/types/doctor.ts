@@ -17,8 +17,6 @@ export interface DoctorBackendReport {
   enabled?: boolean;
   /** Whether this backend is the selected runtime for this invocation. */
   active?: boolean;
-  /** Legacy spelling retained for consumers of the detailed capability report. */
-  available?: boolean;
   insideSession: boolean;
   roles: readonly string[];
   space: string | null;

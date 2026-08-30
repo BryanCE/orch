@@ -52,7 +52,7 @@ class NotifierRegistry {
     if (!notifier) { this.emitWarning(`${entry.id} notifier is not registered`); return false; }
     const config = configFor(entry);
     const errors = notifier.metadata.requiredConfig.flatMap((field) => {
-      const name = typeof field === "string" ? field : field.name;
+      const name = field.name;
       const value = config[name];
       return name === "command" ? (stringArray(value)?.length ? [] : [`${entry.id} requires ${name}`]) : (typeof value === "string" && value.trim() ? [] : [`${entry.id} requires ${name}`]);
     });
@@ -69,7 +69,7 @@ class NotifierRegistry {
     if (!notifier) return [`unknown notifier: ${entry.id}`];
     const config = configFor(entry);
     return notifier.metadata.requiredConfig.flatMap((field) => {
-      const name = typeof field === "string" ? field : field.name;
+      const name = field.name;
       const value = config[name];
       return name === "command" ? (stringArray(value)?.length ? [] : [`${entry.id} requires ${name}`]) : (typeof value === "string" && value.trim() ? [] : [`${entry.id} requires ${name}`]);
     });

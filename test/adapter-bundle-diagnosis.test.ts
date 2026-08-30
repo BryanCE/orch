@@ -8,7 +8,6 @@ const missingBundle = join(tempRoot, "dist", "extensions", "pi-bridge.js");
 
 void mock.module("../src/extensions/bundles.ts", () => ({
   EXTENSION_NAMES: ["pi-bridge", "omp-bridge"],
-  RETIRED_EXTENSION_NAMES: [],
   extensionBundlePath: () => missingBundle,
 }));
 

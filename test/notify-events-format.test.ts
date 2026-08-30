@@ -95,11 +95,11 @@ describe("notification and presence event formatting", () => {
   test("webhook payload includes space and spaceColor", async () => {
     let body = "";
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const value = init?.body;
       body = typeof value === "string" ? value : JSON.stringify(value ?? "");
-      return Promise.resolve({ ok: true } as Response);
-    }) as typeof fetch;
+      return Promise.resolve(new Response(null, { status: 200 }));
+    };
     try {
       const delivered = await deliver({ id: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
       expect(delivered).toBe(true);

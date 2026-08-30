@@ -7,6 +7,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
 import { projectRoot } from "../src/util.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 
 /** One synthetic tmux pane row served by the fake `list-panes -a` query. */
 interface FakePane {
@@ -310,11 +311,12 @@ describe("TmuxBackend", () => {
 
   test("paneHost.open splits the requested target with cwd and environment", () => {
     const backend = new TmuxBackend();
-    const created = backend.paneHost.open({ cwd: "/work", group: "@1", split: "right", targetPane: "%7", env: { ORCH_AGENT_KEY: "k1", FOO: "bar" } });
+    const key = mintAgentId();
+    const created = backend.paneHost.open({ cwd: "/work", group: "@1", split: "right", targetPane: "%7", env: { ORCH_AGENT_KEY: key, FOO: "bar" } });
     expect(created.handle).toBe("%1");
     expect(callArgs("tmux", "split-window")).toEqual([
       "split-window", "-t", "%7", "-h", "-P", "-F", "#{pane_id}", "-c", "/work",
-      "-e", "ORCH_AGENT_KEY=k1", "-e", "FOO=bar", "--", "bash",
+      "-e", `ORCH_AGENT_KEY=${key}`, "-e", "FOO=bar", "--", "bash",
     ]);
     backend.paneHost.close(created.handle);
     expect(execCalls.some((call) => call.args.join(" ") === "kill-pane -t %1")).toBe(true);
@@ -322,12 +324,13 @@ describe("TmuxBackend", () => {
 
   test("spawn places the agent into an existing group via split-window when opts.group is set", () => {
     const backend = new TmuxBackend();
-    const handle = backend.spawn(fakeAdapter, { key: "tmuxagent1", cwd: "/work", group: "@1", split: "right" });
+    const key = mintAgentId();
+    const handle = backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "right" });
 
     expect(handle).toBe("%1");
     const split = callArgs("tmux", "split-window");
-    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", "ORCH_AGENT_KEY=tmuxagent1", "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
-    expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent_key tmuxagent1")).toBe(true);
+    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `ORCH_AGENT_KEY=${key}`, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
+    expect(execCalls.some((call) => call.args.join(" ") === `set-option -p -t %1 @orch_agent_key ${key}`)).toBe(true);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent pi")).toBe(true);
     // The tiling planner owns geometry; a blanket select-layout would overwrite it.
     expect(execCalls.some((call) => call.args[0] === "select-layout")).toBe(false);
@@ -335,7 +338,8 @@ describe("TmuxBackend", () => {
 
   test("spawn splits the planned target pane, not whatever pane the window has active", () => {
     const backend = new TmuxBackend();
-    backend.spawn(fakeAdapter, { key: "tmuxagent1", cwd: "/work", group: "@1", split: "down", targetPane: "%7" });
+    const key = mintAgentId();
+    backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "down", targetPane: "%7" });
 
     expect(callArgs("tmux", "split-window")?.slice(0, 4)).toEqual(["split-window", "-t", "%7", "-v"]);
   });
@@ -360,7 +364,7 @@ describe("TmuxBackend", () => {
 
   test("spawn opens a new window via new-window when no group is given", () => {
     const backend = new TmuxBackend();
-    const handle = backend.spawn(fakeAdapter, { key: "tmuxagent2", cwd: "/work" });
+    const handle = backend.spawn(fakeAdapter, { key: mintAgentId(), cwd: "/work" });
 
     expect(handle).toBe("%1");
     expect(callArgs("tmux", "new-window")?.[0]).toBe("new-window");

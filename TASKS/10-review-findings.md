@@ -24,18 +24,19 @@ column, so read it here instead.
 | §1 correctness bugs | 1.1 – 1.15 (15) | **all FIXED** |
 | §2 structural | 2.1 – 2.6 (6) | **all FIXED** |
 | §3 wasted work | 3.1 – 3.4 (4) | **all FIXED** |
-| §4 wrong altitude | 4.1 – 4.6 (6) | 4.1 4.2 4.3 4.4 FIXED · **4.5 4.6 in progress** |
-| §5 duplication | 5.1 – 5.5 (5) | 5.1 5.2 5.3 5.4 FIXED · **5.5 PARTIAL, in progress** |
-| §6 rule violations | 6.1 – 6.6 (6) | 6.1 – 6.5 FIXED · **6.6 OPEN, in progress** |
+| §4 wrong altitude | 4.1 – 4.6 (6) | **all FIXED** |
+| §5 duplication | 5.1 – 5.5 (5) | **all FIXED** |
+| §6 rule violations | 6.1 – 6.8 (8) | 6.1 – 6.5, 6.7, 6.8 FIXED · **6.6 in flight** |
 
-Still open, and nothing else:
-- **4.5** — `retry.ts` has 2 importers while 5 sites hand-roll their own backoff ladder.
-- **4.6** — 3 surviving raw `process.platform === "win32"`, one of them a second implementation of
-  `osSide()` inside `src/store/agent-rows.ts`.
-- **5.5** — private `isRecord`/`isObject` shadowing `util.ts`; 6 re-inlined `errorMessage`; 6 inline
-  `setTimeout` sleeps beside the one `sleep()`.
-- **6.6** — 20 `as unknown as` across 15 files in `test/`, which the original audit never swept
-  because it only looked at `src/` and `extensions/`.
+**Every item in the document as originally written (41) is FIXED.** The three open items were
+ADDED during the work, and are the only outstanding scope:
+
+- **6.6** — the audit swept only `src/` + `extensions/`, so `test/` was never counted. The 20
+  `as unknown as` are gone; ~50 plain `as X` casts remain, which Rule 13 forbids just as squarely.
+- **6.7** — 11 test files read `ORCH_AGENT_KEY` without stating it, so they pass on a bare shell and
+  fail inside an orch pane. A test's environment is part of its fixture.
+- **6.8** — 5 back-compat paths, each justified by a comment naming an audience Rule 14 says cannot
+  exist. Found by reviewing this session's own work, not by the original audit.
 
 ---
 
@@ -254,7 +255,12 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 ---
 
+# ✅ SECTION 4 — COMPLETE (6/6)
+
 ## 4. Wrong altitude — special cases layered on shared infrastructure
+
+> **All 6 altitude items are FIXED.** Nothing in this section is outstanding.
+> Rows are kept for the record; each `status` cell carries its evidence.
 
 | # | where | problem | right depth | status |
 |---|---|---|---|---|
@@ -267,7 +273,12 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 ---
 
+# ✅ SECTION 5 — COMPLETE (5/5)
+
 ## 5. Duplication (Rule 10 — presence writers live in `src/presence/` and are imported)
+
+> **All 5 duplication items are FIXED.** Nothing in this section is outstanding.
+> Rows are kept for the record; each `status` cell carries its evidence.
 
 | # | copies | fix | status |
 |---|---|---|---|
@@ -279,7 +290,13 @@ directly. ≈100 of 418 lines across router+sinks, and the casts go with them.
 
 ---
 
+# ⏳ SECTION 6 — 7 of 8 (only 6.6 open)
+
 ## 6. CLAUDE.md violations that stand alone
+
+> **6.1–6.5 as originally written are FIXED.** The three open items were ADDED after the
+> original audit: 6.6 (it swept only `src/`+`extensions/`, never `test/`), 6.7 (tests inheriting
+> `ORCH_AGENT_KEY`), and 6.8 (back-compat paths found by reviewing this session's own work).
 
 | # | file:line | line | rule | status |
 |---|---|---|---|---|
@@ -311,7 +328,14 @@ Eleven of the twenty-five files that touch the var never state it: `backend-head
 `backend-tmux`, `claude-adapter`, `claude-hooks-shim`, `close-authority`, `cmd-lock-bridge`,
 `codex-adapter`, `no-sibling-relay`, `spawn-identity`, `spawn-placement`. The other fourteen already
 save the value, set or `delete` it, and restore in `afterEach` — that is the pattern.
-A test's environment is part of its fixture: it is STATED, never inherited. Status: `OPEN`.
+A test's environment is part of its fixture: it is STATED, never inherited.
+**Status: `FIXED`.** All eleven now state it. The pattern is a named `ENV` list saved and cleared in
+`beforeEach` and restored in `afterEach`, with a comment saying WHY that file wants the value it wants —
+the backend, adapter and close-authority tests delete the key because they drive the SPAWNER and each
+child identity is minted and passed explicitly, while a test that needs an identity mints one with
+`mintAgentId()` rather than typing a string that is not a real key. Both proofs are green for every
+file: `ORCH_AGENT_KEY=zzzzzzzzzz bun test …` and `env -u ORCH_AGENT_KEY bun test …`. No test turned out
+to depend on an inherited value.
 
 **6.8 (new, 2026-08-29) — five back-compat paths kept alive by a comment.** Found by an adversarial
 review of this session's own work, not by the original audit. Rule 8 forbids code that accepts or
@@ -327,7 +351,12 @@ justifying COMMENT is the tell:
   shapes at once, "bare names remain contract-compatible".
 - `src/types/notify.ts:68-69` — `deliver(event, config?)` optional "so phase-1 custom notifiers remain
   source-compatible".
-Status: `OPEN`.
+**Status: `FIXED`.** All five deleted, with every writer, reader, fixture and test fixed in the same
+change and NO version constant touched (Rule 14): both `SETTINGS_SCHEMA` and `PRESENCE_SCHEMA` are
+still 1. `requiredConfig` is `readonly NotifierConfigField[]` — one shape, not a union of two — and
+`deliver(event, config)` takes its config. Doctor now puts a schema-failing record in its verdict
+whether or not the process is alive, because a malformed record is malformed. `test/one-shape-only.test.ts`.
+A broader sweep of the same class across `src/` and `extensions/` is in flight.
 
 ---
 

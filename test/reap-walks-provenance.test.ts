@@ -39,6 +39,8 @@ function end(dir: string, id: string, at: number): void {
 
 /** Every window at zero so nothing survives the sweep by luck. */
 function retention(): OrchConfig {
+  // sweepExpiredRows currently accepts the full OrchConfig although this fixture
+  // intentionally supplies only the retention and queue sections it reads.
   return {
     retention: { ended_agents_days: 0, queue_days: 0, events_days: 0, runs_days: 0, outbox_days: 0, logs_days: 0 },
     queue: { max_retries: 1 },

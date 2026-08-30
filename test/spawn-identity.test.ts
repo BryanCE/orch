@@ -19,19 +19,14 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { sql } from "drizzle-orm";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
-const ENV = [
-  "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT",
-  "ORCH_AGENT_NAME", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
-] satisfies readonly string[];
-let saved: Record<string, string | undefined> = {};
 const dirs: string[] = [];
 
 beforeEach(() => {
-  saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+  isolateOrchEnv();
   // These tests drive the spawning orchestrator, not an already spawned worker.
   // Each child identity is minted and passed through the spawn spec itself.
-  for (const name of ENV) delete process.env[name];
 });
 
 function tempOrchDir(): string {
@@ -44,11 +39,7 @@ function tempOrchDir(): string {
 afterEach(() => {
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
-  for (const name of ENV) {
-    const value = saved[name];
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
+  restoreOrchEnv();
 });
 
 /**

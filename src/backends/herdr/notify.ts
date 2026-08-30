@@ -24,7 +24,7 @@ export const herdrNotifier: Notifier = {
   available: () => herdrRunsAgents() && herdrReachable(),
   // Synchronous and throws on transport failure; wrapping it in `async` promised
   // an await that never existed.
-  deliver: (event) => Promise.resolve(deliverHerdrNotification(notificationText(event))),
+  deliver: (event, _config) => Promise.resolve(deliverHerdrNotification(notificationText(event))),
 };
 
 /**

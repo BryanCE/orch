@@ -10,6 +10,7 @@ import { FakePanedBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, HomeSubject, Identity, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /**
  * TASKS/02-scope.md E8, E9, E10 — the spawn half.
@@ -27,26 +28,16 @@ import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, 
  */
 
 const dirs: string[] = [];
-const ENV = [
-  "ORCH_DIR", "ORCH_AGENT_KEY", "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT",
-  "ORCH_AGENT_NAME", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
-] satisfies readonly string[];
-let saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
-  saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+  isolateOrchEnv();
   // Placement receives identity explicitly from the fake backend; this caller
   // fixture models a human/driver session with no inherited orch stamp.
-  for (const name of ENV) delete process.env[name];
 });
 
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
-  for (const name of ENV) {
-    const value = saved[name];
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
+  restoreOrchEnv();
 });
 
 function fixture(): string {

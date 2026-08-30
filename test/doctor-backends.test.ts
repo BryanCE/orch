@@ -10,8 +10,8 @@ import type { DoctorBackendReport } from "../src/types/doctor.ts";
 
 /** One backend's probe result. Injected so the verdict is provable without the
  *  suite happening to run inside a herdr or tmux session. */
-function report(id: string, available: boolean, insideSession: boolean): DoctorBackendReport {
-  return { id, available, insideSession, space: null, roles: ["paneInventory"] };
+function report(id: string, detected: boolean, insideSession: boolean): DoctorBackendReport {
+  return { id, detected, insideSession, space: null, roles: ["paneInventory"] };
 }
 
 const directories: string[] = [];
@@ -31,7 +31,7 @@ describe("doctor backend and presence checks", () => {
     const result = describeBackendEnvironments();
     expect(result.backends?.map((backend) => backend.id)).toEqual(["herdr", "headless", "tmux"]);
     for (const backend of result.backends ?? []) {
-      expect(typeof backend.available).toBe("boolean");
+      expect(typeof backend.detected).toBe("boolean");
       expect(typeof backend.insideSession).toBe("boolean");
       expect(Array.isArray(backend.roles)).toBe(true);
     }

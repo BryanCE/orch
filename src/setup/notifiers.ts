@@ -5,14 +5,10 @@ import { createBuiltinNotifiers } from "../notify/sinks.ts";
 import { NOTIFY_STATES } from "../types/config.ts";
 import { HERDR_SINK_ID } from "../backends/backend.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
-import type { Notifier, NotifierChoice, NotifierConfigField } from "../types/notify.ts";
+import type { Notifier, NotifierChoice } from "../types/notify.ts";
 import type { NotifyEntry, NotifyState } from "../types/config.ts";
 
 const notifiers = createBuiltinNotifiers();
-
-function fieldDetails(field: NotifierConfigField | string): NotifierConfigField {
-  return typeof field === "string" ? { name: field, label: field } : field;
-}
 
 function findNotifier(id: string): Notifier | undefined {
   return notifiers.find((notifier) => notifier.id === id);
@@ -32,7 +28,7 @@ export async function probeNotifiers(): Promise<NotifierChoice[]> {
       label: notifier.label,
       available,
       remediation: notifierRemediation(notifier.id, {}, notifier.remediation),
-      requiredFields: notifier.metadata.requiredConfig.map(fieldDetails),
+      requiredFields: notifier.metadata.requiredConfig,
     };
   }));
 }
@@ -64,7 +60,7 @@ export function collectRequiredConfig(
 
   const config: Record<string, unknown> = {};
   const missing: string[] = [];
-  for (const field of notifier.metadata.requiredConfig.map(fieldDetails)) {
+  for (const field of notifier.metadata.requiredConfig) {
     const value = provided[field.name];
     if (!validFieldValue(field.name, value)) missing.push(field.name);
     else config[field.name] = value;

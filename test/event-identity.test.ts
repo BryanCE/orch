@@ -26,13 +26,17 @@ afterEach(() => {
 
 describe("published event identity", () => {
   test("stamps a per-agent ordinal so a redelivery is recognizable", () => {
-    const published: NotifyEvent[] = [];
-    const emit = (value: unknown): void => { published.push(value as NotifyEvent); };
+    const published: unknown[] = [];
+    const emit = (value: unknown): void => { published.push(value); };
     emitAndNotify(emit, [], transition("seqaagent1", "idle", "working"));
     emitAndNotify(emit, [], transition("seqaagent1", "working", "done"));
     emitAndNotify(emit, [], transition("seqbagent1", "idle", "working"));
 
-    expect(published.map((event) => event.seq)).toEqual([1, 2, 1]);
+    expect(published.map((event) => {
+      if (typeof event !== "object" || event === null || Array.isArray(event)) return undefined;
+      const seq = Reflect.get(event, "seq");
+      return typeof seq === "number" ? seq : undefined;
+    })).toEqual([1, 2, 1]);
   });
 });
 

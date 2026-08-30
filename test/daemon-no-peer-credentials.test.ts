@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { endpointPaths, startRpcServer } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import { isRecord } from "../src/util.ts";
 
 /**
  * TASKS/02-scope.md B4 — "Peer credentials rejected — node exposes neither
@@ -46,7 +47,12 @@ function ask(path: string, request: unknown): Promise<Record<string, unknown>> {
       const newline = data.indexOf("\n");
       if (newline < 0) return;
       socket.destroy();
-      resolve(JSON.parse(data.slice(0, newline)) as Record<string, unknown>);
+      const value: unknown = JSON.parse(data.slice(0, newline));
+      if (!isRecord(value)) {
+        reject(new Error("RPC response was not an object"));
+        return;
+      }
+      resolve(value);
     });
     socket.once("error", reject);
     socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));

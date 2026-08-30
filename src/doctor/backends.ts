@@ -19,7 +19,7 @@ function activeBackend(reports: readonly DoctorBackendReport[], configured?: str
     // An absent `enabled` means the backend never declared one, which reads as enabled.
     return (report.enabled ?? true) ? report : null;
   }
-  const live = reports.find((report) => report.roles.includes("paneInventory") && (report.detected ?? report.available) && report.insideSession && (report.enabled ?? true));
+  const live = reports.find((report) => report.roles.includes("paneInventory") && report.detected && report.insideSession && (report.enabled ?? true));
   if (live) return live;
   return reports.find((report) => !report.roles.includes("paneInventory") && (report.enabled ?? true)) ?? null;
 }
@@ -38,7 +38,7 @@ export function backendCapabilitiesVerdict(
   configured?: string | null,
 ): CheckResult {
   const active = activeBackend(backends, configured);
-  const unavailable = backends.filter((backend) => (backend.enabled ?? true) && !(backend.detected ?? backend.available)).map((backend) => backend.id);
+  const unavailable = backends.filter((backend) => (backend.enabled ?? true) && !backend.detected).map((backend) => backend.id);
 
   const failReasons: string[] = [];
   const warnReasons: string[] = [];
@@ -46,11 +46,11 @@ export function backendCapabilitiesVerdict(
   // headless reports insideSession=true unconditionally (it has no session
   // concept), so this rule needs no special case for it. An available active
   // backend outside its session is situational — warn, do not fail.
-  if (active && (active.detected ?? active.available) && !active.insideSession)
+  if (active && active.detected && !active.insideSession)
     warnReasons.push(`active backend ${active.id} is not inside a live session - open a ${active.id} workspace and re-run`);
 
   const rows = backends.map((backend) => {
-    const detected = backend.detected ?? backend.available;
+    const detected = backend.detected;
     const enabled = backend.enabled ?? true;
     const isActive = backend === active || backend.active === true;
     return `${backend.id}${isActive ? " (active)" : ""}: detected=${detected}, enabled=${enabled}, active=${isActive}, insideSession=${backend.insideSession}, roles=${backend.roles.join(",") || "none"}`;
@@ -120,15 +120,14 @@ export function describeBackendEnvironments(
   const enabled = new Set(enabledIds);
   const candidates = allBackends();
   const reports: DoctorBackendReport[] = candidates.map((backend) => {
-    const available = backend.isAvailable();
+    const detected = backend.isAvailable();
     const insideSession = backend.isInsideSession();
     const isEnabled = enabled.has(backend.id);
     return {
       id: backend.id,
-      detected: available,
+      detected,
       enabled: isEnabled,
       active: false,
-      available,
       insideSession,
       // The plexer's own grouping for the calling pane. Never read off an
       // identity: identity carries no environment (A1).

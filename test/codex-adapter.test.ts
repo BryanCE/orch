@@ -19,27 +19,17 @@ import {
 import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
-const ENV = [
-  "ORCH_AGENT_KEY", "ORCH_DIR", "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_PROJECT",
-  "ORCH_AGENT_NAME", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
-] satisfies readonly string[];
-let saved: Record<string, string | undefined> = {};
-
 beforeEach(() => {
-  saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+  isolateOrchEnv();
   // The parent is a plain test session. The one child that represents a
   // spawned Codex agent states its minted key in its explicit env object below.
-  for (const name of ENV) delete process.env[name];
 });
 
 afterEach(() => {
-  for (const name of ENV) {
-    const value = saved[name];
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
+  restoreOrchEnv();
 });
 
 afterAll(() => {
@@ -141,8 +131,12 @@ describe("CodexAdapter", () => {
       });
       expect(result.exitCode).toBe(0);
       const dir = path.join(orchDir, "agents", key);
-      const status: Record<string, unknown> = JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")) as Record<string, unknown>;
-      const savedResult: Record<string, unknown> = JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8")) as Record<string, unknown>;
+      const statusValue: unknown = JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8"));
+      const resultValue: unknown = JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"));
+      if (typeof statusValue !== "object" || statusValue === null || Array.isArray(statusValue)) throw new Error("invalid status JSON");
+      if (typeof resultValue !== "object" || resultValue === null || Array.isArray(resultValue)) throw new Error("invalid result JSON");
+      const status: Record<string, unknown> = statusValue;
+      const savedResult: Record<string, unknown> = resultValue;
       expect(status).toMatchObject({ schema: PRESENCE_SCHEMA, state: "done", lastText: "finished" });
       expect(savedResult).toMatchObject({ schema: PRESENCE_SCHEMA, text: "finished" });
       expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-")).length).toBe(0);

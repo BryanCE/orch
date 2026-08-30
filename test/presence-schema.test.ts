@@ -8,6 +8,7 @@ import { mintAgentId, parseIdentity } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { isRecord } from "../src/util.ts";
 
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));
 const storePath = path.join(import.meta.dir, "../src/presence/store.ts");
@@ -18,6 +19,25 @@ interface PresenceStatus {
   agent?: string;
   pid?: number;
   state?: string;
+}
+
+function isPresenceStatus(value: unknown): value is PresenceStatus {
+  if (!isRecord(value)) return false;
+  return (value.schema === undefined || typeof value.schema === "number")
+    && (value.key === undefined || typeof value.key === "string")
+    && (value.agent === undefined || typeof value.agent === "string")
+    && (value.pid === undefined || typeof value.pid === "number")
+    && (value.state === undefined || typeof value.state === "string");
+}
+
+function parsePresenceStatuses(value: unknown): Record<string, PresenceStatus> {
+  if (!isRecord(value)) throw new Error("presence statuses are not an object");
+  const statuses: Record<string, PresenceStatus> = {};
+  for (const [key, status] of Object.entries(value)) {
+    if (!isPresenceStatus(status)) throw new Error(`invalid status ${key}`);
+    statuses[key] = status;
+  }
+  return statuses;
 }
 
 /** The live status view: every presence dir the store enumerates, minus the ones
@@ -40,7 +60,7 @@ function readStatuses(): Record<string, PresenceStatus> {
     stderr: "pipe",
   });
   if (!ran.success) throw new Error(`presence read failed: ${ran.stderr.toString()}`);
-  return JSON.parse(ran.stdout.toString()) as Record<string, PresenceStatus>;
+  return parsePresenceStatuses(JSON.parse(ran.stdout.toString()));
 }
 
 function writeStatus(key: string, status: object): void {
@@ -78,8 +98,8 @@ describe("presence status schema", () => {
     process.env.ORCH_DIR = orchDir;
 
     expect(readStatuses()).toEqual(expect.objectContaining({
-      [key]: expect.objectContaining({ key, agent: "pi" }) as PresenceStatus,
-    }) as Record<string, PresenceStatus>);
+      [key]: expect.objectContaining({ key, agent: "pi" }),
+    }));
     expect(parseIdentity(key)).toEqual({ id: key });
   });
 

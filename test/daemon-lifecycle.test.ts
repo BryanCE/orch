@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { isRecord } from "../src/util.ts";
 import {
   acquireDaemonLock,
   acquireDaemonRegistration,
@@ -24,6 +25,21 @@ interface LockData {
   startToken?: string;
 }
 
+function readLockData(path: string): LockData {
+  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!isRecord(value)) throw new Error("lock is not an object");
+  if (value.pid !== undefined && typeof value.pid !== "number") throw new Error("lock pid is invalid");
+  if (value.codeHash !== undefined && typeof value.codeHash !== "string") throw new Error("lock codeHash is invalid");
+  if (value.startedAt !== undefined && typeof value.startedAt !== "string") throw new Error("lock startedAt is invalid");
+  if (value.startToken !== undefined && typeof value.startToken !== "string") throw new Error("lock startToken is invalid");
+  return {
+    pid: value.pid,
+    codeHash: value.codeHash,
+    startedAt: value.startedAt,
+    startToken: value.startToken,
+  };
+}
+
 const tempDirs: string[] = [];
 
 function makeOrchDir(): string {
@@ -43,7 +59,7 @@ describe("daemon lifecycle", () => {
     expect(acquireDaemonLock(orchDir, () => false)).toBe(true);
     expect(acquireDaemonLock(orchDir, () => false)).toBe(false);
 
-    const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8")) as LockData;
+    const lock = readLockData(join(orchDir, "orchd.lock"));
     expect(lock.pid).toBe(process.pid);
     expect(typeof lock.codeHash).toBe("string");
     expect(typeof lock.startedAt).toBe("string");
@@ -160,7 +176,7 @@ describe("daemon lifecycle", () => {
   test("rejects a recycled pid identity", () => {
     const orchDir = makeOrchDir();
     expect(acquireDaemonLock(orchDir)).toBe(true);
-    const lock = JSON.parse(readFileSync(join(orchDir, "orchd.lock"), "utf8")) as LockData;
+    const lock = readLockData(join(orchDir, "orchd.lock"));
     lock.startToken = "not-the-current-process";
     writeFileSync(join(orchDir, "orchd.lock"), JSON.stringify(lock));
 

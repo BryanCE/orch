@@ -5,7 +5,7 @@ import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { loadPresence, readJSON, statusForPresence } from "../presence/store.ts";
 import { errnoCode, isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
-import { extensionBundlePath, EXTENSION_NAMES, RETIRED_EXTENSION_NAMES } from "../extensions/bundles.ts";
+import { extensionBundlePath, EXTENSION_NAMES } from "../extensions/bundles.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
 import { appendInbox } from "../presence/inbox.ts";
@@ -323,12 +323,6 @@ export function installExtensionLink(
   try { bundleAvailable = fs.statSync(bundle).isFile(); } catch { /* diagnosis below names the user build fix */ }
   if (!bundleAvailable) {
     throw new Error(`missing/stale shipped extension bundle: ${bundle}; fix: run the user's build: bun run build:dev`);
-  }
-  // Raw .ts links from older installs resolve ../src against the symlink location
-  // and break the harness at launch; only the bundle may be linked.
-  fs.rmSync(path.join(extensionDir, `${extension}.ts`), { force: true });
-  for (const retired of RETIRED_EXTENSION_NAMES) {
-    for (const suffix of EXTENSION_SUFFIXES) fs.rmSync(path.join(extensionDir, `${retired}${suffix}`), { force: true });
   }
   const destination = path.join(extensionDir, `${extension}.js`);
   fs.mkdirSync(extensionDir, { recursive: true });

@@ -85,14 +85,14 @@ export function createBuiltinNotifiers(): Notifier[] {
       label: "Desktop",
       metadata: { description: "Desktop notifications with WSL fallback", requiredConfig: [] },
       available: () => desktopAvailable(),
-      deliver: (event) => deliverDesktop(event),
+      deliver: (event, _config) => deliverDesktop(event),
     },
     {
       id: "webhook",
       label: "Webhook",
       metadata: { description: "HTTP POST notification", requiredConfig: [{ name: "url", label: "Webhook URL" }] },
       available: (config) => typeof fetch === "function" && (config?.url === undefined || (typeof config?.url === "string" && config.url.length > 0)),
-      deliver: async (event, config = {}) => {
+      deliver: async (event, config) => {
         if (typeof config.url !== "string" || !config.url) return false;
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
@@ -114,7 +114,7 @@ export function createBuiltinNotifiers(): Notifier[] {
       label: "Command",
       metadata: { description: "Run a command with canonical JSON on stdin", requiredConfig: [{ name: "command", label: "Command" }] },
       available: (config) => config?.command === undefined ? commandOnPath("sh") : commandAvailable(config),
-      deliver: (event, config = {}) => {
+      deliver: (event, config) => {
         const command = stringArray(config.command);
         return command?.length ? run(command, payload(event)) : Promise.resolve(false);
       },

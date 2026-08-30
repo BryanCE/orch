@@ -8,6 +8,7 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtime.ts";
 import { binaryOnPath, isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { readJsonRecord } from "./helpers/json.ts";
 
 const shim = claudeHookShimPath(process.cwd());
 const shimBuilt = fs.existsSync(shim);
@@ -93,7 +94,7 @@ describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
 
       expect(result.status).toBe(0);
       const statusFile = path.join(orchDir, "agents", key, "status.json");
-      const status = JSON.parse(fs.readFileSync(statusFile, "utf8")) as Record<string, unknown>;
+      const status = readJsonRecord(statusFile);
       expect(status.key).toBe(key);
       expect(status.state).toBe("working");
     }, 30_000);

@@ -37,14 +37,13 @@ function end(dir: string, id: string, at: number): void {
   orm(dir).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${id},${at},${null})`);
 }
 
-/** Every window at zero so nothing survives the sweep by luck. */
-function retention(): OrchConfig {
-  // sweepExpiredRows currently accepts the full OrchConfig although this fixture
-  // intentionally supplies only the retention and queue sections it reads.
+/** Every window at zero so nothing survives the sweep by luck. The fixture is
+ *  COMPLETE for what it is typed as: `sweepExpiredRows` takes the retention
+ *  section, so that section is the whole value and there is nothing to cast past. */
+function retention(): Pick<OrchConfig, "retention"> {
   return {
     retention: { ended_agents_days: 0, queue_days: 0, events_days: 0, runs_days: 0, outbox_days: 0, logs_days: 0 },
-    queue: { max_retries: 1 },
-  } as OrchConfig;
+  };
 }
 
 const FAR_FUTURE = new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000);

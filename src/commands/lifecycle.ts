@@ -585,10 +585,11 @@ function recordedProcess(key: string): RecordedProcess | null {
 
 /** Whether the recorded process instance is still present after a close attempt. */
 function recordedProcessRemains(recorded: RecordedProcess): boolean {
-  if (typeof recorded.startToken !== "string") return processIsAlive(recorded.pid);
+  const startToken = recorded.startToken;
+  if (typeof startToken !== "string") return processIsAlive(recorded.pid);
   const exited = retryingSync(
     "await closed process",
-    () => !processInstanceMatches(recorded.pid, recorded.startToken),
+    () => !processInstanceMatches(recorded.pid, startToken),
     { attempts: 40, delayMs: 50, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },
   );
@@ -615,7 +616,8 @@ function endClosedAgent(key: string): void {
 /** One target's result from a multi-target close, with the reason it failed. */
 interface CloseOutcome {
   readonly target: string;
-  readonly handle: string;
+  /** Diagnostic environment coordinate, null when the pane interval is closed. */
+  readonly handle: string | null;
   readonly outcome: "done" | "error";
   readonly error: string | null;
 }
@@ -623,21 +625,25 @@ interface CloseOutcome {
 /** Whether the ENVIRONMENT still lists this handle (U1). A plexer with no
  *  inventory, or one this process is not inside a session of, was not asked and
  *  says nothing either way, so the recorded handle stands. */
-function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boolean {
+function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boolean | null {
   const inventory = backend?.paneInventory;
-  if (!inventory || backend?.isInsideSession() !== true) return true;
+  // No inventory, or no session to ask, is UNKNOWN — never evidence that a
+  // handle exists. A missing handle is dealt with by the caller and never
+  // reaches this function.
+  if (!inventory || backend?.isInsideSession() !== true) return null;
   try {
     return inventory.list().some((entry) => String(entry.handle) === String(handle));
   } catch {
     // A plexer that cannot answer has not said the pane is gone.
-    return true;
+    return null;
   }
 }
 
 /** One agent a close was asked to end, with everything needed to end it. */
 interface CloseTarget {
   readonly backend: Backend | null;
-  readonly handle: BackendHandle;
+  /** The current environment handle, or null when the pane interval is closed. */
+  readonly handle: BackendHandle | null;
   readonly key: string;
   readonly recorded: RecordedProcess | null;
   /** Whether a pane operation is meaningful here — false when the plexer no
@@ -666,8 +672,14 @@ function sweepTargets(authority: CloseAuthority): CloseTarget[] {
       lifecycleLogger(address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
       process.stdout.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
     }
-    const handle = view.environment.handle ?? address;
-    targets.push({ backend, handle, key: address, recorded: recordedProcess(address), paneKnown: plexerStillHasPane(backend, handle) });
+    const handle = view.environment.handle;
+    const paneState = handle === null ? false : plexerStillHasPane(backend, handle);
+    targets.push({
+      backend, handle, key: address, recorded: recordedProcess(address),
+      // Unknown inventory still permits a real recorded handle to be handed to
+      // the plexer; a null handle is never replaced with the agent id.
+      paneKnown: handle !== null && paneState !== false,
+    });
   }
   return targets;
 }
@@ -683,14 +695,17 @@ function namedTargets(positional: readonly string[], authority: CloseAuthority):
     // an agent reaches only its own provenance subtree.
     const refusal = refuseClose(orchDir(), authority, resolved.key);
     if (refusal !== null) die(refusal);
+    // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
+    // Close may hand only the environment's actual pane handle to paneHost.
+    const handle = resolved.view !== null ? resolved.view.environment.handle : resolved.entity.paneId;
     return {
       backend: resolved.backend,
-      handle: resolved.handle,
+      handle,
       key: resolved.key,
       recorded: recordedProcess(resolved.key),
       // A pane-capable backend's stale registry row may outlive its pane. Do
       // not invoke a provider with an opaque identity handle in that case.
-      paneKnown: resolved.entity.paneId !== null || resolved.backend.paneInventory === null,
+      paneKnown: handle !== null && (resolved.backend.paneInventory === null || resolved.entity.paneId !== null),
     };
   });
 }
@@ -721,16 +736,24 @@ function closeByPane(paneHost: PaneHostRole, handle: BackendHandle): CloseAttemp
     paneHost.close(handle);
     return { failure: null, signalled: false, closedByBackend: true };
   } catch (error: unknown) {
-    return { failure: errorMessage(error), signalled: false, closedByBackend: false };
+    // A pane that is already gone is the desired end state, not a close error.
+    const message = errorMessage(error);
+    if (message.includes("pane_not_found")) {
+      return { failure: null, signalled: false, closedByBackend: true };
+    }
+    return { failure: message, signalled: false, closedByBackend: false };
   }
 }
 
 /** A plexer's successful close is not proof: verify the handle is really gone
  *  after EVERY close attempt, a process kill included. */
 function stillListed(target: CloseTarget): string | null {
+  // An inventory that cannot see this session is UNKNOWN, so it cannot prove
+  // that a successfully closed handle remains present.
+  if (target.handle === null || !target.backend?.paneInventory || target.backend.isInsideSession() !== true) return null;
   try {
-    const listed = target.backend?.paneInventory?.list()
-      ?.some((entry) => String(entry.handle) === String(target.handle));
+    const listed = target.backend.paneInventory.list()
+      .some((entry) => String(entry.handle) === String(target.handle));
     return listed === true
       ? `${String(target.handle)} is still listed by ${target.backend?.id ?? "the plexer"} after the close`
       : null;
@@ -763,10 +786,12 @@ function closeRoute(target: CloseTarget, paneHost: PaneHostRole | null): CloseRo
   return { kind: "none" };
 }
 
-function takeRoute(route: CloseRoute, handle: BackendHandle): CloseAttempt {
+function takeRoute(route: CloseRoute, handle: BackendHandle | null): CloseAttempt {
   switch (route.kind) {
     case "process": return closeByProcess(route.recorded);
-    case "pane": return closeByPane(route.paneHost, handle);
+    case "pane": return handle === null
+      ? { failure: "pane route had no environment handle", signalled: false, closedByBackend: false }
+      : closeByPane(route.paneHost, handle);
     case "untokenized": return {
       failure: `process ${route.pid} is live but carries no start token, so orch cannot prove it is this agent`,
       signalled: false, closedByBackend: false,
@@ -778,7 +803,7 @@ function takeRoute(route: CloseRoute, handle: BackendHandle): CloseAttempt {
 /** End one agent by the strongest means available, and say what happened. */
 function attemptClose(target: CloseTarget): CloseAttempt {
   const paneHost = target.backend?.paneHost ?? null;
-  const paneCapable = target.paneKnown && paneHost !== null;
+  const paneCapable = target.paneKnown && paneHost !== null && target.handle !== null;
   const attempt = takeRoute(closeRoute(target, paneHost), target.handle);
   if (attempt.failure !== null || !paneCapable) return attempt;
   const lingering = stillListed(target);
@@ -810,18 +835,18 @@ function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { resu
   for (const target of targets) {
     if (seen.has(target.key)) continue;
     seen.add(target.key);
-    const handle = String(target.handle);
+    const handle = target.handle === null ? null : String(target.handle);
     const { failure, signalled, closedByBackend } = attemptClose(target);
     if (failure !== null) {
       lifecycleLogger(target.key).error("close.failed", { handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
-      process.stdout.write(`Could not close ${handle}: ${failure}\n`);
+      process.stdout.write(`Could not close ${target.key}: ${failure}\n`);
       continue;
     }
     endClosedAgent(target.key);
-    closed.push(handle);
+    closed.push(target.key);
     results.push({ target: target.key, handle, outcome: "done", error: null });
-    if (!json) process.stdout.write(`Closed ${handle}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
+    if (!json) process.stdout.write(`Closed ${target.key}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
   }
   return { results, closed, ok: closed.length };
 }

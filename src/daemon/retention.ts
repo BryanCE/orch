@@ -1,5 +1,4 @@
 import { loadPresence, reapDeadPresenceDirs, reapSpawnedRecord } from "../presence/store.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
 import { allBackends } from "../backends/registry.ts";
 import { errorMessage } from "../util.ts";
 import { decisionLogger } from "./decision-log.ts";
@@ -60,7 +59,7 @@ function removeExpiredAgentDirs(orchDir: string, cutoff: Date): number {
   // The registry row and presence directory represent one logical agent. Count
   // their union so removing both does not inflate the retention metric.
   const dirsRemovedOnly = result.removed.filter((entry) => {
-    const agentId = tryParseIdentity(entry.key)?.id ?? entry.key;
+    const agentId = entry.key;
     return !recordsRemoved.ids.has(agentId);
   }).length;
   return recordsRemoved.count + dirsRemovedOnly;
@@ -98,8 +97,15 @@ function removeExpiredLogs(orchDir: string, cutoff: Date): number {
 
 /** Remove rows and disk artifacts outside each configured retention window.
  * Each entry is independent: one broken table or filesystem sweep never stops
- * the remaining entries. */
-export function sweepExpiredRows(orchDir: string, config: OrchConfig, now: Date): SweepCounts {
+ * the remaining entries.
+ *
+ * Takes the retention section rather than the whole config because that is all it
+ * reads. A parameter wider than its use is not free: it forced every caller that
+ * is not the daemon - each retention test - to build a whole OrchConfig it had no
+ * opinion about, and the shortcut for that was `{...} as OrchConfig`, which Rule 13
+ * forbids. Rule 13's own remedy for a cast is "a wrong signature gets its signature
+ * fixed", and this was the wrong signature. */
+export function sweepExpiredRows(orchDir: string, config: Pick<OrchConfig, "retention">, now: Date): SweepCounts {
   const counts: SweepCounts = { queue: 0, outbox: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 };
   const cutoff = (days: number): Date => new Date(now.getTime() - days * DAY_MS);
   const entries: SweepEntry[] = [

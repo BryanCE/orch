@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -13,6 +13,7 @@ import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { readJsonRecord } from "./helpers/json.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;
@@ -37,7 +38,7 @@ function runHook(event: string, input: Record<string, unknown> = {}): Record<str
       input: JSON.stringify(input),
       encoding: "utf8",
     });
-    return JSON.parse(readFileSync(join(hookOrchDir, "agents", fakeKey, "status.json"), "utf8")) as Record<string, unknown>;
+    return readJsonRecord(join(hookOrchDir, "agents", fakeKey, "status.json"));
   } finally {
     removeTempDir(hookOrchDir);
   }

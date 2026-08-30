@@ -271,15 +271,10 @@ function isHostOs(value: unknown): value is HostOs {
 }
 
 /** B9: the OS side is the CALLER's, not the daemon's. A daemon that answers with
- *  its own platform mislabels every session on the other side of a WSL boundary.
- *  Falling back to this process only covers a caller too old to state one. */
+ *  its own platform mislabels every session on the other side of a WSL boundary. */
 function claimedHostOs(claim: Readonly<Record<string, unknown>>): HostOs {
-  if (isHostOs(claim.hostOs)) return claim.hostOs;
-  try {
-    return currentHostOs();
-  } catch (error: unknown) {
-    throw new RpcError("IDENTITY_UNAVAILABLE", `hello cannot register this host: ${errorMessage(error)}`);
-  }
+  if (!isHostOs(claim.hostOs)) throw new RpcError("IDENTITY_UNAVAILABLE", "hello requires the caller's host OS");
+  return claim.hostOs;
 }
 
 

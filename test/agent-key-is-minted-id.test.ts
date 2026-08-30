@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { mkdtempSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,11 +12,12 @@ import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
+import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
 import { sql } from "drizzle-orm";
 
@@ -43,8 +46,10 @@ const DEAD_PID = 2147483646;
 
 const directories: string[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
-const originalAgentKey = process.env.ORCH_AGENT_KEY;
+const originalAgentKey = process.env[LAUNCH_ENV];
 const originalSessionKey = process.env.ORCH_SESSION_KEY;
+const originalHarnessMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
+const originalSessionId = process.env[HARNESS_SESSION_ENV.pi.sessionId];
 
 function tempOrchDir(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-a1-ripple-"));
@@ -57,10 +62,14 @@ afterEach(() => {
   closeAllStores();
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  if (originalAgentKey === undefined) delete process.env.ORCH_AGENT_KEY;
-  else process.env.ORCH_AGENT_KEY = originalAgentKey;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
   if (originalSessionKey === undefined) delete process.env.ORCH_SESSION_KEY;
   else process.env.ORCH_SESSION_KEY = originalSessionKey;
+  if (originalHarnessMarker === undefined) delete process.env[HARNESS_SESSION_ENV.pi.marker];
+  else process.env[HARNESS_SESSION_ENV.pi.marker] = originalHarnessMarker;
+  if (originalSessionId === undefined) delete process.env[HARNESS_SESSION_ENV.pi.sessionId];
+  else process.env[HARNESS_SESSION_ENV.pi.sessionId] = originalSessionId;
   while (directories.length > 0) removeTempDir(directories.pop()!);
 });
 
@@ -96,10 +105,11 @@ function presenceFor() {
   });
 }
 
+// Malformed launch credentials exit by design; test/identity-launch.test.ts covers that wiring error.
 describe("a driving session mints an id, it is not placed by name", () => {
   test("the key an interactive session addresses itself by is a bare minted id", () => {
     tempOrchDir();
-    delete process.env.ORCH_AGENT_KEY;
+    delete process.env[LAUNCH_ENV];
     const presence = presenceFor();
     presence.initPresence(true);
     const key = presence.keyOrCompute(true);
@@ -116,7 +126,7 @@ describe("a driving session mints an id, it is not placed by name", () => {
 
   test("the presence directory is named by that id alone", () => {
     tempOrchDir();
-    delete process.env.ORCH_AGENT_KEY;
+    delete process.env[LAUNCH_ENV];
     const presence = presenceFor();
     presence.initPresence(true);
     const directory = presence.dir();
@@ -125,23 +135,10 @@ describe("a driving session mints an id, it is not placed by name", () => {
     expect(isAgentId(basename(directory ?? ""))).toBe(true);
   });
 
-  test("a launch that handed over a composite key handed over no identity", () => {
-    tempOrchDir();
-    process.env.ORCH_AGENT_KEY = COMPOSITE_KEY;
-    const presence = presenceFor();
-    presence.initPresence(false);
-    const directory = presence.dir();
-    presence.stopPresence();
-    // Zero back-compat: the composite is not an old spelling of a key, it is not
-    // a key. Writing presence under it would recreate the very directory names
-    // this change exists to delete.
-    expect(directory).toBeUndefined();
-  });
-
   test("a launch that handed over a minted id is used verbatim", () => {
     tempOrchDir();
     const id = mintAgentId();
-    process.env.ORCH_AGENT_KEY = id;
+    process.env[LAUNCH_ENV] = id;
     const presence = presenceFor();
     presence.initPresence(false);
     const directory = presence.dir();
@@ -154,17 +151,10 @@ describe("this process's own identity is the id and nothing else", () => {
   test("a spawned agent answers with the id its launch handed it", () => {
     tempOrchDir();
     const id = mintAgentId();
-    process.env.ORCH_AGENT_KEY = id;
+    process.env[LAUNCH_ENV] = id;
     expect(selfIdentity()).toEqual({ id });
   });
 
-  test("a composite key never yields an identity, whole or in pieces", () => {
-    tempOrchDir();
-    process.env.ORCH_AGENT_KEY = COMPOSITE_KEY;
-    const self = selfIdentity();
-    expect(self?.id).not.toBe(COMPOSITE_KEY);
-    expect(self?.id).not.toBe("7x5hd4h610");
-  });
 });
 
 describe("the fleet wall is lifted by the absence of a launch, not by a key's shape", () => {
@@ -185,21 +175,17 @@ describe("the fleet wall is lifted by the absence of a launch, not by a key's sh
 
   test("an agent orch launched may not cross into another project's fleet", () => {
     const ownKey = mintAgentId();
-    twoProjects(ownKey);
-    process.env.ORCH_AGENT_KEY = ownKey;
+    const directory = twoProjects(ownKey);
+    const sessionToken = "agent-key-session";
+    seedAgent("rootagent1", { adapter: "pi" }, directory);
+    seedAgent(ownKey, { adapter: "pi", spawnedBy: "rootagent1" }, directory);
+    expect(claimAgent(directory, ownKey, sessionToken, 1)).toEqual({ kind: "stamped" });
+    process.env[LAUNCH_ENV] = ownKey;
+    process.env[HARNESS_SESSION_ENV.pi.marker] = "1";
+    process.env[HARNESS_SESSION_ENV.pi.sessionId] = sessionToken;
     expect(peerSummaries(ownKey, true)).toEqual([]);
   });
 
-  test("a malformed launch key walls the caller in, it does not free them", () => {
-    // The wall asked whether the key PARSED, so a key it could not parse read as
-    // "no launch happened" — a human's own session — and widened a worker's
-    // reach across every fleet. Whether orch launched this process is provenance;
-    // it is never decided by picking a key apart.
-    const ownKey = mintAgentId();
-    twoProjects(ownKey);
-    process.env.ORCH_AGENT_KEY = COMPOSITE_KEY;
-    expect(peerSummaries(ownKey, true)).toEqual([]);
-  });
 });
 
 describe("who drives an agent is looked up by its id", () => {

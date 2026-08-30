@@ -128,6 +128,9 @@ Specific deletions:
   same process lineage is a **collision**, recorded, never silent.
 - `callerKind()` (T2) then answers from the claim, not from the variable's presence.
 - No version bump (Rule 14). `insertAgent` and every fixture gain the column in one change.
+- `claimed_at` and `session_token` are new columns on `agents`, so this task lands in the
+  same wave as T1/T2 and the wave's first handoff is `bun db:gen` (Rule #1, Bryan runs it).
+  Holding the column back would leave T3 with nothing to write.
 
 The second claimant is told apart by the harness session token recorded at first contact;
 `claimAgent(id, sessionToken, now)` is the one writer (§5).
@@ -214,3 +217,18 @@ already specifies for `hello`. A second claim whose token differs from the recor
   column from either path.
 
 T3 in §3 is unblocked by this section; invariant 5 in §4 gets its enforcement when T3 lands.
+
+## 6. Wave plan
+
+One wave, four agents, `luna:high`, one tab. Slices are disjoint by file so nothing merges.
+
+| agent | slice | files | blocks on |
+| --- | --- | --- | --- |
+| A | T1 one reader + T4 rename + invariant 1/2 check in `check-bridge.ts` | `src/identity/launch.ts` (new), `identity/self.ts`, `presence/writer.ts`, `adapters/session-env.ts`, `adapters/claude-hooks.ts`, `scripts/check-bridge.ts`, `test/helpers/presence.ts`, every test setting the env literal | nothing |
+| B | T2 `callerKind()` + `callerAuthority(SelfIdentity)` + T5 comment cleanup + `02` T4 fleet wall | `policy/caller.ts` (new), `policy/close-authority.ts`, `agent/peers.ts`, `agent/monitor.ts`, `store/connection.ts`, `commands/target.ts`, `commands/lifecycle.ts`, `daemon/rpc.ts`, `extensions/claude/index.ts`, `extensions/codex/index.ts` | A's `launchCredential()` export name (agreed up front: `launchCredential`, `LAUNCH_ENV`) |
+| C | T3 claim: schema columns `claimed_at`, `session_token` on `agents`; `claimAgent()` in `store/agent-rows.ts`; `hello` stamps it; presence writer refuses an unclaimed id when a daemon is reachable; collision event; `doctor` "never claimed" | `src/db/schema.ts`, `store/agent-rows.ts`, `daemon/rpc.ts` (hello only), `presence/writer.ts` (claim gate only), `doctor/` | Bryan runs `bun db:gen` after C edits the schema, BEFORE C's tests can pass |
+| D | `02` T3 worker prompt follows `fleet.max_depth`, T7 settings editor row + tests, T8 refusal names `orch settings`, T9 kill `?? 10` and sweep `src/` for `?? <literal>` on settings reads | `worker-prompt.ts`, `types/core.ts`, `commands/spawn.ts`, `commands/control.ts`, `commands/lifecycle.ts` (compose sites only), `test/settings-registry.test.ts`, `test/worker-prompt.test.ts` | nothing |
+
+`daemon/rpc.ts` and `presence/writer.ts` appear in two slices; the split is by function (B touches `rpc.ts:831` caller-kind only, C touches `hello` only; A deletes `launchKey`, C adds the claim gate). Named in the dispatch so neither agent widens.
+
+Handoffs to Bryan, in order: `bun db:gen` (after C's schema edit), then the two gate commands from Rule 0.

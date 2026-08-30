@@ -80,11 +80,25 @@ describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
       expect(result.stderr).toBe("");
     }, 30_000);
 
+    // "Loudly" means RECORDED, not stderr. TASKS/13-logging.md slice 4 (pinned by
+    // test/no-stderr-writes.test.ts) allows a runtime source exactly two channels:
+    // a structured log record for diagnosis, and stdout for what the human asked to
+    // see. A wiring error is diagnosis, so it lands in orch.log — asserting it on
+    // stderr demanded the one channel the architecture forbids, and the two tests
+    // could never be green together.
     test("exits 1 loudly on a present-but-malformed key", () => {
-      const result = runShim(runtime, "Stop", { ORCH_AGENT_KEY: "garbage", ORCH_DIR: tempOrchDir() });
+      const directory = tempOrchDir();
+      const result = runShim(runtime, "Stop", { ORCH_AGENT_KEY: "garbage", ORCH_DIR: directory });
 
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("identity");
+      // Nothing on either output channel: a hook that a harness runs must not print
+      // over the harness's own protocol.
+      expect(result.stderr).toBe("");
+      // The reason is in the log, named and structured, so `orch doctor` and a human
+      // reading orch.log both find it.
+      const log = fs.readFileSync(path.join(directory, "orch.log"), "utf8");
+      expect(log).toContain("launch.invalid-key");
+      expect(log).toContain("identity");
     }, 30_000);
 
     test("writes status.json for a valid key", () => {

@@ -86,10 +86,13 @@ describe("command space fields", () => {
     process.env.ORCH_DIR = orchDir;
 
     const entities: Entity[] = buildEntities();
-    const expected: Partial<Entity>[] = [
-      expect.objectContaining({ key, agent: "pi", space: "reported-space" }),
-      expect.objectContaining({ key: claudeKey, agent: "claude", space: "reported-claude" }),
-    ];
-    expect(entities).toEqual(expect.arrayContaining(expected));
+    const piEntity = entities.find((entity) => entity.key === key);
+    const claudeEntity = entities.find((entity) => entity.key === claudeKey);
+    expect(piEntity?.key).toBe(key);
+    expect(piEntity?.agent).toBe("pi");
+    expect(piEntity?.space).toBe("reported-space");
+    expect(claudeEntity?.key).toBe(claudeKey);
+    expect(claudeEntity?.agent).toBe("claude");
+    expect(claudeEntity?.space).toBe("reported-claude");
   }, 30_000);
 });

@@ -13,7 +13,7 @@ beforeEach(() => {
   stdout = "";
   cleanedKeys = [];
   process.exitCode = undefined;
-  const originalOut = process.stdout.write;
+  const originalOut = process.stdout.write.bind(process.stdout);
   function capture(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;
   function capture(chunk: string | Uint8Array, _encoding: BufferEncoding, _callback?: (error: Error | null | undefined) => void): boolean;
   function capture(chunk: string | Uint8Array): boolean {

@@ -65,6 +65,7 @@ function completeSettings(): Record<string, unknown> {
     fleet: {
       spawn_cap: 3,
       pack_cap: 4,
+      max_depth: 2,
       max_agents: 5,
       space_caps: { main: 2 },
       worker_peer_tools: true,

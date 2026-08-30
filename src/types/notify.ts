@@ -72,7 +72,7 @@ export interface NotifierChoice {
   label: string;
   available: boolean;
   remediation: string;
-  requiredFields: NotifierConfigField[];
+  requiredFields: readonly NotifierConfigField[];
 }
 
 /** The transport a delivery needs, injected so the retry loop is testable without

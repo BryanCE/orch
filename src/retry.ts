@@ -25,7 +25,7 @@ function sleepBlocking(ms: number): void {
 /** Reattempt an asynchronous operation until it succeeds or the policy runs out, then throw. */
 export async function retryingAsync<T>(
   label: string,
-  operation: () => Promise<T>,
+  operation: () => T | Promise<T>,
   policy: RetryPolicy = DEFAULT_RETRY,
   options: RetryOptions<T> = {},
 ): Promise<T> {

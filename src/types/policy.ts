@@ -64,6 +64,13 @@ export interface WorkerPolicy {
   readonly allowTools: readonly string[];
 }
 
+/** The two provenance facts a walk reads; `AgentView` satisfies it structurally. */
+export interface ProvenanceNode {
+  readonly spawnedBy: string | null;
+}
+/** Resolve one agent's provenance facts, or nothing when the id is unknown. */
+export type ProvenanceLookup = (id: string) => ProvenanceNode | null | undefined;
+
 export type CloseAuthority =
   | { readonly kind: "human" }
   | { readonly kind: "agent"; readonly agentId: string };

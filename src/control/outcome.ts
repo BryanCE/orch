@@ -73,7 +73,7 @@ export async function awaitControlOutcome(dir: string, id: string, timeoutMs: nu
   const deadline = Date.now() + timeoutMs;
   await retryingAsync(
     `await control outcome ${id}`,
-    async () => {
+    () => {
       const outcome = readOutcome(dir, id);
       if (outcome?.success) return outcome;
       if (outcome) throw new Error(outcome.error ?? "agent refused the control command");

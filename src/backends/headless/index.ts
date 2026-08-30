@@ -42,6 +42,15 @@ function logFileName(key: string): string {
   return join(`${headlessLogKey(key)}.log`);
 }
 
+function makeHeadlessHandle(pid: number, key: string, alive?: boolean): HeadlessHandle {
+  const handle: HeadlessHandle = {
+    kind: "headless", pid, key, ...(alive === undefined ? {} : { alive }), toString: () => `${pid}:${key}`,
+  };
+  Object.defineProperty(handle, "kind", { enumerable: false });
+  Object.defineProperty(handle, "toString", { enumerable: false });
+  return handle;
+}
+
 function parseHeadlessHandle(value: unknown): HeadlessHandle | undefined {
   if (typeof value !== "string") return undefined;
   let parsed: unknown;
@@ -53,7 +62,7 @@ function parseHeadlessHandle(value: unknown): HeadlessHandle | undefined {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
   const pid: unknown = Reflect.get(parsed, "pid");
   const key: unknown = Reflect.get(parsed, "key");
-  return typeof pid === "number" && Number.isInteger(pid) && safeKey(key) ? { pid, key } : undefined;
+  return typeof pid === "number" && Number.isInteger(pid) && safeKey(key) ? makeHeadlessHandle(pid, key) : undefined;
 }
 
 /**
@@ -193,7 +202,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
-    const handle: HeadlessHandle = { pid, key };
+    const handle = makeHeadlessHandle(pid, key);
     const worktreePath = opts.env?.ORCH_AGENT_WORKTREE;
     const worktreeBranch = opts.env?.ORCH_AGENT_BRANCH;
     const now = Date.now();
@@ -221,7 +230,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
    *  `handleLookup` is the one public address for this (2.2). */
   private liveHandles(): HeadlessHandle[] {
     const directory = orchDirectory();
-    return headlessHandles(directory).map((handle) => ({ ...handle, alive: this.isPidAlive(handle.pid) }));
+    return headlessHandles(directory).map((handle) => makeHeadlessHandle(handle.pid, handle.key, this.isPidAlive(handle.pid)));
   }
 
   /** Remove old headless logs, retaining every log belonging to a live presence. */

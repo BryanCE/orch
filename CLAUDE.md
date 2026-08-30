@@ -1,5 +1,18 @@
 # CLAUDE.md — working rules for this repo (NON-NEGOTIABLE)
 
+## RULE #0 — ☢️ EVERY FILE EDIT GOES THROUGH THE Edit/Write TOOL. NO HIDDEN SHELL EDITS. EVER. ☢️
+Bryan must SEE every change as a diff. You are NOT ALLOWED to modify any file in this repo
+from a shell: no `sed -i`, no `perl -i`, no `python3 - <<EOF` / `python -c` doing
+`str.replace` + `open().write()`, no `node -e`, no `cat > file <<EOF`, no `tee`, no
+`echo … > file`, no heredoc redirection, no script that rewrites files. Not for "one-line"
+fixes, not for "mechanical" fixture sweeps, not for docs, not for tests, not for TASKS/.
+**Use the Edit tool (or Write for a new file).** A hook (`.claude/hooks/no-shell-edits.sh`,
+also installed machine-wide in `~/.claude/settings.json`) denies these shapes; if it fires,
+re-do the change with Edit — never look for a shape that slips past it.
+The ONLY shell writes allowed are to the session scratchpad (`/tmp/claude-*`).
+**Why:** 2026-08-30 — a session rewrote nine source/test/TASKS files through python
+heredocs in one Bash call; Bryan could not see a single change and had to stop the work.
+
 ## RULE #1 — ☢️ NEVER BUILD. NEVER MIGRATE. NEVER GENERATE. ASK BRYAN. ☢️
 You are NOT ALLOWED to run ANYTHING that builds, installs, migrates, generates, resets, or
 reloads. Not directly, not through a worker, not through a subagent, not through an orch

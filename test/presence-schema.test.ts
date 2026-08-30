@@ -97,9 +97,9 @@ describe("presence status schema", () => {
     writeStatus(key, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_DIR = orchDir;
 
-    expect(readStatuses()).toEqual(expect.objectContaining({
-      [key]: expect.objectContaining({ key, agent: "pi" }),
-    }));
+    const statuses = readStatuses();
+    expect(statuses[key]?.key).toBe(key);
+    expect(statuses[key]?.agent).toBe("pi");
     expect(parseIdentity(key)).toEqual({ id: key });
   });
 

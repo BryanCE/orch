@@ -24,7 +24,7 @@ export interface OrchConfig {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
-  fleet: { spawn_cap: number; pack_cap?: number; max_agents?: number; space_caps: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
+  fleet: { spawn_cap: number; pack_cap?: number; max_depth: number; max_agents?: number; space_caps: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };

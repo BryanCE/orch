@@ -1,4 +1,5 @@
 import { agentView } from "../store/agent-view.ts";
+import { isDescendantOf } from "./provenance.ts";
 import type { CloseAuthority } from "../types/policy.ts";
 
 /**
@@ -31,23 +32,6 @@ export function callerAuthority(agentKey: string | undefined): CloseAuthority {
 }
 
 /**
- * Walk the provenance chain from `agentId` upward, looking for the caller.
- * Provenance is immutable, so this answer cannot be changed by a lease moving.
- */
-function isDescendantOf(orchDir: string, agentId: string, ancestorId: string): boolean {
-  const seen = new Set<string>();
-  let current: string | null = agentId;
-  while (current !== null && !seen.has(current)) {
-    seen.add(current);
-    const view = agentView(orchDir, current);
-    if (view === null) return false;
-    if (view.spawnedBy === ancestorId) return true;
-    current = view.spawnedBy;
-  }
-  return false;
-}
-
-/**
  * `null` when the caller may end this agent; otherwise the refusal to print.
  * A refusal names the owner so the caller knows who to ask.
  */
@@ -55,7 +39,8 @@ export function refuseClose(orchDir: string, authority: CloseAuthority, agentId:
   if (authority.kind === "human") return null;
   // Acting on yourself is not driving anyone else's fleet.
   if (authority.agentId === agentId) return null;
-  if (isDescendantOf(orchDir, agentId, authority.agentId)) return null;
+  // Provenance is immutable, so this answer cannot be changed by a lease moving.
+  if (isDescendantOf((id) => agentView(orchDir, id), agentId, authority.agentId)) return null;
   const view = agentView(orchDir, agentId);
   const name = view?.name ?? agentId;
   const owner = view?.spawnedByName ?? view?.spawnedBy;

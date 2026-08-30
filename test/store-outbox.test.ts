@@ -49,9 +49,10 @@ describe("outbox store rows", () => {
     bumpOutboxAttempt(orchDir, "retry", 5000);
 
     expect(selectPendingOutbox(orchDir, 4999)).toEqual([]);
-    expect(selectPendingOutbox(orchDir, 5000)[0]).toEqual(
-      expect.objectContaining({ id: "retry", attempts: 1, nextAttemptAt: 5000 }),
-    );
+    const pending = selectPendingOutbox(orchDir, 5000)[0];
+    expect(pending?.id).toBe("retry");
+    expect(pending?.attempts).toBe(1);
+    expect(pending?.nextAttemptAt).toBe(5000);
   });
 
   test("deletes delivered messages older than the cutoff", () => {

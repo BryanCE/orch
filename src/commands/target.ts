@@ -345,7 +345,9 @@ function entityFromView(view: AgentView, presence: ReadonlyMap<string, PresenceE
  *  the inventory listed, else a pid/key signal handle. */
 function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandle {
   const pid = ent.presence?.status?.pid;
-  const fallback: BackendHandle = typeof pid === "number" ? { pid, key: ent.key } : ent.key;
+  const fallback: BackendHandle = typeof pid === "number"
+    ? { kind: "headless", pid, key: ent.key, toString: () => `${pid}:${ent.key}` }
+    : ent.key;
   return view ? view.environment.handle ?? ent.paneId ?? fallback : ent.paneId ?? fallback;
 }
 

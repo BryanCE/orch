@@ -5,6 +5,7 @@ import { assertNameFree, assertValidAgentName } from "../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../policy/spawner.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { term } from "../policy/vocabulary.ts";
+import { depthOf } from "../policy/provenance.ts";
 import { resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../policy/workers.ts";
 import { repickCommand } from "../adapters/prerequisites.ts";
@@ -363,51 +364,30 @@ const SPAWN_POLICY_OFFERS = `bind the task to a live ${term("slave")} (orch disp
 /** Return a spawn policy refusal without allocating a pane, tab, worktree, or queue entry. */
 export function spawnPolicyError(
   settings: Pick<OrchConfig, "fleet">,
-  _space: string | null,
+  space: string | null,
   requested: number,
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
   spawnerId: string | null,
 ): string | null {
-  // Provenance is walked by minted id: it is immutable, so the chain survives
-  // every move an agent makes (A1).
-  let current = spawnerId;
-  let depth = 0;
-  const seen = new Set<string>();
-  while (current !== null && !seen.has(current)) {
-    seen.add(current);
-    const parent = views.get(current)?.spawnedBy;
-    if (!parent) break;
-    current = parent;
-    depth++;
+  // Depth is read off the ONE provenance walk (`policy/provenance.ts`); the
+  // pack root is the fact the store already holds (`agents.root_agent_id`), so
+  // nothing here re-derives what a row states. A spawner with no row of its own
+  // (a self-registered orch) is its own root at depth 0.
+  const depth = spawnerId === null ? 0 : depthOf((id) => views.get(id), spawnerId);
+  const maxDepth = settings.fleet.max_depth;
+  if (depth >= maxDepth) {
+    return `maximum spawn depth is ${maxDepth} (this spawner is at depth ${depth}; fleet.max_depth). ${SPAWN_POLICY_OFFERS}`;
   }
-  // A depth-two spawner may not create a depth-three child. The chain is
-  // provenance, never a schema change to the recursive agent model.
-  if (depth >= 2) return `maximum spawn depth is 2 (this spawner is at depth ${depth}). ${SPAWN_POLICY_OFFERS}`;
-
-  // The pack root is the first key in the spawnedBy chain. Registry rows do
-  // not necessarily contain that root (a self-registering orch has no
-  // spawned row), hence the explicit +1 for the root when it is absent. A
-  // caller without a reply key uses the undefined spawnedBy scope and its
-  // space, which is the only scope available to a bare operator session.
-  const packRoot = current;
+  const packRoot = spawnerId === null ? null : views.get(spawnerId)?.rootAgentId ?? spawnerId;
+  // A bare operator session has no pack; its scope is the space it is spawning into.
   let live = 0;
   for (const [id, view] of views) {
-    let root = id;
-    const chain = new Set<string>();
-    while (!chain.has(root)) {
-      chain.add(root);
-      const parent = views.get(root)?.spawnedBy;
-      if (!parent) break;
-      root = parent;
-    }
-    const samePack = spawnerId === null
-      ? view.environment.space === _space && (views.get(root)?.spawnedBy ?? null) === null
-      : root === packRoot;
-    if (!samePack || !presence.get(id)?.alive) continue;
-    live++;
+    const samePack = packRoot === null ? view.environment.space === space : view.rootAgentId === packRoot;
+    if (samePack && presence.get(id)?.alive) live++;
   }
-  if (spawnerId === null || packRoot === null || !views.has(packRoot)) live++;
+  // The root itself counts as a live member when it holds no row of its own.
+  if (packRoot === null || !views.has(packRoot)) live++;
   const cap = settings.fleet.pack_cap ?? 10;
   if (live + requested > cap) {
     return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested). ${SPAWN_POLICY_OFFERS}`;
@@ -598,7 +578,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   const key = spec.key ?? serializeIdentity({ id: mintAgentId() });
   const spawner = spawnerIdentity();
   const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), ORCH_AGENT_KEY: key, ORCH_DIR: orchDir() };
-  let pane: BackendHandle;
+  let pane: BackendHandle | undefined;
   if (spec.placement) {
     if (!spec.backend.paneHost) throw new Error("backend has no pane host");
     pane = spec.backend.paneHost.open({ cwd: spec.cwd, workspace: spec.workspace, group: spec.group, split: spec.placement.split, targetPane: spec.placement.targetPane, env }).handle;
@@ -614,7 +594,9 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     });
   } catch (error: unknown) {
     if ((spec.placement !== undefined || spec.intoPane !== undefined) && spec.backend.paneHost) {
-      try { spec.backend.paneHost.close(pane); } catch { /* best effort */ }
+      if (pane !== undefined) {
+        try { spec.backend.paneHost.close(pane); } catch { /* best effort */ }
+      }
     }
     throw error;
   }

@@ -8,6 +8,7 @@ import { endpointPaths, startRpcServer } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
+import { currentHostOs } from "../src/store/agent-rows.ts";
 
 /**
  * TASKS/02-scope.md B4 — "Peer credentials rejected — node exposes neither
@@ -99,7 +100,7 @@ describe("the daemon asks for a token and nothing else", () => {
     // had crept in.
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "hello",
-      params: { token, pid: stranger, harness: "pi", cwd: process.cwd() },
+      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
     });
     expect(reply.error).toBeUndefined();
     expect(reply.result).toBeDefined();
@@ -111,7 +112,7 @@ describe("the daemon asks for a token and nothing else", () => {
 
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "hello",
-      params: { pid: stranger, harness: "pi", cwd: process.cwd() },
+      params: { pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
     });
     expect(reply).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });
   });

@@ -344,5 +344,5 @@ export interface PreparedAgent {
   readonly key: string;
   readonly env: Readonly<Record<string, string>>;
   readonly branch: string | undefined;
-  pane: BackendHandle;
+  pane: BackendHandle | undefined;
 }

@@ -64,7 +64,7 @@ describe("commands/spawn", () => {
     const before = agentViews(dir).map((view) => view.id);
     const beforeTasks = numberField(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`), "count");
     const backend = headlessBackend;
-    const originalSpawn = backend.spawn;
+    const originalSpawn = backend.spawn.bind(backend);
     let backendAllocations = 0;
     backend.spawn = (...args: Parameters<typeof backend.spawn>): ReturnType<typeof backend.spawn> => {
       backendAllocations++;

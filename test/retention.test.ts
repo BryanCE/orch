@@ -34,7 +34,7 @@ function config(days: Partial<OrchConfig["retention"]> = {}): OrchConfig {
     runtime: "node",
     enabled: { adapters: ["pi"], backends: [] },
     defaults: { models: {}, worktree: false },
-    fleet: { spawn_cap: 8, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false },
+    fleet: { spawn_cap: 8, pack_cap: 10, max_depth: 1, space_caps: {}, worker_peer_tools: false, cross_space: false },
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
     queue: { max_retries: 1 },

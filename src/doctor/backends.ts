@@ -46,7 +46,7 @@ export function backendCapabilitiesVerdict(
   // headless reports insideSession=true unconditionally (it has no session
   // concept), so this rule needs no special case for it. An available active
   // backend outside its session is situational — warn, do not fail.
-  if (active && active.detected && !active.insideSession)
+  if (active?.detected && !active.insideSession)
     warnReasons.push(`active backend ${active.id} is not inside a live session - open a ${active.id} workspace and re-run`);
 
   const rows = backends.map((backend) => {

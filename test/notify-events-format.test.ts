@@ -36,6 +36,24 @@ const EVENT_KEY = "q7f3m2x9k1";
  *  what it must never do is carry a plexer or a handle. */
 const TASK_KEY = "z4b8n1p7r3";
 
+type FetchFunction = typeof globalThis.fetch;
+
+function fakeFetch(captureBody: (body: string) => void): FetchFunction {
+  const implementation = (
+    _input: Parameters<FetchFunction>[0],
+    init?: Parameters<FetchFunction>[1],
+  ): ReturnType<FetchFunction> => {
+    const value = init?.body;
+    captureBody(typeof value === "string" ? value : JSON.stringify(value ?? ""));
+    return Promise.resolve(new Response(null, { status: 200 }));
+  };
+  return Object.assign(implementation, {
+    preconnect: (
+      ..._args: Parameters<typeof globalThis.fetch.preconnect>
+    ): ReturnType<typeof globalThis.fetch.preconnect> => undefined,
+  });
+}
+
 function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   return {
     key: EVENT_KEY,
@@ -95,11 +113,7 @@ describe("notification and presence event formatting", () => {
   test("webhook payload includes space and spaceColor", async () => {
     let body = "";
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const value = init?.body;
-      body = typeof value === "string" ? value : JSON.stringify(value ?? "");
-      return Promise.resolve(new Response(null, { status: 200 }));
-    };
+    globalThis.fetch = fakeFetch((value) => { body = value; });
     try {
       const delivered = await deliver({ id: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
       expect(delivered).toBe(true);

@@ -7,6 +7,7 @@ import { endpointPaths, startRpcServer } from "../src/daemon/rpc.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
+import { currentHostOs } from "../src/store/agent-rows.ts";
 
 /**
  * TASKS/02-scope.md B3 — "ONE MECHANISM on both transports; TCP is a FALLBACK,
@@ -69,7 +70,7 @@ function tcpPort(server: RpcServer): number {
 }
 
 function hello(token: unknown): unknown {
-  return { id: 1, method: "hello", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd() } };
+  return { id: 1, method: "hello", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() } };
 }
 
 describe("both transports carry one mechanism", () => {

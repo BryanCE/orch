@@ -1,5 +1,6 @@
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { AgentAdapter } from "./adapter.ts";
+import type { HeadlessHandle } from "./plexer.ts";
 import type { WorkerPolicy } from "./policy.ts";
 
 /** A pane coordinate returned by a pane inventory. */
@@ -273,8 +274,17 @@ export interface BackendSpawnOpts {
   readonly intoPane?: BackendHandle;
 }
 
-/** Opaque backend-specific process or pane handle. */
-export type BackendHandle = unknown;
+/**
+ * A native handle returned by one of orch's environments.
+ *
+ * Pane environments address a pane with its native string coordinate; the
+ * detached environment carries the process identity it can actually signal.
+ * The object variant is intentionally shaped (rather than `unknown`) so code
+ * that renders a handle must account for the process form explicitly. The
+ * optional phantom kind keeps native pane strings compatible while documenting
+ * the discriminant used by structured handles.
+ */
+export type BackendHandle = (string & { readonly kind?: "pane" }) | HeadlessHandle;
 
 /** Split direction for pane placement inside a group. */
 export type BackendSplit = "down" | "right";

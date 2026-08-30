@@ -51,7 +51,7 @@ export async function resolveRegistryModel(
   const id = bare.slice(slash + 1);
   const model = await retryingAsync(
     `Model not in registry (session still booting?): ${bare}`,
-    async () => findModel(provider, id),
+    () => findModel(provider, id),
     retry,
     { retryOnResult: (value) => value === undefined },
   );

@@ -166,7 +166,7 @@ export async function cmdNew(args: string[]): Promise<void> {
     // A detached agent has no pane, so it resolves through the lifecycle target
     // resolver; resolvePane would reject the whole headless fleet outright.
     const { entity: ent, handle } = resolveLifecycleTarget(target);
-    const pane = String(handle);
+    const pane = describeHandle(handle);
     assertAgentOwned(target, ent, force);
     const statusPath = path.join(presenceAgentDir(ent.key), STATUS_FILE);
     const before = readPresenceStatus(statusPath);
@@ -365,8 +365,8 @@ async function performReloads(planned: readonly PlannedReload[], results: Reload
       // No console to type `/reload` into leaves only the daemon, which owns
       // every lifecycle mechanism a backend does or does not have.
       results.push(backend.paneInput
-        ? reloadPaneAndAwaitBridge(backend, String(handle), ent.key, reloadText)
-        : await lifecycleThroughDaemon("reload", ent.key, String(handle)));
+        ? reloadPaneAndAwaitBridge(backend, describeHandle(handle), ent.key, reloadText)
+        : await lifecycleThroughDaemon("reload", ent.key, describeHandle(handle)));
     } catch (error: unknown) {
       results.push({ pane: target, ok: false, reason: errorMessage(error) });
     }
@@ -432,7 +432,7 @@ async function restartOneTarget(target: string, cmd: string | null, config: Orch
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
   if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
   if (!backend.paneInput) {
-    const restarted = await lifecycleThroughDaemon("restart", ent.key, String(handle));
+    const restarted = await lifecycleThroughDaemon("restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
       if (!flags.json) process.stdout.write(`${restarted.pane}: bridge live.\n`);
       return true;
@@ -443,9 +443,9 @@ async function restartOneTarget(target: string, cmd: string | null, config: Orch
     return false;
   }
   const launch = restartLaunchCommand(cmd, harness, adapter, config);
-  if (!flags.json) process.stdout.write(`Restarting ${String(handle)} (${launch})...\n`);
-  if (!restartPaneAndAwaitBridge(backend, String(handle), launch, ent.key, quitCmd.text)) return false;
-  if (!flags.json) process.stdout.write(`${String(handle)}: bridge live.\n`);
+  if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
+  if (!restartPaneAndAwaitBridge(backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
+  if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);
   return true;
 }
 
@@ -514,7 +514,7 @@ function renameAgent(
     return { chrome: "renamed", chromeError: null };
   } catch (error: unknown) {
     const message = errorMessage(error);
-    lifecycleLogger(key).warn("rename.chrome-failed", { handle: String(handle), error: message });
+    lifecycleLogger(key).warn("rename.chrome-failed", { handle: describeHandle(handle), error: message });
     process.stdout.write(`orch rename: named "${name}", but the pane border was not updated: ${message}\n`);
     return { chrome: "failed", chromeError: message };
   }
@@ -622,6 +622,11 @@ interface CloseOutcome {
   readonly error: string | null;
 }
 
+/** Render a native handle without falling back to Object.prototype.toString. */
+function describeHandle(handle: BackendHandle): string {
+  return typeof handle === "string" ? handle : handle.toString();
+}
+
 /** Whether the ENVIRONMENT still lists this handle (U1). A plexer with no
  *  inventory, or one this process is not inside a session of, was not asked and
  *  says nothing either way, so the recorded handle stands. */
@@ -632,7 +637,7 @@ function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boo
   // reaches this function.
   if (!inventory || backend?.isInsideSession() !== true) return null;
   try {
-    return inventory.list().some((entry) => String(entry.handle) === String(handle));
+    return inventory.list().some((entry) => describeHandle(entry.handle) === describeHandle(handle));
   } catch {
     // A plexer that cannot answer has not said the pane is gone.
     return null;
@@ -753,11 +758,12 @@ function stillListed(target: CloseTarget): string | null {
   // An inventory that cannot see this session is UNKNOWN, so it cannot prove
   // that a successfully closed handle remains present.
   if (target.handle === null || !target.backend?.paneInventory || target.backend.isInsideSession() !== true) return null;
+  const handle = target.handle;
   try {
     const listed = target.backend.paneInventory.list()
-      .some((entry) => String(entry.handle) === String(target.handle));
+      .some((entry) => describeHandle(entry.handle) === describeHandle(handle));
     return listed === true
-      ? `${String(target.handle)} is still listed by ${target.backend?.id ?? "the plexer"} after the close`
+      ? `${describeHandle(handle)} is still listed by ${target.backend?.id ?? "the plexer"} after the close`
       : null;
   } catch (error: unknown) {
     return errorMessage(error);
@@ -837,7 +843,7 @@ function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { resu
   for (const target of targets) {
     if (seen.has(target.key)) continue;
     seen.add(target.key);
-    const handle = target.handle === null ? null : String(target.handle);
+    const handle = target.handle === null ? null : describeHandle(target.handle);
     const { failure, signalled, closedByBackend } = attemptClose(target);
     if (failure !== null) {
       lifecycleLogger(target.key).error("close.failed", { handle, error: failure });
@@ -909,6 +915,6 @@ export function cmdAbort(args: string[]) {
   sleepMs(500);
   input.sendKeys(handle, ["Escape"]);
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
-  else process.stdout.write(`Aborted ${String(handle)}.\n`);
+  else process.stdout.write(`Aborted ${describeHandle(handle)}.\n`);
 }
 

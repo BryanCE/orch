@@ -76,7 +76,7 @@ describe("spawn limits", () => {
   test("schema loads global and workspace caps", () => {
     const dir = tempDir();
     writeSettingsFixture(dir, { fleet: { max_agents: 12, space_caps: { wD: 4 } } });
-    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: 12, pack_cap: 10, space_caps: { wD: 4 }, worker_peer_tools: false, cross_space: false });
+    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: 12, pack_cap: 10, max_depth: 1, space_caps: { wD: 4 }, worker_peer_tools: false, cross_space: false });
   });
 
   test.each([0, -1, 1.5])("rejects invalid cap %s with file and key", (value) => {
@@ -89,7 +89,7 @@ describe("spawn limits", () => {
   test("omitted fleet caps normalize to defaults", () => {
     const dir = tempDir();
     writeSettingsFixture(dir);
-    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: undefined, pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false });
+    expect(loadConfig(dir).fleet).toEqual({ spawn_cap: 8, max_agents: undefined, pack_cap: 10, max_depth: 1, space_caps: {}, worker_peer_tools: false, cross_space: false });
   });
 
   test("global boundary refusal data counts the whole request", () => {
@@ -136,7 +136,7 @@ describe("spawn limits", () => {
       ["root-child-7", "wD", undefined, "root"], ["root-child-8", "wD", undefined, "root"],
       ["foreign-1", "wD", undefined, "other-root"], ["foreign-2", "wD", undefined, "other-root"],
     ]);
-    expect(spawnPolicyError({ fleet: { pack_cap: 10, space_caps: {}, worker_peer_tools: false, cross_space: false, spawn_cap: 8 } }, "wD", 1, data.views, data.presence, "root")).toBeNull();
+    expect(spawnPolicyError({ fleet: { pack_cap: 10, max_depth: 1, space_caps: {}, worker_peer_tools: false, cross_space: false, spawn_cap: 8 } }, "wD", 1, data.views, data.presence, "root")).toBeNull();
   });
 
   test("dead pid records free capacity", () => {

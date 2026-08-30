@@ -69,18 +69,34 @@ describe("spawn policy caps", () => {
     expect(error).toContain("orch queue add");
   });
 
-  test("blocks a spawn that would create depth three", () => {
+  test("a slave may not spawn by default: fleet.max_depth is 1", () => {
     const error = policy(10, [
+      agentViewFixture("child", {
+        spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
+      }),
+    ], "child");
+    expect(error).toContain("maximum spawn depth is 1");
+    expect(error).toContain("depth 1");
+    expect(error).toContain("fleet.max_depth");
+    expect(error).toContain("orch dispatch <name>");
+    expect(error).toContain("orch queue add");
+  });
+
+  test("fleet.max_depth 2 lets a slave spawn and refuses its child", () => {
+    const tree = [
       agentViewFixture("child", {
         spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
       }),
       agentViewFixture("grandchild", {
         spawnedBy: "child", spawnedByName: "child", rootAgentId: "root", environment: { space: "space" },
       }),
-    ], "grandchild");
+    ];
+    const { views, presence } = fixtureMaps(tree);
+    const settings = { fleet: { ...fleet(10), max_depth: 2 } };
+    expect(spawnPolicyError(settings, "space", 1, views, presence, "child")).toBeNull();
+    const error = spawnPolicyError(settings, "space", 1, views, presence, "grandchild");
+    expect(error).toContain("maximum spawn depth is 2");
     expect(error).toContain("depth 2");
-    expect(error).toContain("orch dispatch <name>");
-    expect(error).toContain("orch queue add");
   });
 
   test("reads a pack cap override from settings", () => {
@@ -115,7 +131,7 @@ describe("spawn policy caps", () => {
     const beforeRegistry = agentViews(dir).map((view) => view.id);
     const beforeTasks = numberField(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`), "count");
     // Inject a backend claimant: policy refusal must happen before allocation.
-    const originalSpawn = headlessBackend.spawn;
+    const originalSpawn = headlessBackend.spawn.bind(headlessBackend);
     let backendAllocations = 0;
     const refusingSpawn: typeof headlessBackend.spawn = (..._args) => {
       backendAllocations++;

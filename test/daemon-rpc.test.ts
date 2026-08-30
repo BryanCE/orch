@@ -20,6 +20,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
+import { currentHostOs } from "../src/store/agent-rows.ts";
 
 import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
@@ -187,7 +188,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd() });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() });
     expect(reply.result).toMatchObject({
       unleased: [
         { id: "closed", name: "closed-worker" },
@@ -195,7 +196,7 @@ describe("daemon RPC", () => {
         { id: "holder", name: "holder" },
       ],
     });
-    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd() });
+    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() });
     expect(repeat.result).toMatchObject({ unleased: [] });
   });
 
@@ -204,7 +205,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd() });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() });
     expect(reply.result).toMatchObject({ unleased: [] });
   });
 
@@ -213,7 +214,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), label: "web client" });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs(), label: "web client" });
     expect(reply.id).toBe(1);
     if (!isLiveAgentIdentity(dir, reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
     expect(reply.result.label).toBe("web client");
@@ -243,7 +244,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, {}, { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), label });
+    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs(), label });
     const first = await tcpHello(server, claim(process.pid, "first"));
     const same = await tcpHello(server, claim(process.pid, "renamed"));
     const other = await tcpHello(server, claim(process.ppid, "other"));

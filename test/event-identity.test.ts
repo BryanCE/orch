@@ -34,7 +34,7 @@ describe("published event identity", () => {
 
     expect(published.map((event) => {
       if (typeof event !== "object" || event === null || Array.isArray(event)) return undefined;
-      const seq = Reflect.get(event, "seq");
+      const seq: unknown = Reflect.get(event, "seq");
       return typeof seq === "number" ? seq : undefined;
     })).toEqual([1, 2, 1]);
   });

@@ -47,7 +47,9 @@ describe("commands/lifecycle", () => {
   test("capability helpers fail closed when absent", () => {
     const backend = new FakePanedBackend();
     expect(paneForeground(backend, "p1")).toEqual(NO_PANE_FOREGROUND);
-    expect(reloadPaneAndAwaitBridge(backend, "p1", "agent00001", "reload")).toEqual(expect.objectContaining({ pane: "p1", ok: false }));
+    const result = reloadPaneAndAwaitBridge(backend, "p1", "agent00001", "reload");
+    expect(result.pane).toBe("p1");
+    expect(result.ok).toBe(false);
   });
   test("reports missing bridge pid without touching backend", () => expect(reloadPaneAndAwaitBridge(new FakePanedBackend(), "p1", "missingag1", "reload")).toMatchObject({ ok: false }));
 

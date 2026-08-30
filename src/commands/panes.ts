@@ -334,7 +334,7 @@ export function cmdMove(args: string[]) {
     // Default: land on the destination tab's biggest pane so it stays balanced
     // instead of stacking off one edge. An explicit --split still wins.
     const groupId = newTab ? null : resolveTab(tab!).id;
-    let against: BackendHandle = undefined;
+    let against: BackendHandle | undefined;
     if (!newTab && !splitExplicit && groupId !== null) {
       const placement = tilePlacementBesides(backend, groupId, handle);
       split = placement.split;

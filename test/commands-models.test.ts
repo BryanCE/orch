@@ -24,7 +24,7 @@ const config = (): OrchConfig => ({
   enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
   locked_commands: [],
   defaults: { models: { pi: "openai/gpt-5.6:high", claude: "sonnet" }, worktree: false },
-  fleet: { worker_peer_tools: false, spawn_cap: 8, cross_space: false, space_caps: {} },
+  fleet: { worker_peer_tools: false, spawn_cap: 8, max_depth: 1, cross_space: false, space_caps: {} },
   models: { allowed: { pi: ["anthropic/*"] }, preferred: { pi: ["anthropic/claude-sonnet-4.5"] } },
   workers: { inherit_extensions: false, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
   queue: { max_retries: 1 },

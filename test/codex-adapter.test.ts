@@ -20,6 +20,7 @@ import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { readJsonRecord } from "./helpers/json.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
 beforeEach(() => {
@@ -131,12 +132,8 @@ describe("CodexAdapter", () => {
       });
       expect(result.exitCode).toBe(0);
       const dir = path.join(orchDir, "agents", key);
-      const statusValue: unknown = JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8"));
-      const resultValue: unknown = JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"));
-      if (typeof statusValue !== "object" || statusValue === null || Array.isArray(statusValue)) throw new Error("invalid status JSON");
-      if (typeof resultValue !== "object" || resultValue === null || Array.isArray(resultValue)) throw new Error("invalid result JSON");
-      const status: Record<string, unknown> = statusValue;
-      const savedResult: Record<string, unknown> = resultValue;
+      const status = readJsonRecord(path.join(dir, "status.json"));
+      const savedResult = readJsonRecord(path.join(dir, "result.json"));
       expect(status).toMatchObject({ schema: PRESENCE_SCHEMA, state: "done", lastText: "finished" });
       expect(savedResult).toMatchObject({ schema: PRESENCE_SCHEMA, text: "finished" });
       expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-")).length).toBe(0);

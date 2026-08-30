@@ -177,10 +177,14 @@ export interface TmuxBackendDeps {
 
 /** Handle owned by one detached headless process. */
 export interface HeadlessHandle {
+  /** Discriminator for the detached-process handle variant, when present. */
+  readonly kind?: "headless";
   readonly pid: number;
   readonly key: string;
   /** Updated by list(); absent on a freshly spawned handle. */
   readonly alive?: boolean;
+  /** Stable diagnostic rendering; avoids Object.prototype's `[object Object]`. */
+  readonly toString: () => string;
 }
 
 /**

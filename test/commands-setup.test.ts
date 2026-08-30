@@ -12,11 +12,11 @@ import { isRecord } from "../src/util.ts";
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
 
-type SetupSettings = {
+interface SetupSettings {
   schemaVersion: number;
   defaults: { adapter?: string; backend?: string };
   runtime: string;
-};
+}
 
 function parseSetupSettings(value: unknown): SetupSettings {
   if (!isRecord(value) || typeof value.schemaVersion !== "number" || typeof value.runtime !== "string" || !isRecord(value.defaults)) {

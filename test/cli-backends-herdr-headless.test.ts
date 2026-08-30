@@ -12,7 +12,7 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { resolveAdapter } from "../src/adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { fakeAdapter } from "./helpers/adapter.ts";
+import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 
@@ -32,7 +32,7 @@ async function waitFor(check: () => boolean): Promise<void> {
 // A complete fake adapter whose headless command writes a presence status.json so
 // the common path (spawn -> identity key -> presence dir) is exercised end-to-end
 // without any real agent CLI.
-const spawnAdapter = fakeAdapter({
+const spawnAdapter = makeFakeAdapter({
   headlessCmd: (_prompt, opts) => {
     const key = opts.key;
     const directory = opts.orchDir;
@@ -146,7 +146,7 @@ describe("headless common path: identity key -> presence", () => {
   test("spawn refuses a launch with no caller-minted key", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-cli-headless-nokey-"));
     process.env.ORCH_DIR = dir;
-    expect(() => new HeadlessBackend().spawn(fakeAdapter, { orchDir: dir, cwd: dir }))
+    expect(() => new HeadlessBackend().spawn(makeFakeAdapter(), { orchDir: dir, cwd: dir }))
       .toThrow(/requires a caller-minted presence key/);
   });
 

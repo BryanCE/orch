@@ -131,6 +131,7 @@ const HELP: Readonly<Record<string, string>> = {
   "defaults.worktree": "Whether launches use worktrees by default.",
   "fleet.spawn_cap": "Maximum concurrent agents.",
   "fleet.pack_cap": "Maximum agents in a pack.",
+  "fleet.max_depth": "How deep spawning may nest: 1 means only a root spawns.",
   "fleet.max_agents": "Optional global agent limit.",
   "fleet.space_caps": "Agent limits by space.",
   "fleet.worker_peer_tools": "Whether workers may use peer tools.",

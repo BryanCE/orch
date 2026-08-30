@@ -6,7 +6,7 @@ import { adapterCommand, spawnOneIntoTab } from "../src/commands/spawn.ts";
 import { optionalModelSpecs } from "../src/daemon/orchd.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
-import { piAdapter } from "../src/adapters/pi.ts";
+import { PiAdapter, piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS } from "../src/config.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -43,7 +43,7 @@ const config = (preferred: string[]): OrchConfig => ({
   enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: [],
   defaults: { models: {}, worktree: false },
-  fleet: { worker_peer_tools: false, spawn_cap: 8, cross_space: false, space_caps: {} },
+  fleet: { worker_peer_tools: false, spawn_cap: 8, max_depth: 1, cross_space: false, space_caps: {} },
   models: { allowed: {}, preferred: { pi: preferred } },
   workers: { inherit_extensions: false, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
   queue: { max_retries: 1 },
@@ -130,14 +130,16 @@ describe("the preferred quicklist reaches every launch route", () => {
   test("a headless launch forwards the quicklist into the adapter's own options", () => {
     const directory = tempOrchDir();
     let captured: SpawnOpts | undefined;
-    const adapter: AgentAdapter = {
-      ...piAdapter,
-      workerLaunch: null,
-      headlessCmd(_prompt: string, opts: SpawnOpts): string[] {
-        captured = opts;
-        return [process.execPath, "-e", ""];
-      },
-    };
+    class CapturingPiAdapter extends PiAdapter {
+      override readonly workerLaunch = {
+        restrictedInteractiveCmd: (opts: SpawnOpts): string => super.restrictedInteractiveCmd(opts),
+        restrictedHeadlessCmd: (_prompt: string, opts: SpawnOpts): string[] => {
+          captured = opts;
+          return [process.execPath, "-e", ""];
+        },
+      };
+    }
+    const adapter: AgentAdapter = new CapturingPiAdapter();
 
     // The key a real spawn hands a backend is the minted id alone — registration parses it
     // through the one identity boundary, and a `<plexer>~<space>~<name>` key welds environment

@@ -287,7 +287,7 @@ export async function terminateDaemon(pid: number, graceMs: number): Promise<voi
   const attempts = Math.max(1, Math.ceil(graceMs / 50));
   await retryingAsync(
     `wait for daemon ${pid} to exit`,
-    async () => {
+    () => {
       if (!processIsAlive(pid)) return;
       throw new Error("daemon is still alive");
     },

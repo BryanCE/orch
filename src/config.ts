@@ -69,7 +69,7 @@ export const NotifyEntrySchema = z.discriminatedUnion("id", [
 export const NOTIFY_IDS: readonly string[] = NotifyEntrySchema.options.map((option) => option.shape.id.value);
 
 export const SETTINGS_DEFAULTS = {
-  fleet: { spawn_cap: 8, pack_cap: 10, worker_peer_tools: false, cross_space: false },
+  fleet: { spawn_cap: 8, pack_cap: 10, max_depth: 1, worker_peer_tools: false, cross_space: false },
   queue: { max_retries: 1 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7 },
   logging: { level: "info" },
@@ -110,6 +110,10 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   fleet: z.strictObject({
     spawn_cap: PositiveInt.optional(),
     pack_cap: PositiveInt.optional(),
+    /** How deep a provenance tree may grow by spawning: 1 = only a root may spawn
+     *  (a slave calling `orch spawn` is refused); N lets an agent at depth < N spawn.
+     *  TASKS/identity/02-provenance-depth.md. */
+    max_depth: PositiveInt.optional(),
     max_agents: PositiveInt.optional(),
     space_caps: z.record(z.string(), PositiveInt).optional(),
     worker_peer_tools: z.boolean().optional(),
@@ -330,6 +334,7 @@ const configValueExtractors = {
   fleet: (root: Partial<SettingsFile>) => ({
     spawn_cap: root.fleet?.spawn_cap ?? SETTINGS_DEFAULTS.fleet.spawn_cap,
     pack_cap: root.fleet?.pack_cap ?? SETTINGS_DEFAULTS.fleet.pack_cap,
+    max_depth: root.fleet?.max_depth ?? SETTINGS_DEFAULTS.fleet.max_depth,
     max_agents: root.fleet?.max_agents,
     space_caps: root.fleet?.space_caps ?? {},
     worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,

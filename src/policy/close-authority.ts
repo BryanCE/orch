@@ -17,11 +17,6 @@ import type { CloseAuthority } from "../types/policy.ts";
  * over: an orch closing its own slave must never be blocked because another
  * orch holds the lease, and clearing a dead holder's lease must never be a
  * prerequisite for killing a runaway.
- *
- * The caller is told apart the way `orch clean` already does it (see
- * `src/commands/clean.ts:118`): no `ORCH_AGENT_KEY` in the environment is the
- * human at a terminal, and a key present is an agent whose reach is its own
- * provenance subtree.
  */
 
 /** The human may end anything. An agent's reach is what it spawned. */

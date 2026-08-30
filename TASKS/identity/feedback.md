@@ -22,12 +22,10 @@
   `~/.orch` store when ORCH_DIR is not isolated and passes in a pane but fails in the delegator's
   Claude session (which is registered). `isolateOrchEnv` should also point ORCH_DIR at an empty
   temp dir, or every such test must (test/lock-holder.test.ts now does).
-- 2026-08-30. `bun db:gen` is not idempotent: it wipes `drizzle/` and drizzle-kit stamps a new
-  timestamp+name every run, schema unchanged or not. A store built from the previous tag then fails
-  to open ("does not match orch's migrations"), and the only way out is another `db:reset`. Fix in
-  `scripts/db/generate.ts`: diff the emitted `migration.sql` against the existing one and keep the
-  old folder when they match. Until then: gen → reset, once, and never gen after reset.
+
 - 2026-08-30. `timeout 6 orch events --all --since-seq 0 --status done` printed nothing (26 agent
   records, none alive). The skill says a silent replay means the scope is wrong; here it seems to
   mean the old records carry no transitions. Either the skill's smoke test needs a caveat or replay
   should say "0 events" instead of nothing.
+
+GIT COMMIT IS NOT BEING RUN OFTEN ENOUGH 

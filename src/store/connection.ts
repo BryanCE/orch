@@ -69,12 +69,11 @@ export function livePresenceHolders(orchDir: string): string[] {
 }
 
 /**
- * True when orch launched this process as an agent: it was handed the launch key
- * at spawn, and a user's shell never carries one.
+ * True when the caller is an agent according to the shared caller policy.
  *
- * Only the key's PRESENCE is asked, never its shape — the identity codec lives in
- * `backends/identity.ts`, which reaches this module through the presence store,
- * so parsing here would be both a second parser and an import cycle.
+ * The identity codec lives in `backends/identity.ts`, which reaches this module
+ * through the presence store, so parsing here would be both a second parser and
+ * an import cycle.
  */
 function callerIsSpawnedAgent(): boolean {
   return callerKind() === "agent";

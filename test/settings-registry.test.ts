@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SETTINGS_FILE_SCHEMA, loadConfig } from "../src/config.ts";
-import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
+import { SETTINGS_FILE_SCHEMA, loadConfig, settingsPath, writeSettingsFullTree } from "../src/config.ts";
+import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 interface SchemaWithShape { readonly shape?: Record<string, unknown> }
@@ -114,6 +114,27 @@ describe("settings registry", () => {
       expect(setting, key).toBeDefined();
       expect(setting?.help.toLowerCase()).toMatch(/agents|levels/);
     }
+  });
+
+  test("fleet.max_depth round-trips through the full-tree writer", () => {
+    const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+    writeSettingsFixture(directory, completeSettings());
+    writeSettingsFullTree(directory);
+    expect(loadConfig(directory).fleet.max_depth).toBe(2);
+  });
+
+  test("fleet.max_depth rejects zero through the registered writer", () => {
+    const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+    writeSettingsFixture(directory, completeSettings());
+    expect(() => writeRegisteredSetting(directory, "fleet.max_depth", 0)).toThrow(/fleet[\s\S]*max_depth/);
+  });
+
+  test("fleet.max_depth writes its value to settings.json", () => {
+    const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+    writeSettingsFixture(directory, completeSettings());
+    writeRegisteredSetting(directory, "fleet.max_depth", 2);
+    const raw: unknown = JSON.parse(readFileSync(settingsPath(directory), "utf8"));
+    expect(raw).toMatchObject({ fleet: { max_depth: 2 } });
   });
 
   test("contains no duplicate keys", () => {

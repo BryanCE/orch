@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 function fail(file: string, line: number, reason: string): never {
   console.log(`check:bridge FAIL ${file}:${line} ${reason}`);
@@ -260,6 +261,18 @@ export function checkPlexerLiteralLine(line: string, relPath: string, where: str
   if (!/["'](herdr|tmux)["']/.test(line)) return undefined;
   if (PLEXER_ID_SET_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
   return `quoted herdr/tmux literals are forbidden ${where}`;
+}
+
+const launchEnvName = LAUNCH_ENV.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const LAUNCH_ENV_TOKEN = new RegExp(`\\b${launchEnvName}\\b`);
+
+export function checkLaunchEnvLine(line: string, relPath: string): string | undefined {
+  const normalizedPath = relPath.replace(/\\/g, "/");
+  if (normalizedPath === "src/identity/launch.ts") return undefined;
+  if (LAUNCH_ENV_TOKEN.test(line)) {
+    return "launch env may only be read in src/identity/launch.ts via LAUNCH_ENV";
+  }
+  return undefined;
 }
 
 /** Exact backend-owned environment names in addition to the directory-derived prefix. */
@@ -646,6 +659,8 @@ function runAllChecks(): void {
    * definition and fails this check.
    */
   const bridgeSourceFiles = scanSrcOutsideBackends((line, relPath) => {
+    const launchEnvViolation = checkLaunchEnvLine(line, relPath);
+    if (launchEnvViolation) return launchEnvViolation;
     const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
     if (environmentCapabilityViolation) {
       const allowed = CORE_SCOPE_ALLOWLIST.get(relPath);
@@ -667,6 +682,8 @@ function runAllChecks(): void {
   });
 
   const extensionFiles = scanDirectory("extensions", new Set(), (line, relPath) => {
+    const launchEnvViolation = checkLaunchEnvLine(line, relPath);
+    if (launchEnvViolation) return launchEnvViolation;
     // A harness extension is per-HARNESS code (Rule 10), never per-plexer, so
     // the identity-branch rule applies here whole: nothing under extensions/ may
     // branch on a plexer id or ask a port whether it has a method. Deliberately
@@ -685,7 +702,9 @@ function runAllChecks(): void {
     // Recursive: each harness owns extensions/<harness>/, so every file is one level down.
   }, true);
 
-  const scriptFiles = scanDirectory("scripts", new Set(["check-bridge.ts"]), (line) => {
+  const scriptFiles = scanDirectory("scripts", new Set(["check-bridge.ts"]), (line, relPath) => {
+    const launchEnvViolation = checkLaunchEnvLine(line, relPath);
+    if (launchEnvViolation) return launchEnvViolation;
     if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in scripts";
     if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in scripts";
     if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in scripts";
@@ -694,6 +713,8 @@ function runAllChecks(): void {
   });
 
   const adapterFiles = scanDirectory("src/adapters", new Set(["adapter.ts"]), (line, relPath) => {
+    const launchEnvViolation = checkLaunchEnvLine(line, relPath);
+    if (launchEnvViolation) return launchEnvViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
     if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in agent adapters";
@@ -705,7 +726,9 @@ function runAllChecks(): void {
     return undefined;
   });
 
-  const backendFiles = scanDirectory("src/backends", new Set(["backend.ts", "identity.ts"]), (line, relPath) => {
+  const backendFiles = scanDirectory("src/backends", new Set(), (line, relPath) => {
+    const launchEnvViolation = checkLaunchEnvLine(line, relPath);
+    if (launchEnvViolation) return launchEnvViolation;
     const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
     if (environmentCapabilityViolation) return environmentCapabilityViolation;
     const backendEnvViolation = checkBackendEnvLine(line, relPath);

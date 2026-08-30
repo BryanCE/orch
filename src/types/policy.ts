@@ -71,6 +71,8 @@ export interface ProvenanceNode {
 /** Resolve one agent's provenance facts, or nothing when the id is unknown. */
 export type ProvenanceLookup = (id: string) => ProvenanceNode | null | undefined;
 
+export type CallerKind = "human" | "agent";
+
 export type CloseAuthority =
   | { readonly kind: "human" }
   | { readonly kind: "agent"; readonly agentId: string };

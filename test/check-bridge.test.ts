@@ -13,6 +13,7 @@ import {
   checkSpawnerReplyFallbackLine,
   checkLeaseProvenanceLine,
   checkEnvironmentCapabilityLine,
+  checkLaunchEnvLine,
   checkPlexerLiteralLine,
   ENVIRONMENT_ROLE_NAMES,
 } from "../scripts/check-bridge.ts";
@@ -369,6 +370,28 @@ describe("10.7 leases and provenance stay in separate columns (checkLeaseProvena
 // The closed plexer-id set has to be spelled once so nothing else has to. That
 // one line is the whole exemption: a file that writes an id any other way is
 // still hard-coding a plexer, which is what this rule exists to stop.
+describe("launch env reads stay in identity/launch.ts (checkLaunchEnvLine)", () => {
+  test("flags a launch env read outside launch.ts with the file and constant named", () => {
+    const reason = checkLaunchEnvLine("const key = process.env.ORCH_AGENT_KEY;", "src/commands/spawn.ts");
+    expect(reason).toContain("src/identity/launch.ts");
+    expect(reason).toContain("LAUNCH_ENV");
+  });
+
+  test("allows the launch env read inside identity/launch.ts", () => {
+    expect(checkLaunchEnvLine("const key = process.env.ORCH_AGENT_KEY;", "src/identity/launch.ts")).toBeUndefined();
+  });
+
+  test("flags a bare launch env name literal outside launch.ts", () => {
+    const reason = checkLaunchEnvLine('const name = "ORCH_AGENT_KEY";', "src/commands/spawn.ts");
+    expect(reason).toContain("src/identity/launch.ts");
+    expect(reason).toContain("LAUNCH_ENV");
+  });
+
+  test("flags a comment mentioning the launch env name outside launch.ts", () => {
+    expect(checkLaunchEnvLine("// ORCH_AGENT_KEY is absent for humans", "src/commands/spawn.ts")).toContain("LAUNCH_ENV");
+  });
+});
+
 describe("the closed plexer-id set is spelled in exactly one line", () => {
   const DEFINITION = 'export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;';
 

@@ -6,6 +6,7 @@ import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { presenceRoot, readStatus } from "../presence/writer.ts";
+import { callerKind } from "../policy/caller.ts";
 import { ensurePrivateDir, errorMessage, pidAlive } from "../util.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
@@ -76,7 +77,7 @@ export function livePresenceHolders(orchDir: string): string[] {
  * so parsing here would be both a second parser and an import cycle.
  */
 function callerIsSpawnedAgent(): boolean {
-  return (process.env.ORCH_AGENT_KEY ?? "").length > 0;
+  return callerKind() === "agent";
 }
 
 /**

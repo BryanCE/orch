@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFleetMonitor, registerFleetMonitor } from "../src/agent/monitor.ts";
 import type { FleetMonitorOptions, HarnessApi, HarnessContext } from "../src/types/agent.ts";
+
+let caller: "human" | "agent" = "human";
+void mock.module("../src/policy/caller.ts", () => ({ callerKind: () => caller }));
+const { createFleetMonitor, registerFleetMonitor } = await import("../src/agent/monitor.ts");
 
 interface Subscription {
   callback: (event: unknown, seq: number) => void;
@@ -32,7 +35,7 @@ afterEach(() => {
   subscriptions.length = 0;
   subscribeOptions.length = 0;
   for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
-  delete process.env.ORCH_AGENT_KEY;
+  caller = "human";
 });
 
 function context(status: (string | undefined)[] = [], widgets: unknown[] = []): HarnessContext {
@@ -85,7 +88,7 @@ describe("agent fleet monitor", () => {
   });
 
   test("worker process registers no monitor regardless of events", () => {
-    process.env.ORCH_AGENT_KEY = "worker-key";
+    caller = "agent";
     const noop = (): void => { void 0; };
     const harness: HarnessApi = {
       on: noop,

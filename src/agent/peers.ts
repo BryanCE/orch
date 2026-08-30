@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import { Type } from "typebox";
 import { isAgentId } from "../backends/identity.ts";
 import { deriveDriveState } from "./drive-state.ts";
+import { callerKind } from "../policy/caller.ts";
 import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
@@ -31,14 +32,9 @@ function peerModel(status: unknown): string | undefined {
 }
 
 /** Only a human's own session may lift the fleet wall. A spawned agent's view
- * and reach never widen past the fleet it belongs to — no flag changes that.
- *
- * Every launch orch makes stamps ORCH_AGENT_KEY, so the ABSENCE of that stamp —
- * and nothing read out of it — is what says "nobody launched me". Asking instead
- * whether the key PARSED meant a key that did not parse read as no launch at
- * all, which handed a worker the whole machine's fleets. */
+ * and reach never widen past the fleet it belongs to — no flag changes that. */
 function callerMayCrossFleets(): boolean {
-  return (process.env.ORCH_AGENT_KEY ?? "").length === 0;
+  return callerKind() === "human";
 }
 
 /** The fleet wall: same space AND same project, unless explicitly unscoped.

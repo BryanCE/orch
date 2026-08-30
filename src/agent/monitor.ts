@@ -16,6 +16,7 @@
 // restarts on its own. Nothing here is plexer-aware: the view is built purely
 // from the events, so no pane, tab or socket concept enters this file.
 import { subscribeEvents } from "../daemon/rpc.ts";
+import { callerKind } from "../policy/caller.ts";
 import { isRecord, truncate } from "../util.ts";
 import type { FleetAgentRow, FleetMonitor, FleetMonitorOptions, FleetReadModel, HarnessApi, HarnessContext } from "../types/agent.ts";
 import type { EventSubscription } from "../types/daemon.ts";
@@ -160,14 +161,13 @@ export function createFleetMonitor(orchDir: string, options: FleetMonitorOptions
   };
 }
 
-/** Wire the fleet monitor into an orchestrating session; a spawned worker gets nothing.
- *  (A worker carries its minted identity in ORCH_AGENT_KEY; it never watches a fleet.) */
+/** Wire the fleet monitor into an orchestrating session; a spawned worker gets nothing. */
 export function registerFleetMonitor(
   harness: HarnessApi,
   orchDir: string,
   options: FleetMonitorOptions,
 ): FleetReadModel | undefined {
-  if (process.env.ORCH_AGENT_KEY) return undefined;
+  if (callerKind() === "agent") return undefined;
   const monitor = createFleetMonitor(orchDir, options);
   harness.on("session_start", (_event, context) => {
     monitor.attach(context);

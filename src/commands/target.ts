@@ -3,6 +3,7 @@ import { getBackend } from "../backends/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget } from "../entities.ts";
 import { callerSpace, selfId, spaceOfAgent } from "../identity/self.ts";
+import { callerKind } from "../policy/caller.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
@@ -160,7 +161,7 @@ export function requireCallerOwnerToken(): string {
 
 /** True when this process was launched as an orch-spawned agent. */
 export function callerIsSpawnedAgent(): boolean {
-  return tryParseIdentity(process.env.ORCH_AGENT_KEY) !== null;
+  return callerKind() === "agent";
 }
 
 /** Owner-gate overrides are operator-only. A spawned agent may touch exactly

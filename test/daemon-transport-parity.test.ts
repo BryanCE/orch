@@ -70,7 +70,7 @@ function tcpPort(server: RpcServer): number {
 }
 
 function hello(token: unknown): unknown {
-  return { id: 1, method: "hello", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() } };
+  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() } };
 }
 
 describe("both transports carry one mechanism", () => {

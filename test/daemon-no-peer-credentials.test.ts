@@ -99,7 +99,7 @@ describe("the daemon asks for a token and nothing else", () => {
     // (B2), so this must succeed — a refusal here would mean an ancestry check
     // had crept in.
     const reply = await ask(endpointPaths(orchDir).socket, {
-      id: 1, method: "hello",
+      id: 1, method: "register-session",
       params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
     });
     expect(reply.error).toBeUndefined();
@@ -111,7 +111,7 @@ describe("the daemon asks for a token and nothing else", () => {
     const stranger = await unrelatedProcess();
 
     const reply = await ask(endpointPaths(orchDir).socket, {
-      id: 1, method: "hello",
+      id: 1, method: "register-session",
       params: { pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
     });
     expect(reply).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });

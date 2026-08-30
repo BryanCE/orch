@@ -73,7 +73,7 @@ orchestration prompt — the README below is the reference, that file is the met
 
 ```sh
 orch spawn 2 --name api --cwd "$(git rev-parse --show-toplevel)"
-orch dispatch api-1 "add the FooBar type to src/types.ts and export it"
+orch dispatch api-1 "add the FooBar type to src/types/core.ts and export it"
 orch events                                   # push stream; do not poll
 orch result api-1
 orch runs -n 20                               # durable dispatch history
@@ -137,11 +137,12 @@ workers are never told to reply to an address that would refuse them.
 
 | Command | Description |
 | --- | --- |
-| `status [--json] [--all] [--all-panes] [--offline]` | Fleet table; `--all-panes` includes panes orch did not spawn, `--offline` reads presence files only. |
+| `status [--json] [--all] [--all-panes] [--offline]` | Fleet table; `--all-panes` includes panes orch did not spawn, `--offline` reads agent files only. |
 | `questions` | Pending agent questions from live agents. |
-| `events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s…]] [--json] [--since-seq <n>] [--once]` | Push stream of state transitions with durable replay; needs a running daemon. Bare: one readable line per transition, scoped to the agents this session spawned. |
+| `events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s…]] [--json]` | Push stream of state transitions with durable replay; needs a running daemon. Bare: one readable line per transition, scoped to the agents this session spawned. |
+| `logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]` | Query the structured diagnosis log. |
 | `queue add \| list \| history \| cancel` | Durable task queue; `add` takes `--worktree`. |
-| `work [--once] [--json]` | Assign queued tasks to idle agents. |
+| `work [--once]` | Assign queued tasks to idle agents. |
 | `review [list \| approve \| reject]` | Review, merge, or re-dispatch worktree results. |
 | `run <target> "<prompt>" [--raw]` | Queue a prompt through orchd with the worker header. |
 | `dispatch <target> "<prompt>" [--raw] [--model M] [--agent A]` | Durable dispatch; prints a dispatch id that `status --json` echoes back as `.dispatchId`. |
@@ -158,31 +159,63 @@ workers are never told to reply to an address that would refuse them.
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
 | `restart <target>… \| --all [--cmd C]` | Close the harness process and relaunch it. |
 | `lock run \| check \| status \| release` | One heavy command machine-wide; see `locked_commands`. |
-| `spawn <N> [--tab L] [--cwd P] [--name PREFIX] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents. |
+| `spawn <N> [--tab L] [--cwd P] [--name PREFIX] [--model M] [--agent A] [--backend B] [--prompt T] [--spawn-cap N] [--worktree]` | Fresh tab of tiled agents. |
 | `tile <tab\|pane> [--name X] …` | Add one pane to an existing tab. |
+| `grant [<hash>\|--list]` | Approve an action an agent was refused. Needs a terminal; no flag answers the prompt for you. |
 | `rename <target> <name> [--pane]` | Rename the agent, or the pane border. |
 | `close <target>… \| --all [--stream]` / `kill` | Close targets; `--all` spares panes orch did not spawn. |
 | `abort <target>` | Cancel the current turn. |
+| `detach <target>` / `adopt <target> \| --all` / `reap <target>` | Release a lease; take an unleased agent; delete an ended agent's record and presence dir. |
 | `keys <target> <key>…` / `peek <target> [-n N]` | Raw keys into a pane; read its visible screen. |
 | `panes` / `tabs` / `tab new\|rename\|close\|focus` | Pane and tab listing and lifecycle. |
 | `focus <target>` / `zoom <target>` / `move <target>` | Focus (the one command that steals focus), zoom, relocate. |
-| `ws [list \| focus <id>]` | List or focus workspaces. |
+| `space list \| create \| rename \| delete \| focus` | orch's own grouping of agents; see below. |
 | `daemon start [--fg] \| stop \| status \| reload` | Manage orchd. |
 | `doctor [--fix] [-y] [--json]` | Check the install; `-y` applies every fix unattended. |
 | `clean [--worktrees [--force]]` | Reap dead agent dirs and orphaned worktrees. |
 | `notify test [--state <state>]` | Push a synthetic transition through every configured sink. |
-| `setup` / `settings` / `settings models` / `settings skills` / `models` | Configure the install; list what each harness can run. |
+| `setup` / `settings` / `settings models` / `settings notify` / `settings thinking` / `settings skills` / `models` | Configure the install; list what each harness can run. |
 | `help [command]` | Full usage, or one command's detail. |
 
-### Ownership and walls
-
-An orchestrator that spawns an agent is recorded as its owner. The daemon refuses a
-dispatch, steer, or model change from any other orchestrator, and refuses one that crosses
-a workspace wall. `--steal` and `--cross-workspace` override those, and `--force` reads an
-agent someone else owns — but **all three are operator-only**: orch refuses them from a
-spawned agent, so a worker cannot escalate its way past the wall that contains it.
-
 ## Concepts
+
+### Identity, provenance, ownership, environment
+
+Four facts about an agent, and they are never welded together:
+
+- **Identity** is one minted opaque id and nothing else. It is immutable, and it never
+  encodes where the agent is running — an agent that moves between plexers or spaces keeps
+  the same id.
+- **Provenance** is who spawned it. Immutable.
+- **Ownership** is who holds it *now* — a lease, recorded with a fencing token.
+- **Environment** is where it is: cwd, repo, worktree, branch, plexer, handle, space. It is
+  mutable, it lives in its own rows, and it is queryable and displayable but never identity.
+
+### Leases, not walls
+
+An orchestrator that drives an agent holds a **lease** on it. A lease is mutual exclusion,
+not authorization:
+
+- `dispatch`, `steer`, `model`, and `reset` are refused while a **live** foreign orch holds
+  the lease. A dead holder is not a collision — its lease is a stale row.
+- `abort`, `close`, and `reap` are **never** lease-gated. The human must always be able to
+  kill an agent from the CLI or the web, whatever happened to whoever spawned it.
+- `orch detach` releases a lease; the agent keeps running and stays adoptable. `orch adopt`
+  takes an unleased agent, or one whose holder is gone; `--steal` takes one a live orch
+  still holds.
+
+Work survives its spawner, always. Losing an orchestrator costs a driver, never a life.
+
+### Spaces
+
+A **space** is orch's own grouping of agents — orch names it, orch owns it, and it is
+independent of whatever the plexer calls its own groupings. `orch space create/list/rename/
+delete/focus` manages them; `fleet.space_caps` limits agents per space and `fleet.cross_space`
+decides whether one orch may reach across them. Notifications carry the originating space and
+a stable per-space color so an alert keeps its context.
+
+Running `orch spawn` from outside a pane is **refused** until a human approves opening a space
+with `orch grant`; `--space <id>` uses one that is already open.
 
 ### Harness × plexer
 
@@ -192,7 +225,7 @@ These are independent axes, and nothing in orch branches on the pair:
   `pi`, `omp`, `claude`, `codex`.
 - **Plexers** (execution backends) decide where a harness runs: `herdr` and `tmux` give
   visible focusable panes, `headless` runs a detached process and records its handle and log.
-- **Notifier adapters** deliver state events: `desktop`, `webhook`, `command`, `herdr`.
+- **Notifier sinks** deliver state events: `desktop`, `webhook`, `command`, `herdr`.
 
 Per-harness shipped code lives in `extensions/<harness>/`; plexer-specific code lives in
 `src/backends/<plexer>/`. Design rules are in
@@ -206,18 +239,11 @@ so a daemon restart never drops an in-flight instruction. State flows the other 
 push stream with monotonic sequence numbers; a subscriber that reconnects replays from its
 last sequence and is told explicitly if there was a gap.
 
-Agents publish presence under `$ORCH_DIR/agents/<key>/` — `status.json`, `result.json`,
+Agents publish presence under `$ORCH_DIR/agents/<id>/` — `status.json`, `result.json`,
 `question.json`, and `control.json` are agent records; `inbox.jsonl`, `answer.json`, and
 `ack.jsonl` carry control traffic. Every spawned agent receives its identity as
 `ORCH_AGENT_KEY` and nothing else; a harness shim never reads `HERDR_PANE_ID`, `TMUX_PANE`,
-or any other plexer variable. See [`docs/reference/files-and-data-layout.md`](docs/reference/files-and-data-layout.md)
-for the complete on-disk map.
-
-### Workspaces
-
-A workspace is a plexer grouping of tabs and panes. Pull commands (`status`, `questions`,
-`tabs`, `panes`) default to the caller's workspace; `--all` widens them. Push paths carry
-workspace provenance and a stable per-workspace color so an alert keeps its context.
+or any other plexer variable.
 
 ## Configuration
 
@@ -228,7 +254,7 @@ effective value with the source that won.
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 1,
   "runtime": "node",
   "enabled": {
     "adapters": ["pi", "claude"],
@@ -237,17 +263,23 @@ effective value with the source that won.
   "defaults": {
     "adapter": "pi",
     "backend": "herdr",
-    "models": { "pi": "provider/model:thinking", "claude": "opus" },
+    "models": { "pi": "provider/model", "claude": "opus" },
+    "thinking": "medium",
+    "thinking_by_harness": { "claude": "high" },
     "worktree": false
   },
-  "fleet": { "spawn_cap": 8, "worker_peer_tools": false, "cross_workspace": false },
+  "fleet": { "spawn_cap": 8, "pack_cap": 10, "worker_peer_tools": false, "cross_space": false },
   "models": {
     "preferred": { "pi": ["provider/fast", "provider/deep"] },
     "allowed": { "pi": ["provider/*"] }
   },
   "workers": { "inherit_extensions": true, "builtin_tools": true, "allow_tools": [] },
   "queue": { "max_retries": 1 },
-  "retention": { "queue_days": 14, "events_days": 7, "runs_days": 30, "outbox_days": 7, "identities_days": 7 },
+  "logging": { "level": "info" },
+  "retention": {
+    "ended_agents_days": 90, "queue_days": 14, "events_days": 7,
+    "runs_days": 30, "outbox_days": 7, "logs_days": 7
+  },
   "timeouts": { "dispatch_ack_ms": 10000, "wait_ms": 300000, "adapter_command_ms": 60000, "notify_ms": 3000 },
   "notify": [
     { "id": "desktop", "on": ["blocked", "error", "done"] },
@@ -263,8 +295,11 @@ effective value with the source that won.
 }
 ```
 
-`runtime` is a required top-level scalar chosen at setup — exactly one runtime executes an
-install, so it is neither a default a spawn may override nor an `enabled` set.
+`runtime` (`node`, `deno`, or `bun`) is a required top-level scalar chosen at setup — exactly
+one runtime executes an install, so it is neither a default a spawn may override nor an
+`enabled` set. An unknown key, a wrong type, or an unknown adapter/backend id fails the load
+loudly with the file path and the reason; there is exactly one current schema and an
+out-of-date file is malformed, never migrated.
 
 ### Tiling
 
@@ -300,15 +335,28 @@ orch models --agent=pi --pick=3      # print one full spec, for scripting
 `orch models` lists everything the harness reports whatever is configured, and records
 nothing.
 
+### Thinking
+
+Thinking effort is its own axis, configured through orch rather than smuggled into the model
+string. Levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
+
+```sh
+orch settings thinking                          # the effective level, and any per-harness overrides
+orch settings thinking high                     # the default for every harness
+orch settings thinking high --harness=claude    # override one harness
+```
+
+`--model <model[:thinking]>` still pins both at once for a single spawn or dispatch.
+
 ## Notifications and events
 
 Two different surfaces, often confused:
 
 - **`orch events`** is a stream for whoever is watching the fleet — a human in a terminal or
   an orchestrating agent. It is a subscriber, not a notifier. Events are stored durably so a
-  reconnect after a daemon restart can replay from `--since-seq` (subject to retention).
-  Bare `orch events` is the normal use: one readable line per transition, scoped to the agents
-  this session spawned, with no flag or `jq` filter needed to make it legible.
+  reconnect after a daemon restart can replay (subject to retention). Bare `orch events` is
+  the normal use: one readable line per transition, scoped to the agents this session
+  spawned, with no flag or `jq` filter needed to make it legible.
 - **Notifier sinks** are delivered by **orchd**, whether or not anyone has `orch events`
   open. Each entry in `notify` hands the event to something outside orch: `desktop` shells
   out to an OS notification daemon (`notify-send`, `wsl-notify-send`, or a bundled
@@ -317,8 +365,8 @@ Two different surfaces, often confused:
 
 Two gates decide whether a configured sink ever fires, and both are silent:
 
-1. **`on` defaults to `["blocked", "error"]`.** A bare `{ "id": "desktop" }` never fires on
-   `done`. Name the states you want.
+1. **`on` defaults to `["blocked", "error", "done"]`** — work needs you, work broke, work
+   finished. Name the states explicitly to narrow or widen that.
 2. **Each sink is probed at delivery time, in orchd's environment.** `desktop` needs a
    notification tier on the daemon's PATH; `herdr` needs `HERDR_ENV=1` there, so a daemon
    started outside a herdr pane will never deliver herdr notifications even when configured.
@@ -340,19 +388,69 @@ orch doctor                        # reports each sink's availability and how to
 orch notify test --state blocked   # push a synthetic event through every sink now
 ```
 
-The payload contract and per-adapter configuration are in
-[`docs/reference/notifier-adapters.md`](docs/reference/notifier-adapters.md).
+Webhook and command sinks receive one canonical JSON object. `title` is the outcome-first
+rendered line; `body` is that title plus details. Nullable fields are emitted as `null`.
+
+```json
+{
+  "title": "BLOCKED demo/agent-4f2a1c: approve deployment",
+  "body": "BLOCKED demo/agent-4f2a1c: approve deployment\nSpace: demo (#db2777)\nTab: tab-1\nModel: model-1",
+  "space": "demo",
+  "spaceColor": "#db2777",
+  "host": null,
+  "key": "4f2a1cb830",
+  "agent": "demo/agent-4f2a1c",
+  "name": "api-1",
+  "tab": "tab-1",
+  "model": "model-1",
+  "oldState": "working",
+  "newState": "blocked",
+  "seq": 12,
+  "task": "approve deployment",
+  "cost": null,
+  "ts": "2026-08-29T16:00:00.000Z",
+  "lastError": null
+}
+```
+
+The space color is derived from the space name and is stable for that name. `done` events
+summarize what the agent reported; `error` events use `lastError`; `blocked` events use the
+task.
 
 ## Files and data layout
 
-All state lives under `$ORCH_DIR` (default `~/.orch`): the SQLite store `orch.db`, daemon
-runtime files, headless logs, and one presence directory per agent. The database holds the
-queue, ownership, outbox, spawned registry, catalogues, durable events, runs, and session
-identities; see [`docs/reference/store.md`](docs/reference/store.md) for table details.
-Presence files are disposable and regenerated by live agents. `orch result` can
-fall back to run history after a presence directory is reaped when addressed by its canonical
-key. The full map is in
-[`docs/reference/files-and-data-layout.md`](docs/reference/files-and-data-layout.md).
+All state lives under `$ORCH_DIR` (default `~/.orch`):
+
+```
+$ORCH_DIR/
+├── orch.db                  # SQLite (WAL): every brokered table
+├── settings.json            # user configuration (JSON)
+├── reload.signal            # touch signal for config/extension reload watchers
+├── cmd-lock.json            # machine-wide command lock holder; present only while held
+├── orchd.sock               # daemon RPC endpoint (or a marker)
+├── orchd.port               # loopback TCP port when TCP transport is used
+├── orchd.token              # owner-readable loopback RPC credential
+├── orchd.lock               # daemon single-instance lock
+├── orchd.log                # detached daemon output and lifecycle log
+├── logs/                    # detached headless-agent output
+└── agents/<id>/             # one directory per agent, named by its minted id
+    ├── status.json          # liveness, state, and run facts
+    ├── result.json          # settled-turn result
+    ├── inbox.jsonl          # orchestrator-to-agent control lines
+    ├── ack.jsonl            # delivery markers for those lines
+    ├── question.json        # agent-to-orchestrator blocking question
+    ├── answer.json          # the reply to it
+    └── control.json         # outcome of a model/thinking control command
+```
+
+The database holds the agents and their environments, leases, queue, outbox, catalogues,
+durable events, runs, grants, and spaces; its migrations live in `drizzle/`. Presence files
+are disposable and regenerated by live agents — losing `agents/<id>/` loses the last observed
+status and result, never queued work, event history, or run history. `orch result` falls back
+to run history after a presence directory has been reaped.
+
+SQLite runs in WAL mode, so `orch.db-wal` and `orch.db-shm` appear beside the database while
+it is open. Stop the daemon before copying the store, and copy `orch.db` alone.
 
 ## License
 

@@ -175,6 +175,11 @@ MAINTENANCE
                                  quicklist its own picker cycles (models.preferred), and the set
                                  it may launch at all (models.allowed; none = all offered).
                                  Every harness names models in its own vocabulary.
+  orch settings thinking [<level>] [--harness=<id>] [--clear]
+                                 Thinking effort for every launch, independent of the model:
+                                 off, minimal, low, medium, high, xhigh, max. Bare prints the
+                                 current value; --harness=<id> sets or (with --clear) removes
+                                 one harness's override.
   orch settings notify [list] [--json]
                                  List the sinks orchd delivers notifications through, with the
                                  states each fires on and where it delivers.

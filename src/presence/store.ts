@@ -57,7 +57,7 @@ export function readJSON<T = unknown>(file: string): T | null {
  *  name them and `orch clean` can reap them — they just never surface as a
  *  live status, so one bad dir can never break the whole status view. */
 function isPresenceStatus(value: unknown): value is PresenceStatus {
-  // Placement is orch's, never the agent's to report (docs/reference/agent-ownership.md).
+  // Placement is orch's, never the agent's to report (TASKS/08-identity-registration.md).
   // A record stamping the CURRENT schema that still carries it is a writer claiming to
   // know where it runs, which the registry alone answers — so it is malformed, not old.
   return isRecord(value)

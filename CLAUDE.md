@@ -19,7 +19,6 @@ rule is broken it costs Bryan hours; it has been said MANY times.
 These files ARE the state of the tree. The USER runs the gate on Windows; I READ the result files. Running `bun run check` myself = FIRED. **Running `bun test` is FINE and encouraged** — run tests freely while working, especially scoped runs of the files you touched.
 - **`test-results.md`** — full `bun test` output. User regenerates with: `bun run test *> .\test-results.md`
 - **`current-errors.md`** — `bun run check` + `check:bridge` output. User regenerates with: `bun check > .\current-errors.md`
-- **`specview.md`** — openspec status snapshot.
 WORKFLOW: after ANY change that needs verifying, ASK the user to rerun the relevant command above, then RE-READ the file before claiming anything. Always re-open the file after a rerun — never rely on a prior read.
 
 # No running tetsing or checking from wsl only windows ! 

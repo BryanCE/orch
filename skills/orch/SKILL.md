@@ -236,9 +236,9 @@ emits one readable line per transition, scoped to the agents THIS session spawne
 - **No timestamp floor needed.** A fresh subscribe receives live events only; history comes
   back solely via `--since-seq <n>`. A `date`-based floor now only risks dropping real events
   to clock skew.
-- Event fields: `key, agent, name, tab, model, oldState, newState, seq, streamSeq, task,
-  cost, ts, workspace, workspaceName, dispatchId, spawnedBy, spawnedByLabel`.
-- `--once` exits after the first match; `--all` covers every workspace.
+- Event fields: `key, agent, name, host, space, tab, model, oldState, newState, seq, task,
+  cost, ts, lastError, dispatchId, spawnedBy, spawnedByLabel`.
+- `--all` covers every space.
 
 An attached stream counts as daemon usage, so `orchd` will not idle-shut-down beneath it.
 Notifications to Slack/webhooks/commands are delivered by the daemon from the `notify` sinks
@@ -318,15 +318,18 @@ Bare `orch review` walks it interactively.
   only on the actual error spawn a replacement, `orch move` it into the domain tab by tab ID,
   and close the zombie.
 - **`orch status --json` is a TOP-LEVEL ARRAY** — filter with `.[]`, there is no `.agents`
-  key. Row fields: `key, paneId, managed, name, owner, tab, agent, model, modelShort, state,
-  cost, ctxPercent, tokens, turns, task, lastText, alive, exited, cwd, dispatchId,
-  backendStatus, sessionPath, presenceDir, workspace, spawnedBy`. Two settle arguments: `cwd`
+  key. Row fields: `key, agentId, paneId, managed, name, owner, tab, agent, model, modelShort,
+  state, stateFallback, staleExtension, cost, ctxPercent, tokens, turns, task, lastText,
+  alive, exited, cwd, worktree, branch, focused, dispatchId, backendStatus, backend,
+  capabilities, sessionPath, presenceDir, presenceOnly, spaceId, spaceName, rootAgentId,
+  rootAgentName, host, spawnedBy, spawnedByLabel, warning`. Two settle arguments: `cwd`
   is the repo the worker is actually confined to, and `dispatchId` diffed against the id
   `orch dispatch` printed proves the pane runs the prompt YOU sent. `state` is what the agent
   says about itself; `backendStatus` is what the plexer says about the pane and it LAGS —
   read `state` for completion, never `backendStatus`.
-- **Workspace walls:** reads default to the current workspace. A wall error on housekeeping
-  means "not from here" — skip it, do not chase it with `--all`.
+- **Leases, not walls:** `dispatch`/`steer`/`model`/`reset` are refused while a LIVE foreign
+  orch holds the agent's lease; `abort`/`close`/`reap` never are. A dead holder is not a
+  collision — `orch detach` clears its stale lease and `orch adopt` takes the agent.
 - `orch doctor` diagnoses (`-y` unattended). `orch clean` reaps dead-pid presence;
   `--worktrees` also clears orphaned worktrees (`--force` discards unmerged work).
 - `orch settings` prints every effective setting with the source that won

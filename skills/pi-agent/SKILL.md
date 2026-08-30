@@ -173,7 +173,7 @@ pi's `/model` is a fuzzy SEARCH — a non-matching string opens a selector overl
 that wedges the pane (Escape dismisses it).
 
 **FIRST THING ON SKILL ACTIVATION — arm the event stream (do this before any dispatch).**
-`orch events` is a native, forever-running transition stream (workspace-scoped by default; use `--all` for every pane) with one line
+`orch events` is a native, forever-running transition stream (scoped to this session's agents by default; use `--all` for every space) with one line
 per state change: working/idle/done/blocked/error/aborted/exited, with `lastError`
 text on error/aborted). Start ONE persistent Monitor on it the moment this skill
 activates and keep it up for the whole session; it is the orchestrator's ONLY

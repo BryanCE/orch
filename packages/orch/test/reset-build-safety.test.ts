@@ -9,7 +9,7 @@ describe("build reset safety", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-reset-"));
     writeFileSync(join(root, "settings.json"), "custom");
     const result = spawnSync("bun", ["scripts/reset.ts", "--build", "--dry-run"], {
-      cwd: process.cwd(),
+      cwd: join(import.meta.dir, ".."),
       env: { ...process.env, ORCH_DIR: root, HOME: root },
       encoding: "utf8",
     });

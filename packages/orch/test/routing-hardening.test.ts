@@ -93,7 +93,7 @@ describe("CLI offline routing", () => {
     // orch has no built-in configuration: a spawned CLI reads its composition from this ORCH_DIR.
     writeSettingsFixture(dir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
     const emptyPath = tempDir("orch-routing-path-");
-    const child = Bun.spawn([process.execPath, "bin/orch.ts", "status", "--offline", "--local", "--json"], {
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "..", "bin", "orch.ts"), "status", "--offline", "--local", "--json"], {
       cwd: join(import.meta.dir, ".."),
       env: { ...process.env, ORCH_DIR: dir, PATH: emptyPath },
       stdout: "pipe",

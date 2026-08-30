@@ -13,7 +13,8 @@ import { setSpace } from "../src/store/interval-rows.ts";
 
 describe("commands/events", () => {
   test("owned renderers and tool help do not expose the retired workspace term", () => {
-    const files = ["src/commands/results.ts", "src/commands/events.ts", "src/commands/queue.ts", "src/agent/peers.ts", "src/table.ts"];
+    const files = ["src/commands/results.ts", "src/commands/events.ts", "src/commands/queue.ts", "src/agent/peers.ts", "src/table.ts"]
+      .map((file) => join(import.meta.dir, "..", file));
     const source = files.map((file) => readFileSync(file, "utf8")).join("\\n");
     expect(source).not.toMatch(/description:\s*"[^"]*workspace/i);
     expect(source).not.toContain("spaceName");

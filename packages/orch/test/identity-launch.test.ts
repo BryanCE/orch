@@ -32,7 +32,7 @@ describe("launchCredential", () => {
     directories.push(directory);
     const script = `import { launchCredential } from './src/identity/launch.ts'; launchCredential();`;
     const result = spawnSync(process.execPath, ["-e", script], {
-      cwd: process.cwd(),
+      cwd: join(import.meta.dir, ".."),
       env: { ...process.env, [LAUNCH_ENV]: "malformed", ORCH_DIR: directory },
       encoding: "utf8",
     });

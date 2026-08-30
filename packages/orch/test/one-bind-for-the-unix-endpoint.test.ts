@@ -16,7 +16,7 @@ import type { RpcServer } from "../src/types/daemon.ts";
  * lands in one of them: the recovered daemon and the fresh one stop agreeing about
  * where they are reachable.
  */
-const RPC_SOURCE = readFileSync("src/daemon/rpc.ts", "utf8");
+const RPC_SOURCE = readFileSync(join(import.meta.dir, "..", "src", "daemon", "rpc.ts"), "utf8");
 
 /** Everything from starting the server to the point it is handed back: the
  *  region that claims an endpoint. Teardown unlinks the same paths for the

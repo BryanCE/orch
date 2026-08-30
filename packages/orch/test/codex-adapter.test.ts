@@ -127,7 +127,7 @@ describe("CodexAdapter", () => {
       // environment welded into identity, which Rule 11 / TASKS/01-agent-model.md forbids.
       const key = serializeIdentity({ id: mintAgentId() });
       const payload = JSON.stringify({ type: CODEX_TURN_COMPLETE, "last-assistant-message": "finished" });
-      const result = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
+      const result = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "..", "extensions", "codex", "index.ts"), payload], {
         cwd: path.join(import.meta.dir, ".."),
         env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: key },
       });
@@ -140,7 +140,7 @@ describe("CodexAdapter", () => {
       expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-")).length).toBe(0);
 
       removeTempDir(orchDir);
-      const silent = Bun.spawnSync([process.execPath, "extensions/codex/index.ts", payload], {
+      const silent = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "..", "extensions", "codex", "index.ts"), payload], {
         cwd: path.join(import.meta.dir, ".."),
         env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: "" },
       });

@@ -44,7 +44,8 @@ function hooksFor(
   ]));
 }
 
-const currentShim = claudeHookShimPath(process.cwd());
+const packageRoot = path.join(import.meta.dir, "..");
+const currentShim = claudeHookShimPath(packageRoot);
 
 afterEach(() => {
   fs.rmSync(settingsFile, { force: true });
@@ -99,7 +100,7 @@ describe("doctor Claude hooks shim check", () => {
 
   test("warns on the legacy ungated bun command form", () => {
     const file = settingsPath();
-    const legacySource = path.join(process.cwd(), "scripts", "claude-hooks.ts");
+    const legacySource = path.join(packageRoot, "scripts", "claude-hooks.ts");
     writeSettings(file, { hooks: hooksFor(legacySource, (shim, event) => `bun ${shim} ${event}`) });
 
     const result = claudeAdapter.diagnoseShim();

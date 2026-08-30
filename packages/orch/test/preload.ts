@@ -1,4 +1,5 @@
 import { readdirSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Strip the ambient plexer's environment before any test file loads.
@@ -18,7 +19,7 @@ import { readdirSync } from "node:fs";
  * `scripts/check-bridge.ts` uses, so a new plexer is covered without edits here.
  */
 function plexerEnvPrefixes(): readonly string[] {
-  const names = readdirSync("src/backends", { withFileTypes: true })
+  const names = readdirSync(join(import.meta.dir, "..", "src", "backends"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name.toUpperCase());
   return names.length > 0 ? names : ["HERDR", "TMUX"];

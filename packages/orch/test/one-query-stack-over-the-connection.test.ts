@@ -12,7 +12,8 @@ import * as connection from "../src/store/connection.ts";
  * `src/db/schema.ts`, which is what removes the `.get(...) as {...}` casts Rule 13
  * forbids. The raw port is only gone when nothing can reach it.
  */
-const THIS_FILE = "test/one-query-stack-over-the-connection.test.ts";
+const packageRoot = join(import.meta.dir, "..");
+const THIS_FILE = join(import.meta.dir, "one-query-stack-over-the-connection.test.ts");
 
 function sourceFiles(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -34,7 +35,7 @@ describe("one query stack over the connection (2.3)", () => {
   // stack open, which is exactly the half-migration 2.3 names.
   test("nothing in the repo prepares a statement through the deleted port", () => {
     const callers = ["src", "test", "scripts", "extensions"]
-      .flatMap((dir) => sourceFiles(dir))
+      .flatMap((dir) => sourceFiles(join(packageRoot, dir)))
       .filter((file) => file !== THIS_FILE)
       .flatMap((file) => {
         const lines = readFileSync(file, "utf8").split("\n");

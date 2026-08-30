@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 
-const canonicalWallModule = "src/policy/space.ts";
+const packageRoot = join(import.meta.dir, "..");
+const canonicalWallModule = join(packageRoot, "src", "policy", "space.ts");
 const wallMarkers = [
   /opts:\s*\{\s*crossSpace/,
   /opts\.crossSpace\b/,
@@ -11,7 +13,7 @@ const wallMarkers = [
 async function sourceFiles(): Promise<string[]> {
   const files: string[] = [];
   // Bun.Glob yields OS-native separators; normalize so path equality holds on Windows.
-  for await (const path of new Bun.Glob("src/**/*.ts").scan(".")) files.push(path.replace(/\\/g, "/"));
+  for await (const path of new Bun.Glob("src/**/*.ts").scan({ cwd: packageRoot, absolute: true })) files.push(path.replace(/\\/g, "/"));
   return files.sort();
 }
 

@@ -11,7 +11,7 @@ import { binaryOnPath, isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { readJsonRecord } from "./helpers/json.ts";
 
-const shim = claudeHookShimPath(process.cwd());
+const shim = claudeHookShimPath(path.join(import.meta.dir, ".."));
 const shimBuilt = fs.existsSync(shim);
 // The shim is bundled standalone and must execute under any DECLARED runtime, so it is exercised
 // against every runtime present here. This is a portability check on the shim, not runtime

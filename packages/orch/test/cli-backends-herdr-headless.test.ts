@@ -151,7 +151,7 @@ describe("headless common path: identity key -> presence", () => {
   });
 
   test("headless rejects pane-only peek and zoom commands clearly", async () => {
-    const script = `import { getBackend } from ${JSON.stringify(path.resolve("src/backends/registry.ts"))}; const command=process.argv[1]; const backend=getBackend("headless"); console.error(command === "peek" ? "orch peek: backend headless lacks screen reading." : "orch zoom: backend headless lacks pane control."); if (backend?.panes) process.exit(2); process.exit(1);`;
+    const script = `import { getBackend } from ${JSON.stringify(path.join(import.meta.dir, "..", "src", "backends", "registry.ts"))}; const command=process.argv[1]; const backend=getBackend("headless"); console.error(command === "peek" ? "orch peek: backend headless lacks screen reading." : "orch zoom: backend headless lacks pane control."); if (backend?.panes) process.exit(2); process.exit(1);`;
     for (const command of ["peek", "zoom"]) {
       const proc = Bun.spawn([process.execPath, "-e", script, command], { stderr: "pipe", stdout: "pipe" });
       const exit = await Promise.race([proc.exited, new Promise<number>((resolve) => setTimeout(() => resolve(124), 15_000))]);

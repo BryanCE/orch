@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireDaemonRegistration, daemonStartRefusal, readDaemonRegistration, releaseDaemonRegistration } from "../src/daemon/lifecycle.ts";
 import { checkDaemonPresence, checkDaemonRegistration } from "../src/doctor/daemon.ts";
-import { endpointPaths } from "../src/daemon/rpc.ts";
+import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
 import { osSide } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";

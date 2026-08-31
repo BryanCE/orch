@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { allAdapters } from "../src/adapters/registry.ts";
-import { cmdSetup, readAssignFlag, readValueFlag, resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/commands/setup.ts";
+import { cmdSetup } from "../src/commands/setup.ts";
+import { readAssignFlag, readValueFlag } from "../src/setup/flags.ts";
+import { resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/setup/composition.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

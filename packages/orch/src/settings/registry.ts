@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SETTINGS_FILE_SCHEMA, writeSettingsDefault, writeSettingsValue } from "../config.ts";
+import { clearSettingsValue, SETTINGS_FILE_SCHEMA, writeSettingsDefault, writeSettingsValue } from "../config.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
 import type { OrchConfig, SettingKind, SettingSpec } from "../types/config.ts";
@@ -193,4 +193,12 @@ export function writeRegisteredSetting(orchDir: string, key: string, value: unkn
   const spec = registeredSetting(key);
   if (spec.write === undefined) throw new Error(`${key} is read-only`);
   spec.write(orchDir, value);
+}
+
+/** Remove a setting from settings.json so its default wins again. Guarded by the same
+ *  declaration as writes: a read-only setting cannot be cleared either. */
+export function clearRegisteredSetting(orchDir: string, key: string): void {
+  const spec = registeredSetting(key);
+  if (spec.write === undefined) throw new Error(`${key} is read-only`);
+  clearSettingsValue(orchDir, key);
 }

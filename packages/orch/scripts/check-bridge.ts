@@ -425,7 +425,7 @@ export function checkLeaseProvenanceLine(line: string, relPath: string): string 
   return undefined;
 }
 
-const IDENTITY_ISSUER_MODULES = new Set(["src/backends/identity.ts", "src/daemon/rpc.ts"]);
+const IDENTITY_ISSUER_MODULES = new Set(["src/backends/identity.ts", "src/daemon/rpc/registration.ts"]);
 const IDENTITY_TEMPLATE_CONSTRUCTION = /`[^`\r\n]*~[^`\r\n]*~[^`\r\n]*`/;
 const IDENTITY_CONCAT_CONSTRUCTION = /(?:\+\s*["']~["']\s*\+).*(?:\+\s*["']~["']\s*\+)/;
 

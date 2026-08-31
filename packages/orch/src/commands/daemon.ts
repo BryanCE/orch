@@ -11,7 +11,8 @@ import {
   unprovenLockRefusal,
 } from "../daemon/lifecycle.ts";
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
-import { DaemonAbsentError, DaemonUnreachableError, rpcCall } from "../daemon/rpc.ts";
+import { DaemonAbsentError, DaemonUnreachableError } from "../daemon/rpc/wire.ts";
+import { rpcCall } from "../daemon/rpc/client.ts";
 import {
   awaitDaemonProbe,
   BIND_GRACE_MS,

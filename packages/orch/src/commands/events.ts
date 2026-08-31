@@ -6,7 +6,7 @@ import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { sameSpace, scopeToSpace } from "../policy/space.ts";
-import { subscribeEvents } from "../daemon/rpc.ts";
+import { subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { notificationText } from "../notify/format.ts";

@@ -3,7 +3,7 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cmdClose } from "../src/commands/lifecycle.ts";
+import { cmdClose } from "../src/commands/lifecycle/close.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { orm } from "../src/store/connection.ts";

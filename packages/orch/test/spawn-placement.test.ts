@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSpawnPlacement } from "../src/commands/spawn.ts";
+import { resolveSpawnPlacement } from "../src/commands/spawn/placement.ts";
 import { homeHandle, openHome } from "../src/store/home-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";

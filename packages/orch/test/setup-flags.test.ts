@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveModelAssignments } from "../src/commands/setup.ts";
+import { resolveModelAssignments } from "../src/setup/composition.ts";
 
 describe("setup model flags", () => {
   test("rejects a bare model when multiple harnesses are selected", () => {

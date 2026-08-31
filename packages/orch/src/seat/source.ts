@@ -11,7 +11,7 @@
 import { execFile } from "node:child_process";
 import { errorMessage } from "../util.ts";
 import { Context, Effect, Layer, Stream } from "effect";
-import { subscribeEvents } from "../daemon/rpc.ts";
+import { subscribeEvents } from "../daemon/rpc/client.ts";
 import { presenceAgentDir, readPresenceStatus } from "../presence/store.ts";
 import { sendPeerMessage } from "../agent/peers.ts";
 import { isRecord } from "../util.ts";

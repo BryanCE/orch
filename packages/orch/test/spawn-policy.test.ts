@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SETTINGS_DEFAULTS, loadConfig } from "../src/config.ts";
-import { cmdSpawn, spawnPolicyError } from "../src/commands/spawn.ts";
+import { cmdSpawn } from "../src/commands/spawn/index.ts";
+import { spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { agentViews } from "../src/store/agent-view.ts";

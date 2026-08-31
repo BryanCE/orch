@@ -8,7 +8,7 @@ import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { helpTopic } from "../src/commands/help.ts";
-import { subscribeEvents } from "../src/daemon/rpc.ts";
+import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 
 describe("commands/events", () => {

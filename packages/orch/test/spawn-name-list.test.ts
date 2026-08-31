@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claimSpawnNames, resolveSpawnNames, parseSpawnFlags } from "../src/commands/spawn.ts";
+import { claimSpawnNames, resolveSpawnNames } from "../src/commands/spawn/names.ts";
+import { parseSpawnFlags } from "../src/commands/spawn/flags.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 

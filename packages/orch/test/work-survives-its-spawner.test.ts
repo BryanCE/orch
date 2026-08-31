@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getTableColumns, is, sql } from "drizzle-orm";
@@ -79,7 +79,11 @@ describe("work survives its spawner, always (D1)", () => {
     // The CLI is where such a decision would have to be OFFERED. If no flag
     // exists, no caller can ask for the other behaviour, which is what makes
     // "always" true rather than merely default.
-    const source = readFileSync(new URL("../src/commands/spawn.ts", import.meta.url), "utf8");
+    const spawnDir = new URL("../src/commands/spawn/", import.meta.url);
+    const source = readdirSync(spawnDir)
+      .filter((name) => name.endsWith(".ts"))
+      .map((name) => readFileSync(new URL(name, spawnDir), "utf8"))
+      .join("\n");
     for (const flag of ["--detached", "--detach", "--lifetime", "--ephemeral", "--transient", "--kill-with-parent", "--fate"]) {
       expect(source).not.toContain(flag);
     }

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { describe, expect, test } from "bun:test";
 import { needsFirstRunSetup, readOrchVersion, runCommand } from "../src/commands/index.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { announceUnleasedAgents } from "../src/daemon/rpc.ts";
+import { announceUnleasedAgents } from "../src/daemon/rpc/registration.ts";
 import type { RegisterSessionResponse } from "../src/types/daemon.ts";
 
 describe("commands/index", () => {

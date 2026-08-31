@@ -9,7 +9,7 @@ import { governWrite } from "../src/daemon/orchd.ts";
 import { presenceAgentDir } from "../src/presence/store.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { reapAgent, adoptAgent, detachAgent, cmdReap } from "../src/commands/lease.ts";
-import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
+import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";

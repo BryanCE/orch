@@ -26,8 +26,8 @@ Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch 
 - Max 4 agents per tab, tiled. Split bigger fleets across tabs.
 - `reload` = live-reload code in place. `reset` = new session. `restart` = close and relaunch. Use `reload`, never `restart`, to pick up code.
 
-# RULE 6. NODE RUNTIME. BUN IS A BUILD TOOL ONLY.
-Runtime code in `src/` and `extensions/` must run on node. No `Bun.*` API, no `bun:*` import, except `bun:sqlite` as a guarded fallback behind `node:sqlite` (already in `packages/orch/src/store/connection.ts`). Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`; CLI source edits need Bryan's `bun run build:dev` to take effect.
+# RULE 6. RUNTIME-PORTABLE CODE. BUN IS A BUILD TOOL ONLY.
+Runtime code in `src/` and `extensions/` must be runnable by any JS runtime — node, deno, bun, whatever comes next. The `node:` builtin surface is the portable baseline every runtime implements, so target it; that this mostly reads as "use node" is a consequence, not the rule. No `Bun.*` API, no `bun:*` import, no deno globals, except `bun:sqlite` as a guarded fallback behind `node:sqlite` (already in `packages/orch/src/store/connection.ts`). Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`; CLI source edits need Bryan's `bun run build:dev` to take effect.
 
 # RULE 7. FRESH CONTEXT PER TASK. `reset` BEFORE DISPATCH.
 `orch reset <target>` (alias `new`) every target you are about to redispatch, in the same shot as the dispatch. Never stack a new task on a used session.

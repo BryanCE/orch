@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { cmdAbort, cmdClose } from "../src/commands/lifecycle.ts";
+import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";

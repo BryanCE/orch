@@ -5,7 +5,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { startRpcServer } from "../src/daemon/rpc.ts";
+import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";

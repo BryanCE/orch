@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rpcCall, startRpcServer } from "../src/daemon/rpc.ts";
+import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { rpcCall } from "../src/daemon/rpc/client.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
@@ -16,7 +17,7 @@ import type { RpcServer } from "../src/types/daemon.ts";
  * lands in one of them: the recovered daemon and the fresh one stop agreeing about
  * where they are reachable.
  */
-const RPC_SOURCE = readFileSync(join(import.meta.dir, "..", "src", "daemon", "rpc.ts"), "utf8");
+const RPC_SOURCE = readFileSync(join(import.meta.dir, "..", "src", "daemon", "rpc", "server.ts"), "utf8");
 
 /** Everything from starting the server to the point it is handed back: the
  *  region that claims an endpoint. Teardown unlinks the same paths for the

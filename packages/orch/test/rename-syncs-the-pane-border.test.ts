@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cmdRename } from "../src/commands/lifecycle.ts";
+import { cmdRename } from "../src/commands/lifecycle/rename.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";

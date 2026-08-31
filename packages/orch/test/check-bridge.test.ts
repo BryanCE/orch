@@ -65,7 +65,7 @@ describe("10.1 packages must not import concrete backends/adapters (checkPackage
       'import type { Backend } from "../../../../src/backends/backend.ts";',
       'import { loadPresence } from "../../../../src/presence/store.ts";',
       'import { loadConfigOrNull } from "../../../../src/config.ts";',
-      'import { rpcCall } from "../../../../src/daemon/rpc.ts";',
+      'import { rpcCall } from "../../../../src/daemon/rpc/client.ts";',
     ];
     for (const line of allowed) expect(checkPackageImportLine(line)).toBeUndefined();
   });
@@ -204,7 +204,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
     )).toBeUndefined();
     expect(checkIdentityConstructionLine(
       "  const key = `${backend}~${workspace}~${id}`;",
-      "src/daemon/rpc.ts",
+      "src/daemon/rpc/registration.ts",
     )).toBeUndefined();
     expect(checkIdentityConstructionLine("  return serializeIdentity(identity);", relPath)).toBeUndefined();
   });
@@ -217,7 +217,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
 
   test("passes the clean tree: every identity construction is allowed or registered", () => {
     const unregistered: string[] = [];
-    for (const file of ["src/entities.ts", "src/commands/spawn.ts", "src/daemon/rpc.ts", "src/backends/identity.ts"]) {
+    for (const file of ["src/entities.ts", "src/commands/spawn.ts", "src/daemon/rpc/registration.ts", "src/backends/identity.ts"]) {
       const allowed = IDENTITY_CONSTRUCTION_ALLOWLIST.get(file) ?? new Set<string>();
       for (const line of readRepoLines(file)) {
         if (allowed.has(line.trim())) continue;

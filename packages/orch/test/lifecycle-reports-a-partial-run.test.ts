@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cmdReload, cmdRestart } from "../src/commands/lifecycle.ts";
+import { cmdReload, cmdRestart } from "../src/commands/lifecycle/reload.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { isRecord } from "../src/util.ts";
 import { seedSpace } from "./helpers/space.ts";

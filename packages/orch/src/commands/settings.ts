@@ -5,7 +5,8 @@ import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.t
 import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
 import { errorMessage, isRecord } from "../util.ts";
-import { readAssignFlag, resolveHarnessModels, validateSetupFlag } from "./setup.ts";
+import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
+import { resolveHarnessModels } from "../setup/composition.ts";
 import { refreshAdapterCatalogues } from "../adapters/registry.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
@@ -15,9 +16,10 @@ import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
+import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
 import type { NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState, OrchConfig, SettingKind, SettingSpec } from "../types/config.ts";
+import type { NotifyEntry, NotifyState, OrchConfig, SettingKind } from "../types/config.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */
@@ -90,50 +92,6 @@ function nearestSettingKeys(key: string): string {
     .slice(0, 3)
     .map((entry) => entry.key)
     .join(", ");
-}
-
-interface ParsedSettingValue { readonly ok: true; readonly value: unknown }
-interface RejectedSettingValue { readonly ok: false; readonly reason: string }
-type SettingValueResult = ParsedSettingValue | RejectedSettingValue;
-
-function parseSettingValue(spec: SettingSpec, input: string): SettingValueResult {
-  const kind = spec.type;
-  switch (kind.kind) {
-    case "boolean":
-      if (input === "true") return { ok: true, value: true };
-      if (input === "false") return { ok: true, value: false };
-      return { ok: false, reason: "expected true or false" };
-    case "integer": {
-      if (!/^-?\d+$/.test(input)) return { ok: false, reason: "expected an integer" };
-      const value = Number(input);
-      if (!Number.isSafeInteger(value)) return { ok: false, reason: "expected a safe integer" };
-      if (kind.min !== undefined && value < kind.min) return { ok: false, reason: `expected an integer >= ${kind.min}` };
-      if (kind.max !== undefined && value > kind.max) return { ok: false, reason: `expected an integer <= ${kind.max}` };
-      return { ok: true, value };
-    }
-    case "choice":
-      return kind.choices.includes(input)
-        ? { ok: true, value: input }
-        : { ok: false, reason: `expected one of: ${kind.choices.join(", ")}` };
-    case "multi": {
-      const values = input.split(",").map((value) => value.trim()).filter(Boolean);
-      const invalid = values.filter((value) => !kind.choices.includes(value));
-      if (!values.length || invalid.length) return { ok: false, reason: `expected comma-separated values from: ${kind.choices.join(", ")}` };
-      return { ok: true, value: values };
-    }
-    case "text":
-      return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
-    case "list": {
-      let value: unknown;
-      try { value = JSON.parse(input); } catch { return { ok: false, reason: "expected a JSON array or object" }; }
-      if (value === null || typeof value !== "object") return { ok: false, reason: "expected a JSON array or object" };
-      return { ok: true, value };
-    }
-    default: {
-      const exhaustive: never = kind;
-      return exhaustive;
-    }
-  }
 }
 
 /** Bare settings opens the editor only when attached to a TTY; flags and JSON stay non-interactive. */

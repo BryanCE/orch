@@ -679,6 +679,33 @@ export function writeSettingsValue(orchDir: string, key: string, value: unknown)
   updateSettingsFile(orchDir, (root) => setSettingsPath(root, segments, value));
 }
 
+function deleteSettingsPath(root: Partial<SettingsFile>, segments: readonly string[]): Partial<SettingsFile> {
+  const candidate: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(root)) candidate[key] = entry;
+  let cursor = candidate;
+  for (const segment of segments.slice(0, -1)) {
+    const existing = cursor[segment];
+    if (existing === null || typeof existing !== "object" || Array.isArray(existing)) {
+      return SETTINGS_FILE_SCHEMA.parse(candidate);
+    }
+    const next: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(existing)) next[key] = entry;
+    cursor[segment] = next;
+    cursor = next;
+  }
+  const last = segments.at(-1);
+  if (last === undefined) throw new Error("settings key must not be empty");
+  delete cursor[last];
+  return SETTINGS_FILE_SCHEMA.parse(candidate);
+}
+
+/** Remove one setting from settings.json so its default wins again, through the same
+ *  whole-file validator as every write. Removing an absent key is a no-op, not an error. */
+export function clearSettingsValue(orchDir: string, key: string): void {
+  const segments = key.split(".");
+  updateSettingsFile(orchDir, (root) => deleteSettingsPath(root, segments));
+}
+
 /** Record the declared JS runtime as the top-level `runtime` key. Idempotent: re-recording the
  * same selection leaves the file byte-identical, and a different selection replaces the single
  * scalar in place — the shape has no room to accumulate a second runtime entry. */

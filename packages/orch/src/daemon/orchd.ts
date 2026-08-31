@@ -8,7 +8,8 @@ import {
   daemonStartRefusal,
   releaseDaemonRegistration,
 } from "./lifecycle.ts";
-import { rpcCall, startRpcServer } from "./rpc.ts";
+import { rpcCall } from "./rpc/client.ts";
+import { startRpcServer } from "./rpc/server.ts";
 import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, configuredLogLevel } from "../config.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";

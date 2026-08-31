@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRpcResponse } from "../src/daemon/rpc.ts";
+import { isRpcResponse } from "../src/daemon/rpc/wire.ts";
 import { ensureHost, currentHostOs } from "../src/store/agent-rows.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { hosts } from "../src/db/schema.ts";

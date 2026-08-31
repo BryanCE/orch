@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawnOneIntoTab } from "../src/commands/spawn.ts";
+import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { agentView } from "../src/store/agent-view.ts";

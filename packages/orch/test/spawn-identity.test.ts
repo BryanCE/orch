@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { spawnOneIntoTab } from "../src/commands/spawn.ts";
+import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId, parseIdentity } from "../src/backends/identity.ts";
 import { normalizeControlTarget } from "../src/control/normalize-target.ts";
 import { spawnedRecords } from "../src/presence/store.ts";

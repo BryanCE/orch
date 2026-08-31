@@ -1,4 +1,4 @@
-import { loadConfigOrNull } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
@@ -24,7 +24,7 @@ import { isRecord, truncate } from "../util.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { OrchConfig } from "../types/config.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
@@ -36,7 +36,7 @@ export function formatSpace(id: string | null | undefined, name: string | null |
   return name && name !== id ? `${name} (${id})` : name ?? id;
 }
 
-export function displaySpace(id: string | null | undefined, resolver: OrchConfig["spaces"]): string {
+export function displaySpace(id: string | null | undefined, resolver: OrchSettings["spaces"]): string {
   return formatSpace(id, resolveSpaceName(id, resolver));
 }
 
@@ -214,7 +214,7 @@ function statusRowsFrom(values: readonly unknown[]): StatusRow[] {
   return values.filter(isStatusRow);
 }
 
-async function readFleetRows(spaces: OrchConfig["spaces"], offline: boolean): Promise<FleetSnapshot> {
+async function readFleetRows(spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
   if (offline) {
     const rows = fleetStatusRows(spaces, { offline: true });
     return snapshot(rows, rows.some((row) => row.backend != null));
@@ -392,7 +392,7 @@ function renderLocalTable(visible: readonly StatusRow[], all: boolean): void {
   if (table) process.stdout.write(table + "\n");
 }
 
-async function cmdStatusLocal(options: StatusOptions, spaces: OrchConfig["spaces"]): Promise<void> {
+async function cmdStatusLocal(options: StatusOptions, spaces: OrchSettings["spaces"]): Promise<void> {
   const fleet = await readFleetRows(spaces, options.offline);
   const visible = scopeFleetRows(fleet.rows, options);
   if (options.json) {
@@ -450,7 +450,7 @@ export function statusRowFromEntity(
   entity: Entity,
   views: ReadonlyMap<string, AgentView>,
   staleHashes: ReadonlySet<string> | undefined = new Set(shippedBundleHashes()),
-  spaces: OrchConfig["spaces"] = {},
+  spaces: OrchSettings["spaces"] = {},
   orchId: string | null = currentOrchId(),
   directory: string = orchDir(),
 ): StatusRow {
@@ -516,7 +516,7 @@ interface FleetStatusOptions {
   directory?: () => string;
 }
 
-export function fleetStatusRows(spaces: OrchConfig["spaces"], options: FleetStatusOptions = {}): StatusRow[] {
+export function fleetStatusRows(spaces: OrchSettings["spaces"], options: FleetStatusOptions = {}): StatusRow[] {
   const directory = options.directory?.() ?? orchDir();
   const views = agentViewIndex();
   const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
@@ -528,7 +528,7 @@ export function fleetStatusRows(spaces: OrchConfig["spaces"], options: FleetStat
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
-async function localStatusRows(options: StatusOptions, spaces: OrchConfig["spaces"]): Promise<FleetSnapshot> {
+async function localStatusRows(options: StatusOptions, spaces: OrchSettings["spaces"]): Promise<FleetSnapshot> {
   const snapshot = await readFleetRows(spaces, options.offline);
   const scoped = scopeFleetRows(snapshot.rows, options);
   return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
@@ -547,7 +547,7 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
 
 type RemoteStatusResult = Awaited<ReturnType<typeof runRemoteAsync>>;
 
-async function remoteStatusResults(hosts: OrchConfig["hosts"], offline: boolean): Promise<{ name: string; result: RemoteStatusResult }[]> {
+async function remoteStatusResults(hosts: OrchSettings["hosts"], offline: boolean): Promise<{ name: string; result: RemoteStatusResult }[]> {
   return Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
     name,
     result: await runRemoteAsync(name, host, ["status", ...(offline ? ["--offline"] : [])], { timeoutMs: host.timeout_ms }),
@@ -579,9 +579,9 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
 export async function cmdStatus(args: string[]): Promise<void> {
   const options = parseStatusOptions(args);
   if (!options.offline) await ensureDaemonOrWarn(orchDir());
-  const config = loadConfigOrNull(orchDir());
-  const hosts = config?.hosts ?? {};
-  const spaces = config?.spaces ?? {};
+  const settings = loadSettingsOrNull(orchDir());
+  const hosts = settings?.hosts ?? {};
+  const spaces = settings?.spaces ?? {};
   if (options.local || Object.keys(hosts).length === 0) {
     await cmdStatusLocal(options, spaces);
     return;

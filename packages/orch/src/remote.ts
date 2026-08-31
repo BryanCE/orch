@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { osSide, shellQuote } from "./util.ts";
-import type { HostConfig } from "./types/config.ts";
+import type { HostSettings } from "./types/settings.ts";
 import type { RemoteResult, SshResult } from "./types/core.ts";
 
 const DEFAULT_REMOTE_TIMEOUT_MS = 3000;
@@ -54,7 +54,7 @@ function commandArgs(command: string | readonly string[]): string[] {
   return command.trim() ? command.trim().split(/\s+/) : [];
 }
 
-function sshArgs(host: HostConfig, command: string | readonly string[], destination: string): string[] {
+function sshArgs(host: HostSettings, command: string | readonly string[], destination: string): string[] {
   const commandParts = commandArgs(command);
   if (commandParts[commandParts.length - 1] !== "--json") commandParts.push("--json");
   const remoteCommand = host.orch_dir
@@ -82,7 +82,7 @@ function parsedOutput(hostName: string, stdout: string): RemoteResult {
 /** Asynchronous JSON command executor for parallel multi-host reads. */
 export function runRemoteAsync(
   hostName: string,
-  host: HostConfig,
+  host: HostSettings,
   command: string | readonly string[],
   options: RemoteOptions = {},
 ): Promise<RemoteResult> {

@@ -23,7 +23,7 @@ void mock.module("../src/bridge-bundles/build.ts", () => ({
 
 let cmdReload: (args: string[]) => Promise<void>;
 beforeAll(async () => {
-  ({ cmdReload } = await import("../src/commands/lifecycle.ts"));
+  ({ cmdReload } = await import("../src/commands/lifecycle/reload.ts"));
 });
 
 const originalOrchDir = process.env.ORCH_DIR;

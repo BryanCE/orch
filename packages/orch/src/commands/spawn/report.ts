@@ -1,5 +1,5 @@
 import { bridgeRegistered, orchDir } from "../../presence/store.ts";
-import { loadConfig } from "../../config.ts";
+import { loadSettings } from "../../settings/read.ts";
 import { maySpawnFrom } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { tryParseIdentity } from "../../backends/identity.ts";
@@ -103,8 +103,8 @@ export async function reportControlPlaneOutage(paneCount: number): Promise<strin
 }
 
 export async function reportSpawnResults(settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
-  const config = loadConfig(orchDir());
-  const maySpawn = maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth);
+  const settingsFile = loadSettings(orchDir());
+  const maySpawn = maySpawnFrom(orchDir(), selfId(), settingsFile.fleet.max_depth);
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${tabLabel}" (no focus stolen).\n`);
@@ -135,7 +135,7 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
       try {
         const { dispatchId } = await dispatchToAgent(agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
-          context: { maySpawn, lockedCommands: config.locked_commands, spawnerRepliable: true },
+          context: { maySpawn, lockedCommands: settingsFile.locked_commands, spawnerRepliable: true },
         });
         dispatches.push({ name: agent.name, key: agent.key, dispatchId });
         if (!settings.json) process.stdout.write(`dispatched ${agent.name} ${dispatchId}\n`);

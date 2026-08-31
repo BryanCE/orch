@@ -1,4 +1,4 @@
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { orchDir } from "../presence/store.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
@@ -8,7 +8,7 @@ import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
 import { die } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId, HarnessModel } from "../types/adapter.ts";
-import type { OrchConfig } from "../types/config.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { CatalogueReader, HarnessSection, ModelFilters, ModelRow } from "../types/command.ts";
 
 /**
@@ -75,9 +75,9 @@ function matchingModels(
 }
 
 /** One harness's section, numbered in display order so `--pick=<n>` names the row the user read. */
-function buildSection(id: AdapterId, config: OrchConfig, filters: ModelFilters, read: CatalogueReader): HarnessSection {
-  const preferred = config.models.preferred[id] ?? [];
-  const launchModel = config.defaults.models[id];
+function buildSection(id: AdapterId, settings: OrchSettings, filters: ModelFilters, read: CatalogueReader): HarnessSection {
+  const preferred = settings.models.preferred[id] ?? [];
+  const launchModel = settings.defaults.models[id];
   const launchBare = launchModel === undefined ? undefined : splitThinkingSuffix(launchModel).bare;
   const models = matchingModels(read(id), preferred, filters).map((model, position) => ({
     index: position + 1,
@@ -92,11 +92,11 @@ function buildSection(id: AdapterId, config: OrchConfig, filters: ModelFilters, 
 /** Every targeted harness's catalogue, in configured order. */
 export function buildSections(
   targets: readonly AdapterId[],
-  config: OrchConfig,
+  settings: OrchSettings,
   filters: ModelFilters,
   read: CatalogueReader = readAdapterCatalogue,
 ): HarnessSection[] {
-  return targets.map((id) => buildSection(id, config, filters, read));
+  return targets.map((id) => buildSection(id, settings, filters, read));
 }
 
 /** How a row is marked: what the harness launches on, what its own picker cycles. */
@@ -150,14 +150,14 @@ export function cmdModels(args: string[]): void {
   const pick = readAssignFlag(args, "--pick");
   if (pick !== undefined && json) die("--pick prints one model spec and --json prints the catalogue; pass one or the other");
 
-  let config: OrchConfig;
+  let settings: OrchSettings;
   try {
-    config = loadConfig(orchDir());
+    settings = loadSettings(orchDir());
   } catch (error: unknown) {
     die(errorMessage(error));
   }
   const search = readAssignFlag(args, "--search");
-  const sections = buildSections(readTargets(args, config.enabled.adapters), config, {
+  const sections = buildSections(readTargets(args, settings.enabled.adapters), settings, {
     quicklistOnly: args.includes("--preferred"),
     ...(search === undefined ? {} : { search }),
   });

@@ -1,4 +1,4 @@
-import { loadConfigOrNull } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { repickCommand, signedOutFix } from "../adapters/prerequisites.ts";
@@ -18,7 +18,7 @@ export function checkHarnessModels(orchDir: string, harness: AdapterId): CheckRe
   if (!offered.length) {
     return { id, label, status: "warn", detail: `${harness} lists no models - ${signedOutFix(harness)}` };
   }
-  const recorded = loadConfigOrNull(orchDir)?.defaults.models[harness];
+  const recorded = loadSettingsOrNull(orchDir)?.defaults.models[harness];
   if (!recorded) return { id, label, status: "warn", detail: `${harness} offers ${offered.length} models but orch records no default - run: ${repickCommand(harness)}` };
 
   const { bare } = splitThinkingSuffix(recorded);

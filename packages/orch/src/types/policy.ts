@@ -1,7 +1,7 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { VOCABULARY } from "../policy/vocabulary.ts";
-import type { OrchConfig } from "./config.ts";
+import type { OrchSettings } from "./settings.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -35,7 +35,7 @@ export interface ThinkingResolutionInput {
   readonly flag?: unknown;
   readonly modelSuffix?: unknown;
   readonly harness: string;
-  readonly config: Pick<OrchConfig, "defaults">;
+  readonly settings: Pick<OrchSettings, "defaults">;
 }
 
 export type Term = keyof typeof VOCABULARY;

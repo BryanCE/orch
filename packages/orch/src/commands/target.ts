@@ -1,4 +1,4 @@
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { getBackend } from "../backends/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget } from "../entities.ts";
@@ -16,7 +16,7 @@ import { commandLogger } from "./logging.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { HostConfig } from "../types/config.ts";
+import type { HostSettings } from "../types/settings.ts";
 import type { LifecycleTarget } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
@@ -121,21 +121,21 @@ export function livePanePresenceEntries(): PresenceEntry[] {
 
 export function targetHost(target: string): { host: string; target: string } | null {
   try {
-    const ref = parseTarget(target, loadConfig(orchDir()).hosts);
+    const ref = parseTarget(target, loadSettings(orchDir()).hosts);
     return ref.host ? { host: ref.host, target: ref.target } : null;
   } catch (error: unknown) {
     die(errorMessage(error));
   }
 }
 
-export function remoteCommandArgs(host: HostConfig, command: string, args: readonly string[]): string {
+export function remoteCommandArgs(host: HostSettings, command: string, args: readonly string[]): string {
   const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
   const prefix = host.orch_dir ? `env ORCH_DIR=${quote(host.orch_dir)} ` : "";
   return `${prefix}orch ${[command, ...args].map(quote).join(" ")}`;
 }
 
 export function remoteWrite(hostName: string, command: string, args: readonly string[]): void {
-  const host = loadConfig(orchDir()).hosts[hostName];
+  const host = loadSettings(orchDir()).hosts[hostName];
   const destination = host?.dest;
   if (!host || !destination) die(`Host "${hostName}" has no SSH destination.`);
   const result = runSSH(destination, remoteCommandArgs(host, command, args), { timeoutMs: host.timeout_ms });

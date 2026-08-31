@@ -1,5 +1,5 @@
 import { orchDir } from "../../presence/store.ts";
-import { loadConfig } from "../../config.ts";
+import { loadSettings } from "../../settings/read.ts";
 import { assertModelAllowed } from "../../policy/model.ts";
 import { resolveThinking, splitThinkingSuffix } from "../../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
@@ -16,7 +16,7 @@ import type { Backend } from "../../types/backend.ts";
 import type { AdapterId, AgentAdapter } from "../../types/adapter.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { RetryPolicy } from "../../types/core.ts";
-import type { OrchConfig } from "../../types/config.ts";
+import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentFlags, AgentSettings } from "../../types/command.ts";
 
 
@@ -25,11 +25,11 @@ import type { AgentFlags, AgentSettings } from "../../types/command.ts";
  *  previewed command is the command the backend actually runs. */
 export function adapterCommand(
   adapter: string,
-  config = loadConfig(orchDir()),
+  settings = loadSettings(orchDir()),
   launch: { model?: string; thinking?: ThinkingLevel; preferredModels?: readonly string[] } = {},
 ): string {
   const resolved = resolveAdapterOrDie(adapter);
-  const opts = { ...launch, tools: workerTools(config), workers: workerPolicyFrom(config) };
+  const opts = { ...launch, tools: workerTools(settings), workers: workerPolicyFrom(settings) };
   return resolved.workerLaunch?.restrictedInteractiveCmd(opts) ?? resolved.interactiveCmd(opts);
 }
 
@@ -93,8 +93,8 @@ export async function pinModels(
  *  validates the model only after policy accepts; the launch hands this string to the harness CLI, whose own
  *  resolver fuzzy-matches a shorthand onto whatever registry entry shares a prefix. A
  *  model the harness does not list must never reach that resolver. */
-export function launchModel(flags: AgentFlags, config: OrchConfig, adapter: AgentAdapter): string {
-  const model = requestedModel(flags) ?? config.defaults.models[adapter.id] ?? "";
+export function launchModel(flags: AgentFlags, settings: OrchSettings, adapter: AgentAdapter): string {
+  const model = requestedModel(flags) ?? settings.defaults.models[adapter.id] ?? "";
   if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]>, or record one with: ${repickCommand(adapter.id)}`);
   return splitThinkingSuffix(model).bare;
 }
@@ -109,16 +109,16 @@ export function assertLaunchModelAllowed(adapterId: AdapterId, model: string): v
   }
 }
 
-export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orchDir())): AgentSettings {
-  const adapter = pickAdapter(flags, config);
+export function resolveAgentSettings(flags: AgentFlags, settings = loadSettings(orchDir())): AgentSettings {
+  const adapter = pickAdapter(flags, settings);
   const harness = resolveAdapterOrDie(adapter);
-  // Selection flows through the backend factory: explicit flag/env, then config
+  // Selection flows through the backend factory: explicit flag/env, then settings
   // default, then a capability-probed fallback. No per-backend branch is hard-coded here.
   let backend: Backend;
   try {
     backend = resolveBackend({
       explicit: flags.backendFlag ?? process.env.ORCH_BACKEND ?? null,
-      configured: config.defaults.backend ?? null,
+      configured: settings.defaults.backend ?? null,
     });
   } catch (error: unknown) {
     die(errorMessage(error));
@@ -126,9 +126,9 @@ export function resolveAgentSettings(flags: AgentFlags, config = loadConfig(orch
   return {
     adapter,
     backend: backend.id,
-    model: launchModel(flags, config, harness),
-    thinking: resolveThinking({ flag: flags.thinkingFlag, modelSuffix: splitThinkingSuffix(requestedModel(flags) ?? config.defaults.models[adapter] ?? "").thinking, harness: adapter, config }),
-    preferredModels: config.models.preferred[adapter] ?? [],
+    model: launchModel(flags, settings, harness),
+    thinking: resolveThinking({ flag: flags.thinkingFlag, modelSuffix: splitThinkingSuffix(requestedModel(flags) ?? settings.defaults.models[adapter] ?? "").thinking, harness: adapter, settings }),
+    preferredModels: settings.models.preferred[adapter] ?? [],
   };
 }
 

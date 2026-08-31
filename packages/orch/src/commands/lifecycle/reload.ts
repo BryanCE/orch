@@ -7,7 +7,7 @@ import { reclaimAgent } from "../../store/agent-rows.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage, pidAlive } from "../../util.ts";
 import { paneAtShellPrompt, sleepMs, NO_PANE_FOREGROUND } from "../../backends/pane-ready.ts";
-import { loadConfig } from "../../config.ts";
+import { loadSettings } from "../../settings/read.ts";
 import { adapterCommand, assertLaunchModelAllowed, launchModel } from "../spawn/models.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
@@ -17,7 +17,7 @@ import { describeHandle, agentIdOf } from "./close.ts";
 import type { Backend, PaneForeground } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
 import type { LifecycleTarget } from "../../types/command.ts";
-import type { OrchConfig } from "../../types/config.ts";
+import type { OrchSettings } from "../../types/settings.ts";
 
 export function paneForeground(backend: Backend, handle: string): PaneForeground {
   return backend.paneForeground?.read(handle) ?? NO_PANE_FOREGROUND;
@@ -195,7 +195,7 @@ export async function cmdReload(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const { targets, all } = lifecycleTargets(args, ["--json", "--force"]);
   // `--all` is a valid invocation even with zero live panes: it still touches
-  // reload.signal (SIGNALED) for config/extension watchers. Only a bare call
+  // reload.signal (SIGNALED) for settings/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
   const results: ReloadResult[] = [];
@@ -216,16 +216,16 @@ export async function cmdReload(args: string[]): Promise<void> {
 /** The command a restart relaunches the harness on. Restart is a FRESH launch,
  *  so the model is resolved exactly like spawn and reset rather than letting the
  *  harness fall back to its own default. */
-function restartLaunchCommand(cmd: string | null, harnessId: string, adapter: AgentAdapter, config: OrchConfig): string {
+function restartLaunchCommand(cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings): string {
   if (cmd !== null) return cmd;
-  const model = launchModel({}, config, adapter);
+  const model = launchModel({}, settings, adapter);
   assertLaunchModelAllowed(adapter.id, model);
-  return adapterCommand(harnessId, config, { model, preferredModels: config.models.preferred[adapter.id] ?? [] });
+  return adapterCommand(harnessId, settings, { model, preferredModels: settings.models.preferred[adapter.id] ?? [] });
 }
 
 /** Restart one target. A detached agent has no shell to type a quit into, so the
  *  daemon rules on what restart means for it. */
-async function restartOneTarget(target: string, cmd: string | null, config: OrchConfig, flags: { json: boolean; force: boolean }): Promise<boolean> {
+async function restartOneTarget(target: string, cmd: string | null, settings: OrchSettings, flags: { json: boolean; force: boolean }): Promise<boolean> {
   const { entity: ent, backend, handle } = resolveLifecycleTarget(target);
   assertAgentOwned(target, ent, flags.force);
   const harness = ent.agent ?? ent.presence?.status?.agent;
@@ -245,7 +245,7 @@ async function restartOneTarget(target: string, cmd: string | null, config: Orch
     process.stdout.write(`${restarted.pane}: ${reason}\n`);
     return false;
   }
-  const launch = restartLaunchCommand(cmd, harness, adapter, config);
+  const launch = restartLaunchCommand(cmd, harness, adapter, settings);
   if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
   if (!restartPaneAndAwaitBridge(backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
   if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);
@@ -257,10 +257,10 @@ export async function cmdRestart(args: string[]): Promise<void> {
   const { targets, values } = lifecycleTargets(args, ["--hard", "--json", "--force"], ["--cmd"]);
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
   const cmd = values.get("--cmd") ?? null;
-  const config = loadConfig(orchDir());
+  const settings = loadSettings(orchDir());
   let ok = 0;
   for (const target of targets) {
-    if (await restartOneTarget(target, cmd, config, flags)) ok++;
+    if (await restartOneTarget(target, cmd, settings, flags)) ok++;
   }
   if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);

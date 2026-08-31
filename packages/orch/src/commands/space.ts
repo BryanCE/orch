@@ -1,6 +1,6 @@
 import { mintAgentId } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { selfId } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
@@ -184,8 +184,8 @@ export function runSpace(env: SpaceEnvironment, args: string[]): void {
 
 export function cmdSpace(args: string[]): void {
   const directory = orchDir();
-  const config = loadConfig(directory);
-  const backend = resolveBackend({ configured: config.defaults.backend ?? null });
+  const settings = loadSettings(directory);
+  const backend = resolveBackend({ configured: settings.defaults.backend ?? null });
   const env: SpaceEnvironment = {
     directory,
     plexerId: backend.id,

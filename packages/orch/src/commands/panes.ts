@@ -1,5 +1,5 @@
 import { buildEntities, entitySpace, scopeEntitiesToSpace, sortEntities, resolveTarget } from "../entities.ts";
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { orchDir } from "../presence/store.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
@@ -34,7 +34,7 @@ export function cmdPanes(args: string[]) {
   const all = enabled.has("--all");
   const json = enabled.has("--json");
   const entities = scopeEntitiesToSpace(sortEntities(buildEntities()), { all });
-  const spaces = loadConfig(orchDir()).spaces;
+  const spaces = loadSettings(orchDir()).spaces;
   if (json) {
     process.stdout.write(JSON.stringify(entities.map((e) => ({ key: e.key, paneId: e.paneId, name: e.name,
       tab: e.tabLabel, agent: e.agent, focused: e.focused, state: e.backendStatus ?? e.presence?.status?.state ?? null,
@@ -108,7 +108,7 @@ export function cmdPeek(args: string[]) {
 }
 
 function selectedGroups(): { backend: Backend; groups: BackendGroup[] } {
-  const backend = resolveBackend({ configured: loadConfig(orchDir()).defaults.backend ?? null });
+  const backend = resolveBackend({ configured: loadSettings(orchDir()).defaults.backend ?? null });
   return { backend, groups: [...(backend.groupHome?.list() ?? [])] };
 }
 
@@ -296,7 +296,7 @@ export function cmdZoom(args: string[]) {
 /** Where a pane should land in a group, ignoring the pane itself — a pane
  *  already in that group must never be planned as its own split target. */
 function tilePlacementBesides(backend: Backend, group: string, mover: string): TilePlacement {
-  const firstSplit = loadConfig(orchDir()).tiling.first_split;
+  const firstSplit = loadSettings(orchDir()).tiling.first_split;
   const role = backend.groupLayout;
   if (!role) return openingPlacement(firstSplit);
   const layout = readGroupLayout(role, group);

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SETTINGS_DEFAULTS, loadConfig } from "../src/config.ts";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
 import { spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
@@ -15,7 +16,7 @@ import { maySpawnFrom } from "../src/worker-prompt.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
-import type { OrchConfig } from "../src/types/config.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
@@ -30,7 +31,7 @@ afterEach(() => {
   if (oldAgentKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldAgentKey;
 });
 
-const fleet = (max_agents_per_pack = 10): OrchConfig["fleet"] => ({
+const fleet = (max_agents_per_pack = 10): OrchSettings["fleet"] => ({
   ...SETTINGS_DEFAULTS.fleet,
   max_agents_per_space: {},
   max_agents_per_pack,
@@ -120,12 +121,12 @@ describe("spawn policy caps", () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-"));
     tempDirs.push(dir);
     writeSettingsFixture(dir, { fleet: { max_agents_per_pack: 2 } });
-    const config = loadConfig(dir);
-    expect(config.fleet.max_agents_per_pack).toBe(2);
+    const settings = loadSettings(dir);
+    expect(settings.fleet.max_agents_per_pack).toBe(2);
     const { views, presence } = fixtureMaps([agentViewFixture("slave", {
       spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
     })]);
-    expect(spawnPolicyError(config, "space", 1, views, presence, "root")).toContain("pack cap 2");
+    expect(spawnPolicyError(settings, "space", 1, views, presence, "root")).toContain("pack cap 2");
   });
 
   test("a refused cmdSpawn makes no name, worktree, registry, or queue mutation", async () => {

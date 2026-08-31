@@ -13,7 +13,7 @@ import {
 import { emitAndNotify } from "./events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, statusForPresence } from "../presence/store.ts";
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { workerHeaderFor } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
@@ -93,7 +93,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const runnerId = currentAttempt(task)?.agentId ?? tryParseIdentity(entry.key)?.id;
   const view = runnerId === undefined ? null : agentView(options.orchDir, runnerId);
   const adapterId = view?.harnessId ?? entry.status?.agent;
-  const lockedCommands = (options.getConfig?.() ?? loadConfig(options.orchDir)).locked_commands;
+  const lockedCommands = (options.getSettings?.() ?? loadSettings(options.orchDir)).locked_commands;
   // The daemon is not this agent's spawner; provenance names it. Only a spawner
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
@@ -114,7 +114,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
       log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
     }
   };
-  const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
+  const dispatchAckTimeoutMs = (options.getSettings?.() ?? loadSettings(options.orchDir)).timeouts.dispatch_ack_ms;
   try {
     await sendPrompt();
     let status = await waitForWorking(entry, task, dispatchAckTimeoutMs);
@@ -197,7 +197,7 @@ function settleError(orchDir: string, task: TaskRec, error: string, entry: Prese
 async function assignTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec, emit: (event: NotifyEvent) => void): Promise<void> {
   try {
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
-    const dispatchAckTimeoutMs = (options.getConfig?.() ?? loadConfig(options.orchDir)).timeouts.dispatch_ack_ms;
+    const dispatchAckTimeoutMs = (options.getSettings?.() ?? loadSettings(options.orchDir)).timeouts.dispatch_ack_ms;
     const state = await waitForTaskState(entry, task, dispatchAckTimeoutMs);
     const current = requireTask(options.orchDir, task.id);
     if (state === "timeout") {
@@ -222,17 +222,17 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
  *  deriving them here too is what published every agent transition twice. */
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
-    emitAndNotify(() => { /* noop */ }, loadConfig(options.orchDir).notify, event);
+    emitAndNotify(() => { /* noop */ }, loadSettings(options.orchDir).notify, event);
   });
   const sweepIntervalMs = 60 * 60 * 1000;
   let lastSweepAt = Number.NEGATIVE_INFINITY;
   while (!options.signal?.aborted) {
-    const config = options.getConfig?.();
-    if (config !== undefined) {
+    const settings = options.getSettings?.();
+    if (settings !== undefined) {
       const nowMs = Date.now();
       if (nowMs - lastSweepAt >= sweepIntervalMs) {
         lastSweepAt = nowMs;
-        const counts = sweepExpiredRows(options.orchDir, config, new Date(nowMs));
+        const counts = sweepExpiredRows(options.orchDir, settings, new Date(nowMs));
         if (Object.values(counts).some((count) => count > 0)) {
           decisionLogger(options.orchDir).info("retention.swept", {
             queue: counts.queue,
@@ -245,7 +245,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         }
       }
     }
-    const maxRetries = config?.queue.max_retries ?? options.maxRetries ?? 1;
+    const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
     const presence = loadPresence();
     settleClaimedTasks(options.orchDir, emit);
     let assigned = 0;

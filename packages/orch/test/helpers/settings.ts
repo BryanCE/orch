@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { SETTINGS_SCHEMA } from "../../src/config.ts";
+import { SETTINGS_SCHEMA } from "../../src/settings/schema.ts";
 import { isRecord } from "../../src/util.ts";
 
 /** Derive an `enabled` composition from `defaults.adapter`/`defaults.backend` so fixtures that only set

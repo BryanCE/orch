@@ -1,14 +1,15 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadConfig, loadConfigOrNull, settingsPath } from "../config.ts";
+import { loadSettings, loadSettingsOrNull } from "../settings/read.ts";
+import { settingsPath } from "../settings/schema.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
 import { errorMessage } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
-import type { OrchConfig } from "../types/config.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
-  const fleet: OrchConfig["fleet"] | undefined = loadConfigOrNull(orchDir)?.fleet;
+  const fleet: OrchSettings["fleet"] | undefined = loadSettingsOrNull(orchDir)?.fleet;
   const globalCap = fleet?.max_agents_total;
   const violations = globalCap === undefined || fleet === undefined
     ? []
@@ -24,7 +25,7 @@ export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
 
 export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
-  const config = loadConfigOrNull(orchDir);
+  const config = loadSettingsOrNull(orchDir);
   if (!config || config.locked_commands.length === 0) return { id: "command-locks", label: "Command locks", status: "skip", detail: "no locked_commands configured" };
   return {
     id: "command-locks",
@@ -34,15 +35,15 @@ export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
   };
 }
 
-export async function checkConfig(orchDir: string): Promise<CheckResult> {
+export async function checkSettingsFile(orchDir: string): Promise<CheckResult> {
   await Promise.resolve();
   const file = settingsPath(orchDir);
-  if (!filesystem.existsSync(file)) return { id: "config", label: "Config validity", status: "ok", detail: "no settings.json" };
+  if (!filesystem.existsSync(file)) return { id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" };
   try {
-    loadConfig(orchDir);
-    return { id: "config", label: "Config validity", status: "ok", detail: file };
+    loadSettings(orchDir);
+    return { id: "settings", label: "Settings validity", status: "ok", detail: file };
   } catch (error: unknown) {
-    return { id: "config", label: "Config validity", status: "fail", detail: errorMessage(error) };
+    return { id: "settings", label: "Settings validity", status: "fail", detail: errorMessage(error) };
   }
 }
 

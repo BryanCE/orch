@@ -1,4 +1,4 @@
-import { allowedModelPatterns } from "../config.ts";
+import { allowedModelPatterns } from "../settings/read.ts";
 import { splitThinkingSuffix } from "./thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import type { AdapterId, AgentAdapter, HarnessModel } from "../types/adapter.ts";

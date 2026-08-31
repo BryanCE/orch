@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync, utimesSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import { loadConfigOrNull, SETTINGS_SCHEMA } from "../src/config.ts";
+import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
+import { loadSettingsOrNull } from "../src/settings/read.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
@@ -16,7 +17,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { writeResult } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { RunRecord } from "../src/types/store.ts";
-import type { OrchConfig } from "../src/types/config.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
@@ -29,7 +30,7 @@ function fixture(): string {
   return orchDir;
 }
 
-function config(days: Partial<OrchConfig["retention"]> = {}): OrchConfig {
+function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSettings {
   return {
     runtime: "node",
     enabled: { adapters: ["pi"], backends: [] },
@@ -84,7 +85,7 @@ describe("retention sweep", () => {
     writeFileSync(join(orchDir, "settings.json"), JSON.stringify({
       schemaVersion: SETTINGS_SCHEMA, runtime: "node", retention: { runs_days: 3 },
     }));
-    const retention = loadConfigOrNull(orchDir)!.retention;
+    const retention = loadSettingsOrNull(orchDir)!.retention;
     expect(retention.runs_days).toBe(3);
     expect(retention.ended_agents_days).toBe(90);
     expect(retention.queue_days).toBe(14);
@@ -106,7 +107,7 @@ describe("retention sweep", () => {
     appendEvent(orchDir, Date.parse("2026-01-30T00:00:00.000Z"), { id: "event-new" });
     upsertRun(orchDir, run("run-old", "2025-12-20T00:00:00.000Z"));
     upsertRun(orchDir, run("run-new", "2026-01-20T00:00:00.000Z"));
-    expect(sweepExpiredRows(orchDir, config({ queue_days: 14, events_days: 3, runs_days: 30, outbox_days: 7 }), NOW)).toEqual({
+    expect(sweepExpiredRows(orchDir, settingsFixture({ queue_days: 14, events_days: 3, runs_days: 30, outbox_days: 7 }), NOW)).toEqual({
       queue: 1, outbox: 1, events: 1, runs: 1, ended_agents: 0, logs: 0,
     });
     expect(orm(orchDir).all(sql`SELECT id FROM tasks ORDER BY id`)).toHaveLength(3);
@@ -118,7 +119,7 @@ describe("retention sweep", () => {
   test("returns zero counts when every row is inside its window", () => {
     const orchDir = fixture();
     seedQueueTask(orchDir, "queue", "done", "2026-01-31T00:00:00.000Z");
-    expect(sweepExpiredRows(orchDir, config(), NOW)).toEqual({ queue: 0, outbox: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 });
+    expect(sweepExpiredRows(orchDir, settingsFixture(), NOW)).toEqual({ queue: 0, outbox: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 });
   });
 
   test("continues sweeping when one table delete fails", () => {
@@ -127,7 +128,7 @@ describe("retention sweep", () => {
     upsertRun(orchDir, run("old-run", "2020-01-01T00:00:00.000Z"));
     orm(orchDir).run(sql.raw("DROP TABLE tasks"));
 
-    const counts = sweepExpiredRows(orchDir, config({ events_days: 1, runs_days: 1 }), NOW);
+    const counts = sweepExpiredRows(orchDir, settingsFixture({ events_days: 1, runs_days: 1 }), NOW);
     expect(counts.queue).toBe(0);
     expect(counts.events).toBe(1);
     expect(counts.runs).toBe(1);
@@ -151,7 +152,7 @@ describe("retention sweep", () => {
     db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);
     acquireLease(orchDir, agentId, holder, Date.parse(old));
 
-    expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(row(db, sql`SELECT id FROM agents WHERE id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT agent_id FROM agent_worktrees WHERE agent_id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT agent_id FROM agent_plexers WHERE agent_id=${agentId}`)).toBeUndefined();
@@ -171,7 +172,7 @@ describe("retention sweep", () => {
     db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${key},${key},${"pi"},${"/tmp"},${key},${Date.parse(old)})`);
     db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${key},${Date.parse(old)},NULL)`);
     utimesSync(dir, NOW, NOW);
-    expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).toBeUndefined();
   });
@@ -182,7 +183,7 @@ describe("retention sweep", () => {
     const dir = seedStatus(orchDir, key, { pid: 999999, updatedAt: "2026-01-20T00:00:00.000Z" });
     writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done", finishedAt: "2026-01-31T00:00:00.000Z" });
     utimesSync(dir, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
-    expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
@@ -192,7 +193,7 @@ describe("retention sweep", () => {
     const dir = seedStatus(orchDir, key, { pid: 999999 });
     writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done" });
     utimesSync(dir, NOW, NOW);
-    expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
   });
 
@@ -203,7 +204,7 @@ describe("retention sweep", () => {
     writeFileSync(join(dir, "status.json"), "not valid status");
     writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done", finishedAt: "2026-01-31T00:00:00.000Z" });
     utimesSync(dir, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
-    expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
@@ -212,7 +213,7 @@ describe("retention sweep", () => {
     const dir = seedStatus(orchDir, "liveagent1", { pid: process.pid });
     const old = new Date(NOW.getTime() - 100 * 24 * 60 * 60 * 1000);
     utimesSync(dir, old, old);
-    expect(sweepExpiredRows(orchDir, config({ ended_agents_days: 1 }), NOW).ended_agents).toBe(0);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 1 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
@@ -228,7 +229,7 @@ describe("retention sweep", () => {
     const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
     utimesSync(deadLog, old, old);
     utimesSync(liveLog, old, old);
-    expect(sweepExpiredRows(orchDir, config({ logs_days: 7 }), NOW).logs).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW).logs).toBe(1);
     expect(existsSync(deadLog)).toBe(false);
     expect(existsSync(liveLog)).toBe(true);
   });
@@ -241,13 +242,13 @@ describe("retention sweep", () => {
     let ticks = 0;
     try {
       Date.now = () => (ticks < 2 ? firstTick : firstTick + 60_000);
-      const settings = config({ runs_days: 1 });
+      const settings = settingsFixture({ runs_days: 1 });
       const loop = runWorkLoop({
         orchDir,
         pollIntervalMs: 1,
         continuous: true,
         signal: controller.signal,
-        getConfig: () => {
+        getSettings: () => {
           ticks += 1;
           if (ticks === 2) upsertRun(orchDir, run("inserted-after-sweep", "2020-01-01T00:00:00.000Z"));
           if (ticks === 3) controller.abort();
@@ -271,7 +272,7 @@ describe("retention sweep", () => {
     utimesSync(daemonLog, old, old);
     utimesSync(cliLog, old, old);
 
-    expect(sweepExpiredRows(orchDir, config({ logs_days: 7 }), NOW).logs).toBe(2);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW).logs).toBe(2);
     expect(existsSync(daemonLog)).toBe(false);
     expect(existsSync(cliLog)).toBe(false);
   });
@@ -287,7 +288,7 @@ describe("retention sweep", () => {
     utimesSync(daemonLog, NOW, NOW);
     utimesSync(cliLog, NOW, NOW);
 
-    expect(sweepExpiredRows(orchDir, config({ logs_days: 7 }), NOW).logs).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW).logs).toBe(1);
     expect(existsSync(daemonLog)).toBe(false);
     expect(existsSync(cliLog)).toBe(true);
   });

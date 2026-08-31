@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { buildEntities, collapse, resolveTarget, scopeEntitiesToSpace, spaceOf } from "../entities.ts";
 import { loadPresence, orchDir, readJSON } from "../presence/store.ts";
 import { QUESTION_FILE } from "../presence/schema.ts";
@@ -49,7 +49,7 @@ function parseResultArgs(args: string[]): ResultOptions {
 function writeRemoteResult(target: string, options: ResultOptions): boolean {
   const remote = targetHost(target);
   if (!remote) return false;
-  const host = loadConfig(orchDir()).hosts[remote.host];
+  const host = loadSettings(orchDir()).hosts[remote.host];
   const destination = host?.dest;
   if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
   const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(options.force ? ["--force"] : []), ...(options.json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
@@ -131,7 +131,7 @@ export async function cmdQuestions(args: string[]): Promise<void> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const json = enabled.has("--json");
   const localOnly = enabled.has("--local");
-  const hosts = loadConfig(orchDir()).hosts;
+  const hosts = loadSettings(orchDir()).hosts;
   if (localOnly || Object.keys(hosts).length === 0) {
     cmdQuestionsLocal(args);
     return;

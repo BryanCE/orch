@@ -1,4 +1,4 @@
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
 import { callerSpace } from "../identity/self.ts";
 import { launchCredential } from "../identity/launch.ts";
@@ -15,7 +15,7 @@ import { die } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 import type { PresenceMetadata } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
-import type { NotifyEntry } from "../types/config.ts";
+import type { NotifyEntry } from "../types/settings.ts";
 import type { EventScopeInput } from "../types/command.ts";
 
 interface WatchItem {
@@ -127,7 +127,7 @@ export async function cmdNotify(args: string[]) {
     task: "orch notify test",
     ts: new Date().toISOString(),
   };
-  const sinks = loadConfig(orchDir()).notify;
+  const sinks = loadSettings(orchDir()).notify;
   if (!sinks.length) {
     commandLogger().error("notify.test.no-sinks", { sinkCount: 0 });
     process.stdout.write("notify test: no sinks configured\n");

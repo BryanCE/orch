@@ -12,7 +12,7 @@ import { callerSpace } from "../../identity/self.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { AgentView, GrantAction } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
-import type { OrchConfig } from "../../types/config.ts";
+import type { OrchSettings } from "../../types/settings.ts";
 import type { SpawnSettings } from "./flags.ts";
 import { assertLaunchModelAllowed } from "./models.ts";
 
@@ -40,7 +40,7 @@ const SPAWN_POLICY_OFFERS = `bind the task to a live ${term("slave")} (orch disp
 
 /** Return a spawn policy refusal without allocating a pane, tab, worktree, or queue entry. */
 export function spawnPolicyError(
-  settings: Pick<OrchConfig, "fleet">,
+  settings: Pick<OrchSettings, "fleet">,
   space: string | null,
   requested: number,
   views: ReadonlyMap<string, AgentView>,
@@ -72,13 +72,13 @@ export function spawnPolicyError(
   return null;
 }
 
-export function assertSpawnPolicy(settings: Pick<OrchConfig, "fleet">, space: string | null, requested: number): void {
+export function assertSpawnPolicy(settings: Pick<OrchSettings, "fleet">, space: string | null, requested: number): void {
   const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(), presenceById(), spawnerIdentity().key);
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
 export function assertSpawnCapacity(
-  settings: Pick<OrchConfig, "fleet">,
+  settings: Pick<OrchSettings, "fleet">,
   space: string | null,
   requested: number,
   views: ReadonlyMap<string, AgentView> = agentViewIndex(),

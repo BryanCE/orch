@@ -2,16 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { settingsPath, watchConfig } from "../src/config.ts";
+import { settingsPath } from "../src/settings/schema.ts";
+import { watchSettings } from "../src/settings/watch.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { ConfigWatch, OrchConfig } from "../src/types/config.ts";
+import type { SettingsWatch, OrchSettings } from "../src/types/settings.ts";
 
 const directories: string[] = [];
-const watches: ConfigWatch[] = [];
+const watches: SettingsWatch[] = [];
 
 function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-config-watch-"));
+  const directory = mkdtempSync(join(tmpdir(), "orch-settings-watch-"));
   directories.push(directory);
   return directory;
 }
@@ -30,12 +31,12 @@ afterEach(() => {
   while (directories.length > 0) removeTempDir(directories.pop()!);
 });
 
-describe("watchConfig", () => {
+describe("watchSettings", () => {
   test("loads initially and applies a valid edit after the debounce", async () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
-    const changes: OrchConfig[] = [];
-    const watch = watchConfig(orchDir, { debounceMs: 20, onChange: (config) => changes.push(config) });
+    const changes: OrchSettings[] = [];
+    const watch = watchSettings(orchDir, { debounceMs: 20, onChange: (settings) => changes.push(settings) });
     watches.push(watch);
 
     expect(changes).toHaveLength(1);
@@ -46,14 +47,14 @@ describe("watchConfig", () => {
     expect(changes[1]!.fleet.max_depth).toBe(4);
   });
 
-  test("keeps the last-good config, warns once, and recovers", async () => {
+  test("keeps the last-good settings, warns once, and recovers", async () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
-    const changes: OrchConfig[] = [];
+    const changes: OrchSettings[] = [];
     const warnings: string[] = [];
-    const watch = watchConfig(orchDir, {
+    const watch = watchSettings(orchDir, {
       debounceMs: 20,
-      onChange: (config) => changes.push(config),
+      onChange: (settings) => changes.push(settings),
       onWarn: (message) => warnings.push(message),
     });
     watches.push(watch);
@@ -74,7 +75,7 @@ describe("watchConfig", () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
     let changes = 0;
-    const watch = watchConfig(orchDir, { debounceMs: 20, onChange: () => { changes++; } });
+    const watch = watchSettings(orchDir, { debounceMs: 20, onChange: () => { changes++; } });
     watches.push(watch);
     expect(changes).toBe(1);
 
@@ -88,7 +89,7 @@ describe("watchConfig", () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
     let changes = 0;
-    const watch = watchConfig(orchDir, { debounceMs: 20, onChange: () => { changes++; } });
+    const watch = watchSettings(orchDir, { debounceMs: 20, onChange: () => { changes++; } });
     expect(changes).toBe(1);
 
     watch.stop();

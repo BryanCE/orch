@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { loadConfig } from "../src/config.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import { resolveThinking } from "../src/policy/thinking.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
@@ -13,19 +13,19 @@ describe("thinking resolution", () => {
   test("resolves every rung in priority order", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
     writeSettingsFixture(dir, { defaults: { thinking: "low", thinking_by_harness: { codex: "high" } } });
-    const config = loadConfig(dir);
-    expect(resolveThinking({ flag: "max", modelSuffix: "minimal", harness: "codex", config })).toBe("max");
-    expect(resolveThinking({ modelSuffix: "minimal", harness: "codex", config })).toBe("minimal");
-    expect(resolveThinking({ harness: "codex", config })).toBe("high");
-    expect(resolveThinking({ harness: "pi", config })).toBe("low");
+    const settings = loadSettings(dir);
+    expect(resolveThinking({ flag: "max", modelSuffix: "minimal", harness: "codex", settings })).toBe("max");
+    expect(resolveThinking({ modelSuffix: "minimal", harness: "codex", settings })).toBe("minimal");
+    expect(resolveThinking({ harness: "codex", settings })).toBe("high");
+    expect(resolveThinking({ harness: "pi", settings })).toBe("low");
     removeTempDir(dir);
   });
 
   test("bare model with no setting yields harness default", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
     writeSettingsFixture(dir, { defaults: { models: { pi: "openai/model" } } });
-    const config = loadConfig(dir);
-    expect(resolveThinking({ harness: "pi", config })).toBe("medium");
+    const settings = loadSettings(dir);
+    expect(resolveThinking({ harness: "pi", settings })).toBe("medium");
     removeTempDir(dir);
   });
 
@@ -40,9 +40,9 @@ describe("thinking resolution", () => {
   test("per-harness override beats global default", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
     writeSettingsFixture(dir, { defaults: { thinking: "low", thinking_by_harness: { claude: "xhigh" } } });
-    const config = loadConfig(dir);
-    expect(resolveThinking({ harness: "claude", config })).toBe("xhigh");
-    expect(resolveThinking({ harness: "codex", config })).toBe("low");
+    const settings = loadSettings(dir);
+    expect(resolveThinking({ harness: "claude", settings })).toBe("xhigh");
+    expect(resolveThinking({ harness: "codex", settings })).toBe("low");
     removeTempDir(dir);
   });
 });

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { EditorSetting, OrchConfig, SettingKind, SettingSpec } from "../src/types/config.ts";
+import type { EditorSetting, OrchSettings, SettingKind, SettingSpec } from "../src/types/settings.ts";
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 
-const configReader = (value: unknown): ((config: OrchConfig) => unknown) =>
-  (_config: OrchConfig) => value;
+const settingsReader = (value: unknown): ((settings: OrchSettings) => unknown) =>
+  (_settings: OrchSettings) => value;
 
 function setting(
   key: string,
@@ -16,7 +16,7 @@ function setting(
     group: key.split(".")[0] ?? "settings",
     help: `Help for ${key}`,
     type,
-    read: configReader(value),
+    read: settingsReader(value),
     write,
   };
   return { spec, value };
@@ -28,7 +28,7 @@ function readOnlySetting(key: string, type: SettingKind, value: unknown): Editor
     group: key.split(".")[0] ?? "settings",
     help: `Help for ${key}`,
     type,
-    read: configReader(value),
+    read: settingsReader(value),
   };
   return { spec, value };
 }

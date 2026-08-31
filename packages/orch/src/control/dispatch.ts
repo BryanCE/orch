@@ -6,7 +6,8 @@ import { loadPresence, orchDir } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
-import { loadConfigOrNull, SETTINGS_DEFAULTS } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
+import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../types/adapter.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
@@ -179,7 +180,7 @@ function deliverLifecycle(target: string, adapter: AgentAdapter, verb: Lifecycle
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
 export async function deliverControl(target: string, action: ControlAction): Promise<ControlBoundaryOutcome> {
-  const timeoutMs = loadConfigOrNull(orchDir())?.timeouts.adapter_command_ms ?? ADAPTER_COMMAND_TIMEOUT_MS;
+  const timeoutMs = loadSettingsOrNull(orchDir())?.timeouts.adapter_command_ms ?? ADAPTER_COMMAND_TIMEOUT_MS;
   const canonicalTarget = normalizeControlTarget(target);
   const adapter = resolveTargetAdapter(canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);

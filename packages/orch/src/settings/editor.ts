@@ -1,4 +1,4 @@
-import type { BrowsingState, EditorAction, EditorSetting, EditorState, PendingWrite, SettingKind } from "../types/config.ts";
+import type { BrowsingState, EditorAction, EditorSetting, EditorState, PendingWrite, SettingKind } from "../types/settings.ts";
 
 /** Create a browsing editor over a grouped, ordered copy of the declarations. */
 export function createEditorState(settings: readonly EditorSetting[]): BrowsingState {

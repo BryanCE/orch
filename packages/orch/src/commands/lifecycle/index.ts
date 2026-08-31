@@ -4,7 +4,7 @@ import { orchDir, readPresenceStatus } from "../../presence/store.ts";
 import { selfId } from "../../identity/self.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";
-import { loadConfig } from "../../config.ts";
+import { loadSettings } from "../../settings/read.ts";
 import { sleepMs } from "../../backends/pane-ready.ts";
 import { maySpawnFrom, spawnerIsRepliable, workerPrompt } from "../../worker-prompt.ts";
 import { entityAdapter } from "../status.ts";
@@ -24,8 +24,8 @@ export async function cmdRun(args: string[]): Promise<void> {
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
   const { ent, pane } = resolvePane(target, { crossSpace: gov.crossSpace });
-  const config = loadConfig(orchDir());
-  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth), lockedCommands: config.locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const settings = loadSettings(orchDir());
+  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth), lockedCommands: settings.locked_commands, spawnerRepliable: spawnerIsRepliable() };
   const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), headerContext) }, gov);
   const recipient = recipientFor(ent.key);
   if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
@@ -34,7 +34,7 @@ export async function cmdRun(args: string[]): Promise<void> {
 
 export function cmdWait(args: string[]) {
   let status = "done";
-  const defaultTimeout = loadConfig(orchDir()).timeouts.wait_ms;
+  const defaultTimeout = loadSettings(orchDir()).timeouts.wait_ms;
   let timeout = defaultTimeout;
   const json = args.includes("--json");
   const positional: string[] = [];

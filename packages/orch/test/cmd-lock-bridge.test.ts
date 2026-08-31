@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { SETTINGS_SCHEMA } from "../src/config.ts";
+import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { readCommandLock, releaseCommandLock } from "../src/control/cmd-lock.ts";
 
 // The pi-bridge command-lock interception (extensions/pi/index.ts):

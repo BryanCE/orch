@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { errnoCode, errorMessage, isRecord, packageRoot, shellQuote } from "../util.ts";
-import { declaredRuntime } from "../config.ts";
+import { declaredRuntime } from "../settings/read.ts";
 import { orchDir } from "../presence/store.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";

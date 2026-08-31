@@ -10,7 +10,7 @@ import { orm } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -47,7 +47,7 @@ async function withPath<T>(value: string, action: () => Promise<T>): Promise<T> 
   }
 }
 
-function writeConfig(directory: string, settings: Record<string, unknown>): void {
+function writeSettings(directory: string, settings: Record<string, unknown>): void {
   writeSettingsFixture(directory, settings);
 }
 
@@ -58,7 +58,7 @@ afterEach(() => {
 describe("doctor provenance-depth checks", () => {
   test("finds a live agent deeper than fleet.max_depth", () => {
     const directory = tempDir();
-    writeConfig(directory, { fleet: { max_depth: 1 } });
+    writeSettings(directory, { fleet: { max_depth: 1 } });
     seedAgent("root000001", { name: "root" }, directory);
     seedAgent("child00001", { name: "child", spawnedBy: "root000001" }, directory);
     seedAgent("deep000001", { name: "deep-worker", spawnedBy: "child00001" }, directory);
@@ -73,7 +73,7 @@ describe("doctor provenance-depth checks", () => {
 
   test("accepts a live agent at fleet.max_depth", () => {
     const directory = tempDir();
-    writeConfig(directory, { fleet: { max_depth: 1 } });
+    writeSettings(directory, { fleet: { max_depth: 1 } });
     seedAgent("root000002", { name: "root" }, directory);
     seedAgent("child00002", { name: "child", spawnedBy: "root000002" }, directory);
 
@@ -92,7 +92,7 @@ describe("doctor unclaimed-agent checks", () => {
   test("finds an old unclaimed live agent with its age", () => {
     const directory = tempDir();
     const now = 600_000;
-    writeConfig(directory, { doctor: { unclaimed_after_ms: 120_000 } });
+    writeSettings(directory, { doctor: { unclaimed_after_ms: 120_000 } });
     seedAgent("unclaim001", { name: "stuck-worker" }, directory);
     orm(directory).run(sql`UPDATE agents SET created_at = ${now - 180_000} WHERE id = ${"unclaim001"}`);
 
@@ -106,7 +106,7 @@ describe("doctor unclaimed-agent checks", () => {
   test("ignores a claimed agent", () => {
     const directory = tempDir();
     const now = 600_000;
-    writeConfig(directory, { doctor: { unclaimed_after_ms: 120_000 } });
+    writeSettings(directory, { doctor: { unclaimed_after_ms: 120_000 } });
     seedAgent("claimed001", { name: "claimed-worker" }, directory);
     orm(directory).run(sql`UPDATE agents SET created_at = ${now - 180_000} WHERE id = ${"claimed001"}`);
     expect(claimAgent(directory, "claimed001", "session-token", now - 100_000)).toEqual({ kind: "stamped" });
@@ -119,7 +119,7 @@ describe("doctor unclaimed-agent checks", () => {
   test("ignores a fresh unclaimed agent under the threshold", () => {
     const directory = tempDir();
     const now = 600_000;
-    writeConfig(directory, { doctor: { unclaimed_after_ms: 120_000 } });
+    writeSettings(directory, { doctor: { unclaimed_after_ms: 120_000 } });
     seedAgent("fresh00001", { name: "fresh-worker" }, directory);
     orm(directory).run(sql`UPDATE agents SET created_at = ${now - 60_000} WHERE id = ${"fresh00001"}`);
 
@@ -144,14 +144,14 @@ describe("doctor notification-sink checks", () => {
 
   test("rejects a webhook with a malformed URL", () => {
     const directory = tempDir();
-    writeConfig(directory, { notify: [{ id: "webhook", url: "not a url" }] });
+    writeSettings(directory, { notify: [{ id: "webhook", url: "not a url" }] });
 
-    expect(() => loadConfig(directory)).toThrow(/notify/);
+    expect(() => loadSettings(directory)).toThrow(/notify/);
   });
 
   test("uses the notify-send prerequisite install command in desktop remediation", async () => {
     const directory = tempDir();
-    writeConfig(directory, { notify: [{ id: "desktop" }] });
+    writeSettings(directory, { notify: [{ id: "desktop" }] });
 
     const result = await withPath(path.join(directory, "empty-path"), () => checkNotifiers(directory));
     const install = PREREQUISITES["notify-send"]!.install!;
@@ -161,7 +161,7 @@ describe("doctor notification-sink checks", () => {
 
   test("warns for a command binary missing from PATH", async () => {
     const directory = tempDir();
-    writeConfig(directory, { notify: [{ id: "command", command: ["missing-notify-command"] }] });
+    writeSettings(directory, { notify: [{ id: "command", command: ["missing-notify-command"] }] });
 
     const result = await withPath<CheckResult>(path.join(directory, "empty-path"), async (): Promise<CheckResult> => notifyResult(await runDoctor(directory)));
     expect(result.status).toBe("warn");
@@ -177,7 +177,7 @@ describe("doctor notification-sink checks", () => {
     const bash = path.join(binDir, process.platform === "win32" ? "bash.exe" : "bash");
     fs.writeFileSync(bash, "#!/bin/sh\n");
     fs.chmodSync(bash, 0o755);
-    writeConfig(directory, { notify: [{ id: "command", command: ["bash"] }] });
+    writeSettings(directory, { notify: [{ id: "command", command: ["bash"] }] });
 
     const result = await withPath(binDir, async () => notifyResult(await runDoctor(directory)));
     expect(result).toMatchObject({ status: "ok", detail: "1 configured sink look deliverable" });
@@ -185,7 +185,7 @@ describe("doctor notification-sink checks", () => {
 
   test("warns when a notifier omits done from its on list", async () => {
     const directory = tempDir();
-    writeConfig(directory, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error"] }] });
+    writeSettings(directory, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error"] }] });
 
     const result = notifierResult(await runDoctor(directory));
     expect(result).toMatchObject({
@@ -196,7 +196,7 @@ describe("doctor notification-sink checks", () => {
 
   test("does not warn when a notifier includes done in its on list", async () => {
     const directory = tempDir();
-    writeConfig(directory, { notify: [{ id: "command", on: ["done"], command: [process.execPath] }] });
+    writeSettings(directory, { notify: [{ id: "command", on: ["done"], command: [process.execPath] }] });
 
     expect(notifierResult(await runDoctor(directory))).toMatchObject({ status: "ok" });
   });
@@ -204,7 +204,7 @@ describe("doctor notification-sink checks", () => {
   test("keeps unavailable notifier failures when done is omitted", async () => {
     const directory = tempDir();
     const missingCommand = path.join(directory, "missing-notifier-command");
-    writeConfig(directory, { notify: [{ id: "command", command: [missingCommand] }] });
+    writeSettings(directory, { notify: [{ id: "command", command: [missingCommand] }] });
 
     const result = notifierResult(await runDoctor(directory));
     expect(result.status).toBe("fail");

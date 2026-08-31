@@ -1,5 +1,5 @@
 import { resolveBackend } from "../backends/registry.ts";
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
@@ -99,7 +99,7 @@ export function smokeBlocker(): string | null {
   } catch {
     return "headless backend is unavailable here";
   }
-  const adapter = loadConfig(orchDir()).defaults.adapter;
+  const adapter = loadSettings(orchDir()).defaults.adapter;
   if (!adapter) return "no default harness is recorded";
   if (!binaryOnPath(adapter)) return `${adapter} is not on PATH`;
   return null;

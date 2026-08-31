@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { selfId } from "../identity/self.ts";
 import { orchDir } from "../presence/store.ts";
 import { errnoCode } from "../util.ts";
@@ -35,7 +35,7 @@ function checkLocked(args: string[], directory: string): number {
   const separator = args.indexOf("--");
   if (separator < 0 || separator !== 0 || separator === args.length - 1) throw new Error("usage: orch lock check -- <argv...>");
   const command = args.slice(separator + 1);
-  const pattern = loadConfig(directory).locked_commands.find((candidate) => matchesLockedCommand(command, [candidate]));
+  const pattern = loadSettings(directory).locked_commands.find((candidate) => matchesLockedCommand(command, [candidate]));
   if (pattern === undefined) return 0;
   const held = readLiveCommandLock(directory);
   if (!held) return 0;

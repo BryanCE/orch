@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdSettingsNotify } from "../src/commands/settings.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -41,7 +41,7 @@ async function captureNotify(args: string[]): Promise<string> {
 describe("orch settings notify", () => {
   test("records a sink with the field that sink declares", async () => {
     await captureNotify(["add", "webhook", "--url=https://example.test/hook"]);
-    expect(loadConfig(root).notify).toEqual([{ id: "webhook", url: "https://example.test/hook" }]);
+    expect(loadSettings(root).notify).toEqual([{ id: "webhook", url: "https://example.test/hook" }]);
   });
 
   test("re-adding one sink replaces it in place and keeps the fields the call omits", async () => {
@@ -49,7 +49,7 @@ describe("orch settings notify", () => {
     await captureNotify(["add", "desktop"]);
     await captureNotify(["add", "command", "--on=blocked,error,done"]);
 
-    expect(loadConfig(root).notify).toEqual([
+    expect(loadSettings(root).notify).toEqual([
       { id: "command", command: "logger -t orch", on: ["blocked", "error", "done"] },
       { id: "desktop" },
     ]);
@@ -57,7 +57,7 @@ describe("orch settings notify", () => {
 
   test("accepts asking as a first-class sink state", async () => {
     await captureNotify(["add", "command", "--command=logger -t orch", "--on=asking"]);
-    expect(loadConfig(root).notify).toEqual([
+    expect(loadSettings(root).notify).toEqual([
       { id: "command", command: "logger -t orch", on: ["asking"] },
     ]);
   });
@@ -67,7 +67,7 @@ describe("orch settings notify", () => {
     await captureNotify(["add", "webhook", "--url=https://example.test/hook"]);
     await captureNotify(["remove", "desktop"]);
 
-    expect(loadConfig(root).notify).toEqual([{ id: "webhook", url: "https://example.test/hook" }]);
+    expect(loadSettings(root).notify).toEqual([{ id: "webhook", url: "https://example.test/hook" }]);
   });
 
   test("list reports each sink with the states it fires on, defaults included", async () => {

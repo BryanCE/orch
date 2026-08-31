@@ -12,7 +12,7 @@ import { Type } from "typebox";
 import { spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
-import { loadConfigOrNull } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
 import { orchDir } from "../presence/writer.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
 import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
@@ -355,7 +355,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   }>();
 
   function lockedCommandPatterns(): string[] {
-    return loadConfigOrNull(orchDir())?.locked_commands ?? [];
+    return loadSettingsOrNull(orchDir())?.locked_commands ?? [];
   }
 
   function bashCommand(args: unknown): string | undefined {

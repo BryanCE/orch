@@ -1,12 +1,13 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadConfigOrNull, NOTIFY_DEFAULT_ON } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
+import { NOTIFY_DEFAULT_ON } from "../settings/schema.ts";
 import { createNotifierRegistry } from "../notify/router.ts";
 import { allBackends } from "../backends/registry.ts";
 import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
 import type { BinaryStatus, CheckResult } from "../types/doctor.ts";
-import type { NotifyEntry } from "../types/config.ts";
+import type { NotifyEntry } from "../types/settings.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
@@ -29,7 +30,7 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
   try {
     // An install with no settings.json has no notifiers, which is a healthy state to report.
     // Only a settings.json that exists and is malformed is a failure worth naming here.
-    configured = loadConfigOrNull(orchDir)?.notify ?? [];
+    configured = loadSettingsOrNull(orchDir)?.notify ?? [];
   } catch (error: unknown) {
     return { id, label, status: "fail", detail: errorMessage(error) };
   }
@@ -68,7 +69,7 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
 export function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResult {
   const id = "notify-sinks";
   const label = "Notification sinks";
-  const sinks = loadConfigOrNull(orchDir)?.notify ?? [];
+  const sinks = loadSettingsOrNull(orchDir)?.notify ?? [];
   if (!sinks.length) return { id, label, status: "ok", detail: "no notify sinks configured" };
 
   const desktop = checkNotifications(bins);

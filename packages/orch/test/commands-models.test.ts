@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { buildSections, pickedSpec, renderSections } from "../src/commands/models.ts";
-import { SETTINGS_DEFAULTS } from "../src/config.ts";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import type { AdapterId, HarnessModel } from "../src/types/adapter.ts";
-import type { OrchConfig } from "../src/types/config.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 
 // `orch models` exists so a small quicklist never hides a harness's catalogue: every offered
 // model is listed by default, and one outside models.preferred is still discoverable and
@@ -18,7 +18,7 @@ const CLAUDE_CATALOGUE: HarnessModel[] = [{ spec: "sonnet" }, { spec: "opus" }];
 const catalogues: Partial<Record<AdapterId, HarnessModel[]>> = { pi: PI_CATALOGUE, claude: CLAUDE_CATALOGUE };
 const read = (id: AdapterId): readonly HarnessModel[] => catalogues[id] ?? [];
 
-const config = (): OrchConfig => ({
+const settings = (): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
   runtime: "node",
   enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
@@ -38,7 +38,7 @@ const config = (): OrchConfig => ({
 });
 
 const listAll = (targets: AdapterId[] = ["pi", "claude"]) =>
-  buildSections(targets, config(), { quicklistOnly: false }, read);
+  buildSections(targets, settings(), { quicklistOnly: false }, read);
 
 describe("orch models lists the whole catalogue", () => {
   test("shows every offered model, quicklisted or not, allowed or not", () => {
@@ -63,7 +63,7 @@ describe("orch models lists the whole catalogue", () => {
   });
 
   test("a harness that enumerates nothing gets an empty section, not another's models", () => {
-    const [codex] = buildSections(["codex"], config(), { quicklistOnly: false }, read);
+    const [codex] = buildSections(["codex"], settings(), { quicklistOnly: false }, read);
 
     expect(codex!.models).toEqual([]);
     expect(renderSections([codex!])).toContain("no models listed");
@@ -72,22 +72,22 @@ describe("orch models lists the whole catalogue", () => {
 
 describe("orch models filters", () => {
   test("--preferred narrows to the quicklist and renumbers what is shown", () => {
-    const [pi] = buildSections(["pi"], config(), { quicklistOnly: true }, read);
+    const [pi] = buildSections(["pi"], settings(), { quicklistOnly: true }, read);
 
     expect(pi!.models.map((row) => row.spec)).toEqual(["anthropic/claude-sonnet-4.5"]);
     expect(pi!.models[0]!.index).toBe(1);
   });
 
   test("--search matches spec and label case-insensitively", () => {
-    const bySpec = buildSections(["pi"], config(), { quicklistOnly: false, search: "QWEN" }, read);
-    const byLabel = buildSections(["pi"], config(), { quicklistOnly: false, search: "luna" }, read);
+    const bySpec = buildSections(["pi"], settings(), { quicklistOnly: false, search: "QWEN" }, read);
+    const byLabel = buildSections(["pi"], settings(), { quicklistOnly: false, search: "luna" }, read);
 
     expect(bySpec[0]!.models.map((row) => row.spec)).toEqual(["openrouter/qwen3-coder"]);
     expect(byLabel[0]!.models.map((row) => row.spec)).toEqual(["openai/gpt-5.6"]);
   });
 
   test("filters combine, and no match is an empty result rather than the full list", () => {
-    const combined = buildSections(["pi"], config(), { quicklistOnly: true, search: "gpt" }, read);
+    const combined = buildSections(["pi"], settings(), { quicklistOnly: true, search: "gpt" }, read);
 
     expect(combined[0]!.models).toEqual([]);
   });
@@ -95,7 +95,7 @@ describe("orch models filters", () => {
 
 describe("orch models --pick prints one spec", () => {
   test("a numeric pick reads the displayed index of a single harness", () => {
-    expect(pickedSpec(buildSections(["pi"], config(), { quicklistOnly: false }, read), "2")).toBe("openai/gpt-5.6");
+    expect(pickedSpec(buildSections(["pi"], settings(), { quicklistOnly: false }, read), "2")).toBe("openai/gpt-5.6");
   });
 
   test("an exact spec pick resolves after filtering", () => {
@@ -106,17 +106,17 @@ describe("orch models --pick prints one spec", () => {
     const all = listAll();
     // A numeric pick across two harness sections names two different rows.
     expect(() => pickedSpec(all, "1")).toThrow(/ambiguous/);
-    expect(() => pickedSpec(buildSections(["pi"], config(), { quicklistOnly: false }, read), "0")).toThrow(/out of range/);
-    expect(() => pickedSpec(buildSections(["pi"], config(), { quicklistOnly: false }, read), "9")).toThrow(/out of range/);
+    expect(() => pickedSpec(buildSections(["pi"], settings(), { quicklistOnly: false }, read), "0")).toThrow(/out of range/);
+    expect(() => pickedSpec(buildSections(["pi"], settings(), { quicklistOnly: false }, read), "9")).toThrow(/out of range/);
     expect(() => pickedSpec(all, "anthropic/nope")).toThrow(/matched no listed model/);
     // Filtered out is picked out: --preferred hides it, so picking it fails.
-    expect(() => pickedSpec(buildSections(["pi"], config(), { quicklistOnly: true }, read), "openai/gpt-5.6")).toThrow(/matched no listed model/);
+    expect(() => pickedSpec(buildSections(["pi"], settings(), { quicklistOnly: true }, read), "openai/gpt-5.6")).toThrow(/matched no listed model/);
   });
 });
 
 describe("orch models --json", () => {
   test("emits the pinned harness/model shape", () => {
-    const payload: unknown = JSON.parse(JSON.stringify({ harnesses: buildSections(["claude"], config(), { quicklistOnly: false }, read) }));
+    const payload: unknown = JSON.parse(JSON.stringify({ harnesses: buildSections(["claude"], settings(), { quicklistOnly: false }, read) }));
 
     expect(payload).toEqual({
       harnesses: [{

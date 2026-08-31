@@ -1,4 +1,4 @@
-import { loadConfigOrNull } from "../../config.ts";
+import { loadSettingsOrNull } from "../../settings/read.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { herdrAnswer, herdrReachable } from "./cli.ts";
 import { HERDR_SINK_ID } from "../backend.ts";
@@ -8,7 +8,7 @@ import type { NotificationIo, Notifier } from "../../types/notify.ts";
 
 /** True when herdr is one of the plexers orch launches agents into. */
 function herdrRunsAgents(): boolean {
-  return loadConfigOrNull(orchDir())?.enabled.backends.includes("herdr") ?? false;
+  return loadSettingsOrNull(orchDir())?.enabled.backends.includes("herdr") ?? false;
 }
 
 /** Herdr-owned native notification sink. */

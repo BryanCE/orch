@@ -7,7 +7,7 @@ import { insertAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/retention.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { OrchConfig } from "../src/types/config.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -40,7 +40,7 @@ function end(dir: string, id: string, at: number): void {
 /** Every window at zero so nothing survives the sweep by luck. The fixture is
  *  COMPLETE for what it is typed as: `sweepExpiredRows` takes the retention
  *  section, so that section is the whole value and there is nothing to cast past. */
-function retention(): Pick<OrchConfig, "retention"> {
+function retention(): Pick<OrchSettings, "retention"> {
   return {
     retention: { ended_agents_days: 0, queue_days: 0, events_days: 0, runs_days: 0, outbox_days: 0, logs_days: 0 },
   };

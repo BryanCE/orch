@@ -8,13 +8,13 @@ import { optionalModelSpecs } from "../src/daemon/orchd.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { PiAdapter, piAdapter } from "../src/adapters/pi.ts";
-import { SETTINGS_DEFAULTS } from "../src/config.ts";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import type { Backend, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/types/adapter.ts";
-import type { OrchConfig } from "../src/types/config.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 
 // Every launch route must hand the SAME per-harness quicklist to the adapter that builds the
 // command. A route that drops it launches an agent whose model picker is empty while every
@@ -38,7 +38,7 @@ afterEach(() => {
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
 
-const config = (preferred: string[]): OrchConfig => ({
+const settings = (preferred: string[]): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
   runtime: "node",
   enabled: { adapters: ["pi"], backends: ["headless"] },
@@ -121,11 +121,11 @@ describe("the preferred quicklist reaches every launch route", () => {
   });
 
   test("the previewed command is the command a launch runs", () => {
-    const previewed = adapterCommand("pi", config(QUICKLIST), { model: "openai/gpt-5.6", preferredModels: QUICKLIST });
+    const previewed = adapterCommand("pi", settings(QUICKLIST), { model: "openai/gpt-5.6", preferredModels: QUICKLIST });
     expect(previewed).toContain("--model openai/gpt-5.6");
     expect(previewed).toContain(`--models '${QUICKLIST.join(",")}'`);
 
-    expect(adapterCommand("pi", config([]), { model: "openai/gpt-5.6", preferredModels: [] })).not.toContain("--models");
+    expect(adapterCommand("pi", settings([]), { model: "openai/gpt-5.6", preferredModels: [] })).not.toContain("--models");
   });
 
   test("a headless launch forwards the quicklist into the adapter's own options", () => {

@@ -4,7 +4,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 
@@ -60,7 +60,7 @@ describe("orch presence notifications", () => {
       // The presence watch is orch's ONE presence-transition source; the work loop
       // publishes task events only, which is why this exercises the watch.
       const { emitAndNotify, startPresenceWatch } = await import("../src/daemon/events.ts");
-      const entries = loadConfig(orchDir).notify;
+      const entries = loadSettings(orchDir).notify;
       expect(entries).toEqual([{ id: "command", on: ["working"], command }]);
       const watch = startPresenceWatch({
         orchDir,

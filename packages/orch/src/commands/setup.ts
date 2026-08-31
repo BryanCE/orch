@@ -1,7 +1,9 @@
 import { confirm, isCancel } from "@clack/prompts";
 import * as files from "node:fs";
 import { refreshAdapterCatalogues, resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
-import { loadConfig, reapUnreadableSettings, settingsPath, writeSettingsNotify, writeSettingsSkills } from "../config.ts";
+import { loadSettings, reapUnreadableSettings } from "../settings/read.ts";
+import { settingsPath } from "../settings/schema.ts";
+import { writeSettingsNotify, writeSettingsSkills } from "../settings/write.ts";
 import { ORCH_RUNTIMES } from "../runtime.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { BACKEND_IDS } from "../types/backend.ts";
@@ -50,7 +52,7 @@ async function offerSkills(
   // A build that packaged no skills has nothing to consent to; asking would offer an
   // empty list and then write nothing.
   if (!packagedSkillNames().length) return;
-  const { install: recorded, roots } = loadConfig(orchDir()).skills;
+  const { install: recorded, roots } = loadSettings(orchDir()).skills;
   const forced = args.includes("--skills") ? true : args.includes("--no-skills") ? false : undefined;
   const install = forced ?? (interactive ? await ask(roots, recorded) : recorded);
   writeSettingsSkills(orchDir(), { install });

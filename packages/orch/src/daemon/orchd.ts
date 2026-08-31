@@ -10,7 +10,9 @@ import {
 } from "./lifecycle.ts";
 import { rpcCall } from "./rpc/client.ts";
 import { startRpcServer } from "./rpc/server.ts";
-import { loadConfig, loadConfigOrNull, SETTINGS_DEFAULTS, watchConfig, configuredLogLevel } from "../config.ts";
+import { loadSettings, loadSettingsOrNull, settingsLogLevel } from "../settings/read.ts";
+import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
+import { watchSettings } from "../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
@@ -38,7 +40,7 @@ import { decisionLogger } from "./decision-log.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
-import type { ConfigWatch, NotifyEntry, OrchConfig } from "../types/config.ts";
+import type { SettingsWatch, NotifyEntry, OrchSettings } from "../types/settings.ts";
 import type { StatusRow } from "../types/command.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -80,8 +82,8 @@ const workController = new AbortController();
 let workLoop: Promise<void> | undefined;
 let workLoopRunning = false;
 let presenceWatch: PresenceWatch | undefined;
-let configWatch: ConfigWatch | undefined;
-let currentConfig: OrchConfig | undefined;
+let settingsWatch: SettingsWatch | undefined;
+let currentSettings: OrchSettings | undefined;
 let sinks: NotifyEntry[] | undefined;
 let lastActivityAt = Date.now();
 
@@ -106,18 +108,18 @@ function touchOnCall(handlers: RpcHandlers): RpcHandlers {
   ]));
 }
 
-function getConfig(directory: string): OrchConfig {
-  return currentConfig ??= loadConfig(directory);
+function getSettings(directory: string): OrchSettings {
+  return currentSettings ??= loadSettings(directory);
 }
 
 function getSinks(directory: string): NotifyEntry[] {
-  return sinks ??= loadConfig(directory).notify;
+  return sinks ??= loadSettings(directory).notify;
 }
 
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
  *  second shape here is what left the method unusable and every client reading files. */
 function fleetStatus(directory: string): { rows: StatusRow[] } {
-  const rows = fleetStatusRows(getConfig(directory).spaces);
+  const rows = fleetStatusRows(getSettings(directory).spaces);
   return {
     rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key) })),
   };
@@ -219,7 +221,7 @@ export function governWrite(directory: string, target: string, params: unknown, 
   const steal = value.steal === true;
   const actorSpace = typeof value.actorSpace === "string" ? value.actorSpace : null;
   const actorIsOperator = value.actorIsOperator === true;
-  const configuredCrossSpace = loadConfigOrNull(directory)?.fleet.cross_space ?? SETTINGS_DEFAULTS.fleet.cross_space;
+  const configuredCrossSpace = loadSettingsOrNull(directory)?.fleet.cross_space ?? SETTINGS_DEFAULTS.fleet.cross_space;
   const crossSpace = value.crossSpace === true || configuredCrossSpace;
   const wall = checkWall(directory, actor, target, { crossSpace });
   if (!wall.allowed) throw new Error(wall.reason ?? "space wall denied the write");
@@ -390,13 +392,13 @@ let daemonLogger: Logger | undefined;
 let fatalLogged = false;
 
 /** `level` is an explicit override (a flag); everything else resolves the same
- *  way every other logger does, through `configuredLogLevel`. */
+ *  way every other logger does, through `settingsLogLevel`. */
 function loggerFor(directory: string, level?: LogLevel): Logger {
   const envLevel = process.env.ORCH_LOG_LEVEL;
   if (envLevel === undefined && level !== undefined) {
     return createLogger({ file: daemonRuntimeFiles(directory).log, level });
   }
-  return createLogger({ file: daemonRuntimeFiles(directory).log, level: configuredLogLevel(directory) });
+  return createLogger({ file: daemonRuntimeFiles(directory).log, level: settingsLogLevel(directory) });
 }
 
 function logFatalAndExit(kind: string, error: unknown): void {
@@ -409,7 +411,7 @@ function logFatalAndExit(kind: string, error: unknown): void {
 async function shutDown(directory: string, reason: string): Promise<void> {
   daemonLogger?.info("daemon.stopping", { reason });
   presenceWatch?.stop();
-  configWatch?.stop();
+  settingsWatch?.stop();
   workController.abort();
   await workLoop;
   await server?.close();
@@ -438,9 +440,9 @@ async function main(): Promise<void> {
   }
 
   try {
-    const config = loadConfig(directory);
-    daemonLogger = loggerFor(directory, config.logging?.level);
-    const tcpPort = config.daemon.tcp_port;
+    const settings = loadSettings(directory);
+    daemonLogger = loggerFor(directory, settings.logging?.level);
+    const tcpPort = settings.daemon.tcp_port;
     server = await startRpcServer(directory, touchOnCall({
       "daemon-status": () => ({
         pid: process.pid,
@@ -452,7 +454,7 @@ async function main(): Promise<void> {
         subsystems: {
           workLoop: workLoopRunning ? "running" : "stopped",
           presenceWatch: presenceWatch ? "running" : "stopped",
-          configWatch: configWatch ? "running" : "stopped",
+          settingsWatch: settingsWatch ? "running" : "stopped",
         },
       }),
       "subscribe-events": () => ({ subscribed: true }),
@@ -490,13 +492,13 @@ async function main(): Promise<void> {
   // harness binaries, and re-stamps whatever went stale while no daemon was running.
   warmAdapterCatalogues();
 
-  let configLoaded = false;
-  configWatch = watchConfig(directory, {
-    onChange: (config) => {
-      currentConfig = config;
+  let settingsLoaded = false;
+  settingsWatch = watchSettings(directory, {
+    onChange: (settings) => {
+      currentSettings = settings;
       sinks = undefined;
-      if (configLoaded) daemonLogger?.info("config.reloaded");
-      configLoaded = true;
+      if (settingsLoaded) daemonLogger?.info("config.reloaded");
+      settingsLoaded = true;
     },
     onWarn: (message) => daemonLogger?.warn("config.warning", { message }),
   });
@@ -521,14 +523,14 @@ async function main(): Promise<void> {
   workLoop = runWorkLoop({
     orchDir: directory,
     pollIntervalMs: 500,
-    getConfig: () => getConfig(directory),
+    getSettings: () => getSettings(directory),
     signal: workController.signal,
     continuous: true,
     onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event); },
   }).finally(() => { workLoopRunning = false; });
 
   const idleCheck = setInterval(() => {
-    const idleMinutes = getConfig(directory).daemon.idle_shutdown_minutes;
+    const idleMinutes = getSettings(directory).daemon.idle_shutdown_minutes;
     const liveAgents = liveAgentCount();
     if (liveAgents > 0) lastActivityAt = Date.now();
     const msSinceActivity = Date.now() - lastActivityAt;

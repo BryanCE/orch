@@ -6,7 +6,7 @@ import { resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SETTINGS_SCHEMA } from "../src/config.ts";
+import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { isRecord } from "../src/util.ts";

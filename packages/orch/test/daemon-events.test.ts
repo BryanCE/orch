@@ -15,7 +15,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { PresenceWatch, RpcServer } from "../src/types/daemon.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
-import type { NotifyEntry } from "../src/types/config.ts";
+import type { NotifyEntry } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 
 const directories: string[] = [];

@@ -1,18 +1,18 @@
 import * as path from "node:path";
-import { loadConfigOrNull } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
 import { runSSH } from "../remote.ts";
 import { readJson } from "./shared.ts";
 import { isRecord, packageRoot, shellQuote } from "../util.ts";
 import type { CheckResult, SshRunner } from "../types/doctor.ts";
-import type { HostConfig } from "../types/config.ts";
+import type { HostSettings } from "../types/settings.ts";
 
 /** The configured remote hosts. An install with no settings.json has none — the subject of these
  * checks is the host list, so its absence is an honest empty answer, not a defect. */
-function configuredHosts(orchDir: string): [string, HostConfig][] {
-  return Object.entries(loadConfigOrNull(orchDir)?.hosts ?? {});
+function configuredHosts(orchDir: string): [string, HostSettings][] {
+  return Object.entries(loadSettingsOrNull(orchDir)?.hosts ?? {});
 }
 
-function hostDestination(name: string, host: HostConfig): string {
+function hostDestination(name: string, host: HostSettings): string {
   if (!host.dest) throw new Error(`Host "${name}" has no SSH destination`);
   return host.dest;
 }

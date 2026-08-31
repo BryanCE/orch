@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
-import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/rpc";
+import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/rpc/wire.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];

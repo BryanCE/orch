@@ -1,7 +1,7 @@
 import type { z } from "zod";
 // Type-only: `z.infer` over the runtime schemas, erased at compile time, so
 // this creates no runtime edge out of the types layer.
-import type { HostSchema, NotifyEntrySchema } from "../config.ts";
+import type { HostSchema, NotifyEntrySchema } from "../settings/schema.ts";
 import type { AdapterId } from "./adapter.ts";
 import { AGENT_STATES } from "../agent-state.ts";
 import type { BackendId } from "./backend.ts";
@@ -17,10 +17,10 @@ export type NotifyState = (typeof NOTIFY_STATES)[number];
 
 export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 
-export type HostConfig = z.infer<typeof HostSchema>;
+export type HostSettings = z.infer<typeof HostSchema>;
 
 /** Settings normalized for consumers: every section present and defaults applied. */
-export interface OrchConfig {
+export interface OrchSettings {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
@@ -33,7 +33,7 @@ export interface OrchConfig {
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];
   locked_commands: string[];
-  hosts: Record<string, HostConfig>;
+  hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
   daemon: { tcp_port: number; idle_shutdown_minutes: number };
   doctor: { unclaimed_after_ms: number };
@@ -41,14 +41,14 @@ export interface OrchConfig {
   skills: { install: boolean; roots: string[] };
 }
 
-export interface ConfigWatchOptions {
-  onChange: (config: OrchConfig) => void;
+export interface SettingsWatchOptions {
+  onChange: (config: OrchSettings) => void;
   onWarn?: (message: string) => void;
   debounceMs?: number;
   pollMs?: number;
 };
 
-export interface ConfigWatch {
+export interface SettingsWatch {
   stop: () => void;
 };
 
@@ -80,7 +80,7 @@ export interface SettingSpec {
   /** One line, shown under the cursor. */
   readonly help: string;
   readonly type: SettingKind;
-  readonly read: (config: OrchConfig) => unknown;
+  readonly read: (config: OrchSettings) => unknown;
   /** Absent means read-only BY DECLARATION — never by omission. */
   readonly write?: (orchDir: string, value: unknown) => void;
   /** The env var that overrides this setting, if any. */

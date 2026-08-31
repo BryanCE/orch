@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SETTINGS_FILE_SCHEMA, loadConfig, settingsPath, writeSettingsFullTree } from "../src/config.ts";
+import { SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
+import { loadSettings } from "../src/settings/read.ts";
+import { writeSettingsFullTree } from "../src/settings/write.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
@@ -30,7 +32,7 @@ function hasShape(value: unknown): value is SchemaWithShape {
 
 function schemaSettingKeys(): string[] {
   const keys: string[] = [];
-  // schemaVersion is the file-format stamp, not a user setting and has no OrchConfig value.
+  // schemaVersion is the file-format stamp, not a user setting and has no OrchSettings value.
 
   const walk = (rawSchema: unknown, prefix: string): void => {
     const schema = unwrapSchema(rawSchema);
@@ -99,12 +101,12 @@ describe("settings registry", () => {
     expect(registryKeys.slice().sort()).toEqual(schemaKeys.slice().sort());
   });
 
-  test("every registry read resolves against a loaded config", () => {
+  test("every registry read resolves against loaded settings", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
     writeSettingsFixture(directory, completeSettings());
-    const config = loadConfig(directory);
+    const settings = loadSettings(directory);
     for (const setting of SETTINGS_REGISTRY) {
-      expect(setting.read(config), setting.key).not.toBeUndefined();
+      expect(setting.read(settings), setting.key).not.toBeUndefined();
     }
   });
 
@@ -120,7 +122,7 @@ describe("settings registry", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
     writeSettingsFixture(directory, completeSettings());
     writeSettingsFullTree(directory);
-    expect(loadConfig(directory).fleet.max_depth).toBe(2);
+    expect(loadSettings(directory).fleet.max_depth).toBe(2);
   });
 
   test("fleet.max_depth rejects zero through the registered writer", () => {

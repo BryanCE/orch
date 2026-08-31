@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { CodexAdapter } from "../src/adapters/codex.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
@@ -25,10 +25,10 @@ describe("adapter and runtime hardening", () => {
     expect(claudeAdapter.extractResult({ key: "missing", output: "   " })).toBeUndefined();
   });
 
-  test("rejects unknown config keys with a useful path", () => {
+  test("rejects unknown settings keys with a useful path", () => {
     const directory = temp();
     writeSettingsFixture(directory, { defaults: { modle: "typo" } });
-    expect(() => loadConfig(directory)).toThrow(/modle/);
+    expect(() => loadSettings(directory)).toThrow(/modle/);
     removeTempDir(directory);
   });
 

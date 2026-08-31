@@ -9,7 +9,7 @@ import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/retention.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { OrchConfig } from "../src/types/config.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -38,7 +38,7 @@ function fixture(): string {
 /** Every retention window at its shortest, so nothing survives by luck. The fixture
  *  is COMPLETE for what it is typed as: `sweepExpiredRows` takes the retention
  *  section, so that section is the whole value and there is nothing to cast past. */
-function aggressiveRetention(): Pick<OrchConfig, "retention"> {
+function aggressiveRetention(): Pick<OrchSettings, "retention"> {
   return {
     retention: { ended_agents_days: 0, queue_days: 0, events_days: 0, runs_days: 0, outbox_days: 0, logs_days: 0 },
   };

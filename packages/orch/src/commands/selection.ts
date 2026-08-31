@@ -8,14 +8,14 @@
  * anything; the launch decisions that DO (`launchModel`, `assertLaunchModelAllowed`)
  * stay with the launch.
  */
-import { resolveSetting } from "../config.ts";
+import { resolveSetting } from "../settings/read.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
 import { SpawnRefusalError } from "../refusal.ts";
 import { errorMessage } from "../util.ts";
 import { die } from "./target.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { AgentFlags } from "../types/command.ts";
-import type { OrchConfig } from "../types/config.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 export function resolveAdapterOrDie(id: string): AgentAdapter {
   try {
@@ -25,8 +25,8 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
   }
 }
 
-export function pickAdapter(flags: AgentFlags, config: OrchConfig): AdapterId {
-  const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", config: config.defaults.adapter, fallback: "" });
+export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterId {
+  const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", settings: settings.defaults.adapter, fallback: "" });
   if (!selected) die("no harness selected - pass --agent <id> or run `orch setup` to pick one");
   // Validate the id here, at the boundary, so everything downstream carries AdapterId.
   return resolveAdapterOrDie(selected).id;

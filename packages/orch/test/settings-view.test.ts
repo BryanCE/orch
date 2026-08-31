@@ -10,7 +10,7 @@ import {
   visibleEntryIndices,
   windowBounds,
 } from "../src/settings/view.ts";
-import type { EditorSetting, SettingKind, SettingSpec } from "../src/types/config.ts";
+import type { EditorSetting, SettingKind, SettingSpec } from "../src/types/settings.ts";
 import type { SettingsScreen } from "../src/settings/view.ts";
 
 function entry(key: string, value: unknown, options?: {

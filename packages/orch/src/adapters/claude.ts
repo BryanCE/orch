@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { declaredRuntime } from "../config.ts";
+import { declaredRuntime } from "../settings/read.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import { loadPresence, orchDir, statusForPresence } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
@@ -314,7 +314,7 @@ class ClaudeAdapter implements AgentAdapter {
     try {
       runtime = declaredRuntime(orchDir());
     } catch {
-      // checkConfig owns the malformed-settings detail; a broken config must not
+      // checkSettingsFile owns the malformed-settings detail; a broken settings file must not
       // crash an unrelated diagnostic.
       return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
     }

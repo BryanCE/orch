@@ -1,7 +1,7 @@
 import type { SessionAgentIdentity } from "./store.ts";
 import type { NotifyEvent } from "./notify.ts";
 import type { OsSide } from "./core.ts";
-import type { OrchConfig } from "./config.ts";
+import type { OrchSettings } from "./settings.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
 
@@ -236,8 +236,8 @@ export interface WorkOptions {
   /** Suppress human progress output for machine-readable callers. */
   json?: boolean;
   maxRetries?: number;
-  /** Return the latest config for each loop iteration. */
-  getConfig?: () => OrchConfig;
+  /** Return the latest settings for each loop iteration. */
+  getSettings?: () => OrchSettings;
   dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
   /** Emit canonical work lifecycle events through the daemon fan-out. */
   onEvent?: (event: NotifyEvent) => void;

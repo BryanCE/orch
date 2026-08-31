@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import { shouldLaunchSettingsEditor } from "../src/commands/settings.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import type { EditorSetting, SettingSpec } from "../src/types/config.ts";
+import type { EditorSetting, SettingSpec } from "../src/types/settings.ts";
 
 function setting(key: string, value: unknown, env?: string): EditorSetting {
   const spec: SettingSpec = {
@@ -59,7 +59,7 @@ describe("settings shell decisions", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-settings-shell-"));
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
     writeRegisteredSetting(directory, "fleet.max_depth", 4);
-    expect(loadConfig(directory).fleet.max_depth).toBe(4);
+    expect(loadSettings(directory).fleet.max_depth).toBe(4);
     const text = readFileSync(join(directory, "settings.json"), "utf8");
     expect(text).toContain('"max_depth": 4');
   });

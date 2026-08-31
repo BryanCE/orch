@@ -1,11 +1,11 @@
-import { loadConfigOrNull } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
 import { liveAgents } from "../store/agent-rows.ts";
 import { depthOf } from "../policy/provenance.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
 /** Report live agents whose provenance depth exceeds the configured fleet limit. */
 export function checkProvenanceDepth(orchDir: string): CheckResult {
-  const maxDepth = loadConfigOrNull(orchDir)?.fleet.max_depth;
+  const maxDepth = loadSettingsOrNull(orchDir)?.fleet.max_depth;
   if (maxDepth === undefined) {
     return { id: "provenance-depth", label: "Provenance depth", status: "skip", detail: "no settings.json; fleet.max_depth is not configured" };
   }

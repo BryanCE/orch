@@ -1,4 +1,4 @@
-import { loadConfigOrNull } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
 import { errorMessage } from "../util.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -12,7 +12,7 @@ import { checkExtensionStaleness } from "./extensions.ts";
 import { checkProvenanceDepth } from "./provenance-depth.ts";
 import { checkUnclaimedAgents } from "./unclaimed-agents.ts";
 import { checkHarnessModels } from "./models.ts";
-import { checkCommandLocks, checkConfig, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./config.ts";
+import { checkCommandLocks, checkSettingsFile, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./settings-file.ts";
 import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
 import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOrphanDaemons, checkOsExecutors } from "./daemon.ts";
@@ -65,14 +65,14 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     ? sshRunnerOrOptions
     : (sshRunnerOrOptions.sshRunner ?? runSSH);
   // Read settings only to derive provider checks. An unconfigured install has no enabled
-  // providers, and checkConfig owns the user-facing failure result, so neither an absent nor a
+  // providers, and checkSettingsFile owns the user-facing failure result, so neither an absent nor a
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
   // you reach for when the install is broken; it never refuses to run for want of configuration.
   let enabledAdapters: AdapterId[] = [];
   let enabledBackends: string[] = [];
   let configuredBackend: string | null = null;
   try {
-    const config = loadConfigOrNull(orchDir);
+    const config = loadSettingsOrNull(orchDir);
     enabledAdapters = config?.enabled.adapters ?? [];
     enabledBackends = config?.enabled.backends ?? [];
     configuredBackend = config?.defaults.backend ?? null;
@@ -109,7 +109,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
     isolated("unrunnable-tasks", "Unrunnable queue tasks", () => checkUnrunnableTasks(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
-    isolated("config", "Config validity", () => checkConfig(orchDir)),
+    isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
     isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
     isolated("spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
     isolated("provenance-depth", "Provenance depth", () => checkProvenanceDepth(orchDir)),
@@ -150,7 +150,7 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
  *  adapter": reloading a pi agent has no business rewriting Claude's hooks. */
 export async function refreshStaleShims(orchDir: string, harnesses: readonly string[]): Promise<string[]> {
   const refreshed: string[] = [];
-  const enabled = loadConfigOrNull(orchDir)?.enabled.adapters ?? [];
+  const enabled = loadSettingsOrNull(orchDir)?.enabled.adapters ?? [];
   for (const id of enabled.filter((adapter) => harnesses.includes(adapter))) {
     try {
       const adapter = resolveAdapter(id);

@@ -1,5 +1,5 @@
 import { orchDir } from "../../presence/store.ts";
-import { loadConfig } from "../../config.ts";
+import { loadSettings } from "../../settings/read.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { maySpawnFrom, workerPrompt } from "../../worker-prompt.ts";
@@ -43,8 +43,8 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
   assertSpawnPolicy(settings, space, settings.n);
   assertSpawnCapacity(settings, space, settings.n);
   const adapter = resolveAdapterOrDie(settings.adapter);
-  const config = loadConfig(orchDir());
-  const maySpawn = maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth);
+  const settingsFile = loadSettings(orchDir());
+  const maySpawn = maySpawnFrom(orchDir(), selfId(), settingsFile.fleet.max_depth);
   const created: CreatedAgent[] = [];
   const names = claimSpawnNames(settings.names, space);
   for (const [index, name] of names.entries()) {
@@ -75,10 +75,10 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { maySpawn, lockedCommands: config.locked_commands, spawnerRepliable: spawner.key !== null }),
+        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { maySpawn, lockedCommands: settingsFile.locked_commands, spawnerRepliable: spawner.key !== null }),
         tools: settings.tools,
         workers: settings.workers,
-      }, {}, config.timeouts.adapter_command_ms);
+      }, {}, settingsFile.timeouts.adapter_command_ms);
       // A detached agent has no pane, so its key is the handle every display uses.
       created.push({ key, pane: key, name });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
@@ -274,9 +274,9 @@ export async function cmdSpawn(args: string[]) {
 
 export async function cmdTile(args: string[]) {
   const flags = parseSpawnFlags(args);
-  const config = loadConfig(orchDir());
-  const { adapter, model, preferredModels } = resolveAgentSettings(flags, config);
-  const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: config.defaults.backend ?? null });
+  const settingsFile = loadSettings(orchDir());
+  const { adapter, model, preferredModels } = resolveAgentSettings(flags, settingsFile);
+  const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
   if (!selectedBackend.paneInventory) die(`orch tile requires a pane-capable environment; ${selectedBackend.id} has no pane inventory.`);
   if (!selectedBackend.groupHome || !selectedBackend.groupLayout) {
     const answer = { outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" };
@@ -303,7 +303,7 @@ export async function cmdTile(args: string[]) {
   // own (A7: optional), and the two are never interchanged.
   const space = callerSpace();
   const workspace = tab.workspace ?? undefined;
-  assertSpawnCapacity(config, space, 1);
+  assertSpawnCapacity(settingsFile, space, 1);
   // A spawned agent already carries its id; only a driving session registers.
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
   let agent: CreatedAgent;
@@ -318,12 +318,12 @@ export async function cmdTile(args: string[]) {
       workspace,
       group: tab.id,
       // Same planner `spawn` uses, off the same tab-wide geometry.
-      placement: planTilePlacement(layout, config.tiling.first_split),
+      placement: planTilePlacement(layout, settingsFile.tiling.first_split),
       cmd: flags.commandFlag ? flags.cmd : undefined,
       // A tiled worker loads exactly what a spawned one does; dropping these is
       // how tiled agents lost the user's own harness extensions.
-      tools: workerTools(config),
-      workers: workerPolicyFrom(config),
+      tools: workerTools(settingsFile),
+      workers: workerPolicyFrom(settingsFile),
       model,
       preferredModels,
       spawnerAgentId,

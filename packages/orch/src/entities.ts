@@ -1,4 +1,4 @@
-import { loadConfig } from "./config.ts";
+import { loadSettings } from "./settings/read.ts";
 import { allBackends } from "./backends/registry.ts";
 import { loadPresence, orchDir } from "./presence/store.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
@@ -16,7 +16,7 @@ export type { Recipient } from "./types/core.ts";
 import type { Backend, BackendTarget } from "./types/backend.ts";
 import type { AgentView } from "./types/store.ts";
 import type { PresenceEntry } from "./types/presence.ts";
-import type { HostConfig } from "./types/config.ts";
+import type { HostSettings } from "./types/settings.ts";
 import type { Entity, Recipient } from "./types/core.ts";
 
 interface TargetRef {
@@ -25,12 +25,12 @@ interface TargetRef {
 }
 
 /** Split `<host>/<target>` without changing the meaning of targets without `/`. */
-export function parseTarget(target: string, hosts?: Record<string, HostConfig>): TargetRef {
+export function parseTarget(target: string, hosts?: Record<string, HostSettings>): TargetRef {
   const slash = target.indexOf("/");
   if (slash < 0) return { host: null, target };
   const host = target.slice(0, slash);
   const remainder = target.slice(slash + 1);
-  const configured = hosts ?? loadConfig(orchDir()).hosts;
+  const configured = hosts ?? loadSettings(orchDir()).hosts;
   if (!host || !remainder) throw new Error(`Invalid target "${target}". Expected <host>/<target>.`);
   if (!Object.prototype.hasOwnProperty.call(configured, host)) {
     const names = Object.keys(configured).sort();

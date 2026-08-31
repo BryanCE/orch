@@ -58,13 +58,13 @@ describe("10.1 packages must not import concrete backends/adapters (checkPackage
     expect(checkPackageImportLine(line)).toContain("concrete agent adapter");
   });
 
-  test("allows the registry / port / store / config seams", () => {
+  test("allows the registry / port / store / settings seams", () => {
     const allowed = [
       'import { resolveBackend } from "../../../../src/backends/registry.ts";',
       'import { resolveAdapter } from "../../../../src/adapters/registry.ts";',
       'import type { Backend } from "../../../../src/backends/backend.ts";',
       'import { loadPresence } from "../../../../src/presence/store.ts";',
-      'import { loadConfigOrNull } from "../../../../src/config.ts";',
+      'import { loadSettingsOrNull } from "../../../../src/settings/read.ts";',
       'import { rpcCall } from "../../../../src/daemon/rpc/client.ts";',
     ];
     for (const line of allowed) expect(checkPackageImportLine(line)).toBeUndefined();
@@ -172,7 +172,7 @@ describe("10.4 spawner reply addresses cannot fall back to owner tokens (checkSp
   });
 
   test("passes the clean tree: reply addresses never use owner-token fallbacks", () => {
-    for (const relPath of ["src/commands/control.ts", "src/commands/target.ts", "src/commands/spawn.ts", "src/commands/events.ts"]) {
+    for (const relPath of ["src/commands/control.ts", "src/commands/target.ts", "src/commands/spawn/index.ts", "src/commands/events.ts"]) {
       for (const line of readRepoLines(relPath)) expect(checkSpawnerReplyFallbackLine(line)).toBeUndefined();
     }
   });
@@ -217,7 +217,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
 
   test("passes the clean tree: every identity construction is allowed or registered", () => {
     const unregistered: string[] = [];
-    for (const file of ["src/entities.ts", "src/commands/spawn.ts", "src/daemon/rpc/registration.ts", "src/backends/identity.ts"]) {
+    for (const file of ["src/entities.ts", "src/commands/spawn/index.ts", "src/daemon/rpc/registration.ts", "src/backends/identity.ts"]) {
       const allowed = IDENTITY_CONSTRUCTION_ALLOWLIST.get(file) ?? new Set<string>();
       for (const line of readRepoLines(file)) {
         if (allowed.has(line.trim())) continue;

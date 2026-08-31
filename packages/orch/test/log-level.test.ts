@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { configuredLogLevel } from "../src/config.ts";
+import { settingsLogLevel } from "../src/settings/read.ts";
 import { isLogRecord } from "../src/log.ts";
 import { commandLogger } from "../src/commands/logging.ts";
 import { decisionLogger } from "../src/daemon/decision-log.ts";
@@ -46,20 +46,20 @@ describe("the configured log level reaches every logger", () => {
   test("the env var wins over settings.json", () => {
     const dir = fixture({ logging: { level: "warn" } });
     process.env.ORCH_LOG_LEVEL = "debug";
-    expect(configuredLogLevel(dir)).toBe("debug");
+    expect(settingsLogLevel(dir)).toBe("debug");
   });
 
   test("settings.json is used when the env var is unset", () => {
     const dir = fixture({ logging: { level: "error" } });
     delete process.env.ORCH_LOG_LEVEL;
-    expect(configuredLogLevel(dir)).toBe("error");
+    expect(settingsLogLevel(dir)).toBe("error");
   });
 
   // A junk env value must not silently outrank the file the user actually wrote.
   test("an unrecognised env value falls back to the configured level", () => {
     const dir = fixture({ logging: { level: "error" } });
     process.env.ORCH_LOG_LEVEL = "loud";
-    expect(configuredLogLevel(dir)).toBe("error");
+    expect(settingsLogLevel(dir)).toBe("error");
   });
 
   test("the CLI logger honours the configured level", () => {

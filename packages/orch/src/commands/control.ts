@@ -5,7 +5,7 @@ import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, spawnedRecords } from "../presence/store.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
-import { loadConfig } from "../config.ts";
+import { loadSettings } from "../settings/read.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { selfId } from "../identity/self.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
@@ -17,7 +17,7 @@ import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { OrchConfig } from "../types/config.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
@@ -228,36 +228,36 @@ export async function cmdDispatch(args: string[]) {
       return;
     }
   }
-  const config = loadConfig(orchDir());
-  const settings = resolveDispatchSettings(flags, config, gov);
+  const settings = loadSettings(orchDir());
+  const dispatchSettings = resolveDispatchSettings(flags, settings, gov);
   // Address the daemon by the one canonical identity, never the pane id: a
   // second registry row keyed by pane id forks the agent and makes every later
   // control target ambiguous (dispatch/steer/reset all fail post-first-run).
-  const key = settings.ent.key;
-  if (settings.model) await setAgentModel(key, settings.model, gov);
-  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), config.fleet.max_depth), lockedCommands: config.locked_commands, spawnerRepliable: spawnerIsRepliable() };
-  const { dispatchId } = await dispatchToAgent(key, settings.prompt, { raw: settings.raw, adapter: entityAdapter(settings.ent), context: headerContext, gov });
+  const key = dispatchSettings.ent.key;
+  if (dispatchSettings.model) await setAgentModel(key, dispatchSettings.model, gov);
+  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth), lockedCommands: settings.locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const { dispatchId } = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
   // A spawned agent is already registered under its key; only an unrecorded
   // bare pane needs a row, and it must carry the same key we just dispatched to.
   // Dispatching to a bare pane adopts it: the record carries the dispatcher's
   // owner token, or the adopted pane stays open to every other orchestrator.
   if (!spawnedRecords().has(key)) {
-    const adoptedModel = settings.model ?? "";
+    const adoptedModel = dispatchSettings.model ?? "";
     registerSpawnedAgent(orchDir(), {
       key,
-      harnessId: settings.adapter,
+      harnessId: dispatchSettings.adapter,
       // An entity that names no plexer is in no plexer, and that is the answer —
       // never a sentinel id standing in for a missing one (Rule 11, and the
       // `backendId` contract in SpawnRegistration). Absent here means no row in
       // `agent_plexers`, which is exactly what a capless adopted pane is.
-      ...(settings.ent.backend === null ? {} : { backendId: settings.ent.backend }),
+      ...(dispatchSettings.ent.backend === null ? {} : { backendId: dispatchSettings.ent.backend }),
       // An adopted bare pane is a pane orch did not open: the plexer's own
       // address for it is the handle, and an entity with none states none.
       pane: false,
-      ...(settings.ent.paneId === null ? {} : { handle: settings.ent.paneId }),
-      ...(settings.ent.space === null ? {} : { space: settings.ent.space }),
+      ...(dispatchSettings.ent.paneId === null ? {} : { handle: dispatchSettings.ent.paneId }),
+      ...(dispatchSettings.ent.space === null ? {} : { space: dispatchSettings.ent.space }),
       cwd: process.cwd(),
-      name: settings.ent.name ?? key,
+      name: dispatchSettings.ent.name ?? key,
       model: adoptedModel,
       spawner: spawnerIdentity().key,
       owner: callerOwnerToken(),
@@ -267,7 +267,7 @@ export async function cmdDispatch(args: string[]) {
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the pane runs the prompt this command sent, not some other delivery.
   const result = { id: dispatchId };
-  if (settings.json) process.stdout.write(JSON.stringify({ target: settings.pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  if (dispatchSettings.json) process.stdout.write(JSON.stringify({ target: dispatchSettings.pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}${dispatchId ? ` (dispatch ${dispatchId})` : ""}.\n`);
 }
 
@@ -288,7 +288,7 @@ export function parseDispatchFlags(args: string[]): DispatchFlags {
   return flags;
 }
 
-function resolveDispatchSettings(flags: DispatchFlags, config: OrchConfig, gov: WriteGovernance = {}): DispatchSettings {
+function resolveDispatchSettings(flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = flags.positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
@@ -297,6 +297,6 @@ function resolveDispatchSettings(flags: DispatchFlags, config: OrchConfig, gov: 
   const pane = ent.paneId ?? ent.key;
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
-  return { adapter: pickAdapter(flags, config), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
+  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
 }
 

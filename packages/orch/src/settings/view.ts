@@ -1,4 +1,4 @@
-import type { EditorSetting } from "../types/config.ts";
+import type { EditorSetting } from "../types/settings.ts";
 
 /**
  * Pure frame builders for the full-screen settings editor.

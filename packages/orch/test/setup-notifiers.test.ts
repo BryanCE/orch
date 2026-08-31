@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config.ts";
+import { loadSettings } from "../src/settings/read.ts";
 import {
   buildSelectedNotifyEntries,
   collectRequiredConfig,
@@ -60,13 +60,13 @@ describe("notifier setup logic", () => {
     });
   });
 
-  test("renders a command entry that loadConfig can parse", () => {
+  test("renders a command entry that loadSettings can parse", () => {
     const entry = renderNotifyEntry("command", { command: ["sh", "-c", "echo ok"], ignored: "not collected" });
     expect(entry).toEqual({ id: "command", command: ["sh", "-c", "echo ok"] });
     const directory = mkdtempSync(join(tmpdir(), "orch-setup-notifiers-"));
     try {
       writeSettingsFixture(directory, { notify: [entry] });
-      expect(loadConfig(directory).notify).toEqual([{
+      expect(loadSettings(directory).notify).toEqual([{
         id: "command",
         command: ["sh", "-c", "echo ok"],
       }]);

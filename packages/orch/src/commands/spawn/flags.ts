@@ -1,12 +1,12 @@
 import { orchDir } from "../../presence/store.ts";
-import { loadConfig, resolveSetting } from "../../config.ts";
+import { loadSettings, resolveSetting } from "../../settings/read.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { readFileSync } from "node:fs";
 import { errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
 import type { WorkerPolicy } from "../../types/policy.ts";
-import type { OrchConfig } from "../../types/config.ts";
+import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentFlags, AgentSettings } from "../../types/command.ts";
 import { adapterCommand, resolveAgentSettings } from "./models.ts";
 import { resolveSpawnNames } from "./names.ts";
@@ -84,14 +84,14 @@ export type SpawnSettings = AgentSettings & {
   /** Initial tasks, mapped one-to-one for pane agents; headless agents run their task and exit. */
   prompts: readonly string[];
   unknownFlags: string[];
-  fleet: OrchConfig["fleet"];
-  tiling: OrchConfig["tiling"];
+  fleet: OrchSettings["fleet"];
+  tiling: OrchSettings["tiling"];
 };
 
 export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
-  const config = loadConfig(orchDir());
-  const settings = resolveAgentSettings(flags, config);
-  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", config: config.defaults.worktree, fallback: config.defaults.worktree });
+  const settingsFile = loadSettings(orchDir());
+  const settings = resolveAgentSettings(flags, settingsFile);
+  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", settings: settingsFile.defaults.worktree, fallback: settingsFile.defaults.worktree });
   if (flags.unknownFlags.length > 0) die(`Unknown flag ${flags.unknownFlags.join(", ")}.`);
   // The names ARE the positional arguments, and how many you give is how many
   // panes you get. Resolving here means a nameless or malformed spawn is refused
@@ -112,17 +112,17 @@ export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   }
   if (flags.tasksFile && flags.promptFlags.length > 0) die("use --prompt or --tasks, not both");
   resolveAdapterOrDie(settings.adapter);
-  const tools = workerTools(config);
-  const workers = workerPolicyFrom(config);
+  const tools = workerTools(settingsFile);
+  const workers = workerPolicyFrom(settingsFile);
   const cmd = flags.commandFlag
     ? flags.cmd
-    : adapterCommand(settings.adapter, config, { model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels });
+    : adapterCommand(settings.adapter, settingsFile, { model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels });
   // --tab names the TAB; the positionals name the AGENTS. A tab left unnamed
   // borrows the first agent's name, but the two are never conflated.
   const tabLabel = flags.tabLabel ?? names[0] ?? flags.label;
   const prefix = names[0] ?? flags.label;
   const backendExplicit = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? null) !== null;
-  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendExplicit, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, space: flags.space, prefix, n, worktree, prompts, names, unknownFlags: flags.unknownFlags, fleet: config.fleet, tiling: config.tiling };
+  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendExplicit, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, space: flags.space, prefix, n, worktree, prompts, names, unknownFlags: flags.unknownFlags, fleet: settingsFile.fleet, tiling: settingsFile.tiling };
 }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an

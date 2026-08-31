@@ -9,7 +9,7 @@ import { writeRpc } from "../daemon.ts";
 import { assertAgentOwned, die, requireCallerOwnerToken, resolveLifecycleTarget } from "../target.ts";
 import { ownedAgentKeys, awaitIdleAfter } from "./index.ts";
 import { agentIdOf, describeHandle } from "./close.ts";
-import { loadConfig } from "../../config.ts";
+import { loadSettings } from "../../settings/read.ts";
 import type { AgentFlags } from "../../types/command.ts";
 
 function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags } {
@@ -40,17 +40,17 @@ export async function cmdNew(args: string[]): Promise<void> {
   }
   // A cleared session drops back to the harness's own default, so reset re-pins on
   // exactly the terms a spawn does: the model named here, else the configured default.
-  const config = loadConfig(orchDir());
-  const adapter = resolveAdapterOrDie(pickAdapter(flags, config));
-  const model = launchModel(flags, config, adapter);
+  const settings = loadSettings(orchDir());
+  const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
+  const model = launchModel(flags, settings, adapter);
   // Reset re-pins on exactly the terms a spawn does, and that includes the
   // thinking effort: re-pinning the bare model dropped the level and every reset
   // silently returned the agent to the harness default.
   const thinking = resolveThinking({
     flag: flags.thinkingFlag,
-    modelSuffix: splitThinkingSuffix(flags.modelFlag ?? config.defaults.models[adapter.id] ?? "").thinking,
+    modelSuffix: splitThinkingSuffix(flags.modelFlag ?? settings.defaults.models[adapter.id] ?? "").thinking,
     harness: adapter.id,
-    config,
+    settings,
   });
   assertLaunchModelAllowed(adapter.id, model);
   const cleared: { key: string; pane: string; name: string }[] = [];

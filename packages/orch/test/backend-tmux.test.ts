@@ -130,7 +130,7 @@ void mock.module("node:child_process", () => ({
 }));
 
 const { TmuxBackend } = await import("../src/backends/tmux/index.ts");
-const { paneForeground } = await import("../src/commands/lifecycle.ts");
+const { paneForeground } = await import("../src/commands/lifecycle/reload.ts");
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];

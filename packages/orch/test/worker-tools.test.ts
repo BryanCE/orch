@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { workerTools } from "../src/policy/workers.ts";
-import { SETTINGS_DEFAULTS } from "../src/config.ts";
-import type { OrchConfig } from "../src/types/config.ts";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 
-const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfig => ({
+const settings = (workerPeerTools?: boolean, allowTools: string[] = []): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
   runtime: "node",
   enabled: { adapters: [], backends: [] },
@@ -25,18 +25,18 @@ const config = (workerPeerTools?: boolean, allowTools: string[] = []): OrchConfi
 describe("worker tool policy", () => {
   test("no configured allowlist restricts nothing", () => {
     // A hardcoded allowlist is what left workers without grep or subagent tools.
-    expect(workerTools(config())).toBeUndefined();
-    expect(workerTools(config(true))).toBeUndefined();
+    expect(workerTools(settings())).toBeUndefined();
+    expect(workerTools(settings(true))).toBeUndefined();
   });
 
   test("a configured allowlist always carries orch's own tools", () => {
-    const tools = workerTools(config(false, ["read", "bash"]));
+    const tools = workerTools(settings(false, ["read", "bash"]));
 
     expect(tools).toBe("read,bash,orch_ask");
     expect(tools).not.toContain("orch_send");
   });
 
   test("peer tools join the allowlist when the fleet enables them", () => {
-    expect(workerTools(config(true, ["read"]))).toBe("read,orch_ask,orch_agents,orch_send,orch_read");
+    expect(workerTools(settings(true, ["read"]))).toBe("read,orch_ask,orch_agents,orch_send,orch_read");
   });
 });

@@ -18,7 +18,7 @@ import type { RunRecord } from "../types/store.ts";
 import type { PresenceStatus } from "../types/presence.ts";
 import type { PresenceMetadata, PresenceWatch, PresenceWatchOptions } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
-import type { NotifyEntry } from "../types/config.ts";
+import type { NotifyEntry } from "../types/settings.ts";
 
 function property(value: object, key: string): unknown {
   return Reflect.get(value, key) as unknown;

@@ -1,6 +1,7 @@
 import { getColumns, getRows, isCancel, MultiSelectPrompt, Prompt, SelectPrompt, TextPrompt } from "@clack/core";
 import * as files from "node:fs";
-import { loadConfig, settingsPath } from "../config.ts";
+import { loadSettings } from "./read.ts";
+import { settingsPath } from "./schema.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { createEditorState, editorReducer } from "./editor.ts";
 import { parseSettingValue } from "./parse.ts";
@@ -18,7 +19,7 @@ import {
   visibleEntryIndices,
 } from "./view.ts";
 import type { SettingsScreen } from "./view.ts";
-import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSource, SettingSpec } from "../types/config.ts";
+import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSource, SettingSpec } from "../types/settings.ts";
 
 /**
  * The full-screen settings editor: an alternate-screen TUI over the editor reducer.
@@ -57,7 +58,7 @@ function sourceFor(spec: SettingSpec, raw: Record<string, unknown>): { source: S
 
 /** Rebuild every row from disk so value and provenance always show what settings.json holds. */
 function loadEntries(orchDir: string): EditorSetting[] {
-  const config = loadConfig(orchDir);
+  const settings = loadSettings(orchDir);
   let raw: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(files.readFileSync(settingsPath(orchDir), "utf8"));
@@ -65,7 +66,7 @@ function loadEntries(orchDir: string): EditorSetting[] {
   } catch (error: unknown) {
     throw new Error(`Could not read ${settingsPath(orchDir)}: ${errorMessage(error)}`);
   }
-  return SETTINGS_REGISTRY.map((spec) => ({ spec, value: spec.read(config), ...sourceFor(spec, raw) }));
+  return SETTINGS_REGISTRY.map((spec) => ({ spec, value: spec.read(settings), ...sourceFor(spec, raw) }));
 }
 
 /** Everything one editor run carries between prompts. Mutated by key handlers mid-render. */

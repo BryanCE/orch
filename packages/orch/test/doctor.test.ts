@@ -9,7 +9,7 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
-import { isDrvFsPath } from "../src/doctor/config.ts";
+import { isDrvFsPath } from "../src/doctor/settings-file.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -52,14 +52,14 @@ describe("runDoctor", () => {
 
   test("runs on an unconfigured install without failing for want of settings.json", async () => {
     // doctor is the command you run WHEN orch is broken, so an install that has never been set up
-    // must still get a full report: absence of configuration is the answer for a check whose
-    // subject is a configured section, never a defect.
+    // must still get a full report: absence of settings is the answer for a check whose
+    // subject is a settings section, never a defect.
     const results = await runDoctor(tempDir(), () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
 
     for (const entry of results.filter((row) => row.status === "fail")) {
       expect(entry.detail).not.toContain("settings.json");
     }
-    expect(check(results, "config")).toMatchObject({ status: "ok", detail: "no settings.json" });
+    expect(check(results, "settings")).toMatchObject({ status: "ok", detail: "no settings.json" });
     for (const id of ["spawn-limits", "command-locks", "notifiers", "notify-sinks", "remote-ssh", "remote-orch-version", "remote-orch-dir"]) {
       expect(check(results, id).status).not.toBe("fail");
     }
@@ -315,15 +315,15 @@ describe("runDoctor", () => {
     });
   });
 
-  test("reports invalid config and accepts missing config", async () => {
+  test("reports invalid settings and accepts missing settings", async () => {
     const invalid = tempDir();
     writeSettingsFixture(invalid, { queue: { max_retries: "never" } });
     const missing = tempDir();
 
-    const configResult = check(await runDoctor(invalid), "config");
-    expect(configResult.status).toBe("fail");
-    expect(configResult.detail).toContain("settings.json");
-    expect(check(await runDoctor(missing), "config")).toEqual({ id: "config", label: "Config validity", status: "ok", detail: "no settings.json" });
+    const settingsResult = check(await runDoctor(invalid), "settings");
+    expect(settingsResult.status).toBe("fail");
+    expect(settingsResult.detail).toContain("settings.json");
+    expect(check(await runDoctor(missing), "settings")).toEqual({ id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" });
   });
 
   test("never throws when individual checks encounter broken inputs", async () => {

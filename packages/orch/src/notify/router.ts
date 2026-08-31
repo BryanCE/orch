@@ -1,15 +1,16 @@
-import { loadConfigOrNull, NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
+import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
 import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
-import type { NotifyEntry } from "../types/config.ts";
+import type { NotifyEntry } from "../types/settings.ts";
 import { orchDir } from "../presence/store.ts";
 import { decisionLogger } from "../daemon/decision-log.ts";
 
 function warning(message: string): void { decisionLogger(orchDir()).warn("notify.failed", { message }); }
 
-/** The sink ids are the discriminants config.ts's `NotifyEntrySchema` already
+/** The sink ids are the discriminants settings.ts's `NotifyEntrySchema` already
  *  declares. Re-listing them here made a second copy that could drift, and put a
  *  plexer name in core where Rule 10 forbids it. */
 function isNotifyId(value: string): value is NotifyEntry["id"] {
@@ -27,7 +28,7 @@ function configFor(entry: NotifyEntry): Record<string, unknown> {
 
 export function loadNotifierEntries(orchDir: string): NotifyEntry[] {
   try {
-    return loadConfigOrNull(orchDir)?.notify ?? [];
+    return loadSettingsOrNull(orchDir)?.notify ?? [];
   } catch (error: unknown) {
     warning(`could not load settings.json: ${oneLine(error)}`);
     return [];

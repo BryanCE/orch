@@ -1,6 +1,8 @@
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends } from "../backends/registry.ts";
-import { loadConfigOrNull, settingsPath, writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../config.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
+import { settingsPath } from "../settings/schema.ts";
+import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
 import { assertModelListed } from "../policy/model.ts";
@@ -84,7 +86,7 @@ export async function resolveHarnessModels(
   harnesses: readonly AdapterId[],
   interactive: boolean,
 ): Promise<HarnessModelChoices | null> {
-  const config = loadConfigOrNull(orchDir());
+  const settings = loadSettingsOrNull(orchDir());
   const choices: HarnessModelChoices = { defaults: {}, preferred: {}, allowed: {} };
   const modelFlags = typeof flags === "string" ? [flags] : flags ?? [];
   const assignments = resolveModelAssignments(modelFlags, harnesses);
@@ -102,7 +104,7 @@ export async function resolveHarnessModels(
     // ONE list per harness: the models it may spawn, which is also the quicklist its own
     // picker cycles. Asking for both was asking the same question twice. A prompted harness
     // records what it was given, empty included — that is how an operator clears a list.
-    const allowed = await selectAllowedModels(id, offered, config?.models.allowed[id] ?? []);
+    const allowed = await selectAllowedModels(id, offered, settings?.models.allowed[id] ?? []);
     if (allowed === null) return null;
     choices.allowed[id] = allowed;
     choices.preferred[id] = allowed;
@@ -245,9 +247,9 @@ export async function resolveSetupComposition(options: SetupOptions): Promise<Se
 
 /** True while setup has never recorded a harness selection — including the first run, where
  * settings.json does not exist yet. "No settings.json" is the signal to run the wizard, not an
- * error, so this gate goes through the non-throwing `loadConfigOrNull` probe rather than
- * `loadConfig` (which treats an absent file as the hard error it is for every other command).
+ * error, so this gate goes through the non-throwing `loadSettingsOrNull` probe rather than
+ * `loadSettings` (which treats an absent file as the hard error it is for every other command).
  * A present-but-malformed file still throws here, exactly as before. */
 export function compositionUnrecorded(): boolean {
-  return !loadConfigOrNull(orchDir())?.defaults.adapter;
+  return !loadSettingsOrNull(orchDir())?.defaults.adapter;
 }

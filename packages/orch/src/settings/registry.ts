@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { clearSettingsValue, SETTINGS_FILE_SCHEMA, writeSettingsDefault, writeSettingsValue } from "../config.ts";
+import { SETTINGS_FILE_SCHEMA } from "./schema.ts";
+import { clearSettingsValue, writeSettingsDefault, writeSettingsValue } from "./write.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
-import type { OrchConfig, SettingKind, SettingSpec } from "../types/config.ts";
+import type { OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
 import { isRecord } from "../util.ts";
 
 interface JsonSchemaNode {
@@ -69,8 +70,8 @@ function kindFor(key: string): SettingKind {
   return { kind: "list" };
 }
 
-function readAt(config: OrchConfig, key: string): unknown {
-  let current: unknown = config;
+function readAt(settings: OrchSettings, key: string): unknown {
+  let current: unknown = settings;
   for (const segment of key.split(".")) {
     if (current === null || typeof current !== "object") return undefined;
     const record: Record<string, unknown> = {};
@@ -105,7 +106,7 @@ function setting(key: string, group: string, help: string, env?: string, writabl
     group,
     help,
     type: kindFor(key),
-    read: (config) => readAt(config, key),
+    read: (settings) => readAt(settings, key),
     ...(writable ? { write: writer ?? ((orchDir: string, value: unknown) => writeSettingsValue(orchDir, key, value)) } : {}),
     ...(env === undefined ? {} : { env }),
   };
@@ -116,7 +117,7 @@ function setting(key: string, group: string, help: string, env?: string, writabl
  *
  * This object is the ONLY roster. The registry's key list is DERIVED from it, so a
  * setting can no longer be declared in one place and documented in another: the two
- * used to be parallel 42-entry lists kept in step by hand, and the `?? "Configure
+ * used to be parallel 42-entry lists kept in step by hand, and the `?? "Set
  * <key>."` fallback that papered over a missing entry meant drift shipped silently.
  */
 const HELP: Readonly<Record<string, string>> = {
@@ -181,7 +182,7 @@ const READ_ONLY_KEYS: readonly string[] = ["runtime"];
 export const SETTINGS_REGISTRY: readonly SettingSpec[] = Object.entries(HELP).map(([key, help]) =>
   setting(key, key.split(".")[0] ?? key, help, ENV_OVERRIDES[key], !READ_ONLY_KEYS.includes(key), writerFor(key)));
 
-/** Find one declared setting or throw a plain configuration error. */
+/** Find one declared setting or throw a plain settings error. */
 export function registeredSetting(key: string): SettingSpec {
   const found = SETTINGS_REGISTRY.find((entry) => entry.key === key);
   if (found === undefined) throw new Error(`unknown setting ${JSON.stringify(key)}`);

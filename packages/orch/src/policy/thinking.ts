@@ -29,9 +29,9 @@ export function splitThinkingSuffix(model: string): { bare: string; thinking?: T
 export function resolveThinking(input: ThinkingResolutionInput): ThinkingLevel {
   if (isThinkingLevel(input.flag)) return input.flag;
   if (isThinkingLevel(input.modelSuffix)) return input.modelSuffix;
-  const override = Object.entries(input.config.defaults.thinking_by_harness ?? {})
+  const override = Object.entries(input.settings.defaults.thinking_by_harness ?? {})
     .find(([harness]) => harness === input.harness)?.[1];
   if (isThinkingLevel(override)) return override;
-  if (isThinkingLevel(input.config.defaults.thinking)) return input.config.defaults.thinking;
+  if (isThinkingLevel(input.settings.defaults.thinking)) return input.settings.defaults.thinking;
   return "medium";
 }

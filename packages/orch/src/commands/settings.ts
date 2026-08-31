@@ -1,6 +1,7 @@
 import * as files from "node:fs";
-import { loadConfig, NOTIFY_DEFAULT_ON, resolveWithSource, settingsPath, SETTINGS_DEFAULTS } from "../config.ts";
-import { NOTIFY_STATES } from "../types/config.ts";
+import { loadSettings, resolveWithSource } from "../settings/read.ts";
+import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
+import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/store.ts";
@@ -19,13 +20,13 @@ import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
 import type { NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState, OrchConfig, SettingKind } from "../types/config.ts";
+import type { NotifyEntry, NotifyState, OrchSettings, SettingKind } from "../types/settings.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */
-function currentConfig(): OrchConfig {
+function currentSettings(): OrchSettings {
   try {
-    return loadConfig(orchDir());
+    return loadSettings(orchDir());
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -41,7 +42,7 @@ function rawSetting(orchDirPath: string, ...keys: string[]): unknown {
     }
     return value;
   } catch {
-    // Absent or invalid — loadConfig already surfaced any real error before this ran.
+    // Absent or invalid — loadSettings already surfaced any real error before this ran.
     return undefined;
   }
 }
@@ -132,8 +133,8 @@ function switchDefault(key: "adapter" | "backend", value: string): void {
  * own picker cycles.
  */
 export async function cmdSettingsModels(args: string[]): Promise<void> {
-  const config = currentConfig();
-  const enabled = config.enabled.adapters;
+  const settings = currentSettings();
+  const enabled = settings.enabled.adapters;
   if (!enabled.length) die("no harnesses are installed - run: orch setup");
   const only = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
   const targets = only === undefined ? enabled : [validateSetupFlag("harness", only, enabled)];
@@ -145,9 +146,9 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
   if (chosen === null) return;
   // Only the targeted harnesses were prompted, so each map merges over what is already
   // recorded; a harness this run never asked about keeps every list it had.
-  writeRegisteredSetting(orchDir(), "defaults.models", { ...config.defaults.models, ...chosen.defaults });
-  writeRegisteredSetting(orchDir(), "models.preferred", { ...config.models.preferred, ...chosen.preferred });
-  writeRegisteredSetting(orchDir(), "models.allowed", { ...config.models.allowed, ...chosen.allowed });
+  writeRegisteredSetting(orchDir(), "defaults.models", { ...settings.defaults.models, ...chosen.defaults });
+  writeRegisteredSetting(orchDir(), "models.preferred", { ...settings.models.preferred, ...chosen.preferred });
+  writeRegisteredSetting(orchDir(), "models.allowed", { ...settings.models.allowed, ...chosen.allowed });
   for (const id of targets) {
     const recorded = chosen.defaults[id];
     if (!recorded) {
@@ -177,7 +178,7 @@ export function cmdSettingsSkills(args: string[]): void {
   }
   if (rootsFlag !== undefined && !roots?.length) die("--roots needs at least one directory.");
 
-  const current = currentConfig().skills;
+  const current = currentSettings().skills;
   const wanted = install ?? current.install;
   writeRegisteredSetting(orchDir(), "skills.install", wanted);
   if (roots !== undefined) writeRegisteredSetting(orchDir(), "skills.roots", roots);
@@ -236,7 +237,7 @@ function notifyEntryRow(entry: NotifyEntry): string {
 }
 
 function printNotifyEntries(json: boolean): void {
-  const configured = currentConfig().notify;
+  const configured = currentSettings().notify;
   if (json) {
     process.stdout.write(JSON.stringify(configured, null, 2) + "\n");
     return;
@@ -259,7 +260,7 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   if (!choice) die(`Unknown notify sink "${id}". Supported: ${choices.map((notifier) => notifier.id).join(", ")}.`);
   rejectUndeclaredFlags(flags, choice.requiredFields);
 
-  const recorded = currentConfig().notify.find((entry) => entry.id === id);
+  const recorded = currentSettings().notify.find((entry) => entry.id === id);
   const recordedFields: Record<string, unknown> = {};
   if (recorded !== undefined) {
     for (const [key, value] of Object.entries(recorded)) recordedFields[key] = value;
@@ -274,7 +275,7 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   const missing = written.errors.flatMap((error) => error.missing);
   if (missing.length) die(`${id} needs ${missing.map((field) => `--${field}=<value>`).join(" ")}.`);
 
-  const configured = currentConfig().notify;
+  const configured = currentSettings().notify;
   const replacement = written.entries[0];
   if (replacement === undefined) die(`${id} produced no settings entry.`);
   const merged = configured.some((entry) => entry.id === id)
@@ -290,7 +291,7 @@ async function addNotifyEntry(args: string[]): Promise<void> {
 function removeNotifyEntry(args: string[]): void {
   const [id] = args;
   if (id === undefined) die(NOTIFY_USAGE);
-  const configured = currentConfig().notify;
+  const configured = currentSettings().notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
   writeRegisteredSetting(orchDir(), "notify", configured.filter((candidate) => candidate.id !== entry.id));
@@ -324,7 +325,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
   const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
   const json = args.includes("--json");
 
-  const config = currentConfig();
+  const settings = currentSettings();
 
   if (harness !== undefined) switchDefault("adapter", harness);
   if (plexer !== undefined) switchDefault("backend", plexer);
@@ -332,9 +333,9 @@ export async function cmdSettings(args: string[]): Promise<void> {
 
   // One model row per installed harness: each names models in its own vocabulary,
   // so there is no single "the model" to report.
-  const modelRows = config.enabled.adapters.map((harness) => ({
+  const modelRows = settings.enabled.adapters.map((harness) => ({
     key: `model (${harness})`,
-    ...resolveWithSource<string>({ config: config.defaults.models[harness], fallback: "(none)" }),
+    ...resolveWithSource<string>({ settings: settings.defaults.models[harness], fallback: "(none)" }),
   }));
 
   interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string }
@@ -347,7 +348,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
   // logging.level, fleet.max_agents_per_pack, locked_commands — and gave two of them a
   // second name. A setting nobody can print is a setting nobody can find.
   for (const spec of SETTINGS_REGISTRY) {
-    const configured = spec.read(config);
+    const configured = spec.read(settings);
     const raw = rawSetting(orchDir(), ...spec.key.split("."));
     const environment = spec.env === undefined ? undefined : process.env[spec.env];
     const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
@@ -356,11 +357,11 @@ export async function cmdSettings(args: string[]): Promise<void> {
   }
   provenance.push(...modelRows);
 
-  const enabledSet = config.enabled.adapters.length > 0 || config.enabled.backends.length > 0;
+  const enabledSet = settings.enabled.adapters.length > 0 || settings.enabled.backends.length > 0;
   if (json) {
     const out: Record<string, unknown> = {};
     for (const { key, value, source } of provenance) out[key] = { value, source };
-    out.enabled = { value: config.enabled, source: enabledSet ? "settings.json" : "default" };
+    out.enabled = { value: settings.enabled, source: enabledSet ? "settings.json" : "default" };
     process.stdout.write(JSON.stringify(out, null, 2) + "\n");
     return;
   }
@@ -372,17 +373,17 @@ export async function cmdSettings(args: string[]): Promise<void> {
     process.stdout.write(`  ${key.padEnd(width)}  ${formatValue(value).padEnd(valueWidth)}  ${source}\n`);
   }
   process.stdout.write("\n");
-  process.stdout.write(`  enabled.adapters  ${config.enabled.adapters.join(", ") || "(none)"}\n`);
-  process.stdout.write(`  enabled.backends  ${config.enabled.backends.join(", ") || "(none)"}\n`);
-  for (const harness of config.enabled.adapters) {
+  process.stdout.write(`  enabled.adapters  ${settings.enabled.adapters.join(", ") || "(none)"}\n`);
+  process.stdout.write(`  enabled.backends  ${settings.enabled.backends.join(", ") || "(none)"}\n`);
+  for (const harness of settings.enabled.adapters) {
     // Two lists, never conflated: the quicklist that harness's own picker shows, then the
     // gate its spawns are held to. A model missing from the first is still launchable.
-    process.stdout.write(modelListRow("picker", harness, config.models.preferred[harness] ?? [], "(none)"));
-    process.stdout.write(modelListRow("allowed", harness, config.models.allowed[harness] ?? [], "(all offered)"));
+    process.stdout.write(modelListRow("picker", harness, settings.models.preferred[harness] ?? [], "(none)"));
+    process.stdout.write(modelListRow("allowed", harness, settings.models.allowed[harness] ?? [], "(all offered)"));
   }
-  process.stdout.write(`  hosts               ${Object.keys(config.hosts).length}\n`);
-  process.stdout.write(`  spaces              ${Object.keys(config.spaces).length}\n`);
-  process.stdout.write(`  notify              ${config.notify.length}\n`);
+  process.stdout.write(`  hosts               ${Object.keys(settings.hosts).length}\n`);
+  process.stdout.write(`  spaces              ${Object.keys(settings.spaces).length}\n`);
+  process.stdout.write(`  notify              ${settings.notify.length}\n`);
 }
 
 /**
@@ -403,7 +404,7 @@ export function cmdSettingsThinking(args: string[]): void {
   }
   if (clear) {
     if (harnessFlag === undefined) throw new Error("--clear needs --harness=<id>: the global default always has a value");
-    const current = currentConfig().defaults.thinking_by_harness ?? {};
+    const current = currentSettings().defaults.thinking_by_harness ?? {};
     const byHarness = { ...current };
     delete byHarness[harnessFlag];
     writeRegisteredSetting(orchDir(), "defaults.thinking_by_harness", byHarness);
@@ -411,9 +412,9 @@ export function cmdSettingsThinking(args: string[]): void {
     return;
   }
   if (level === undefined) {
-    const config = currentConfig();
-    process.stdout.write(`thinking  ${config.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking}\n`);
-    for (const [harness, value] of Object.entries(config.defaults.thinking_by_harness ?? {})) {
+    const settings = currentSettings();
+    process.stdout.write(`thinking  ${settings.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking}\n`);
+    for (const [harness, value] of Object.entries(settings.defaults.thinking_by_harness ?? {})) {
       process.stdout.write(`thinking (${harness})  ${String(value)}\n`);
     }
     return;
@@ -425,7 +426,7 @@ export function cmdSettingsThinking(args: string[]): void {
     writeRegisteredSetting(orchDir(), "defaults.thinking", level);
     process.stdout.write(`thinking  ${level}\n`);
   } else {
-    const current = currentConfig().defaults.thinking_by_harness ?? {};
+    const current = currentSettings().defaults.thinking_by_harness ?? {};
     writeRegisteredSetting(orchDir(), "defaults.thinking_by_harness", { ...current, [harnessFlag]: level });
     process.stdout.write(`thinking (${harnessFlag})  ${level}\n`);
   }

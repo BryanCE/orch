@@ -1,4 +1,4 @@
-import type { SettingKind, SettingSpec } from "../types/config.ts";
+import type { SettingKind, SettingSpec } from "../types/settings.ts";
 
 export interface ParsedSettingValue { readonly ok: true; readonly value: unknown }
 export interface RejectedSettingValue { readonly ok: false; readonly reason: string }

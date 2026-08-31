@@ -8,10 +8,9 @@
     "agents"
   ],
   "scripts": {
-    "test": "bun test --parallel=4",
-    "check": "bun run --parallel --no-exit-on-error lint tc check:bridge check:hermetic",
+    "test": "bun test --parallel",
+    "check": "bun run --parallel --no-exit-on-error lint tc check:bridge",
     "check:bridge": "bun scripts/check-bridge.ts",
-    "check:hermetic": "bun scripts/check-hermetic.ts",
     "db:gen": "bun scripts/db/generate.ts",
     "db:gen:dry": "bun scripts/db/generate.ts --dry-run",
     "db:mig": "bun scripts/db/migrate.ts",

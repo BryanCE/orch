@@ -1,11 +1,12 @@
 
-test\ambiguous-target-says-what-to-do.test.ts:
-(pass) an ambiguous target names the failure and the way out (U3) > the message names the failure, the target string, and every candidate [0.08ms]
-(pass) an ambiguous target names the failure and the way out (U3) > it says what to send instead, so the caller is not left guessing [0.03ms]
-(pass) an ambiguous target names the failure and the way out (U3) > it is a refusal, not an exit — the caller can act on it [0.05ms]
-(pass) an ambiguous target names the failure and the way out (U3) > resolveAgentView raises that same one message [0.18ms]
+test\agent-launch-carries-project-scope.test.ts:
+(pass) an agent is launched with its fleet's project scope (1.13) > a tmux agent in a worktree carries the FLEET's project, not its own cwd [0.62ms]
+(pass) an agent is launched with its fleet's project scope (1.13) > a tmux agent opened in a fresh window carries it too [0.19ms]
+(pass) an agent is launched with its fleet's project scope (1.13) > an empty value is dropped rather than exported as a configured blank [0.12ms]
 
- 4 pass
- 0 fail
- 12 expect() calls
-Ran 4 tests across 1 file. [66.00ms]
+test\answer-dispatch.test.ts:
+(pass) answer via the control dispatcher > writes pi's answer.json through the adapter's answer port [30.35ms]
+(pass) answer via the control dispatcher > answers, rather than failing, when the adapter composes no question role [15.61ms]
+(pass) answer via the control dispatcher > refuses answer for a target with no recorded adapter identity [13.97ms]
+(pass) answer over the daemon control socket > delivers a pi answer end-to-end through the real socket [74.51ms]
+(pass) answer over the daemon control socket > refuses a cross-space answer at the daemon wall [83.04ms]

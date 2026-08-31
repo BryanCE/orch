@@ -119,9 +119,14 @@ function fakeTmux(args: string[]): string {
 // so the fake must keep the full real module surface and only intercept tmux/sleep —
 // a throwing default would break every later test file that shells out (git, ssh, bun).
 const realChildProcess = { ...(await import("node:child_process")) };
+// ...and once this file is done the interception has to STOP. It cannot be uninstalled, so
+// it is switched off: a later file's exec calls otherwise kept piling into `execCalls`
+// forever. That is what took the machine down — see agent-launch-carries-project-scope.
+let recordingTmux = true;
 void mock.module("node:child_process", () => ({
   ...realChildProcess,
   execFileSync: (file: string, args: string[] = [], options?: unknown): unknown => {
+    if (!recordingTmux) return realChildProcess.execFileSync(file, args, options as never);
     execCalls.push({ file, args: [...args] });
     if (file === "sleep") return "";
     if (file === "tmux") return fakeTmux(args);
@@ -168,6 +173,8 @@ afterEach(() => {
 });
 
 afterAll(() => {
+  recordingTmux = false;
+  execCalls.length = 0;
   mock.restore();
   removeTempDir(testOrchDir);
 });
@@ -420,5 +427,51 @@ describe("TmuxBackend", () => {
     expect(rootHandle).toBe("%1");
     expect(group).toEqual({ id: "@w1", label: "extra", workspace: "main", focused: false, number: 1, paneCount: 1, status: null });
     expect(callArgs("tmux", "new-window")).toEqual(["new-window", "-P", "-F", "#{window_id}\t#{window_index}\t#{pane_id}", "-t", "main", "-c", "/work", "-n", "extra"]);
+  });
+});
+
+/**
+ * These lived in their own file, which mocked node:child_process to get at the tmux calls.
+ * `mock.module` is process-wide and cannot be taken back, so that file's replacement was
+ * still installed when `answer-dispatch.test.ts` ran its real daemon: exec calls piled up
+ * unbounded and the pair allocated 2.5 GB in two seconds. They belong here, where the tmux
+ * fixture already exists and nothing has to be mocked twice.
+ */
+const FLEET_PROJECT = "/repo/main";
+const WORKTREE = "/repo/wt-feature";
+
+function launchEnv(cmd: string): string[] {
+  const args = callArgs("tmux", cmd) ?? [];
+  return args.flatMap((arg, index) => (args[index - 1] === "-e" ? [arg] : []));
+}
+
+describe("an agent is launched with its fleet's project scope (1.13)", () => {
+  const originalProject = process.env.ORCH_PROJECT;
+
+  beforeEach(() => { process.env.ORCH_PROJECT = FLEET_PROJECT; });
+  afterEach(() => {
+    if (originalProject === undefined) delete process.env.ORCH_PROJECT;
+    else process.env.ORCH_PROJECT = originalProject;
+  });
+
+  // Without ORCH_PROJECT the worker resolves projectRoot() to its own cwd, and in a
+  // worktree that is not the fleet's project - peers.ts then walls it out of its own fleet.
+  test("a tmux agent in a worktree carries the FLEET's project, not its own cwd", () => {
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent1", cwd: WORKTREE, group: "@1", split: "right", orchDir: "/orch" });
+
+    expect(launchEnv("split-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
+    expect(launchEnv("split-window")).not.toContain(`ORCH_PROJECT=${WORKTREE}`);
+  });
+
+  test("a tmux agent opened in a fresh window carries it too", () => {
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent2", cwd: WORKTREE, orchDir: "/orch" });
+
+    expect(launchEnv("new-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
+  });
+
+  test("an empty value is dropped rather than exported as a configured blank", () => {
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent3", cwd: WORKTREE, group: "@1", orchDir: "" });
+
+    expect(launchEnv("split-window").some((entry) => entry.startsWith("ORCH_DIR="))).toBe(false);
   });
 });

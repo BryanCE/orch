@@ -31,15 +31,6 @@ export interface WriteGovernance {
   crossSpace?: boolean;
 }
 
-/** Return whether an event belongs to this session by provenance or current lease.
- * Both values are normalized agents.id values. A live foreign lease always excludes it. */
-export interface EventScopeInput {
-  anyAgent: boolean;
-  mineAddress: string | undefined;
-  leaseOwner: string | null;
-  recordSpawnedBy?: string;
-}
-
 export interface LogOptions { since?: number; level?: LogLevel; agent?: string; dispatch?: string; json: boolean; }
 
 /** One model as this command displays it, numbered by its place in the shown list. */

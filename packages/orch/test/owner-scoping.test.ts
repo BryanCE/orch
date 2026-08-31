@@ -23,6 +23,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { peerSummaries } from "../src/agent/peers.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { withExitCode } from "./helpers/exit-code.ts";
 
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: string[] = [];
@@ -183,7 +184,7 @@ describe("fleet ownership scoping", () => {
     // `user-pane` is listed but never orch-spawned: `close --all` sweeps only
     // panes orch owns records for, never the user's own.
     const backend = new FakePanedBackend({ panes: ["mine", "foreign", "user-pane"].map((handle) => fakePane(handle, { space: "local" })) });
-    withRegisteredBackend(backend, () => { cmdClose(["--all", "--json"]); });
+    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose(["--all", "--json"]); }));
 
     // Sweep order is not part of the contract.
     expect([...backend.closed].sort()).toEqual(["foreign", "mine"]);
@@ -316,7 +317,7 @@ describe("fleet ownership scoping", () => {
     // `capabilities` flag to flip and no shared object to mutate.
     const handle = JSON.stringify({ pid, key });
     const backend = new FakePanedBackend({ panes: [fakePane(handle)] });
-    withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
+    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); }));
 
     expect(backend.closed).toEqual([handle]);
     expect(child.exitCode).toBeNull();

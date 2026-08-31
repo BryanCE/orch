@@ -1,5 +1,7 @@
 export interface NotifyEvent {
   host?: string;
+  /** Live usage and configured cap for the event agent's pack at publish time. */
+  capacity?: { readonly packUsed: number; readonly packCap: number | null; };
   key: string;
   /** Origin space, for display only; absent when the agent has no placement. */
   space?: string;

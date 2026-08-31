@@ -41,7 +41,7 @@ function usage() {
 The ${term("orch")} routes control through the backend port.
 
 OBSERVE
-  orch status [--json] [--all] [--all-panes] [--offline] [--live]
+  orch status [--json] [--all] [--all-panes] [--offline] [--live] [--capacity]
                                  Glanceable table of the fleet (default command); --live re-renders full-screen
                                  from the daemon event stream (TTY only; q/esc quits; not with --json); --all-panes
                                  also lists panes orch did not spawn; --offline reads agent files only.
@@ -250,7 +250,7 @@ function preflightSkew(argv: string[]): string[] {
   if (!mutates || staleOk) return sanitized;
   const skew = readDaemonCodeSkew(orchDir(), daemonEntrypoint());
   if (skew) {
-    die(`Refusing orch ${cmd}: daemon hash=${skew.daemonHash} differs from installed hash=${skew.diskHash}; fix: orch daemon reload  # or: bun run build:dev; override: --stale-ok`);
+    die(`Refusing orch ${cmd}: daemon hash=${skew.daemonHash} differs from installed hash=${skew.diskHash}; fix: orch daemon reload  # or: bun run build:orch:dev; override: --stale-ok`);
   }
   return sanitized;
 }

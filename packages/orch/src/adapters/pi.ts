@@ -278,7 +278,7 @@ export function diagnoseExtensionLink(harness: string, extensionDir: string, ext
     id,
     label,
     status: "warn",
-    detail: `missing/stale shipped extension bundle: ${source}; fix: run the user's build: bun run build:dev`,
+    detail: `missing/stale shipped extension bundle: ${source}; fix: run the user's build: bun run build:orch:dev`,
   };
   if (!stale) return { id, label, status: "ok", detail: `bundled ${extension} extension is current` };
   return { id, label, status: "fail", detail: `missing or stale: ${file}`, ...(fixable ? { fix: apply } : {}) };
@@ -322,7 +322,7 @@ export function installExtensionLink(
   let bundleAvailable = false;
   try { bundleAvailable = fs.statSync(bundle).isFile(); } catch { /* diagnosis below names the user build fix */ }
   if (!bundleAvailable) {
-    throw new Error(`missing/stale shipped extension bundle: ${bundle}; fix: run the user's build: bun run build:dev`);
+    throw new Error(`missing/stale shipped extension bundle: ${bundle}; fix: run the user's build: bun run build:orch:dev`);
   }
   const destination = path.join(extensionDir, `${extension}.js`);
   fs.mkdirSync(extensionDir, { recursive: true });

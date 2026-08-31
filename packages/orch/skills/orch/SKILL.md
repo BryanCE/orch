@@ -70,6 +70,11 @@ run `orch doctor` — with `-y` it applies every fix unattended.
   forever when they vanish. If the pack cap blocks your spawn, spawn as many as DO fit now,
   queue or hold the rest, and retry the spawn on any event that frees capacity. Waiting for
   a foreign fleet to finish is never the plan.
+- **Size the fleet against the capacity footer, not hope.** Bare `orch status` ends with one
+  line — `pack 7/10 (you 5, claude-xyz 2) · space main 4/6 · machine 7/unlimited` — and
+  `orch status --capacity` prints it alone (`--json --capacity` for the object). Read it
+  before every spawn wave: it names how many slots are free and WHICH orchestrators hold
+  the rest, so a cap refusal is never a surprise and a foreign fleet is never invisible.
 
 ## The cadence — how an orchestrator stays fast
 

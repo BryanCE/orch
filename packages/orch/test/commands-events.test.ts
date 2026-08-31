@@ -90,6 +90,11 @@ describe("commands/events", () => {
     expect(absent).not.toContain("local");
   });
 
+  test("appends pack capacity to human-readable event lines", () => {
+    const event = { key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now", capacity: { packUsed: 7, packCap: 10 } };
+    expect(renderEvent(event, false, 4)).toEndWith(" pack 7/10");
+  });
+
   test("rejects malformed event and labels sinks", () => {
     expect(isNotifyEvent({ key: "k", oldState: "idle", newState: "done", ts: "now" })).toBe(true);
     expect(isNotifyEvent({ key: "k" })).toBe(false);

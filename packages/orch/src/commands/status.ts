@@ -3,6 +3,7 @@ import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extension
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
+import { computeFleetCapacity, formatCapacityLine } from "../policy/capacity.ts";
 
 import { getAdapter } from "../adapters/registry.ts";
 import { collapse, buildEntities, entitySpace, sortEntities } from "../entities.ts";
@@ -17,6 +18,7 @@ import { rpcCall } from "../daemon/rpc/client.ts";
 import {
   agentViewIndex,
   firstNonEmptyText,
+  presenceById,
   resultText,
   splitOptionFlags,
   viewForKey,
@@ -281,11 +283,12 @@ export interface StatusOptions {
   local: boolean;
   offline: boolean;
   live: boolean;
+  capacity: boolean;
   space?: string;
 }
 
 function parseStatusOptions(args: readonly string[]): StatusOptions {
-  const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline", "--live"]);
+  const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
   return {
     json: enabled.has("--json"),
     all: enabled.has("--all"),
@@ -293,6 +296,7 @@ function parseStatusOptions(args: readonly string[]): StatusOptions {
     local: enabled.has("--local"),
     offline: enabled.has("--offline"),
     live: enabled.has("--live"),
+    capacity: enabled.has("--capacity"),
     space: parseSpace(args),
   };
 }
@@ -591,6 +595,11 @@ export async function readStatusResult(options: StatusOptions): Promise<StatusRe
   };
 }
 
+function capacityOutput(settings: OrchSettings): { capacity: ReturnType<typeof computeFleetCapacity>; line: string } {
+  const capacity = computeFleetCapacity(agentViewIndex(), presenceById(), settings);
+  return { capacity, line: formatCapacityLine(capacity, currentOrchId() ?? undefined) };
+}
+
 export async function cmdStatus(args: string[]): Promise<void> {
   const options = parseStatusOptions(args);
   if (options.live) {
@@ -598,15 +607,30 @@ export async function cmdStatus(args: string[]): Promise<void> {
     await cmdStatusLive(options);
     return;
   }
+  if (options.capacity) {
+    const settings = loadSettingsOrNull(orchDir());
+    if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
+    const output = capacityOutput(settings);
+    if (options.json) {
+      process.stdout.write(JSON.stringify({ capacity: output.capacity }, null, 2) + "\n");
+    } else {
+      process.stdout.write(output.line + "\n");
+    }
+    return;
+  }
   if (!options.offline) await ensureDaemonOrWarn(orchDir());
   const result = await readStatusResult(options);
+  const settings = options.json ? null : loadSettingsOrNull(orchDir());
   if (options.json) {
     process.stdout.write(JSON.stringify(result.rows, null, 2) + "\n");
     return;
   }
+  const capacityLine = settings === null ? null : capacityOutput(settings).line;
   if (!result.rows.length) {
     process.stdout.write(formatNoRowsMessage(result));
+    if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
     return;
   }
   process.stdout.write(formatStatusTable(result.rows, { all: options.all, host: result.host }) + "\n");
+  if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
 }

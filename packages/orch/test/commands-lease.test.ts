@@ -20,6 +20,7 @@ import { placeAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
+import { withExitCode } from "./helpers/exit-code.ts";
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 afterEach(() => {
@@ -152,7 +153,7 @@ describe("lease commands", () => {
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
 
-    cmdClose([key, "--json"]);
+    withExitCode(() => { cmdClose([key, "--json"]); });
 
     expect(spawnedRecords().has(key)).toBe(false);
     expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${key}`)).toBeDefined();

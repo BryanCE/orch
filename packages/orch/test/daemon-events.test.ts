@@ -17,6 +17,8 @@ import type { PresenceWatch, RpcServer } from "../src/types/daemon.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 
 const directories: string[] = [];
 const servers: RpcServer[] = [];
@@ -243,6 +245,21 @@ describe("daemon presence events", () => {
     expect(events.some((event) => eventState(event) === "done")).toBe(true);
   });
 
+  test("emitted events carry the pack capacity at publish time", () => {
+    const orchDir = tempOrchDir();
+    writeSettingsFixture(orchDir, { fleet: { max_agents_per_pack: 2 } });
+    const root = mintAgentId();
+    const child = mintAgentId();
+    seedAgent(orchDir, root);
+    insertAgent(orchDir, { id: child, spawnedBy: root, harnessId: "pi", cwd: orchDir, name: child, createdAt: 2 });
+    writeStatus(orchDir, root, "working");
+    writeStatus(orchDir, child, "working");
+    const emitted: NotifyEvent[] = [];
+    emitAndNotify((event) => emitted.push(event), [], notifyEvent({ key: root, oldState: "working", newState: "closed" }), orchDir);
+    expect(emitted[0]?.newState).toBe("closed");
+    expect(emitted[0]?.capacity).toEqual({ packUsed: 2, packCap: 2 });
+  });
+
   test("a flapping status file cannot storm the stream with repeat transitions", () => {
     const flap = { key: "w9:flap", agent: "pi", tab: null, model: null, oldState: "aborted", newState: "done", task: "same task", ts: "t" };
     const emitted: unknown[] = [];
@@ -278,8 +295,8 @@ describe("daemon presence events", () => {
   test("a working-to-done repeat after the dedupe window is emitted", () => {
     const event = { key: "w9:window-flip", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
     const emitted: unknown[] = [];
-    emitAndNotify((value) => emitted.push(value), [], event, 1_000);
-    emitAndNotify((value) => emitted.push(value), [], event, 1_000 + 120_001);
+    emitAndNotify((value) => emitted.push(value), [], event, undefined, 1_000);
+    emitAndNotify((value) => emitted.push(value), [], event, undefined, 1_000 + 120_001);
     expect(emitted).toHaveLength(2);
   });
 

@@ -42,6 +42,7 @@ import type { WorkerPolicy } from "../types/policy.ts";
 import type { LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
 import type { SettingsWatch, NotifyEntry, OrchSettings } from "../types/settings.ts";
 import type { StatusRow } from "../types/command.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
@@ -369,6 +370,28 @@ async function setModel(directory: string, params: unknown): Promise<{ ok: true;
 /** Apply a lifecycle verb from inside the daemon. A console-less agent is relaunched
  *  to satisfy the verb, and a relaunch must happen here: the spawner holds the new
  *  process's stdin, and only orchd outlives the agent it starts. */
+function publishClosedAgent(directory: string, params: unknown): { ok: true } {
+  const value = rpcParams(params);
+  const key = requiredString(value.key, "key");
+  const oldState = requiredString(value.oldState, "oldState");
+  const view = agentView(directory, key);
+  if (!view) throw new Error(`agent ${key} does not exist`);
+  if (view.endedAt === null) throw new Error(`agent ${key} has not ended`);
+  const event: NotifyEvent = {
+    key,
+    space: view.environment.space ?? undefined,
+    agent: view.name,
+    name: view.name,
+    tab: null,
+    model: null,
+    oldState,
+    newState: "closed",
+    ts: new Date().toISOString(),
+  };
+  emitAndNotify((published) => server?.emit(published), getSinks(directory), event, directory);
+  return { ok: true };
+}
+
 async function applyLifecycle(directory: string, params: unknown): Promise<{ ok: true; verb: LifecycleVerb }> {
   const value = rpcParams(params);
   const target = requiredString(value.target, "target");
@@ -464,6 +487,7 @@ async function main(): Promise<void> {
       "spawn-detached": (params) => spawnDetached(directory, params),
       "set-model": (params) => setModel(directory, params),
       lifecycle: (params) => applyLifecycle(directory, params),
+      "agent-closed": (params) => publishClosedAgent(directory, params),
       answer: (params) => answer(directory, params),
       ack: (params) => {
         const value = rpcParams(params);
@@ -517,7 +541,7 @@ async function main(): Promise<void> {
       if (spawner) metadata.spawnedByLabel = spawner.name;
       return metadata;
     },
-    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event); },
+    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory); },
   });
   workLoopRunning = true;
   workLoop = runWorkLoop({
@@ -526,7 +550,7 @@ async function main(): Promise<void> {
     getSettings: () => getSettings(directory),
     signal: workController.signal,
     continuous: true,
-    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event); },
+    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory); },
   }).finally(() => { workLoopRunning = false; });
 
   const idleCheck = setInterval(() => {

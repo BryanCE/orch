@@ -4,6 +4,8 @@ export function withExitCode<T>(action: () => T): T {
   try {
     return action();
   } finally {
-    process.exitCode = previous;
+    // Bun records a non-zero exit once assigned; writing undefined does not
+    // clear that record, so zero is the clean equivalent of an unset code.
+    process.exitCode = previous ?? 0;
   }
 }

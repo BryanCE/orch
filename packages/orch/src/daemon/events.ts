@@ -5,8 +5,10 @@ import { notify } from "../notify/router.ts";
 import { abstractAgentLabel, spaceLabelForKey } from "../notify/format.ts";
 import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
 import { namesPresenceFile } from "../presence/writer.ts";
-import { presenceAgentDir, readJSON, readPresenceStatus } from "../presence/store.ts";
-import { agentView } from "../store/agent-view.ts";
+import { loadPresence, presenceAgentDir, readJSON, readPresenceStatus } from "../presence/store.ts";
+import { agentView, agentViews } from "../store/agent-view.ts";
+import { computeFleetCapacity } from "../policy/capacity.ts";
+import { loadSettings } from "../settings/read.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { upsertRun } from "../store/run-rows.ts";
 import { pidAlive, truncate } from "../util.ts";
@@ -448,14 +450,30 @@ export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolea
 }
 
 /** Publish one event to the RPC stream and every configured sink, stamped with the
- *  agent name and transition ordinal that make it identifiable downstream. */
-export function emitAndNotify(emit: (event: NotifyEvent) => void, sinks: NotifyEntry[], event: NotifyEvent, now = Date.now()): void {
+ *  agent name, transition ordinal, and live pack capacity that make it identifiable
+ *  downstream. */
+export function emitAndNotify(
+  emit: (event: NotifyEvent) => void,
+  sinks: NotifyEntry[],
+  event: NotifyEvent,
+  orchDir: string | undefined = undefined,
+  now = Date.now(),
+): void {
   if (isRepeatTransition(event, now)) return;
   const space = event.space ?? spaceLabelForKey(event.key);
   const seq = (published.get(event.key) ?? 0) + 1;
   published.set(event.key, seq);
   const named = event.agent?.trim() ? event : { ...event, agent: abstractAgentLabel(space, event.key), space };
-  const canonical: NotifyEvent = { ...named, seq };
+  const capacity = orchDir === undefined
+    ? event.capacity
+    : (() => {
+      const views = new Map(agentViews(orchDir).map((view) => [view.id, view]));
+      const presence = loadPresence(orchDir);
+      const view = views.get(event.key);
+      const computed = computeFleetCapacity(views, presence, loadSettings(orchDir), { packRootId: view?.rootAgentId });
+      return { packUsed: computed.pack.used, packCap: computed.pack.cap };
+    })();
+  const canonical: NotifyEvent = { ...named, seq, ...(capacity === undefined ? {} : { capacity }) };
   emit(canonical);
   notify(sinks, canonical);
 }

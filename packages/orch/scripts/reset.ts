@@ -268,7 +268,7 @@ if (steps.length === 0) {
 
 if (isDryRun) {
   for (const step of steps) process.stdout.write(`[dry-run] would ${step.describe}\n`);
-  process.stdout.write(`[dry-run] ${steps.length} steps. Re-run without --dry-run to ${isBuildCleanup ? "rebuild and reinstall" : "wipe, then run bun run build:dev"}.\n`);
+  process.stdout.write(`[dry-run] ${steps.length} steps. Re-run without --dry-run to ${isBuildCleanup ? "rebuild and reinstall" : "wipe, then run bun run build:orch:dev"}.\n`);
   process.exit(0);
 }
 
@@ -278,4 +278,4 @@ for (const step of steps) {
 }
 process.stdout.write(isBuildCleanup
   ? "build cleanup complete — rebuild and reinstall now.\n"
-  : "wipe complete — run 'bun run build:dev', then 'orch setup' as a first-time user.\n");
+  : "wipe complete — run 'bun run build:orch:dev', then 'orch setup' as a first-time user.\n");

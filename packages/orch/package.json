@@ -28,12 +28,12 @@
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
     "install:global": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
-    "build:dev": "bun scripts/reset.ts --build && bun run install:global && orch doctor -y && orch daemon start",
+    "build:dev": "bun scripts/reset.ts --build && bun run install:global && PATH=\"$(npm prefix -g)/bin:$PATH\" && orch doctor -y && orch daemon start",
     "prepublishOnly": "bun run build:cli",
     "tc": "bunx tsc --noEmit",
     "lint": "bunx oxlint bin src test extensions scripts",
     "reset": "bun scripts/reset.ts",
-    "reinstall": "bun scripts/reset.ts && bun run install:global && orch setup && orch doctor -y && orch daemon start"
+    "reinstall": "bun scripts/reset.ts && bun run install:global && PATH=\"$(npm prefix -g)/bin:$PATH\" && orch setup && orch doctor -y && orch daemon start"
   },
   "license": "MIT",
   "author": "Bryan Edman",

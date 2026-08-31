@@ -25,6 +25,37 @@ export interface SpawnerIdentity {
   label: string;
 }
 
+/**
+ * Whether one agent belongs to the calling session, by provenance or by its
+ * current lease. Every value is a normalized `agents.id`; a live FOREIGN lease
+ * always excludes the agent, even one this session spawned.
+ *
+ * One input shape because there is one question: `orch events` asks it per
+ * streamed transition and `orch status` asks it per row, and two copies of the
+ * rule would be two answers to "is this mine".
+ */
+export interface AgentScopeInput {
+  anyAgent: boolean;
+  mineAddress: string | undefined;
+  leaseOwner: string | null;
+  recordSpawnedBy?: string;
+}
+
+/**
+ * How a listing command was scoped: `auto` is the default and resolves from the
+ * caller's identity — an orch sees the agents it drives, a human shell sees the
+ * whole fleet — while `mine` and `any` are the caller saying so explicitly.
+ */
+export type CallerScopeChoice = "auto" | "mine" | "any";
+
+/** A resolved scope: whether the ownership filter applies, and the address it
+ *  matches against. A `mine` scope with no address matches nothing, which is the
+ *  honest answer for a caller that owns nothing. */
+export interface ResolvedCallerScope {
+  mine: boolean;
+  address: string | undefined;
+}
+
 /** Thinking efforts orch's ladder token may name after the model id. */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 

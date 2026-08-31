@@ -10,11 +10,11 @@ import { nitroV2Plugin } from '@tanstack/nitro-v2-vite-plugin'
 // native/domain externals (ssh2, libsql, google, canvas, papaparse). Add
 // orch-specific SSR externals here when we wire the daemon socket client.
 export default defineConfig({
-  // allow server fns to import orch's src/ from the repo root (../..)
+  // allow server fns to import the orch package's src/ from the repo root (../..)
   server: { fs: { allow: ["../.."] } },
   // The @orch/* seam resolves here rather than through vite-tsconfig-paths: the target
   // sits OUTSIDE this package's root, which the plugin is not obliged to resolve.
-  resolve: { alias: [{ find: /^@orch\/(.*)$/, replacement: fileURLToPath(new URL("../../src/$1", import.meta.url)) }] },
+  resolve: { alias: [{ find: /^@orch\/(.*)$/, replacement: fileURLToPath(new URL("../orch/src/$1", import.meta.url)) }] },
   // orch's store selects bun:sqlite at runtime — never bundle it
   optimizeDeps: { exclude: ["bun:sqlite"] },
   ssr: { external: ["bun:sqlite", "node:sqlite"] },

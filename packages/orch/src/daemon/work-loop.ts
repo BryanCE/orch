@@ -222,7 +222,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
  *  deriving them here too is what published every agent transition twice. */
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
-    emitAndNotify(() => { /* noop */ }, loadSettings(options.orchDir).notify, event);
+    emitAndNotify(() => { /* noop */ }, loadSettings(options.orchDir).notify, event, options.orchDir);
   });
   const sweepIntervalMs = 60 * 60 * 1000;
   let lastSweepAt = Number.NEGATIVE_INFINITY;

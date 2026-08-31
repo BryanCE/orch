@@ -1,13 +1,13 @@
 import { loadSettings } from "../settings/read.ts";
 import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
 import { callerSpace } from "../identity/self.ts";
-import { launchCredential } from "../identity/launch.ts";
+import { agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { sameSpace, scopeToSpace } from "../policy/space.ts";
 import { subscribeEvents } from "../daemon/rpc/client.ts";
-import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
+import { ensureDaemon } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { notificationText } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
@@ -16,7 +16,7 @@ import { commandLogger } from "./logging.ts";
 import type { PresenceMetadata } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
-import type { EventScopeInput } from "../types/command.ts";
+import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 
 interface WatchItem {
   key: string;
@@ -36,7 +36,7 @@ export interface EventsOptions {
   json: boolean;
   sinceSeq: number | undefined;
   once: boolean;
-  mine: boolean;
+  scope: CallerScopeChoice;
   targets: string[];
 }
 
@@ -46,17 +46,6 @@ interface EventsContext {
   metadata: (key: string) => PresenceMetadata;
   accepts: (key: string) => boolean;
   emit: (event: NotifyEvent, streamSeq: number) => boolean;
-}
-
-export function eventInMineScope(input: Omit<EventScopeInput, "anyAgent">): boolean {
-  if (input.mineAddress === undefined || input.mineAddress.length === 0) return false;
-  // A live foreign lease excludes the agent even when this session originally spawned it.
-  if (input.leaseOwner !== null && input.leaseOwner !== input.mineAddress) return false;
-  return input.leaseOwner === input.mineAddress || input.recordSpawnedBy === input.mineAddress;
-}
-
-export function eventInScope(input: EventScopeInput): boolean {
-  return input.anyAgent || eventInMineScope(input);
 }
 
 /**
@@ -76,7 +65,7 @@ export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
   const items = eventsItems(options);
-  const mineAddress = options.mine ? launchCredential() ?? (await rpcRegisterSession(orchDir())).id : undefined;
+  const scope = await resolveCallerScope(options.scope, orchDir());
   const accepts = (key: string): boolean => {
     // The key IS the minted id (A1), so there is one lookup and no second id space.
     const agentId = tryParseIdentity(key)?.id ?? null;
@@ -85,9 +74,9 @@ export async function cmdEvents(args: string[]) {
       : agentId !== null && eventInSpaceScope(orchDir(), agentId, callerSpace(), options.all);
     if (!inScope) return false;
     const leaseOwner = currentLease(orchDir(), agentId ?? key)?.orchId ?? null;
-    return eventInScope({
-      anyAgent: !options.mine,
-      mineAddress,
+    return agentInScope({
+      anyAgent: !scope.mine,
+      mineAddress: scope.address,
       leaseOwner,
       recordSpawnedBy: spawnedRecords().get(agentId ?? key)?.spawnedBy ?? undefined,
     });
@@ -102,7 +91,7 @@ export async function cmdEvents(args: string[]) {
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
-  const cleanup = startEventsLiveStream(options, {
+  const cleanup = startEventsLiveStream(options, scope, {
     writeNotice: (line) => process.stderr.write(line),
     startTransport: () => startEventsTransport(context),
   });
@@ -155,15 +144,15 @@ export interface EventsLiveStreamPorts {
   startTransport: () => () => void;
 }
 
-export function startEventsLiveStream(options: EventsOptions, ports: EventsLiveStreamPorts): () => void {
-  const notice = eventsScopeNotice(options);
+export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCallerScope, ports: EventsLiveStreamPorts): () => void {
+  const notice = eventsScopeNotice(options, scope);
   if (notice !== null) ports.writeNotice(`${notice}\n`);
   return ports.startTransport();
 }
 
-export function eventsScopeNotice(options: EventsOptions): string | null {
+export function eventsScopeNotice(options: EventsOptions, scope: ResolvedCallerScope): string | null {
   if (options.sinceSeq !== undefined || options.targets.length > 0) return null;
-  return options.mine
+  return scope.mine
     ? "watching my agents from now on - history: --since-seq 0; every session's agents: --any-agent"
     : "watching all agents from now on - history: --since-seq 0";
 }
@@ -176,9 +165,10 @@ export function parseEventsOptions(args: string[]): EventsOptions {
   let json = false;
   let sinceSeq: number | undefined;
   let once = false;
-  // An orchestrator watches the agents it currently drives. Every other session's agents are
-  // noise it has no business acting on, so the lease filter is the default and --any-agent lifts it.
-  let mine = true;
+  // An orchestrator watches the agents it currently drives; every other session's agents are
+  // noise it has no business acting on. A HUMAN shell drives none, so the same default hands it
+  // the whole fleet - the scope follows the caller's identity, and the two flags override it.
+  let scope: CallerScopeChoice = "auto";
   const targets: string[] = [];
   const usage = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--mine] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
   for (let index = 0; index < args.length; index++) {
@@ -192,13 +182,13 @@ export function parseEventsOptions(args: string[]): EventsOptions {
       if (!Number.isSafeInteger(parsed)) die(usage);
       sinceSeq = parsed;
     } else if (argument === "--once") once = true;
-    else if (argument === "--any-agent") mine = false;
-    else if (argument === "--mine") mine = true;
+    else if (argument === "--any-agent") scope = "any";
+    else if (argument === "--mine") scope = "mine";
     else if (argument.startsWith("--agent=")) targets.push(namedTarget(argument, "--agent=", usage));
     else if (argument.startsWith("--agent-id=")) targets.push(namedTarget(argument, "--agent-id=", usage));
     else targets.push(argument);
   }
-  return { statusFilter, all, json, sinceSeq, once, mine, targets };
+  return { statusFilter, all, json, sinceSeq, once, scope, targets };
 }
 
 function presenceMetadata(key: string): PresenceMetadata {
@@ -261,7 +251,8 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   const title = notificationText(textEvent, { colorize: true }).title;
   const transition = `  ${event.oldState}->${event.newState}`;
   const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
-  return `${title}${transition}${cost}`;
+  const capacity = event.capacity === undefined ? "" : ` pack ${event.capacity.packUsed}/${event.capacity.packCap ?? "unlimited"}`;
+  return `${title}${transition}${cost}${capacity}`;
 }
 
 function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: number) => boolean {

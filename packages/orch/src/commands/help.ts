@@ -127,7 +127,7 @@ Resolved session path plus quick stats for the target's recorded session.
 `,
   reload: `orch reload <target>... | --all
 Live-reload code in place: touches reload.signal so panes and watchers pick up a rebuilt install.
-Use after 'bun run build:dev'. reload = same session; reset = new session; restart = new process.
+Use after 'bun run build:orch:dev'. reload = same session; reset = new session; restart = new process.
 `,
   reset: `orch reset <target>... | --all [--model M]     (alias: orch new)
 Start a fresh session/context in the same pane, then pin M (else that harness's defaults.models entry).

@@ -15,6 +15,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
+import { withExitCode } from "./helpers/exit-code.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -111,9 +112,9 @@ describe("close always works", () => {
     const backend = new FakePanedBackend({
       panes: records.map(([, handle, name]) => fakePane(handle, { space: "foreign-space", name })),
     });
-    withRegisteredBackend(backend, () => {
+    withExitCode(() => withRegisteredBackend(backend, () => {
       cmdClose(["worker-name", "panekey001", "pane-id", "--json"]);
-    });
+    }));
 
     expect(backend.closed).toEqual(["pane-name", "pane-key", "pane-id"]);
     for (const [key] of records) {
@@ -138,19 +139,19 @@ describe("close always works", () => {
     // and a pane that is still listed must fail the close.
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
     const oldExit = process.exit.bind(process);
-    const oldExitCode = process.exitCode;
     const replacementExit: (code?: string | number | null) => void = (code) => {
       process.exitCode = typeof code === "number" ? code : 0;
     };
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
-      withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
-      expect(process.exitCode).toBe(1);
-      expect(spawnedRecords().has(key)).toBe(true);
-      expect(existsSync(join(dir, "agents", key))).toBe(true);
+      withExitCode(() => {
+        withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
+        expect(process.exitCode).toBe(1);
+        expect(spawnedRecords().has(key)).toBe(true);
+        expect(existsSync(join(dir, "agents", key))).toBe(true);
+      });
     } finally {
       Object.defineProperty(process, "exit", { value: oldExit });
-      process.exitCode = oldExitCode;
     }
   });
 
@@ -171,7 +172,6 @@ describe("close always works", () => {
 
     const originalKill = process.kill.bind(process);
     const originalExit = process.exit.bind(process);
-    const oldExitCode = process.exitCode;
     process.kill = (target: number, signal?: NodeJS.Signals | 0) => {
       if (target === pid && signal === "SIGTERM") throw new Error("signal denied");
       return originalKill(target, signal);
@@ -181,14 +181,15 @@ describe("close always works", () => {
     };
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
-      cmdClose([key, "--json"]);
-      expect(process.exitCode).toBe(1);
-      expect(spawnedRecords().has(key)).toBe(true);
-      expect(existsSync(join(dir, "agents", key))).toBe(true);
+      withExitCode(() => {
+        cmdClose([key, "--json"]);
+        expect(process.exitCode).toBe(1);
+        expect(spawnedRecords().has(key)).toBe(true);
+        expect(existsSync(join(dir, "agents", key))).toBe(true);
+      });
     } finally {
       process.kill = originalKill;
       Object.defineProperty(process, "exit", { value: originalExit });
-      process.exitCode = oldExitCode;
     }
   });
 
@@ -204,12 +205,9 @@ describe("close always works", () => {
     writeStatus(dir, key, handle, pid);
 
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
-    const oldExitCode = process.exitCode;
-    try {
+    withExitCode(() => {
       withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
-    } finally {
-      process.exitCode = oldExitCode;
-    }
+    });
 
     expect(backend.closed).toEqual([handle]);
     expect(processIsAlive(pid)).toBe(true);
@@ -230,7 +228,7 @@ describe("close always works", () => {
     expect(agentView(dir, key)?.environment.space).toBe("foreign-space");
     expect(agentView(dir, key)?.heldBy?.orchId).toBe("other");
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
-    withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
+    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); }));
     expect(backend.closed).toEqual([handle]);
     expect(spawnedRecords().has(key)).toBe(false);
   });
@@ -261,12 +259,13 @@ describe("close always works", () => {
     };
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
-      cmdClose([key, key, "--json"]);
-      expect(process.exitCode).toBe(oldExitCode);
-      expect(spawnedRecords().has(key)).toBe(false);
+      withExitCode(() => {
+        cmdClose([key, key, "--json"]);
+        expect(process.exitCode).toBe(oldExitCode);
+        expect(spawnedRecords().has(key)).toBe(false);
+      });
     } finally {
       Object.defineProperty(process, "exit", { value: originalExit });
-      process.exitCode = oldExitCode;
     }
   });
 

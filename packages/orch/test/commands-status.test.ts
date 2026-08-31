@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromEntity, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
+import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
@@ -168,6 +169,23 @@ describe("commands/status", () => {
     expect(localRow).toEqual({ ...jsonRow, host: "local" });
     expect(jsonRow.host).toBeUndefined();
   });
+  test("capacity footer uses configured caps and groups holders by root", () => {
+    const root = agentViewFixture("root", { name: "root", rootAgentId: "root", environment: { space: "main" } });
+    const child = agentViewFixture("child", { name: "child", rootAgentId: "root", spawnedBy: "root", environment: { space: "main" } });
+    const other = agentViewFixture("other", { name: "other", rootAgentId: "other", environment: { space: "main" } });
+    const views = new Map([root, child, other].map((view) => [view.id, view]));
+    const presence = new Map([root, child, other].map((view) => [view.id, presenceEntryFixture({ key: view.id, alive: true, dir: "/tmp" })]));
+    const capacity = computeFleetCapacity(views, presence, {
+      fleet: { max_agents_per_pack: 10, max_depth: 3, max_agents_per_space: { main: 6 }, max_agents_total: 10, worker_peer_tools: false, cross_space: false },
+      spaces: { main: "main" },
+    });
+    expect(capacity.pack.holders).toEqual([
+      { id: "other", name: "other", count: 1 },
+      { id: "root", name: "root", count: 2 },
+    ]);
+    expect(formatCapacityLine(capacity, "root")).toBe("pack 3/10 (you 2, other 1) - space main 3/6 - machine 3/10");
+  });
+
   test("formats workspace labels and warnings", () => {
     expect(formatSpace("w", "Workspace")).toBe("Workspace (w)");
     expect(formatSpace(null, null)).toBe("-");

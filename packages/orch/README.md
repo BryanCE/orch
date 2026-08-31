@@ -42,14 +42,14 @@ Visible panes need `herdr` or `tmux`; `--backend headless` needs neither.
 
 ```sh
 bun install
-bun run build:dev
+bun run build:orch:dev
 ```
 
-`build:dev` clears stale build/install artifacts, rebuilds the CLI, runs `npm pack`, and does a
+`build:orch:dev` clears stale build/install artifacts, rebuilds the CLI, runs `npm pack`, and does a
 real `npm install -g` of the tarball under the active node prefix — the same thing an npm user
 gets. It then asks doctor to re-link configured harness shims. There is no `bun link` and no
 symlink into the repo, so **editing source does not change the installed `orch`**; re-run
-`build:dev` to pick up CLI changes.
+`build:orch:dev` to pick up CLI changes.
 
 ## Teaching an agent to drive orch
 

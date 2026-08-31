@@ -6,6 +6,7 @@
     "dev": "vite dev --host --port 3717 --open",
     "build": "vite build",
     "serve": "vite preview",
+    "check": "bun run --parallel --no-exit-on-error lint tc",
     "start": "HOST=localhost bun .output/server/index.mjs",
     "lint": "oxlint .",
     "tc": "tsc --noEmit"

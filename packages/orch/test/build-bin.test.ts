@@ -66,7 +66,7 @@ describe("build entrypoint", () => {
 /**
  * The installed `orch` runs the PACKAGED
  * `dist/bin/orch.js`, so a source edit does not take effect until
- * `bun run build:dev` rebuilds and reinstalls.
+ * `bun run build:orch:dev` rebuilds and reinstalls.
  *
  * This is not a preference, it is the reason a "fixed" CLI keeps behaving the
  * old way: the binary on PATH is a COPY, and editing `bin/orch.ts` changes

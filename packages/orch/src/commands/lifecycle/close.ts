@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { tryParseIdentity } from "../../backends/identity.ts";
-import { orchDir, presenceAgentDir, removePresenceAgentDir } from "../../presence/store.ts";
+import { loadPresence, orchDir, presenceAgentDir, removePresenceAgentDir } from "../../presence/store.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import { agentById, endAgent } from "../../store/agent-rows.ts";
 import { selfId } from "../../identity/self.ts";
@@ -10,6 +10,7 @@ import { processInstanceMatches, processIsAlive } from "../../process-identity.t
 import { getBackend } from "../../backends/registry.ts";
 import { sleepMs } from "../../backends/pane-ready.ts";
 import { lifecycleLogger } from "./index.ts";
+import { rpcCall } from "../../daemon/rpc/client.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
 import type { Backend, BackendHandle, PaneHostRole } from "../../types/backend.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
@@ -58,15 +59,28 @@ function recordedProcessRemains(recorded: RecordedProcess): boolean {
  *  lease and its whole lease history — so a live orch's holding vanished the
  *  moment anyone closed the agent it drove, and retention (which sweeps ended
  *  rows) had nothing left to sweep. */
-function endClosedAgent(key: string): void {
+interface ClosedAgent {
+  readonly key: string;
+  readonly oldState: string;
+}
+
+function endClosedAgent(key: string): ClosedAgent | null {
   const root = orchDir();
   const agentId = agentIdOf(key);
   const row = agentById(root, agentId);
   if (row && !row.ending) {
     const by = selfId();
     endAgent(root, agentId, Date.now(), by !== undefined && agentById(root, by) ? by : null);
+    const oldState = loadPresence(root).get(key)?.status?.state ?? "exited";
+    removePresenceAgentDir(presenceAgentDir(key, root));
+    return { key, oldState };
   }
   removePresenceAgentDir(presenceAgentDir(key, root));
+  return null;
+}
+
+function publishClosedAgent(closed: ClosedAgent): void {
+  void rpcCall(orchDir(), "agent-closed", closed).catch(() => { /* the daemon may not be running */ });
 }
 
 /** One target's result from a multi-target close, with the reason it failed. */
@@ -300,7 +314,8 @@ function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { resu
       process.stdout.write(`Could not close ${target.key}: ${failure}\n`);
       continue;
     }
-    endClosedAgent(target.key);
+    const ended = endClosedAgent(target.key);
+    if (ended) publishClosedAgent(ended);
     closed.push(target.key);
     results.push({ target: target.key, handle, outcome: "done", error: null });
     if (!json) process.stdout.write(`Closed ${target.key}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);

@@ -1,10 +1,14 @@
 # CLAUDE.md. Rules for this repo. Non-negotiable.
 
-Layout: the repo root is a private bun workspace. The orch package (`@bryance/orch`) lives in `packages/orch/` — its `src/`, `test/`, `bin/`, `extensions/`, `scripts/`, `skills/`, `drizzle/`. The web UI is `packages/web/`. Root scripts delegate via `bun --filter`, so `bun check`, `bun test`, `bun run build:dev`, `bun db:gen` all still run from the root. Relative paths in the rules below are inside `packages/orch/` unless they start with `packages/`.
+Layout: the repo root is a private bun workspace. The orch package (`@bryance/orch`) lives in `packages/orch/` — its `src/`, `test/`, `bin/`, `extensions/`, `scripts/`, `skills/`, `drizzle/`. The web UI is `packages/web/`. Relative paths in the rules below are inside `packages/orch/` unless they start with `packages/`.
+
+Root scripts: every verb runs from the root and delegates via `bun --filter`. A **bare verb covers the whole workspace** (`bun check`, `bun run build`); **`:orch` / `:web` scopes it to one package** (`bun run check:web`, `bun run build:orch:dev`). Verbs with no counterpart in the other package — `db:*`, `reset`, `reinstall`, `fallow:*` — stay unsuffixed. A package owns its own verbs; the root only fans out, explicitly, one entry per package, so a missing script fails loudly instead of matching nothing.
+
+Never call a bare `orch` from a package.json script. The workspace links `node_modules/.bin/orch` at the repo-local `packages/orch/dist/bin/orch.js`, and it shadows the installed CLI inside every `bun run`; the repo build's `packageRoot()` then points harness shims and shebangs at the checkout instead of `~/.local/lib/node_modules/@bryance/orch`. Scripts resolve `ORCH=$(npm prefix -g)/bin/orch` and invoke that.
 
 # RULE #1. NEVER BUILD. NEVER MIGRATE. NEVER GENERATE. NEVER RELOAD. ASK BRYAN.
 User-only, no exceptions, not through a worker or subagent or orch verb, not "just to test":
-- `bun run build:dev`, `bun run build`, `bun run build:cli`, `bun build`, `npm pack`, `npm install -g`, `npm i -g`
+- `bun run build:orch:dev`, `bun run build`, `bun run build:orch`, `bun run build:web`, `bun build`, `npm pack`, `npm install -g`, `npm i -g`
 - `bun db:gen`, `bun db:mig`, `bun db:reset`, `drizzle-kit`, editing `drizzle/` or any `migration.sql`
 - `orch daemon reload`, `orch daemon restart`, `orch daemon stop`
 When a change needs one of these, stop, hand Bryan the command, and wait until he says it ran. Never poll, never assume, never retry.
@@ -27,7 +31,7 @@ Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch 
 - `reload` = live-reload code in place. `reset` = new session. `restart` = close and relaunch. Use `reload`, never `restart`, to pick up code.
 
 # RULE 6. RUNTIME-PORTABLE CODE. BUN IS A BUILD TOOL ONLY.
-Runtime code in `src/` and `extensions/` must be runnable by any JS runtime — node, deno, bun, whatever comes next. The `node:` builtin surface is the portable baseline every runtime implements, so target it; that this mostly reads as "use node" is a consequence, not the rule. No `Bun.*` API, no `bun:*` import, no deno globals, except `bun:sqlite` as a guarded fallback behind `node:sqlite` (already in `packages/orch/src/store/connection.ts`). Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`; CLI source edits need Bryan's `bun run build:dev` to take effect.
+Runtime code in `src/` and `extensions/` must be runnable by any JS runtime — node, deno, bun, whatever comes next. The `node:` builtin surface is the portable baseline every runtime implements, so target it; that this mostly reads as "use node" is a consequence, not the rule. No `Bun.*` API, no `bun:*` import, no deno globals, except `bun:sqlite` as a guarded fallback behind `node:sqlite` (already in `packages/orch/src/store/connection.ts`). Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`; CLI source edits need Bryan's `bun run build:orch:dev` to take effect.
 
 # RULE 7. FRESH CONTEXT PER TASK. `reset` BEFORE DISPATCH.
 `orch reset <target>` (alias `new`) every target you are about to redispatch, in the same shot as the dispatch. Never stack a new task on a used session.

@@ -13,6 +13,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { withExitCode } from "./helpers/exit-code.ts";
 
 /**
  * `orch close --all` left rows it had just failed to
@@ -68,15 +69,8 @@ function seedAgentWithStatus(dir: string, key: string, handle: string, pid: numb
 function capture(action: () => void): Record<string, unknown> {
   let output = "";
   process.stdout.write = (chunk: string | Uint8Array) => { output += chunk.toString(); return true; };
-  try { action(); } finally {
+  try { withExitCode(action); } finally {
     process.stdout.write = originalWrite;
-    // `cmdClose` signals a partial sweep with `process.exitCode` (never
-    // `process.exit`, which would truncate the buffered JSON above). That is
-    // process-wide state and bun shares the process across test files, so it is
-    // put back HERE, next to the call that set it - not in an afterEach that
-    // another file's assertion can run before. Undefined, not 0: other suites
-    // assert it is untouched, and 0 is a value.
-    process.exitCode = undefined;
   }
   const parsed: unknown = JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
   if (!isRecord(parsed)) throw new Error(`expected a JSON object, got ${output}`);

@@ -1,3 +1,4 @@
+import { dim } from "../tui/screen.ts";
 import type { EditorSetting } from "../types/settings.ts";
 
 /**
@@ -9,7 +10,6 @@ import type { EditorSetting } from "../types/settings.ts";
  */
 
 const ESC = `${String.fromCharCode(27)}[`;
-const dim = (text: string): string => `${ESC}2m${text}${ESC}22m`;
 const bold = (text: string): string => `${ESC}1m${text}${ESC}22m`;
 const inverse = (text: string): string => `${ESC}7m${text}${ESC}27m`;
 const yellow = (text: string): string => `${ESC}33m${text}${ESC}39m`;

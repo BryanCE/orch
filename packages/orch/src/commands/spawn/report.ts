@@ -8,6 +8,8 @@ import { dispatchToAgent } from "../control.ts";
 import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/reach.ts";
 import { selfId } from "../../identity/self.ts";
+import { agentViewIndex, presenceById } from "../target.ts";
+import { computeFleetCapacity, formatCapacityLine } from "../../policy/capacity.ts";
 import { commandLogger } from "../logging.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -107,12 +109,23 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
   const maySpawn = maySpawnFrom(orchDir(), selfId(), settingsFile.fleet.max_depth);
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
-    process.stdout.write(`\nSpawned ${created.length} named agent(s) on tab "${tabLabel}" (no focus stolen).\n`);
     printLayout(backend, group, "\nFinal tiling:");
   }
   reportShortfall(settings.n, created.length);
   const registeredAgents = await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
   const registered = registeredAgents?.length ?? null;
+  if (!settings.json) {
+    const views = agentViewIndex();
+    const presence = presenceById();
+    const caller = selfId();
+    const callerRoot = caller === undefined
+      ? created.map((agent) => tryParseIdentity(agent.key)?.id).flatMap((id) => id === undefined ? [] : [views.get(id)?.rootAgentId]).find((root): root is string => root !== undefined)
+      : views.get(caller)?.rootAgentId;
+    const capacity = computeFleetCapacity(views, presence, settingsFile, { packRootId: callerRoot });
+    const cap = capacity.pack.cap === null ? "unlimited" : String(capacity.pack.cap);
+    process.stdout.write(`\nSpawned ${created.length} (pack now ${capacity.pack.used}/${cap}) on tab "${tabLabel}" (no focus stolen).\n`);
+    process.stdout.write(`${formatCapacityLine(capacity, callerRoot)}\n`);
+  }
   if (registeredAgents) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
     for (const agent of created) {

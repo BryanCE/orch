@@ -84,14 +84,14 @@ function claimedHostOs(claim: Readonly<Record<string, unknown>>): HostOs {
 }
 
 
-function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
+export function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
   // "Unleased" is about the NEWEST holding: a closed lease beside it is history,
   // and an agent whose latest holding is still open is held.
   const held = orm(orchDir).select({ agentId: agentLeases.agentId }).from(agentLeases)
     .where(isNull(agentLeases.until)).all().map((row) => row.agentId);
   return orm(orchDir).select({ id: agents.id, name: agents.name }).from(agents)
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
-    .where(and(ne(agents.id, excludeId), isNull(agentEndings.agentId),
+    .where(and(ne(agents.id, excludeId), isNull(agents.sessionToken), isNull(agentEndings.agentId),
       held.length === 0 ? undefined : notInArray(agents.id, held)))
     .orderBy(asc(agents.id)).all();
 }

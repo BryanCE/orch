@@ -11,12 +11,13 @@ const ALIASES: Record<string, string> = {
 };
 
 const TOPICS: Record<string, string> = {
-  status: `orch status [--json] [--all] [--all-panes] [--offline]
+  status: `orch status [--json] [--all] [--all-panes] [--offline] [--live]
 Glanceable table of the fleet (the default command when none is given).
   --json        Machine-readable rows instead of the table.
   --all         Include every space, not just the caller's.
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
+  --live        Full-screen live status re-rendered from the daemon event stream; TTY only; q/esc quits; not combinable with --json.
 `,
   logs: `orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
 Read structured diagnosis records; malformed JSONL lines are skipped.
@@ -196,8 +197,13 @@ agent is a friendly no-op.
 Adopt an unleased agent, or every available orphan. A live lease holder must release first.
 `,
   reap: `orch reap <target>
+orch reap
+orch reap --dead [--json]
 Delete an agent record and its presence directory. Refuses while the process or any descendant
 is live; ending is never gated by the lease.
+Bare 'orch reap' on a TTY opens an interactive multiselect over live agents; provably-dead rows are pre-checked.
+  --dead       Non-interactive sweep of provably-dead agents.
+  --json       Emit reaped target/name records.
 `,
   panes: `orch panes
 Raw merged pane list, tab-separated, for scripting.

@@ -1,4 +1,6 @@
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
+import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../agent/drive-state.ts";
+import { formatTimestamp } from "../format.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus, removePresenceAgentDir } from "../presence/store.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
@@ -7,9 +9,10 @@ import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agents } from "../db/schema.ts";
-import { currentProcess } from "../store/interval-rows.ts";
+import { currentProcess, recordedProcessIsLive } from "../store/interval-rows.ts";
 import { agentById, childrenOf, liveAgents, renameAgent } from "../store/agent-rows.ts";
 import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../store/lease-rows.ts";
+import { promptMultiselect } from "../setup/io.ts";
 import { assertValidAgentName } from "../policy/name.ts";
 import type { AgentRow } from "../types/store.ts";
 import type { LeaseCommandResult, LeaseOptions } from "../types/command.ts";
@@ -228,8 +231,131 @@ export async function cmdAdopt(args: string[]): Promise<void> {
   else for (const result of adopted) process.stdout.write(`Adopted ${result.name}.\n`);
 }
 
+export type ReapClassification = "dead" | "held" | "idle";
+
+export type ReapOwnership =
+  | { readonly kind: "leased"; readonly holder: string }
+  | { readonly kind: "unleased"; readonly reason: "none" | "holder-gone" };
+
+export interface ReapCandidateInput {
+  readonly id: string;
+  readonly name: string;
+  readonly harnessId: string;
+  readonly createdAt: number;
+  readonly ownership: ReapOwnership;
+  readonly processLive: boolean;
+}
+
+export interface ReapCandidate extends ReapCandidateInput {
+  readonly classification: ReapClassification;
+}
+
+/** Classify a candidate without reading the store or inspecting processes. */
+export function reapCandidates(rows: readonly ReapCandidateInput[]): ReapCandidate[] {
+  return rows.map((row) => {
+    let classification: ReapClassification;
+    switch (row.ownership.kind) {
+      case "leased":
+        classification = "held";
+        break;
+      case "unleased":
+        classification = row.processLive ? "idle" : "dead";
+        break;
+      default: {
+        const exhaustive: never = row.ownership;
+        return exhaustive;
+      }
+    }
+    return { ...row, classification };
+  });
+}
+
+function reapOwnership(directory: string, agentId: string, callerId: string): ReapOwnership {
+  const drive = deriveDriveState(agentId, { directory, currentOrchId: callerId });
+  switch (drive.kind) {
+    case "leased":
+      return { kind: "leased", holder: drive.owner };
+    case "unleased":
+      return { kind: "unleased", reason: drive.owner === DEAD_HOLDER_DRIVER ? "holder-gone" : "none" };
+    default: {
+      const exhaustive: never = drive.kind;
+      return exhaustive;
+    }
+  }
+}
+
+function classifiedReapCandidates(directory: string, callerId: string): ReapCandidate[] {
+  const inputs = liveAgents(directory)
+    .filter((agent) => agent.id !== callerId && agent.sessionToken === null)
+    .map((agent): ReapCandidateInput => ({
+      id: agent.id,
+      name: displayName(agent),
+      harnessId: agent.harnessId,
+      createdAt: agent.createdAt,
+      ownership: reapOwnership(directory, agent.id, callerId),
+      processLive: recordedProcessIsLive(directory, agent.id),
+    }));
+  return reapCandidates(inputs);
+}
+
+function reapHint(candidate: ReapCandidate): string {
+  const ownership = candidate.ownership.kind === "leased"
+    ? `leased by ${candidate.ownership.holder}`
+    : candidate.ownership.reason === "holder-gone" ? "holder gone" : "unleased";
+  const process = candidate.processLive ? "process live" : "process gone";
+  const created = formatTimestamp(candidate.createdAt, "minute");
+  return `${ownership} - ${process} - ${created}`;
+}
+
+function reapResults(directory: string, candidates: readonly ReapCandidate[]): LeaseCommandResult[] {
+  return candidates.map((candidate) => reapAgent(directory, candidate.id));
+}
+
+function printReaped(results: readonly LeaseCommandResult[]): void {
+  if (!results.length) process.stdout.write("Nothing reaped.\n");
+  else for (const result of results) process.stdout.write(`Reaped ${result.name}.\n`);
+}
+
+async function reapInteractive(directory: string, callerId: string): Promise<void> {
+  const candidates = classifiedReapCandidates(directory, callerId);
+  const selected = await promptMultiselect("Select agents to reap", candidates.map((candidate) => ({
+    value: candidate.id,
+    label: `${candidate.name} (${candidate.harnessId})`,
+    hint: reapHint(candidate),
+    checked: candidate.classification === "dead",
+  })));
+  if (selected === null) return;
+  const selectedSet = new Set(selected);
+  const chosen = candidates.filter((candidate) => selectedSet.has(candidate.id));
+  printReaped(reapResults(directory, chosen));
+}
+
+function reapDead(directory: string, callerId: string, json: boolean): void {
+  const candidates = classifiedReapCandidates(directory, callerId);
+  const dead = candidates.filter((candidate) => candidate.classification === "dead");
+  const results = reapResults(directory, dead);
+  if (json) process.stdout.write(JSON.stringify(results.map((result) => ({ target: result.id, name: result.name }))) + "\n");
+  else printReaped(results);
+}
+
 export async function cmdReap(args: string[]): Promise<void> {
-  const { target, json } = parseTarget(args, "usage: orch reap <target> [--json]");
+  const json = args.includes("--json");
+  if (args.includes("--dead")) {
+    const positional = args.filter((arg) => arg !== "--dead" && arg !== "--json");
+    if (positional.length) throw new Error("usage: orch reap <target> | --dead [--json]");
+    const directory = orchDir();
+    reapDead(directory, await resolveSelfOrchId(), json);
+    return;
+  }
+
+  const positional = args.filter((arg) => arg !== "--json");
+  if (positional.length === 0) {
+    if (process.stdin.isTTY !== true) throw new Error("usage: orch reap <target> | --dead [--json]");
+    await reapInteractive(orchDir(), await resolveSelfOrchId());
+    return;
+  }
+
+  const { target } = parseTarget(args, "usage: orch reap <target> [--json]");
   const result = reapAgent(orchDir(), target);
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, reaped: true }) + "\n");
   else process.stdout.write(`Reaped ${result.name}.\n`);

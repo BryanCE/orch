@@ -13,6 +13,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { withExitCode } from "./helpers/exit-code.ts";
 
 /**
  * `orch close --all`, run from a plain shell,
@@ -84,9 +85,8 @@ class OutsideSessionBackend extends FakePanedBackend {
 function capture(action: () => void): { text: string; payload: Record<string, unknown> } {
   let output = "";
   process.stdout.write = (chunk: string | Uint8Array) => { output += chunk.toString(); return true; };
-  try { action(); } finally {
+  try { withExitCode(action); } finally {
     process.stdout.write = originalWrite;
-    process.exitCode = undefined;
   }
   const last = output.trim().split("\n").at(-1) ?? "{}";
   let payload: Record<string, unknown> = {};

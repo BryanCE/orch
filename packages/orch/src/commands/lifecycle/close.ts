@@ -2,9 +2,8 @@ import { execFileSync } from "node:child_process";
 import { tryParseIdentity } from "../../backends/identity.ts";
 import { orchDir, presenceAgentDir, removePresenceAgentDir } from "../../presence/store.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
-import { callerAuthority, refuseClose } from "../../policy/close-authority.ts";
 import { agentById, endAgent } from "../../store/agent-rows.ts";
-import { selfId, selfIdentity } from "../../identity/self.ts";
+import { selfId } from "../../identity/self.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { processInstanceMatches, processIsAlive } from "../../process-identity.ts";
@@ -12,7 +11,6 @@ import { getBackend } from "../../backends/registry.ts";
 import { sleepMs } from "../../backends/pane-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
-import type { CloseAuthority } from "../../types/policy.ts";
 import type { Backend, BackendHandle, PaneHostRole } from "../../types/backend.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
 
@@ -122,13 +120,10 @@ interface CloseTarget {
  * the sweep. A bulk close that closes nothing leaves every name reserved, which
  * is exactly when respawning is the only way out.
  */
-function sweepTargets(authority: CloseAuthority): CloseTarget[] {
+function sweepTargets(): CloseTarget[] {
   const presence = presenceById();
   const targets: CloseTarget[] = [];
   for (const view of liveAgentViews(orchDir())) {
-    // The human sweeps the lot; an agent sweeps only the slaves it owns, so a
-    // bulk close never reaches into another orch's fleet.
-    if (refuseClose(orchDir(), authority, view.id) !== null) continue;
     const address = agentAddress(view, presence);
     const backend = getBackend(view.environment.plexer ?? "") ?? null;
     if (!backend) {
@@ -147,17 +142,13 @@ function sweepTargets(authority: CloseAuthority): CloseTarget[] {
   return targets;
 }
 
-/** The targets named on the command line. Unlike the sweep, a refusal here is
- *  fatal: the caller asked for THAT agent and must be told it is not theirs. */
-function namedTargets(positional: readonly string[], authority: CloseAuthority): CloseTarget[] {
+/** Resolve the targets named on the command line. */
+function namedTargets(positional: readonly string[]): CloseTarget[] {
   return positional.map((target) => {
     const resolved = resolveLifecycleTarget(target);
-    // The LEASE never gates ending: an orch must be able to close its own slave
-    // while another orch drives it, and a dead holder must never keep a runaway
-    // alive. OWNERSHIP does gate it for an agent - the human is unrestricted,
-    // an agent reaches only its own provenance subtree.
-    const refusal = refuseClose(orchDir(), authority, resolved.key);
-    if (refusal !== null) die(refusal);
+    // Ending is never gated by ownership or lease. The human must always be
+    // able to stop a runaway, and a close must not be blocked by another orch
+    // driving the target.
     // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
     // Close may hand only the environment's actual pane handle to paneHost.
     const handle = resolved.view !== null ? resolved.view.environment.handle : resolved.entity.paneId;
@@ -347,8 +338,7 @@ export function cmdClose(args: string[]) {
   if (positional.some((argument) => argument.startsWith("--"))) die(usage);
   if (!all && !positional.length) die(usage);
 
-  const authority = callerAuthority(selfIdentity());
-  const targets = [...(all ? sweepTargets(authority) : []), ...namedTargets(positional, authority)];
+  const targets = [...(all ? sweepTargets() : []), ...namedTargets(positional)];
 
   reportClose(closeEachTarget(targets, json), { all, stream, json });
 }

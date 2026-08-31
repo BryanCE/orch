@@ -41,9 +41,10 @@ function usage() {
 The ${term("orch")} routes control through the backend port.
 
 OBSERVE
-  orch status [--json] [--all] [--all-panes] [--offline]
-                                 Glanceable table of the fleet (default command); --all-panes also lists
-                                 panes orch did not spawn; --offline reads agent files only.
+  orch status [--json] [--all] [--all-panes] [--offline] [--live]
+                                 Glanceable table of the fleet (default command); --live re-renders full-screen
+                                 from the daemon event stream (TTY only; q/esc quits; not with --json); --all-panes
+                                 also lists panes orch did not spawn; --offline reads agent files only.
   orch questions                 List pending agent questions from live agents.
   orch runs [<target>] [-n <count>] [--json]
                                  List durable dispatch history, newest first.
@@ -133,6 +134,8 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch detach <target>           Release the target's lease; it remains running and adoptable.
   orch adopt <target> | --all    Adopt an unleased agent (or every available orphan).
   orch reap <target>             Delete an ended agent record and its presence directory.
+  orch reap                      On a TTY, open an interactive multiselect over live agents; provably-dead rows are pre-checked.
+  orch reap --dead [--json]      Non-interactive sweep of provably-dead agents.
   orch panes                     Raw merged pane list (tab-separated, for scripting).
 
 TABS

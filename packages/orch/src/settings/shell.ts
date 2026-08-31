@@ -20,6 +20,7 @@ import {
 } from "./view.ts";
 import type { SettingsScreen } from "./view.ts";
 import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSource, SettingSpec } from "../types/settings.ts";
+import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN } from "../tui/screen.ts";
 
 /**
  * The full-screen settings editor: an alternate-screen TUI over the editor reducer.
@@ -31,12 +32,6 @@ import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSo
  * short-lived prompts over one persistent session: cancel from an edit falls back to
  * browsing, cancel from browsing quits.
  */
-
-const CSI = `${String.fromCharCode(27)}[`;
-const ENTER_ALT_SCREEN = `${CSI}?1049h${CSI}?25l`;
-const EXIT_ALT_SCREEN = `${CSI}?1049l${CSI}?25h`;
-const CLEAR_SCREEN = `${CSI}?25l${CSI}H${CSI}2J`;
-const CTRL_C = String.fromCharCode(3);
 
 function rawValue(root: unknown, key: string): unknown {
   let current = root;

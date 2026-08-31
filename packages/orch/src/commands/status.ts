@@ -12,6 +12,7 @@ import { orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName } from "../policy/space.ts";
 import { ensureDaemonOrWarn } from "../daemon/reach.ts";
+import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
 import {
   agentViewIndex,
@@ -29,7 +30,6 @@ import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
 const isTTY = process.stdout.isTTY;
-const dim = (text: string) => (isTTY ? `\x1b[2m${text}\x1b[0m` : text);
 
 export function formatSpace(id: string | null | undefined, name: string | null | undefined): string {
   if (!id) return "-";
@@ -59,7 +59,7 @@ function currentOrchId(): string | null {
 
 export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
   if (row.owner === null) return "-";
-  return row.owner.startsWith(NO_ORCH_DRIVER) ? dim(row.owner) : row.owner;
+  return row.owner.startsWith(NO_ORCH_DRIVER) ? (isTTY ? dim(row.owner) : row.owner) : row.owner;
 }
 
 /** Format a provider/model pair with its optional thinking suffix. */
@@ -163,6 +163,11 @@ interface FleetSnapshot {
   alive: number;
   /** Whether a backend inventory actually contributed rows to this snapshot. */
   backendAnswered: boolean;
+}
+
+export interface StatusResult extends FleetSnapshot {
+  /** Whether the table needs the HOST column for a merged local/remote listing. */
+  host: boolean;
 }
 
 /** Apply liveness-derived state at the row boundary, before any renderer sees it. */
@@ -269,23 +274,25 @@ export interface TableFlags {
   showBranch: boolean;
 }
 
-interface StatusOptions {
+export interface StatusOptions {
   json: boolean;
   all: boolean;
   allPanes: boolean;
   local: boolean;
   offline: boolean;
+  live: boolean;
   space?: string;
 }
 
 function parseStatusOptions(args: readonly string[]): StatusOptions {
-  const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline"]);
+  const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline", "--live"]);
   return {
     json: enabled.has("--json"),
     all: enabled.has("--all"),
     allPanes: enabled.has("--all-panes"),
     local: enabled.has("--local"),
     offline: enabled.has("--offline"),
+    live: enabled.has("--live"),
     space: parseSpace(args),
   };
 }
@@ -378,32 +385,18 @@ export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags,
   const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];
   for (let index = 0; index < rows.length; index++) {
     const line = rendered[index + 2] ?? "";
-    out.push(rows[index]?.exited ? dim(line) : line);
+    out.push(rows[index]?.exited ? (isTTY ? dim(line) : line) : line);
   }
   return out.join("\n");
 }
 
+/** Render the status table for any row set without writing to a stream. */
+export function formatStatusTable(rows: readonly StatusRow[], options: { all: boolean; host: boolean }): string {
+  return renderStatusTable(rows, tableFlags(rows, options.all), { host: options.host });
+}
+
 export function localStatusTable(visible: readonly StatusRow[], all: boolean): string {
-  return renderStatusTable(visible, tableFlags(visible, all), { host: false });
-}
-
-function renderLocalTable(visible: readonly StatusRow[], all: boolean): void {
-  const table = localStatusTable(visible, all);
-  if (table) process.stdout.write(table + "\n");
-}
-
-async function cmdStatusLocal(options: StatusOptions, spaces: OrchSettings["spaces"]): Promise<void> {
-  const fleet = await readFleetRows(spaces, options.offline);
-  const visible = scopeFleetRows(fleet.rows, options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(visible, null, 2) + "\n");
-    return;
-  }
-  if (!visible.length) {
-    process.stdout.write(formatNoRowsMessage(fleet));
-    return;
-  }
-  renderLocalTable(visible, options.all);
+  return formatStatusTable(visible, { all, host: false });
 }
 
 interface OrchNames {
@@ -576,31 +569,44 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
   return { rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
 }
 
-export async function cmdStatus(args: string[]): Promise<void> {
-  const options = parseStatusOptions(args);
-  if (!options.offline) await ensureDaemonOrWarn(orchDir());
+/** Fetch and scope the same rows used by both the one-shot and live status views. */
+export async function readStatusResult(options: StatusOptions): Promise<StatusResult> {
   const settings = loadSettingsOrNull(orchDir());
   const hosts = settings?.hosts ?? {};
   const spaces = settings?.spaces ?? {};
   if (options.local || Object.keys(hosts).length === 0) {
-    await cmdStatusLocal(options, spaces);
-    return;
+    const local = await localStatusRows(options, spaces);
+    return { ...local, host: false };
   }
   const localSnapshot = await localStatusRows(options, spaces);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
   const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, options.space);
+  const remote = remoteSummary(remoteResults);
+  return {
+    rows,
+    agentsSeen: localSnapshot.agentsSeen + remote.rows.length,
+    alive: localSnapshot.alive + remote.alive,
+    backendAnswered: localSnapshot.backendAnswered || remote.backendAnswered,
+    host: true,
+  };
+}
+
+export async function cmdStatus(args: string[]): Promise<void> {
+  const options = parseStatusOptions(args);
+  if (options.live) {
+    const { cmdStatusLive } = await import("./status-live.ts");
+    await cmdStatusLive(options);
+    return;
+  }
+  if (!options.offline) await ensureDaemonOrWarn(orchDir());
+  const result = await readStatusResult(options);
   if (options.json) {
-    process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+    process.stdout.write(JSON.stringify(result.rows, null, 2) + "\n");
     return;
   }
-  if (!rows.length) {
-    const remote = remoteSummary(remoteResults);
-    process.stdout.write(formatNoRowsMessage({
-      agentsSeen: localSnapshot.agentsSeen + remote.rows.length,
-      alive: localSnapshot.alive + remote.alive,
-      backendAnswered: localSnapshot.backendAnswered || remote.backendAnswered,
-    }));
+  if (!result.rows.length) {
+    process.stdout.write(formatNoRowsMessage(result));
     return;
   }
-  process.stdout.write(renderStatusTable(rows, tableFlags(rows, options.all), { host: true }) + "\n");
+  process.stdout.write(formatStatusTable(result.rows, { all: options.all, host: result.host }) + "\n");
 }

@@ -23,13 +23,12 @@ run `orch doctor` — with `-y` it applies every fix unattended.
 
 ## Fleet model
 
-- **Tab = domain** (`server`, `client`). First need in a domain: `orch spawn <name> <name>
-  --tab <domain>` → new tab, panes stacked. Cap 4 panes per tab.
+- **Tab = domain** (`server`, `client`). First need in a domain: `orch spawn <slice-1>
+  <slice-2> --tab <domain>` → new tab, panes stacked. Cap 4 panes per tab.
 - **Pane = a named worker for one subtask** of that domain. `--tab <label>` FILLS a tab that
-  already carries the label, and spawning under a live `<prefix>` grows that fleet in ITS
-  tab (numbering continues past the highest live `<prefix>-<n>`), so a second spawn for the
-  same domain lands where it belongs without a move. `orch tile <tab|pane> <name>` adds
-  exactly ONE pane. Use `orch move <pane> --tab <tab_id from orch tabs> --split down` only
+  already carries the label, so a second spawn for the same domain lands where it belongs
+  without a move — there is no implicit "grow under a prefix" path (F4: names are per-slice
+  and unnumbered). `orch tile <tab|pane> <name>` adds exactly ONE pane, named. Use `orch move <pane> --tab <tab_id from orch tabs> --split down` only
   when a pane is already in the wrong tab — there, pass the tab ID, never the label.
 - **A tab is one real domain and every pane in it belongs to that domain. FILL a tab to its
   4-pane cap before creating a new one.** When a domain needs more than 4, create an overflow
@@ -61,10 +60,16 @@ run `orch doctor` — with `-y` it applies every fix unattended.
   After a `reset` onto a new slice, rename in the same breath — a stale name is worse than an
   ordinal because it actively lies. Renaming does NOT break the watch: the scope filters on
   `spawnedBy`, not on the name.
-- **Reuse before spawn, always.** Next task in a domain: `orch reset <idle-pane>`, then
-  dispatch to it. Spawn a replacement ONLY after that dispatch actually errors, spawn it INTO
-  the same tab, and immediately `orch close` the zombie it replaces. Never spawn while an
-  addressable idle pane exists.
+- **Reuse before spawn, always — YOUR OWN panes only.** Next task in a domain: `orch reset
+  <idle-pane>`, then dispatch to it. Spawn a replacement ONLY after that dispatch actually
+  errors, spawn it INTO the same tab, and immediately `orch close` the zombie it replaces.
+  Never spawn while an addressable idle pane YOU spawned exists.
+- **Another session's panes are never yours to reuse, hold for, or wait on.** You do not own
+  their lease; `reset`/`dispatch` against a live foreign holder is refused, and that fleet's
+  orchestrator may close its panes at any moment — a plan built on "claiming" them stalls
+  forever when they vanish. If the pack cap blocks your spawn, spawn as many as DO fit now,
+  queue or hold the rest, and retry the spawn on any event that frees capacity. Waiting for
+  a foreign fleet to finish is never the plan.
 
 ## The cadence — how an orchestrator stays fast
 
@@ -98,12 +103,22 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
 ## Spawn
 
 ```bash
-orch spawn api-types api-routes --cwd "$(git rev-parse --show-toplevel)"
+orch spawn api-types api-routes api-guards --tab api --cwd "$(git rev-parse --show-toplevel)"
 ```
 
-Told to use orch → spawn is your first tool call. No status preflight, no asking. Opens one
-tab of N balanced-tiled agents named `<prefix>-1..N`. Never steals focus. Cap is
+Told to use orch → spawn is your first tool call. No status preflight, no asking. **The
+positionals ARE the names, one per agent, and how many you give is how many panes you get.
+There is no `--name` flag, no count argument, no `<prefix>-N` numbering** — name each pane
+for the slice it holds. Opens one tab of N balanced-tiled agents. Never steals focus. Cap is
 `fleet.spawn_cap` (default 8).
+
+- **Inside a herdr pane (`HERDR_PANE_ID` set) the fleet lands as a new tab in YOUR space** —
+  no grant, no `--space`. A refusal reading "not running inside a herdr pane … `orch grant
+  <id>`" means the installed build predates the U7 fix (2026-08-29): ask the user to rebuild;
+  never chase it with `orch space create` or `--space`.
+- `--space <name>` files the fleet in an orch space the user created (`orch space list`). A
+  space is optional (A7) and is NEVER a plexer workspace id like `w7`.
+- `orch space create|list|rename|delete` manage spaces. There is no `orch ws`.
 
 - **ALWAYS pass `--cwd "$(git rev-parse --show-toplevel)"`.** Omitting it does not fail
   loudly: `--cwd` silently defaults to whatever directory you ran `orch spawn` from and
@@ -113,12 +128,7 @@ tab of N balanced-tiled agents named `<prefix>-1..N`. Never steals focus. Cap is
   no error to hit. `--cwd` is the only sandbox orch offers; a spawn without it is unscoped.
   (Real cost: a fleet spawned for one repo edited a different repo's source instead. Every
   dispatch named the right repo; none of them were confined to it.)
-- **Naming is part of creating.** The positional arguments ARE the agent names, one per
-  pane, and how many you give is how many panes you get. There is no `--name` flag, no
-  default name and no `<prefix>-<n>` numbering: name each pane for the SLICE it holds
-  (`mcp-types`, `mcp-tools`, `mcp-guards`), and you never pay for a rename afterwards.
-  Renaming is for when the WORK changes, never for creation.
-- `--tab` names the *tab*; an unnamed tab borrows the first agent's name.
+- `--tab` names the *tab*, `--name` names the *agents*; each falls back to the other.
 - Every name is validated before any tab or pane is created: a refused spawn leaves nothing.
 - `--worktree` only when parallel agents would otherwise edit the same files; collect with
   `orch review`.
@@ -206,11 +216,14 @@ notification per output line" (in Claude Code that is the **Monitor tool**, `per
 true`). Command:
 
 ```bash
-orch events --status done,error,blocked,asking
+orch events --all --status done,error,blocked,asking
 ```
 
-Each line becomes a wake-up. No `jq`, no `--json`, no scope flag: bare `orch events` already
-emits one readable line per transition, scoped to the agents THIS session spawned.
+Each line becomes a wake-up. No `jq`, no `--json`. **`--all` is REQUIRED today** (U9,
+`TASKS/11-usage-bugs.md`, 2026-08-29): the default caller-space scope drops the events of a
+fleet spawned from a pane in no space — a bare `orch events` armed as a Monitor sat silent
+through four `working->done` transitions. Until U9 is fixed, a watch without `--all` is a
+watch that never fires.
 
 - **Preflight before arming, every time.** This survives a context compaction because it
   reads the OS instead of your memory — after a compaction you will not remember arming a
@@ -222,8 +235,9 @@ emits one readable line per transition, scoped to the agents THIS session spawne
 
   Non-empty = a watch is ALREADY ARMED; do not arm another. If it names panes that no longer
   exist (compare to `orch status`), `kill` that pid and arm one fresh.
-- **Smoke-test it before arming.** Run the line backgrounded for ~4s and confirm plausible
-  output. A watch that never fires looks exactly like "still working".
+- **Smoke-test it before arming.** `timeout 6 orch events --all --since-seq 0 --status done`
+  must print past transitions (history replay); a silent stream means the SCOPE is wrong,
+  not that nothing happened. A watch that never fires looks exactly like "still working".
 - **The default scope is the agents THIS session spawned** (matched on `spawnedBy`), and it
   covers panes you dispatch to later without re-arming — unlike a hand-kept list. Other
   sessions run workers in the same fleet; their transitions are their orchestrator's to
@@ -236,9 +250,9 @@ emits one readable line per transition, scoped to the agents THIS session spawne
 - **No timestamp floor needed.** A fresh subscribe receives live events only; history comes
   back solely via `--since-seq <n>`. A `date`-based floor now only risks dropping real events
   to clock skew.
-- Event fields: `key, agent, name, host, space, tab, model, oldState, newState, seq, task,
-  cost, ts, lastError, dispatchId, spawnedBy, spawnedByLabel`.
-- `--all` covers every space.
+- Event fields: `key, agent, name, tab, model, oldState, newState, seq, streamSeq, task,
+  cost, ts, workspace, workspaceName, dispatchId, spawnedBy, spawnedByLabel`.
+- `--once` exits after the first match; `--all` covers every workspace.
 
 An attached stream counts as daemon usage, so `orchd` will not idle-shut-down beneath it.
 Notifications to Slack/webhooks/commands are delivered by the daemon from the `notify` sinks
@@ -280,7 +294,7 @@ same agent. Names are the readable option, so keep them meaningful (see renaming
 this session's events stream at the same time.
 
 Arrange panes without stealing focus: `orch tile`, `orch move`, `orch zoom`,
-`orch tab new|rename|close`, `orch space`. Only the `focus` commands jump the user's view.
+`orch tab new|rename|close`, `orch space list|create|rename|delete`. Only the `focus` commands jump the user's view.
 
 Steer a running agent **at most once** with `orch steer <target> "<text>"`; it arrives
 mid-turn. A doctrine change big enough to need explaining twice is a `reset` plus a new
@@ -318,18 +332,15 @@ Bare `orch review` walks it interactively.
   only on the actual error spawn a replacement, `orch move` it into the domain tab by tab ID,
   and close the zombie.
 - **`orch status --json` is a TOP-LEVEL ARRAY** — filter with `.[]`, there is no `.agents`
-  key. Row fields: `key, agentId, paneId, managed, name, owner, tab, agent, model, modelShort,
-  state, stateFallback, staleExtension, cost, ctxPercent, tokens, turns, task, lastText,
-  alive, exited, cwd, worktree, branch, focused, dispatchId, backendStatus, backend,
-  capabilities, sessionPath, presenceDir, presenceOnly, spaceId, spaceName, rootAgentId,
-  rootAgentName, host, spawnedBy, spawnedByLabel, warning`. Two settle arguments: `cwd`
+  key. Row fields: `key, paneId, managed, name, owner, tab, agent, model, modelShort, state,
+  cost, ctxPercent, tokens, turns, task, lastText, alive, exited, cwd, dispatchId,
+  backendStatus, sessionPath, presenceDir, workspace, spawnedBy`. Two settle arguments: `cwd`
   is the repo the worker is actually confined to, and `dispatchId` diffed against the id
   `orch dispatch` printed proves the pane runs the prompt YOU sent. `state` is what the agent
   says about itself; `backendStatus` is what the plexer says about the pane and it LAGS —
   read `state` for completion, never `backendStatus`.
-- **Leases, not walls:** `dispatch`/`steer`/`model`/`reset` are refused while a LIVE foreign
-  orch holds the agent's lease; `abort`/`close`/`reap` never are. A dead holder is not a
-  collision — `orch detach` clears its stale lease and `orch adopt` takes the agent.
+- **Workspace walls:** reads default to the current workspace. A wall error on housekeeping
+  means "not from here" — skip it, do not chase it with `--all`.
 - `orch doctor` diagnoses (`-y` unattended). `orch clean` reaps dead-pid presence;
   `--worktrees` also clears orphaned worktrees (`--force` discards unmerged work).
 - `orch settings` prints every effective setting with the source that won

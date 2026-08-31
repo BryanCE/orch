@@ -3,17 +3,11 @@ import { loadPresence, orchDir } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { collapse, resolveTarget } from "../entities.ts";
 import { truncate } from "../util.ts";
+import { formatTimestamp } from "../format.ts";
 import { die } from "./target.ts";
 import type { RunRecord } from "../types/store.ts";
 
 const USAGE = "usage: orch runs [<target>] [-n <count>] [--json]";
-
-/** Format an epoch-millisecond timestamp for a compact, deterministic human-readable table cell. */
-function formatRunStarted(timestamp: number): string {
-  const when = new Date(timestamp);
-  if (!Number.isFinite(when.getTime())) return "?";
-  return when.toISOString().replace("T", " ").slice(0, 19);
-}
 
 /** A running row has no duration yet; never turn that into a misleading zero. */
 function formatRunDuration(run: Pick<RunRecord, "startedAt" | "finishedAt">): string {
@@ -41,7 +35,7 @@ function formatTokens(run: RunRecord): string {
 export function renderRuns(runs: readonly RunRecord[]): string {
   if (!runs.length) return "No runs.";
   const rows = runs.map((run) => [
-    formatRunStarted(run.startedAt),
+    formatTimestamp(run.startedAt),
     formatRunDuration(run),
     run.agentKey,
     run.model ?? "-",

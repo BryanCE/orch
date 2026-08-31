@@ -15,23 +15,9 @@ import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { SpawnSettings } from "./flags.ts";
 import { assertLaunchModelAllowed } from "./models.ts";
+import { computeFleetCapacity, liveSpawnCounts } from "../../policy/capacity.ts";
 
-
-/** Live agents per space. Both maps are keyed by the minted id: a space is an
- *  environment axis composed onto the agent, and presence answers for the same
- *  identity — joining the two on a pane key is what lost the detached fleet. */
-export function liveSpawnCounts(
-  views: ReadonlyMap<string, AgentView>,
-  presence: ReadonlyMap<string, PresenceEntry>,
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const [id, view] of views) {
-    const space = view.environment.space;
-    if (!presence.get(id)?.alive || space === null) continue;
-    counts.set(space, (counts.get(space) ?? 0) + 1);
-  }
-  return counts;
-}
+export { liveSpawnCounts } from "../../policy/capacity.ts";
 
 // A8: the role noun is never spelled here; the one map spells it, so renaming
 // the term renames this message with it.
@@ -58,11 +44,11 @@ export function spawnPolicyError(
   }
   const packRoot = spawnerId === null ? null : views.get(spawnerId)?.rootAgentId ?? spawnerId;
   // A bare operator session has no pack; its scope is the space it is spawning into.
-  let live = 0;
-  for (const [id, view] of views) {
-    const samePack = packRoot === null ? view.environment.space === space : view.rootAgentId === packRoot;
-    if (samePack && presence.get(id)?.alive) live++;
-  }
+  const capacity = computeFleetCapacity(views, presence, { fleet: settings.fleet }, {
+    packRootId: packRoot,
+    packSpace: packRoot === null ? space : undefined,
+  });
+  let live = capacity.pack.used;
   // The root itself counts as a live member when it holds no row of its own.
   if (packRoot === null || !views.has(packRoot)) live++;
   const cap = settings.fleet.max_agents_per_pack;
@@ -85,7 +71,8 @@ export function assertSpawnCapacity(
   presence: ReadonlyMap<string, PresenceEntry> = presenceById(),
 ): void {
   const counts = liveSpawnCounts(views, presence);
-  const live = [...counts.values()].reduce((total, count) => total + count, 0);
+  const capacity = computeFleetCapacity(views, presence, settings);
+  const live = capacity.total.used;
   const spaceLive = space === null ? 0 : counts.get(space) ?? 0;
   const spaceCap = space === null ? undefined : settings.fleet.max_agents_per_space[space];
   if (spaceCap !== undefined && spaceLive + requested > spaceCap) {

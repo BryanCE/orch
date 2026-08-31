@@ -30,7 +30,7 @@ function looksLikePaneKey(key: string): boolean {
   return tryParseIdentity(key) !== null;
 }
 
-interface EventsOptions {
+export interface EventsOptions {
   statusFilter: Set<string> | null;
   all: boolean;
   json: boolean;
@@ -102,7 +102,10 @@ export async function cmdEvents(args: string[]) {
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
-  const cleanup = startEventsTransport(context);
+  const cleanup = startEventsLiveStream(options, {
+    writeNotice: (line) => process.stderr.write(line),
+    startTransport: () => startEventsTransport(context),
+  });
   process.on("SIGINT", () => { cleanup(); process.exit(0); });
   process.on("SIGTERM", () => { cleanup(); process.exit(0); });
 }
@@ -145,6 +148,24 @@ function namedTarget(argument: string, flag: string, usage: string): string {
   const value = argument.slice(flag.length).trim();
   if (!value) die(usage);
   return value;
+}
+
+export interface EventsLiveStreamPorts {
+  writeNotice: (line: string) => void;
+  startTransport: () => () => void;
+}
+
+export function startEventsLiveStream(options: EventsOptions, ports: EventsLiveStreamPorts): () => void {
+  const notice = eventsScopeNotice(options);
+  if (notice !== null) ports.writeNotice(`${notice}\n`);
+  return ports.startTransport();
+}
+
+export function eventsScopeNotice(options: EventsOptions): string | null {
+  if (options.sinceSeq !== undefined || options.targets.length > 0) return null;
+  return options.mine
+    ? "watching my agents from now on - history: --since-seq 0; every session's agents: --any-agent"
+    : "watching all agents from now on - history: --since-seq 0";
 }
 
 export function parseEventsOptions(args: string[]): EventsOptions {

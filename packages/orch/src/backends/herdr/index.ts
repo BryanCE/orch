@@ -13,11 +13,21 @@ import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../typ
 
 const HERDR_BACKEND: BackendId = "herdr";
 
+/** herdr exported its environment into this process. */
+export function herdrEnvironmentPresent(): boolean {
+  return process.env.HERDR_ENV === "1";
+}
+
+/** This process IS a herdr pane, and this is its handle. */
+export function callerPaneHandle(): string | undefined {
+  return process.env.HERDR_PANE_ID;
+}
+
 /** Workspace of the invoking pane, and ONLY of the invoking pane. A caller outside
  *  herdr has no workspace: falling back to the first listed pane spawned orch's
  *  agents into whichever workspace happened to be listed first — someone else's. */
 function callerPaneWorkspace(): string | undefined {
-  const caller = process.env.HERDR_PANE_ID;
+  const caller = callerPaneHandle();
   if (!caller) return undefined;
   return herdrPanes().find((pane) => pane.pane_id === caller)?.workspace_id;
 }
@@ -141,7 +151,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   readonly paneInventory: PaneInventoryRole<HerdrHandle> = {
     current: () => {
-      const handle = process.env.HERDR_PANE_ID;
+      const handle = callerPaneHandle();
       return handle ? { handle, workspace: callerPaneWorkspace() ?? null, group: null } : null;
     },
     list: () => this.panesWithMetadata(),
@@ -237,12 +247,12 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    *  environment it gives every pane. Reachability is a different fact (herdr is
    *  up somewhere) and answers a different question. */
   isInsideSession(): boolean {
-    return process.env.HERDR_ENV === "1" || process.env.HERDR_PANE_ID !== undefined;
+    return herdrEnvironmentPresent() || callerPaneHandle() !== undefined;
   }
 
   /** Identity of the calling pane, resolved from the explicit orch id. */
   private ownIdentity(id: string | null): Identity | null {
-    const handle = process.env.HERDR_PANE_ID;
+    const handle = callerPaneHandle();
     if (!handle) return null;
     // Identity is orch's, not the plexer's: it exists only if orch minted one and
     // handed it over at launch. A pane orch never spawned has no orch identity,

@@ -246,17 +246,24 @@ async function readFleetRows(spaces: OrchSettings["spaces"], offline: boolean): 
  * A backend reports every pane it owns — the orchestrator's own included — and listing those
  * made "is anyone idle?" count the asker.
  */
+function keepsMeaningfulFleetRow(row: Pick<StatusRow, "alive" | "exited" | "state" | "lastText">): boolean {
+  if (!row.exited && row.alive) return true;
+  const hasRecordedResult = row.lastText !== null && row.lastText.trim().length > 0;
+  return hasRecordedResult || row.state === "done" || row.state === "error";
+}
+
 export function scopeFleetRows(rows: readonly StatusRow[], opts: { all: boolean; allPanes: boolean; space?: string }): StatusRow[] {
   return rows.filter((row) => {
     if (opts.space !== undefined && row.spaceId !== opts.space) return false;
     if (!opts.allPanes && !row.managed) return false;
     if (opts.all) return true;
-    return !(row.presenceOnly && (row.exited || !row.alive));
+    return keepsMeaningfulFleetRow(row);
   });
 }
 
 export function formatNoRowsMessage(info: { agentsSeen: number; alive: number; backendAnswered: boolean }): string {
-  return `No panes found (agent records seen: ${info.agentsSeen}; alive: ${info.alive}; backend answered: ${info.backendAnswered ? "yes" : "no"}).\n`;
+  const backend = info.backendAnswered ? "; backend answered: yes" : "";
+  return `No agents found (agent records seen: ${info.agentsSeen}; alive: ${info.alive}${backend}).\n`;
 }
 
 export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exited">): string {

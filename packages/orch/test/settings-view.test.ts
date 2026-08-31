@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { displayValue } from "../src/settings/display.ts";
 import {
   BROWSE_KEYBAR,
-  displayValue,
   inputOverlay,
   multiOverlay,
   selectOverlay,

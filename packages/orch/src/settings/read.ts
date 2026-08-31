@@ -8,21 +8,12 @@ import { z } from "zod";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { BACKEND_IDS } from "../types/backend.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
-import { errnoCode, errorMessage, isRecord } from "../util.ts";
+import { errnoCode, errorMessage, isRecord, valueAtPath } from "../util.ts";
 import { isLogLevel } from "../log.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
 import type { OrchSettings, SettingSource } from "../types/settings.ts";
 import type { LogLevel } from "../types/core.ts";
-
-function valueAtPath(root: unknown, path: readonly PropertyKey[]): unknown {
-  let cursor: unknown = root;
-  for (const step of path) {
-    if (cursor === null || typeof cursor !== "object") return undefined;
-    cursor = Object.getOwnPropertyDescriptor(cursor, step)?.value;
-  }
-  return cursor;
-}
 
 /** Describe a rejected provider id so the operator sees the value and the closed set,
  *  never a raw enum dump. `enabled.adapters[0]` and `defaults.adapter` both name one adapter. */

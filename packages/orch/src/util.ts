@@ -85,6 +85,15 @@ export function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function valueAtPath(root: unknown, path: readonly PropertyKey[]): unknown {
+  let cursor: unknown = root;
+  for (const step of path) {
+    if (cursor === null || typeof cursor !== "object") return undefined;
+    cursor = Object.getOwnPropertyDescriptor(cursor, step)?.value;
+  }
+  return cursor;
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -257,9 +257,9 @@ function preflightSkew(argv: string[]): string[] {
 
 /** Commands that must keep working before setup has recorded anything. `setup` records the
  * composition and `doctor` diagnoses an install that does not work yet - they are how a user
- * reaches a configured state, so neither may ever be refused for being unconfigured. */
+ * reaches a configured state, so neither may ever be refused for being unconfigured. `orch settings` is how a person repairs a settings.json that will not load, so the gate that reads settings.json can never be what stops them reaching it. */
 function exemptFromSetupGate(cmd: string | undefined): boolean {
-  return cmd === "setup" || cmd === "doctor" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
+  return cmd === "setup" || cmd === "doctor" || cmd === "settings" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
 }
 
 /** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them. */

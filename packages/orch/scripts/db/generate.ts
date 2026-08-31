@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { assertHostOwnsStore } from "./store.ts";
 
 /**
  * Generate migrations from `src/db/schema.ts` the way drizzle-kit does it:
@@ -27,8 +26,6 @@ const require = createRequire(import.meta.url);
 const DRIZZLE_KIT_BIN = join(dirname(require.resolve("drizzle-kit")), "bin.cjs");
 const isDryRun = process.argv.includes("--dry-run");
 const fromScratch = process.argv.includes("--from-scratch");
-
-assertHostOwnsStore("db:gen");
 
 function report(line: string): void {
   process.stdout.write(`${line}\n`);

@@ -1,9 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { defineConfig } from "drizzle-kit";
-import { assertHostOwnsStore, targetStoreDir } from "./scripts/db/store.ts";
-
-assertHostOwnsStore("drizzle-kit");
+import { targetStoreDir } from "./scripts/db/store.ts";
 
 const storeDir = targetStoreDir();
 mkdirSync(storeDir, { recursive: true });

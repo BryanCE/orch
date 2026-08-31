@@ -15,6 +15,7 @@ import { orchDir } from "../../presence/writer.ts";
 import { environmentOf } from "../../store/agent-view.ts";
 import { createPaneStateSocket, retryableErrorMessage } from "./pane-socket.ts";
 import { createPaneStateMachine } from "./pane-state-machine.ts";
+import { herdrEnvironmentPresent } from "./index.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
@@ -30,7 +31,7 @@ const HERDR_PLEXER = "herdr";
 
 /** Herdr's control socket for this process, when it published one. */
 function herdrSocketPath(): string | undefined {
-  return process.env.HERDR_ENV === "1" ? process.env.HERDR_SOCKET_PATH : undefined;
+  return herdrEnvironmentPresent() ? process.env.HERDR_SOCKET_PATH : undefined;
 }
 
 /**

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eventInMineScope, eventInScope, eventInSpaceScope, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { eventInSpaceScope, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -25,33 +26,33 @@ describe("commands/events", () => {
   // line per transition, scoped to the agents this session currently leases. Every flag
   // widens or reshapes that. A default that streamed every session's agents as raw JSON made
   // the caller pass three flags and a jq filter to get back to what it wanted in the first place.
-  test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ statusFilter: null, all: false, json: false, sinceSeq: undefined, once: false, mine: true, targets: [] }));
-  test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "--any-agent", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, sinceSeq: undefined, once: false, mine: false, targets: ["agent"] }));
-  test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ statusFilter: null, all: false, json: true, sinceSeq: 42, once: true, mine: true, targets: [] }));
+  test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ statusFilter: null, all: false, json: false, sinceSeq: undefined, once: false, scope: "auto", targets: [] }));
+  test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "--any-agent", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, sinceSeq: undefined, once: false, scope: "any", targets: ["agent"] }));
+  test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ statusFilter: null, all: false, json: true, sinceSeq: 42, once: true, scope: "auto", targets: [] }));
   test("includes an adopted agent whose open lease is mine", () => {
-    expect(eventInMineScope({ mineAddress: "me", leaseOwner: "me" })).toBe(true);
+    expect(agentInMineScope({ mineAddress: "me", leaseOwner: "me" })).toBe(true);
   });
   test("includes a reused pane leased by me even when another session spawned it", () => {
     const event = { mineAddress: "me", leaseOwner: "me", eventSpawnedBy: "dead-session" };
-    expect(eventInMineScope(event)).toBe(true);
+    expect(agentInMineScope(event)).toBe(true);
   });
   test("includes an unleased agent spawned by this session", () => {
     const event = { mineAddress: "me", leaseOwner: null, recordSpawnedBy: "me" };
-    expect(eventInMineScope(event)).toBe(true);
+    expect(agentInMineScope(event)).toBe(true);
   });
   test("excludes an agent spawned by a different session", () => {
     const event = { mineAddress: "me", leaseOwner: null, recordSpawnedBy: "other" };
-    expect(eventInMineScope(event)).toBe(false);
+    expect(agentInMineScope(event)).toBe(false);
   });
   test("--any-agent passes agents from both sessions", () => {
     const mine = { anyAgent: true, mineAddress: "me", leaseOwner: null, recordSpawnedBy: "me" };
     const other = { anyAgent: true, mineAddress: "me", leaseOwner: "other", recordSpawnedBy: "other" };
-    expect(eventInScope(mine)).toBe(true);
-    expect(eventInScope(other)).toBe(true);
+    expect(agentInScope(mine)).toBe(true);
+    expect(agentInScope(other)).toBe(true);
   });
   test("excludes an agent while another orch holds its lease", () => {
     const event = { mineAddress: "me", leaseOwner: "other", eventSpawnedBy: "me", recordSpawnedBy: "me" };
-    expect(eventInMineScope(event)).toBe(false);
+    expect(agentInMineScope(event)).toBe(false);
   });
   test("describes durable replay and reports pruned history gaps", () => {
     expect(helpTopic("events")).toContain("survives daemon restarts");

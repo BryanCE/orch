@@ -3,13 +3,13 @@ import { ADAPTER_IDS } from "../types/adapter.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { OrchRuntime } from "../runtimes.ts";
-import { ensurePrivateDir } from "../util.ts";
+import { ensurePrivateDir, isRecord } from "../util.ts";
 import {
   SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA,
   type SettingsFile, settingsPath, settingsTemporaryPath,
 } from "./schema.ts";
 import { settingsValues, readSettingsFile, requireEnabledComposition } from "./read.ts";
-import type { NotifyEntry } from "../types/settings.ts";
+import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 
 /** Drop the harnesses whose list is empty: for both model maps an empty list means the same
@@ -33,13 +33,12 @@ export function writeSettingsPreferredModels(orchDir: string, preferred: Partial
   updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, preferred: withoutEmptyLists(preferred) } }));
 }
 
-/** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the enabled sets) never lands on disk — write `enabled` before `defaults`. The write is tmp+rename so a crash mid-write cannot truncate settings.json — the settings watcher only ever reads a complete file. */
-function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
+/** Write a candidate settings root only after schema and composition validation. The write is
+ * tmp+rename so a crash mid-write cannot truncate settings.json — the settings watcher only ever
+ * reads a complete file. */
+export function writeSettingsRoot(orchDir: string, candidate: unknown): void {
   const file = settingsPath(orchDir);
-  // The seed for a brand-new file is deliberately incomplete: `runtime` is required and has
-  // no default, so setup must record it (writeSettingsRuntime) before any other write lands.
-  const root: Partial<SettingsFile> = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
-  const updated = SETTINGS_FILE_SCHEMA.parse(mutate(root));
+  const updated = SETTINGS_FILE_SCHEMA.parse(candidate);
   requireEnabledComposition(file, updated);
   ensurePrivateDir(orchDir);
   const tmp = settingsTemporaryPath(file);
@@ -47,25 +46,53 @@ function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile
   filesystem.renameSync(tmp, file);
 }
 
-function setSettingsPath(root: Partial<SettingsFile>, segments: readonly string[], value: unknown): Partial<SettingsFile> {
-  const candidate: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(root)) candidate[key] = entry;
-  const first = segments[0];
-  if (first === undefined) throw new Error("settings key must not be empty");
+/** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the enabled sets) never lands on disk — write `enabled` before `defaults`. */
+function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
+  const file = settingsPath(orchDir);
+  // The seed for a brand-new file is deliberately incomplete: `runtime` is required and has
+  // no default, so setup must record it (writeSettingsRuntime) before any other write lands.
+  const root: Partial<SettingsFile> = readSettingsFile(file) ?? { schemaVersion: SETTINGS_SCHEMA };
+  writeSettingsRoot(orchDir, mutate(root));
+}
+
+function copyRecord(root: object): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(root)) copy[key] = value;
+  return copy;
+}
+
+interface CopiedSettingsPath {
+  readonly candidate: Record<string, unknown>;
+  readonly cursor: Record<string, unknown> | null;
+}
+
+/** Copy the root and each existing object along a dotted path. */
+function copySettingsPath(root: object, segments: readonly string[], createMissing: boolean): CopiedSettingsPath {
+  const candidate = copyRecord(root);
   let cursor = candidate;
   for (const segment of segments.slice(0, -1)) {
     const existing = cursor[segment];
-    const next: Record<string, unknown> = {};
-    if (existing !== null && typeof existing === "object" && !Array.isArray(existing)) {
-      for (const [key, entry] of Object.entries(existing)) next[key] = entry;
-    }
+    if (!isRecord(existing) && !createMissing) return { candidate, cursor: null };
+    const next = isRecord(existing) ? copyRecord(existing) : {};
     cursor[segment] = next;
     cursor = next;
   }
+  return { candidate, cursor };
+}
+
+function setSettingsPathRecord(root: object, segments: readonly string[], value: unknown): Record<string, unknown> {
+  const first = segments[0];
+  if (first === undefined) throw new Error("settings key must not be empty");
+  const { candidate, cursor } = copySettingsPath(root, segments, true);
+  if (cursor === null) throw new Error("settings key must not be empty");
   const last = segments.at(-1);
   if (last === undefined) throw new Error("settings key must not be empty");
   cursor[last] = value;
-  return SETTINGS_FILE_SCHEMA.parse(candidate);
+  return candidate;
+}
+
+function setSettingsPath(root: Partial<SettingsFile>, segments: readonly string[], value: unknown): Partial<SettingsFile> {
+  return SETTINGS_FILE_SCHEMA.parse(setSettingsPathRecord(root, segments, value));
 }
 
 /** Write one schema setting through the same whole-file validator as every specialised writer. */
@@ -74,24 +101,70 @@ export function writeSettingsValue(orchDir: string, key: string, value: unknown)
   updateSettingsFile(orchDir, (root) => setSettingsPath(root, segments, value));
 }
 
-function deleteSettingsPath(root: Partial<SettingsFile>, segments: readonly string[]): Partial<SettingsFile> {
-  const candidate: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(root)) candidate[key] = entry;
-  let cursor = candidate;
-  for (const segment of segments.slice(0, -1)) {
-    const existing = cursor[segment];
-    if (existing === null || typeof existing !== "object" || Array.isArray(existing)) {
-      return SETTINGS_FILE_SCHEMA.parse(candidate);
-    }
-    const next: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(existing)) next[key] = entry;
-    cursor[segment] = next;
-    cursor = next;
-  }
+function deleteSettingsPathRecord(root: object, segments: readonly string[]): Record<string, unknown> {
+  const { candidate, cursor } = copySettingsPath(root, segments, false);
+  if (cursor === null) return candidate;
   const last = segments.at(-1);
   if (last === undefined) throw new Error("settings key must not be empty");
   delete cursor[last];
-  return SETTINGS_FILE_SCHEMA.parse(candidate);
+  return candidate;
+}
+
+function deleteSettingsPath(root: Partial<SettingsFile>, segments: readonly string[]): Partial<SettingsFile> {
+  return SETTINGS_FILE_SCHEMA.parse(deleteSettingsPathRecord(root, segments));
+}
+
+interface SettingsPathValue {
+  readonly found: boolean;
+  readonly value?: unknown;
+}
+
+function settingsPathValue(root: unknown, segments: readonly string[]): SettingsPathValue {
+  let cursor: unknown = root;
+  for (const segment of segments) {
+    if (!isRecord(cursor) || !Object.hasOwn(cursor, segment)) return { found: false };
+    cursor = cursor[segment];
+  }
+  return { found: true, value: cursor };
+}
+
+/** Apply explicit repairs to a raw settings file, validating only after all repairs are made. */
+export function applySettingsRepairs(orchDir: string, repairs: readonly SettingsRepair[]): void {
+  // Choosing nothing writes nothing. Falling through to the validator would reject the very
+  // file the person just decided to leave as it is, and report that decision as an error.
+  if (repairs.length === 0) return;
+  const file = settingsPath(orchDir);
+  const parsed: unknown = JSON.parse(filesystem.readFileSync(file, "utf8"));
+  if (!isRecord(parsed)) throw new Error(`${file}: settings root must be an object`);
+  let candidate = copyRecord(parsed);
+
+  for (const repair of repairs) {
+    switch (repair.kind) {
+      case "rename": {
+        const source = settingsPathValue(candidate, repair.from.split("."));
+        const destination = settingsPathValue(candidate, repair.to.split("."));
+        if (destination.found) {
+          throw new Error(`cannot rename ${JSON.stringify(repair.from)} to ${JSON.stringify(repair.to)}: destination already holds a value`);
+        }
+        if (!source.found) continue;
+        candidate = deleteSettingsPathRecord(candidate, repair.from.split("."));
+        candidate = setSettingsPathRecord(candidate, repair.to.split("."), source.value);
+        continue;
+      }
+      case "set":
+        candidate = setSettingsPathRecord(candidate, repair.path.split("."), repair.value);
+        continue;
+      case "drop":
+        candidate = deleteSettingsPathRecord(candidate, repair.path.split("."));
+        continue;
+      default: {
+        const exhaustive: never = repair;
+        return exhaustive;
+      }
+    }
+  }
+
+  writeSettingsRoot(orchDir, candidate);
 }
 
 /** Remove one setting from settings.json so its default wins again, through the same

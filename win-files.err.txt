@@ -1,0 +1,11 @@
+
+test\ambiguous-target-says-what-to-do.test.ts:
+(pass) an ambiguous target names the failure and the way out (U3) > the message names the failure, the target string, and every candidate [0.08ms]
+(pass) an ambiguous target names the failure and the way out (U3) > it says what to send instead, so the caller is not left guessing [0.03ms]
+(pass) an ambiguous target names the failure and the way out (U3) > it is a refusal, not an exit — the caller can act on it [0.05ms]
+(pass) an ambiguous target names the failure and the way out (U3) > resolveAgentView raises that same one message [0.18ms]
+
+ 4 pass
+ 0 fail
+ 12 expect() calls
+Ran 4 tests across 1 file. [66.00ms]

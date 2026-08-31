@@ -127,3 +127,48 @@ export type EditorAction =
   | { readonly type: "open" }
   | { readonly type: "cancel" }
   | { readonly type: "commit"; readonly value: unknown };
+
+/**
+ * One thing in settings.json the schema will not accept.
+ *
+ * A defect carries everything a person needs to decide what to do about it — where it is,
+ * what they wrote there, and what is wrong with it — because nothing may act on their
+ * behalf. A key one letter off a real one holds a value somebody typed on purpose, so it
+ * is reported, never assumed to be junk and never removed to make the file load.
+ */
+export interface SettingsDefect {
+  /** Dotted path into settings.json; "" when the file itself is not parseable JSON. */
+  readonly path: string;
+  /** What the file holds there, verbatim, so a repair can carry it to the right key. */
+  readonly value: unknown;
+  readonly problem: string;
+  /** The current key this is most likely a misspelling of. Never a renamed key: a value
+   *  whose setting no longer exists is the person's to place, not orch's to guess. */
+  readonly suggestion?: string;
+  /** The one value the schema accepts here, when it accepts exactly one. */
+  readonly expected?: unknown;
+}
+
+/** One edit the repair screen makes to settings.json. Every one of them is a choice a
+ *  person made on a defect; nothing here is ever applied automatically. */
+export type SettingsRepair =
+  | { readonly kind: "rename"; readonly from: string; readonly to: string }
+  | { readonly kind: "set"; readonly path: string; readonly value: unknown }
+  | { readonly kind: "drop"; readonly path: string };
+
+/** What the person chose for one defect. `leave` writes nothing and is where every
+ *  defect starts: quitting the screen leaves the file exactly as they wrote it. */
+export type RepairChoice = "leave" | "rename" | "set" | "drop";
+
+export interface RepairState {
+  readonly defects: readonly SettingsDefect[];
+  /** One choice per defect, index-aligned with `defects`. */
+  readonly choices: readonly RepairChoice[];
+  readonly focusedIndex: number;
+  /** Why the last action was refused, shown on the status line. */
+  readonly reason?: string;
+}
+
+export type RepairAction =
+  | { readonly type: "move"; readonly direction: "up" | "down" }
+  | { readonly type: "choose"; readonly choice: RepairChoice };

@@ -1,5 +1,7 @@
 import { dim } from "../tui/screen.ts";
-import type { EditorSetting } from "../types/settings.ts";
+import { displayValue } from "./display.ts";
+import { repairChoicesFor } from "./repair.ts";
+import type { EditorSetting, RepairChoice, SettingsDefect } from "../types/settings.ts";
 
 /**
  * Pure frame builders for the full-screen settings editor.
@@ -14,6 +16,7 @@ const bold = (text: string): string => `${ESC}1m${text}${ESC}22m`;
 const inverse = (text: string): string => `${ESC}7m${text}${ESC}27m`;
 const yellow = (text: string): string => `${ESC}33m${text}${ESC}39m`;
 const cyan = (text: string): string => `${ESC}36m${text}${ESC}39m`;
+const red = (text: string): string => `${ESC}31m${text}${ESC}39m`;
 
 const SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
@@ -36,11 +39,6 @@ export const BROWSE_KEYBAR = "↑/↓ move · enter edit · ctrl+d use default �
 export const SELECT_KEYBAR = "↑/↓ choose · enter save · esc cancel";
 export const MULTI_KEYBAR = "↑/↓ move · space toggle · enter save · esc cancel";
 export const INPUT_KEYBAR = "enter save · esc cancel";
-
-export function displayValue(value: unknown): string {
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value) ?? "(none)";
-}
 
 function matchesFilter(entry: EditorSetting, filter: string): boolean {
   const needle = filter.toLowerCase();
@@ -128,6 +126,97 @@ export function inputOverlay(key: string, inputWithCursor: string, error: string
   const lines = [` ${key} = ${inputWithCursor}`];
   if (error !== undefined && error !== "") lines.push(yellow(` ${error}`));
   return lines;
+}
+
+/** One repair screen: every defect in the file, the choice standing against each, and
+ *  anything transient the frame shows. */
+export interface RepairScreen {
+  /** settings.json path, shown in the header. */
+  readonly file: string;
+  readonly defects: readonly SettingsDefect[];
+  /** Index-aligned with `defects`. */
+  readonly choices: readonly RepairChoice[];
+  readonly focusedIndex: number;
+  readonly status: string | undefined;
+}
+
+export const REPAIR_KEYBAR = "↑/↓ move · r rename · s set · d drop · l leave · enter save · esc quit without saving";
+
+/** What one standing choice will do to the file, in the words of the thing it does. */
+export function repairActionLabel(defect: SettingsDefect, choice: RepairChoice): string {
+  if (choice === "rename") return `rename → ${defect.suggestion ?? ""}`;
+  if (choice === "set") return `set ${displayValue(defect.expected)}`;
+  if (choice === "drop") return "drop";
+  return "leave";
+}
+
+/** The keys this defect answers to, so the person is never guessing which ones apply. */
+function offeredKeys(defect: SettingsDefect): string {
+  const keys = repairChoicesFor(defect).map((choice) => choice.slice(0, 1));
+  return `offers: ${keys.join(" ")}`;
+}
+
+/** One defect row, plain: cursor, key, the value the person wrote, and what is wrong. */
+function repairRowText(defect: SettingsDefect, focused: boolean, pathWidth: number): string {
+  const path = (defect.path === "" ? "(whole file)" : defect.path).padEnd(pathWidth);
+  const value = defect.value === undefined ? "" : `= ${displayValue(defect.value)}`;
+  return `${focused ? " > " : "   "}${path}  ${value}  ${defect.problem}`;
+}
+
+function repairLines(screen: RepairScreen, columns: number): ListLines {
+  const pathWidth = Math.max(0, ...screen.defects.map((defect) => defect.path.length));
+  const lines: string[] = [];
+  let focusLine = 0;
+  for (const [index, defect] of screen.defects.entries()) {
+    const choice = screen.choices[index] ?? "leave";
+    const focused = index === screen.focusedIndex;
+    // Width is measured on the plain text and the tag is appended after fitting, so an
+    // escape sequence can never be counted as a column the way it once was.
+    const tag = `[${repairActionLabel(defect, choice)}]`;
+    const text = fit(repairRowText(defect, focused, pathWidth), columns - 1 - tag.length - 2);
+    if (focused) {
+      focusLine = lines.length;
+      lines.push(inverse(`${text}  ${tag}`));
+      continue;
+    }
+    // A standing choice is the only thing on this screen that differs from the file on
+    // disk, so it is the only thing that carries colour off the cursor.
+    lines.push(`${text}  ${choice === "leave" ? dim(tag) : cyan(tag)}`);
+  }
+  return { lines, focusLine };
+}
+
+/**
+ * The repair screen: every key in settings.json the schema will not accept, and the one
+ * choice standing against each. Nothing here has touched the file — the frame is a
+ * proposal until the person saves, which is why a value they typed can sit under a
+ * "leave" forever without orch deciding it was junk.
+ */
+export function repairFrame(screen: RepairScreen, columns: number, rows: number): string {
+  const { lines, focusLine } = repairLines(screen, columns);
+  const focused = screen.defects[screen.focusedIndex];
+  const count = screen.defects.length;
+  const headline = `${count} ${count === 1 ? "key" : "keys"} in this file cannot be read. Nothing changes until you save.`;
+
+  const chrome = 1 + 1 + 1 + 1 + 1 + 1 + 1;
+  const budget = Math.max(3, rows - chrome);
+  const { start, end } = windowBounds(lines.length, focusLine, budget);
+  const windowed = lines.slice(start, end);
+  if (start > 0 && windowed.length > 0) windowed[0] = dim(` ↑ ${start} more`);
+  if (end < lines.length && windowed.length > 0) windowed[windowed.length - 1] = dim(` ↓ ${lines.length - end} more`);
+
+  // Every chrome line is fitted too: a headline or keybar longer than the terminal
+  // wraps, and a wrapped line pushes the whole frame down a row on every render.
+  return [
+    `${bold(" orch settings")} ${red("repair")}  ${dim(fit(screen.file, Math.max(0, columns - 24)))}`,
+    dim(fit(` ${headline}`, columns - 1)),
+    "",
+    ...windowed,
+    "",
+    dim(fit(` ${focused === undefined ? "" : offeredKeys(focused)}`, columns - 1)),
+    dim(fit(` ${REPAIR_KEYBAR}`, columns - 1)),
+    screen.status === undefined ? "" : yellow(fit(` ${screen.status}`, columns - 1)),
+  ].join("\n");
 }
 
 /**

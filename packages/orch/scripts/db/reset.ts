@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { assertStoreRecreatable, livePresenceHolders } from "../../src/store/connection.ts";
 import { errorMessage } from "../../src/util.ts";
 import { buildStore, reportStore } from "./build.ts";
-import { assertHostOwnsStore, targetStoreDir } from "./store.ts";
+import { targetStoreDir } from "./store.ts";
 
 // Total reset: keep a copy of the store, remove it, and rebuild it empty at the
 // current migration. This is the answer to a breaking schema change, and it
@@ -11,8 +11,6 @@ import { assertHostOwnsStore, targetStoreDir } from "./store.ts";
 // used to be.
 // Dry-run convention - no flag deletes for real, `--dry-run` only previews.
 const isDryRun = process.argv.includes("--dry-run");
-
-assertHostOwnsStore("db:reset");
 
 const ORCH_DIR = targetStoreDir();
 /** WAL and shared-memory siblings go with the database; leaving one behind

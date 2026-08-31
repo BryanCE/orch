@@ -1,6 +1,7 @@
 import * as files from "node:fs";
 import { loadSettings, resolveWithSource } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
+import { displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
@@ -16,6 +17,7 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
+import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
@@ -57,12 +59,10 @@ function envSettingValue(environment: string, type: SettingKind): unknown {
 }
 
 function formatValue(value: unknown): string {
-  // Rule 11: NULL is not-applicable. An unset setting is not the literal "null".
-  if (value === undefined || value === null) return "(none)";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value) ?? "(none)";
+  // Rule 11: NULL is not-applicable. An unset setting is not the literal "null" — the one
+  // way this printing differs from every other place a settings value is shown.
+  if (value === null) return "(none)";
+  return displayValue(value);
 }
 
 /** One harness's model list as a settings row: its count and specs, or what empty means for it. */
@@ -70,29 +70,8 @@ function modelListRow(label: string, harness: string, models: readonly string[],
   return `  ${`${label} (${harness})`.padEnd(20)}${models.length ? `${models.length}: ${models.join(", ")}` : empty}\n`;
 }
 
-function editDistance(left: string, right: string): number {
-  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i += 1) {
-    let diagonal = row[0]!;
-    row[0] = i;
-    for (let j = 1; j <= right.length; j += 1) {
-      const above = row[j]!;
-      row[j] = left[i - 1] === right[j - 1]
-        ? diagonal
-        : Math.min(diagonal + 1, above + 1, row[j - 1]! + 1);
-      diagonal = above;
-    }
-  }
-  return row[right.length]!;
-}
-
 function nearestSettingKeys(key: string): string {
-  return SETTINGS_REGISTRY
-    .map((setting) => ({ key: setting.key, distance: editDistance(key, setting.key) }))
-    .sort((left, right) => left.distance - right.distance || left.key.localeCompare(right.key))
-    .slice(0, 3)
-    .map((entry) => entry.key)
-    .join(", ");
+  return nearestKeys(key, SETTINGS_REGISTRY.map((setting) => setting.key), 3).join(", ");
 }
 
 /** Bare settings opens the editor only when attached to a TTY; flags and JSON stay non-interactive. */

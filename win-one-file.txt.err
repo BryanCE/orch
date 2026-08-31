@@ -1,0 +1,14 @@
+
+test\backend-headless.test.ts:
+(pass) HeadlessBackend > refuses to spawn with no prompt — a headless agent runs its prompt and exits [0.69ms]
+(pass) HeadlessBackend > spawns a detached process and records its handle [67.36ms]
+(pass) HeadlessBackend > completes a headless dispatch round-trip and leaves a readable result [64.84ms]
+(pass) HeadlessBackend > records and mirrors the headless log for Codex session-tail parsing [40.92ms]
+(pass) HeadlessBackend > signals a matching recorded process through the injected killer [1007.78ms]
+(pass) HeadlessBackend > refuses to signal a pid whose process instance was replaced [349.84ms]
+(pass) HeadlessBackend > never signals a dead pid [0.46ms]
+
+ 7 pass
+ 0 fail
+ 28 expect() calls
+Ran 7 tests across 1 file. [1.66s]

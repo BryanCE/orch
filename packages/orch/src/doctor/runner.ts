@@ -1,4 +1,6 @@
 import { loadSettingsOrNull } from "../settings/read.ts";
+import { settingsDefects } from "../settings/defects.ts";
+import { settingsPath } from "../settings/schema.ts";
 import { errorMessage } from "../util.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -32,6 +34,14 @@ async function isolated(id: string, label: string, check: () => Promise<CheckRes
   } catch (error: unknown) {
     return { id, label, status: "fail", detail: errorMessage(error) };
   }
+}
+
+async function settingsDependent(orchDir: string, id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
+  const defects = settingsDefects(settingsPath(orchDir));
+  if (defects.length > 0) {
+    return { id, label, status: "skip", detail: `settings.json has ${defects.length} unreadable key(s); fix: orch settings` };
+  }
+  return isolated(id, label, check);
 }
 
 /** Validate every distinct live adapter/backend composition independently. */
@@ -111,13 +121,13 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
     isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
-    isolated("spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
-    isolated("provenance-depth", "Provenance depth", () => checkProvenanceDepth(orchDir)),
-    isolated("unclaimed-agents", "Unclaimed agents", () => checkUnclaimedAgents(orchDir)),
-    isolated("command-locks", "Command locks", () => checkCommandLocks(orchDir)),
+    settingsDependent(orchDir, "spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
+    settingsDependent(orchDir, "provenance-depth", "Provenance depth", () => checkProvenanceDepth(orchDir)),
+    settingsDependent(orchDir, "unclaimed-agents", "Unclaimed agents", () => checkUnclaimedAgents(orchDir)),
+    settingsDependent(orchDir, "command-locks", "Command locks", () => checkCommandLocks(orchDir)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
-    isolated("notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
-    isolated("notifiers", "Notifiers", () => checkNotifiers(orchDir)),
+    settingsDependent(orchDir, "notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
+    settingsDependent(orchDir, "notifiers", "Notifiers", () => checkNotifiers(orchDir)),
     isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
     isolated("orchd-registration", "orchd registration", checkDaemonRegistration),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
@@ -126,9 +136,9 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(orchDir)),
     isolated("orphan-daemons", "Orphaned daemons", () => checkOrphanDaemons(orchDir)),
     isolated("os-executors", "OS-side executors", checkOsExecutors),
-    isolated("remote-ssh", "Remote SSH reachability", () => checkRemoteReachability(orchDir, sshRunner)),
-    isolated("remote-orch-version", "Remote orch version/schema", () => checkRemoteVersion(orchDir, sshRunner)),
-    isolated("remote-orch-dir", "Remote ORCH_DIR", () => checkRemoteOrchDir(orchDir, sshRunner)),
+    settingsDependent(orchDir, "remote-ssh", "Remote SSH reachability", () => checkRemoteReachability(orchDir, sshRunner)),
+    settingsDependent(orchDir, "remote-orch-version", "Remote orch version/schema", () => checkRemoteVersion(orchDir, sshRunner)),
+    settingsDependent(orchDir, "remote-orch-dir", "Remote ORCH_DIR", () => checkRemoteOrchDir(orchDir, sshRunner)),
     isolated("worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
   ]);
 }

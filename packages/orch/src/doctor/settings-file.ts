@@ -1,7 +1,9 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadSettings, loadSettingsOrNull } from "../settings/read.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
+import { settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
+import { displayValue } from "../settings/display.ts";
 import { commandOutput, isWslRuntime } from "./shared.ts";
 import { errorMessage } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
@@ -40,8 +42,17 @@ export async function checkSettingsFile(orchDir: string): Promise<CheckResult> {
   const file = settingsPath(orchDir);
   if (!filesystem.existsSync(file)) return { id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" };
   try {
-    loadSettings(orchDir);
-    return { id: "settings", label: "Settings validity", status: "ok", detail: file };
+    const defects = settingsDefects(file);
+    if (defects.length === 0) return { id: "settings", label: "Settings validity", status: "ok", detail: file };
+    const count = defects.length;
+    const headline = `${count} ${count === 1 ? "key" : "keys"} cannot be read; fix: orch settings (settings.json)`;
+    const details = defects.map((defect) => {
+      const key = defect.path === "" ? "(whole file)" : defect.path;
+      const problem = defect.expected === undefined ? defect.problem : `expected ${displayValue(defect.expected)}`;
+      const suggestion = defect.suggestion === undefined ? "" : `; did you mean ${defect.suggestion}?`;
+      return `${key} = ${displayValue(defect.value)}  ${problem}${suggestion}`;
+    }).join("\n    ");
+    return { id: "settings", label: "Settings validity", status: "fail", detail: `${headline}\n    ${details}` };
   } catch (error: unknown) {
     return { id: "settings", label: "Settings validity", status: "fail", detail: errorMessage(error) };
   }

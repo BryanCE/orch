@@ -1,48 +1,9 @@
-import { z } from "zod";
-import { SETTINGS_FILE_SCHEMA } from "./schema.ts";
+import { schemaNode, jsonSchemaNode, type JsonSchemaNode } from "./schema-tree.ts";
 import { clearSettingsValue, writeSettingsDefault, writeSettingsValue } from "./write.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
 import type { OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
-import { isRecord } from "../util.ts";
 
-interface JsonSchemaNode {
-  readonly type?: string;
-  readonly enum?: readonly unknown[];
-  readonly properties?: Record<string, unknown>;
-  readonly items?: unknown;
-  readonly minimum?: number;
-  readonly exclusiveMinimum?: number;
-  readonly maximum?: number;
-}
-
-function jsonSchemaNode(value: unknown): JsonSchemaNode | null {
-  if (!isRecord(value)) return null;
-  return {
-    type: typeof value.type === "string" ? value.type : undefined,
-    enum: Array.isArray(value.enum) ? value.enum : undefined,
-    properties: isRecord(value.properties) ? value.properties : undefined,
-    items: value.items,
-    minimum: typeof value.minimum === "number" ? value.minimum : undefined,
-    exclusiveMinimum: typeof value.exclusiveMinimum === "number" ? value.exclusiveMinimum : undefined,
-    maximum: typeof value.maximum === "number" ? value.maximum : undefined,
-  };
-}
-
-const JSON_SCHEMA = z.toJSONSchema(SETTINGS_FILE_SCHEMA);
-
-function schemaNode(key: string): JsonSchemaNode {
-  let current: unknown = JSON_SCHEMA;
-  for (const segment of key.split(".")) {
-    const node = jsonSchemaNode(current);
-    const properties = node?.properties;
-    if (properties === undefined) throw new Error(`settings schema has no object path for ${key}`);
-    current = properties[segment];
-  }
-  const result = jsonSchemaNode(current);
-  if (result === null) throw new Error(`settings schema has no value for ${key}`);
-  return result;
-}
 
 function choicesFor(key: string, node: JsonSchemaNode): readonly string[] {
   const values = node.enum;

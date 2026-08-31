@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { loadSettings } from "../src/settings/read.ts";
 import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
 import { assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn/admission.ts";
@@ -17,12 +17,19 @@ import type { PresenceEntry } from "../src/types/presence.ts";
 
 const dirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
+let storeUnderTest = "";
 
-function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-spawn-limits-"));
-  dirs.push(dir);
-  process.env.ORCH_DIR = dir;
-  return dir;
+/** `records()` seeds real status files, and where they land is whatever ORCH_DIR says.
+ *  Every test gets its own store before it runs, so a test that never names one cannot
+ *  write its fixtures into the live ~/.orch. */
+beforeEach(() => {
+  storeUnderTest = fs.mkdtempSync(path.join(os.tmpdir(), "orch-spawn-limits-"));
+  dirs.push(storeUnderTest);
+  process.env.ORCH_DIR = storeUnderTest;
+});
+
+function storeDir(): string {
+  return storeUnderTest;
 }
 
 function presence(key: string, pid = process.pid): PresenceEntry {
@@ -74,26 +81,26 @@ function capacityRefusal(
 
 describe("spawn limits", () => {
   test("schema loads global and workspace caps", () => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 12, max_agents_per_space: { wD: 4 } } });
     expect(loadSettings(dir).fleet).toEqual({ max_agents_total: 12, max_agents_per_pack: 10, max_depth: 1, max_agents_per_space: { wD: 4 }, worker_peer_tools: false, cross_space: false });
   });
 
   test.each([0, -1, 1.5])("rejects invalid cap %s with file and key", (value) => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: value } });
     expect(() => loadSettings(dir)).toThrow(/settings\.json/);
     expect(() => loadSettings(dir)).toThrow(/fleet\.max_agents_total/);
   });
 
   test("omitted fleet caps normalize to defaults", () => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir);
     expect(loadSettings(dir).fleet).toEqual({ max_agents_total: undefined, max_agents_per_pack: 10, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false });
   });
 
   test("global boundary refusal data counts the whole request", () => {
-    const dir = tempDir();
+    const dir = storeDir();
     const data = records([["a", "wA"], ["b", "wB"], ["c", "wB"], ["d", "wC"], ["e", "wC"]]);
     expect([...liveSpawnCounts(data.views, data.presence).entries()]).toEqual([["wA", 1], ["wB", 2], ["wC", 2]]);
     writeSettingsFixture(dir, { fleet: { max_agents_total: 6 } });
@@ -103,7 +110,7 @@ describe("spawn limits", () => {
   });
 
   test("one workspace may use the full global allotment", () => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 6 } });
     const settings = loadSettings(dir);
     const data = records([["a", "wD"], ["b", "wD"], ["c", "wD"]]);
@@ -112,7 +119,7 @@ describe("spawn limits", () => {
   });
 
   test("workspace cap is independent of global headroom", () => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 12, max_agents_per_space: { wD: 4 } } });
     const settings = loadSettings(dir);
     const data = records([["a", "wD"], ["b", "wD"], ["c", "wD"]]);
@@ -120,7 +127,7 @@ describe("spawn limits", () => {
   });
 
   test("uncapped space is bounded only by global count", () => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 6 } });
     const settings = loadSettings(dir);
     const data = records([["a", "wD"], ["b", "wX"]]);
@@ -151,7 +158,7 @@ describe("spawn limits", () => {
   });
 
   test("doctor reports an unsatisfiable workspace cap without a fix", async () => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 4, max_agents_per_space: { wX: 8 } } });
     const result = (await runDoctor(dir)).find((entry) => entry.id === "spawn-limits")!;
     expect(result.status).toBe("warn");
@@ -162,7 +169,7 @@ describe("spawn limits", () => {
   });
 
   test("doctor accepts satisfiable limits", async () => {
-    const dir = tempDir();
+    const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 8, max_agents_per_space: { wX: 4 } } });
     expect((await runDoctor(dir)).find((entry) => entry.id === "spawn-limits")).toMatchObject({ status: "ok" });
   });

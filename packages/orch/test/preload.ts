@@ -1,4 +1,5 @@
-import { readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -30,3 +31,22 @@ for (const name of Object.keys(process.env)) {
   const head = name.split("_")[0] ?? name;
   if (prefixes.has(head)) delete process.env[name];
 }
+
+/**
+ * Move HOME somewhere disposable before any test file loads, so no test can reach the
+ * developer's live store.
+ *
+ * `orchDir()` is `ORCH_DIR ?? homedir()/.orch`, and ~70 files clear ORCH_DIR in their
+ * teardown — the correct thing to do, since it restores the unset state. That makes the
+ * unset state the one that has to be safe: a fixture seeded after a teardown, or by a test
+ * that never named a store, landed in the real ~/.orch, wrote presence dirs there and
+ * opened the real orch.db. Under `--parallel` every worker did it to the same file at once.
+ *
+ * Pinning ORCH_DIR alone cannot hold, because clearing it is legitimate. Moving HOME makes
+ * the fallback itself a sandbox, so every path that resolves a home — the store, settings,
+ * logs — lands there whatever a test does with the variable. `scripts/check-hermetic.ts`
+ * is the gate that keeps this wired.
+ */
+const sandboxHome = mkdtempSync(join(tmpdir(), "orch-test-home-"));
+process.env.HOME = sandboxHome;
+process.env.USERPROFILE = sandboxHome;

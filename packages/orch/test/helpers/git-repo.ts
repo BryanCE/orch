@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,24 +12,29 @@ export function git(repoRoot: string, args: readonly string[]): string {
 
 /** `git init` plus a first commit is five subprocesses — over a second on Windows. Building it
  *  once and copying the result per test is what keeps a git-backed suite off the clock. */
-let template: string | undefined;
+const templatePath = join(tmpdir(), "orch-git-template");
 
-function buildTemplate(): string {
-  const root = mkdtempSync(join(tmpdir(), "orch-git-template-"));
-  git(root, ["init"]);
-  git(root, ["config", "user.email", "test@example.com"]);
-  git(root, ["config", "user.name", "Orch Test"]);
-  writeFileSync(join(root, "README.md"), "fixture\n");
-  git(root, ["add", "README.md"]);
-  git(root, ["commit", "-m", "initial commit"]);
-  process.once("exit", () => { try { rmSync(root, { recursive: true, force: true }); } catch {} });
-  return root;
+/** One fixed path, so repeat runs and sibling workers reuse it instead of littering /tmp.
+ *  Built aside and renamed in, which is what makes a losing racer's copy safe to discard. */
+function buildTemplate(): void {
+  const staging = mkdtempSync(join(tmpdir(), "orch-git-staging-"));
+  git(staging, ["init"]);
+  git(staging, ["config", "user.email", "test@example.com"]);
+  git(staging, ["config", "user.name", "Orch Test"]);
+  writeFileSync(join(staging, "README.md"), "fixture\n");
+  git(staging, ["add", "README.md"]);
+  git(staging, ["commit", "-m", "initial commit"]);
+  try {
+    renameSync(staging, templatePath);
+  } catch {
+    rmSync(staging, { recursive: true, force: true });
+  }
 }
 
-/** A fresh single-commit git repo, copied from the shared template. */
+/** A fresh single-commit git repo, copied from the shared template. Callers own its removal. */
 export function fixtureRepo(prefix: string): string {
-  template ??= buildTemplate();
+  if (!existsSync(templatePath)) buildTemplate();
   const repoRoot = mkdtempSync(join(tmpdir(), prefix));
-  cpSync(template, repoRoot, { recursive: true });
+  cpSync(templatePath, repoRoot, { recursive: true });
   return repoRoot;
 }

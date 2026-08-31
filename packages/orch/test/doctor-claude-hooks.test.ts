@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -14,9 +14,17 @@ const originalSettings = fs.existsSync(settingsFile) ? fs.readFileSync(settingsF
 // diagnoseShim compares the enabled hook against the DECLARED runtime, so these tests need
 // an orch dir they control rather than whatever this machine happens to have configured.
 const orchHome = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-claude-hooks-orchdir-"));
-directories.push(orchHome);
+const originalOrchDir = process.env.ORCH_DIR;
 process.env.ORCH_DIR = orchHome;
 writeSettingsFixture(orchHome, { runtime: "node" });
+
+// ORCH_DIR outlives this file's tests, so a per-test removal only gets the directory
+// recreated by whoever reads it next.
+afterAll(() => {
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+  removeTempDir(orchHome);
+});
 
 function tempDir(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-claude-hooks-"));

@@ -13,15 +13,26 @@ import { resolveAdapter } from "../src/adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
+const dirs: string[] = [];
+
+function tempDir(prefix: string): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  dirs.push(directory);
+  return directory;
+}
 
 function restoreOrchDir(): void {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
 }
 
-afterEach(restoreOrchDir);
+afterEach(() => {
+  restoreOrchDir();
+  while (dirs.length) removeTempDir(dirs.pop() ?? "");
+});
 
 async function waitFor(check: () => boolean): Promise<void> {
   const deadline = Date.now() + 2000;
@@ -115,7 +126,7 @@ describe("backend registry selection is backend-independent", () => {
 
 describe("headless common path: identity key -> presence", () => {
   test("spawn uses the caller-minted key verbatim and creates its presence dir", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-cli-headless-"));
+    const dir = tempDir("orch-cli-headless-");
     process.env.ORCH_DIR = dir;
     const backend = new HeadlessBackend();
 
@@ -144,7 +155,7 @@ describe("headless common path: identity key -> presence", () => {
   });
 
   test("spawn refuses a launch with no caller-minted key", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-cli-headless-nokey-"));
+    const dir = tempDir("orch-cli-headless-nokey-");
     process.env.ORCH_DIR = dir;
     expect(() => new HeadlessBackend().spawn(makeFakeAdapter(), { orchDir: dir, cwd: dir }))
       .toThrow(/requires a caller-minted presence key/);

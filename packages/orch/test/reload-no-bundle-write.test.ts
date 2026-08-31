@@ -1,9 +1,11 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { removeTempDir } from "./helpers/tempdir.ts";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const bundleDir = mkdtempSync(join(tmpdir(), "orch-reload-bundles-"));
+afterAll(() => { removeTempDir(bundleDir); });
 const bundleNames = ["pi-bridge", "omp-bridge"] as const;
 const bundlePaths = bundleNames.map((name) => join(bundleDir, `${name}.js`));
 bundlePaths.forEach((file) => writeFileSync(file, `installed-${file}\n`));
@@ -28,25 +30,32 @@ beforeAll(async () => {
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalOwner = process.env.ORCH_OWNER;
-beforeEach(() => {
+const dirs: string[] = [];
+
+function restoreOrchEnv(): void {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
   if (originalOwner === undefined) delete process.env.ORCH_OWNER;
   else process.env.ORCH_OWNER = originalOwner;
+}
+
+beforeEach(restoreOrchEnv);
+
+// Point ORCH_DIR away first: a later reader of a stale ORCH_DIR recreates whatever it names.
+afterEach(() => {
+  restoreOrchEnv();
+  while (dirs.length) removeTempDir(dirs.pop() ?? "");
 });
 
 describe("reload", () => {
   test("does not write installed extension bundles", async () => {
     const before = bundlePaths.map((file) => ({ bytes: readFileSync(file), mtimeMs: statSync(file).mtimeMs }));
     const tempOrchDir = mkdtempSync(join(tmpdir(), "orch-reload-"));
+    dirs.push(tempOrchDir);
     process.env.ORCH_DIR = tempOrchDir;
     process.env.ORCH_OWNER = "test-owner";
 
-    try {
-      await cmdReload(["--all", "--json"]);
-    } finally {
-      rmSync(tempOrchDir, { recursive: true, force: true });
-    }
+    await cmdReload(["--all", "--json"]);
 
     bundlePaths.forEach((file, index) => {
       expect(readFileSync(file)).toEqual(before[index]!.bytes);

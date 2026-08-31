@@ -1,12 +1,25 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
 import { loadSettings } from "../src/settings/read.ts";
 import { writeSettingsFullTree } from "../src/settings/write.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+
+const dirs: string[] = [];
+
+function tempDir(): string {
+  const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+  dirs.push(directory);
+  return directory;
+}
+
+afterEach(() => {
+  while (dirs.length) removeTempDir(dirs.pop() ?? "");
+});
 
 interface SchemaWithShape { readonly shape?: Record<string, unknown> }
 
@@ -102,7 +115,7 @@ describe("settings registry", () => {
   });
 
   test("every registry read resolves against loaded settings", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+    const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
     const settings = loadSettings(directory);
     for (const setting of SETTINGS_REGISTRY) {
@@ -119,20 +132,20 @@ describe("settings registry", () => {
   });
 
   test("fleet.max_depth round-trips through the full-tree writer", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+    const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
     writeSettingsFullTree(directory);
     expect(loadSettings(directory).fleet.max_depth).toBe(2);
   });
 
   test("fleet.max_depth rejects zero through the registered writer", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+    const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
     expect(() => writeRegisteredSetting(directory, "fleet.max_depth", 0)).toThrow(/fleet[\s\S]*max_depth/);
   });
 
   test("fleet.max_depth writes its value to settings.json", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+    const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
     writeRegisteredSetting(directory, "fleet.max_depth", 2);
     const raw: unknown = JSON.parse(readFileSync(settingsPath(directory), "utf8"));

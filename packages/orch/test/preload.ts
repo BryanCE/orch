@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -44,9 +44,14 @@ for (const name of Object.keys(process.env)) {
  *
  * Pinning ORCH_DIR alone cannot hold, because clearing it is legitimate. Moving HOME makes
  * the fallback itself a sandbox, so every path that resolves a home — the store, settings,
- * logs — lands there whatever a test does with the variable. `scripts/check-hermetic.ts`
- * is the gate that keeps this wired.
+ * logs — lands there whatever a test does with the variable.
+ *
+ * One fixed directory, not a fresh one per run. This preload is evaluated once per test
+ * file, and a unique sandbox each time left 256 directories and 305 MB of rebuilt `.bun`
+ * cache behind on every run. Reusing one path keeps that cache warm and leaves one
+ * directory that the next run writes to again.
  */
-const sandboxHome = mkdtempSync(join(tmpdir(), "orch-test-home-"));
+const sandboxHome = join(tmpdir(), "orch-test-home");
+mkdirSync(sandboxHome, { recursive: true });
 process.env.HOME = sandboxHome;
 process.env.USERPROFILE = sandboxHome;

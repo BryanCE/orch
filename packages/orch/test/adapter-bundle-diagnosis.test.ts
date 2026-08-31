@@ -1,9 +1,11 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const tempRoot = mkdtempSync(join(tmpdir(), "orch-missing-bundle-"));
+afterAll(() => { removeTempDir(tempRoot); });
 const missingBundle = join(tempRoot, "dist", "extensions", "pi-bridge.js");
 
 void mock.module("../src/bridge-bundles/metadata.ts", () => ({

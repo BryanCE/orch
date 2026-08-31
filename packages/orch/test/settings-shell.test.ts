@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,18 @@ import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/regis
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { EditorSetting, SettingSpec } from "../src/types/settings.ts";
+
+const dirs: string[] = [];
+
+function tempDir(prefix: string): string {
+  const directory = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(directory);
+  return directory;
+}
+
+afterEach(() => {
+  while (dirs.length) removeTempDir(dirs.pop() ?? "");
+});
 
 function setting(key: string, value: unknown, env?: string): EditorSetting {
   const spec: SettingSpec = {
@@ -44,7 +57,7 @@ describe("settings shell decisions", () => {
   });
 
   test("an overridden setting cannot be written", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-settings-override-"));
+    const directory = tempDir("orch-settings-override-");
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
     const result = Bun.spawnSync([process.execPath, join(import.meta.dir, "../bin/orch.ts"), "settings", "defaults.worktree", "false"], {
       env: { ...process.env, ORCH_DIR: directory, ORCH_WORKTREE: "true" },
@@ -56,7 +69,7 @@ describe("settings shell decisions", () => {
   });
 
   test("registered writes use the registry entry", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-settings-shell-"));
+    const directory = tempDir("orch-settings-shell-");
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
     writeRegisteredSetting(directory, "fleet.max_depth", 4);
     expect(loadSettings(directory).fleet.max_depth).toBe(4);

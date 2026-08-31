@@ -5,6 +5,7 @@ import { ThemeProvider } from "next-themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { Toaster } from "@/components/ui/sonner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { DaemonGate } from "@/components/DaemonGate";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -45,10 +46,8 @@ export const Route = createRootRoute({
 function RootDocument({ children }: { children: React.ReactNode }) {
   // TanStack Start's createServerFn().handler() erases its handler's return type,
   // so the loader's inferred shape degrades to any. Name it at the boundary.
-  const { colorScheme, themeMode } = Route.useLoaderData() as {
-    colorScheme: ColorSchemeId;
-    themeMode: ThemeMode;
-  };
+  const { colorScheme, themeMode }: { colorScheme: ColorSchemeId; themeMode: ThemeMode } =
+    Route.useLoaderData();
 
   return (
     <html
@@ -75,11 +74,18 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             <div className="pointer-events-none fixed bottom-0 right-0 h-64 w-64 bg-chart-2/10 blur-[100px]" />
 
             <DaemonGate>
-              <SidebarProvider>
+              <SidebarProvider className="h-full min-h-0">
                 <AppSidebar initialScheme={colorScheme} />
                 <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <AppBreadcrumbs />
-                  <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
+                  {/* The app's ONE scroll: header and sidebar are fixed, and only
+                      this content region moves. Routes lay out in normal flow and
+                      never open a second page-level scroller. */}
+                  <ScrollArea className="min-h-0 flex-1">
+                    <div data-content-region className="flex min-h-full flex-col">
+                      {children}
+                    </div>
+                  </ScrollArea>
                 </SidebarInset>
               </SidebarProvider>
             </DaemonGate>

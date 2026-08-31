@@ -1,0 +1,338 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { computeCodeHash } from "../src/daemon/lifecycle.ts";
+import { closeAllStores, orm } from "../src/store/connection.ts";
+import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
+import { checkStore } from "../src/doctor/store.ts";
+import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
+import { isDrvFsPath } from "../src/doctor/settings-file.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedStatusInDir } from "./helpers/presence.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+
+const directories: string[] = [];
+const servers: RpcServer[] = [];
+
+// The machine registration is a per-machine rendezvous outside any orchDir. Left
+// at its real path, a doctor test sees whatever orchd the USER has running and
+// reports "two live daemons" against the test's own lock. Point it at a temp dir.
+const discoveryDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-discovery-"));
+process.env.ORCH_DAEMON_DISCOVERY_DIR = discoveryDir;
+afterAll(() => { removeTempDir(discoveryDir); });
+
+function tempDir(): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-"));
+  directories.push(directory);
+  return directory;
+}
+
+function check(results: Awaited<ReturnType<typeof runDoctor>>, id: string) {
+  const result = results.find((entry) => entry.id === id);
+  if (!result) throw new Error(`missing ${id} result`);
+  return result;
+}
+
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
+  while (directories.length) removeTempDir(directories.pop()!);
+});
+
+describe("runDoctor", () => {
+  test("detects DrvFs paths by mount path segment", () => {
+    expect(isDrvFsPath("/mnt/c/foo")).toBe(true);
+    expect(isDrvFsPath("/home/bryan/.orch")).toBe(false);
+    expect(isDrvFsPath("/mnt")).toBe(false);
+    expect(isDrvFsPath("/mnturd/x")).toBe(false);
+  });
+
+  test("runs on an unconfigured install without failing for want of settings.json", async () => {
+    // doctor is the command you run WHEN orch is broken, so an install that has never been set up
+    // must still get a full report: absence of settings is the answer for a check whose
+    // subject is a settings section, never a defect.
+    const results = await runDoctor(tempDir(), () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
+
+    for (const entry of results.filter((row) => row.status === "fail")) {
+      expect(entry.detail).not.toContain("settings.json");
+    }
+    expect(check(results, "settings")).toMatchObject({ status: "ok", detail: "no settings.json" });
+    for (const id of ["spawn-limits", "command-locks", "notifiers", "notify-sinks", "remote-ssh", "remote-orch-version", "remote-orch-dir"]) {
+      expect(check(results, id).status).not.toBe("fail");
+    }
+  });
+
+  test("checks a healthy store", async () => {
+    const directory = tempDir();
+    orm(directory);
+    const result = check(await runDoctor(directory), "store");
+    expect(result).toMatchObject({ status: "ok", label: "Store" });
+    expect(result.detail).toContain("applied migration");
+  });
+
+  test("warns when the store is absent", () => {
+    const directory = tempDir();
+    const result = checkStore(directory);
+    expect(result).toMatchObject({ status: "warn", label: "Store", detail: "orch.db is absent" });
+    expect(fs.existsSync(path.join(directory, "orch.db"))).toBe(false);
+  });
+
+  test("fails when the store predates orch's migrations", () => {
+    const directory = tempDir();
+    orm(directory);
+    closeAllStores();
+    const database = new Database(path.join(directory, "orch.db"));
+    database.exec("DROP TABLE __drizzle_migrations");
+    database.close();
+
+    const result = checkStore(directory);
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("db:reset");
+  });
+
+  test("fails and names a missing store table", () => {
+    const directory = tempDir();
+    orm(directory);
+    const database = new Database(path.join(directory, "orch.db"));
+    database.exec("DROP TABLE tasks");
+    database.close();
+
+    const result = checkStore(directory);
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("tasks");
+  });
+
+  test("reports a normal ORCH_DIR on the Linux filesystem", async () => {
+    const result = check(await runDoctor(tempDir()), "orchdir-location");
+    expect(result.status).toBe("ok");
+  });
+
+  test("reports an absent daemon as optional", async () => {
+    const result = check(await runDoctor(tempDir()), "orchd");
+    expect(result.status).toBe("ok");
+    expect(result.detail).toContain("absent");
+  });
+
+  test("reports and fixes a stale daemon lock", async () => {
+    const directory = tempDir();
+    const lockFile = path.join(directory, "orchd.lock");
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 99999999, codeHash: "old", startedAt: "now" }));
+
+    const result = check(await runDoctor(directory), "orchd-lock");
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain(lockFile);
+    expect(result.fix).toBeDefined();
+    expect(applyFixes([result]).applied[0]).toContain(lockFile);
+    expect(fs.existsSync(lockFile)).toBe(false);
+  });
+
+  test("accepts a live daemon and an answerable socket", async () => {
+    const directory = tempDir();
+    const server = await startRpcServer(directory, { "daemon-status": () => ({ ok: true }) });
+    servers.push(server);
+    const entrypoint = path.join(import.meta.dir, "../src/daemon/orchd.ts");
+    fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({
+      pid: process.pid,
+      codeHash: computeCodeHash(entrypoint),
+      startedAt: new Date().toISOString(),
+    }));
+
+    expect(check(await runDoctor(directory), "orchd")).toMatchObject({ status: "ok" });
+    expect(check(await runDoctor(directory), "orchd-socket")).toMatchObject({ status: "ok" });
+  });
+
+  test("warns when the live daemon code hash is stale", async () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({
+      pid: process.pid,
+      codeHash: "oldagent01",
+      startedAt: new Date().toISOString(),
+    }));
+
+    const result = check(await runDoctor(directory), "orchd-staleness");
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("orch daemon reload");
+  });
+
+  test("fails on an invalid lock and an unanswerable live socket", async () => {
+    const invalid = tempDir();
+    const invalidLock = path.join(invalid, "orchd.lock");
+    fs.writeFileSync(invalidLock, "not json");
+    const invalidResult = check(await runDoctor(invalid), "orchd-lock");
+    expect(invalidResult.status).toBe("fail");
+    expect(invalidResult.detail).toContain(invalidLock);
+    // An unreadable lock is removable: leaving it refuses every later daemon start.
+    expect(applyFixes([invalidResult]).applied[0]).toContain(invalidLock);
+    expect(fs.existsSync(invalidLock)).toBe(false);
+
+    const unanswerable = tempDir();
+    fs.writeFileSync(path.join(unanswerable, "orchd.lock"), JSON.stringify({
+      pid: process.pid,
+      codeHash: "oldagent01",
+      startedAt: new Date().toISOString(),
+    }));
+    const socketResult = check(await runDoctor(unanswerable), "orchd-socket");
+    expect(socketResult.status).toBe("fail");
+    expect(socketResult.detail).toContain("orch daemon start");
+  });
+
+  test("warns when the extension bundle is absent for a matching live hash", async () => {
+    const directory = tempDir();
+    const agent = path.join(directory, "agents", "paneagent1");
+    fs.mkdirSync(agent, { recursive: true });
+    seedStatusInDir(agent, {
+      pid: process.pid,
+      extensionHash: computeCodeHash(path.join(import.meta.dir, "../extensions/pi/index.ts")),
+    });
+
+    const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
+    expect(result).toMatchObject({
+      status: "warn",
+      detail: "extension bundle not built; run: bun run build:ext",
+    });
+  });
+
+  test("warns when the extension bundle is absent for a stale live hash", async () => {
+    const directory = tempDir();
+    const agent = path.join(directory, "agents", "paneagent2");
+    fs.mkdirSync(agent, { recursive: true });
+    seedStatusInDir(agent, { pid: process.pid, extensionHash: "old" });
+
+    const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
+    expect(result).toMatchObject({
+      status: "warn",
+      detail: "extension bundle not built; run: bun run build:ext",
+    });
+  });
+
+  test("warns when the extension bundle is absent for a live status without a hash", async () => {
+    const directory = tempDir();
+    const agent = path.join(directory, "agents", "paneagent3");
+    const broken = path.join(directory, "agents", "brokenagt1");
+    fs.mkdirSync(agent, { recursive: true });
+    fs.mkdirSync(broken, { recursive: true });
+    seedStatusInDir(agent, { pid: process.pid });
+    fs.writeFileSync(path.join(broken, "status.json"), "not json");
+
+    const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
+    expect(result).toMatchObject({
+      status: "warn",
+      detail: "extension bundle not built; run: bun run build:ext",
+    });
+  });
+
+  test("reports a dead presence pid", async () => {
+    const directory = tempDir();
+    const agent = path.join(directory, "agents", "formeragt1");
+    fs.mkdirSync(agent, { recursive: true });
+    seedStatusInDir(agent, { pid: 99999999 });
+    const results = await runDoctor(directory);
+    const stale = check(results, "stale-presence");
+
+    expect(stale.status).toBe("warn");
+    expect(stale.detail).toContain("formeragt1");
+    expect(stale.fix).toBeDefined();
+    expect(applyFixes([stale])).toEqual({ applied: [stale.fix!.description] });
+    expect(fs.existsSync(agent)).toBe(false);
+  });
+
+  test("bins check is driven by the enabled set and offers no fix", async () => {
+    const directory = tempDir();
+    const previousPath = process.env.PATH;
+    try {
+      process.env.PATH = path.join(directory, "empty-bin");
+      const bins = check(await runDoctor(directory), "bins");
+      expect(bins).toMatchObject({ status: "ok", detail: "no adapters enabled" });
+      expect(bins.fix).toBeUndefined();
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  });
+
+  test("applyFixes reports exactly the changes it applies", () => {
+    const directory = tempDir();
+    const first = path.join(directory, "first");
+    const second = path.join(directory, "second");
+    const results = [
+      {
+        id: "first",
+        label: "first",
+        status: "warn" as const,
+        detail: "missing",
+        fix: {
+          description: "Create first fixture",
+          apply() {
+            fs.writeFileSync(first, "first");
+          },
+        },
+      },
+      {
+        id: "second",
+        label: "second",
+        status: "warn" as const,
+        detail: "missing",
+        fix: {
+          description: "Create second fixture",
+          apply() {
+            fs.writeFileSync(second, "second");
+          },
+        },
+      },
+      { id: "report-only", label: "report-only", status: "fail" as const, detail: "not reversible" },
+    ];
+
+    expect(applyFixes(results)).toEqual({ applied: ["Create first fixture", "Create second fixture"] });
+    expect(fs.readFileSync(first, "utf8")).toBe("first");
+    expect(fs.readFileSync(second, "utf8")).toBe("second");
+  });
+
+  test("validates configured notifier adapters", async () => {
+    const empty = tempDir();
+    expect(check(await runDoctor(empty), "notifiers")).toMatchObject({
+      status: "ok",
+      detail: "no notifiers configured",
+    });
+
+    const unavailable = tempDir();
+    const missingCommand = path.join(unavailable, "missing-notifier-command");
+    writeSettingsFixture(unavailable, { notify: [{ id: "command", command: [missingCommand] }] });
+    const commandFailure = check(await runDoctor(unavailable), "notifiers");
+    expect(commandFailure.status).toBe("fail");
+    expect(commandFailure.detail).toContain(`fix: install ${missingCommand}`);
+
+    // This test is about whether an adapter can DELIVER, so its healthy fixture names a
+    // complete `on` list. A bare entry would warn for a different reason entirely — that
+    // its filter can never report completion — which test/doctor-checks.test.ts covers.
+    const command = tempDir();
+    writeSettingsFixture(command, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error", "done"] }] });
+    expect(check(await runDoctor(command), "notifiers")).toMatchObject({
+      status: "ok",
+      detail: "1 configured notifier are available",
+    });
+  });
+
+  test("reports invalid settings and accepts missing settings", async () => {
+    const invalid = tempDir();
+    writeSettingsFixture(invalid, { queue: { max_retries: "never" } });
+    const missing = tempDir();
+
+    const settingsResult = check(await runDoctor(invalid), "settings");
+    expect(settingsResult.status).toBe("fail");
+    expect(settingsResult.detail).toContain("settings.json");
+    expect(check(await runDoctor(missing), "settings")).toEqual({ id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" });
+  });
+
+  test("never throws when individual checks encounter broken inputs", async () => {
+    const directory = tempDir();
+    fs.mkdirSync(path.join(directory, "agents"), { recursive: true });
+    expect(runDoctor(directory)).resolves.toBeArray();
+
+    const invalidAgents = tempDir();
+    fs.writeFileSync(path.join(invalidAgents, "agents"), "not a directory");
+    expect(check(await runDoctor(invalidAgents), "extension-staleness")).toMatchObject({ status: "fail" });
+  });
+});

@@ -1,0 +1,25 @@
+# This checkout is opened from two operating systems: the repo lives on /mnt/c,
+# which is C:\dev\personal\orch from Windows. One node_modules therefore has to be
+# readable from both.
+#
+# Bun's default "isolated" linker builds a .bun store and points every package at
+# it with a symlink. A symlink written from WSL is not a symlink Windows can
+# follow, so whichever side installed last owned the tree and the other side got
+# "Cannot find package" for everything. "hoisted" writes real directories, and
+# "copyfile" writes real files, so both sides read the same tree.
+#
+# What this cannot fix is compiled binaries: oxlint, esbuild, lightningcss and
+# rolldown ship one build per platform, and an install picks the platform it ran
+# on. Install from the side that runs the gates and the web build; orch's own
+# runtime needs nothing compiled, so it stays fine from either.
+[install]
+linker = "hoisted"
+backend = "copyfile"
+
+# Every test file loads through this first. It strips the ambient plexer's
+# environment so the suite behaves the same inside a herdr pane, inside tmux and
+# in CI — see packages/orch/test/preload.ts for what that leakage used to cost.
+# The path is repeated in packages/orch/bunfig.toml so `bun test` works from the
+# root (Bryan's gate command) and from inside the package alike.
+[test]
+preload = ["./packages/orch/test/preload.ts"]

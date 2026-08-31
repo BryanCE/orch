@@ -11,7 +11,7 @@ import {
 
 /** One entry in a page's crumb trail. The last crumb is the current page and
  * needs no `to`; ancestors link via `to` (+ `params` for dynamic routes). */
-export interface PageCrumb {
+interface PageCrumb {
   label: string
   to?: string
   params?: Record<string, string>
@@ -36,7 +36,7 @@ export function AppBreadcrumbs({ actions }: { actions?: ReactNode }) {
   const match = [...matches]
     .reverse()
     .find((m) => m.staticData.crumbs !== undefined)
-  const crumbs = match?.staticData.crumbs?.(match.params as Record<string, string>)
+  const crumbs = match?.staticData.crumbs?.(match.params)
   if (!crumbs && !actions) return null
 
   return (
@@ -52,7 +52,7 @@ export function AppBreadcrumbs({ actions }: { actions?: ReactNode }) {
  * sidebar tab renders this in its own header instead of a back button. Pages
  * declare their trail explicitly; no path-derivation magic.
  */
-export function PageBreadcrumbs({ crumbs }: { crumbs: PageCrumb[] }) {
+function PageBreadcrumbs({ crumbs }: { crumbs: PageCrumb[] }) {
   return (
     <Breadcrumb>
       <BreadcrumbList>

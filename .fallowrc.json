@@ -1,21 +1,20 @@
 {
 	"$schema": "https://docs.fallow.tools/schema.json",
-
 	"entry": [
-		"bin/orch.ts",
-		"src/daemon/orchd.ts",
-		"extensions/*/index.ts",
+		"packages/orch/bin/orch.ts",
+		"packages/orch/src/daemon/orchd.ts",
+		"packages/orch/extensions/*/index.ts",
 		"packages/web/src/router.tsx"
 	],
-
 	"ignorePatterns": [
-		"dist/**",
+		"packages/orch/dist/**",
 		".fallow/**",
 		"packages/web/.tanstack/**"
 	],
-
-	"ignoreDependencies": ["@tanstack/react-db", "react"],
-
+	"ignoreDependencies": [
+		"@tanstack/react-db",
+		"react"
+	],
 	"overrides": [
 		{
 			"files": [
@@ -34,33 +33,34 @@
 			}
 		}
 	],
-
 	"duplicates": {
 		"mode": "semantic",
 		"minTokens": 35,
 		"minLines": 3,
 		"ignore": [
-			"test/**",
-			"scripts/**",
-			"bin/**",
+			"packages/orch/test/**",
+			"packages/orch/scripts/**",
+			"packages/orch/bin/**",
 			"packages/web/src/components/ui/**",
 			"packages/web/src/routeTree.gen.ts",
-			"packages/web/src/themes/**"
+			"packages/web/src/themes/**",
+			"packages/orch/src/commands/help.ts",
+			"**/*.css"
 		]
 	},
-
 	"health": {
 		"maxCyclomatic": 12,
 		"ignore": [
-			"test/**",
-			"scripts/**",
-			"bin/**",
+			"packages/orch/test/**",
+			"packages/orch/scripts/**",
+			"packages/orch/bin/**",
 			"packages/web/src/components/ui/**",
 			"packages/web/src/routeTree.gen.ts",
-			"packages/web/src/themes/**"
+			"packages/web/src/themes/**",
+			"packages/orch/src/commands/help.ts",
+			"**/*.css"
 		]
 	},
-
 	"audit": {
 		"gate": "all"
 	}

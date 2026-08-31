@@ -1,3 +1,4 @@
 node_modules/
 .fallow/
 dist/
+.claude/.next-row

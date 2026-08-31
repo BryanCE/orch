@@ -1,0 +1,96 @@
+import { describe, expect, test, afterEach } from "bun:test";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { acquireCommandLock, matchesLockedCommand, readCommandLock, releaseCommandLock } from "../src/control/cmd-lock.ts";
+import { cmdLock } from "../src/commands/lock.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+
+const directories: string[] = [];
+function tempDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), "orch-cmd-lock-"));
+  directories.push(directory);
+  return directory;
+}
+
+afterEach(() => {
+  for (const directory of directories.splice(0)) removeTempDir(directory);
+});
+
+describe("command lock", () => {
+  test("acquire and release round-trip", async () => {
+    const directory = tempDirectory();
+    const lock = await acquireCommandLock(directory, { holder: "agent-a" });
+    expect(readCommandLock(directory)).toEqual(lock);
+    expect(releaseCommandLock(directory, lock.pid)).toBe(true);
+    expect(readCommandLock(directory)).toBeNull();
+  });
+
+  test("second acquire blocks until first releases", async () => {
+    const directory = tempDirectory();
+    const first = await acquireCommandLock(directory, { holder: "first" });
+    const waiting = acquireCommandLock(directory, { holder: "second", pollMs: 5, timeoutMs: 2_000 });
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(readCommandLock(directory)?.holder).toBe("first");
+    releaseCommandLock(directory, first.pid);
+    expect(await waiting).toMatchObject({ holder: "second" });
+    releaseCommandLock(directory);
+  });
+
+  test("dead-pid lock is reaped", async () => {
+    const directory = tempDirectory();
+    writeFileSync(join(directory, "cmd-lock.json"), JSON.stringify({ pid: 999999999, holder: "dead", ts: Date.now() }));
+    expect(await acquireCommandLock(directory, { holder: "live", pollMs: 5, timeoutMs: 500 })).toMatchObject({ holder: "live" });
+    releaseCommandLock(directory);
+  });
+
+  test("release with wrong pid refuses", async () => {
+    const directory = tempDirectory();
+    const lock = await acquireCommandLock(directory, { holder: "owner" });
+    expect(releaseCommandLock(directory, lock.pid + 1)).toBe(false);
+    expect(readCommandLock(directory)?.holder).toBe("owner");
+    releaseCommandLock(directory);
+  });
+
+  test("matches locked command prefixes and probes settings", async () => {
+    expect(matchesLockedCommand(["bun", "test", "test/x.test.ts"], ["bun test"])).toBe(true);
+    expect(matchesLockedCommand(["bun", "run", "check"], ["bun test"])).toBe(false);
+    // Token-boundary, not raw prefix: "bun test" must NOT match "bun tester".
+    expect(matchesLockedCommand(["bun", "tester"], ["bun test"])).toBe(false);
+    expect(matchesLockedCommand(["bun", "test"], ["bun test"])).toBe(true);
+    // Whitespace is normalized on both sides before comparison.
+    expect(matchesLockedCommand(["bun", "test", "x"], ["bun   test"])).toBe(true);
+    expect(matchesLockedCommand(["bun", "test"], [""])).toBe(false);
+    const directory = tempDirectory();
+    writeSettingsFixture(directory, { locked_commands: ["bun test", "npm run build"] });
+    const previousDir = process.env.ORCH_DIR;
+    process.env.ORCH_DIR = directory;
+    try {
+      // A locked command with the lock FREE is runnable → exit 0 (D3).
+      expect(await cmdLock(["check", "--", "bun", "test", "test/x.test.ts"])).toBe(0);
+      // A non-locked command is always runnable → exit 0.
+      expect(await cmdLock(["check", "--", "bun", "run", "lint"])).toBe(0);
+      // A locked command whose lock is HELD by a live holder → exit 3.
+      const held = await acquireCommandLock(directory, { holder: "agent-a" });
+      expect(await cmdLock(["check", "--", "bun", "test", "test/x.test.ts"])).toBe(3);
+      releaseCommandLock(directory, held.pid);
+    } finally {
+      if (previousDir === undefined) delete process.env.ORCH_DIR;
+      else process.env.ORCH_DIR = previousDir;
+    }
+  });
+
+  test("run propagates the child exit code", async () => {
+    const directory = tempDirectory();
+    const previousDir = process.env.ORCH_DIR;
+    process.env.ORCH_DIR = directory;
+    try {
+      expect(await cmdLock(["run", "--", process.execPath, "-e", "process.exit(7)"])).toBe(7);
+      expect(existsSync(join(directory, "cmd-lock.json"))).toBe(false);
+    } finally {
+      if (previousDir === undefined) delete process.env.ORCH_DIR;
+      else process.env.ORCH_DIR = previousDir;
+    }
+  }, 20_000);
+});

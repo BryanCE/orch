@@ -1,0 +1,195 @@
+import * as fs from "node:fs";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
+// The session-tail parse lives in the codex adapter family's leaf module;
+// reaching for it there keeps this test off the adapter registry's init graph.
+import { readCodexSessionView } from "../src/adapters/codex-events.ts";
+import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { agentView } from "../src/store/agent-view.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+import type { SpawnOpts } from "../src/types/adapter.ts";
+import { processStartToken } from "../src/process-identity.ts";
+
+const originalOrchDir = process.env.ORCH_DIR;
+const originalAgentKey = process.env[LAUNCH_ENV];
+const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
+
+const { HeadlessBackend } = await import("../src/backends/headless/index.ts");
+const backend = new HeadlessBackend();
+const handles: { pid: number; key: string }[] = [];
+
+// Rule 13: a fixture that does not satisfy the port gets a typed factory that
+// builds the COMPLETE value, never a cast past the compiler.
+const fakeAdapter = makeFakeAdapter({
+  headlessCmd(_prompt: string, opts: SpawnOpts): string[] {
+    const key = opts.key!;
+    const directory = opts.orchDir!;
+    const statusDir = path.join(directory, "agents", key);
+    const statusFile = path.join(statusDir, "status.json");
+    const script = [
+      "const fs = require(\"node:fs\");",
+      `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
+      `fs.writeFileSync(${JSON.stringify(statusFile)}, JSON.stringify({ schema: ${PRESENCE_SCHEMA}, pid: process.pid, state: \"working\", key: process.env[${JSON.stringify(LAUNCH_ENV)}] }));`,
+      "setTimeout(() => {}, 5000);",
+    ].join(" ");
+    return [process.execPath, "-e", script];
+  },
+});
+
+const codexLogAdapter = makeFakeAdapter({
+  id: "codex",
+  headlessCmd(_prompt: string, opts: SpawnOpts): string[] {
+    const statusDir = path.join(opts.orchDir!, "agents", opts.key!);
+    const script = [
+      "const fs = require(\"node:fs\");",
+      `fs.mkdirSync(${JSON.stringify(statusDir)}, { recursive: true });`,
+      `fs.writeFileSync(${JSON.stringify(path.join(statusDir, "status.json"))}, JSON.stringify({ schema: ${PRESENCE_SCHEMA}, pid: process.pid, sessionPath: process.env.ORCH_AGENT_LOG }));`,
+      "console.log(JSON.stringify({ item: { type: 'agent_message', text: 'headless tail' } }));",
+      "console.log(JSON.stringify({ type: 'agent-turn-complete' }));",
+    ].join(" ");
+    return [process.execPath, "-e", script];
+  },
+});
+
+// Generous deadline: these tests launch real detached OS processes, and child
+// startup can take seconds on a loaded machine — a short deadline makes the
+// suite flaky under parallel load without catching anything real.
+async function waitFor(check: () => boolean): Promise<void> {
+  const deadline = Date.now() + 15000;
+  while (!check() && Date.now() < deadline) await Bun.sleep(20);
+  expect(check()).toBe(true);
+}
+
+function restoreOrchDir(): void {
+  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = originalOrchDir;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
+}
+
+beforeEach(() => {
+  process.env.ORCH_DIR = testOrchDir;
+  // Headless tests launch agents with an explicit minted key; this session has no identity.
+  delete process.env[LAUNCH_ENV];
+});
+
+afterEach(() => {
+  for (const handle of handles.splice(0)) {
+    try { process.kill(handle.pid, "SIGKILL"); } catch {}
+  }
+  restoreOrchDir();
+});
+
+afterAll(() => {
+  removeTempDir(testOrchDir);
+  restoreOrchDir();
+});
+
+describe("HeadlessBackend", () => {
+  test("refuses to spawn with no prompt — a headless agent runs its prompt and exits", () => {
+    for (const prompt of [undefined, "", "   "]) {
+      expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt }))
+        .toThrow(/no prompt/);
+    }
+    expect(backend.handleLookup.handleFor("fake-promptless")).toBeUndefined();
+  });
+
+  test("spawns a detached process and records its handle", async () => {
+    const key = "hfakeaaaa1";
+    // E13: capability is which roles are composed, not a flags bag. Headless owns
+    // its own logs, is inside no space, and addresses agents by key.
+    expect(backend.logPruning).not.toBeNull();
+    expect(backend.handleLookup).not.toBeNull();
+    expect(backend.identity).toBeNull();
+    const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep" });
+    handles.push(handle);
+
+    await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
+    // A handle is not a pane: this environment shows nothing, and it still hands
+    // orch a concrete address for the process it started.
+    const view = agentView(testOrchDir, key);
+    expect(view?.environment.plexer).toBe("headless");
+    expect(JSON.parse(view?.environment.handle ?? "null")).toEqual({ pid: handle.pid, key });
+    expect(fs.existsSync(path.join(testOrchDir, "logs"))).toBe(true);
+    expect(fs.existsSync(path.join(testOrchDir, "logs", `${key}.log`))).toBe(true);
+    expect(backend.handleLookup.handleFor(key)).toEqual({ pid: handle.pid, key, alive: true });
+    expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", key, "status.json"), "utf8")) as { key: string }).key).toBe(key);
+  }, 30000);
+
+  test("completes a headless dispatch round-trip and leaves a readable result", async () => {
+    const key = "hroundtrp1";
+    const adapter = makeFakeAdapter({
+      headlessCmd: (_prompt: string, opts: SpawnOpts): string[] => {
+        const dir = path.join(opts.orchDir!, "agents", opts.key!);
+        return [process.execPath, "-e", [
+          "const fs=require('node:fs');",
+          `fs.mkdirSync(${JSON.stringify(dir)}, {recursive:true});`,
+          `const status=${JSON.stringify(path.join(dir, "status.json"))}; const result=${JSON.stringify(path.join(dir, "result.json"))};`,
+          "fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'working'}));",
+          "setTimeout(()=>{fs.writeFileSync(result, JSON.stringify({text:'headless result'})); fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'done'}));}, 30);",
+        ].join(" ")];
+      },
+    });
+    const handle = backend.spawn(adapter, { key, prompt: "dispatch" });
+    handles.push(handle);
+    const dir = path.join(testOrchDir, "agents", key);
+    await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
+    await waitFor(() => (JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")) as { state: string }).state === "done");
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"))).toEqual({ text: "headless result" });
+  }, 30000);
+
+  test("records and mirrors the headless log for Codex session-tail parsing", async () => {
+    const key = "hcodextal1";
+    const handle = backend.spawn(codexLogAdapter, { key, prompt: "tail" });
+    handles.push(handle);
+    const statusPath = path.join(testOrchDir, "agents", key, "status.json");
+    await waitFor(() => fs.existsSync(statusPath));
+    const status = JSON.parse(fs.readFileSync(statusPath, "utf8")) as { sessionPath: string };
+    expect(status.sessionPath).toMatch(/logs[\\/]/);
+    expect(fs.existsSync(status.sessionPath)).toBe(true);
+    await waitFor(() => fs.existsSync(status.sessionPath) && fs.readFileSync(status.sessionPath, "utf8").includes("headless tail"));
+    expect(readCodexSessionView(status.sessionPath)).toEqual({ state: "idle", lastText: "headless tail" });
+    expect(readCodexSessionView(undefined)).toBeUndefined();
+  }, 30000);
+
+  /**
+   * 2.2 — closing a headless agent has ONE address: the `process` role. The
+   * backend used to publish a `close(handle)` method beside it that nothing
+   * reached (`paneHost` is null here), carrying its own pid/key ownership check.
+   * The live guard is stronger and on the axis orch actually records: a process
+   * is signalled only while its recorded START TOKEN still matches, so a pid
+   * reused by an unrelated process is refused rather than killed.
+   */
+  test("signals a matching recorded process through the injected killer", () => {
+    const calls: { pid: number; signal: string }[] = [];
+    const hermetic = new HeadlessBackend({
+      pidAlive: () => true,
+      killer: (pid, signal) => calls.push({ pid, signal }),
+    });
+    const token = processStartToken(process.pid)!;
+
+    hermetic.process.kill({ pid: process.pid, startToken: token }, "SIGTERM");
+
+    expect(calls).toEqual([{ pid: process.pid, signal: "SIGTERM" }]);
+  });
+
+  test("refuses to signal a pid whose process instance was replaced", () => {
+    const calls: number[] = [];
+    const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
+
+    expect(() => hermetic.process.kill({ pid: process.pid, startToken: "not-this-instance" }, "SIGTERM"))
+      .toThrow(/replaced/);
+    expect(calls).toEqual([]);
+  });
+
+  test("never signals a dead pid", () => {
+    const calls: number[] = [];
+    const hermetic = new HeadlessBackend({ pidAlive: () => false, killer: (pid) => calls.push(pid) });
+
+    expect(() => hermetic.process.kill({ pid: 41003, startToken: "any" }, "SIGTERM")).toThrow(/dead/);
+    expect(calls).toEqual([]);
+  });
+});

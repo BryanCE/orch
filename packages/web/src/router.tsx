@@ -11,3 +11,12 @@ export const getRouter = () => {
 
   return router
 }
+
+/** Without this, every `useParams()` / `useMatches()` in the app falls back to
+ * `any`, because the router type has nowhere to be registered. It is the one
+ * place TanStack learns which route tree this app actually has. */
+declare module '@tanstack/react-router' {
+  interface Register {
+    router: ReturnType<typeof getRouter>
+  }
+}

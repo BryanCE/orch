@@ -15,6 +15,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { DaemonBadge } from "@/components/DaemonBadge";
 import { useFleet } from "@/hooks/use-fleet";
 import type { ColorSchemeId } from "@/lib/color-scheme";
 
@@ -26,12 +27,12 @@ const cockpitNav = [
 /**
  * Primary application navigation — a full-height sidebar that collapses to an
  * icon rail (the LMS sub-tool pattern, promoted to app-level chrome). Top group
- * is the global cockpit; second group lists workspaces BY NAME with the herdr
- * workspace id as a muted secondary.
+ * is the global cockpit; second group lists orch spaces by their own names.
  */
 export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) {
   const pathname = useLocation({ select: (l) => l.pathname });
-  const { data: workspaces = [] } = useFleet();
+  const { data } = useFleet();
+  const spaces = data?.spaces ?? [];
   const isActive = (path: string, exact: boolean) =>
     exact ? pathname === path : pathname === path || pathname.startsWith(`${path}/`);
 
@@ -67,28 +68,23 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Workspaces</SidebarGroupLabel>
+          <SidebarGroupLabel>Spaces</SidebarGroupLabel>
           <SidebarMenu>
-            {workspaces.length === 0 && (
+            {spaces.length === 0 && (
               <p className="px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                 none running
               </p>
             )}
-            {workspaces.map((ws) => (
-              <SidebarMenuItem key={ws.slug}>
+            {spaces.map((space) => (
+              <SidebarMenuItem key={space.slug}>
                 <SidebarMenuButton
                   asChild
-                  isActive={pathname.startsWith(`/ws/${ws.slug}`)}
-                  tooltip={ws.name === ws.id ? ws.name : `${ws.name} (${ws.id})`}
+                  isActive={pathname.startsWith(`/spaces/${space.slug}`)}
+                  tooltip={space.name}
                 >
-                  <Link to="/ws/$slug" params={{ slug: ws.slug }}>
+                  <Link to="/spaces/$slug" params={{ slug: space.slug }}>
                     <FolderGit2 />
-                    <span className="flex-1 truncate">{ws.name}</span>
-                    {ws.name !== ws.id && (
-                      <span className="font-mono text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
-                        {ws.id}
-                      </span>
-                    )}
+                    <span className="flex-1 truncate">{space.name}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -98,6 +94,7 @@ export function AppSidebar({ initialScheme }: { initialScheme: ColorSchemeId }) 
       </SidebarContent>
 
       <SidebarFooter>
+        <DaemonBadge />
         <div className="flex items-center px-1">
           <AnimatedThemeToggler initialScheme={initialScheme} />
         </div>

@@ -1,49 +1,117 @@
-# event scope and subscriptions — plan (scratch, delete when landed)
+# membership, scope and subscriptions — the goal
 
-## The bug that started this
+## Membership replaces "space"
 
-`orch status` has no ownership filter. `scopeFleetRows` filters on space, `managed`, and
-exited/liveness, nothing else. An agent running `orch status` sees the entire fleet, including other
-orchs' agents, so its monitors fire on work it does not own.
+Space was doing two jobs and only one of them is real.
 
-`orch events` scopes by ownership, but does it in the wrong place (client-side, in the CLI process)
-using the wrong fact (the lease).
+**Where an agent runs** is ENVIRONMENT: cwd, repo, worktree, plexer, pane, harness, host. Fixed at
+spawn, never changes, already fully described. Nothing is missing here.
 
-## The model
+**Who an agent coordinates with** is what space was actually for. It has to span directories and
+harnesses, which means it can never be derived from either.
 
-A **subscription** is a row. It is the only thing that decides which agents an orch hears from.
+The primitive orch is missing is **membership**. There is no join and no leave. There is a label
+computed from location, pretending to be a group.
 
-- Spawning writes one automatically, spawner to slave. That is what makes the default "immediate
-  family". No spawn, no row, no events.
-- Closing or killing the slave deletes the row.
-- An orch may subscribe to any agent **in its space**, including an agent in another orch's tree.
-  Two sibling orchs coordinating is a real case and ownership must not block it.
+### The rules, enforced
+
+1. **Membership is never derived from location.** Not from cwd, not from the repo, not from the pane,
+   the plexer, the harness or the host. Deriving it is the entire bug: it is why `/server` and
+   `/client` could not work together, and why a spaceless agent was ever possible.
+2. **An agent inherits its spawner's membership at spawn.** A whole tree shares one group without
+   anyone doing anything.
+3. **A root with no spawner creates one.** Every agent therefore has membership from birth.
+4. **A human can add any agent to any group.** That is a JOIN, not a relocation. Nothing moves, and
+   the agent's environment is untouched and unlied-about.
+5. **Join and leave are explicit acts.** Never inferred, never a side effect of where something runs.
+6. **The wall: you may subscribe only to members of a group you belong to.** Joining is the explicit
+   act that grants coordination, instead of it being an accident of which terminal something
+   launched in.
+7. **An agent's environment never changes, so membership never changes on its own.** A process cannot
+   relocate itself into another terminal. Only an explicit join or leave changes membership.
+8. **A plexer container is a DEFAULT for what a new root joins, never a definition.** herdr's
+   workspace suggests a group. It does not decide one, and detaching it changes nothing.
+
+### Why this shape
+
+Every distributed system that solved coordination-across-machines separated the two facts.
+
+- **Actor model / Akka: location transparency.** An actor is reached by address, and where it
+  physically runs is deliberately not part of that address.
+- **ISIS / virtual synchrony (Birman).** The GROUP is the addressable entity. Explicit membership,
+  membership changes delivered as events, messages addressed to the group regardless of where members
+  sit.
+- **Erlang `pg`.** A named group, processes join it, members are spread across nodes, and a member
+  that dies is removed automatically.
+- **Kubernetes.** A Service is a stable name for a set of pods; a Node is where they run. Nobody
+  derives the first from the second.
+
+None of them derive the group from location. Deriving it is the mistake.
+
+Sources: [Akka location transparency](https://doc.akka.io/libraries/akka-core/2.4/general/remoting.html) ·
+[Birman, A History of the Virtual Synchrony Replication Model](https://www.cs.cornell.edu/ken/History.pdf) ·
+[Exploiting virtual synchrony in distributed systems](https://lass.cs.umass.edu/~shenoy/courses/spring08/readings/birman.pdf) ·
+[Erlang pg](https://www.erlang.org/doc/apps/kernel/pg.html) ·
+[actor model addressing](https://berb.github.io/diploma-thesis/original/054_actors.html) ·
+[VS Code multi-root workspaces](https://code.visualstudio.com/docs/editing/workspaces/multi-root-workspaces) ·
+[k8s namespaces vs labels](https://medium.com/dzerolabs/just-in-time-kubernetes-namespaces-labels-annotations-and-basic-application-deployment-f62568a9eaaf)
+
+### Needs its own design pass before anything is built
+
+- [ ] **Name it.** "Space" carries the location meaning and has to go. So does the collision with
+      "pack" (`rootAgentId`, meaning the whole tree's root, while immediate family is one level).
+- [ ] **One group per agent, or many?** Kubernetes namespaces are exactly one and non-overlapping.
+      ISIS and `pg` allow many. One makes the wall trivial; many makes coordination flexible and the
+      wall a union.
+- [ ] **Does leaving a group kill the subscriptions made through it?** This question is real NOW, in
+      a way it never was for location, because leaving is an act someone performs.
+- [ ] **Does a group have an owner** with the right to admit or eject, or can any member add anyone?
+- [ ] **Can a group outlive its members**, or is an empty group reaped?
+- [ ] **What happens to the plexer-home mapping.** A home is a LOCATION fact and belongs to
+      environment, not membership.
+- [ ] **What replaces `agent_spaces`.** Space is set at spawn and never moves, so the interval
+      columns and `clearSpace` model something impossible. Membership genuinely does change, by join
+      and leave, so it may want the interval instead.
+
+### Already settled
+
+- Every agent has membership from birth. A memberless agent is not a legal state.
+- `"local"` is banned. A single shared bucket is a missing value with a name (Rule 11).
+- One comparison function for membership matching, called by every caller. Not three.
+- Adding an environment later means implementing one method. Branch on the declared capability, never
+  on the backend id (Rule 9).
+
+## Subscriptions
+
+**Blocked on the membership design.** The wall below is a membership wall, so it cannot be built
+until membership is.
+
+**A subscription row is the only thing that decides which agents an orch hears from.**
+
+- Spawning writes one automatically, spawner to slave. That is what makes the default immediate
+  family. No spawn, no row, no events.
+- Closing or killing an agent deletes every row naming it, on either side.
+- An orch may subscribe to any agent **in a group it belongs to**, including one in another orch's
+  tree. Two sibling orchs coordinating is a real case and ownership must not block it.
 - Unsubscribe exists, including from your own slave, to shut a noisy one up.
-- **The space is the hard wall.** Not ownership. Not the tree.
-- A human has no agent id and therefore no subscriptions. A human sees everything.
+- **Membership is the hard wall.** Not ownership, not the tree.
+- A human has no agent id and no subscriptions. A human sees everything.
 
-### Addressing a subscription
+### Addressing one
 
-You name an agent. The flags say how much of the tree beneath it comes with it.
-
-| command | what it delivers |
+| command | delivers |
 |---|---|
-| `subscribe orch-1` | ONLY orch-1's own events. Nothing under it. |
-| `subscribe orch-1 --branch` | orch-1 plus its direct children. |
-| `subscribe orch-1 --branch --depth=2` | orch-1, its children, its grandchildren. |
-| `subscribe orch-1 --branch --depth=all` | orch-1 and everything under it, however deep. |
+| `subscribe orch-1` | ONLY orch-1's own events |
+| `subscribe orch-1 --branch` | orch-1 plus its direct children |
+| `subscribe orch-1 --branch --depth=2` | orch-1, children, grandchildren |
+| `subscribe orch-1 --branch --depth=all` | orch-1 and everything under it, however deep |
 
-`--branch` on its own means depth 1. `--depth` without `--branch` is meaningless and is refused.
+`--branch` alone means depth 1. `--depth` without `--branch` is refused.
 
-**A branch subscription is a live query, not a snapshot.** It delivers whatever is in that branch at
-the time an event fires. Slaves that appear under the branch later are included; slaves that die drop
-out. That is what "subscribed to a branch" means, and it is why naming a branch beats listing agents:
-the tree keeps reshaping and the subscription stays true.
+**A branch subscription is a live query.** It delivers whatever is in that branch when an event
+fires. Slaves that appear later are included, slaves that die drop out.
 
-### Shape: copy `agent_leases` exactly
-
-Nothing is stored on `agents`. Nothing on the spawnee. A subscription is its own relationship table
-with two foreign keys to `agents.id`, exactly like `agent_leases` (`agent_id` + `orch_id`).
+### Shape
 
 ```
 subscriptions
@@ -55,183 +123,143 @@ subscriptions
   uniqueIndex(subscriber, target)
 ```
 
-**No `until`, no history. Unsubscribe DELETES the row.** This data lives minutes to hours, maybe
-days. It is not a fact anyone reads back later, so the interval shape `agent_leases` uses would be
-storing months of dead relationships to answer a question nobody asks.
+**Live rows only. No `until`, no history. Unsubscribe deletes.** This data lives minutes to hours.
 
-- Closing or killing an agent deletes every subscription naming it, on either side. It goes in
-  `endAgent()` (`store/agent-rows.ts:83`), the ONLY writer of an `agent_endings` row, so every verb
-  that can end an agent funnels through one statement. Nowhere else.
-- `daemon/retention.ts` is what actually deletes agent rows after a cutoff, so the FK cascade is a
-  real backstop for anything that ever survives the ending.
-- History lives in `orch logs`, not the table. Log the subscribe and the unsubscribe as decision
-  records and "why didn't my monitor fire" is answerable with zero dead rows. The table holds what is
-  true now; the log holds what happened.
-- **Doctor never touches it.** Doctor checks declared composition against reality (Rule 9).
-  Subscriptions are ephemeral runtime data, not declared config. Not its job.
+- The delete on agent death goes in `endAgent()` (`store/agent-rows.ts:83`), the only writer of an
+  `agent_endings` row, so every verb that ends an agent funnels through one statement.
+- `daemon/retention.ts` deletes agent rows after a cutoff, so the FK cascade is the backstop.
+- History lives in `orch logs`. The table holds what is true now, the log holds what happened.
+- Doctor never touches it. Doctor checks declared composition against reality (Rule 9), and this is
+  ephemeral runtime data.
 
-### The rule that keeps spawn honest
+### Provenance is not a subscription
 
-Spawn writes two records about the same moment, and they are DIFFERENT FACTS:
+Spawn writes two records about one moment and they are different facts. `agents.spawned_by` is
+immutable and permanent. The subscription row is revocable and short-lived. They are ALLOWED to
+disagree: unsubscribing from your own slave leaves provenance intact.
 
-- `agents.spawned_by` is provenance. Immutable, permanent, survives everything.
-- the subscription row is a listening relationship. Revocable, deleted, short-lived.
+**Never derive a subscription from provenance. Never repair provenance from subscriptions.**
 
-They are allowed to disagree. Unsubscribing from your own slave leaves provenance intact and that is
-correct, not drift. Never derive a subscription from provenance, never repair provenance from
-subscriptions.
+## Ownership
 
-## Settled, with reasons
+Ownership is provenance, not the lease. The lease says who is DRIVING (gates dispatch, steer, model,
+reset). Provenance says whose it is (gates ending it). Subscriptions say who HEARS it. Membership
+says who may subscribe at all.
 
-- **Ownership is provenance, not the lease.** `close-authority.ts` states it: user, then orch, then
-  the slaves that orch owns. The lease answers who is DRIVING (gates dispatch, steer, model, reset).
-  Provenance answers whose it is (gates ending it). Subscriptions answer who HEARS it, and that is a
-  third question again.
-- **Close authority does not change.** It stays subtree-wide. A grandparent must always be able to
-  kill a runaway grandchild it never subscribed to.
-- **No scope flags on the default.** `--mine` and `--any-agent` get deleted from `events`. Nothing
-  equivalent is added to `status`. The default is the subscription rows and nothing else.
-- **The daemon computes it.** The `status` RPC takes no params today
-  (`status: () => fleetStatus(directory)`), which is the actual gap. It gets the caller claim,
-  resolves it the way `register-session` already does, reads subscriptions, and answers rows already
-  scoped. The client renders what it is handed, filters nothing, reads no lease table.
-- **One mechanism, not two.** Everything an orch hears is a row. There is no second, derived path for
-  "family" running alongside the subscription table.
-- **Rows survive a daemon reload,** so a live monitor does not have to re-present its scope on
-  redial. `subscribeEvents` redials and the daemon reads the same rows.
-
-## Open
-
-- [ ] **Space is mutable** (Rule 11: environment changes). If a subscribed agent MOVES to another
-      space, does the subscription die, or is the space checked only when subscribing?
-- [ ] **Verb naming.** `orch subscribe` / `orch unsubscribe` / `orch subscriptions`, or fold into an
-      existing verb.
-- [ ] **Depth cap** is a setting, not a literal (Rule 17). Where it sits, and what `all` maps to.
-- [ ] **"Pack" collides.** `rootAgentId` is called the pack in code today and means the root of the
-      WHOLE tree. Immediate family is one level. Two sets, one word. Needs a new word for the whole
-      tree and a word for one level. (You said you do not love "pack".)
+**Close authority stays subtree-wide and does not change.** A grandparent must always be able to kill
+a runaway grandchild it never subscribed to. Abort, close and reap are never gated (Rule 11).
 
 ## Status is a human command
 
-An orch has no eyes and no business browsing a dashboard. Every orch use of `orch status` the skill
-teaches is a workaround for a defect elsewhere (below). Once those are fixed, an orch needs:
+An orch has no eyes and no business browsing a dashboard. An orch needs transitions from `events`,
+facts from the return value of the command it just ran, and its working set, which is its
+subscriptions.
 
-- **transitions** from `events`, pushed,
-- **facts** from the return value of the command it just ran,
-- **its working set**, which is its subscriptions.
+The table stays for humans. Capacity stays global, because it is a number about the machine and not
+about anyone's agents.
 
-The table stays, for humans, space-scoped as today. Capacity stays global, because it is a number
-about the machine and not about anyone's agents.
+The daemon computes scope. The `status` RPC takes no params today, which is the gap. It takes the
+caller claim, resolves it the way `register-session` already does, and answers rows already scoped.
+The client renders what it is handed, filters nothing, reads no lease table.
 
-## Defects the skill is papering over
+`--mine` and `--any-agent` are deleted. Scope is never a flag.
 
-**The principle:** every "verify it worked" line in a skill is a bug report someone wrote down as a
-habit instead of fixing. The doctrine outlives the bug, agents burn a command on it forever, and the
-defect stays. A command that succeeds must be believable. If the skill has to tell an agent to check,
-the COMMAND is broken and the check is the workaround. (Rule 8 applied to behaviour instead of data.
-Candidate for CLAUDE.md.)
+## A command that succeeds must be believable
 
-Five of them, all in or around the watch section:
+Every "verify it worked" line in a skill is a bug report written down as a habit instead of fixed.
+If the skill has to tell an agent to check, the COMMAND is broken and the check is the workaround.
+Rule 8 applied to behaviour instead of data. Candidate for CLAUDE.md.
 
-- [ ] **`reset` re-pins the spawn-time model** and silently discards a later `orch model` change.
-      Doctrine it produced: "verify the MODEL column in `orch status`." Fix reset, delete the line.
-      (scratch.md item 1.)
-- [ ] **`orch dispatch` returns ACCEPTED, not DELIVERED.** It is durable and queued, so it returns
-      instantly and the agent cannot tell whether the prompt landed. Doctrine it produced: poll
-      `orch status --json` for a matching `.dispatchId`. Delivery is a TRANSITION and there is
-      already a push stream for transitions. Emit it, and the armed monitor gets it free.
-- [ ] **Nothing answers "do I already have a monitor armed."** Doctrine it produced:
-      `pgrep -fa "orch events"`, then compare its panes against `orch status`, then `kill` the pid.
-      Orch's own state read out of the OS process table. The daemon HOLDS those stream connections
-      and knows its subscribers. Expose it.
-- [ ] **Space scoping drops a fleet that has no space** (U9). Doctrine it produced: "`--all` is
-      REQUIRED today", so every armed watch is fleet-wide whether it wants to be or not. Rule 11 says
-      `"local"` is a missing value with a name; a missing space must not act as a filter that matches
-      nothing. Fixing this is a prerequisite for the subscription work, since a scoped default that
-      drops everything is worse than no scope.
-- [ ] **Empty replay reads as broken scope.** Doctrine it produced: "a silent stream means the SCOPE
-      is wrong." On a fresh daemon there is simply no history, so the smoke test gave a false
-      negative and nearly cost an armed watch. Either replay has a bug or the check needs to
-      distinguish "no history" from "wrong scope". Investigate before rewriting the line.
-      (scratch.md item 3.)
+Five to fix:
 
-## Wrong turns to revert first
+- [ ] `reset` keeps the current model pin, or says loudly that it reverted. Today it re-pins the
+      spawn-time model and silently discards a later `orch model` change.
+- [ ] `orch dispatch` tells the caller when the prompt was DELIVERED, not just accepted. Delivery is
+      a transition and there is already a push stream for transitions.
+- [ ] Orch answers "do I already have a monitor armed." The daemon holds those connections and knows
+      its subscribers. Today the skill teaches `pgrep -fa "orch events"`.
+- [ ] A watch fires without `--all`. Fixed by the membership work, then confirmed.
+- [ ] Empty replay is distinguishable from wrong scope. Today a silent stream reads as broken scope
+      and gives a false negative on a fresh daemon.
 
-Written before the design was settled, all wrong:
+Delete every verify-it-worked line the fixes make obsolete.
 
-- [ ] Delete `src/policy/scope.ts` (client-side predicate, lease-based, wrong layer and wrong fact).
-- [ ] Revert `AgentScopeInput` / `CallerScopeChoice` / `ResolvedCallerScope` out of
-      `src/types/policy.ts`.
-- [ ] Revert `src/commands/events.ts` to HEAD.
-- [ ] `EventScopeInput` in `src/types/command.ts` gets deleted for real in wave 4, not restored.
+## Open
+
+- [ ] Verb naming for subscribe, unsubscribe, list.
+- [ ] Depth cap as a setting (Rule 17), and what `all` maps to.
 
 ## Tasks
 
-### Wave 1 — the store
+### Wave 0 — membership (everything waits on this, and it needs its own design pass first)
 
-- [ ] Table as shaped above. Two FKs to `agents.id`, both cascading. No `until`, no history.
+- [ ] Finish the design questions above.
+- [ ] Membership is a join, never a derivation. Delete every path that computes it from location,
+      including the A7 comment and the optional-space branches in `spawn/placement.ts`.
+- [ ] Inherit at spawn; a root creates. No memberless agent, ever.
+- [ ] Join and leave verbs.
+- [ ] One membership-comparison function, called by `eventInSpaceScope`, `scopeToSpace` and
+      `checkWall`.
+- [ ] Plexer container becomes a DEFAULT for a new root, not a definition.
 - [ ] Migration written, then HANDED TO BRYAN to run (Rule 1). Never run it.
-- [ ] Row writers and readers in `src/store/subscription-rows.ts`, following `lease-rows.ts` style.
+- [ ] Tests: a raw CLI agent and a herdr agent join one group and can reach each other; two
+      directories in one group; detaching the plexer changes nothing; no path produces a memberless
+      agent.
+
+### Wave 1 — the subscription store
+
+- [ ] Table as shaped above.
+- [ ] Migration written, then HANDED TO BRYAN to run (Rule 1). Never run it.
+- [ ] `src/store/subscription-rows.ts`, following `lease-rows.ts` style.
 - [ ] Spawn writes the spawner-to-slave row.
-- [ ] `endAgent()` deletes every row naming that agent, either side. One place, no second copy.
-- [ ] Subscribe and unsubscribe write decision-log records, so history lives in `orch logs`.
+- [ ] `endAgent()` deletes every row naming that agent, either side. One place.
+- [ ] Subscribe and unsubscribe write decision-log records.
 - [ ] Tests: spawn writes it, close deletes it, killing the subscriber deletes it, unsubscribing from
       your own slave leaves `spawned_by` untouched.
 
 ### Wave 2 — the policy
 
 - [ ] Resolve "which agents does this caller hear" from the rows, expanding branch subscriptions
-      through the existing `policy/provenance.ts` walk. One traversal per call, not one per row.
-- [ ] Refuse a subscription whose target is outside the caller's space, reusing the existing space
-      wall rather than writing a second one.
+      through `policy/provenance.ts`. One traversal per call, not one per row.
+- [ ] Refuse a subscription whose target shares no group with the caller.
 - [ ] Refuse `--depth` without `--branch`.
-- [ ] Tests: leaf subscription delivers one agent; `--branch` delivers depth 1; `--depth=2` delivers
-      two levels; `--depth=all` delivers the lot; a slave spawned AFTER the subscription appears in a
-      branch subscription; cross-space is refused; a human hears everything.
+- [ ] Tests: leaf delivers one; `--branch` delivers depth 1; `--depth=2` delivers two levels;
+      `--depth=all` delivers the lot; a slave spawned AFTER the subscription appears in a branch
+      subscription; out-of-group is refused; a human hears everything.
 
 ### Wave 3 — the wire
 
 - [ ] `sessionClaim()` carries the launch credential (`ORCH_AGENT_ID`). A spawned agent identifies by
-      its minted id, a driving session by its `sessionToken`. The claim has no field for the former
-      today.
-- [ ] Daemon resolves claim to caller agent id, reusing `agentIdBySessionToken`. No new id space.
-- [ ] `status` handler takes params and filters rows through wave 2 before answering.
+      its minted id, a driving session by its `sessionToken`. No field for the former today.
+- [ ] Daemon resolves claim to caller agent id via `agentIdBySessionToken`. No new id space.
+- [ ] `status` handler takes params and filters through wave 2 before answering.
 - [ ] Event push stream filtered by the same policy, daemon-side.
-- [ ] Tests: two orchs registered, each hears only its own subscriptions; a human claim hears
-      everything; an unresolvable claim is treated as a human at a shell, never as a lockout.
+- [ ] Tests: two orchs each hear only their own subscriptions; a human claim hears everything; an
+      unresolvable claim is a human at a shell, never a lockout.
 
 ### Wave 4 — the clients
 
-- [ ] `status.ts`: rows arrive scoped. The offline branch calls the wave 2 policy locally. Same rule,
-      second call site, not a second rule.
+- [ ] Revert the abandoned edits: delete `src/policy/scope.ts`, revert `AgentScopeInput` /
+      `CallerScopeChoice` / `ResolvedCallerScope` out of `src/types/policy.ts`, revert
+      `src/commands/events.ts` to HEAD.
+- [ ] `status.ts`: rows arrive scoped. The offline branch calls the wave 2 policy locally.
 - [ ] `events.ts`: delete `eventInMineScope`, `eventInScope`, `--mine`, `--any-agent`, and
       `EventScopeInput`.
-- [ ] Subscribe / unsubscribe / list verbs.
+- [ ] Subscribe, unsubscribe and list verbs.
 - [ ] `help.ts` and `commands/index.ts` usage lines.
 
-### Wave 5 — the five defects
-
-Separate from the subscription table. U9 (space drops a spaceless fleet) comes FIRST, before any
-scoped default ships.
-
-- [ ] U9: a missing space stops acting as a filter that matches nothing.
-- [ ] `reset` keeps the current model pin, or says loudly that it reverted.
-- [ ] Dispatch delivery emitted as a transition on the event stream.
-- [ ] A way to ask orch whether this session already has a monitor armed, answered by the daemon that
-      holds the connection, not by `pgrep`.
-- [ ] Replay: find out whether empty history is a bug or normal, then fix the code or the doctrine.
-- [ ] Delete every verify-it-worked line the fixes make obsolete.
+### Wave 5 — the five defects above
 
 ### Wave 6 — docs and gate
 
-- [ ] `skills/orch/SKILL.md`: the default is immediate family, how to subscribe wider, and that
-      `orch status` from an agent shows its own fleet.
+- [ ] `skills/orch/SKILL.md`: membership, the immediate-family default, how to subscribe wider, and
+      that status is not for orchs.
 - [ ] `bun check` clean over the whole tree.
 - [ ] `bun test` on: `close-authority`, `commands-status`, `commands-events`, `daemon-events`,
-      `owner-scoping`, `events-scope-notice`, plus the new subscription tests.
+      `owner-scoping`, `events-scope-notice`, plus the new membership and subscription tests.
 - [ ] Delete this file.
 
 ## Not in scope
 
-The rest of `scratch.md`: reset re-pinning the model, `--file`/stdin dispatch, `redispatch`, the pack
-cap in the skill, the leftover `--name` flag. Separate work.
+The rest of `scratch.md`: `--file`/stdin dispatch, `redispatch`, the pack cap in the skill, the
+leftover `--name` flag.

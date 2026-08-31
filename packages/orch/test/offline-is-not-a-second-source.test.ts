@@ -7,7 +7,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
- * TASKS/02-scope.md M8 — the DESIGN question was whether `orch status --offline`
+ * The DESIGN question was whether `orch status --offline`
  * is "a second reader of a second source", to be demoted to a doctor affordance
  * or deleted.
  *

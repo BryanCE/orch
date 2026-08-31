@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ancestorsOf, depthOf, isDescendantOf } from "../src/policy/provenance.ts";
 import type { ProvenanceLookup } from "../src/types/policy.ts";
 
-/** The one walker every provenance question is derived from (TASKS/identity/02-provenance-depth.md). */
+/** The one walker every provenance question is derived from. */
 function tree(edges: Record<string, string | null>): ProvenanceLookup {
   return (id) => (id in edges ? { spawnedBy: edges[id] ?? null } : null);
 }

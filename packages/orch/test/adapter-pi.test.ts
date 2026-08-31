@@ -60,7 +60,7 @@ describe("PiAdapter", () => {
       "openai/gpt-5",
       "fix tests",
     ]);
-    // Nullness IS the capability (TASKS/02-scope.md E13): pi composes every role.
+    // Nullness IS the capability: pi composes every role.
     expect(adapter.inboxSteering).not.toBeNull();
     expect(adapter.question).not.toBeNull();
     expect(adapter.modelControl).not.toBeNull();

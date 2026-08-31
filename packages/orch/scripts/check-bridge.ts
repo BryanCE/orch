@@ -476,8 +476,8 @@ export function checkIdentityConstructionLine(line: string, relPath: string): st
  *
  * EMPTY, and it must stay that way unless a new exemption is argued for. The one
  * entry this held exempted `selfActor()`, which minted `<backend>~<workspace>~operator`
- * — the exact welding of environment into identity `TASKS/01-agent-model.md` forbids.
- * `selfActor()` is deleted (`TASKS/02-scope.md` B5), so the exemption outlived the code
+ * — the exact welding of environment into identity that this rule forbids.
+ * `selfActor()` is deleted, so the exemption outlived the code
  * it excused and was holding the rule open for nothing.
  */
 export const IDENTITY_CONSTRUCTION_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map();
@@ -538,7 +538,7 @@ function portRoleMembers(): readonly string[] {
     const source = readFileSync(file, "utf8");
     // A composed role is a member whose TYPE is a Role or a Strategy — `readonly
     // paneHost: PaneHostRole<Handle> | null`, `readonly thinking: ThinkingStrategy
-    // | null` (TASKS/07 names both). Matching on the type, not on the interface
+    // | null`. Matching on the type, not on the interface
     // name, survives the port being renamed or split, and deliberately does NOT
     // exempt plain nullable data (`readonly paneCount: number | null`), which is
     // not a capability and must never be null-checked as one.

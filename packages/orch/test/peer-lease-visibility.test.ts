@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 // A presence directory is named by the agent's minted id, and that id is the
-// whole key (TASKS/01): the row it addresses is found by the key itself, not by
+// whole key: the row it addresses is found by the key itself, not by
 // a segment split out of a `<plexer>~<grouping>~<id>` string.
 const CALLER = "caller0001";
 const HELD = "held000002";

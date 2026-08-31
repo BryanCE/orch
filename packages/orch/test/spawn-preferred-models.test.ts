@@ -143,7 +143,7 @@ describe("the preferred quicklist reaches every launch route", () => {
 
     // The key a real spawn hands a backend is the minted id alone — registration parses it
     // through the one identity boundary, and a `<plexer>~<space>~<name>` key welds environment
-    // into identity, which Rule 11 / TASKS/01-agent-model.md forbids.
+    // into identity, which Rule 11 forbids.
     new HeadlessBackend().spawn(adapter, {
       key: serializeIdentity({ id: mintAgentId() }),
       cwd: directory,

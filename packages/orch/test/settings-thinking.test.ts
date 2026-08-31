@@ -24,7 +24,7 @@ afterEach(() => {
   else process.env.ORCH_DIR = oldDir;
 });
 
-// TASKS/12-thinking.md slice 4: thinking is user-configurable THROUGH orch, not by
+// Thinking is user-configurable THROUGH orch, not by
 // hand-editing JSON. `orch settings` shows the effective level and sets it.
 describe("orch settings thinking", () => {
   test("writes the global default and reads back through loadConfig", () => {

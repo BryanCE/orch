@@ -12,16 +12,15 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/11-usage-bugs.md U1 (and U4, which shares its root cause) — orch
- * confidently vouched for panes the plexer no longer had.
+ * Orch confidently vouched for panes the plexer no longer had.
  *
  * Four agents listed with a pane id and `alive=True` while herdr answered
  * `pane_not_found` for every one of them. `orch dispatch` accepted the target
  * and then reported an unexplained non-acknowledgement; `orch peek` crashed with
  * a raw herdr error and a stack trace.
  *
- * **A row is not evidence that a pane exists.** `TASKS/07-port-seam.md`: the
- * ENVIRONMENT says whether a pane is there, and the plexer's inventory is that
+ * **A row is not evidence that a pane exists.** The ENVIRONMENT says whether a
+ * pane is there, and the plexer's inventory is that
  * answer. A recorded handle the plexer does not list is a handle orch no longer
  * has, and orch must say so rather than hand it to a pane operation.
  *

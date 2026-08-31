@@ -3,7 +3,7 @@ import { isAgentId, mintAgentId, parseIdentity, serializeIdentity, tryParseIdent
 import type { Identity } from "../src/types/backend.ts";
 
 /**
- * TASKS/02-scope.md A1 — identity is a minted id and NOTHING else.
+ * Identity is a minted id and NOTHING else.
  *
  * These cases used to round-trip `<backend>~<workspace>~<handle>` through a
  * percent-escaping codec. Every one of them was a test that environment SURVIVES

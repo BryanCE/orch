@@ -124,7 +124,7 @@ describe("CodexAdapter", () => {
     try {
       // The shim parses launch env through the one identity boundary, so the fixture
       // must be what a real spawn mints: the id alone. A `<plexer>~<space>~<name>` key is
-      // environment welded into identity, which Rule 11 / TASKS/01-agent-model.md forbids.
+      // environment welded into identity, which Rule 11 forbids.
       const key = serializeIdentity({ id: mintAgentId() });
       const payload = JSON.stringify({ type: CODEX_TURN_COMPLETE, "last-assistant-message": "finished" });
       const result = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "..", "extensions", "codex", "index.ts"), payload], {

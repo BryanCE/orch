@@ -11,9 +11,8 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md A14 — "Environment is a composition, never a table" — and
- * A15 — "Adding an axis that can change is one table plus one line in the
- * composer, zero consumer changes".
+ * Environment is a composition, never a table — and adding an axis that can
+ * change is one table plus one line in the composer, zero consumer changes.
  */
 
 function store(): string {

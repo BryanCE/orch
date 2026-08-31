@@ -12,13 +12,13 @@ import { errorMessage } from "../util.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
 
 /**
- * `orch space` — orch's OWN grouping of work (`TASKS/adr/0001`).
+ * `orch space` — orch's OWN grouping of work.
  *
  * A space is user-created, optional and identified by a name orch owns. It is
  * NOT a plexer's workspace: creating, renaming, listing and deleting one are
  * orch's own writes and work in every environment, including one with no screen.
  *
- * A plexer may additionally HOLD that space — a home (`TASKS/02-scope.md` E9).
+ * A plexer may additionally HOLD that space — a home.
  * That is an environment role, composed only by a plexer that implements it
  * completely; `spaceHome === null` IS the absence (E13), never a probe. The
  * coordinate it hands back lands in `space_plexers` and is never displayed

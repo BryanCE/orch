@@ -112,7 +112,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     max_agents_per_pack: PositiveInt.optional(),
     /** How deep a provenance tree may grow by spawning: 1 = only a root may spawn
      *  (a slave calling `orch spawn` is refused); N lets an agent at depth < N spawn.
-     *  TASKS/identity/02-provenance-depth.md. */
+     */
     max_depth: PositiveInt.optional(),
     max_agents_total: PositiveInt.optional(),
     max_agents_per_space: z.record(z.string(), PositiveInt).optional(),
@@ -701,8 +701,8 @@ export function writeSettingsModels(orchDir: string, models: Partial<Record<Adap
 /**
  * Record the thinking effort a launch uses when nothing overrides it.
  *
- * Thinking is its OWN axis (`TASKS/12-thinking.md`): it applies to any model and any
- * harness, so it is never a suffix on a stored model id. `byHarness` carries a
+ * Thinking is its OWN axis: it applies to any model and any harness, so it is never
+ * a suffix on a stored model id. `byHarness` carries a
  * per-harness override for a ladder that genuinely does not line up; a `null` entry
  * CLEARS that override and falls back to the global default.
  */

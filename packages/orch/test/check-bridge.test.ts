@@ -209,7 +209,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
     expect(checkIdentityConstructionLine("  return serializeIdentity(identity);", relPath)).toBeUndefined();
   });
 
-  // selfActor() is deleted (TASKS/02-scope.md B5), so its exemption is too. The rule
+  // selfActor() is deleted, so its exemption is too. The rule
   // now applies with no holes; a future exemption must be argued for, not inherited.
   test("no file is exempt from the identity-construction rule", () => {
     expect(IDENTITY_CONSTRUCTION_ALLOWLIST.size).toBe(0);
@@ -301,7 +301,7 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
     expect(checkEnvironmentCapabilityLine('  if (plexer === "herdr") return focus();', "src/backends/herdr/index.ts")).toBeUndefined();
   });
 
-  // TASKS/02-scope.md I2 — the rule is not "a checker exists", it is that NO
+  // The rule is not "a checker exists", it is that NO
   // behaviour in the tree branches on a plexer or harness id and NONE checks
   // whether a method exists. Every other rule in this file has a clean-tree half;
   // this one had only synthetic fixtures, which is how a rule passes for years

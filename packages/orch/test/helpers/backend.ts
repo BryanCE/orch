@@ -4,9 +4,8 @@ import { getBackend, registerBackend } from "../../src/backends/registry.ts";
 import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, OpenedPane, OpenPaneRequest, EnvironmentIdentityRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
 
-/** One pane a fake paned environment lists. Space vocabulary is orch's own
- *  (`TASKS/adr/0001-space-not-workspace.md`); the port's `workspace` field is
- *  the plexer coordinate the fake fills from it. */
+/** One pane a fake paned environment lists. Space vocabulary is orch's own;
+ *  the port's `workspace` field is the plexer coordinate the fake fills from it. */
 export interface FakePane {
   readonly handle: string;
   readonly space: string | null;
@@ -39,10 +38,10 @@ function paneTarget(pane: FakePane): BackendTarget {
 /**
  * A complete, typed paned environment for tests that need pane roles.
  *
- * It composes exactly the roles a paned environment has (`TASKS/07-port-seam.md`):
- * process, orch's channel/capture, a pane host and a pane inventory. Every other
- * role is absent, which is the capability itself — there is no `capabilities`
- * object and nothing here is probed for method presence (`TASKS/02-scope.md` E13).
+ * It composes exactly the roles a paned environment has: process, orch's
+ * channel/capture, a pane host and a pane inventory. Every other role is absent,
+ * which is the capability itself — there is no `capabilities` object and nothing
+ * here is probed for method presence.
  */
 export class FakePanedBackend implements Backend {
   readonly id: BackendId;

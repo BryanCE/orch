@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// TASKS/07-port-seam.md slice 9: "Delete the shell." An optional method on the port
+// Delete the shell. An optional method on the port
 // is a capability declared by whether a method exists, which E13 deletes outright —
 // so the finished port has ZERO of them. This is the check that keeps it at zero:
 // the next optional method added is a compile-time-invisible regression, and only a

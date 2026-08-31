@@ -46,7 +46,7 @@ function harnessContext(): HarnessContext {
 }
 
 const roots: string[] = [];
-// A launch hands over one minted id and nothing else (TASKS/01): a key with a
+// A launch hands over one minted id and nothing else: a key with a
 // plexer and a grouping in it is not an identity, and presence would skip it.
 const key = "worker0001";
 const { createAgentPresence } = await import("../src/agent/presence.ts");

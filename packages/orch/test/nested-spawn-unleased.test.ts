@@ -10,8 +10,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md D5 — "Nested spawn: a grandchild becomes unleased, never
- * falls to the grandparent."
+ * Nested spawn: a grandchild becomes unleased, never falls to the grandparent.
  *
  * Provenance and ownership are two facts on two timelines (Rule 11). The
  * grandparent is in the grandchild's PROVENANCE chain, and that is exactly why

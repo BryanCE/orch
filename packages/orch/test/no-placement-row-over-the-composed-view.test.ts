@@ -10,7 +10,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
- * TASKS/10-review-findings.md 2.1, final deletion — "Delete … `agent/registry.ts`".
+ * Delete … `agent/registry.ts`.
  *
  * `placementOf` reassembled the composed {@link AgentView} back into a flat
  * `Placement` row: key, agentId, backend, space, handle, cwd, worktree, branch.

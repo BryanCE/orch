@@ -8,12 +8,11 @@ import { isRecord } from "../src/util.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
- * TASKS/10-review-findings.md 1.12: a session path is recognised by being
- * ABSOLUTE, never by starting with "/".
+ * A session path is recognised by being ABSOLUTE, never by starting with "/".
  *
- * > `if (typeof file === "string" && file.startsWith("/")) state.sessionPath = file;`
- * > — Windows drive-letter session paths are never recorded → no session tail /
- * > model / cost fallback for any win32 agent. Fix: `path.isAbsolute(file)`.
+ * Checking whether a file starts with "/" means Windows drive-letter session paths
+ * are never recorded, so no session tail / model / cost fallback works for any win32
+ * agent. Fix: `path.isAbsolute(file)`.
  *
  * The fix landed at `src/agent/presence.ts:250` and the OLD SHAPE kept running
  * beside it at `src/backends/herdr/pane-socket.ts:74`, which is why the finding

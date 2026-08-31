@@ -9,21 +9,21 @@ export type { OpenHomeRequest };
 /**
  * The one reader and writer of a plexer HOME for orch's own structure.
  *
- * `TASKS/02-scope.md` E9: holding orch's structure is something an environment
+ * Holding orch's structure is something an environment
  * PROVIDES — create / rename / close a home for a space or a pack, branched on
  * by what the environment provides and never by a plexer id.
  *
- * E10: there is no new noun and there must not be one. The thing being grouped
+ * There is no new noun and there must not be one. The thing being grouped
  * is already a **space** or a **pack**; what the plexer groups by is a
  * coordinate orch stores and hands back, never says. Minting an orch word for a
  * plexer coordinate is exactly how `wF` got printed as a name a human chose.
  *
- * E11: everything has an environment, so the same interval shape holds both —
+ * Everything has an environment, so the same interval shape holds both —
  * `space_plexers` and `pack_plexers` differ only in which id column they key on,
  * which is a branch on an ORCH noun (the subject's kind), never on a plexer.
  */
 
-/** The mark every home orch opens carries (E8: "allowable, but never unmarked").
+/** The mark every home orch opens carries: allowable, but never unmarked.
  *  Without it a fleet's home is indistinguishable from the human's own panes and
  *  its agents read as random agents with no discoverable origin. */
 export const ORCH_HOME_LABEL = "orch";
@@ -79,7 +79,7 @@ export function clearHome(directory: string, subject: HomeSubject): void {
  *
  * Returns the coordinate, or null when this environment holds nothing. The
  * coordinate is for orch to STORE and to hand back to the plexer — never to
- * display and never to use as an orch id (E10).
+ * display and never to use as an orch id.
  */
 export function openHome(request: OpenHomeRequest): string | null {
   const { directory, subject, plexerId, home, cwd, label, env } = request;

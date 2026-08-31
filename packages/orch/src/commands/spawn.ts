@@ -156,8 +156,8 @@ export async function pinModels(
   // The pin must carry the SAME thinking effort the launch resolved. Pinning the
   // bare model re-set the harness's model and dropped the level, so the agent fell
   // back to the harness's own default and the fleet silently ran at that effort
-  // however `defaults.thinking` was configured. TASKS/12-thinking.md slice 3:
-  // spawn, `orch model` and reset's re-pin all route through the same resolution.
+  // however `defaults.thinking` was configured. Spawn, `orch model` and reset's
+  // re-pin all route through the same resolution.
   // `model:level` is the control plane's wire spelling, never a stored shape.
   const spec = thinking === undefined ? model : `${model}:${thinking}`;
   const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
@@ -524,8 +524,8 @@ function assertNewSpaceGranted(settings: SpawnSettings, backend: Backend, caller
 /**
  * Where this fleet goes: orch's own space and the plexer's workspace, apart.
  *
- * `TASKS/02-scope.md` E10 — the coordinate a plexer hands back is NOT an orch
- * noun. This used to return it as the space id, which both printed a plexer's
+ * The coordinate a plexer hands back is NOT an orch noun. This used to return it
+ * as the space id, which both printed a plexer's
  * word as a name a human chose and produced a space `requireSpace` then refused.
  *
  * E8 — an orch spawning into a plexer it is not itself inside gets its own new
@@ -671,11 +671,10 @@ function findGroupInSpace(backend: Backend, workspace: string | undefined, targe
 
 /**
  * The names this launch will use. Naming an agent is part of CREATING it
- * (`TASKS/02-scope.md` F4): the positional arguments ARE the names, one per pane,
- * and how many you give is how many panes you get. There is no default name and
- * no prefix numbering — an ordinal like `fix-1` says nothing about the slice that
- * pane holds, and renaming afterwards costs N commands and leaves the pane border
- * stale (`TASKS/11-usage-bugs.md` U5, U6).
+ * The positional arguments ARE the names, one per pane, and how many you give is
+ * how many panes you get. There is no default name and no prefix numbering — an
+ * ordinal like `fix-1` says nothing about the slice that pane holds, and renaming
+ * afterwards costs N commands and leaves the pane border stale.
  *
  * Pure: it validates the argument list and nothing else, so a refusal happens
  * before any tab, pane, or worktree exists.
@@ -832,7 +831,7 @@ async function admitSpawn(settings: SpawnSettings): Promise<void> {
 }
 
 /** An environment with no group layout cannot tile. That is an ANSWER with exit
- *  0 (`TASKS/02-scope.md` E14), never a throw and never a silent empty result. */
+ *  0, never a throw and never a silent empty result. */
 function answerNoGroupLayout(json: boolean): void {
   const answer = { outcome: "answer", reason: "no-environment-role", text: "this pane environment does not provide group layout" };
   if (json) process.stdout.write(JSON.stringify(answer) + "\n");
@@ -963,7 +962,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // `--tab <existing>` fills that tab instead of opening a new one, auto-balancing
   // as it fills, so no follow-up move/tile is needed. There is no implicit
   // "grow the fleet under this prefix" path: names are per-slice and unnumbered
-  // (TASKS/02-scope.md F4), so the tab is named explicitly or it is a new one.
+  // so the tab is named explicitly or it is a new one.
   const existing = settings.tabExplicit ? findGroupInSpace(backend, workspace, settings.label) : undefined;
   if (existing) return spawnIntoExistingTab(settings, existing, space, workspace, backend, names, spawnerAgentId, groupLayout);
   const groupHome = backend.groupHome;
@@ -998,7 +997,7 @@ export async function cmdTile(args: string[]) {
   assertLaunchModelAllowed(adapter, model);
   const target = flags.positional[0];
   const requestedName = flags.positional[1];
-  // Tile CREATES an agent, so it names one too (TASKS/02-scope.md F4). A pane
+  // Tile CREATES an agent, so it names one too. A pane
   // called `tile-3` says nothing about the slice it holds.
   if (!target || !requestedName) die("usage: orch tile <tab-or-pane> <name> [--cmd <command>] [--cwd <path>] [--model <model[:thinking]>]");
 

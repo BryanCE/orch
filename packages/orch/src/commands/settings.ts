@@ -382,7 +382,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
   interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string }
   const provenance: ProvenanceRow[] = [];
   // Every declared setting, in the registry's own declaration order. The registry
-  // is the single source of truth for a setting (TASKS/14-settings-tui.md), and
+  // is the single source of truth for a setting, and
   // that includes whether the CLI shows it at all and what it is called. The
   // hand-written switch that used to stand here dropped 23 of the 42 declared
   // keys out of both the table and --json — every retention.*, every workers.*,
@@ -430,7 +430,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
 /**
  * Set the thinking effort a launch uses when nothing overrides it.
  *
- * `TASKS/12-thinking.md`: thinking is its own axis, configurable through orch rather
+ * Thinking is its own axis, configurable through orch rather
  * than by hand-editing settings.json, and it applies to any model and any harness.
  * A bare level sets the global default; `--harness=<id>` sets that harness's override,
  * and `--clear` with `--harness` removes it.

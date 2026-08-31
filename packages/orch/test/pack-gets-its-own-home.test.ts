@@ -10,7 +10,6 @@ import { seedSpace } from "./helpers/space.ts";
 import type { CreateHomeRequest, CreatedHome, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 
 /**
- * TASKS/02-scope.md E8, E9, E10.
  *
  * E8 — an orch spawning into a plexer it is not itself inside MUST get its own
  * new plexer home, and that home is never unmarked: its agents have to read as

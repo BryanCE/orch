@@ -2,7 +2,7 @@ import type { Role, Term } from "../types/policy.ts";
 /**
  * The ONE place orch's own words are spelled.
  *
- * TASKS/02-scope.md A8: vocabulary is a display map, never stored. A role is
+ * Vocabulary is a display map, never stored. A role is
  * not a fact orch records about an agent — it is a fact about where that agent
  * sits in the provenance tree, so it is READ (see {@link roleOf}) and can never
  * disagree with the tree. There is no `role` column and there must never be one.
@@ -17,9 +17,9 @@ export const VOCABULARY = {
   orch: "orch",
   /** Any non-root member of a pack. */
   slave: "slave",
-  /** One provenance tree, rooted at an orch (A10). */
+  /** One provenance tree, rooted at an orch. */
   pack: "pack",
-  /** The user's grouping of work, and the reachability boundary (A7, ADR 0001). */
+  /** The user's grouping of work, and the reachability boundary (ADR 0001). */
   space: "space",
 } as const satisfies Readonly<Record<string, string>>;
 
@@ -29,7 +29,7 @@ export function term(key: Term): string {
 }
 
 /**
- * A11: a role is tree position and nothing else.
+ * A role is tree position and nothing else.
  *
  * `rootAgentId` is provenance — immutable, and self-referential at the root
  * (`agents_root_is_self` in the schema). So an agent that is its own root drives

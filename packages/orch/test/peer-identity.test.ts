@@ -61,7 +61,7 @@ describe("spawner identity", () => {
     const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "e2277e83-74d9";
-    // TASKS/08: a participant outside a plexer must be nameable. The id comes from
+    // A participant outside a plexer must be nameable. The id comes from
     // orch's own record for this session token - never from a plexer coordinate,
     // and never the literal string "operator".
     const registered = getOrCreateSessionAgent(orchDir, {
@@ -168,7 +168,7 @@ describe("the spawner address invariant", () => {
     const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859";
-    // TASKS/08: a session is an agent with the same addressability. Its address is
+    // A session is an agent with the same addressability. Its address is
     // the id orch minted for it, not a plexer coordinate and not ORCH_SESSION_KEY.
     const registered = getOrCreateSessionAgent(orchDir, {
       pid: 4242, startToken: "tok", sessionToken: "c0f80035-1859", harnessId: "claude",

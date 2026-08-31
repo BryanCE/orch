@@ -4,9 +4,8 @@ import type { Identity } from "../types/backend.ts";
 /**
  * Agent identity: one minted id, and nothing else.
  *
- * TASKS/01-agent-model.md — *"Identity = a minted id and NOTHING else,
- * immutable. Never encode environment into identity. No
- * `<backend>~<workspace>~<handle>` key."*
+ * Identity is a minted id and NOTHING else, immutable. Never encode environment
+ * into identity. No `<backend>~<workspace>~<handle>` key.
  *
  * This module used to serialize `<plexer>~<plexer-grouping>~<id>` into the
  * presence directory name and the registry primary key. That made an agent's

@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import * as connection from "../src/store/connection.ts";
 
 /**
- * TASKS/10-review-findings.md 2.3 — "pick one."
+ * Pick one.
  *
  * `OpenDatabase` held a hand-rolled raw-SQL port AND a drizzle handle over the
  * same connection, so every query chose a stack and every schema change touched

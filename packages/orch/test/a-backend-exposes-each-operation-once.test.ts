@@ -5,8 +5,7 @@ import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import type { Backend } from "../src/types/backend.ts";
 
 /**
- * TASKS/10-review-findings.md 2.2 — "keep ONLY the nullable role objects — their
- * nullness IS the capability."
+ * Keep ONLY the nullable role objects — their nullness IS the capability.
  *
  * Every plexer operation used to be reachable two ways: a top-level method AND a
  * one-line role forwarder to it. Two surfaces for one operation is what made call

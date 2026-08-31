@@ -81,8 +81,7 @@ describe.skipIf(!shimBuilt)("claude-hooks shim", () => {
       expect(result.stderr).toBe("");
     }, 30_000);
 
-    // "Loudly" means RECORDED, not stderr. TASKS/13-logging.md slice 4 (pinned by
-    // test/no-stderr-writes.test.ts) allows a runtime source exactly two channels:
+    // "Loudly" means RECORDED, not stderr. A runtime source has exactly two channels:
     // a structured log record for diagnosis, and stdout for what the human asked to
     // see. A wiring error is diagnosis, so it lands in orch.log — asserting it on
     // stderr demanded the one channel the architecture forbids, and the two tests

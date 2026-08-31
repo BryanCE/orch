@@ -204,7 +204,7 @@ export async function dispatchToAgent(key: string, text: string, options: Dispat
     options.gov,
   );
   if (!isRecord(delivered) || typeof delivered.id !== "string") throw new Error("dispatch response missing dispatch id");
-  // The CLI end of the correlation chain (TASKS/13 section 3). The id is minted by
+  // The CLI end of the correlation chain. The id is minted by
   // the daemon, so this is the first moment the CLI can name the dispatch it just
   // made — without this record half the system writes nothing anywhere, ever.
   const identity = tryParseIdentity(key);

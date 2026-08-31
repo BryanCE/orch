@@ -13,9 +13,9 @@ import { seedSpace } from "./helpers/space.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md A10 — "A pack starts at ONE member — a registered session is
- * an orch of a pack of one. Membership is the PROVENANCE ROOT, so every agent is
- * in exactly one pack at any depth."
+ * A pack starts at ONE member, a registered session is an orch of a pack of one.
+ * Membership is the PROVENANCE ROOT, so every agent is in exactly one pack at any
+ * depth.
  */
 
 function withStore(body: (directory: string) => void): void {

@@ -331,7 +331,7 @@ describe("fleet ownership scoping", () => {
 describe("a spawned agent touches only what it spawned", () => {
   const agentKey = "kwfworkera";
 
-  // TASKS/01: identity is a minted id and NOTHING else. A launch key carries no
+  // Identity is a minted id and NOTHING else. A launch key carries no
   // plexer and no space, so there is nothing left to mistake for identity.
   test("a spawned agent acts as its own minted id, not its launch key", () => {
     process.env[LAUNCH_ENV] = agentKey;

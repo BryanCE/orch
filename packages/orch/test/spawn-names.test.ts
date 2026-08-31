@@ -60,7 +60,7 @@ describe("agent name validation", () => {
   });
 });
 
-// TASKS/02-scope.md F4 deleted prefix numbering: names are positional, per-slice
+// Deleted prefix numbering: names are positional, per-slice
 // and unnumbered, so there is no index to compute. What survives is the only
 // thing numbering ever protected — a LIVE name cannot be taken twice, and a
 // DEAD agent releases its name.

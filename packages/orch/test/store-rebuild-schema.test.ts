@@ -18,7 +18,7 @@ function base(d: ReturnType<typeof orm>) {
   d.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"a"},${"a"},${"pi"},${"/"},${"A"},${1})`);
 }
 
-// This is the complete current sqlite_master inventory from TASKS/06-schema.md.
+// This is the complete current sqlite_master inventory.
 // Keep it independent of src/db/schema.ts: a missing or superseded object must
 // make this test fail rather than being silently excluded as a legacy name.
 const expectedInventory = new Set([

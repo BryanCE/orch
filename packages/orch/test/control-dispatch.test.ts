@@ -118,9 +118,9 @@ describe("deliverControl", () => {
     expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
   }, 15_000);
 
-  // Claude composes neither inboxSteering nor modelControl. Under TASKS/02-scope.md
-  // E13 that absence IS the capability statement, so the dispatcher reads it from
-  // the composition — there is no flag left to mutate, which is the point.
+  // Claude composes neither inboxSteering nor modelControl. That absence IS the
+  // capability statement, so the dispatcher reads it from the composition — there
+  // is no flag left to mutate, which is the point.
   test("refuses steer and model on an adapter that composes neither role", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;

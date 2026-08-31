@@ -8,8 +8,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /**
- * TASKS/02-scope.md L6 — "A slave with no reachable spawner relays through a
- * sibling and burns its turn."
+ * A slave with no reachable spawner relays through a sibling and burns its turn.
  *
  * Reproduced live: two of four research agents spent their entire turn on
  * `orch_send` to each other and returned relay chatter instead of their report.

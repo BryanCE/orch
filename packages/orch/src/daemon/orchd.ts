@@ -180,7 +180,7 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
       return "acked";
     }
     // An inbox write is a handoff, not a read: the row stays pending until the
-    // bridge appends its marker to ack.jsonl (TASKS/02-scope.md L7).
+    // bridge appends its marker to ack.jsonl.
     return outcome.ack === "expected" ? "queued" : "acked";
   } catch (error) {
     log.error("dispatch.failed", { target: canonicalTarget, error: errorMessage(error) });
@@ -230,7 +230,7 @@ export function governWrite(directory: string, target: string, params: unknown, 
   const foreignLease = lease !== null && holderId !== actorId;
   // Every grant is part of the decision trail, not just the interesting ones: a
   // dispatch whose lease step left no record cannot be told apart from one that
-  // never reached the lease step at all (TASKS/13 slice 5).
+  // never reached the lease step at all.
   const logLeaseGrant = (): void => {
     decisionLogger(directory, { ...context, agentId: targetId }).debug("lease.granted", {
       target,

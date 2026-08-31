@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 
 /**
- * TASKS/10-review-findings.md 1.13 — a plexer that launches an agent must hand it
- * ORCH_PROJECT. Without it the worker resolves `projectRoot()` to its own cwd
+ * A plexer that launches an agent must hand it ORCH_PROJECT. Without it the
+ * worker resolves `projectRoot()` to its own cwd
  * (`src/util.ts`), and in a worktree that is NOT the fleet's project, so
  * `peers.ts` walls the worker out of its own fleet.
  */

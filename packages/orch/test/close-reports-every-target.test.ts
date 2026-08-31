@@ -15,12 +15,12 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 
 /**
- * TASKS/11-usage-bugs.md U2 — `orch close --all` left rows it had just failed to
+ * `orch close --all` left rows it had just failed to
  * close, said so only in prose, and exited success:
  *
  *     Could not close w7:p2B; process or pane remains registered.
  *
- * `TASKS/07-port-seam.md`, "Multi-target commands": a multi-target command
+ * Multi-target commands: a multi-target command
  * records `outcome: "done" | "error"` PER TARGET plus the real error text. A
  * caller parsing `--json` could not see any of this — the payload carried only
  * the successes — so a script could not tell a full sweep from a half one.

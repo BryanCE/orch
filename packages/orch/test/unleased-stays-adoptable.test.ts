@@ -13,11 +13,10 @@ import type { OrchConfig } from "../src/types/config.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md D3 — "Unleased + idle stays alive and adoptable,
- * indefinitely. Nothing ages it out."
+ * Unleased + idle stays alive and adoptable, indefinitely. Nothing ages it out.
  *
- * TASKS/01-agent-model.md:388 — "Unleased and idle, it stays alive and
- * adoptable. It costs a pane and some memory, not tokens." An unleased agent is
+ * Unleased and idle, it stays alive and adoptable. It costs a pane and some
+ * memory, not tokens. An unleased agent is
  * the NORMAL resting state after its orch died (D2), not a defect to tidy away.
  * The temptation is a sweep, and the sweep is exactly what this row forbids:
  * age is not a fact about whether work is wanted.

@@ -52,8 +52,7 @@ export interface AgentStatusRole<Handle = BackendHandle> { wait(handle: Handle, 
 /** Request to create one plexer group (herdr tab, tmux window). */
 export interface CreateGroupRequest {
   /** The plexer's coordinate to open the group in, or undefined when orch
-   *  resolved none — it never invents one, and the plexer uses its own default
-   *  (`TASKS/02-scope.md` E10, E14). */
+   *  resolved none — it never invents one, and the plexer uses its own default. */
   readonly workspace: string | undefined;
   readonly cwd: string;
   readonly label?: string | null;
@@ -115,7 +114,7 @@ export interface CreatedHome<Handle = BackendHandle> {
 
 /**
  * What a home is opened FOR. orch has exactly two things a plexer can hold — a
- * space and a pack (`TASKS/02-scope.md` E10) — and neither is a new noun minted
+ * space and a pack — and neither is a new noun minted
  * for the plexer's own grouping. The coordinate the plexer hands back is stored
  * against this subject in `space_plexers` / `pack_plexers`, never displayed.
  */
@@ -136,8 +135,8 @@ export interface SpaceHomeRole<Handle = BackendHandle> {
 /**
  * Where the calling process itself is. Composed by an environment a process can be
  * INSIDE — a pane in a plexer. A detached agent is in no space, so headless
- * composes nothing here and callers get the absence as their answer
- * (`TASKS/02-scope.md` E13 — nullness is the capability, never a method probe).
+ * composes nothing here and callers get the absence as their answer: nullness
+ * is the capability, never a method probe.
  */
 export interface EnvironmentIdentityRole {
   /** Where the calling process sits, or null when it is not inside one at all. */
@@ -158,8 +157,8 @@ export interface VersionRole {
 }
 
 /** Pruning this environment's own logs. Absent when it keeps none — which is an
- *  answer, not a failure, and replaces the `canPruneLogs` boolean Ef12 declared
- *  alongside the method (`TASKS/02-scope.md` E13 deletes both). */
+ *  answer, not a failure, and replaces the `canPruneLogs` boolean declared
+ *  alongside the method. */
 export interface LogPruningRole {
   prune(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number;
 }
@@ -379,7 +378,7 @@ export interface Backend<Handle = BackendHandle> {
   readonly logPruning: LogPruningRole | null;
   /** Reports this environment's installed integration version. Absent when the
    *  environment exposes no version to report — which is an ANSWER for the doctor
-   *  to print, not a missing method to probe for (TASKS/02-scope.md E13). */
+   *  to print, not a missing method to probe for. */
   readonly versionInfo: VersionRole | null;
   readonly paneHost: PaneHostRole<Handle> | null;
   readonly paneInventory: PaneInventoryRole<Handle> | null;

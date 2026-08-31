@@ -7,8 +7,8 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
 /**
- * TASKS/02-scope.md B2 — "Credential is the `0600` token file in `$ORCH_DIR`;
- * same-uid is the whole trust boundary."
+ * Credential is the `0600` token file in `$ORCH_DIR`; same-uid is the whole
+ * trust boundary.
  *
  * B4 rejects peer credentials outright (node exposes neither `SO_PEERCRED` nor
  * process ancestry portably), so the file modes ARE the boundary. If the

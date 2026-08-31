@@ -15,17 +15,17 @@ import {
 /**
  * The one place the four facts are read back together.
  *
- * TASKS/02-scope.md A1 keeps identity, provenance, ownership and environment in
+ * Identity, provenance, ownership and environment stay
  * separate tables so that changing one cannot rewrite another. That separation
  * is only worth having if nothing reassembles them into a second wide row: the
  * old `spawned` table was exactly that row, and moving an agent between plexers
  * meant minting a new primary key for it.
  *
- * A14: environment is a COMPOSITION, never a table. Each axis below has its own
+ * Environment is a COMPOSITION, never a table. Each axis below has its own
  * narrow satellite with its own `since`/`until`; a missing axis is a missing
  * row, never a NULL column on the hub.
  *
- * A15: adding an axis (OS side, remote host, container) is one table plus one
+ * Adding an axis (OS side, remote host, container) is one table plus one
  * entry in {@link ENVIRONMENT_AXES} — no consumer changes, because consumers
  * read {@link AgentView.environment} as a whole.
  */
@@ -36,7 +36,7 @@ type ComposingEnvironment = Partial<Record<EnvironmentAxisKey, string | null>>;
 
 /**
  * One environment axis: the satellite it reads and how to pull its current
- * value. Adding an axis is one entry here — that is the whole of A15.
+ * value. Adding an axis is one entry here.
  */
 interface EnvironmentAxis {
   readonly key: string;
@@ -76,7 +76,7 @@ function worktreeBranch(orchDir: string, agentId: string): string | null {
 
 // `as const` pins the keys so the shape can be read off this list; `satisfies`
 // checks each entry without widening it. This array is the ONE place the set of
-// axes is written down — that is what makes adding one a single line (A15).
+// axes is written down — that is what makes adding one a single line.
 export const ENVIRONMENT_AXES = [
   { key: "plexer", read: currentPlexer },
   { key: "handle", read: currentHandle },

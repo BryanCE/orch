@@ -67,7 +67,7 @@ orch settings skills --roots=~/.agents/skills    # one root only
 [`skills/orch/SKILL.md`](skills/orch/SKILL.md) is the fleet doctrine an orchestrating agent
 follows: how to size a fleet, how to slice work, when to reuse a pane instead of spawning,
 and how to watch the event stream instead of blocking. Read it before writing your own
-orchestration prompt — the README below is the reference, that file is the method.
+orchestration prompt — the README below is the reference; that file is the method.
 
 ## The loop
 

@@ -7,7 +7,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
 /**
- * TASKS/10-review-findings.md 2.4 — "one `bindUnix(server, paths)`".
+ * One `bindUnix(server, paths)`.
  *
  * `startRpcServer` wrote the unix endpoint's whole claim — listen, mark the path
  * bound, drop the stale port file — once for the first attempt and again inside

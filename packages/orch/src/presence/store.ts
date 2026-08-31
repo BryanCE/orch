@@ -57,7 +57,7 @@ export function readJSON<T = unknown>(file: string): T | null {
  *  name them and `orch clean` can reap them — they just never surface as a
  *  live status, so one bad dir can never break the whole status view. */
 function isPresenceStatus(value: unknown): value is PresenceStatus {
-  // Placement is orch's, never the agent's to report (TASKS/08-identity-registration.md).
+  // Placement is orch's, never the agent's to report.
   // A record stamping the CURRENT schema that still carries it is a writer claiming to
   // know where it runs, which the registry alone answers — so it is malformed, not old.
   return isRecord(value)
@@ -94,15 +94,15 @@ export function readPresenceStatus(file: string): PresenceStatus | null {
 /**
  * Every agent that has NOT ended, indexed by its minted id.
  *
- * A1: this replaces the pane-keyed `spawned` scan. Identity is the minted id and
+ * This replaces the pane-keyed `spawned` scan. Identity is the minted id and
  * nothing else, and a presence key IS that id, so one index answers both "which
  * agent is this key" and "what has orch spawned" without a second id space.
  * Values are the composed {@link AgentView}: environment, tuning and the lease
  * are read from the tables that own them, never from a flat row.
  *
  * An ended agent is out because this index is the LIVE fleet — it is what
- * `close` removes an agent from. TASKS/01-agent-model.md §11 keeps the row and
- * its lease history after a close (only `reap` deletes them), so "is it still
+ * `close` removes an agent from the live fleet but keeps the row and its lease
+ * history after a close (only `reap` deletes them), so "is it still
  * in the fleet" has to be the ending, not the presence of a row. Reading
  * history is `agentViews`/`agentView`, which still see everything.
  */
@@ -221,7 +221,7 @@ export function loadPresence(root = orchDir()): Map<string, PresenceEntry> {
     throw error;
   }
   for (const key of keys) {
-    // J4/A1: a presence directory is named by the minted id and nothing else, so
+    // A presence directory is named by the minted id and nothing else, so
     // a name that does not parse names NO agent - there is nothing to key the
     // four facts on. Rule 8: an old-shape record is malformed, never a second
     // shape to accept. It is reaped by `reapMalformedPresenceDirs`, not read.

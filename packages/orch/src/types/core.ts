@@ -23,7 +23,7 @@ export interface LogRecord {
   /** The dispatch id, or the RPC request id. Correlation is the point. */
   readonly correlationId?: string;
   /** orch's minted id and nothing else. A plexer handle is environment
-   *  (`TASKS/01-agent-model.md`) and belongs in `fields`. */
+   *  and belongs in `fields`. */
   readonly agentId?: string;
   readonly fields?: Readonly<Record<string, LogValue>>;
 }
@@ -212,7 +212,7 @@ export type ExtensionName = keyof typeof EXTENSION_SOURCE_DIR;
 /**
  * Who this process is, as ONE answer for the whole CLI.
  *
- * Identity is the minted id and nothing else (TASKS/01). Where the process runs
+ * Identity is the minted id and nothing else. Where the process runs
  * — plexer, space, pane handle, cwd — is ENVIRONMENT: recorded on its own rows
  * beside the agent, never consulted to work out who someone is. Asking the plexer
  * "who am I" is what produced `<backend>~<workspace>~operator`, an id that named

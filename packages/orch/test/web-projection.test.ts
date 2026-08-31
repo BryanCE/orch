@@ -80,7 +80,7 @@ describe("web fleet projection", () => {
 });
 
 /**
- * TASKS/02-scope.md C7 — "Live views group by lease; history groups by provenance."
+ * Live views group by lease; history groups by provenance.
  *
  * The containment the model states: a SPACE encompasses the orchs working in it,
  * and each orch encompasses the slaves it currently holds. Space stays the live
@@ -88,8 +88,8 @@ describe("web fleet projection", () => {
  * INSIDE it the live rows group by their LEASE HOLDER, never by provenance.
  *
  * Grouping live work by provenance is the concrete harm named at
- * TASKS/01-agent-model.md:370: adopt an orphaned fleet and a provenance-scoped
- * live view shows you none of it, because the agent that spawned those workers
+ * adopt an orphaned fleet and a provenance-scoped live view shows you none of it,
+ * because the agent that spawned those workers
  * is gone and the orch now driving them is not the one they were spawned by.
  */
 describe("live views group by lease (C7)", () => {
@@ -156,8 +156,7 @@ describe("live views group by lease (C7)", () => {
 });
 
 /**
- * TASKS/02-scope.md G9 — "Orphan bucket — unleased agents separated from live
- * work, never mixed."
+ * Orphan bucket — unleased agents separated from live work, never mixed.
  *
  * The CLI already gets this right: `deriveDriveState` treats a lease whose
  * HOLDER PROCESS IS GONE as unleased, and the OWNER column reads "no orch

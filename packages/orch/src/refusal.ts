@@ -24,11 +24,11 @@ export class CommandRefusal extends Error {
 /**
  * The ONE wording for "that target matched more than one agent".
  *
- * `TASKS/11-usage-bugs.md` U3: this refusal used to have three. `entities.ts`
+ * This refusal used to have three. `entities.ts`
  * printed a bare candidate list with no advice, so a caller read it as a
  * listing command's output and lost the turn; `resolveAgentView` said "address
  * by id" and `resolveLifecycleTarget` said "address by key" — two names for a
- * fact A1 settles, since the key IS the id.
+ * fact settles, since the key IS the id.
  *
  * A refusal has to say three things or it costs the caller their turn: WHAT
  * failed, WHICH target string it was about, and what to send INSTEAD.

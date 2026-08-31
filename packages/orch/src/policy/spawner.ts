@@ -17,7 +17,7 @@ export const ORCH_ENV_VARS = [
 /**
  * The launching session's identity: the id orch issued it, plus a label to show.
  *
- * There is ONE source (TASKS/08): orch mints in `register-session` and this reads the record.
+ * There is ONE source: orch mints in `register-session` and this reads the record.
  * The four-branch env ladder that used to live here asked the plexer, then two
  * harness env vars, then fell back to the literal id `"operator"` — four answers
  * that could not agree, so a spawner's address never matched its own lease.
@@ -60,7 +60,7 @@ export function worktreeEnv(path: string | undefined, branch: string | undefined
  * One builder, because three had already drifted: herdr set `ORCH_PROJECT`,
  * headless set it, and tmux set none — so a tmux worker in a worktree resolved
  * `projectRoot()` to its own cwd and `peers.ts` filtered it out of the fleet
- * that spawned it (TASKS/10-review-findings.md 1.13). Project scope is not a
+ * that spawned it. Project scope is not a
  * per-plexer nicety; it is how a worker knows which fleet it belongs to.
  *
  * Only what the CALLER passed, plus the project: reading `process.env` for

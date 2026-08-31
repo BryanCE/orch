@@ -68,7 +68,7 @@ function settingsReport(output: string): Record<string, SettingReport> {
 
 describe("orch settings", () => {
 
-  // TASKS/14-settings-tui.md: the registry is the single source of truth for a
+  // The registry is the single source of truth for a
   // setting, and a setting the CLI cannot show is a setting nobody can find. A
   // hand-written switch beside the registry loop dropped 23 of the 42 declared
   // keys from both the table and --json — every retention.*, every workers.*,

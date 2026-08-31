@@ -8,8 +8,8 @@ import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
 /**
- * TASKS/02-scope.md B6 — "No-daemon commands (`setup`, `doctor`, `help`,
- * `version`, `status --offline`) need no identity because they NEVER WRITE."
+ * No-daemon commands (`setup`, `doctor`, `help`, `version`, `status --offline`)
+ * need no identity because they NEVER WRITE.
  *
  * The claim is load-bearing in both directions. If one of them writes, it needs
  * to know who is writing and the exemption is wrong. If one of them starts a

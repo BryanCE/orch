@@ -64,8 +64,8 @@ describe("outbox ack fallback", () => {
     expect(outboxMessageOpen(orchDir, id)).toBe(true);
   });
 
-  // TASKS/02-scope.md L7 says ack.jsonl is "agent-append / daemon-consume: the
-  // daemon reads it to mark the matching outbox row delivered EXACTLY ONCE".
+  // ack.jsonl is agent-append / daemon-consume: the
+  // daemon reads it to mark the matching outbox row delivered EXACTLY ONCE.
   // A duplicate marker is the realistic failure — an agent that retried its post,
   // or a crash between the append and the drain — and counting it twice would
   // report deliveries that never happened.

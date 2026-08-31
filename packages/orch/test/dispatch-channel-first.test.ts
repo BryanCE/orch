@@ -25,9 +25,9 @@ afterEach(() => {
   else process.env.ORCH_DIR = previousDir;
 });
 
-// TASKS/01-agent-model.md, Rule 11: "Delivery and read are ORCH's mechanism; a pane
-// is an optimisation. inbox.jsonl -> bridge -> ack.jsonl needs no screen. A capless
-// environment is one with no shortcut, NOT one orch cannot talk to."
+// Delivery and read are ORCH's mechanism; a pane is an optimisation. inbox.jsonl
+// -> bridge -> ack.jsonl needs no screen. A capless environment is one with no
+// shortcut, NOT one orch cannot talk to.
 //
 // Answering `no-pane` to a DISPATCH is that rule inverted: it treats the missing
 // optimisation as a missing capability and drops real work on the floor. Orch's own

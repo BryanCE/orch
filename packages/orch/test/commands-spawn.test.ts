@@ -127,8 +127,8 @@ describe("commands/spawn", () => {
     expect(agentViews(dir)).toEqual([]);
   });
 
-  // TASKS/02-scope.md F4: the positional arguments ARE the agent names, and how
-  // many you give is how many panes you get. There is no --name flag to preserve.
+  // The positional arguments ARE the agent names, and how many you give is how
+  // many panes you get. There is no --name flag to preserve.
   test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true, unknownFlags: [] }));
   test("collects repeated prompts in agent order", () => expect(parseSpawnFlags(["a", "b", "c", "--prompt", "one", "--prompt", "two", "--prompt", "three"]).promptFlags).toEqual(["one", "two", "three"]));
   test("each pi flavor launches its own binary and preserves raw prompt", () => {

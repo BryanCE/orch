@@ -7,8 +7,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
- * TASKS/02-scope.md J4 — presence directory names change; existing dirs are
- * REAPED, not migrated.
+ * Presence directory names change; existing dirs are REAPED, not migrated.
  *
  * Rule 8: pre-publish there is exactly ONE current shape, and a record in an old
  * one is malformed — reap it or error, never accept two shapes at once. A

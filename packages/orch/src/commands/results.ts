@@ -27,7 +27,7 @@ interface QuestionPayload { ts?: unknown; question: string }
 function writeHistoricalResult(run: { result?: unknown }, json: boolean, key?: string): boolean {
   if (run.result === undefined) return false;
   resultLogger(key).info("result.history-fallback");
-  // TASKS/13 §1: stdout carries what the human asked for — here, the result
+  // Stdout carries what the human asked for — here, the result
   // text itself. A provenance notice on stdout corrupts `orch result … | …`.
   process.stdout.write("(result from run history)\n");
   if (json) {

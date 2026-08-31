@@ -91,8 +91,8 @@ describe("answer via the control dispatcher", () => {
     expect(line.text).toBe("yes, ship it");
   });
 
-  // TASKS/02-scope.md E14: an adapter that takes no answers is an ABSENCE, and an
-  // absence is an answer to a human, never a failure path. So this is outcome
+  // An adapter that takes no answers is an ABSENCE, and an absence is an answer
+  // to a human, never a failure path. So this is outcome
   // "answer" with exit code zero — but it still has to NAME the target and the
   // harness, or the human learns nothing from it.
   test("answers, rather than failing, when the adapter composes no question role", async () => {

@@ -134,7 +134,7 @@ export interface PeerSummary {
   harness?: string;
   space: string | null;
   state: string;
-  /** Ownership, and ownership only (TASKS/01 Rule 11): the LIVE lease on this
+  /** Ownership, and ownership only: the LIVE lease on this
    *  agent. Without it the compact listing an agent actually reads shows an
    *  unleased peer as ordinary live work belonging to whoever is looking. */
   drive: DriveState;

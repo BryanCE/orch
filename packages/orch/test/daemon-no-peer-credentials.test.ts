@@ -11,8 +11,8 @@ import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
 
 /**
- * TASKS/02-scope.md B4 — "Peer credentials rejected — node exposes neither
- * `SO_PEERCRED` nor process ancestry portably."
+ * Peer credentials rejected — node exposes neither `SO_PEERCRED` nor process
+ * ancestry portably.
  *
  * The consequence is the point: the token is the ONLY proof (B2), so the daemon
  * must not quietly grow a second check against the socket peer or the caller's

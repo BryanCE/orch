@@ -38,7 +38,7 @@ function events(file: string): string[] {
     .map((record) => record.event);
 }
 
-// TASKS/02-scope.md: logging is a setting, so it has to reach every logger.
+// Logging is a setting, so it has to reach every logger.
 // Four call sites hardcoded `level: "info"`, which meant `logging.level` and
 // ORCH_LOG_LEVEL were accepted, displayed by `orch settings`, and then ignored
 // by the CLI logger and three of the daemon's own loggers.

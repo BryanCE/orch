@@ -23,8 +23,8 @@ afterEach(() => {
   else process.env.ORCH_DIR = oldDir;
 });
 
-// TASKS/02-scope.md F4: `orch spawn <name>` — naming is REQUIRED and there is no
-// default name. Naming an agent is part of creating it, not an option alongside
+// `orch spawn <name>` — naming is REQUIRED and there is no default name. Naming
+// an agent is part of creating it, not an option alongside
 // it: the names ARE the positional arguments, and how many you give is how many
 // panes you get. A count is not a name, and an ordinal like `fix-1` says nothing
 // about the slice that pane holds.

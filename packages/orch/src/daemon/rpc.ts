@@ -310,7 +310,7 @@ function verifiedSessionProcess(claim: Record<string, unknown>): { pid: number; 
 /**
  * The environment facts a caller reports about itself. The daemon runs in ONE
  * place and the caller may be in another, so it never observes these on the
- * caller's behalf (TASKS/01-agent-model.md, B9) — it only normalizes what
+ * caller's behalf — it only normalizes what
  * arrived. An absent or blank fact is `null`, never a sentinel string.
  */
 function claimedEnvironment(claim: Record<string, unknown>): {

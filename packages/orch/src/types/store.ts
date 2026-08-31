@@ -172,7 +172,7 @@ export interface OutboxMessageInput{id:string;target:string;payload:unknown;crea
  * `delivered` settled.
  * The middle state is what tells "nothing would take this write" apart from
  * "the agent has not read it yet" — collapsing them failed every inbox dispatch
- * back to the caller as unapplied (TASKS/02-scope.md L7).
+ * back to the caller as unapplied.
  */
 export type OutboxState = "pending" | "awaiting" | "delivered";
 

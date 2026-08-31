@@ -30,7 +30,7 @@ describe("commands/clean", () => {
 });
 
 describe("worktree ownership reads the composed environment", () => {
-  // TASKS/02-scope.md A1: the worktree is an ENVIRONMENT axis of an agent, and
+  // The worktree is an ENVIRONMENT axis of an agent, and
   // liveness is presence keyed by the agent's minted id — not a column on a wide
   // row keyed by a pane.
   test("a live agent's worktree is protected and a dead one's is not", () => {

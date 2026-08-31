@@ -183,8 +183,8 @@ export function parsePid(text: unknown): number | undefined {
 /**
  * Create a directory orch owns, private to this uid, and tighten it if it is not.
  *
- * TASKS/02-scope.md B2: the credential is the `0600` token file in `$ORCH_DIR`
- * and SAME-UID IS THE WHOLE TRUST BOUNDARY — B4 rejects peer credentials
+ * The credential is the `0600` token file in `$ORCH_DIR` and SAME-UID IS THE
+ * WHOLE TRUST BOUNDARY — peer credentials are rejected
  * outright, so the file modes are the only boundary there is. A plain
  * `mkdirSync(orchDir, { recursive: true })` takes the user's umask, which on a
  * default 022 is `0755`: the token stays unreadable, but every presence dir,
@@ -243,8 +243,8 @@ export function createFileExclusively(path: string, content: string, mode = 0o60
  * WSL daemon routinely reports for a Windows-side session — so on Linux
  * `path.isAbsolute("C:\\Users\\...")` is false and a host-local check drops
  * exactly the paths this exists to keep. `startsWith("/")` is the same mistake
- * spelled shorter: TASKS/10-review-findings.md 1.12 is the win32 agent that got
- * no session tail, model or cost fallback because of it.
+ * spelled shorter; the win32 agent got no session tail, model or cost fallback
+ * because of it.
  *
  * One decision, imported: it is made where a harness context is read (the
  * presence writer) and where a pane reports to herdr, and those two must never

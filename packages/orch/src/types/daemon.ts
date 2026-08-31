@@ -184,7 +184,7 @@ export interface LeaseStatusPayload {
  *          Terminal either way.
  * `queued` the message was handed to a channel whose reader acknowledges
  *          separately: the inbox. This is NOT delivery. The agent's own marker
- *          in `ack.jsonl` is what settles the row (TASKS/02-scope.md L7).
+ *          in `ack.jsonl` is what settles the row.
  * `failed` the write did not happen. Retry with backoff.
  *
  * A boolean cannot carry this: it collapses "handed to the channel" into

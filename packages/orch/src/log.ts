@@ -1,5 +1,5 @@
 /**
- * The one logger. `TASKS/13-logging.md` is the contract.
+ * The one logger is the contract.
  *
  * A diagnosis channel, never the user-output channel: `process.stdout.write` stays
  * what the human asked to see, and nothing here writes to it. Records are JSONL
@@ -72,7 +72,7 @@ export function createLogger(options: LoggerOptions, base: LogContext = {}): Log
     } catch {
       // A log that cannot be written must never take down the operation it was
       // describing. There is nowhere else to report this: writing to stderr is the
-      // very habit TASKS/13 exists to delete.
+      // very habit exists to delete.
     }
   };
 

@@ -13,7 +13,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
- * TASKS/10-review-findings.md 2.1 — "`registerSpawnedAgent` is the only write."
+ * `registerSpawnedAgent` is the only write.
  *
  * The spawn path called `registerSpawnedAgent` AND `recordSpawned`, and the two
  * had already divided the record between them: registration wrote the harness,

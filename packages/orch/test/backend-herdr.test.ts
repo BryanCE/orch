@@ -372,8 +372,8 @@ describe("HerdrBackend", () => {
   });
 });
 
-// TASKS/02-scope.md E8/E9: a home is what an environment provides for holding
-// orch's own structure, and an orch that opens one "MUST" leave it marked —
+// A home is what an environment provides for holding orch's own structure, and
+// an orch that opens one MUST leave it marked —
 // `herdr workspace create` with no `--label` yields a workspace herdr names
 // itself (`wF`), which is the unmarked home E8 forbids and the display bug
 // ADR-0001 is about.

@@ -24,10 +24,9 @@ import { sql } from "drizzle-orm";
 /**
  * A1 ripple — the agent-side readers of an identity key.
  *
- * TASKS/01-agent-model.md: *"Identity = a minted id and NOTHING else,
- * immutable… Never encode environment into identity. No
- * `<backend>~<workspace>~<handle>` key. `"local"` is not a place, it is a
- * missing value with a name."*
+ * Identity = a minted id and NOTHING else, immutable… Never encode environment
+ * into identity. No `<backend>~<workspace>~<handle>` key. `"local"` is not a
+ * place, it is a missing value with a name.
  *
  * These five modules (`src/agent/presence.ts`, `src/agent/peers.ts`,
  * `src/agent/drive-state.ts`, `src/identity/self.ts`, `src/doctor/presence.ts`)
@@ -116,7 +115,7 @@ describe("a driving session mints an id, it is not placed by name", () => {
     presence.stopPresence();
 
     // A session is in no plexer and in no space. `headless` and `local` are the
-    // two sentinels TASKS/01 §3 outlaws: NULL wearing a name, and the exact pair
+    // two sentinels the model outlaws: NULL wearing a name, and the exact pair
     // that made the web render a fake space called "local".
     expect(isAgentId(key)).toBe(true);
     expect(key).not.toContain("~");

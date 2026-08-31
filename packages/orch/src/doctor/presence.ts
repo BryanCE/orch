@@ -43,7 +43,7 @@ export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
   }
 
   const ignoredRecords: IgnoredPresenceRecord[] = [];
-  // The directory name IS the agent id (TASKS/01): anything else — a
+  // The directory name IS the agent id: anything else — a
   // `<plexer>~<grouping>~<id>` key, a pane handle, a name — is a record no agent
   // answers to, whatever wrote it. `loadPresence` skips those entirely, because
   // they are not presence; doctor is the one caller that must SEE them, so it

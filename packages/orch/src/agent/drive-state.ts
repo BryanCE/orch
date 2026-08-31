@@ -1,7 +1,7 @@
 // Ownership, and ownership only: who is driving one agent RIGHT NOW.
 //
-// TASKS/01-agent-model.md Rule 11 keeps identity, provenance, ownership and
-// environment apart, and makes ownership a lease held by a LIVE orch. This
+// Rule 11 keeps identity, provenance, ownership and environment apart, and makes
+// ownership a lease held by a LIVE orch. This
 // module answers that one question so the CLI table, the `--json` payload and
 // the in-harness peer listing all read the same lease facts from the same
 // place — a second copy would be a second truth about who owns an agent.

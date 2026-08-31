@@ -15,13 +15,13 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 
 /**
- * TASKS/11-usage-bugs.md U10 — `orch close --all`, run from a plain shell,
+ * `orch close --all`, run from a plain shell,
  * asked herdr to close panes named after AGENT IDS:
  *
  *     Could not close 2d6biywurb: herdr pane close 2d6biywurb failed after 4
  *     attempts: {"error":{"code":"pane_not_found",...}}
  *
- * Two facts got welded (Rule 11, TASKS/01-agent-model.md §2). Identity is the
+ * Two facts got welded (Rule 11). Identity is the
  * minted id; the pane handle is ENVIRONMENT, on its own interval timeline, and
  * it is NULL the moment the pane is gone. Close resolved a handle first and
  * used it for everything — the fallback `view.environment.handle ?? address`

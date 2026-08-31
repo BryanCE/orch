@@ -13,8 +13,8 @@ import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
 /**
- * TASKS/02-scope.md E15 — what is possible changes when WHAT IS THERE changes:
- * a move (a new environment record) or an upgrade (a new `host_plexers` row).
+ * What is possible changes when WHAT IS THERE changes: a move (a new environment
+ * record) or an upgrade (a new `host_plexers` row).
  * Neither is a negotiation at the moment of acting.
  *
  * E13 already proved orch never probes for a method. This row is the other half:

@@ -13,8 +13,8 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md Cq4 — "Results go to the enqueuer, not the runner —
- * cross-pack delivery is orch↔orch messaging."
+ * Results go to the enqueuer, not the runner — cross-pack delivery is
+ * orch↔orch messaging.
  *
  * The hard case the row names is the CROSS-PACK one: the agent that ran the
  * work and the orch that asked for it are in different packs, so there is no

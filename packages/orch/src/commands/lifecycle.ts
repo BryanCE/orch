@@ -153,7 +153,7 @@ export async function cmdNew(args: string[]): Promise<void> {
   const model = launchModel(flags, config, adapter);
   // Reset re-pins on exactly the terms a spawn does, and that includes the
   // thinking effort: re-pinning the bare model dropped the level and every reset
-  // silently returned the agent to the harness default (TASKS/12-thinking.md).
+  // silently returned the agent to the harness default.
   const thinking = resolveThinking({
     flag: flags.thinkingFlag,
     modelSuffix: splitThinkingSuffix(flags.modelFlag ?? config.defaults.models[adapter.id] ?? "").thinking,
@@ -479,16 +479,15 @@ interface ChromeOutcome {
 /**
  * Write the new label into orch's registry, then let the plexer SHOW it.
  *
- * `TASKS/11-usage-bugs.md` U5: this used to relabel the agent and leave the pane
- * BORDER reading the old name, because a separate `--pane` invocation set the
- * border — two names for one fact, which Rule 9 forbids and
- * `TASKS/01-agent-model.md` settles (a name is ONE piece of display metadata).
+ * This used to relabel the agent and leave the pane BORDER reading the old name,
+ * because a separate `--pane` invocation set the border — two names for one fact,
+ * which Rule 9 forbids and a name is ONE piece of display metadata.
  * The operator watches the panes; a stale border is worse than an ordinal
  * because it actively lies about which worker holds which slice.
  *
  * orch's own name write commits FIRST and alone. The chrome is a separate action
  * whose failure is reported and never rewrites whether the rename happened
- * (`TASKS/07-port-seam.md`: "the response states the two outcomes separately").
+ * The response states the two outcomes separately.
  */
 function renameAgent(
   backend: Backend,
@@ -600,8 +599,8 @@ function recordedProcessRemains(recorded: RecordedProcess): boolean {
   return !exited;
 }
 
-/** Close is the SECOND ending verb. TASKS/01-agent-model.md §11: close "ends
- *  the process; an `agent_endings` row is written, row and history stay", and
+/** Close is the SECOND ending verb. Close ends the process; an `agent_endings` row
+ *  is written, row and history stay, and
  *  only `reap` deletes. Deleting the hub row here cascaded away the agent's
  *  lease and its whole lease history — so a live orch's holding vanished the
  *  moment anyone closed the agent it drove, and retention (which sweeps ended
@@ -836,8 +835,8 @@ function killEventStreams(): number {
 
 /** Close every target once, in order, recording an outcome for each.
  *
- *  `TASKS/07-port-seam.md`, "Multi-target commands": one recorded outcome per
- *  target with the real error text. Prose on stderr is not something a caller
+ *  Multi-target commands record one outcome per target with the real error text.
+ *  Prose on stderr is not something a caller
  *  can act on, and a payload carrying only the successes cannot tell a full
  *  sweep from a half one. A target named twice is closed once. */
 function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { results: CloseOutcome[]; closed: string[]; ok: number } {

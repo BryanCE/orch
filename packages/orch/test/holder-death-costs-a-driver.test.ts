@@ -12,10 +12,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md D2 — "Holder death costs a **driver**, not a life: finish
- * the task, receive no new work, lease closes `expired`."
+ * Holder death costs a **driver**, not a life: finish the task, receive no new
+ * work, lease closes `expired`.
  *
- * The three clauses of TASKS/01-agent-model.md:384. A dead holder is not a
+ * The three clauses of the agent model. A dead holder is not a
  * collision (Rule 11), so clearing its lease is never refused — every driving
  * verb is gated on that same lease, and refusing to clear it would strand the
  * agent permanently. What the death must NOT do is end the agent or lose the

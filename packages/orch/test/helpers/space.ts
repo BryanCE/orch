@@ -4,8 +4,8 @@ import { sql } from "drizzle-orm";
 /**
  * Create a space the way `orch space create` does.
  *
- * TASKS/02-scope.md A7: a space is USER-created and never minted, so nothing in
- * `src/` conjures one behind a spawn — placing an agent in a space that does not
+ * A space is USER-created and never minted, so nothing in `src/` conjures one
+ * behind a spawn — placing an agent in a space that does not
  * exist is refused. A fixture that spawns into a space therefore has to create
  * it first, exactly as a user would.
  */

@@ -164,7 +164,7 @@ export function orm(orchDir: string): Orm {
 /**
  * Whether this orch dir has a store yet.
  *
- * TASKS/02-scope.md B6: `setup`, `doctor`, `help`, `version` and
+ * `setup`, `doctor`, `help`, `version` and
  * `status --offline` need no identity BECAUSE THEY NEVER WRITE. Opening the
  * store is a write — `orm` creates the file and applies every migration
  * into it — so a read path that calls it unconditionally turns `orch status

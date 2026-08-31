@@ -11,8 +11,8 @@ import type { OrchConfig } from "../src/types/config.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md H3 — "Reap must walk the provenance tree — refusing to
- * delete an agent with descendants."
+ * Reap must walk the provenance tree, refusing to delete an agent with
+ * descendants.
  *
  * `agents.spawned_by` deliberately has NO `ON DELETE CASCADE`: provenance is
  * immutable history, and a cascade would silently erase a whole subtree because

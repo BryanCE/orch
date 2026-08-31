@@ -14,12 +14,12 @@ import { sql } from "drizzle-orm";
 import { row } from "./helpers/rows.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 /**
- * TASKS/02-scope.md B9 — "`hello` is also where the ENVIRONMENT is recorded in
- * full — harness, plexer, directory, space, OS side. It is NOT filled in later
- * or inferred at use, because it is what dictates everything that agent can do."
+ * `hello` is also where the ENVIRONMENT is recorded in full — harness, plexer,
+ * directory, space, OS side. It is NOT filled in later or inferred at use,
+ * because it is what dictates everything that agent can do.
  *
- * A16/E17 put the plexer on its own satellite and the OS side on `hosts`. B9 is
- * about WHEN they are written: registration, once, from what the caller states.
+ * A16/E17 put the plexer on its own satellite and the OS side on `hosts`. This
+ * is about WHEN they are written: registration, once, from what the caller states.
  */
 
 const dirs: string[] = [];

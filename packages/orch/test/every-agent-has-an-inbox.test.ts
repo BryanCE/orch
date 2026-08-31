@@ -14,8 +14,7 @@ import { seedAgent } from "./helpers/agent.ts";
 import { isRecord } from "../src/util.ts";
 
 /**
- * TASKS/02-scope.md B7 — "EVERY agent has an inbox; reading it promptly is the
- * only thing that varies."
+ * EVERY agent has an inbox; reading it promptly is the only thing that varies.
  *
  * Rule 11 states the same thing from the other side: delivery and read are
  * ORCH's mechanism and a pane is an OPTIMISATION. `inbox.jsonl → bridge →

@@ -10,7 +10,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md D7, under the ruling at TASKS/01-agent-model.md:342.
+ * Under the governing identity model.
  *
  * "The human must always be able to kill from the CLI or the web" is a
  * statement about the HUMAN, and only about the human. An agent is not a human

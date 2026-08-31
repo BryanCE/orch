@@ -13,8 +13,7 @@ import { agentView, agentViews, liveAgentViews } from "../src/store/agent-view.t
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 /**
- * TASKS/02-scope.md D1 — "Work survives its spawner, always. No lifetime, no
- * flag, no decision at spawn."
+ * Work survives its spawner, always. No lifetime, no flag, no decision at spawn.
  *
  * Rule 11 states the same thing from the other side: losing a holder costs a
  * DRIVER, never a life. So there is nothing to decide at spawn — no `--detached`,

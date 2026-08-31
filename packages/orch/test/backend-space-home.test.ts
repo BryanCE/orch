@@ -39,10 +39,10 @@ describe("tmux space home", () => {
   });
 });
 
-// TASKS/02-scope.md E8: an orch that opens a home of its own must leave it
-// "visibly separate from other orchs' work and from the human's own panes —
+// An orch that opens a home of its own must leave it visibly separate from
+// other orchs' work and from the human's own panes —
 // otherwise its agents read as random agents with no discoverable origin.
-// Allowable, but never unmarked." A tmux `new-session` with no `-s` is named by
+// Allowable, but never unmarked. A tmux `new-session` with no `-s` is named by
 // tmux's own counter, which is exactly an unmarked home: nothing on screen says
 // orch opened it or what for.
 describe("a home orch opens is never unmarked (E8)", () => {

@@ -13,7 +13,7 @@ import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, 
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /**
- * TASKS/02-scope.md E8, E9, E10 — the spawn half.
+ * The spawn half.
  *
  * `resolveSpawnSpace` used to hand `home.create(...).coordinate` back as orch's
  * SPACE id. That is E10's failure in one line: a plexer's coordinate wearing an

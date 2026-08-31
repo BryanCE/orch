@@ -8,8 +8,8 @@ import type { AgentFacts } from "../../src/types/presence.ts";
 /**
  * Seed one agent through the SAME writer production uses.
  *
- * TASKS/10-review-findings.md 2.1 — the fixtures used to reach for a second
- * writer (`recordSpawned`), which is how a test could pass against a record
+ * The fixtures used to reach for a second writer (`recordSpawned`), which is
+ * how a test could pass against a record
  * shape no spawn ever produces. There is one writer, so there is one way to
  * seed: this maps the fixture's stated facts onto `SpawnRegistration` and
  * states nothing the caller did not.

@@ -56,7 +56,7 @@ export interface ConfigWatch {
 export type SettingSource = "flag" | "env" | "settings.json" | "default";
 
 /**
- * The declared shape of one setting. `TASKS/14-settings-tui.md` is the contract.
+ * The declared shape of one setting is the contract.
  *
  * This file holds ONLY the types, so the registry that declares every setting and
  * the editor that walks them can both depend on the shape without depending on

@@ -14,8 +14,8 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md C5 — "A transfer must not disturb the agent — no reset, no
- * re-attach, no CONTEXT LOSS."
+ * A transfer must not disturb the agent — no reset, no re-attach, no CONTEXT
+ * LOSS.
  *
  * Ownership is a lease and nothing else (A1), so handing one over is a write to
  * `agent_leases` and to nothing else. The failure this forbids is the tempting

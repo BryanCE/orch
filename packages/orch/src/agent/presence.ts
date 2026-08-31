@@ -68,7 +68,7 @@ export function isAssistantMessageLike(value: unknown): value is AssistantMessag
  *  life of the process; a pid is where it runs, and a key built from one reads
  *  back as a malformed identity every reader then has to ignore.
  *
- *  The id is the WHOLE key (TASKS/01-agent-model.md). This session is inside no
+ *  The id is the WHOLE key. This session is inside no
  *  plexer and in no space, and that is a missing value, not a place called
  *  `headless~local~`: stamping those two sentinels into the key is what made the
  *  web bucket every session into a fake space named "local". Where a session

@@ -4,9 +4,8 @@ import { getTableConfig } from "drizzle-orm/sqlite-core";
 import * as schema from "../src/db/schema.ts";
 
 /**
- * TASKS/02-scope.md A1 — "Entity model: an orch is an agent; **four** facts
- * never welded — identity, provenance, lease, environment. Lifetime is not one
- * of them."
+ * Entity model: an orch is an agent; **four** facts never welded — identity,
+ * provenance, lease, environment. Lifetime is not one of them.
  *
  * The rule is structural, so the test is structural: it reads the schema's own
  * tables rather than a hand-kept list, and fails the moment a column reappears

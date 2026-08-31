@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
- * TASKS/13-logging.md slice 4 (TASKS/15-burndown.md B1): every `process.stderr.write`
+ * Every `process.stderr.write`
  * under `src/` and `extensions/` is a diagnosis line wearing an output hat. Each one is
  * now either a structured log record (`src/log.ts`) or, where it is genuinely what the
  * human asked to see, a `process.stdout.write`. Output and logging never share a call,

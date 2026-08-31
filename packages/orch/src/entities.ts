@@ -225,11 +225,10 @@ function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[]
 /**
  * The handle the ENVIRONMENT confirms it still has, or null.
  *
- * `TASKS/11-usage-bugs.md` U1: a row is not evidence that a pane exists. orch
- * listed four agents with pane ids herdr answered `pane_not_found` for, so
- * `dispatch` accepted the target and failed unexplained and `peek` crashed with
- * a raw plexer error. `TASKS/07-port-seam.md`: the environment is what says
- * whether a pane is there, and the inventory IS that answer.
+ * A row is not evidence that a pane exists. orch listed four agents with pane ids
+ * herdr answered `pane_not_found` for, so `dispatch` accepted the target and
+ * failed unexplained and `peek` crashed with a raw plexer error. The environment
+ * is what says whether a pane is there, and the inventory IS that answer.
  *
  * A plexer that was not asked — no inventory role, or this process is not inside
  * a session of it — says nothing either way, so the recorded handle stands. Only

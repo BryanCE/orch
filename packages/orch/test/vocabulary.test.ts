@@ -12,9 +12,9 @@ import { sql } from "drizzle-orm";
 import { stringField } from "./helpers/rows.ts";
 
 /**
- * TASKS/02-scope.md A8 — "Vocabulary (orch / slave / pack / space) is a display
- * map, never stored — roles are derived from the tree. User-configurable terms
- * are later polish, but the ONE-MAP constraint holds from day one."
+ * Vocabulary (orch / slave / pack / space) is a display map, never stored — roles
+ * are derived from the tree. User-configurable terms are later polish, but the
+ * ONE-MAP constraint holds from day one.
  */
 
 function withStore(body: (directory: string) => void): void {

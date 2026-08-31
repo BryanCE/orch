@@ -138,8 +138,8 @@ describe("daemon RPC", () => {
     seedStatus(dir, target, { agent: "claude", pid: process.pid, state: "working" });
     try {
       await rpcRegisterSession(dir);
-      // TASKS/02-scope.md E14: an environment that offers no way to reach this agent
-      // is an ABSENCE, and an absence is an answer to a human, never a failure path.
+      // An environment that offers no way to reach this agent is an ABSENCE, and
+      // an absence is an answer to a human, never a failure path.
       // Claude composes no inbox steering and headless has no pane, so the dispatch
       // is ANSWERED — and the outbox acks it rather than leaving a phantom pending
       // row the daemon would retry forever.

@@ -19,7 +19,7 @@ import type { OrchSeatOptions, PackRuntime, PackSnapshot } from "../types/seat.t
 
 /** The pi UI surface this seat actually uses. Declared as what we need rather than
  *  asserted from the harness type, so a harness that lacks it simply fails the guard
- *  instead of crashing at the call (TASKS/10 finding 6.4). */
+ *  instead of crashing at the call. */
 interface SeatNotifyUi { notify(text: string, level: "error" | "warning"): void }
 interface SeatStatusUi { setStatus(id: string, line: string | undefined): void }
 

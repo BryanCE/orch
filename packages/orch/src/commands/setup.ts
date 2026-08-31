@@ -577,7 +577,7 @@ async function spawnHeadlessSmokeAgent(cwd: string, prompt: string): Promise<str
   const after = agentViews(orchDir());
   // The row that was not there before the single-agent spawn IS the smoke agent. Nothing here
   // re-checks the plexer: `--backend headless` above already decided it, and re-asserting it as a
-  // string comparison would be the environment-id branch Rule 11 bans (TASKS/01-agent-model.md).
+  // string comparison would be the environment-id branch Rule 11 bans.
   const key = after.find((view) => !before.has(view.id))?.id;
   if (!key) throw new Error("headless spawn recorded no new agent");
   return key;

@@ -18,7 +18,7 @@ import { placeAgent, seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * Identity is a minted id and NOTHING else (TASKS/01-agent-model.md §2), so
+ * Identity is a minted id and NOTHING else, so
  * every fixture below addresses its agent by a minted-shaped id. The plexer,
  * the space and the pane handle are ENVIRONMENT: they are stated as
  * `recordSpawned` options, land in their own satellites, and are read back

@@ -15,7 +15,7 @@ import type { Entity } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md A1 — commands read the space from the environment satellite
+ * Commands read the space from the environment satellite
  * the agent actually has, never from text inside its key. An identity is a bare
  * minted id, so there is no key text left to slice.
  */

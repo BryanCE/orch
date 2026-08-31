@@ -4,8 +4,8 @@ import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 
 /**
- * TASKS/02-scope.md A1 — identity is the minted id and nothing else. A target
- * string is a LOOKUP (id, name, or pane handle); the pane is environment and
+ * Identity is the minted id and nothing else. A target string is a LOOKUP (id,
+ * name, or pane handle); the pane is environment and
  * moving it must never change which agent answers.
  */
 

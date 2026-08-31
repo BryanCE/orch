@@ -57,8 +57,8 @@ class NotifierRegistry {
       return name === "command" ? (stringArray(value)?.length ? [] : [`${entry.id} requires ${name}`]) : (typeof value === "string" && value.trim() ? [] : [`${entry.id} requires ${name}`]);
     });
     if (errors.length) { this.emitWarning(errors.join("; ")); return false; }
-    // TASKS/07: "Send throws real errors." A delivery failure reaches the caller
-    // unchanged; it is never converted to `false`.
+    // Send throws real errors. A delivery failure reaches the caller unchanged;
+    // it is never converted to `false`.
     if (entry.id === "command" && !commandAvailable(config)) return false;
     if (!(await notifier.available(config))) return false;
     return await notifier.deliver(event, config);

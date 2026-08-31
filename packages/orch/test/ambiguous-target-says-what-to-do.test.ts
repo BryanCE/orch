@@ -5,8 +5,7 @@ import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 
 /**
- * TASKS/11-usage-bugs.md U3 — an ambiguous dispatch target printed a bare
- * unlabelled list:
+ * An ambiguous dispatch target printed a bare unlabelled list:
  *
  *     herdr~w7~rvmofvm2wq  (fix)  pi
  *     herdr~w7~478kahm7dx  pi

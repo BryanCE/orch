@@ -16,8 +16,8 @@ import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 /**
- * TASKS/02-scope.md A1 — the space an agent is in is ENVIRONMENT, composed onto
- * its own timeline. It is never a segment of an identity key, and an agent that
+ * The space an agent is in is ENVIRONMENT, composed onto its own timeline. It is
+ * never a segment of an identity key, and an agent that
  * is in no space has NO `agent_spaces` row: `null` is the answer, and "local" is
  * a place nobody ever opened.
  */
@@ -91,9 +91,9 @@ function identityFixture(): { actorKey: string; targetKey: string } {
 }
 
 /**
- * TASKS/02-scope.md A7 — "A space is user-created and optional — never minted
- * from a path. With no space set the reachability boundary is the repo root."
- * ADR 0001: a space covers no directories and nothing owns it; a plexer's
+ * A space is user-created and optional — never minted from a path. With no space
+ * set the reachability boundary is the repo root. ADR 0001: a space covers no
+ * directories and nothing owns it; a plexer's
  * workspace id is that plexer's coordinate and never orch's grouping.
  */
 describe("a space is user-created, and absence falls back to the repo root", () => {

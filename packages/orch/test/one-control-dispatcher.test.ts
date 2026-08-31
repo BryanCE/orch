@@ -10,7 +10,7 @@ function sourceFiles(root: string): string[] {
   });
 }
 
-// CLAUDE.md Rule 9 and TASKS/07-port-seam.md slice 7: ALL control traffic goes
+// CLAUDE.md Rule 9: ALL control traffic goes
 // through ONE dispatcher. A second one is not a smaller violation than pair code —
 // it is the same violation, because the two drift and callers pick whichever they
 // happened to import. src/control/dispatch.ts is that dispatcher.

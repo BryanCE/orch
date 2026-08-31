@@ -64,7 +64,7 @@ describe("build entrypoint", () => {
 });
 
 /**
- * TASKS/02-scope.md K2 — the installed `orch` runs the PACKAGED
+ * The installed `orch` runs the PACKAGED
  * `dist/bin/orch.js`, so a source edit does not take effect until
  * `bun run build:dev` rebuilds and reinstalls.
  *

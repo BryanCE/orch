@@ -3,10 +3,9 @@ import { readFileSync } from "node:fs";
 import { mintAgentId } from "../src/backends/identity.ts";
 
 /**
- * TASKS/02-scope.md A1 — "four facts never welded — identity, provenance,
- * lease, environment", and TASKS/01-agent-model.md: "Never encode environment
- * into identity. No `<backend>~<workspace>~<handle>` key. `"local"` is not a
- * place, it is a missing value with a name."
+ * Four facts never welded — identity, provenance, lease, environment. Never
+ * encode environment into identity. No `<backend>~<workspace>~<handle>` key.
+ * `"local"` is not a place, it is a missing value with a name.
  *
  * The audit (recon/a1-audit.md §1.1) found this is the ROOT weld: because the
  * key embeds the plexer and its grouping, an agent that MOVES cannot keep its
@@ -34,7 +33,7 @@ describe("A1 — identity carries no environment", () => {
   });
 
   test("a key is the minted id itself, with no separator to split", () => {
-    // The three-segment key is the shape TASKS/01 puts on the page as the bug.
+    // The three-segment key is the documented shape of the bug.
     // A minted id is one opaque segment; if it can be split, something is
     // riding along inside it.
     const id = mintAgentId();

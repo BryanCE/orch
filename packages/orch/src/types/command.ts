@@ -284,9 +284,9 @@ export type CataloguePicker = (
 /**
  * Where one spawn puts its fleet. Two DIFFERENT facts, never welded.
  *
- * `space` is orch's own grouping (`TASKS/adr/0001`) — user-created, optional
- * (A7) and never minted from a path. `workspace` is the plexer's coordinate,
- * which orch stores and hands back and never says (`TASKS/02-scope.md` E10).
+ * `space` is orch's own grouping — user-created, optional and never minted from
+ * a path. `workspace` is the plexer's coordinate, which orch stores and hands
+ * back and never says.
  * Returning one as the other is how `wF` came to be printed as a name a human
  * chose, and how a spawn opened a window the store then refused to file.
  */

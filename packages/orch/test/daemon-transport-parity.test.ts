@@ -10,8 +10,7 @@ import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
 
 /**
- * TASKS/02-scope.md B3 — "ONE MECHANISM on both transports; TCP is a FALLBACK,
- * never a client class."
+ * ONE MECHANISM on both transports; TCP is a FALLBACK, never a client class.
  *
  * A unix socket is preferred and loopback TCP is bound beside it, but which one
  * a caller reached orch through must decide nothing: not what it must present,

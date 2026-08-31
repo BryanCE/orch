@@ -15,7 +15,7 @@ import type { AgentNamingRole, PaneNamingRole } from "../src/types/backend.ts";
 import { seedAgent } from "./helpers/agent.ts";
 
 /**
- * TASKS/11-usage-bugs.md U5 — `orch rename` set the NAME and left the pane
+ * `orch rename` set the NAME and left the pane
  * border reading the OLD one, because a SEPARATE `--pane` invocation set the
  * border. Syncing the two required running the command twice.
  *
@@ -24,9 +24,9 @@ import { seedAgent } from "./helpers/agent.ts";
  * wrong — which is the exact failure `skills/orch/SKILL.md` names ("a stale name
  * is worse than an ordinal because it actively lies").
  *
- * This is two names for one fact. `TASKS/01-agent-model.md`: a name is ONE piece
- * of mutable display metadata on an agent, and Rule 9 forbids two mechanisms for
- * one fact. `TASKS/07-port-seam.md` already specified the shape: orch's own name
+ * This is two names for one fact. A name is ONE piece of mutable display metadata
+ * on an agent, and Rule 9 forbids two mechanisms for one fact. The port seam
+ * already specified the shape: orch's own name
  * write succeeds or fails on its own, the plexer chrome follows, and "the
  * response states the two outcomes separately".
  *

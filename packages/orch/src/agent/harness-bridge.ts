@@ -9,7 +9,7 @@
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import { activePaneHud } from "../backends/hud.ts";
-import { createDaemonAck } from "./daemon-ack.ts";
+import { createDaemonClient } from "./daemon-client.ts";
 import { registerFleetMonitor } from "./monitor.ts";
 import { createAgentPresence } from "./presence.ts";
 import { orchDir } from "../presence/writer.ts";
@@ -61,7 +61,7 @@ export function registerHarnessBridge(
     identity,
     paneId,
     extensionHash,
-    ack: createDaemonAck(orchDir()),
+    daemon: createDaemonClient(orchDir()),
     reportStatus: hud.statusReporter(paneId),
   });
 

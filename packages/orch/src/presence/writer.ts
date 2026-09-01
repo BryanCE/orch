@@ -14,9 +14,9 @@
  * JSON guards come from there rather than being re-declared per shim.
  */
 import { homedir } from "node:os";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ANSWER_FILE, PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
+import { ANSWER_FILE, OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
 import { isRecord } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord } from "../types/presence.ts";
 import type { JsonRecord } from "../types/core.ts";
@@ -171,7 +171,39 @@ export function writeAnswer(directory: string, text: string): void {
   atomicWrite(presenceFile(directory, ANSWER_FILE), { text, ts: new Date().toISOString() });
 }
 
-/** Write the agent's settled-turn result record. */
+/** Append one line to a presence log. A log gets append-atomicity where a cell
+ * gets rename-atomicity, so these are the records `atomicWrite` never touches. */
+function appendPresenceLine(directory: string, name: string, record: PresenceRecord): void {
+  appendFileSync(presenceFile(directory, name), `${JSON.stringify(record)}\n`);
+}
+
+/** Append the agent's settled-turn result. */
 export function writeResult(directory: string, result: PresenceRecord): void {
-  atomicWrite(presenceFile(directory, RESULT_FILE), result);
+  appendPresenceLine(directory, RESULTS_FILE, result);
+}
+
+/** Append what the agent did with one control command. */
+export function appendOutcome(directory: string, outcome: PresenceRecord): void {
+  appendPresenceLine(directory, OUTCOMES_FILE, outcome);
+}
+
+/** The newest settled result, or null when none has settled. Scans up from the
+ * end so a torn final line — appended by an agent that died mid-write — costs
+ * the newest result rather than every result. */
+export function readLatestResult(directory: string): PresenceRecord | null {
+  let lines: string[];
+  try {
+    lines = readFileSync(presenceFile(directory, RESULTS_FILE), "utf8").split("\n");
+  } catch {
+    return null;
+  }
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index]?.trim();
+    if (line === undefined || line === "") continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isRecord(parsed)) return parsed;
+    } catch { /* a torn line names no result */ }
+  }
+  return null;
 }

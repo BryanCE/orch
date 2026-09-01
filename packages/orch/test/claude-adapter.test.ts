@@ -97,15 +97,15 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.detectState({ key })).toBe("working");
   });
 
-  test("extracts result.json before transcript and native output", () => {
+  test("extracts results.jsonl before transcript and native output", () => {
     const key = "claudersl1";
     const directory = agentDir(key);
     const transcript = join(directory, "transcript.jsonl");
-    writeFileSync(join(directory, "result.json"), JSON.stringify({ text: "result text" }));
+    writeFileSync(join(directory, "results.jsonl"), `${JSON.stringify({ text: "result text" })}\n`);
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: [{ type: "text", text: "transcript text" }] })}\n`);
 
     expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("result text");
-    rmSync(join(directory, "result.json"));
+    rmSync(join(directory, "results.jsonl"));
     expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("transcript text");
   });
 

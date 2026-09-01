@@ -119,7 +119,7 @@ describe("close always works", () => {
     expect(backend.closed).toEqual(["pane-name", "pane-key", "pane-id"]);
     for (const [key] of records) {
       expect(spawnedRecords().has(key)).toBe(false);
-      expect(existsSync(join(dir, "agents", key))).toBe(false);
+      expect(existsSync(join(dir, "agents", key))).toBe(true);
     }
   });
 
@@ -193,7 +193,7 @@ describe("close always works", () => {
     }
   });
 
-  test("presence pid without a recorded process closes the pane without signalling and reaps", () => {
+  test("presence pid without a recorded process closes the pane without signalling and ends the row", () => {
     const dir = makeDir();
     const key = "presence01";
     const handle = "pane-presence-only";
@@ -212,7 +212,7 @@ describe("close always works", () => {
     expect(backend.closed).toEqual([handle]);
     expect(processIsAlive(pid)).toBe(true);
     expect(spawnedRecords().has(key)).toBe(false);
-    expect(existsSync(join(dir, "agents", key))).toBe(false);
+    expect(existsSync(join(dir, "agents", key))).toBe(true);
   });
 
   test("close ignores owner and spawnedBy gates", () => {
@@ -269,7 +269,7 @@ describe("close always works", () => {
     }
   });
 
-  test("dead pane-less close is a successful no-op that reaps registry and presence", () => {
+  test("dead pane-less close is a successful no-op that ends the row and leaves presence to reap", () => {
     const dir = makeDir();
     const key = "deadpane01";
     const handle = "99999999";
@@ -285,7 +285,7 @@ describe("close always works", () => {
 
     expect(result.status).toBe(0);
     expect(spawnedRecords().has(key)).toBe(false);
-    expect(existsSync(agentDir)).toBe(false);
+    expect(existsSync(agentDir)).toBe(true);
   }, 15_000);
 
   test("steer remains blocked by the space wall", () => {

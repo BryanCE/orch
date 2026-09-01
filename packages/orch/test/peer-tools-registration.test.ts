@@ -6,6 +6,7 @@ import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerPeerTools } from "../src/agent/peers.ts";
 import { INBOX_FILE } from "../src/presence/schema.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
+import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -40,12 +41,7 @@ function fakePresence(harness: HarnessApi) {
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     paneId: null,
     extensionHash: "test",
-    ack: {
-      messageIdOf: () => undefined,
-      isAcked: () => false,
-      markAcked: () => undefined,
-      post: () => Promise.resolve(true),
-    },
+    daemon: stubDaemonClient(),
     reportStatus: () => undefined,
   });
 }

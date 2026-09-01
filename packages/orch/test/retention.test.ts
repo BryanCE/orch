@@ -39,7 +39,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [] },
     queue: { max_retries: 1 },
-    retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7, ...days },
+    retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
     timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
     notify: [],
     locked_commands: [],
@@ -108,7 +108,7 @@ describe("retention sweep", () => {
     upsertRun(orchDir, run("run-old", "2025-12-20T00:00:00.000Z"));
     upsertRun(orchDir, run("run-new", "2026-01-20T00:00:00.000Z"));
     expect(sweepExpiredRows(orchDir, settingsFixture({ queue_days: 14, events_days: 3, runs_days: 30, outbox_days: 7 }), NOW)).toEqual({
-      queue: 1, outbox: 1, events: 1, runs: 1, ended_agents: 0, logs: 0,
+      queue: 1, outbox: 1, control_outcomes: 0, events: 1, runs: 1, ended_agents: 0, logs: 0,
     });
     expect(orm(orchDir).all(sql`SELECT id FROM tasks ORDER BY id`)).toHaveLength(3);
     expect(orm(orchDir).all(sql`SELECT id FROM outbox ORDER BY id`)).toHaveLength(1);
@@ -119,7 +119,7 @@ describe("retention sweep", () => {
   test("returns zero counts when every row is inside its window", () => {
     const orchDir = fixture();
     seedQueueTask(orchDir, "queue", "done", "2026-01-31T00:00:00.000Z");
-    expect(sweepExpiredRows(orchDir, settingsFixture(), NOW)).toEqual({ queue: 0, outbox: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 });
+    expect(sweepExpiredRows(orchDir, settingsFixture(), NOW)).toEqual({ queue: 0, outbox: 0, control_outcomes: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 });
   });
 
   test("continues sweeping when one table delete fails", () => {

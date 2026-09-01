@@ -12,7 +12,7 @@ import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { maySpawnFrom } from "../src/worker-prompt.ts";
+import { maySpawnFrom } from "../src/policy/spawner.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";

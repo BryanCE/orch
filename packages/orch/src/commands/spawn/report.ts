@@ -1,6 +1,6 @@
 import { bridgeRegistered, orchDir } from "../../presence/store.ts";
 import { loadSettings } from "../../settings/read.ts";
-import { maySpawnFrom } from "../../worker-prompt.ts";
+import { maySpawnFrom } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { tryParseIdentity } from "../../backends/identity.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";

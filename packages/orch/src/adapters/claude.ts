@@ -242,7 +242,7 @@ class ClaudeAdapter implements AgentAdapter {
     return CLAUDE_MODELS;
   }
 
-  /** Prefer hook result.json, then Claude transcript JSONL, then native output. */
+  /** Prefer hook results.jsonl, then Claude transcript JSONL, then native output. */
   extractResult(input: ClaudeResultExtractionInput): string | undefined {
     const presence = presenceFor(input.key);
     const result = presence?.result;

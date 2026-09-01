@@ -116,7 +116,7 @@ Block until the pane reaches a status.
   --timeout     Give up after this many milliseconds (default: 300000).
 `,
   result: `orch result <target> [--force] [--json]
-Print a target's result (result.json, else the session's last assistant text).
+Print a target's result (results.jsonl, else the session's last assistant text).
   --force       Read an agent another ${term("orch")} owns.
 `,
   tail: `orch tail <target> [-n N]

@@ -332,7 +332,7 @@ export function installExtensionLink(
   process.stdout.write(`  ${destination} ${opts?.copy ? "(copy)" : "-> " + bundle}\n`);
 }
 
-/** result.json first, then the last assistant entry of the session file. */
+/** results.jsonl first, then the last assistant entry of the session file. */
 export function resultFromPresenceOrSession(input: PiResultExtractionInput): string | undefined {
   const result = presenceFor(input.key)?.result;
   if (isRecord(result) && typeof result.text === "string" && result.text.trim()) return result.text.trim();
@@ -461,7 +461,7 @@ export class PiAdapter implements AgentAdapter {
     return { text: PI_LIFECYCLE_TEXT[verb] };
   }
 
-  /** Read result.json first, then fall back to the last assistant session entry. */
+  /** Read results.jsonl first, then fall back to the last assistant session entry. */
   extractResult(input: PiResultExtractionInput): string | undefined {
     return resultFromPresenceOrSession(input);
   }

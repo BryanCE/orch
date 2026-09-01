@@ -1,12 +1,12 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
+import { PRESENCE_SCHEMA, STATUS_FILE } from "./schema.ts";
 // The presence protocol is orch's, and src/presence/ owns it (Rule 10). The
 // directory layout is defined there and imported here — a second copy in the
 // store is how a writer and a reader end up disagreeing about where a record
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
-import { orchDir, presenceAgentDir, presenceRoot } from "./writer.ts";
+import { orchDir, presenceAgentDir, presenceRoot, readLatestResult } from "./writer.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
@@ -235,7 +235,7 @@ export function loadPresence(root = orchDir()): Map<string, PresenceEntry> {
     const statusRecord = readJSON<unknown>(join(dir, STATUS_FILE));
     const status = isPresenceStatus(statusRecord) ? statusRecord : null;
     const description = describePresenceStatus(statusRecord);
-    const result = readJSON(join(dir, RESULT_FILE));
+    const result = readLatestResult(dir);
     // Liveness is derived only from the gated status. Descriptive metadata is
     // deliberately separate, so malformed records can never enter live paths.
     presence.set(key, { key, dir, status, description, result, alive: pidAlive(status?.pid) });

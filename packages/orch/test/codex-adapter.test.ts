@@ -134,7 +134,7 @@ describe("CodexAdapter", () => {
       expect(result.exitCode).toBe(0);
       const dir = path.join(orchDir, "agents", key);
       const status = readJsonRecord(path.join(dir, "status.json"));
-      const savedResult = readJsonRecord(path.join(dir, "result.json"));
+      const savedResult = readJsonRecord(path.join(dir, "results.jsonl"));
       expect(status).toMatchObject({ schema: PRESENCE_SCHEMA, state: "done", lastText: "finished" });
       expect(savedResult).toMatchObject({ schema: PRESENCE_SCHEMA, text: "finished" });
       expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-")).length).toBe(0);

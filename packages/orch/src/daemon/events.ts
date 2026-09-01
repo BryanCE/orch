@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { collapse } from "../entities.ts";
 import { notify } from "../notify/router.ts";
 import { abstractAgentLabel, spaceLabelForKey } from "../notify/format.ts";
-import { RESULT_FILE, STATUS_FILE } from "../presence/schema.ts";
-import { namesPresenceFile } from "../presence/writer.ts";
-import { loadPresence, presenceAgentDir, readJSON, readPresenceStatus } from "../presence/store.ts";
+import { STATUS_FILE } from "../presence/schema.ts";
+import { namesPresenceFile, readLatestResult } from "../presence/writer.ts";
+import { loadPresence, presenceAgentDir, readPresenceStatus } from "../presence/store.ts";
 import { agentView, agentViews } from "../store/agent-view.ts";
 import { computeFleetCapacity } from "../policy/capacity.ts";
 import { loadSettings } from "../settings/read.ts";
@@ -350,8 +350,8 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
     const event = derivePresenceTransition(options.orchDir, key, status, metadata, states);
     let resultText: string | undefined;
     if (event?.newState === "done") {
-      const result = readJSON(join(presenceAgentDir(key, options.orchDir), RESULT_FILE));
-      if (result && typeof result === "object") {
+      const result = readLatestResult(presenceAgentDir(key, options.orchDir));
+      if (result) {
         const text = property(result, "text");
         if (typeof text === "string" && text.length > 0) {
           resultText = text;

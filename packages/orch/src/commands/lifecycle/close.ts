@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { tryParseIdentity } from "../../backends/identity.ts";
-import { loadPresence, orchDir, presenceAgentDir, removePresenceAgentDir } from "../../presence/store.ts";
+import { loadPresence, orchDir } from "../../presence/store.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import { agentById, endAgent } from "../../store/agent-rows.ts";
 import { selfId, selfIdentity } from "../../identity/self.ts";
@@ -73,10 +73,8 @@ function endClosedAgent(key: string): ClosedAgent | null {
     const by = selfId();
     endAgent(root, agentId, Date.now(), by !== undefined && agentById(root, by) ? by : null);
     const oldState = loadPresence(root).get(key)?.status?.state ?? "exited";
-    removePresenceAgentDir(presenceAgentDir(key, root));
     return { key, oldState };
   }
-  removePresenceAgentDir(presenceAgentDir(key, root));
   return null;
 }
 

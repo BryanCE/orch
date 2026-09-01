@@ -105,9 +105,9 @@ describe("PiAdapter", () => {
     expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir(), "pianswer01", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
   });
 
-  test("reads result.json and falls back to the last assistant session text", () => {
+  test("reads results.jsonl and falls back to the last assistant session text", () => {
     writeStatus("piresult01", "done");
-    fs.writeFileSync(presencePath("piresult01", "result.json"), JSON.stringify({ text: "from result" }));
+    fs.writeFileSync(presencePath("piresult01", "results.jsonl"), `${JSON.stringify({ text: "from result" })}\n`);
     expect(adapter.extractResult({ key: "piresult01" })).toBe("from result");
 
     const sessionPath = path.join(orchDir, "session.jsonl");

@@ -146,6 +146,7 @@ const settingsValueExtractors = {
     events_days: settingOr(root.retention?.events_days, SETTINGS_DEFAULTS.retention.events_days),
     runs_days: settingOr(root.retention?.runs_days, SETTINGS_DEFAULTS.retention.runs_days),
     outbox_days: settingOr(root.retention?.outbox_days, SETTINGS_DEFAULTS.retention.outbox_days),
+    control_outcomes_days: settingOr(root.retention?.control_outcomes_days, SETTINGS_DEFAULTS.retention.control_outcomes_days),
     logs_days: settingOr(root.retention?.logs_days, SETTINGS_DEFAULTS.retention.logs_days),
   }),
   timeouts: (root: Partial<SettingsFile>) => ({

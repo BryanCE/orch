@@ -95,7 +95,7 @@ function writeAdapterResult(ent: Entity, json: boolean): boolean {
   if (!text) return false;
   resultLogger(ent.key).info("result.adapter-fallback");
   // Same rule: where the text came from is diagnosis, not the result.
-  process.stdout.write("(no result.json - falling back to adapter-extracted session text)\n");
+  process.stdout.write("(no results.jsonl - falling back to adapter-extracted session text)\n");
   if (json) writeAdapterJson(ent, adapter, text);
   else process.stdout.write(text + "\n");
   return true;
@@ -124,7 +124,7 @@ export function cmdResult(args: string[]) {
   const historical = latestRunForKey(ent.key);
   if (historical && writeHistoricalResult(historical, options.json, ent.key)) return;
   if (writeAdapterResult(ent, options.json)) return;
-  die(`No result available for "${target}" (no result.json and no adapter-extractable session text).`);
+  die(`No result available for "${target}" (no results.jsonl and no adapter-extractable session text).`);
 }
 
 export async function cmdQuestions(args: string[]): Promise<void> {

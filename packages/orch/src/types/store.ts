@@ -178,6 +178,9 @@ export type OutboxState = "pending" | "awaiting" | "delivered";
 
 export interface OutboxMessage{id:string;target:string;payload:unknown;state:OutboxState;attempts:number;createdAt:number;nextAttemptAt:number}
 
+/** What an agent did with one control command. `error` absent means it applied. */
+export interface ControlOutcomeRecord{id:string;agentId:string;command:string;requested:unknown;settledAt:number;error?:string}
+
 export interface RunRecord { dispatchId:string; agentKey:string; adapter?:string; model?:string; space?:string; task?:string; state:string; startedAt:number; finishedAt?:number; tokensIn?:number; tokensOut?:number; cacheRead?:number; cacheWrite?:number; cost?:number; turns?:number; result?:unknown; lastError?:string }
 
 export interface SpawnRegistration {

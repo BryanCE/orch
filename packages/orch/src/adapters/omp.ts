@@ -149,7 +149,7 @@ class OmpAdapter implements AgentAdapter {
     return { text: PI_LIFECYCLE_TEXT[verb] };
   }
 
-  /** Read result.json first, then fall back to the last assistant session entry. */
+  /** Read results.jsonl first, then fall back to the last assistant session entry. */
   extractResult(input: PiResultExtractionInput): string | undefined {
     return resultFromPresenceOrSession(input);
   }

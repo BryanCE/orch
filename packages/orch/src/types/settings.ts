@@ -28,7 +28,7 @@ export interface OrchSettings {
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
   queue: { max_retries: number };
-  retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; logs_days: number };
+  retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number };
   logging?: { level: LogLevel };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];

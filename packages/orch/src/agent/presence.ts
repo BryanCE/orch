@@ -10,8 +10,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mintAgentId } from "../backends/identity.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
+import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
+  appendOutcome,
   ensurePresenceAgentDir,
   launchStamp,
   writeResult as writePresenceResult,
@@ -145,10 +146,9 @@ interface AgentPresenceState {
 }
 
 export function createAgentPresence(options: AgentPresenceOptions) {
-  const { harness, ack, extensionHash, reportStatus } = options;
+  const { harness, daemon, extensionHash, reportStatus } = options;
 
   let dir: string | undefined;
-  let controlFile = "";
 
   let lastCtx: HarnessContext | undefined;
   const state: AgentPresenceState = {
@@ -340,12 +340,15 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   // Model/thinking control commands are applied by the dedicated model-control
   // module (allowlist gate + registry resolution + ladder-suffix parsing); this
-  // layer only owns the inbox transport, the control.json path and the presence
+  // layer owns the inbox transport, the outcome history and the presence
   // refresh the applier calls back into.
   const modelControl = createModelControl({
     harness,
     context: () => lastCtx,
-    controlFile: () => controlFile,
+    recordOutcome: (outcome) => {
+      if (dir) appendOutcome(dir, outcome);
+    },
+    reportOutcome: (outcome) => daemon.postControlOutcome({ ...outcome, key: state.key }),
     refreshPresence: () => {
       if (lastCtx) updateModel(lastCtx);
       writeStatus();
@@ -413,13 +416,13 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   async function routeInboxLine(line: string): Promise<void> {
     const parsed = parseInboxLine(line);
-    const messageId = ack.messageIdOf(parsed);
-    if (messageId !== undefined && ack.isAcked(messageId)) return;
+    const messageId = daemon.messageIdOf(parsed);
+    if (messageId !== undefined && daemon.isAcked(messageId)) return;
     await applyInboxMessage(parsed, messageId);
     if (messageId !== undefined) {
-      ack.markAcked(messageId);
+      daemon.markAcked(messageId);
       try {
-        if (!(await ack.post(messageId))) appendAckMarker(messageId);
+        if (!(await daemon.postAck(messageId))) appendAckMarker(messageId);
       } catch {
         appendAckMarker(messageId);
       }
@@ -451,8 +454,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     // orch CLI) inherit this, so a spawn made FROM here can hand its workers
     // this session's reply address — whatever harness this happens to be.
     process.env.ORCH_SESSION_KEY = key;
-    controlFile = path.join(dir, CONTROL_FILE);
-
     resetInbox(dir); // ignore steers from a previous life
     poll = setInterval(() => {
       void drainInbox().catch(() => {

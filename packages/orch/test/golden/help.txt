@@ -42,7 +42,7 @@ DISPATCH WORK
   orch steer <target> <text…>    Durably accept a mid-run steer through orchd.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
-  orch result <target> [--json]  Print a target's result (result.json or session fallback).
+  orch result <target> [--json]  Print a target's result (results.jsonl or session fallback).
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.
   orch reload <target>… | --all   Reload panes, signal watchers via reload.signal, and report each outcome.

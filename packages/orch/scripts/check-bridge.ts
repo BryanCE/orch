@@ -163,10 +163,11 @@ function scanPackagesSrc(check: LineCheck): number {
  */
 const PRESENCE_FILENAMES: readonly string[] = [
   "status.json",
-  "result.json",
+  "results.jsonl",
   "inbox.jsonl",
   "answer.json",
   "ack.jsonl",
+  "outcomes.jsonl",
 ];
 
 /** The one directory allowed to name a presence file literally. */

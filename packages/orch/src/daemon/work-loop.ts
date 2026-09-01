@@ -234,14 +234,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         lastSweepAt = nowMs;
         const counts = sweepExpiredRows(options.orchDir, settings, new Date(nowMs));
         if (Object.values(counts).some((count) => count > 0)) {
-          decisionLogger(options.orchDir).info("retention.swept", {
-            queue: counts.queue,
-            outbox: counts.outbox,
-            events: counts.events,
-            runs: counts.runs,
-            ended_agents: counts.ended_agents,
-            logs: counts.logs,
-          });
+          decisionLogger(options.orchDir).info("retention.swept", { ...counts });
         }
       }
     }

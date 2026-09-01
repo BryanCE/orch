@@ -2,7 +2,7 @@
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
 import type { subscribeEvents } from "../daemon/rpc/client.ts";
-import type { ThinkingLevel } from "./policy.ts";
+import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { JsonRecord } from "./core.ts";
 
 /**
@@ -211,6 +211,10 @@ export interface FleetMonitorOptions {
   /** Where transitions arrive from; the daemon's event stream by default. A test
    *  pushes its own so the monitor's seam can be driven without a daemon. */
   subscribe?: typeof subscribeEvents;
+  /** Who is asking; orch's own answer by default. A test states the caller here
+   *  rather than mocking the policy module — a module mock outlives the file that
+   *  installed it and answers for every later test in the process. */
+  callerKind?: () => CallerKind;
 }
 
 export interface UsageLike {
@@ -258,8 +262,8 @@ export interface AgentPresenceOptions {
   paneId: string | null;
   /** Bridge code hash stamped into status.json for the doctor staleness check. */
   extensionHash: string;
-  /** Daemon-socket ack transport for consumed inbox messages. */
-  ack: DaemonAck;
+  /** Daemon-socket client: inbox acks and control outcomes. */
+  daemon: DaemonClient;
   /** Sink invoked after every status write so a HUD can mirror the agent state. */
   reportStatus: (snapshot: { state: string; task?: string; cost: number }) => void;
 }
@@ -292,13 +296,30 @@ export interface AgentToolsOptions {
 }
 
 /** Ack transport + dedupe set handed to the inbox drain. */
-export interface DaemonAck {
+/** What an agent did with one control command. */
+export interface ControlOutcome {
+  id: string;
+  command: string;
+  requested: JsonRecord;
+  /** Absent means the command applied. */
+  error?: string;
+}
+
+/** A {@link ControlOutcome} carrying the key of the agent that produced it. */
+export interface ControlOutcomeReport extends ControlOutcome {
+  key: string;
+}
+
+/** The agent's side of the orchd socket. */
+export interface DaemonClient {
   /** Message id carried by a parsed inbox line, when it has one. */
   messageIdOf(parsed: unknown): string | undefined;
   isAcked(id: string): boolean;
   markAcked(id: string): void;
   /** Posts the ack to orchd; false means the caller should fall back to ack.jsonl. */
-  post(id: string): Promise<boolean>;
+  postAck(id: string): Promise<boolean>;
+  /** Reports a control outcome to orchd, which replies to whoever is waiting. */
+  postControlOutcome(report: ControlOutcomeReport): Promise<boolean>;
 }
 
 export type ResolvedModel = NonNullable<HarnessContext["model"]>;
@@ -319,8 +340,10 @@ export interface ModelControlDeps {
   harness: HarnessApi;
   /** The running agent's context, read fresh so a retry sees a registry that just loaded. */
   context: () => HarnessContext | undefined;
-  /** Absolute path of the presence control-outcome record; resolved lazily (set at presence init). */
-  controlFile: () => string;
+  /** Append the outcome to this agent's presence history. */
+  recordOutcome: (outcome: JsonRecord) => void;
+  /** Report the outcome to orchd, which replies to whoever is waiting. */
+  reportOutcome: (outcome: ControlOutcome) => Promise<boolean>;
   /** Re-read the applied model into presence state and flush status.json. */
   refreshPresence: () => void;
 }

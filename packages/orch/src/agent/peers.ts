@@ -14,11 +14,11 @@ import { depthOf, isDescendantOf } from "../policy/provenance.ts";
 import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
-import { INBOX_FILE, RESULT_FILE } from "../presence/schema.ts";
-import { presenceAgentDir, presenceFile, presenceRoot, readStatus } from "../presence/writer.ts";
+import { INBOX_FILE } from "../presence/schema.ts";
+import { presenceAgentDir, presenceFile, presenceRoot, readLatestResult, readStatus } from "../presence/writer.ts";
 import { orchDir } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
-import { isRecord, optionalString, pidAlive, projectRoot, readJsonFile, truncate } from "../util.ts";
+import { isRecord, optionalString, pidAlive, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
 import type { AgentPresence, BridgeToolResult, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
@@ -67,7 +67,9 @@ function livePeers(ownKey: string, allSpaces = false): Peer[] {
         const dir = presenceAgentDir(entry.name);
         return { key: entry.name, dir, status: readStatus(dir) };
       })
-      .filter((peer) => pidAlive(peer.status.pid));
+      .filter((peer) => pidAlive(peer.status.pid))
+      // readdir order is filesystem-dependent; a fleet listing must not reshuffle.
+      .sort((left, right) => left.key.localeCompare(right.key));
     return scopeToFleet(peers, ownKey, allSpaces);
   } catch {
     return [];
@@ -366,8 +368,7 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
         const ownKey = presence.ownPresenceKey(ctx);
         const resolved = resolvePeer(params.target, ownKey, crossSpace);
         if ("error" in resolved) return resolved.error;
-        const result = readJsonFile(presenceFile(resolved.peer.dir, RESULT_FILE));
-        const resultRecord = isRecord(result) ? result : {};
+        const resultRecord = readLatestResult(resolved.peer.dir) ?? {};
         const text = typeof resultRecord.text === "string"
           ? resultRecord.text
           : typeof resolved.peer.status.lastText === "string" ? resolved.peer.status.lastText : "";

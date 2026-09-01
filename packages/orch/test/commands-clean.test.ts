@@ -12,6 +12,7 @@ import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { isolateHarnessSession } from "./helpers/env.ts";
 
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
@@ -72,6 +73,7 @@ describe("orch clean is destructive maintenance", () => {
     process.env[LAUNCH_ENV] = agentId;
     process.env[HARNESS_SESSION_ENV.pi.marker] = "1";
     process.env[HARNESS_SESSION_ENV.pi.sessionId] = sessionId;
+    const restoreHarnessSession = isolateHarnessSession("pi");
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     try {
       seedAgent(agentId, { adapter: "pi" }, root);
@@ -84,6 +86,7 @@ describe("orch clean is destructive maintenance", () => {
       expect(() => cmdClean([])).toThrow(/operator-only/i);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);
     } finally {
+      restoreHarnessSession();
       process.exit = oldExit;
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldKey;

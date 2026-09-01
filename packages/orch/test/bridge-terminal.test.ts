@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readStatus } from "../src/presence/writer.ts";
+import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
 
 interface FakeHarness extends HarnessApi {
@@ -70,7 +71,7 @@ describe("bridge terminal turn seam", () => {
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       paneId: null,
       extensionHash: "test",
-      ack: { messageIdOf: () => undefined, isAcked: () => false, markAcked: () => undefined, post: () => Promise.resolve(true) },
+      daemon: stubDaemonClient(),
       reportStatus: reporter,
     });
     registerAgentTools(harness, { presence, identity: { agentId: "pi", settleEvent: "agent_settled" }, notify: () => undefined, refreshLabels: () => Promise.resolve() });

@@ -1,8 +1,9 @@
+// Leaf module: the bundled harness artifacts (extensions/claude/index.ts and
+// friends) import `prepareWorkerTask` from here, so nothing in this file may
+// reach the store's sqlite graph (Rule 6). The two helpers that answer from the
+// store — `maySpawnFrom` and `spawnerIsRepliable` — live in policy/spawner.ts.
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
-import { spawnerIdentity } from "./policy/spawner.ts";
-import { depthOf } from "./policy/provenance.ts";
-import { agentView } from "./store/agent-view.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
 import type { WorkerHeaderContext } from "./types/core.ts";
 
@@ -70,17 +71,4 @@ export function prepareWorkerTask(task: string, max: number): string {
 
 export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {
   return raw ? prompt : `${workerHeaderFor(adapter, context)}\n\n${prompt}`;
-}
-
-/** Whether a child launched by this spawner may itself spawn under the depth limit. */
-export function maySpawnFrom(orchDir: string, spawnerId: string | undefined, maxDepth: number): boolean {
-  const depth = spawnerId === undefined ? 0 : depthOf((id) => agentView(orchDir, id), spawnerId);
-  return depth + 1 < maxDepth;
-}
-
-/** This session's own reply address, live only when it writes presence of its own.
- *  A worker is told to `orch_send target "spawner"` on the strength of this and
- *  nothing else — never on its own harness's steer capability. */
-export function spawnerIsRepliable(): boolean {
-  return spawnerIdentity().key !== null;
 }

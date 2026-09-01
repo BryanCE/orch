@@ -208,7 +208,7 @@ describe("fleet ownership scoping", () => {
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
     expect(existsSync(signalPath)).toBe(true);
     expect(spawnedRecords().has(key)).toBe(false);
-    expect(existsSync(join(dir, "agents", key))).toBe(false);
+    expect(existsSync(join(dir, "agents", key))).toBe(true);
   }, 15_000);
 
   test("driving verbs remain gated against a live foreign holder", () => {
@@ -242,7 +242,7 @@ describe("fleet ownership scoping", () => {
     const key = "kfrgnresu1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
-    writeFileSync(join(dir, "agents", key, "result.json"), JSON.stringify({ text: "other session's answer" }));
+    writeFileSync(join(dir, "agents", key, "results.jsonl"), `${JSON.stringify({ text: "other session's answer" })}\n`);
     seedSpace(dir, "local");
     seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" });
 
@@ -322,7 +322,7 @@ describe("fleet ownership scoping", () => {
     expect(backend.closed).toEqual([handle]);
     expect(child.exitCode).toBeNull();
     expect(spawnedRecords().has(key)).toBe(false);
-    expect(existsSync(join(dir, "agents", key))).toBe(false);
+    expect(existsSync(join(dir, "agents", key))).toBe(true);
   }, 15_000);
 });
 

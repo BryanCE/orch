@@ -91,7 +91,7 @@ DISPATCH WORK
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
   orch result <target> [--force] [--json]
-                                 Print a target's result (result.json or session fallback).
+                                 Print a target's result (results.jsonl or session fallback).
                                  --force reads an agent another ${term("orch")} owns.
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.

@@ -17,8 +17,9 @@ export const PRESENCE_SCHEMA = 1;
 
 /** Agent-written liveness/state record. Written by every harness artifact. */
 export const STATUS_FILE = "status.json";
-/** Agent-written final turn output. Written once a turn settles. */
-export const RESULT_FILE = "result.json";
+/** Agent-appended turn output, one line per settled dispatch. The newest line is
+ * the current result; the ones above it are that agent's history. */
+export const RESULTS_FILE = "results.jsonl";
 /** Orchestrator-appended steer/command lines; the agent claim-renames to drain. */
 export const INBOX_FILE = "inbox.jsonl";
 /** Orchestrator-written reply to an agent's ask; the agent consumes and unlinks. */
@@ -27,7 +28,6 @@ export const ANSWER_FILE = "answer.json";
 export const ACK_FILE = "ack.jsonl";
 /** Agent-written blocking question; the orchestrator answers, the agent unlinks. */
 export const QUESTION_FILE = "question.json";
-/** Agent-written outcome of the last control command (model/thinking). The
- * dispatcher reads it back so a refused command is reported as refused instead
- * of being announced as applied. */
-export const CONTROL_FILE = "control.json";
+/** Agent-appended outcome of each control command (model/thinking), one line
+ * each. History for a human; the live reply travels over the daemon. */
+export const OUTCOMES_FILE = "outcomes.jsonl";

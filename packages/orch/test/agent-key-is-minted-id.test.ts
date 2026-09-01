@@ -5,6 +5,7 @@ import { mkdtempSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAgentPresence } from "../src/agent/presence.ts";
+import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
 import { peerSummaries } from "../src/agent/peers.ts";
@@ -94,12 +95,7 @@ function presenceFor() {
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     paneId: null,
     extensionHash: "test",
-    ack: {
-      messageIdOf: () => undefined,
-      isAcked: () => false,
-      markAcked: () => undefined,
-      post: () => Promise.resolve(true),
-    },
+    daemon: stubDaemonClient(),
     reportStatus: () => undefined,
   });
 }

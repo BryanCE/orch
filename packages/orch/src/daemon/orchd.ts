@@ -16,13 +16,17 @@ import { watchSettings } from "../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
 import { loadPresence, orchDir } from "../presence/store.ts";
-import { errorMessage, errorTrace } from "../util.ts";
+import { errorMessage, errorTrace, isRecord } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { withTransaction } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
+import { insertControlOutcome } from "../store/control-outcome-rows.ts";
+import { settleControlOutcome } from "../control/outcome.ts";
+import { agentIdOf } from "../commands/lifecycle/close.ts";
+import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { drainOutbox } from "./outbox.ts";
@@ -493,6 +497,27 @@ async function main(): Promise<void> {
         const value = rpcParams(params);
         const id = requiredString(value.id, "id");
         markOutboxDelivered(directory, id);
+        return { ok: true };
+      },
+      "control-outcome": (params) => {
+        const value = rpcParams(params);
+        const error = typeof value.error === "string" ? value.error : undefined;
+        const report: ControlOutcomeReport = {
+          id: requiredString(value.id, "id"),
+          key: requiredString(value.key, "key"),
+          command: requiredString(value.command, "command"),
+          requested: isRecord(value.requested) ? value.requested : {},
+          ...(error === undefined ? {} : { error }),
+        };
+        insertControlOutcome(directory, {
+          id: report.id,
+          agentId: agentIdOf(report.key),
+          command: report.command,
+          requested: report.requested,
+          settledAt: Date.now(),
+          ...(error === undefined ? {} : { error }),
+        });
+        settleControlOutcome(report);
         return { ok: true };
       },
       reload: () => {

@@ -163,6 +163,7 @@ const HELP: Readonly<Record<string, string>> = {
   "retention.events_days": "Days to retain events.",
   "retention.runs_days": "Days to retain completed runs.",
   "retention.outbox_days": "Days to retain delivered outbox messages.",
+  "retention.control_outcomes_days": "Days to retain recorded control-command outcomes.",
   "retention.logs_days": "Days to retain headless logs.",
   "timeouts.dispatch_ack_ms": "Dispatch acknowledgement timeout in milliseconds.",
   "timeouts.wait_ms": "Wait timeout in milliseconds.",

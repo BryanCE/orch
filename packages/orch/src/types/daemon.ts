@@ -221,6 +221,7 @@ export interface DaemonRuntimeFiles {
 export interface SweepCounts {
   queue: number;
   outbox: number;
+  control_outcomes: number;
   events: number;
   runs: number;
   ended_agents: number;

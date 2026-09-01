@@ -71,7 +71,7 @@ cat > "$ORCH_FIXTURE/agents/w0:p1/status.json" <<EOF_STATUS
   "ts": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF_STATUS
-cat > "$ORCH_FIXTURE/agents/w0:p1/result.json" <<'EOF_RESULT'
+cat > "$ORCH_FIXTURE/agents/w0:p1/results.jsonl" <<'EOF_RESULT'
 {"text":"Fixture result","ts":"2020-01-01T00:00:00.000Z"}
 EOF_RESULT
 cat > "$ORCH_FIXTURE/agents/w0:p1/question.json" <<EOF_QUESTION

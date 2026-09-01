@@ -7,10 +7,12 @@ import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { cmdReap, reapCandidates, type ReapCandidateInput } from "../src/commands/lease.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { errorMessage } from "../src/util.ts";
 
 const directories: string[] = [];
 const previousOrchDir = process.env.ORCH_DIR;
-const previousAgentId = process.env.ORCH_AGENT_ID;
+const previousAgentId = process.env[LAUNCH_ENV];
 const rows = [
   {
     id: "dead-unleased",
@@ -58,7 +60,7 @@ afterEach(() => {
   closeAllStores();
   while (directories.length > 0) removeTempDir(directories.pop()!);
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = previousOrchDir;
-  if (previousAgentId === undefined) delete process.env.ORCH_AGENT_ID; else process.env.ORCH_AGENT_ID = previousAgentId;
+  if (previousAgentId === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = previousAgentId;
 });
 
 function captureStdout(run: () => Promise<void>): Promise<string> {
@@ -89,14 +91,23 @@ describe("cmdReap", () => {
     insertAgent(directory, { id: caller, name: "caller", spawnedBy: null, harnessId: "pi", cwd: directory, createdAt: 1 });
     insertAgent(directory, { id: dead, name: "dead", spawnedBy: null, harnessId: "pi", cwd: directory, createdAt: 2 });
     process.env.ORCH_DIR = directory;
-    process.env.ORCH_AGENT_ID = caller;
+    process.env[LAUNCH_ENV] = caller;
 
     const output = await captureStdout(() => cmdReap(["--dead", "--json"]));
     const parsed: unknown = JSON.parse(output);
     expect(parsed).toEqual([{ target: dead, name: "dead" }]);
   });
 
-  test.serial("refuses bare reap when stdin is not a TTY", () => {
-    expect(cmdReap([])).rejects.toThrow("usage: orch reap <target> | --dead [--json]");
+  test.serial("refuses bare reap when stdin is not a TTY", async () => {
+    // Forced: run from a terminal, the real isTTY sends this down the interactive picker,
+    // which then sits waiting for keys with the whole suite behind it.
+    const original = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true, writable: true });
+    try {
+      const refusal = await cmdReap([]).then(() => null, (error: unknown) => errorMessage(error));
+      expect(refusal).toBe("usage: orch reap <target> | --dead [--json]");
+    } finally {
+      if (original) Object.defineProperty(process.stdin, "isTTY", original);
+    }
   });
 });

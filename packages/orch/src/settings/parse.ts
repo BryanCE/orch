@@ -32,6 +32,15 @@ export function parseSettingValue(spec: SettingSpec, input: string): SettingValu
       if (!values.length || invalid.length) return { ok: false, reason: `expected comma-separated values from: ${kind.choices.join(", ")}` };
       return { ok: true, value: values };
     }
+    case "sinks": {
+      // A sink carries a command line and a state list, so it is typed as JSON here and
+      // picked off a screen everywhere else.
+      const expected = `expected a JSON array of sinks, each {"id": one of ${kind.choices.join(", ")}}`;
+      let value: unknown;
+      try { value = JSON.parse(input); } catch { return { ok: false, reason: expected }; }
+      if (!Array.isArray(value)) return { ok: false, reason: expected };
+      return { ok: true, value };
+    }
     case "text":
       return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
     case "list": {

@@ -92,7 +92,7 @@ export async function cmdEvents(args: string[]) {
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
   const cleanup = startEventsLiveStream(options, scope, {
-    writeNotice: (line) => process.stderr.write(line),
+    writeNotice: (line) => process.stdout.write(line),
     startTransport: () => startEventsTransport(context),
   });
   process.on("SIGINT", () => { cleanup(); process.exit(0); });
@@ -152,6 +152,8 @@ export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCal
 
 export function eventsScopeNotice(options: EventsOptions, scope: ResolvedCallerScope): string | null {
   if (options.sinceSeq !== undefined || options.targets.length > 0) return null;
+  // The notice is for a person watching; json means a parser is reading stdout.
+  if (options.json) return null;
   return scope.mine
     ? "watching my agents from now on - history: --since-seq 0; every session's agents: --any-agent"
     : "watching all agents from now on - history: --since-seq 0";

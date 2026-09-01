@@ -3,7 +3,7 @@ import { allAdapters } from "../src/adapters/registry.ts";
 import { cmdSetup } from "../src/commands/setup.ts";
 import { readAssignFlag, readValueFlag } from "../src/setup/flags.ts";
 import { resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/setup/composition.ts";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
@@ -12,6 +12,8 @@ import type { AgentAdapter } from "../src/types/adapter.ts";
 import { isRecord } from "../src/util.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
+const originalHome = process.env.HOME;
+const originalPath = process.env.PATH;
 const tempDirs: string[] = [];
 
 interface SetupSettings {
@@ -35,6 +37,10 @@ function parseSetupSettings(value: unknown): SetupSettings {
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
   while (tempDirs.length) {
     const dir = tempDirs.pop()!;
     removeTempDir(dir);
@@ -55,6 +61,14 @@ describe("commands/setup", () => {
     const orchDir = mkdtempSync(join(tmpdir(), "orch-setup-characterization-"));
     tempDirs.push(orchDir);
     process.env.ORCH_DIR = orchDir;
+    // cmdSetup wires the bins for real, into $HOME/.local/bin or over whatever they already
+    // resolve to on PATH. Both must be a sandbox or this rewrites the developer's own shims.
+    const home = mkdtempSync(join(tmpdir(), "orch-setup-home-"));
+    tempDirs.push(home);
+    const binDir = join(home, ".local", "bin");
+    mkdirSync(binDir, { recursive: true });
+    process.env.HOME = home;
+    process.env.PATH = binDir;
     const adapter = allAdapters().find((candidate) => candidate.id === "pi");
     if (adapter === undefined) throw new Error("pi adapter is not registered");
     const original = { modelWarm: adapter.modelWarm, models: adapter.models, shim: adapter.shim };
@@ -85,6 +99,7 @@ describe("commands/setup", () => {
     const settings = parseSetupSettings(JSON.parse(readFileSync(join(orchDir, "settings.json"), "utf8")));
 
     expect(settings).toMatchObject({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", defaults: { adapter: "pi", backend: "headless" } });
+    expect(readdirSync(binDir).sort()).toEqual(["orch", "orch-ding", "pif"]);
   });
 
   test("resolves the runtime from the flag or the no-preference value, never from PATH", async () => {

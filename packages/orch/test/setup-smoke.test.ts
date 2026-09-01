@@ -12,7 +12,9 @@ let cleanedKeys: string[] = [];
 beforeEach(() => {
   stdout = "";
   cleanedKeys = [];
-  process.exitCode = undefined;
+  // 0, not undefined: bun IGNORES `process.exitCode = undefined` once a code has been set,
+  // so an earlier file's exit code leaked in and these passed alone but failed in a full run.
+  process.exitCode = 0;
   const originalOut = process.stdout.write.bind(process.stdout);
   function capture(chunk: string | Uint8Array, _callback?: (error: Error | null | undefined) => void): boolean;
   function capture(chunk: string | Uint8Array, _encoding: BufferEncoding, _callback?: (error: Error | null | undefined) => void): boolean;
@@ -29,7 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   restore?.();
   restore = null;
-  process.exitCode = undefined;
+  process.exitCode = 0;
 });
 
 /** A fully-injected step set that always reaches a clean round-trip; each test overrides one leg. */
@@ -50,7 +52,7 @@ describe("runSetupSmoke (12.5)", () => {
   test("a clean round-trip returns true and reports orch can deliver work", async () => {
     const ok = await runSetupSmoke("/tmp/smoke", steps({}));
     expect(ok).toBe(true);
-    expect(process.exitCode).toBeUndefined();
+    expect(process.exitCode ?? 0).toBe(0);
     expect(stdout).toContain("Smoke ok");
     expect(stdout).toContain("orch can deliver work");
     expect(cleanedKeys).toEqual(["smokeagen1"]);
@@ -79,7 +81,7 @@ describe("runSetupSmoke (12.5)", () => {
     expect(polls).toBeGreaterThan(0);
     expect(ok).toBe(false);
     // The smoke REPORTS; it never fails setup's exit code.
-    expect(process.exitCode).toBeUndefined();
+    expect(process.exitCode ?? 0).toBe(0);
     expect(stdout).toContain("no result came back");
     expect(stdout).toContain("did not complete a work round-trip");
     // A timed-out smoke still tears down the spawned agent.
@@ -94,7 +96,7 @@ describe("runSetupSmoke (12.5)", () => {
     }));
     expect(ok).toBe(false);
     // The smoke REPORTS; it never fails setup's exit code.
-    expect(process.exitCode).toBeUndefined();
+    expect(process.exitCode ?? 0).toBe(0);
     expect(stdout).toContain("orch could not deliver work");
     expect(stdout).toContain("headless spawn recorded no new agent");
     expect(polls).toBe(0);

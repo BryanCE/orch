@@ -1,3 +1,4 @@
+import { isRecord } from "../util.ts";
 import type { BrowsingState, EditorAction, EditorSetting, EditorState, PendingWrite, SettingKind } from "../types/settings.ts";
 
 /** Create a browsing editor over a grouped, ordered copy of the declarations. */
@@ -115,6 +116,13 @@ function validateValue(kind: SettingKind, value: unknown): string | null {
       return value.every((item) => kind.choices.includes(item))
         ? null
         : `Values must be chosen from: ${kind.choices.join(", ")}`;
+    case "sinks": {
+      if (!Array.isArray(value)) return "Value must be a list of sinks";
+      const ids = value.map((entry) => isRecord(entry) ? entry.id : undefined);
+      return ids.every((id) => typeof id === "string" && kind.choices.includes(id))
+        ? null
+        : `Sinks must be chosen from: ${kind.choices.join(", ")}`;
+    }
     case "text":
       return typeof value === "string" ? null : "Value must be text";
     case "list":

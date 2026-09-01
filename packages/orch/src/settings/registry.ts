@@ -1,8 +1,11 @@
 import { schemaNode, jsonSchemaNode, type JsonSchemaNode } from "./schema-tree.ts";
 import { clearSettingsValue, writeSettingsDefault, writeSettingsValue } from "./write.ts";
+import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SINK_FIELD, NotifyEntrySchema } from "./schema.ts";
+import { isRecord, valueAtPath } from "../util.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
-import type { OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
+import { NOTIFY_STATES } from "../types/settings.ts";
+import type { NotifyEntry, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
 
 
 function choicesFor(key: string, node: JsonSchemaNode): readonly string[] {
@@ -14,6 +17,16 @@ function choicesFor(key: string, node: JsonSchemaNode): readonly string[] {
 }
 
 function kindFor(key: string): SettingKind {
+  // Sinks are checked off a list; the ones that carry a value declare the field to ask for.
+  if (key === "notify") {
+    return {
+      kind: "sinks",
+      choices: NOTIFY_IDS,
+      fields: Object.fromEntries(Object.entries(NOTIFY_SINK_FIELD).map(([id, name]) => [id, { name }])),
+      states: NOTIFY_STATES,
+      defaultStates: NOTIFY_DEFAULT_ON,
+    };
+  }
   const node = schemaNode(key);
   if (node.enum !== undefined) return { kind: "choice", choices: choicesFor(key, node) };
   if (node.type === "boolean") return { kind: "boolean" };
@@ -55,9 +68,49 @@ function writeDefaultBackend(orchDir: string, value: unknown): void {
   writeSettingsDefault(orchDir, "backend", value);
 }
 
+function readNotifySinks(settings: OrchSettings): NotifyEntry[] {
+  return settings.notify;
+}
+
+/** One picked sink, checked against the schema that owns its shape. */
+function notifyEntry(candidate: unknown): NotifyEntry {
+  if (!isRecord(candidate)) throw new Error(`each notify sink is an object with an id; choose from ${NOTIFY_IDS.join(", ")}`);
+  const id: unknown = candidate.id;
+  if (typeof id !== "string" || !NOTIFY_IDS.includes(id)) {
+    throw new Error(`unknown notify sink ${JSON.stringify(id)}; choose from ${NOTIFY_IDS.join(", ")}`);
+  }
+  const field = NOTIFY_SINK_FIELD[id];
+  const carried: unknown = field === undefined ? undefined : valueAtPath(candidate, [field]);
+  if (field !== undefined && (carried === undefined || carried === "")) {
+    throw new Error(`the ${id} sink needs a ${field}`);
+  }
+  const parsed = NotifyEntrySchema.safeParse(candidate);
+  if (!parsed.success) throw new Error(`${id}: ${parsed.error.issues[0]?.message ?? "not a valid sink"}`);
+  return parsed.data;
+}
+
+function writeNotifySinks(orchDir: string, value: unknown): void {
+  if (!Array.isArray(value)) throw new Error("notify must be a list of sinks");
+  writeNotifyEntries(orchDir, value.map(notifyEntry));
+}
+
+/** Persist whole notify entries - `orch settings notify add`'s writer, and this row's.
+ *  A REPLACE: unchecking a sink and `notify remove` both have to be able to take one away,
+ *  which setup's additive `writeSettingsNotify` cannot say. */
+export function writeNotifyEntries(orchDir: string, entries: readonly NotifyEntry[]): void {
+  writeSettingsValue(orchDir, "notify", [...entries]);
+}
+
+
 function writerFor(key: string): SettingWriter | undefined {
   if (key === "defaults.adapter") return writeDefaultAdapter;
   if (key === "defaults.backend") return writeDefaultBackend;
+  if (key === "notify") return writeNotifySinks;
+  return undefined;
+}
+
+function readerFor(key: string): ((settings: OrchSettings) => unknown) | undefined {
+  if (key === "notify") return readNotifySinks;
   return undefined;
 }
 
@@ -67,7 +120,7 @@ function setting(key: string, group: string, help: string, env?: string, writabl
     group,
     help,
     type: kindFor(key),
-    read: (settings) => readAt(settings, key),
+    read: readerFor(key) ?? ((settings) => readAt(settings, key)),
     ...(writable ? { write: writer ?? ((orchDir: string, value: unknown) => writeSettingsValue(orchDir, key, value)) } : {}),
     ...(env === undefined ? {} : { env }),
   };
@@ -115,7 +168,7 @@ const HELP: Readonly<Record<string, string>> = {
   "timeouts.wait_ms": "Wait timeout in milliseconds.",
   "timeouts.adapter_command_ms": "Adapter command timeout in milliseconds.",
   "timeouts.notify_ms": "Notification timeout in milliseconds.",
-  notify: "Notification sinks and their delivery settings.",
+  notify: "Where agent state changes are delivered. enter picks the sinks - sound (a ding on this machine), desktop, herdr, webhook (a URL), command (any command line you want) - space turns one on, e sets what it carries, w picks which states it fires on.",
   locked_commands: "Commands workers must run through the lock.",
   hosts: "Named remote hosts.",
   spaces: "Named space paths.",

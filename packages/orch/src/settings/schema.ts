@@ -50,12 +50,25 @@ export const NotifyEntrySchema = z.discriminatedUnion("id", [
       z.tuple([z.string().min(1)], z.string()),
     ]),
   }),
+  z.strictObject({ id: z.literal("sound"), on: NotifyOnSchema }),
   z.strictObject({ id: z.literal(HERDR_SINK_ID), on: NotifyOnSchema }),
 ]);
 
 /** Every sink id, read off the schema so nothing re-lists the union. A sink named
  *  for a plexer must not put that plexer's name in core (Rule 10). */
 export const NOTIFY_IDS: readonly string[] = NotifyEntrySchema.options.map((option) => option.shape.id.value);
+
+/** The one field a sink carries beyond its id and states, keyed by sink id. Read off the
+ *  schema, so a new sink is offered everywhere without a second list to keep in step. */
+export const NOTIFY_SINK_FIELD: Readonly<Record<string, string>> = Object.fromEntries(
+  NotifyEntrySchema.options.flatMap((option) => {
+    const field = Object.keys(option.shape).find((key) => key !== "id" && key !== "on");
+    return field === undefined ? [] : [[option.shape.id.value, field]];
+  }),
+);
+
+/** The sinks whose whole entry is an id and its states - nothing to type, so a plain checkbox. */
+export const NOTIFY_SIMPLE_IDS: readonly string[] = NOTIFY_IDS.filter((id) => NOTIFY_SINK_FIELD[id] === undefined);
 
 export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_depth: 1, worker_peer_tools: false, cross_space: false },

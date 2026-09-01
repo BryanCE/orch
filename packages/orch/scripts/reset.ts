@@ -107,7 +107,7 @@ function packageTarballRemovals(): WipeStep[] {
 }
 
 function binShimRemovals(): WipeStep[] {
-  return ["orch", "pif"].map((name) => deletion(join(HOME, ".local", "bin", name))).filter(nonNull);
+  return ["orch", "pif", "orch-ding"].map((name) => deletion(join(HOME, ".local", "bin", name))).filter(nonNull);
 }
 
 /** True for a link into an orch package — the mark of an orch-installed extension. */

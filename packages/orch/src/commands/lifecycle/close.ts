@@ -3,7 +3,8 @@ import { tryParseIdentity } from "../../backends/identity.ts";
 import { loadPresence, orchDir, presenceAgentDir, removePresenceAgentDir } from "../../presence/store.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import { agentById, endAgent } from "../../store/agent-rows.ts";
-import { selfId } from "../../identity/self.ts";
+import { selfId, selfIdentity } from "../../identity/self.ts";
+import { callerAuthority, refuseClose } from "../../policy/close-authority.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { processInstanceMatches, processIsAlive } from "../../process-identity.ts";
@@ -127,7 +128,7 @@ interface CloseTarget {
 }
 
 /**
- * Every orch-managed record `--all` may end.
+ * Every orch-managed record on this machine, before cmdClose filters it by close authority.
  *
  * Each row is read DIRECTLY, never resolved through a target string: resolution
  * is what makes a stale row ambiguous, and one unresolvable row must not abort
@@ -160,9 +161,7 @@ function sweepTargets(): CloseTarget[] {
 function namedTargets(positional: readonly string[]): CloseTarget[] {
   return positional.map((target) => {
     const resolved = resolveLifecycleTarget(target);
-    // Ending is never gated by ownership or lease. The human must always be
-    // able to stop a runaway, and a close must not be blocked by another orch
-    // driving the target.
+    // Never gated by the LEASE. Who may end this is close-authority.ts, applied in cmdClose.
     // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
     // Close may hand only the environment's actual pane handle to paneHost.
     const handle = resolved.view !== null ? resolved.view.environment.handle : resolved.entity.paneId;
@@ -353,9 +352,14 @@ export function cmdClose(args: string[]) {
   if (positional.some((argument) => argument.startsWith("--"))) die(usage);
   if (!all && !positional.length) die(usage);
 
-  const targets = [...(all ? sweepTargets() : []), ...namedTargets(positional)];
+  const authority = callerAuthority(selfIdentity());
+  const named = namedTargets(positional);
+  const refusal = named.map((target) => refuseClose(orchDir(), authority, agentIdOf(target.key))).find((reason) => reason !== null);
+  if (refusal !== undefined && refusal !== null) die(refusal);
+  // A sweep skips what is not the caller's; a named target is refused.
+  const swept = all ? sweepTargets().filter((target) => refuseClose(orchDir(), authority, agentIdOf(target.key)) === null) : [];
 
-  reportClose(closeEachTarget(targets, json), { all, stream, json });
+  reportClose(closeEachTarget([...swept, ...named], json), { all, stream, json });
 }
 
 export function cmdAbort(args: string[]) {

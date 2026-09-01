@@ -3,6 +3,8 @@ import * as path from "node:path";
 import { loadSettingsOrNull } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON } from "../settings/schema.ts";
 import { createNotifierRegistry } from "../notify/router.ts";
+import { commandArgv } from "../notify/sinks.ts";
+import { soundAvailable, soundTierBinaries } from "../notify/ding.ts";
 import { allBackends } from "../backends/registry.ts";
 import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
@@ -84,9 +86,10 @@ export function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResu
         unavailable.push(`${name} URL is not well-formed`);
       }
     } else if (sink.id === "command") {
-      const normalized = typeof sink.command === "string" ? ["sh", "-c", sink.command] : sink.command;
-      const binary = Array.isArray(normalized) && typeof normalized[0] === "string" ? normalized[0] : undefined;
+      const binary = commandArgv(sink.command)[0];
       if (!binary || !binaryOnPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
+    } else if (sink.id === "sound") {
+      if (!soundAvailable()) unavailable.push(`${name} has no sound player: install ${soundTierBinaries().join(" or ")}`);
     } else if (desktop.status !== "ok") {
       unavailable.push(`${name} has no available desktop notification tier`);
     }

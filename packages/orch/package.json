@@ -25,22 +25,23 @@
     "build:ext": "bun run build:ext:pi && bun run build:ext:omp",
     "build:ext:pi": "bun build extensions/pi/index.ts --target=node --format=esm --outfile dist/extensions/pi-bridge.js",
     "build:ext:omp": "bun build extensions/omp/index.ts --target=node --format=esm --outfile dist/extensions/omp-bridge.js",
-    "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun scripts/build-bin.ts",
+    "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun build bin/orch-ding.ts --target=node --format=esm --outfile dist/bin/orch-ding.js && bun scripts/build-bin.ts",
     "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
     "install:global": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
-    "build:dev": "bun scripts/reset.ts --build && bun run install:global && PATH=\"$(npm prefix -g)/bin:$PATH\" && orch doctor -y && orch daemon start",
+    "build:dev": "bun scripts/reset.ts --build && bun run install:global && ORCH=$(npm prefix -g)/bin/orch && \"$ORCH\" doctor -y && \"$ORCH\" daemon start",
     "prepublishOnly": "bun run build:cli",
     "tc": "bunx tsc --noEmit",
     "lint": "bunx oxlint bin src test extensions scripts",
     "reset": "bun scripts/reset.ts",
-    "reinstall": "bun scripts/reset.ts && bun run install:global && PATH=\"$(npm prefix -g)/bin:$PATH\" && orch setup && orch doctor -y && orch daemon start"
+    "reinstall": "bun scripts/reset.ts && bun run install:global && ORCH=$(npm prefix -g)/bin/orch && \"$ORCH\" setup && \"$ORCH\" doctor -y && \"$ORCH\" daemon start"
   },
   "license": "MIT",
   "author": "Bryan Edman",
   "type": "module",
   "bin": {
     "orch": "./dist/bin/orch.js",
-    "pif": "./bin/pif"
+    "pif": "./bin/pif",
+    "orch-ding": "./dist/bin/orch-ding.js"
   },
   "files": [
     "bin/",

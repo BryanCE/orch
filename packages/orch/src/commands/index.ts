@@ -196,7 +196,10 @@ MAINTENANCE
                                  the fields this call does not name. Each sink declares its own
                                  fields (webhook --url, command --command; desktop and herdr take
                                  none). --on defaults to blocked,error,done.
-                                 e.g. orch settings notify add command --command="notify-send orch"
+                                 e.g. orch settings notify add sound  (a ding on this machine)
+                                 The sinks that need no fields (sound, desktop, herdr) are also
+                                 checkboxes on the notify row of orch settings. Verify with
+                                 orch notify test.
   orch settings notify remove <sink>
                                  Stop delivering through that sink.
   orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]

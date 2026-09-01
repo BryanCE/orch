@@ -16,7 +16,11 @@ import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { ShimBoundaryPlan } from "../types/command.ts";
 
-const HOME = os.homedir();
+/** $HOME first, at call time: `wireBinaries` writes real files under it, so a caller that
+ *  redirects HOME must get the redirect. os.homedir() reads passwd, not the environment. */
+function home(): string {
+  return process.env.HOME ?? os.homedir();
+}
 
 /** Print the manual install commands for each missing prerequisite. */
 export function printInstallHints(missing: readonly { bin: string; cmd: string }[]): void {
@@ -110,7 +114,7 @@ export async function installSelectedPrerequisites(
   for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
     runInstall(bin, cmd, interactive);
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
-    process.env.PATH = `${path.join(HOME, ".bun", "bin")}:${path.join(HOME, ".local", "bin")}:${process.env.PATH}`;
+    process.env.PATH = `${path.join(home(), ".bun", "bin")}:${path.join(home(), ".local", "bin")}:${process.env.PATH}`;
     const now = binaryPath(bin);
     process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH - open a new shell and re-run orch setup\n`);
   }
@@ -211,15 +215,16 @@ export function alignEntrypointToRuntime(runtime: OrchRuntime): void {
   process.stdout.write(`  entrypoint ${target} now runs under ${runtime}\n`);
 }
 
-/** Wire the `orch`/`pif` bins onto PATH (repo-clone case; `bun add -g` already links bins).
- * A bin already resolving into this package is left alone; a stale one is repointed. */
+/** Wire the `orch`/`pif`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already
+ * links bins). A bin already resolving into this package is left alone; a stale one is repointed. */
 export function wireBinaries(copy: boolean): void {
   process.stdout.write("bins:\n");
   const pkgRoot = packageRoot();
-  const binDir = path.join(HOME, ".local", "bin");
+  const binDir = path.join(home(), ".local", "bin");
   for (const [name, rel] of [
     ["orch", path.join("dist", "bin", "orch.js")],
     ["pif", path.join("bin", "pif")],
+    ["orch-ding", path.join("dist", "bin", "orch-ding.js")],
   ] as const) {
     const resolved = binaryPath(name);
     const packageBin = path.join(pkgRoot, rel);

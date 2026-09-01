@@ -50,7 +50,7 @@ const seededEntity = entityFixture();
 describe("commands/status", () => {
   test("zero-row message reports gathered counts and backend response", () => {
     expect(formatNoRowsMessage({ agentsSeen: 3, alive: 1, backendAnswered: true })).toBe(
-      "No panes found (agent records seen: 3; alive: 1; backend answered: yes).\n",
+      "No agents found (agent records seen: 3; alive: 1; backend answered: yes).\n",
     );
   });
 

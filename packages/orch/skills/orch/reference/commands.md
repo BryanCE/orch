@@ -115,7 +115,7 @@ Each line becomes a wake-up. No `jq`, no `--json`.
   cost, ts, workspace, workspaceName, dispatchId, spawnedBy, spawnedByLabel`.
 
 An attached stream counts as daemon usage, so `orchd` will not idle-shut-down beneath it.
-The daemon delivers notifications to Slack, webhooks and commands from the `notify` sinks in
+The daemon delivers notifications to sounds, desktops, webhooks and commands from the `notify` sinks in
 settings.json whether or not anyone is streaming. `orch events --notify` only renders them
 locally. `orch notify test` fires a synthetic transition through every sink.
 
@@ -167,5 +167,16 @@ the active default among the enabled set.
 
 `orch settings notify` lists the sinks orchd delivers through. `add <sink> [--<field>=...]
 [--on=<state,...>]` upserts one, keeping fields the call omits. `remove <sink>` drops it.
-`on` defaults to `blocked,error`, so a sink that should announce completions needs
-`--on=blocked,error,done`.
+`on` defaults to `blocked,error,done`.
+
+Sinks: `sound` plays a ding on this machine, `desktop` raises a desktop notification, `herdr`
+posts in the plexer - none of the three take fields, so they are checkboxes on the `notify` row
+of the `orch settings` editor and toggles in the setup wizard. `webhook` needs `--url`,
+`command` needs `--command` and runs it with the event JSON on stdin. The packaged `orch-ding`
+bin is the worked example for `command`; it makes the same noise the `sound` sink does.
+
+Enter on the `notify` row opens the sink picker: `space` turns a sink on or off, `e` edits what
+the focused sink carries - the command it runs, the URL it posts to - `w` picks which agent
+states it fires on, and `enter` saves. Both are shown beside the checkbox. A sink that names no
+states fires on `blocked,error,done`. The value input starts on whatever is already recorded and
+never on a suggestion, so nothing is written that nobody typed.

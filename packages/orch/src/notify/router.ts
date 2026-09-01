@@ -1,6 +1,6 @@
 import { loadSettingsOrNull } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../settings/schema.ts";
-import { commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
+import { commandArgv, commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
 import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
@@ -22,7 +22,7 @@ function eventState(event: NotifyEvent): AgentState | undefined { return AGENT_S
 
 function configFor(entry: NotifyEntry): Record<string, unknown> {
   if (entry.id === "webhook") return { url: entry.url };
-  if (entry.id === "command") return { command: typeof entry.command === "string" ? ["sh", "-c", entry.command] : entry.command };
+  if (entry.id === "command") return { command: commandArgv(entry.command) };
   return {};
 }
 

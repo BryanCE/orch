@@ -1,7 +1,7 @@
 import * as files from "node:fs";
 import { loadSettings, resolveWithSource } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
-import { displayValue } from "../settings/display.ts";
+import { displaySetting, displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
@@ -18,7 +18,7 @@ import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
 import { nearestKeys } from "../settings/nearest.ts";
-import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
+import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
 import type { NotifierChoice } from "../types/notify.ts";
@@ -260,7 +260,7 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   const merged = configured.some((entry) => entry.id === id)
     ? configured.map((entry) => entry.id === id ? replacement : entry)
     : [...configured, replacement];
-  writeRegisteredSetting(orchDir(), "notify", merged);
+  writeNotifyEntries(orchDir(), merged);
   process.stdout.write(`notify  ${settingsPath(orchDir())}\n\n`);
   for (const entry of written.entries) process.stdout.write(notifyEntryRow(entry));
   if (!choice.available) process.stdout.write(`\n  ${choice.remediation}\n`);
@@ -273,7 +273,7 @@ function removeNotifyEntry(args: string[]): void {
   const configured = currentSettings().notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
-  writeRegisteredSetting(orchDir(), "notify", configured.filter((candidate) => candidate.id !== entry.id));
+  writeNotifyEntries(orchDir(), configured.filter((candidate) => candidate.id !== entry.id));
   process.stdout.write(`removed notify sink ${id} from ${settingsPath(orchDir())}\n`);
 }
 
@@ -312,12 +312,12 @@ export async function cmdSettings(args: string[]): Promise<void> {
 
   // One model row per installed harness: each names models in its own vocabulary,
   // so there is no single "the model" to report.
-  const modelRows = settings.enabled.adapters.map((harness) => ({
-    key: `model (${harness})`,
-    ...resolveWithSource<string>({ settings: settings.defaults.models[harness], fallback: "(none)" }),
-  }));
+  const modelRows = settings.enabled.adapters.map((harness) => {
+    const resolved = resolveWithSource<string>({ settings: settings.defaults.models[harness], fallback: "(none)" });
+    return { key: `model (${harness})`, ...resolved, display: formatValue(resolved.value) };
+  });
 
-  interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string }
+  interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string; readonly display: string }
   const provenance: ProvenanceRow[] = [];
   // Every declared setting, in the registry's own declaration order. The registry
   // is the single source of truth for a setting, and
@@ -332,7 +332,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
     const environment = spec.env === undefined ? undefined : process.env[spec.env];
     const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
     const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
-    provenance.push({ key: spec.key, value, source });
+    provenance.push({ key: spec.key, value, source, display: value === null ? "(none)" : displaySetting(value, spec.type) });
   }
   provenance.push(...modelRows);
 
@@ -346,10 +346,10 @@ export async function cmdSettings(args: string[]): Promise<void> {
   }
 
   const width = Math.max(...provenance.map((row) => row.key.length));
-  const valueWidth = Math.max(...provenance.map((row) => formatValue(row.value).length));
+  const valueWidth = Math.max(...provenance.map((row) => row.display.length));
   process.stdout.write(`settings  ${settingsPath(orchDir())}\n\n`);
-  for (const { key, value, source } of provenance) {
-    process.stdout.write(`  ${key.padEnd(width)}  ${formatValue(value).padEnd(valueWidth)}  ${source}\n`);
+  for (const { key, display, source } of provenance) {
+    process.stdout.write(`  ${key.padEnd(width)}  ${display.padEnd(valueWidth)}  ${source}\n`);
   }
   process.stdout.write("\n");
   process.stdout.write(`  enabled.adapters  ${settings.enabled.adapters.join(", ") || "(none)"}\n`);

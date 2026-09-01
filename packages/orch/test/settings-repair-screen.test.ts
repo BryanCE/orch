@@ -17,7 +17,7 @@ function frameLines(view: RepairScreen): string[] {
 
 describe("repair action labels", () => {
   test("names the key a rename lands on, so the destination is never a guess", () => {
-    expect(repairActionLabel(typo, "rename")).toBe("rename → fleet.max_depth");
+    expect(repairActionLabel(typo, "rename")).toBe("rename -> fleet.max_depth");
   });
 
   test("names the value a set writes", () => {
@@ -54,7 +54,7 @@ describe("repair frame", () => {
 
   test("a chosen repair is shown as what it will do", () => {
     const body = frameLines(screen([typo, staleVersion], ["rename", "set"])).join("\n");
-    expect(body).toContain("[rename → fleet.max_depth]");
+    expect(body).toContain("[rename -> fleet.max_depth]");
     expect(body).toContain("[set 1]");
   });
 

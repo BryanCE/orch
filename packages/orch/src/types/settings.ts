@@ -69,6 +69,16 @@ export type SettingKind =
   | { readonly kind: "integer"; readonly min?: number; readonly max?: number }
   | { readonly kind: "choice"; readonly choices: readonly string[] }
   | { readonly kind: "multi"; readonly choices: readonly string[] }
+  /** A pick-list of delivery sinks. Each picked sink is an object: its id, the one value
+   *  `fields` says it carries, and the `states` it fires on. */
+  | {
+    readonly kind: "sinks";
+    readonly choices: readonly string[];
+    readonly fields: Readonly<Record<string, { readonly name: string; readonly suggestion?: string }>>;
+    readonly states: readonly string[];
+    /** Fired on when a sink names no states of its own. */
+    readonly defaultStates: readonly string[];
+  }
   | { readonly kind: "text" }
   | { readonly kind: "list" };
 

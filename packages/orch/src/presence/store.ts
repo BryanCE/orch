@@ -1,12 +1,12 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { PRESENCE_SCHEMA, STATUS_FILE } from "./schema.ts";
+import { STATUS_FILE } from "./schema.ts";
 // The presence protocol is orch's, and src/presence/ owns it (Rule 10). The
 // directory layout is defined there and imported here — a second copy in the
 // store is how a writer and a reader end up disagreeing about where a record
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
-import { orchDir, presenceAgentDir, presenceRoot, readLatestResult } from "./writer.ts";
+import { isPresenceStatus, orchDir, presenceAgentDir, presenceRoot, readLatestResult, readPresenceStatus } from "./writer.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
@@ -15,8 +15,6 @@ import { agents } from "../db/schema.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { AgentView } from "../types/store.ts";
 import type { DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
-
-export { orchDir, presenceAgentDir };
 
 export function presenceDir(root = orchDir()): string {
   return presenceRoot(root);
@@ -50,23 +48,6 @@ export function readJSON<T = unknown>(file: string): T | null {
   return parsed === undefined ? null : parsed as T;
 }
 
-/** The one gate every presence status read passes through. A status.json is a
- *  live record only when it stamps the current PRESENCE_SCHEMA; anything else
- *  is malformed and reads as absent, exactly as src/doctor/presence.ts reports
- *  it. Malformed dirs stay on disk and keep enumerating so `orch doctor` can
- *  name them and `orch clean` can reap them — they just never surface as a
- *  live status, so one bad dir can never break the whole status view. */
-function isPresenceStatus(value: unknown): value is PresenceStatus {
-  // Placement is orch's, never the agent's to report.
-  // A record stamping the CURRENT schema that still carries it is a writer claiming to
-  // know where it runs, which the registry alone answers — so it is malformed, not old.
-  return isRecord(value)
-    && value.schema === PRESENCE_SCHEMA
-    && !("backend" in value)
-    && !("space" in value)
-    && !("handle" in value);
-}
-
 /** Keep only fields doctor may display when a status fails the schema gate. */
 function describePresenceStatus(value: unknown): PresenceDescription {
   if (!isRecord(value)) return {};
@@ -83,12 +64,6 @@ function isErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-export function readPresenceStatus(file: string): PresenceStatus | null {
-  // A predicate, not a cast: the schema check IS the narrowing, so the runtime
-  // guard and the asserted type cannot drift apart.
-  const status = readJSON<unknown>(file);
-  return isPresenceStatus(status) ? status : null;
-}
 
 
 /**

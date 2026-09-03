@@ -109,9 +109,12 @@ describe("command lock serialization", () => {
       holder: "stale-holder",
       acquired_at: Date.now(),
     }));
+    // What is under test is that eviction is immediate, never a waited poll
+    // cycle. The margin has to be wider than any host's file latency, or a slow
+    // machine reads as a lock that waited.
     const started = Date.now();
-    const lock = await acquireCommandLock(root, { holder: "new-holder", timeoutMs: 1_000, pollMs: 500 });
-    expect(Date.now() - started).toBeLessThan(500);
+    const lock = await acquireCommandLock(root, { holder: "new-holder", timeoutMs: 10_000, pollMs: 5_000 });
+    expect(Date.now() - started).toBeLessThan(2_500);
     expect(lock.holder).toBe("new-holder");
     expect(readCommandLock(root)?.start_token).toBe(lock.start_token);
     expect(releaseCommandLock(root, lock.pid, lock.start_token)).toBe(true);
@@ -119,6 +122,15 @@ describe("command lock serialization", () => {
 
   test("does not evict a lock held by a live foreign process", async () => {
     const root = tempOrchDir();
+    const release = join(root, "release-holder");
+    // The holder has to outlive the waiter no matter how slowly the host starts
+    // processes. A fixed sleep raced Windows spawn latency and let the lock go
+    // before the assertions ran; the release file ends the hold on our word.
+    const holdUntilReleased = [
+      "const fs = require('node:fs');",
+      "const file = process.argv[1];",
+      "const timer = setInterval(() => { if (fs.existsSync(file)) clearInterval(timer); }, 20);",
+    ].join(" ");
     const holder = Bun.spawn([
       process.execPath,
       binPath,
@@ -129,7 +141,8 @@ describe("command lock serialization", () => {
       "--",
       process.execPath,
       "-e",
-      "setTimeout(() => {}, 1200)",
+      holdUntilReleased,
+      release,
     ], { env: { ...process.env, ORCH_DIR: root }, stdout: "pipe", stderr: "pipe" });
     try {
       const held = await waitForLock(root);
@@ -150,6 +163,7 @@ describe("command lock serialization", () => {
       expect(stillHeld?.start_token).toBe(held.start_token);
       expect(processInstanceMatches(held.pid, held.start_token)).toBe(true);
     } finally {
+      writeFileSync(release, "");
       await holder.exited;
     }
     expect(readCommandLock(root)).toBeNull();

@@ -2,10 +2,13 @@ import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from "n
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import { orchDir } from "../../presence/writer.ts";
-import {  } from "../../presence/store.ts";
 import { errorMessage, pidAlive } from "../../util.ts";
 import { decisionLogger } from "../../daemon/decision-log.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
+import { environmentStamp } from "../../agent/environment.ts";
+
+/** A detached agent has no pane: no labels to read, no blocked signal to relay. */
+const HEADLESS_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
@@ -190,7 +193,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         // ORCH_AGENT_LOG mirrors the recorded log path (D3a) to the presence
         // writer running inside the child, so its own status.json can stamp
         // the same sessionPath as this backend's log.
-        env: { ...process.env, ...agentLaunchEnv({ ...opts, key, orchDir: directory }, { ORCH_AGENT_LOG: logPath }) },
+        env: { ...process.env, ...agentLaunchEnv({ ...opts, key, orchDir: directory }, { ORCH_AGENT_LOG: logPath, ...HEADLESS_ENVIRONMENT_STAMP }) },
         // stdin MUST reach EOF: a pi-shaped harness reads its prompt from an open
         // stdin and blocks there before starting a session, so it never registers.
         stdio: ["ignore", logFd, logFd],

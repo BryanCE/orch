@@ -15,7 +15,8 @@ import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { watchSettings } from "../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import { loadPresence } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errorMessage, errorTrace, isRecord } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -50,6 +51,10 @@ import type { NotifyEvent } from "../types/notify.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
+import { createPanePainter } from "./pane-painter.ts";
+import { activePaneHud } from "../backends/hud.ts";
+import { peerView } from "./peer-view.ts";
+import type { PaneLabels } from "../types/plexer.ts";
 
 
 /** The one spelling of "is this lease's holder still running". A start token
@@ -151,6 +156,30 @@ function rpcParams(params: unknown): Record<string, unknown> {
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${name} is required`);
   return value;
+}
+
+/** A notification a bridge raised, rebuilt field by field. It arrives as JSON
+ *  from another process, so every member is narrowed here rather than trusted:
+ *  the event is constructed, never asserted. */
+function bridgeNotifyEvent(params: Record<string, unknown>): NotifyEvent {
+  const nullableString = (value: unknown): string | null => typeof value === "string" ? value : null;
+  const event: NotifyEvent = {
+    key: requiredString(params.key, "key"),
+    agent: nullableString(params.agent),
+    tab: nullableString(params.tab),
+    model: nullableString(params.model),
+    oldState: requiredString(params.oldState, "oldState"),
+    newState: requiredString(params.newState, "newState"),
+    ts: requiredString(params.ts, "ts"),
+  };
+  const space = optionalString(params.space);
+  if (space !== undefined) event.space = space;
+  const task = optionalString(params.task);
+  if (task !== undefined) event.task = task;
+  const reason = optionalString(params.reason);
+  if (reason !== undefined) event.reason = reason;
+  if (typeof params.cost === "number") event.cost = params.cost;
+  return event;
 }
 
 function isWritePayload(value: unknown): value is { action?: unknown; text?: unknown } {
@@ -485,6 +514,24 @@ async function main(): Promise<void> {
         },
       }),
       "subscribe-events": () => ({ subscribed: true }),
+      // A bundled harness links no plexer, so the two things it used to ask its
+      // pane directly it now asks orchd, the only process that talks to one.
+      "environment-labels": async (params) => {
+        const id = requiredString(rpcParams(params).id, "id");
+        let reported: PaneLabels | null = null;
+        await activePaneHud(id).readLabels((labels) => { reported = labels; });
+        return reported;
+      },
+      "peer-view": (params) => {
+        const value = rpcParams(params);
+        const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === "string") : [];
+        return peerView(directory, requiredString(value.ownKey, "ownKey"), keys, value.allSpaces === true);
+      },
+      notify: (params) => {
+        const event = bridgeNotifyEvent(rpcParams(params));
+        activePaneHud(agentIdOf(event.key)).notify(event);
+        return { ok: true };
+      },
       status: () => fleetStatus(directory),
       dispatch: (params) => acceptWrite(directory, "dispatch", params),
       steer: (params) => acceptWrite(directory, "steer", params),
@@ -551,6 +598,7 @@ async function main(): Promise<void> {
     },
     onWarn: (message) => daemonLogger?.warn("config.warning", { message }),
   });
+  const paintPane = createPanePainter(directory);
   presenceWatch = startPresenceWatch({
     orchDir: directory,
     metadataFor: (key) => {
@@ -566,7 +614,13 @@ async function main(): Promise<void> {
       if (spawner) metadata.spawnedByLabel = spawner.name;
       return metadata;
     },
-    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory); },
+    onEvent: (event) => {
+      lastActivityAt = Date.now();
+      // The agent no longer paints its own pane: its bundle carries no plexer.
+      const painted = tryParseIdentity(event.key)?.id;
+      if (painted !== undefined) paintPane(painted, { state: event.newState, cost: event.cost ?? 0, ...(event.task === undefined ? {} : { task: event.task }) });
+      emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory);
+    },
   });
   workLoopRunning = true;
   workLoop = runWorkLoop({

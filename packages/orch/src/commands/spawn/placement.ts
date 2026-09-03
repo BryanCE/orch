@@ -1,4 +1,4 @@
-import { orchDir } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";

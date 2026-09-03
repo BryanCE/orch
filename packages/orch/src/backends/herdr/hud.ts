@@ -1,25 +1,22 @@
 // herdr pane HUD — the plexer-side half of an in-agent bridge.
 //
 // Everything in this file is gated on the herdr PLEXER (backend), not on any
-// agent harness: pane custom-status metadata, pane/tab label lookup, the pane
-// agent-state machine (working / blocked / idle), the `herdr:blocked` signal,
-// and desktop notifications. CLAUDE.md Rule 10 forbids backend-gated code from
-// living under `extensions/<harness>/`, so harness shims depend on the
-// plexer-neutral port (`src/backends/hud.ts`) and never import this module;
-// the port wires these functions in as its herdr provider — no herdr socket,
-// event name, or shell-out ever appears inside a harness directory.
-import { execFile } from "node:child_process";
+// agent harness: pane custom-status metadata, pane/tab label lookup, and desktop
+// notifications. CLAUDE.md Rule 10 forbids backend-gated code from living under
+// `extensions/<harness>/`, so orchd depends on the plexer-neutral port
+// (`src/backends/hud.ts`) and never imports this module; the port wires these
+// functions in as its herdr provider — no herdr socket, event name, or shell-out
+// ever appears outside `src/backends/herdr/`.
+import { execFile, execFileSync } from "node:child_process";
 import { isAgentId } from "../identity.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { environmentOf } from "../../store/agent-view.ts";
-import { createPaneStateSocket, retryableErrorMessage } from "./pane-socket.ts";
-import { createPaneStateMachine } from "./pane-state-machine.ts";
 import { herdrEnvironmentPresent } from "./index.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
-import type { BridgeNotifyEvent, PaneHudContext, PaneHudEventBus, PaneHudOptions, PaneHudRegistrar, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
+import type { BridgeNotifyEvent, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
 
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
@@ -29,9 +26,26 @@ const CUSTOM_STATUS_MAX = 32;
  *  own rows inside `src/backends/<plexer>/` is the one place it is the answer. */
 const HERDR_PLEXER = "herdr";
 
-/** Herdr's control socket for this process, when it published one. */
+/** Herdr's own report of where its server listens. Asked once and remembered:
+ *  one server serves the machine, and orchd outside every session still has to
+ *  reach it. Asking herdr beats guessing a path or storing one that goes stale. */
+let reportedSocket: string | null | undefined;
+
+function serverSocketPath(): string | undefined {
+  if (reportedSocket !== undefined) return reportedSocket ?? undefined;
+  try {
+    const reported = execFileSync("herdr", ["status", "server"], { encoding: "utf8", timeout: 2000 });
+    reportedSocket = /^socket:\s*(.+)$/m.exec(reported)?.[1]?.trim() ?? null;
+  } catch {
+    reportedSocket = null;
+  }
+  return reportedSocket ?? undefined;
+}
+
+/** Herdr's control socket. A process inside a pane is told where it is; every
+ *  other process — orchd is never in a pane — asks herdr itself. */
 function herdrSocketPath(): string | undefined {
-  return herdrEnvironmentPresent() ? process.env.HERDR_SOCKET_PATH : undefined;
+  return herdrEnvironmentPresent() ? process.env.HERDR_SOCKET_PATH : serverSocketPath();
 }
 
 /**
@@ -217,114 +231,3 @@ export function notifyHerdr(event: BridgeNotifyEvent): void {
   }
 }
 
-// ---- the plexer's out-of-band blocked signal ----
-
-interface HerdrBlockedEventLike {
-  active: boolean;
-  label?: string;
-}
-
-function isHerdrBlockedEvent(value: unknown): value is HerdrBlockedEventLike {
-  return isRecord(value)
-    && typeof value.active === "boolean"
-    && (value.label === undefined || typeof value.label === "string");
-}
-
-/**
- * Relays herdr's pane-blocked signal to a bridge. The channel name and its
- * payload guard are plexer vocabulary and stay here; the bridge only receives
- * the decoded (active, label) pair.
- */
-export function registerBlockedSignalRelay(
-  events: PaneHudEventBus,
-  onBlockedChange: (active: boolean, label: string | undefined) => void,
-): void {
-  events.on("herdr:blocked", (data: unknown) => {
-    if (!isHerdrBlockedEvent(data)) return;
-    onBlockedChange(data.active, data.label);
-  });
-}
-
-// ---- herdr pane-state reporting (absorbed from the retired herdr-agent-state extension) ----
-// Reports working/blocked/idle to herdr's pane HUD over the herdr socket, with
-// idle debounce and a retry-grace hold for retryable provider errors. This is the
-// wiring only: the socket sender/queue lives in `pane-socket.ts` and the
-// working/blocked/idle decision logic in `pane-state-machine.ts`; here we parse
-// env, build both, and adapt the harness lifecycle events onto the machine.
-function parsePaneDurationEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
-export function registerPaneStateHud(
-  id: string | null,
-  registrar: PaneHudRegistrar,
-  events: PaneHudEventBus,
-  options: PaneHudOptions,
-): void {
-  const socketPath = herdrSocketPath();
-  const paneHandle = herdrPaneHandle(id);
-  if (!socketPath || paneHandle === null) return;
-
-  const agentId = options.agentId;
-  const source = `herdr:${agentId}`;
-
-  const socket = createPaneStateSocket({
-    socketPath,
-    paneId: paneHandle,
-    source,
-    agentId,
-    extensionHash: options.extensionHash,
-  });
-  const machine = createPaneStateMachine({
-    idleDebounceMs: parsePaneDurationEnv("HERDR_IDLE_DEBOUNCE_MS", 250),
-    retryGraceMs: parsePaneDurationEnv("HERDR_RETRY_GRACE_MS", 2500),
-    enqueueState: socket.enqueueState,
-  });
-
-  // Only the root session (the one with UI) mirrors its lifecycle into the pane;
-  // nested/sub-agent sessions must not report against this pane's handle.
-  let rootSession = false;
-
-  registerBlockedSignalRelay(events, (active, label) => {
-    if (!rootSession) return;
-    machine.setBlocked(active, label);
-  });
-
-  registrar.onSessionStart((ctx: PaneHudContext) => {
-    if (ctx?.hasUI !== true) return;
-    rootSession = true;
-    socket.updateSessionRef(ctx);
-    void socket.reportSession();
-    // A reload can replace this extension mid-run without emitting another agent_start.
-    let active = false;
-    try {
-      active = ctx?.isIdle?.() === false;
-    } catch {
-      active = false;
-    }
-    machine.openSession(active);
-  });
-
-  registrar.onAgentStart((ctx: PaneHudContext) => {
-    if (!rootSession) return;
-    socket.updateSessionRef(ctx);
-    void socket.reportSession();
-    machine.startRun();
-  });
-
-  registrar.onAgentEnd((event) => {
-    if (!rootSession) return;
-    machine.endRun(retryableErrorMessage(event));
-  });
-
-  registrar.onSessionShutdown(async (event: { reason?: string }) => {
-    if (!rootSession) return;
-    machine.clearTimers();
-    // Pi tears down extension runtimes for /reload, /new, /resume, /fork; only a
-    // real quit should release herdr's full-lifecycle authority for this pane.
-    if (event?.reason === "quit") await socket.releaseAgent();
-  });
-}

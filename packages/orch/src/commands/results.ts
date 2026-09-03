@@ -1,7 +1,8 @@
 import * as path from "node:path";
 import { loadSettings } from "../settings/read.ts";
 import { buildEntities, collapse, resolveTarget, scopeEntitiesToSpace, spaceOf } from "../entities.ts";
-import { loadPresence, orchDir, readJSON } from "../presence/store.ts";
+import { loadPresence, readJSON } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { QUESTION_FILE } from "../presence/schema.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
@@ -161,7 +162,7 @@ export async function cmdQuestions(args: string[]): Promise<void> {
     return;
   }
   const tableRows = rows.map((row) => [row.host ?? "-", row.key, row.name ?? "-", row.age, row.question]);
-  process.stdout.write(renderTable(["HOST", "PANE", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
+  process.stdout.write(renderTable(["HOST", "ID", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
 }
 
 interface PendingQuestion { pres: PresenceEntry; question: QuestionPayload }

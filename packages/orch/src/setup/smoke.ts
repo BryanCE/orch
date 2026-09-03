@@ -1,6 +1,7 @@
 import { resolveBackend } from "../backends/registry.ts";
 import { loadSettings } from "../settings/read.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import {loadPresence} from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";

@@ -12,7 +12,8 @@ Opens one tab of N balanced-tiled agents. Never steals focus. Cap is `fleet.spaw
 (default 8). Every name is validated before any tab or pane is created, so a refused spawn
 leaves nothing behind.
 
-- `--tab` names the tab, `--name` names the agents. Each falls back to the other.
+- The positionals name the agents, one per agent; `--tab` names the tab. There is no
+  `--name` flag, no count argument and no `<prefix>-N` numbering.
 - `--worktree` only when parallel agents would otherwise edit the same files. Collect with
   `orch review`.
 - `--backend headless` runs detached and requires `--prompt`. The agent runs it and exits,

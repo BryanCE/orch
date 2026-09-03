@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { sourceFiles } from "./helpers/sources.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
@@ -68,15 +69,6 @@ async function unrelatedProcess(): Promise<number> {
   await new Promise((resolve) => child.once("spawn", resolve));
   if (child.pid === undefined) throw new Error("child had no pid");
   return child.pid;
-}
-
-function sourceFiles(directory: string, found: string[] = []): string[] {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) sourceFiles(path, found);
-    else if (entry.name.endsWith(".ts")) found.push(path);
-  }
-  return found;
 }
 
 describe("the daemon asks for a token and nothing else", () => {

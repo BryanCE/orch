@@ -1,6 +1,6 @@
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../../entities.ts";
 import { tryParseIdentity } from "../../backends/identity.ts";
-import { orchDir, readPresenceStatus } from "../../presence/store.ts";
+import { orchDir, readPresenceStatus } from "../../presence/writer.ts";
 import { selfId } from "../../identity/self.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";

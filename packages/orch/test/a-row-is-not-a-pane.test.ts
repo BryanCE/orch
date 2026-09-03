@@ -56,11 +56,11 @@ function seedAgentInPane(dir: string, id: string, handle: string): void {
 }
 
 /** A live presence record, so the failure cannot be blamed on a dead process. */
-function seedLivePresence(dir: string, id: string, paneId: string): void {
+function seedLivePresence(dir: string, id: string): void {
   const directory = join(dir, "agents", id);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key: id, pid: process.pid, agent: "pi", state: "idle", paneId,
+    schema: PRESENCE_SCHEMA, key: id, pid: process.pid, agent: "pi", state: "idle",
   }));
 }
 
@@ -73,7 +73,7 @@ describe("a row is not evidence that a pane exists (U1, U4)", () => {
   test("a recorded handle the plexer does not list is reported as NO pane", () => {
     const dir = fixture();
     seedAgentInPane(dir, "goneagent1", "w7:p2B");
-    seedLivePresence(dir, "goneagent1", "w7:p2B");
+    seedLivePresence(dir, "goneagent1");
 
     // The plexer is asked and lists a different pane entirely: the recorded one
     // is gone. This is the exact herdr `pane_not_found` case.
@@ -85,7 +85,7 @@ describe("a row is not evidence that a pane exists (U1, U4)", () => {
   test("the agent itself is still there — losing a pane costs a shortcut, not a life", () => {
     const dir = fixture();
     seedAgentInPane(dir, "goneagent1", "w7:p2B");
-    seedLivePresence(dir, "goneagent1", "w7:p2B");
+    seedLivePresence(dir, "goneagent1");
 
     const entity = entityFor("goneagent1", [fakePane("w7:p9Z")]);
 
@@ -99,7 +99,7 @@ describe("a row is not evidence that a pane exists (U1, U4)", () => {
   test("a handle the plexer DOES list is kept", () => {
     const dir = fixture();
     seedAgentInPane(dir, "liveagent1", "w7:p2B");
-    seedLivePresence(dir, "liveagent1", "w7:p2B");
+    seedLivePresence(dir, "liveagent1");
 
     const entity = entityFor("liveagent1", [fakePane("w7:p2B")]);
 

@@ -8,20 +8,15 @@
 // presence writer (src/presence/writer.ts) per CLAUDE.md Rule 10.
 import * as fs from "node:fs";
 import { Type } from "typebox";
-import { isAgentId } from "../backends/identity.ts";
-import { deriveDriveState } from "./drive-state.ts";
-import { depthOf, isDescendantOf } from "../policy/provenance.ts";
-import { checkWall, scopeToSpace, spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readLatestResult, readStatus } from "../presence/writer.ts";
-import { orchDir } from "../presence/store.ts";
-import { agentView } from "../store/agent-view.ts";
 import { isRecord, optionalString, pidAlive, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
-import type { AgentPresence, BridgeToolResult, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
+import type { AgentPresence, BridgeToolResult, DaemonClient, DriveState, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
+import type { PeerView } from "../daemon/peer-view.ts";
 
 function peerModel(status: unknown): string | undefined {
   if (!isRecord(status) || !isRecord(status.model)) return undefined;
@@ -32,47 +27,44 @@ function peerModel(status: unknown): string | undefined {
   return `${provider}/${id}:${thinking}`;
 }
 
-/** Provenance as the store records it, for the one walker in policy/provenance.ts. */
-function provenanceLookup(id: string) {
-  return agentView(orchDir(), id);
-}
-
-/** Only a root agent or an unregistered caller may lift the fleet wall. */
-function callerMayCrossFleets(callerId: string | null): boolean {
-  if (callerId === null) return true;
-  return depthOf(provenanceLookup, callerId) === 0;
-}
-
-/** The fleet wall: roots may request every space/project; deeper callers stay
- * inside their provenance subtree regardless of the all-spaces flag. */
-function scopeToFleet(peers: Peer[], ownKey: string, allRequested: boolean): Peer[] {
-  const mayCross = callerMayCrossFleets(ownKey);
-  if (!mayCross) {
-      return peers.filter((peer) => isDescendantOf(provenanceLookup, peer.key, ownKey));
-  }
-  const all = allRequested;
-  const sameSpacePeers = scopeToSpace(orchDir(), peers, (peer) => peer.key, spaceOf(orchDir(), ownKey), { all });
-  if (all) return sameSpacePeers;
-  return sameSpacePeers.filter((peer) => optionalString(peer.status.project) === projectRoot());
-}
 
 // A key is one minted id: lowercase alphanumerics, nothing a filesystem has to
 // escape and nothing to split apart. So the presence directory name IS the key,
 // with no encoding step either way (see src/presence/store.ts).
-function livePeers(ownKey: string, allSpaces = false): Peer[] {
+function isDriveState(value: unknown): value is DriveState {
+  return isRecord(value)
+    && (value.kind === "leased" || value.kind === "unleased")
+    && typeof value.owner === "string"
+    && typeof value.mine === "boolean";
+}
+
+function isPeerView(value: unknown): value is PeerView {
+  if (!isRecord(value) || !Array.isArray(value.visible) || !isRecord(value.spaces) || !isRecord(value.drive)) return false;
+  return value.visible.every((key) => typeof key === "string")
+    && Object.values(value.spaces).every((space) => space === null || typeof space === "string")
+    && Object.values(value.drive).every(isDriveState);
+}
+
+async function peerViewFor(daemon: DaemonClient, ownKey: string, keys: string[], allSpaces: boolean): Promise<PeerView | undefined> {
+  const answer = await daemon.ask("peer-view", { ownKey, keys, allSpaces });
+  return isPeerView(answer) ? answer : undefined;
+}
+
+async function livePeers(daemon: DaemonClient, ownKey: string, allSpaces = false): Promise<{ peers: Peer[]; view: PeerView } | undefined> {
   try {
     const peers = fs.readdirSync(presenceRoot(), { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name !== ownKey)
-      .map((entry) => {
-        const dir = presenceAgentDir(entry.name);
-        return { key: entry.name, dir, status: readStatus(dir) };
-      })
+      .map((entry) => { const dir = presenceAgentDir(entry.name); return { key: entry.name, dir, status: readStatus(dir) }; })
       .filter((peer) => pidAlive(peer.status.pid))
-      // readdir order is filesystem-dependent; a fleet listing must not reshuffle.
       .sort((left, right) => left.key.localeCompare(right.key));
-    return scopeToFleet(peers, ownKey, allSpaces);
+    const view = await peerViewFor(daemon, ownKey, peers.map((peer) => peer.key), allSpaces);
+    if (!view) return undefined;
+    const visible = new Set(view.visible);
+    const scoped = peers.filter((peer) => visible.has(peer.key)
+      && (allSpaces || optionalString(peer.status.project) === projectRoot()));
+    return { peers: scoped, view };
   } catch {
-    return [];
+    return undefined;
   }
 }
 
@@ -117,46 +109,25 @@ function resolveSpawnerPeer(): PeerResolution {
   return { peer };
 }
 
-export function resolvePeer(target: string, ownKey: string, allRequested = false): PeerResolution {
-  // The stamped spawner address bypasses fleet scoping in BOTH spellings: the
-  // alias and the literal key an agent read from its own status.
-  if (target === "spawner" || (target.length > 0 && target === optionalString(process.env.ORCH_SPAWNER))) {
-    return resolveSpawnerPeer();
-  }
-  // A spawned agent's flag never lifts the wall; only a human session's does.
-  const allSpaces = allRequested && callerMayCrossFleets(ownKey);
-  const peers = livePeers(ownKey, true);
-  const exact = peers.find((peer) => peer.key === target);
-  // Names are addresses too: `orch_send sweep-2 ...` must work exactly like the key.
-  const matches = exact
-    ? [exact]
-    : peers.filter((peer) => peer.key.endsWith(target) || optionalString(peer.status.label) === target);
-  const firstMatch = matches[0];
-  if (matches.length === 1 && firstMatch) {
-    const wall = checkWall(orchDir(), ownKey, firstMatch.key, { crossSpace: allSpaces });
-    if (!wall.allowed) return { error: `error: ${wall.reason}` };
-  }
-  const scopedMatches = scopeToFleet(matches, ownKey, allSpaces);
-  const firstScopedMatch = scopedMatches[0];
-  if (scopedMatches.length === 1 && firstScopedMatch) return { peer: firstScopedMatch };
-  if (scopedMatches.length > 1) {
-    return { error: `error: ambiguous target. Candidates: ${scopedMatches.map((peer) => peer.key).join(", ")}` };
-  }
-  if (matches.length > 1) {
-    return { error: `error: ambiguous target. Candidates: ${matches.map((peer) => peer.key).join(", ")}` };
-  }
-  const candidates = livePeers(ownKey, allSpaces);
-  return { error: `error: target not found. Candidates: ${candidates.map((peer) => peer.key).join(", ")}` };
+export async function resolvePeer(daemon: DaemonClient, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
+  if (target === "spawner" || (target.length > 0 && target === optionalString(process.env.ORCH_SPAWNER))) return resolveSpawnerPeer();
+  const live = await livePeers(daemon, ownKey, allRequested);
+  if (!live) return { error: "error: peer view unavailable" };
+  const exact = live.peers.find((peer) => peer.key === target);
+  const matches = exact ? [exact] : live.peers.filter((peer) => peer.key.endsWith(target) || optionalString(peer.status.label) === target);
+  if (matches.length === 1 && matches[0]) return { peer: matches[0] };
+  if (matches.length > 1) return { error: `error: ambiguous target. Candidates: ${matches.map((peer) => peer.key).join(", ")}` };
+  return { error: `error: target not found. Candidates: ${live.peers.map((peer) => peer.key).join(", ")}` };
 }
 
-function summarizePeer(peer: Peer, spawnerKey: string | undefined, callerOrchId: string | null): PeerSummary {
+function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefined): PeerSummary {
   return {
     key: peer.key,
     name: optionalString(peer.status.label),
     harness: optionalString(peer.status.agent),
-    space: spaceOf(orchDir(), peer.key),
+    space: view.spaces[peer.key] ?? null,
     state: optionalString(peer.status.state) ?? "unknown",
-    drive: deriveDriveState(peer.key, { directory: orchDir(), currentOrchId: callerOrchId }),
+    drive: view.drive[peer.key] ?? { kind: "unleased", owner: "unleased", mine: false },
     isSpawner: peer.key === spawnerKey ? true : undefined,
     spawnedBy: optionalString(peer.status.spawnedBy),
     spawnedByLabel: optionalString(peer.status.spawnedByLabel),
@@ -172,26 +143,25 @@ function summarizePeer(peer: Peer, spawnerKey: string | undefined, callerOrchId:
 
 /** The caller's spawner as a listable row, when fleet scoping hid it. A worker
  *  must always see who orchestrates it, whatever space shape that session has. */
-function hiddenSpawnerSummary(rows: PeerSummary[], spawnerKey: string | undefined, callerOrchId: string | null): PeerSummary | null {
+function hiddenSpawnerSummary(rows: PeerSummary[], view: PeerView, spawnerKey: string | undefined): PeerSummary | null {
   if (!spawnerKey || rows.some((row) => row.key === spawnerKey)) return null;
   const resolved = resolveSpawnerPeer();
   if ("error" in resolved) return null;
-  return summarizePeer(resolved.peer, spawnerKey, callerOrchId);
+  return summarizePeer(resolved.peer, view, spawnerKey);
 }
 
 /** The caller's own agents.id, so "held by you" is answered by the lease table
  *  rather than by an environment the caller happens to sit in. The key IS that
  *  id — there is no segment to pull out of it — and a key that is not one
  *  addresses no agent, so the caller holds nothing. */
-function callerAgentId(ownKey: string): string | null {
-  return isAgentId(ownKey) ? ownKey : null;
-}
 
-export function peerSummaries(ownKey: string, allSpaces = false): PeerSummary[] {
+
+export async function peerSummaries(daemon: DaemonClient, ownKey: string, allSpaces = false): Promise<PeerSummary[]> {
+  const live = await livePeers(daemon, ownKey, allSpaces);
+  if (!live) return [];
   const spawnerKey = optionalString(process.env.ORCH_SPAWNER);
-  const orchId = callerAgentId(ownKey);
-  const rows = livePeers(ownKey, allSpaces).map((peer) => summarizePeer(peer, spawnerKey, orchId));
-  const spawner = hiddenSpawnerSummary(rows, spawnerKey, orchId);
+  const rows = live.peers.map((peer) => summarizePeer(peer, live.view, spawnerKey));
+  const spawner = hiddenSpawnerSummary(rows, live.view, spawnerKey);
   return spawner ? [spawner, ...rows] : rows;
 }
 
@@ -204,15 +174,17 @@ export function appendPeerInbox(peerDir: string, text: string): void {
   );
 }
 
-export function sendPeerMessage(target: string, text: string, ownKey: string, allSpaces = false): string {
-  const resolved = resolvePeer(target, ownKey, allSpaces);
+export async function sendPeerMessage(daemon: DaemonClient, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
+  const resolved = await resolvePeer(daemon, target, ownKey, allSpaces);
   if ("error" in resolved) return resolved.error;
   // The receiver learns the sender's NAME with the key beside it as the reply
   // address — both sides of every message carry full identity.
   const ownName = optionalString(readStatus(presenceAgentDir(ownKey)).label);
   appendPeerInbox(resolved.peer.dir, `[from ${ownName ? `${ownName} (${ownKey})` : ownKey}] ${text}`);
   // The sender knows a peer by its name and harness, not by the transport key that routed there.
-  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, spaceOf(orchDir(), resolved.peer.key) ?? "", resolved.peer.status))}`;
+  const live = await livePeers(daemon, ownKey, allSpaces);
+  const space = live?.view.spaces[resolved.peer.key] ?? null;
+  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, space ?? "", resolved.peer.status))}`;
 }
 
 /** Header of the orphan bucket. G9 wants unleased agents SEPARATED from live
@@ -274,13 +246,14 @@ interface OrchAgentsParams {
 }
 
 /** Registers the commands and tools through which this agent reaches its peers. */
-export function registerPeerTools(harness: HarnessApi, presence: AgentPresence): void {
+export function registerPeerTools(harness: HarnessApi, presence: AgentPresence, daemon: DaemonClient): void {
   harness.registerCommand("peers", {
     description: "List live orch peer agents",
     handler: (_args, ctx) => {
       try {
-        const peers = peerSummaries(presence.ownPresenceKey(ctx));
-        ctx.ui.notify(peers.length ? formatPeerLines(peers) : "no live peers", "info");
+        void peerSummaries(daemon, presence.ownPresenceKey(ctx)).then((peers) => {
+          ctx.ui.notify(peers.length ? formatPeerLines(peers) : "no live peers", "info");
+        });
       } catch {
         ctx.ui.notify("no live peers", "info");
       }
@@ -298,8 +271,9 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
           ctx.ui.notify("error: usage /tell <target> <message>", "error");
           return Promise.resolve();
         }
-        const result = sendPeerMessage(target, text, presence.ownPresenceKey(ctx));
-        ctx.ui.notify(result, result.startsWith("sent to ") ? "info" : "error");
+        void sendPeerMessage(daemon, target, text, presence.ownPresenceKey(ctx)).then((result) => {
+          ctx.ui.notify(result, result.startsWith("sent to ") ? "info" : "error");
+        });
       } catch {
         ctx.ui.notify("error: unable to send peer message", "error");
       }
@@ -319,7 +293,8 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
     }),
     async execute(_toolCallId, params: OrchAgentsParams, _signal, _onUpdate, ctx: HarnessContext) {
       return executeTool(
-        () => JSON.stringify(peerSummaries(
+        async () => JSON.stringify(await peerSummaries(
+          daemon,
           presence.ownPresenceKey(ctx),
           params.all_spaces === true || params.allSpaces === true,
         )),
@@ -344,7 +319,7 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
       async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: HarnessContext) {
         const crossSpace = params.cross_spaces === true || params.allSpaces === true;
         return executeTool(
-          () => sendPeerMessage(params.target, params.text, presence.ownPresenceKey(ctx), crossSpace),
+          () => sendPeerMessage(daemon, params.target, params.text, presence.ownPresenceKey(ctx), crossSpace),
           "error: unable to send peer message",
         );
       },
@@ -364,9 +339,9 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
     }),
     async execute(_toolCallId, params: OrchReadParams, _signal, _onUpdate, ctx: HarnessContext) {
       const crossSpace = params.cross_spaces === true || params.allSpaces === true;
-      return executeTool(() => {
+      return executeTool(async () => {
         const ownKey = presence.ownPresenceKey(ctx);
-        const resolved = resolvePeer(params.target, ownKey, crossSpace);
+        const resolved = await resolvePeer(daemon, params.target, ownKey, crossSpace);
         if ("error" in resolved) return resolved.error;
         const resultRecord = readLatestResult(resolved.peer.dir) ?? {};
         const text = typeof resultRecord.text === "string"
@@ -374,7 +349,7 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence):
           : typeof resolved.peer.status.lastText === "string" ? resolved.peer.status.lastText : "";
         return JSON.stringify({
           key: resolved.peer.key,
-          space: spaceOf(orchDir(), resolved.peer.key),
+          space: null,
           state: optionalString(resolved.peer.status.state) ?? "unknown",
           model: peerModel(resolved.peer.status),
           text,

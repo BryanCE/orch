@@ -14,6 +14,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { daemonClientForPeers } from "./helpers/daemon-client.ts";
 
 const IDENTITY_ENV = [
   "ORCH_DIR", LAUNCH_ENV, "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
@@ -23,6 +24,7 @@ const IDENTITY_ENV = [
 ];
 
 const directories: string[] = [];
+const noPeersDaemon = daemonClientForPeers([]);
 let savedEnv: Record<string, string | undefined> = {};
 
 function tempOrchDir(): string {
@@ -164,7 +166,7 @@ describe("the spawner address invariant", () => {
     expect(stampedSpawnerAddress()).toBeUndefined();
   });
 
-  test("an address that IS stamped resolves to a live inbox", () => {
+  test("an address that IS stamped resolves to a live inbox", async () => {
     const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859";
@@ -182,49 +184,49 @@ describe("the spawner address invariant", () => {
     process.env.ORCH_SPAWNER = address;
     process.env.ORCH_SPAWNER_LABEL = "claude session";
 
-    const resolved = resolvePeer("spawner", "worker0006");
+    const resolved = await resolvePeer(noPeersDaemon, "spawner", "worker0006");
     expect("error" in resolved ? resolved.error : null).toBeNull();
   });
 });
 
 describe("peer identity in messaging", () => {
-  test("peer summaries render an unplaced agent without a local place name", () => {
+  test("peer summaries render an unplaced agent without a local place name", async () => {
     const directory = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "unplaced02";
     seedStatus(directory, peerKey, { agent: "pi", pid: process.pid, state: "idle", label: "unplaced" });
 
-    const summary = peerSummaries(ownKey)[0];
+    const summary = (await peerSummaries(daemonClientForPeers([peerKey]), ownKey))[0];
     expect(summary?.space).toBeNull();
     const output = JSON.stringify(summary);
     expect(output).not.toContain("local");
     expect(output).not.toContain("workspace");
   });
 
-  test("orch_send reports the peer's NAME, and stamps the sender's name on the message", () => {
+  test("orch_send reports the peer's NAME, and stamps the sender's name on the message", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
 
-    const result = sendPeerMessage("sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(daemonClientForPeers([ownKey, peerKey]), "sweep-2", "found it", ownKey);
     expect(result).toBe("sent to pi: sweep-2");
     const inbox = readFileSync(join(presenceAgentDir(peerKey), INBOX_FILE), "utf8");
     expect(inbox).toContain(`[from sweep-1 (${ownKey})] found it`);
   });
 
-  test("peers resolve by display name exactly like by key", () => {
+  test("peers resolve by display name exactly like by key", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "recon30003";
     seedStatus(orchDir, peerKey, { agent: "pi", label: "recon-3", pid: process.pid, state: "idle" });
 
-    const resolved = resolvePeer("recon-3", ownKey);
+    const resolved = await resolvePeer(daemonClientForPeers([peerKey]), "recon-3", ownKey);
     expect("peer" in resolved && resolved.peer.key).toBe(peerKey);
   });
 
-  test("\"spawner\" reaches the stamped spawner session across fleet scoping", () => {
+  test("\"spawner\" reaches the stamped spawner session across fleet scoping", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "worker0004";
     const spawnerDir = seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
@@ -232,21 +234,21 @@ describe("peer identity in messaging", () => {
     process.env.ORCH_SPAWNER = "session777";
     process.env.ORCH_SPAWNER_LABEL = "pi session";
 
-    const sent = sendPeerMessage("spawner", "done with the sweep", ownKey);
+    const sent = await sendPeerMessage(noPeersDaemon, "spawner", "done with the sweep", ownKey);
     expect(sent).toStartWith("sent to ");
     const inbox = readFileSync(join(presenceAgentDir("session777"), INBOX_FILE), "utf8");
     expect(inbox).toContain("done with the sweep");
 
-    const summaries = peerSummaries(ownKey);
+    const summaries = await peerSummaries(daemonClientForPeers(["session777"]), ownKey);
     expect(summaries.find((peer) => peer.key === "session777")?.isSpawner).toBe(true);
   });
 
-  test("a spawner with no inbox is refused BY NAME, not with a bare key", () => {
+  test("a spawner with no inbox is refused BY NAME, not with a bare key", async () => {
     tempOrchDir();
     process.env.ORCH_SPAWNER = "operator01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";
 
-    const resolved = resolvePeer("spawner", "worker0005");
+    const resolved = await resolvePeer(noPeersDaemon, "spawner", "worker0005");
     expect("error" in resolved && resolved.error).toContain("claude session");
   });
 });

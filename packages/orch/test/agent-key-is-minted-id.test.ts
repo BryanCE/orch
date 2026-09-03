@@ -8,7 +8,7 @@ import { createAgentPresence } from "../src/agent/presence.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
-import { peerSummaries } from "../src/agent/peers.ts";
+import { peerView } from "../src/daemon/peer-view.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -93,10 +93,8 @@ function presenceFor() {
   return createAgentPresence({
     harness: fakeHarness(),
     identity: { agentId: "pi", settleEvent: "agent_settled" },
-    paneId: null,
     extensionHash: "test",
     daemon: stubDaemonClient(),
-    reportStatus: () => undefined,
   });
 }
 
@@ -155,22 +153,23 @@ describe("this process's own identity is the id and nothing else", () => {
 describe("the fleet wall is lifted by the absence of a launch, not by a key's shape", () => {
   /** Two agents in one space, in two different projects. The wall is what keeps
    *  a worker's `all` flag from reaching the other project's fleet. */
-  function twoProjects(ownKey: string): string {
+  function twoProjects(ownKey: string): { directory: string; foreignKey: string } {
     const directory = tempOrchDir();
     seedStatus(directory, ownKey, { agent: "pi", label: "caller", pid: process.pid, state: "idle" });
-    seedStatus(directory, mintAgentId(), {
+    const foreignKey = mintAgentId();
+    seedStatus(directory, foreignKey, {
       agent: "pi",
       label: "foreigner",
       pid: process.pid,
       state: "working",
       project: "/some/other/project",
     });
-    return directory;
+    return { directory, foreignKey };
   }
 
   test("an agent orch launched may not cross into another project's fleet", () => {
     const ownKey = mintAgentId();
-    const directory = twoProjects(ownKey);
+    const { directory, foreignKey } = twoProjects(ownKey);
     const sessionToken = "agent-key-session";
     seedAgent("rootagent1", { adapter: "pi" }, directory);
     seedAgent(ownKey, { adapter: "pi", spawnedBy: "rootagent1" }, directory);
@@ -178,7 +177,7 @@ describe("the fleet wall is lifted by the absence of a launch, not by a key's sh
     process.env[LAUNCH_ENV] = ownKey;
     process.env[HARNESS_SESSION_ENV.pi.marker] = "1";
     process.env[HARNESS_SESSION_ENV.pi.sessionId] = sessionToken;
-    expect(peerSummaries(ownKey, true)).toEqual([]);
+    expect(peerView(directory, ownKey, [foreignKey], true).visible).toEqual([]);
   });
 
 });

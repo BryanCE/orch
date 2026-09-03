@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { loadSettings } from "../settings/read.ts";
 import { selfId } from "../identity/self.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errnoCode } from "../util.ts";
 import { acquireCommandLock, matchesLockedCommand, readCommandLock, readLiveCommandLock, releaseCommandLock } from "../control/cmd-lock.ts";
 import type { CommandLock } from "../types/control.ts";

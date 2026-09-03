@@ -8,6 +8,10 @@ import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
 import { projectRoot } from "../src/util.ts";
+import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
+
+/** tmux composes no HUD role today, so an agent it spawns is told exactly that. */
+const environmentStampArg = `${ENVIRONMENT_ENV}=${JSON.stringify({ labels: false, blockedEvent: null })}`;
 import { mintAgentId } from "../src/backends/identity.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
@@ -353,7 +357,7 @@ describe("TmuxBackend", () => {
 
     expect(handle).toBe("%1");
     const split = callArgs("tmux", "split-window");
-    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `${LAUNCH_ENV}=${key}`, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
+    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `${LAUNCH_ENV}=${key}`, "-e", environmentStampArg, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
     expect(execCalls.some((call) => call.args.join(" ") === `set-option -p -t %1 @orch_agent_key ${key}`)).toBe(true);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent pi")).toBe(true);
     // The tiling planner owns geometry; a blanket select-layout would overwrite it.

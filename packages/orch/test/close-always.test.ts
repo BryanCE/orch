@@ -53,12 +53,11 @@ function runCli(dir: string, args: string[]): { status: number | null; output: s
   return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
-function writeStatus(dir: string, key: string, handle: string, pid: number): void {
+function writeStatus(dir: string, key: string, pid: number): void {
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, paneId: handle,
-    pid, agent: "pi", state: "working",
+    schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working",
   }));
 }
 
@@ -100,7 +99,7 @@ describe("close always works", () => {
         adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller",
         ...(name === null ? {} : { name }),
       });
-      writeStatus(dir, key, handle, 99999999);
+      writeStatus(dir, key, 99999999);
     }
     // The space is not in the key any more, so it is asserted where it now
     // lives: the environment satellite, read through the composer.
@@ -133,7 +132,7 @@ describe("close always works", () => {
     recordProcess(dir, key, pid, processStartToken(pid)!);
     seedSpace(dir, "foreign-space");
     placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
-    writeStatus(dir, key, handle, pid);
+    writeStatus(dir, key, pid);
     // The pane host is never asked to close here — the recorded process is
     // signalled instead — so the inventory keeps listing the pane afterwards,
     // and a pane that is still listed must fail the close.
@@ -168,7 +167,7 @@ describe("close always works", () => {
     db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
     seedSpace(dir, "foreign-space");
     placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" });
-    writeStatus(dir, key, handle, pid);
+    writeStatus(dir, key, pid);
 
     const originalKill = process.kill.bind(process);
     const originalExit = process.exit.bind(process);
@@ -202,7 +201,7 @@ describe("close always works", () => {
     const pid = child.pid!;
     seedSpace(dir, "foreign-space");
     seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
-    writeStatus(dir, key, handle, pid);
+    writeStatus(dir, key, pid);
 
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
     withExitCode(() => {

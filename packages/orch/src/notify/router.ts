@@ -5,7 +5,7 @@ import { oneLine } from "./format.ts";
 import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { decisionLogger } from "../daemon/decision-log.ts";
 
 function warning(message: string): void { decisionLogger(orchDir()).warn("notify.failed", { message }); }

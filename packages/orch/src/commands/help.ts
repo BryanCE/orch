@@ -11,9 +11,10 @@ const ALIASES: Record<string, string> = {
 };
 
 const TOPICS: Record<string, string> = {
-  status: `orch status [--json] [--all] [--all-panes] [--offline] [--live]
+  status: `orch status [--json] [--human] [--all] [--all-panes] [--offline] [--live]
 Glanceable table of the fleet (the default command when none is given).
   --json        Machine-readable rows instead of the table.
+  --human       Render named harness and directory details for a person.
   --all         Include every space, not just the caller's.
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.

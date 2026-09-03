@@ -1,5 +1,5 @@
 import { loadSettings } from "../settings/read.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { renderTable } from "../table.ts";

@@ -1,6 +1,6 @@
 import { subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon } from "../daemon/reach.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../tui/screen.ts";
 import { die } from "./target.ts";
 import { formatStatusTable, readStatusResult } from "./status.ts";
@@ -74,7 +74,7 @@ export function createRefreshController(read: () => Promise<void>): RefreshContr
 
 export function renderLiveStatus(
   rows: readonly StatusRow[],
-  options: { all: boolean; host: boolean },
+  options: { all: boolean; host: boolean; human?: boolean },
   date = new Date(),
   error?: string,
 ): string {
@@ -101,9 +101,9 @@ export async function cmdStatusLive(options: StatusOptions): Promise<void> {
       if (stopped) return;
       rows = result.rows;
       host = result.host;
-      process.stdout.write(renderLiveStatus(rows, { all: options.all, host }));
+      process.stdout.write(renderLiveStatus(rows, { all: options.all, host, human: options.human }));
     } catch {
-      if (!stopped) process.stdout.write(renderLiveStatus(rows, { all: options.all, host }, new Date(), "daemon unreachable - retrying on next event"));
+      if (!stopped) process.stdout.write(renderLiveStatus(rows, { all: options.all, host, human: options.human }, new Date(), "daemon unreachable - retrying on next event"));
     }
   });
   const refresh = (): void => refreshController.trigger();

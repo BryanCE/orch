@@ -17,8 +17,8 @@ import { homedir } from "node:os";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ANSWER_FILE, OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
-import { isRecord } from "../util.ts";
-import type { LaunchEnvFacts, LaunchStampable, PresenceRecord } from "../types/presence.ts";
+import { isRecord, readJsonFile } from "../util.ts";
+import type { LaunchEnvFacts, LaunchStampable, PresenceRecord, PresenceStatus } from "../types/presence.ts";
 import type { JsonRecord } from "../types/core.ts";
 
 /** $ORCH_DIR, defaulting to ~/.orch. Read per call so tests can repoint the env. */
@@ -106,6 +106,30 @@ export function readStatus(directory: string): PresenceRecord {
 /** Write the agent's status record. */
 export function writeStatus(directory: string, status: PresenceRecord): void {
   atomicWrite(presenceFile(directory, STATUS_FILE), status);
+}
+
+/** Placement is orch's to record, never the agent's to report. A record stamping
+ *  the CURRENT schema that still carries one is a writer claiming to know where
+ *  it runs, which the registry alone answers — so it is malformed, not old. */
+export function isPresenceStatus(value: unknown): value is PresenceStatus {
+  return isRecord(value)
+    && value.schema === PRESENCE_SCHEMA
+    && !("backend" in value)
+    && !("space" in value)
+    && !("handle" in value);
+}
+
+/** The one gate every presence status read passes through. A status.json is a
+ *  live record only when it stamps the current PRESENCE_SCHEMA; anything else
+ *  is malformed and reads as absent, exactly as src/doctor/presence.ts reports
+ *  it. Malformed dirs stay on disk and keep enumerating so `orch doctor` can
+ *  name them and `orch clean` can reap them — they just never surface as a
+ *  live status, so one bad dir can never break the whole status view. */
+export function readPresenceStatus(file: string): PresenceStatus | null {
+  // A predicate, not a cast: the schema check IS the narrowing, so the runtime
+  // guard and the asserted type cannot drift apart.
+  const status = readJsonFile(file);
+  return isPresenceStatus(status) ? status : null;
 }
 
 export function readJsonStdin(): JsonRecord {

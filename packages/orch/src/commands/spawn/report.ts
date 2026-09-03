@@ -1,4 +1,5 @@
-import { bridgeRegistered, orchDir } from "../../presence/store.ts";
+import { bridgeRegistered } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { loadSettings } from "../../settings/read.ts";
 import { maySpawnFrom } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";

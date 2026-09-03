@@ -7,7 +7,6 @@
 // Nothing here is backend-aware: the pane id, the status sink and the daemon ack
 // transport are all injected by the composition root.
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { mintAgentId } from "../backends/identity.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
@@ -106,7 +105,6 @@ interface AgentPresenceState {
   schema: typeof PRESENCE_SCHEMA;
   agent: string;
   key: string;
-  paneId: string | null;
   /** The launch stamps the agent's display name and its spawner's identity into
    *  env; a plexer HUD may later refine the label, but identity never depends on one. */
   label: string | null;
@@ -146,7 +144,7 @@ interface AgentPresenceState {
 }
 
 export function createAgentPresence(options: AgentPresenceOptions) {
-  const { harness, daemon, extensionHash, reportStatus } = options;
+  const { harness, daemon, extensionHash } = options;
 
   let dir: string | undefined;
 
@@ -155,7 +153,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     schema: PRESENCE_SCHEMA,
     agent: options.identity.agentId,
     key: "",
-    paneId: options.paneId,
     // The launch stamps the agent's display name and its spawner's identity into
     // env; a plexer HUD may later refine the label, but identity never depends on one.
     label: null,
@@ -218,13 +215,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       out.blockedMessage = blocked.message;
     }
     writePresenceStatus(dir, out);
-    // A pane HUD is best-effort and must never prevent the durable status from
-    // landing (especially on the terminal turn where the daemon needs it).
-    try {
-      reportStatus({ state: state.state, task: state.task, cost: state.cost });
-    } catch {
-      // Keep the harness alive when a plexer/status reporter is unavailable.
-    }
   }
 
   function writeResult(text: string, details: JsonRecord = {}): void {
@@ -485,11 +475,11 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     state.pendingHandoff = undefined;
   }
 
-  function deliverPendingHandoff(finalText: string, ownKey: string): void {
+  async function deliverPendingHandoff(finalText: string, ownKey: string): Promise<void> {
     const handoff = pendingHandoff;
     if (!handoff) return;
     try {
-      const resolved = resolvePeer(handoff.target, ownKey);
+      const resolved = await resolvePeer(daemon, handoff.target, ownKey);
       if ("error" in resolved) {
         state.handoffError = resolved.error;
         clearPendingHandoff();

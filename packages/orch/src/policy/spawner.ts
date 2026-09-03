@@ -1,6 +1,8 @@
 import { LAUNCH_ENV } from "../identity/launch.ts";
-import { callerSession, selfIdentity } from "../identity/self.ts";
-import { orchDir } from "../presence/store.ts";
+import { ENVIRONMENT_ENV } from "../agent/environment.ts";
+import { selfIdentity } from "../identity/self.ts";
+import { callerSession } from "../adapters/session-env.ts";
+import { orchDir } from "../presence/writer.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { depthOf } from "./provenance.ts";
@@ -11,7 +13,7 @@ import type { SpawnerIdentity } from "../types/policy.ts";
 /** Every ORCH_* variable carried through a spawn; tests import this vocabulary
  * so isolation cannot drift from the launch boundary. */
 export const ORCH_ENV_VARS = [
-  LAUNCH_ENV, "ORCH_DIR", "ORCH_PROJECT", "ORCH_AGENT_NAME",
+  LAUNCH_ENV, ENVIRONMENT_ENV, "ORCH_DIR", "ORCH_PROJECT", "ORCH_AGENT_NAME",
   "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH",
   "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_SPACE", "ORCH_HARNESS",
 ] as const;

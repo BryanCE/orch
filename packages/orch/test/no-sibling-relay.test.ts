@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolvePeer } from "../src/agent/peers.ts";
+import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
@@ -40,12 +41,12 @@ function fixture(): string {
 }
 
 describe("a worker with no reachable spawner does not relay (L6)", () => {
-  test("an unset spawner refuses, and the refusal names the agent's own report path", () => {
+  test("an unset spawner refuses, and the refusal names the agent's own report path", async () => {
     const d = fixture();
     seedStatus(d, "worker0001", { agent: "pi", label: "research-1", pid: process.pid, state: "working" });
     seedStatus(d, "sibling002", { agent: "pi", label: "research-2", pid: process.pid, state: "working" });
 
-    const resolved = resolvePeer("spawner", "worker0001");
+    const resolved = await resolvePeer(stubDaemonClient(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
 
     // This is the exact turn-burning moment. A bare refusal leaves the worker
@@ -57,13 +58,13 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     expect(error).not.toContain("Do NOT route your report through another agent");
   });
 
-  test("the refusal never suggests another agent as an alternative route", () => {
+  test("the refusal never suggests another agent as an alternative route", async () => {
     const d = fixture();
     seedStatus(d, "worker0001", { agent: "pi", label: "research-1", pid: process.pid, state: "working" });
     seedStatus(d, "sibling002", { agent: "pi", label: "research-2", pid: process.pid, state: "idle" });
     seedStatus(d, "sibling003", { agent: "pi", label: "research-3", pid: process.pid, state: "idle" });
 
-    const resolved = resolvePeer("spawner", "worker0001");
+    const resolved = await resolvePeer(stubDaemonClient(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
     // Naming a live peer here is what turned a dead end into a relay chain.
     for (const name of ["research-2", "research-3", "sibling002", "sibling003"]) {
@@ -71,13 +72,13 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     }
   });
 
-  test("a spawner that is stamped but has no inbox refuses by NAME and still says to report", () => {
+  test("a spawner that is stamped but has no inbox refuses by NAME and still says to report", async () => {
     const d = fixture();
     process.env.ORCH_SPAWNER = "deadorch01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";
     seedStatus(d, "worker0001", { agent: "pi", label: "research-1", pid: process.pid, state: "working" });
 
-    const resolved = resolvePeer("spawner", "worker0001");
+    const resolved = await resolvePeer(stubDaemonClient(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
     expect(error).toContain("claude session");
     expect(error.toLowerCase()).toContain("result");

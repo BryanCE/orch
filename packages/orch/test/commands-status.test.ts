@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromEntity, warningStatusRow } from "../src/commands/status.ts";
+import { displayStatusState, formatNoRowsMessage, formatSpace, formatStatusTable, normalizeStatusRow, scopeFleetRows, statusRowFromEntity, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
-import { closeAllStores, orm } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -143,7 +144,7 @@ describe("commands/status", () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-status-"));
     try {
       ensureHarness(dir, "pi", "pi", 1);
-      insertAgent(dir, { id: "me", harnessId: "pi", cwd: "/tmp", name: "me", createdAt: 1 });
+      insertAgent(dir, { id: "me", harnessId: "pi", cwd: "/tmp", name: "Orchestrator", createdAt: 1 });
       insertAgent(dir, { id: "worker0001", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
       insertAgent(dir, { id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
       const key = "worker0001";
@@ -153,16 +154,38 @@ describe("commands/status", () => {
       if (!token) throw new Error("test process has no start token");
       db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"me"},${1},${"host"},${process.pid},${token})`);
       acquireLease(dir, "worker0001", "me", 2);
-      expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "me", mine: true });
+      expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "Orchestrator", mine: true });
       releaseLease(dir, "worker0001", "me", 3);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it", mine: false });
       acquireLease(dir, "worker0001", "other", 4);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it (holder gone)", mine: false });
     } finally {
-      closeAllStores();
-      rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
+  test("default table separates minted identity from pane environment", () => {
+    const table = formatStatusTable([
+      statusRowFixture({ key: "headless-id", agentId: "headless-id", paneId: null, name: "headless" }),
+      statusRowFixture({ key: "leased-id", agentId: "leased-id", paneId: "%7", name: "leased", owner: "Orchestrator" }),
+    ], { all: false, host: false });
+    expect(table).toContain("ID");
+    expect(table).toContain("ENV");
+    expect(table).toContain("headless-id");
+    expect(table).toContain("leased-id");
+    expect(table).toContain("headless");
+    expect(table).toContain("%7");
+    expect(table).not.toContain("%7  leased-id");
+  });
+
+  test("human table shows harness and working directory facts", () => {
+    const table = formatStatusTable([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", owner: "Orchestrator" })], { all: false, host: false, human: true });
+    expect(table).toContain("HARNESS");
+    expect(table).toContain("CWD");
+    expect(table).toContain("WORKTREE");
+    expect(table).toContain("claude");
+    expect(table).toContain("/repo");
+  });
+
   test("json branch and local table branch derive identical rows apart from host", () => {
     const jsonRow = statusRowFromEntity(seededEntity, new Map()); // cmdStatusLocal json branch shape
     const localRow = { ...statusRowFromEntity(seededEntity, new Map()), host: "local" }; // localStatusRows table shape

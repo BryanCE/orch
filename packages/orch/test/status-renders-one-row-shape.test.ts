@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fleetStatusRows, renderStatusTable, statusRowFromEntity } from "../src/commands/status.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { closeAllStores } from "../src/store/connection.ts";
 import type { StatusRow } from "../src/types/command.ts";
 import type { Entity } from "../src/types/core.ts";
 
@@ -27,10 +27,9 @@ const oldOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
 
 afterEach(() => {
-  closeAllStores();
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = oldOrchDir;
-  while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
 function entityWithQuestion(): Entity {

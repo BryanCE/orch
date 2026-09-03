@@ -21,11 +21,12 @@ import {
   unprovenLockRefusal,
 } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
-import { announceUnleasedAgents, isRegisterSessionResponse, sessionClaim } from "./rpc/registration.ts";
+import { isRegisterSessionResponse, sessionClaim } from "./rpc/registration.ts";
+import { announceUnleasedAgents } from "./rpc/session-registry.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./rpc/wire.ts";
 import { rpcCall } from "./rpc/client.ts";
 import { isLiveAgentIdentity } from "../store/agent-rows.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { commandLogger } from "../commands/logging.ts";
 import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse } from "../types/daemon.ts";

@@ -9,7 +9,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Type } from "typebox";
-import { spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import { loadSettingsOrNull } from "../settings/read.ts";
@@ -141,14 +140,14 @@ function waitForOrchestratorAnswer(
 export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptions): {
   onBlockedChange: (active: boolean, label: string | undefined) => void;
 } {
-  const { presence, notify, refreshLabels } = options;
+  const { presence, daemon, notify, refreshLabels } = options;
   const { state, blocked, text: runText } = presence;
 
   let askingPreviousState: typeof state.state | undefined;
   let blockedNotified = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
-  registerPeerTools(harness, presence);
+  registerPeerTools(harness, presence, daemon);
 
   harness.registerTool({
     name: "orch_ask",
@@ -178,7 +177,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         presence.writeStatus();
         const notificationEvent: BridgeNotification = {
           key: state.key,
-          space: spaceOf(orchDir(), state.key) ?? undefined,
+          space: undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
@@ -489,7 +488,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
       if (ctx) presence.updateContextUsage(ctx);
       if (finalText && presence.dir()) presence.writeResult(finalText);
       if (presence.hasPendingHandoff() && finalText) {
-        presence.deliverPendingHandoff(finalText, presence.keyOrCompute(ctx?.hasUI ?? false));
+        void presence.deliverPendingHandoff(finalText, presence.keyOrCompute(ctx?.hasUI ?? false));
       }
     } catch (error: unknown) {
       // A failing end-hook operation must not strand the agent as working. Keep
@@ -525,7 +524,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const notificationSummary = label ?? "";
         notify({
           key: state.key,
-          space: spaceOf(orchDir(), state.key) ?? undefined,
+          space: undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,

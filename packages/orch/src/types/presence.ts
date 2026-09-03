@@ -7,7 +7,6 @@ export interface PresenceStatus {
   schema: number;
   agent?: string;
   key?: string;
-  paneId?: string | null;
   pid?: number;
   cwd?: string;
   /** Git worktree the launch isolated this agent into; absent when it shares the fleet's tree. */

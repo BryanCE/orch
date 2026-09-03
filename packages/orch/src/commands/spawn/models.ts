@@ -1,4 +1,4 @@
-import { orchDir } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { loadSettings } from "../../settings/read.ts";
 import { assertModelAllowed } from "../../policy/model.ts";
 import { resolveThinking, splitThinkingSuffix } from "../../policy/thinking.ts";

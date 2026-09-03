@@ -62,7 +62,7 @@ function seedAgentWithStatus(dir: string, key: string, handle: string, pid: numb
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, paneId: handle, pid, agent: "pi", state: "working",
+    schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working",
   }));
 }
 

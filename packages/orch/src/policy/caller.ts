@@ -1,5 +1,5 @@
 import { launchCredential } from "../identity/launch.ts";
-import { callerSession } from "../identity/self.ts";
+import { callerSession } from "../adapters/session-env.ts";
 import { orchDir } from "../presence/writer.ts";
 import { agentById } from "../store/agent-rows.ts";
 import type { CallerKind } from "../types/policy.ts";

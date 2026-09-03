@@ -4,6 +4,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatPeerLines, peerSummaries } from "../src/agent/peers.ts";
+import { peerView } from "../src/daemon/peer-view.ts";
+import { daemonClientForPeerView } from "./helpers/daemon-client.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
@@ -64,33 +66,34 @@ function fixture(): string {
   return directory;
 }
 
-function summaryFor(label: string) {
-  return peerSummaries(CALLER).find((peer) => peer.name === label);
+async function summaries(directory: string) {
+  const view = peerView(directory, CALLER, [HELD, LOOSE, ORPHAN], false);
+  return peerSummaries(daemonClientForPeerView(view), CALLER);
 }
 
 // F6 + G9: the compact listing is what agents actually read. Without the lease
 // on it, an unleased agent reads as ordinary live work belonging to the caller.
 describe("peer summaries carry ownership as a lease", () => {
   test("a peer the caller holds reports the caller as the live holder", () => {
-    fixture();
-    expect(summaryFor("held-1")?.drive).toEqual({ kind: "leased", owner: CALLER, mine: true });
+    const directory = fixture();
+    expect(peerView(directory, CALLER, [HELD], false).drive[HELD]).toEqual({ kind: "leased", owner: CALLER, mine: true });
   });
 
   test("a peer nobody ever took reports no orch driving it", () => {
-    fixture();
-    expect(summaryFor("loose-1")?.drive).toEqual({ kind: "unleased", owner: "no orch driving it", mine: false });
+    const directory = fixture();
+    expect(peerView(directory, CALLER, [LOOSE], false).drive[LOOSE]).toEqual({ kind: "unleased", owner: "no orch driving it", mine: false });
   });
 
   test("a dead holder is not a live one", () => {
-    fixture();
-    expect(summaryFor("orphan-1")?.drive).toEqual({ kind: "unleased", owner: "no orch driving it (holder gone)", mine: false });
+    const directory = fixture();
+    expect(peerView(directory, CALLER, [ORPHAN], false).drive[ORPHAN]).toEqual({ kind: "unleased", owner: "no orch driving it (holder gone)", mine: false });
   });
 });
 
 describe("the compact listing separates orphans from live work", () => {
-  test("unleased peers sit in their own bucket, below the driven ones", () => {
-    fixture();
-    const lines = formatPeerLines(peerSummaries(CALLER)).split("\n");
+  test("unleased peers sit in their own bucket, below the driven ones", async () => {
+    const directory = fixture();
+    const lines = formatPeerLines(await summaries(directory)).split("\n");
     const heading = lines.findIndex((line) => line.startsWith("unleased"));
     expect(heading).toBeGreaterThan(0);
 
@@ -103,9 +106,9 @@ describe("the compact listing separates orphans from live work", () => {
     expect(orphans).toContain("orphan-1");
   });
 
-  test("a held peer names its holder, and an unleased one never reads as yours", () => {
-    fixture();
-    const output = formatPeerLines(peerSummaries(CALLER));
+  test("a held peer names its holder, and an unleased one never reads as yours", async () => {
+    const directory = fixture();
+    const output = formatPeerLines(await summaries(directory));
     const line = (label: string) => output.split("\n").find((row) => row.startsWith(label)) ?? "";
     expect(line("held-1")).toContain("held by you");
     expect(line("loose-1")).toContain("no orch driving it");
@@ -113,9 +116,9 @@ describe("the compact listing separates orphans from live work", () => {
     expect(line("orphan-1")).toContain("holder gone");
   });
 
-  test("with nothing unleased the bucket does not appear at all", () => {
-    fixture();
-    const held = peerSummaries(CALLER).filter((peer) => peer.drive.kind === "leased");
+  test("with nothing unleased the bucket does not appear at all", async () => {
+    const directory = fixture();
+    const held = (await summaries(directory)).filter((peer) => peer.drive.kind === "leased");
     expect(held.length).toBe(1);
     expect(formatPeerLines(held)).not.toContain("unleased");
   });

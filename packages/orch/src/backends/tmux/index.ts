@@ -3,9 +3,14 @@ import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
+import { environmentStamp } from "../../agent/environment.ts";
+
+/** tmux has panes but orch composes no HUD role for them yet: nothing to read,
+ *  nothing to relay. Adding one means editing this stamp and nothing else. */
+const TMUX_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 import { sleepMs } from "../pane-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
-import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
+import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
@@ -283,7 +288,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const cwd = opts.cwd ?? process.cwd();
-    const envArgs = tmuxEnvArgs(agentLaunchEnv({ ...opts, orchDir: opts.orchDir ?? process.env.ORCH_DIR }));
+    const envArgs = tmuxEnvArgs(agentLaunchEnv({ ...opts, orchDir: opts.orchDir ?? process.env.ORCH_DIR }, TMUX_ENVIRONMENT_STAMP));
 
     // A planned target pane wins over the group: `-t <window>` splits whatever
     // pane happens to be active there, which makes placement depend on focus.

@@ -1,4 +1,5 @@
-// The running agent's orchd socket client: inbox acks and control outcomes.
+// The running agent's orchd socket client: the only channel by which a bundled
+// harness asks orchd anything or reports anything. It knows no plexer and no store.
 //
 // At-least-once delivery: the daemon retries an unacked outbox row by
 // re-appending the SAME message id, so track acked ids to apply each message
@@ -22,28 +23,35 @@ export function createDaemonClient(orchDir: string): DaemonClient {
     return parsed.id;
   }
 
-  async function postTo(endpoint: string | number, method: string, params: Record<string, unknown>): Promise<boolean> {
+  async function answerFrom(endpoint: string | number, method: string, params: Record<string, unknown>): Promise<unknown> {
     const requestId = `bridge-${method}-${process.pid}-${nextRequestId++}`;
     const line = await requestJsonLine(endpoint, { id: requestId, method, params }, 500);
-    if (line === undefined) return false;
+    if (line === undefined) return undefined;
     try {
       const response: unknown = JSON.parse(line);
-      return isRecord(response) && response.id === requestId && !("error" in response);
+      if (!isRecord(response) || response.id !== requestId || "error" in response) return undefined;
+      return response.result;
     } catch {
-      return false;
+      return undefined;
     }
   }
 
-  async function post(method: string, params: Record<string, unknown>): Promise<boolean> {
+  async function ask(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     try {
       const socketPath = daemonRuntimeFiles(orchDir).socket;
-      if (fs.existsSync(socketPath) && await postTo(socketPath, method, params)) return true;
+      if (fs.existsSync(socketPath)) {
+        const overSocket = await answerFrom(socketPath, method, params);
+        if (overSocket !== undefined) return overSocket;
+      }
       const port = readPortFile(orchDir);
-      return port === undefined ? false : await postTo(port, method, params);
+      return port === undefined ? undefined : await answerFrom(port, method, params);
     } catch {
-      return false;
+      return undefined;
     }
   }
+
+  const post = async (method: string, params: Record<string, unknown>): Promise<boolean> =>
+    await ask(method, params) !== undefined;
 
   return {
     messageIdOf,
@@ -51,6 +59,7 @@ export function createDaemonClient(orchDir: string): DaemonClient {
     markAcked: (id: string): void => {
       ackedMessageIds.add(id);
     },
+    ask,
     postAck: (id: string): Promise<boolean> => post("ack", { id }),
     postControlOutcome: (report: ControlOutcomeReport): Promise<boolean> => post("control-outcome", { ...report }),
   };

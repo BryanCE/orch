@@ -26,7 +26,7 @@ function fixture(): { orchDir: string; target: string } {
   const target = "corr01agnt";
   // A real presence dir with a live pid: the inbox channel refuses delivery to an
   // agent whose bridge is not running, so a dead fixture never reaches the outbox.
-  seedStatus(orchDir, target, { agent: "pi", paneId: target, pid: process.pid, state: "idle", name: "corr" });
+  seedStatus(orchDir, target, { agent: "pi", pid: process.pid, state: "idle", name: "corr" });
   ensureHarness(orchDir, "pi", "pi", Date.now());
   insertAgent(orchDir, { id: target, name: "corr", spawnedBy: null, harnessId: "pi", cwd: orchDir, createdAt: Date.now() });
   return { orchDir, target };

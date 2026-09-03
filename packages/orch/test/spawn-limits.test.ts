@@ -6,7 +6,7 @@ import { loadSettings } from "../src/settings/read.ts";
 import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
 import { assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { SpawnRefusalError } from "../src/refusal.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/writer.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";

@@ -48,4 +48,7 @@ Skip it, do not chase it with `--all`.
 `orch doctor` diagnoses, `-y` applies every fix unattended. `orch clean` reaps dead-pid
 presence. `--worktrees` also clears orphaned worktrees, and `--force` discards unmerged work.
 
-`$ORCH_DIR/agents/` is the store.
+`$ORCH_DIR/orch.db` is the store. Liveness, leases, queue state and outcomes are rows, and
+every decision reads them. `$ORCH_DIR/agents/` is readable history beside it — status,
+results and the delivery log as files you may read, parse, archive or delete. Deleting it
+mid-run costs you the history and nothing else.

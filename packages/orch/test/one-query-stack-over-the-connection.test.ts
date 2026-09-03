@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { sourceFiles } from "./helpers/sources.ts";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import * as connection from "../src/store/connection.ts";
@@ -14,15 +15,6 @@ import * as connection from "../src/store/connection.ts";
  */
 const packageRoot = join(import.meta.dir, "..");
 const THIS_FILE = join(import.meta.dir, "one-query-stack-over-the-connection.test.ts");
-
-function sourceFiles(dir: string, found: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) sourceFiles(path, found);
-    else if (path.endsWith(".ts")) found.push(path);
-  }
-  return found;
-}
 
 describe("one query stack over the connection (2.3)", () => {
   test("the store exposes no raw-SQL port beside the typed one", () => {

@@ -1,7 +1,7 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/lifecycle.ts";
 import { cmdStatus } from "./status.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
@@ -41,8 +41,8 @@ function usage() {
 The ${term("orch")} routes control through the backend port.
 
 OBSERVE
-  orch status [--json] [--all] [--all-panes] [--offline] [--live] [--capacity]
-                                 Glanceable table of the fleet (default command); --live re-renders full-screen
+  orch status [--json] [--human] [--all] [--all-panes] [--offline] [--live] [--capacity]
+                                 Glanceable table of the fleet (default command); --human renders for people; --live re-renders full-screen
                                  from the daemon event stream (TTY only; q/esc quits; not with --json); --all-panes
                                  also lists panes orch did not spawn; --offline reads agent files only.
   orch questions                 List pending agent questions from live agents.

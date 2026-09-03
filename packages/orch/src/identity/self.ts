@@ -1,21 +1,9 @@
 import { launchCredential } from "./launch.ts";
 import { agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
-import { allAdapters } from "../adapters/registry.ts";
-import { optionalString } from "../util.ts";
+import { callerSession } from "../adapters/session-env.ts";
 import { orchDir } from "../presence/writer.ts";
-import type { AgentAdapter } from "../types/adapter.ts";
-import type { CallerSession, SelfIdentity } from "../types/core.ts";
-
-export function callerSession(adapters: readonly AgentAdapter[] = allAdapters()): CallerSession | null {
-  const marked = adapters.find((adapter) =>
-    adapter.sessionEnvMarker !== undefined && optionalString(process.env[adapter.sessionEnvMarker]) !== undefined);
-  if (!marked) return null;
-  const sessionId = marked.sessionIdEnv ? optionalString(process.env[marked.sessionIdEnv]) ?? null : null;
-  const rawPid = marked.sessionPidEnv ? optionalString(process.env[marked.sessionPidEnv]) : undefined;
-  const pid = rawPid !== undefined && /^[0-9]+$/.test(rawPid) ? Number(rawPid) : null;
-  return { harnessId: marked.id, sessionId, pid: pid !== null && pid > 0 ? pid : null };
-}
+import type { SelfIdentity } from "../types/core.ts";
 
 /** The id orch handed this process, or null when orch has never registered it. */
 export function selfIdentity(): SelfIdentity | null {

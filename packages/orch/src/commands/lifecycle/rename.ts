@@ -1,5 +1,5 @@
 import { tryParseIdentity } from "../../backends/identity.ts";
-import { orchDir } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { renameAgent as renameNormalizedAgent } from "../../store/agent-rows.ts";
 import { errorMessage } from "../../util.ts";

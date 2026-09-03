@@ -5,7 +5,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEntities, entitySpace } from "../src/entities.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/writer.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
@@ -43,7 +43,7 @@ function writeAgent(orchDir: string, agent: string, space: string, handle: strin
   const directory = presenceAgentDir(id, orchDir);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key: id, paneId: handle, pid: process.pid, agent, state: "idle",
+    schema: PRESENCE_SCHEMA, key: id, pid: process.pid, agent, state: "idle",
   }));
   return id;
 }

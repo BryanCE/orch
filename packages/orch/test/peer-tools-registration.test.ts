@@ -39,10 +39,8 @@ function fakePresence(harness: HarnessApi) {
   return createAgentPresence({
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
-    paneId: null,
     extensionHash: "test",
     daemon: stubDaemonClient(),
-    reportStatus: () => undefined,
   });
 }
 
@@ -69,7 +67,7 @@ describe("peer tool registration", () => {
     delete process.env.ORCH_SPAWNER;
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(harness, fakePresence(harness));
+    registerPeerTools(harness, fakePresence(harness), stubDaemonClient());
 
     expect(toolNames).not.toContain("orch_send");
     expect(toolNames).toContain("orch_agents");
@@ -82,7 +80,7 @@ describe("peer tool registration", () => {
     seedStatus(directory, "dead-spawner", { pid: 2147483646 });
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(harness, fakePresence(harness));
+    registerPeerTools(harness, fakePresence(harness), stubDaemonClient());
 
     expect(toolNames).not.toContain("orch_send");
   });
@@ -94,7 +92,7 @@ describe("peer tool registration", () => {
     writeFileSync(join(spawnerDir, INBOX_FILE), "");
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(harness, fakePresence(harness));
+    registerPeerTools(harness, fakePresence(harness), stubDaemonClient());
 
     expect(toolNames).toContain("orch_send");
   });

@@ -1,4 +1,5 @@
 import * as filesystem from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -19,7 +20,7 @@ function repo(): string {
 }
 
 afterEach(() => {
-  while (directories.length) filesystem.rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("worktree primitives", () => {

@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -17,7 +18,7 @@ function tempDir(): string {
 afterEach(() => {
   while (directories.length > 0) {
     const directory = directories.pop();
-    if (directory !== undefined) rmSync(directory, { recursive: true, force: true });
+    if (directory !== undefined) removeTempDir(directory);
   }
 });
 

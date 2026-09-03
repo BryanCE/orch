@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -8,6 +9,11 @@ import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/
 import { projectRoot } from "../src/util.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
+import { HERDR_BLOCKED_EVENT } from "../src/backends/herdr/index.ts";
+
+/** The roles a herdr pane composes, as the spawn stamps them for the agent. */
+const environmentStampArg = `${ENVIRONMENT_ENV}=${JSON.stringify({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT })}`;
 
 // Replace the CLI boundary before loading HerdrBackend. This records argv without
 // ever starting a herdr process (and therefore cannot create a live pane).
@@ -129,7 +135,7 @@ afterAll(() => {
   else process.env.HERDR_PANE_ID = callerPane;
   if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
   else process.env[LAUNCH_ENV] = originalAgentKey;
-  fs.rmSync(testDir, { recursive: true, force: true });
+  removeTempDir(testDir);
 });
 
 describe("HerdrBackend", () => {
@@ -177,7 +183,7 @@ describe("HerdrBackend", () => {
     // The launch line is typed once the shell owns the terminal, and the pane is
     // read again afterwards to prove the harness — not the shell — now holds it.
     expect(herdrArgv).toEqual([
-      ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
+      ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--env", environmentStampArg, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
       ["pane", "rename", "w0:p9", "pi-agent"],
       ["agent", "list"],
       agentStart("pi-agent", "w0:p9"),
@@ -207,7 +213,7 @@ describe("HerdrBackend", () => {
     backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "down", targetPane: "w0:p1" });
 
     expect(herdrArgv[0]).toEqual(
-      ["pane", "split", "w0:p1", "--direction", "down", "--cwd", testDir, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
+      ["pane", "split", "w0:p1", "--direction", "down", "--cwd", testDir, "--env", environmentStampArg, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
     );
   });
 

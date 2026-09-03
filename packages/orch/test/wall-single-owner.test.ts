@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { posixPath, sourceFiles } from "./helpers/sources.ts";
 
 const packageRoot = join(import.meta.dir, "..");
-const canonicalWallModule = join(packageRoot, "src", "policy", "space.ts");
+const canonicalWallModule = posixPath(join(packageRoot, "src", "policy", "space.ts"));
 const wallMarkers = [
   /opts:\s*\{\s*crossSpace/,
   /opts\.crossSpace\b/,
@@ -10,16 +11,13 @@ const wallMarkers = [
   /space wall:/,
 ] as const;
 
-async function sourceFiles(): Promise<string[]> {
-  const files: string[] = [];
-  // Bun.Glob yields OS-native separators; normalize so path equality holds on Windows.
-  for await (const path of new Bun.Glob("src/**/*.ts").scan({ cwd: packageRoot, absolute: true })) files.push(path.replace(/\\/g, "/"));
-  return files.sort();
+function wallSourceFiles(): string[] {
+  return sourceFiles(join(packageRoot, "src")).sort();
 }
 
 describe("space wall ownership", () => {
   test("keeps the wall decision primitive in one source module", async () => {
-    const files = await sourceFiles();
+    const files = wallSourceFiles();
     const sources = await Promise.all(files.map(async (path) => [path, await Bun.file(path).text()] as const));
     const canonical = sources.find(([path]) => path === canonicalWallModule);
 

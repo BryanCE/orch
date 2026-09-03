@@ -8,14 +8,12 @@
 // pair code CLAUDE.md Rule 9 forbids.
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
-import { activePaneHud } from "../backends/hud.ts";
 import { createDaemonClient } from "./daemon-client.ts";
 import { registerFleetMonitor } from "./monitor.ts";
 import { createAgentPresence } from "./presence.ts";
 import { orchDir } from "../presence/writer.ts";
-import { selfIdentity } from "../identity/self.ts";
+import { agentEnvironment, isBlockedSignal, isPaneLabels } from "./environment.ts";
 import { registerAgentTools } from "./tools.ts";
-import { isRecord } from "../util.ts";
 import type { FleetStatusRenderer, HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
 
 /** The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two. */
@@ -30,59 +28,41 @@ export function registerHarnessBridge(
   extensionHash: string,
   ui?: { renderFleetStatus?: FleetStatusRenderer; fleet?: boolean },
 ): HarnessBridge {
-  const hud = activePaneHud(selfIdentity()?.id ?? null);
-  const paneId = hud.paneHandle;
+  // This bridge knows no plexer. What its environment composes was decided by
+  // orch at spawn and stamped into the launch env; what its environment KNOWS is
+  // answered by orchd, the one process that talks to a plexer at all.
+  const environment = agentEnvironment();
+  const daemon = createDaemonClient(orchDir());
 
-  hud.registerPaneState(
-    {
-      onSessionStart: (handler) => harness.on("session_start", (_event, ctx) => handler(ctx)),
-      onAgentStart: (handler) => harness.on("agent_start", (_event, ctx) => handler(ctx)),
-      onAgentEnd: (handler) => harness.on("agent_end", (event) => {
-        if (!isRecord(event)) return;
-        const messages = event.messages;
-        if (messages !== undefined && !Array.isArray(messages)) return;
-        handler({ messages });
-      }),
-      onSessionShutdown: (handler) => harness.on("session_shutdown", (event) => {
-        if (!isRecord(event)) return;
-        const reason = event.reason;
-        if (reason !== undefined && typeof reason !== "string") return;
-        // The handler is fire-and-forget by contract: a shutdown notice has no
-        // caller left to await it.
-        void handler({ reason });
-      }),
-    },
-    harness.events,
-    { agentId: identity.agentId, extensionHash },
-  );
-
-  const presence = createAgentPresence({
-    harness,
-    identity,
-    paneId,
-    extensionHash,
-    daemon: createDaemonClient(orchDir()),
-    reportStatus: hud.statusReporter(paneId),
-  });
+  const presence = createAgentPresence({ harness, identity, extensionHash, daemon });
 
   async function refreshLabels(): Promise<void> {
-    const applied = await hud.readLabels((labels) => {
-      // A live pane label refines the name; an unlabeled pane never erases the
-      // launch-stamped one.
-      if (labels.label) presence.state.label = labels.label;
-      presence.state.tabLabel = labels.tabLabel;
-    });
-    if (applied) presence.writeStatus();
+    if (!environment.labels) return;
+    const labels = await daemon.ask("environment-labels", { id: identity.agentId });
+    if (!isPaneLabels(labels)) return;
+    // A live pane label refines the name; an unlabeled pane never erases the
+    // launch-stamped one.
+    if (labels.label) presence.state.label = labels.label;
+    presence.state.tabLabel = labels.tabLabel;
+    presence.writeStatus();
   }
 
   const { onBlockedChange } = registerAgentTools(harness, {
     presence,
+    daemon,
     identity,
-    notify: hud.notify,
+    notify: (event) => { void daemon.ask("notify", { ...event }); },
     refreshLabels,
   });
 
-  hud.registerBlockedRelay(harness.events, onBlockedChange);
+  // The environment names its own blocked signal; the bridge only listens for
+  // whatever it was told. An environment that raises none names none.
+  if (environment.blockedEvent !== null) {
+    harness.events.on(environment.blockedEvent, (data: unknown) => {
+      if (!isBlockedSignal(data)) return;
+      onBlockedChange(data.active, data.label);
+    });
+  }
   // A session that orchestrates also watches: one daemon subscription for the
   // whole session, so a worker going blocked surfaces instead of being polled for.
   // The model only ever contains agents THIS session spawned; for everyone else

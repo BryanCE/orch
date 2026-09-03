@@ -2,7 +2,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { refreshStaleShims } from "../../doctor/runner.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage, pidAlive } from "../../util.ts";

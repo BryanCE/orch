@@ -1,6 +1,6 @@
 import { createLogger } from "../log.ts";
 import { settingsLogLevel } from "../settings/read.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import type { Logger } from "../types/core.ts";
 
 /** Logger for CLI diagnosis records. User-facing output remains on stdout/stderr. */

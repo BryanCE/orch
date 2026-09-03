@@ -1,5 +1,6 @@
 import type { Effect, Stream } from "effect";
 import type { PackAbortError, PackSendError } from "../seat/domain.ts";
+import type { DaemonClient } from "./agent.ts";
 
 /** One transition as orch's daemon publishes it; the pack's only event source. */
 export interface PackTransition {
@@ -97,6 +98,7 @@ export interface PackSourceShape {
 export interface PackSourceConfig {
   readonly orchDir: string;
   readonly ownKey: () => string | undefined;
+  readonly daemon: DaemonClient;
 }
 
 export interface TranscriptCache {

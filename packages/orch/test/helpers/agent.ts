@@ -2,7 +2,7 @@ import { ensureOrchAgent, registerSpawnedAgent } from "../../src/store/spawn-reg
 import { ensurePlexer } from "../../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
-import { orchDir } from "../../src/presence/store.ts";
+import { orchDir } from "../../src/presence/writer.ts";
 import type { AgentFacts } from "../../src/types/presence.ts";
 
 /**

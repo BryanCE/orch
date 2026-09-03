@@ -1,5 +1,6 @@
 import { selectRuns } from "../store/run-rows.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import { loadPresence } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
 import { collapse, resolveTarget } from "../entities.ts";
 import { truncate } from "../util.ts";

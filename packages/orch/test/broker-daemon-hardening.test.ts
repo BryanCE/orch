@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { drainOutbox } from "../src/daemon/outbox.ts";
 import { validateWriteParams } from "../src/daemon/orchd.ts";
-import { ReplayBuffer } from "../src/daemon/rpc/wire.ts";
+import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import type { OutboxDelivery, RpcServer } from "../src/types/daemon.ts";
 

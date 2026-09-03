@@ -34,7 +34,6 @@ function seedAgent(orchDir: string): void {
   fs.writeFileSync(path.join(agentDir, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA,
     agent: "pi",
-    paneId: "agentalpha",
     pid: process.pid,
     state: "working",
   }));

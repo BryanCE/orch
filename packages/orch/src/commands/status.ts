@@ -9,7 +9,7 @@ import { getAdapter } from "../adapters/registry.ts";
 import { collapse, buildEntities, entitySpace, sortEntities } from "../entities.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName } from "../policy/space.ts";
 import { ensureDaemonOrWarn } from "../daemon/reach.ts";
@@ -32,6 +32,7 @@ import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
 const isTTY = process.stdout.isTTY;
+const DETACHED_ENVIRONMENT = "headless";
 
 export function formatSpace(id: string | null | undefined, name: string | null | undefined): string {
   if (!id) return "-";
@@ -281,10 +282,12 @@ export interface TableFlags {
   showSpace: boolean;
   showOwner: boolean;
   showBranch: boolean;
+  human?: boolean;
 }
 
 export interface StatusOptions {
   json: boolean;
+  human: boolean;
   all: boolean;
   allPanes: boolean;
   local: boolean;
@@ -295,9 +298,10 @@ export interface StatusOptions {
 }
 
 function parseStatusOptions(args: readonly string[]): StatusOptions {
-  const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
+  const { enabled } = splitOptionFlags([...args], ["--json", "--human", "--all", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
   return {
     json: enabled.has("--json"),
+    human: enabled.has("--human"),
     all: enabled.has("--all"),
     allPanes: enabled.has("--all-panes"),
     local: enabled.has("--local"),
@@ -308,12 +312,13 @@ function parseStatusOptions(args: readonly string[]): StatusOptions {
   };
 }
 
-function tableFlags(rows: readonly StatusRow[], all: boolean): TableFlags {
+function tableFlags(rows: readonly StatusRow[], all: boolean, human: boolean): TableFlags {
   return {
     showSpace: all && new Set(rows.map((row) => row.spaceId ?? "-")).size > 1,
     // A known lease fact must remain visible even when every row shares it.
     showOwner: rows.some((row) => row.owner !== null),
     showBranch: rows.some((row) => row.branch),
+    human,
   };
 }
 
@@ -324,9 +329,13 @@ function tableOptionalCells(row: StatusRow, flags: TableFlags): string[] {
   return cells;
 }
 
-function localPaneCell(row: StatusRow): string {
+function localIdCell(row: StatusRow): string {
   if (row.warning) return "-";
-  return (row.paneId ?? row.key) + (row.focused ? "*" : "");
+  return (row.agentId ?? row.key) + (row.focused ? "*" : "");
+}
+
+function environmentCell(row: StatusRow): string {
+  return row.warning ? "-" : row.paneId ?? DETACHED_ENVIRONMENT;
 }
 
 function localNameCell(row: StatusRow, flags: TableFlags): string {
@@ -347,9 +356,16 @@ function tableContextCell(row: StatusRow): string {
 }
 
 function tableRow(row: StatusRow, flags: TableFlags, host: boolean): string[] {
+  if (flags.human) {
+    return [
+      ...(host ? [row.host ?? "local"] : []), row.name ?? (row.warning ? "WARNING" : "-"),
+      row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
+      truncate(row.branch ?? "-", 20), formatOwnerCell(row), tableStateCell(row, true),
+    ];
+  }
   const prefix = host
-    ? [row.host ?? "local", localPaneCell(row), localNameCell(row, flags)]
-    : [localPaneCell(row), localNameCell(row, flags)];
+    ? [row.host ?? "local", localIdCell(row), environmentCell(row), localNameCell(row, flags)]
+    : [localIdCell(row), environmentCell(row), localNameCell(row, flags)];
   return [
     ...prefix, ...tableOptionalCells(row, flags), row.tab ?? "-", row.agent ?? "-",
     row.modelShort || row.model || "-", tableStateCell(row, true), tableCostCell(row),
@@ -375,9 +391,15 @@ function ownerBranchCaps(flags: TableFlags): number[] {
 }
 
 function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; caps: number[] } {
+  if (flags.human) {
+    return {
+      headers: [...(host ? ["HOST"] : []), "NAME", "HARNESS", "CWD", "WORKTREE", "BRANCH", "OWNER", "STATE"],
+      caps: [...(host ? [10] : []), 20, 10, 30, 24, 20, 32, 12],
+    };
+  }
   return {
-    headers: [...(host ? ["HOST"] : []), "PANE", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [...(host ? [10] : []), 12, 14, ...ownerBranchCaps(flags), 10, 6, 30, 12, 8, 5, 40, 50],
+    headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
+    caps: [...(host ? [10] : []), 12, 12, 14, ...ownerBranchCaps(flags), 10, 6, 30, 12, 8, 5, 40, 50],
   };
 }
 
@@ -402,8 +424,8 @@ export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags,
 }
 
 /** Render the status table for any row set without writing to a stream. */
-export function formatStatusTable(rows: readonly StatusRow[], options: { all: boolean; host: boolean }): string {
-  return renderStatusTable(rows, tableFlags(rows, options.all), { host: options.host });
+export function formatStatusTable(rows: readonly StatusRow[], options: { all: boolean; host: boolean; human?: boolean }): string {
+  return renderStatusTable(rows, tableFlags(rows, options.all, options.human === true), { host: options.host });
 }
 
 export function localStatusTable(visible: readonly StatusRow[], all: boolean): string {
@@ -638,6 +660,6 @@ export async function cmdStatus(args: string[]): Promise<void> {
     if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result.rows, { all: options.all, host: result.host }) + "\n");
+  process.stdout.write(formatStatusTable(result.rows, { all: options.all, host: result.host, human: options.human }) + "\n");
   if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
 }

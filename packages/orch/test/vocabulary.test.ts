@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync, mkdtempSync } from "node:fs";
+import { readFileSync, mkdtempSync } from "node:fs";
+import { isHandWrittenTypeScript, sourceFiles } from "./helpers/sources.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { VOCABULARY, roleOf, term } from "../src/policy/vocabulary.ts";
@@ -30,15 +31,6 @@ function withStore(body: (directory: string) => void): void {
 }
 
 /** Every .ts file orch ships, so a new module cannot quietly spell its own terms. */
-function sourceFiles(directory: string, found: string[] = []): string[] {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) sourceFiles(path, found);
-    else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) found.push(path);
-  }
-  return found;
-}
-
 describe("vocabulary is a display map, and a role is tree position", () => {
   test("a role is derived from the tree, never stored", () => {
     withStore((directory) => {
@@ -97,7 +89,7 @@ describe("vocabulary is a display map, and a role is tree position", () => {
 
   test("no module outside the map spells a role term into a user-facing string", () => {
     const offenders: string[] = [];
-    for (const file of sourceFiles(join(import.meta.dir, "../src"))) {
+    for (const file of sourceFiles(join(import.meta.dir, "../src"), isHandWrittenTypeScript)) {
       if (file.endsWith(join("policy", "vocabulary.ts"))) continue;
       // The `Role` type is `Extract<Term, ...>` over that same map — the map's own
       // declaration, in the types layer where every type now lives. It quotes the

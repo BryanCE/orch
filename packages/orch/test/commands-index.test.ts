@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "bun:test";
 import { needsFirstRunSetup, readOrchVersion, runCommand } from "../src/commands/index.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { announceUnleasedAgents } from "../src/daemon/rpc/registration.ts";
+import { announceUnleasedAgents } from "../src/daemon/rpc/session-registry.ts";
 import type { RegisterSessionResponse } from "../src/types/daemon.ts";
 
 describe("commands/index", () => {
@@ -53,7 +54,7 @@ describe("commands/index", () => {
       process.exit = oldExit;
       if (oldDir === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = oldDir;
-      fs.rmSync(directory, { recursive: true, force: true });
+      removeTempDir(directory);
     }
   });
 });

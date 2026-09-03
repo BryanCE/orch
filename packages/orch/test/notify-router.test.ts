@@ -32,9 +32,12 @@ describe("notify router", () => {
       notifier("webhook", (config) => seen.push(config)),
       notifier("command", (config) => seen.push(config)),
     ]);
+    // An absolute path is the only argv[0] both OSes agree exists: "echo" is a
+    // cmd builtin on Windows, never a program commandAvailable can find on PATH.
+    const runnable: [string, ...string[]] = [process.execPath, "-e", ""];
     await registry.deliver({ id: "webhook", on: ["done"], url: "https://example.test" }, event);
-    await registry.deliver({ id: "command", on: ["done"], command: ["echo", "ok"] }, event);
-    expect(seen).toEqual([{ url: "https://example.test" }, { command: ["echo", "ok"] }]);
+    await registry.deliver({ id: "command", on: ["done"], command: runnable }, event);
+    expect(seen).toEqual([{ url: "https://example.test" }, { command: runnable }]);
   });
 
   test("surfaces notifier errors", async () => {

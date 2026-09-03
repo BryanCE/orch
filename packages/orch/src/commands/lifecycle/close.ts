@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { tryParseIdentity } from "../../backends/identity.ts";
-import { loadPresence, orchDir } from "../../presence/store.ts";
+import { loadPresence } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import { agentById, endAgent } from "../../store/agent-rows.ts";
 import { selfId, selfIdentity } from "../../identity/self.ts";

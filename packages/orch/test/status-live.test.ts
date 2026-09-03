@@ -46,7 +46,8 @@ describe("live status renderer", () => {
     expect(frame.startsWith(CLEAR_SCREEN)).toBe(true);
     expect(frame).toContain("1 agents");
     expect(frame).toContain("updated 09:08:07");
-    expect(frame).toContain("PANE");
+    expect(frame).toContain("ID");
+    expect(frame).toContain("ENV");
     expect(frame).toContain("worker-one");
     expect(frame).toContain("working");
   });

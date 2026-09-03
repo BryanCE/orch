@@ -25,7 +25,7 @@ import {
   translateDaemonError,
   unreachableRefusal,
 } from "../daemon/reach.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";

@@ -12,7 +12,7 @@ import { execFile } from "node:child_process";
 import { errorMessage } from "../util.ts";
 import { Context, Effect, Layer, Stream } from "effect";
 import { subscribeEvents } from "../daemon/rpc/client.ts";
-import { presenceAgentDir, readPresenceStatus } from "../presence/store.ts";
+import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
 import { sendPeerMessage } from "../agent/peers.ts";
 import { isRecord } from "../util.ts";
 import * as path from "node:path";
@@ -63,16 +63,15 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
       };
     },
     send(key: string, text: string) {
-      return Effect.try({
-        try: () => {
+      return Effect.tryPromise({
+        try: async () => {
           const own = config.ownKey();
           if (!own) throw new Error("this session has no orch identity yet");
-          const outcome = sendPeerMessage(key, text, own);
+          const outcome = await sendPeerMessage(config.daemon, key, text, own);
           if (!outcome.startsWith("sent")) throw new Error(outcome);
           return outcome;
         },
-        catch: (cause) =>
-          new PackSendError({ message: errorMessage(cause) }),
+        catch: (cause) => new PackSendError({ message: errorMessage(cause) }),
       });
     },
     abort(key: string) {

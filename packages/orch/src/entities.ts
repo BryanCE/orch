@@ -1,6 +1,7 @@
 import { loadSettings } from "./settings/read.ts";
 import { allBackends } from "./backends/registry.ts";
-import { loadPresence, orchDir } from "./presence/store.ts";
+import { loadPresence } from "./presence/store.ts";
+import { orchDir } from "./presence/writer.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
 import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
@@ -183,10 +184,9 @@ function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<s
     .map((target) => entityFromBackendTarget(backend, target, keyByHandle, fleet, usedPresence));
 }
 
-function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "paneId" | "agent" | "sessionPath"> {
+function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "agent" | "sessionPath"> {
   const status = entry.status;
   return {
-    paneId: status?.paneId ?? null,
     agent: status?.agent ?? null,
     sessionPath: status?.sessionPath ?? null,
   };
@@ -195,15 +195,14 @@ function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "paneId" | "ag
 function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
   const view = viewForKey(fleet.views, entry.key);
   const statusFields = presenceStatusFields(entry);
-  // U1: the AGENT's own claim about its pane is not the plexer's answer either.
-  // It is the same stale coordinate one layer up, and it reached `peek` as a
-  // handle no plexer had.
+  // U1: a pane is environment, so orch's own record answers for it. The agent's
+  // self-report reached `peek` as a handle no plexer had.
   const plexer = view?.environment.plexer ?? null;
   const backend = plexer === null ? undefined : allBackends().find((candidate) => candidate.id === plexer);
   return {
     key: entry.key,
     ...statusFields,
-    paneId: confirmedHandle(backend, statusFields.paneId),
+    paneId: confirmedHandle(backend, view?.environment.handle ?? null),
     managed: view !== undefined,
     name: normalizedAgentName(entry.key) ?? null,
     tabLabel: null,

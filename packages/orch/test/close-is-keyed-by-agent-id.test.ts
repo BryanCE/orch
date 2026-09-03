@@ -70,7 +70,7 @@ function seedLiveAgent(dir: string, key: string, handle?: string): void {
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, paneId: handle ?? null, pid: 999_999_99, agent: "pi", state: "working",
+    schema: PRESENCE_SCHEMA, key, pid: 999_999_99, agent: "pi", state: "working",
   }));
 }
 

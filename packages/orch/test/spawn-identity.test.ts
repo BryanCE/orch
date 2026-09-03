@@ -148,14 +148,13 @@ describe("one key per pane spawn (12.1)", () => {
       preferredModels: [],
     });
 
-    // The agent's bridge stamps its presence under the same key, carrying the
-    // pane handle/paneId — the only join between key and backend handle.
+    // The agent's bridge stamps its presence under the same key. The join
+    // between key and backend handle is the spawn's environment row, never this.
     seedStatus(dir, agent.key, {
       key: agent.key,
       backend: "herdr",
       workspace: "wsB",
       handle: "%7",
-      paneId: "%7",
       pid: process.pid,
     });
 

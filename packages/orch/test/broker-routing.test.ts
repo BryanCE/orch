@@ -28,7 +28,7 @@ function seedAgent(orchDir: string, pid: number): void {
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "status.json"),
-    JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "pi", paneId: "agentalpha", pid, state: "working" }),
+    JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "pi", pid, state: "working" }),
   );
 }
 

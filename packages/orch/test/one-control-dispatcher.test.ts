@@ -1,14 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { sourceFiles } from "./helpers/sources.ts";
 import { join } from "node:path";
-
-function sourceFiles(root: string): string[] {
-  return readdirSync(root).flatMap((entry) => {
-    const full = join(root, entry);
-    if (statSync(full).isDirectory()) return sourceFiles(full);
-    return full.endsWith(".ts") ? [full] : [];
-  });
-}
 
 // CLAUDE.md Rule 9: ALL control traffic goes
 // through ONE dispatcher. A second one is not a smaller violation than pair code —

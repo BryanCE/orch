@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readStatus } from "../src/presence/writer.ts";
@@ -54,13 +55,13 @@ const { createAgentPresence } = await import("../src/agent/presence.ts");
 const { registerAgentTools } = await import("../src/agent/tools.ts");
 
 afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) removeTempDir(root);
   delete process.env[LAUNCH_ENV];
   delete process.env.ORCH_DIR;
 });
 
 describe("bridge terminal turn seam", () => {
-  async function settle(reporter: () => void, event: unknown = {}, signal = "agent_settled", text?: string): Promise<string> {
+  async function settle(event: unknown = {}, signal = "agent_settled", text?: string): Promise<string> {
     const root = mkdtempSync(join(tmpdir(), "orch-bridge-terminal-"));
     roots.push(root);
     process.env.ORCH_DIR = root;
@@ -69,12 +70,16 @@ describe("bridge terminal turn seam", () => {
     const presence = createAgentPresence({
       harness,
       identity: { agentId: "pi", settleEvent: "agent_settled" },
-      paneId: null,
       extensionHash: "test",
       daemon: stubDaemonClient(),
-      reportStatus: reporter,
     });
-    registerAgentTools(harness, { presence, identity: { agentId: "pi", settleEvent: "agent_settled" }, notify: () => undefined, refreshLabels: () => Promise.resolve() });
+    registerAgentTools(harness, {
+      presence,
+      daemon: stubDaemonClient(),
+      identity: { agentId: "pi", settleEvent: "agent_settled" },
+      notify: () => undefined,
+      refreshLabels: () => Promise.resolve(),
+    });
     const ctx = harnessContext();
     harness.fire("session_start", {}, ctx);
     harness.fire("agent_start", {}, ctx);
@@ -89,14 +94,10 @@ describe("bridge terminal turn seam", () => {
   }
 
   test("empty and tool-only turn_end turns still publish a terminal idle state", async () => {
-    expect(await settle(() => undefined, {}, "turn_end")).toBe("idle");
+    expect(await settle({}, "turn_end")).toBe("idle");
   });
 
   test("a settled turn with assistant text publishes done", async () => {
-    expect(await settle(() => undefined, {}, "agent_settled", "finished")).toBe("done");
-  });
-
-  test("a failing end-hook reporter cannot strand the status as working", async () => {
-    expect(await settle(() => { throw new Error("HUD unavailable"); }, {}, "agent_settled", "finished")).toBe("done");
+    expect(await settle({}, "agent_settled", "finished")).toBe("done");
   });
 });

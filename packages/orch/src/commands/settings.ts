@@ -5,7 +5,7 @@ import { displaySetting, displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { installSkills } from "../setup/skills.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
 import { resolveHarnessModels } from "../setup/composition.ts";

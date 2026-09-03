@@ -32,7 +32,8 @@
     "fallow:accept": "bunx fallow dupes --save-baseline .fallow-dupes-baseline.json && bunx fallow health --save-baseline .fallow-health-baseline.json"
   },
   "devDependencies": {
-    "fallow": "^3.20.0"
+    "fallow": "^3.20.0",
+    "oxlint-tsgolint": "^7.0.2001"
   },
   "trustedDependencies": [
     "@google/genai",

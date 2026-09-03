@@ -16,7 +16,6 @@
  * tool/token/cost transitions between them (unlike pi's live extension).
  */
 import { readFileSync } from "node:fs";
-import { activePaneHud } from "../../src/backends/hud.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { launchCredential } from "../../src/identity/launch.ts";
 import { ensurePresenceAgentDir, launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
@@ -71,7 +70,6 @@ const input = readJsonStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const pid = agentPid(input);
-const paneId = activePaneHud(key).paneHandle;
 const directory = ensurePresenceAgentDir(key);
 if (!directory) process.exit(0);
 
@@ -89,7 +87,6 @@ const lastText = truncateOptional(transcriptText ?? existingText, MAX_TEXT);
 
 const status: JsonRecord = {
   ...launchStamp(previous, AGENT_ID, key),
-  paneId,
   pid,
   cwd: textValue(input.cwd) ?? previous.cwd ?? process.cwd(),
   project: projectRoot(),

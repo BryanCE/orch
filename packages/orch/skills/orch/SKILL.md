@@ -71,12 +71,16 @@ Read the diff, `orch reset <pane>`, `orch rename <pane> <next-slice>`, dispatch 
 ## Collect
 
 ```bash
-orch result <target>          # result.json, else the session's last assistant text
+orch result <target>          # results.jsonl, else the session's last assistant text
 orch tail <target> -n 40      # last N session entries, human-readable
 orch peek <target>            # what is literally on the pane screen right now
 orch questions                # every agent currently blocked on a question
 orch answer <target> "<text>" # unblock one
 ```
+
+Closing does not discard the work. `orch close` ends the process and keeps the agent's row
+and its history, so `orch result` and `orch tail` still answer afterwards. Only `orch reap`
+deletes, and retention sweeps ended agents on its own schedule.
 
 ## Reference
 

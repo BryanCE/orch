@@ -63,7 +63,7 @@ function fixture(): string {
   const agentDir = join(dir, "agents", KEY);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key: KEY, paneId: "w7:p2J", pid: process.pid, agent: "pi", state: "idle",
+    schema: PRESENCE_SCHEMA, key: KEY, pid: process.pid, agent: "pi", state: "idle",
   }));
   return dir;
 }

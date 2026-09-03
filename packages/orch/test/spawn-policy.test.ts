@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
@@ -7,7 +8,7 @@ import { loadSettings } from "../src/settings/read.ts";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
 import { spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/writer.ts";
 import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { orm } from "../src/store/connection.ts";
@@ -26,7 +27,7 @@ const tempDirs: string[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 const oldAgentKey = process.env[LAUNCH_ENV];
 afterEach(() => {
-  while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length) removeTempDir(tempDirs.pop()!);
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldOrchDir;
   if (oldAgentKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldAgentKey;
 });

@@ -6,7 +6,7 @@ import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { governWrite } from "../src/daemon/orchd.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/writer.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { reapAgent, adoptAgent, detachAgent, cmdReap } from "../src/commands/lease.ts";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";

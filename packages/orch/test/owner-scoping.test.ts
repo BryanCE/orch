@@ -20,7 +20,7 @@ import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { peerSummaries } from "../src/agent/peers.ts";
+import { peerView } from "../src/daemon/peer-view.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
@@ -126,9 +126,9 @@ describe("fleet ownership scoping", () => {
     // Identity is injected through ownKey; no launch credential is set.
     delete process.env[LAUNCH_ENV];
 
-    expect(peerSummaries(root, true).map((peer) => peer.key)).toEqual([child, grandchild, foreignRoot]);
-    expect(peerSummaries(child, true).map((peer) => peer.key)).toEqual([grandchild]);
-    expect(peerSummaries(grandchild, true)).toEqual([]);
+    expect(peerView(dir, root, [child, grandchild, foreignRoot], true).visible).toEqual([child, grandchild, foreignRoot]);
+    expect(peerView(dir, child, [root, grandchild, foreignRoot], true).visible).toEqual([grandchild]);
+    expect(peerView(dir, grandchild, [root, child, foreignRoot], true).visible).toEqual([]);
   });
 
   test("owner token uses ORCH_OWNER, else this process's own minted id", () => {
@@ -438,7 +438,7 @@ describe("a spawned agent touches only what it spawned", () => {
     // A dead pid: close must reap the record, never signal a live process here.
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    seedAgent(key, { backend: "herdr", adapter: "pi", space: "wF", handle: key, owner: agentKey });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, owner: agentKey });
 
     const result = runCli(dir, ["close", key], "kwfoperato");
     // Assert on the pair so a non-zero exit prints what orch actually said.

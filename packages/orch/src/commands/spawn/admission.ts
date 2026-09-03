@@ -1,4 +1,4 @@
-import { orchDir } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { recordGrantRequest, spendGrant } from "../../store/grant-rows.ts";
 import { assertValidAgentName } from "../../policy/name.ts";
 import { spawnerIdentity } from "../../policy/spawner.ts";

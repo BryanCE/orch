@@ -2,6 +2,15 @@ import { registerNotifier } from "../../notify/sinks.ts";
 import { herdrNotifier } from "./notify.ts";
 import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
+import { environmentStamp } from "../../agent/environment.ts";
+
+/** The harness-bus event herdr raises when its pane blocks. Declared in herdr's
+ *  own directory and handed to an agent through the launch stamp, so no harness
+ *  module ever spells it (Rule 10). */
+export const HERDR_BLOCKED_EVENT = "herdr:blocked";
+
+/** What a pane in this plexer composes, as the agent inside it will read it. */
+const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT });
 import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrStartAgent, herdrTabs, version } from "./cli.ts";
 import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
@@ -277,7 +286,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       // opts.targetPane is an opaque cross-backend handle; herdr's own is a
       // string, so it is narrowed here rather than trusted (as tmux does too).
       targetPane: typeof opts.targetPane === "string" ? opts.targetPane : undefined,
-      env: agentLaunchEnv(opts),
+      env: agentLaunchEnv(opts, HERDR_ENVIRONMENT_STAMP),
     }).handle;
     if (!opened) {
       this.startAgentInPane(adapter, handle, opts);

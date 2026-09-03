@@ -6,7 +6,8 @@
 // events` asks it per streamed transition, `orch status` asks it per row; a second
 // copy of the rule in either command would be a second truth about who owns what.
 import { launchCredential } from "../identity/launch.ts";
-import { callerSession, selfId } from "../identity/self.ts";
+import { selfId } from "../identity/self.ts";
+import { callerSession } from "../adapters/session-env.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
 import type { AgentScopeInput, CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 

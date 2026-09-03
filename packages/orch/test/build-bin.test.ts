@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, statSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, statSync, mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -42,7 +43,7 @@ function stringRecord(value: Record<string, unknown>, field: string): Record<str
 }
 
 afterEach(() => {
-  while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true });
+  while (directories.length) removeTempDir(directories.pop()!);
 });
 
 describe("build entrypoint", () => {

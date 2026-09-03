@@ -7,7 +7,7 @@ import { acquireLease, adoptLease, currentLease, leaseHistory, openLeaseId, rele
 import { holderOf } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
 import { deriveLeasePayload, governWrite } from "../src/daemon/orchd.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/writer.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/commands/lease.ts";
 import { resolveSpawnNames } from "../src/commands/spawn/names.ts";

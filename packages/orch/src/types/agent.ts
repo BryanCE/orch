@@ -258,14 +258,10 @@ export interface AgentPresenceOptions {
   harness: HarnessApi;
   /** Which harness build this session is, and what it calls its settle signal. */
   identity: HarnessIdentity;
-  /** Plexer pane handle for this process, or null when the backend has no panes. */
-  paneId: string | null;
   /** Bridge code hash stamped into status.json for the doctor staleness check. */
   extensionHash: string;
   /** Daemon-socket client: inbox acks and control outcomes. */
   daemon: DaemonClient;
-  /** Sink invoked after every status write so a HUD can mirror the agent state. */
-  reportStatus: (snapshot: { state: string; task?: string; cost: number }) => void;
 }
 
 /** The live presence binding returned by {@link createAgentPresence}. */
@@ -287,6 +283,7 @@ export interface DriveStateOptions {
 
 export interface AgentToolsOptions {
   presence: AgentPresence;
+  daemon: DaemonClient;
   /** Which harness build this session is, and what it calls its settle signal. */
   identity: HarnessIdentity;
   /** Delivers a state-change notification (wired to the plexer HUD, if any). */
@@ -316,6 +313,9 @@ export interface DaemonClient {
   messageIdOf(parsed: unknown): string | undefined;
   isAcked(id: string): boolean;
   markAcked(id: string): void;
+  /** Asks orchd a question; `undefined` when the daemon is absent, unreachable,
+   *  or refused the call. Callers guard the answer's shape — never cast it. */
+  ask(method: string, params?: Record<string, unknown>): Promise<unknown>;
   /** Posts the ack to orchd; false means the caller should fall back to ack.jsonl. */
   postAck(id: string): Promise<boolean>;
   /** Reports a control outcome to orchd, which replies to whoever is waiting. */

@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { STATUS_FILE } from "../../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
 import { resolveThinking, splitThinkingSuffix } from "../../policy/thinking.ts";
 import { assertLaunchModelAllowed, launchModel, pinModels } from "../spawn/models.ts";

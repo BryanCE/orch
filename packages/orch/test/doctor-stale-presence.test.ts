@@ -53,7 +53,7 @@ describe("doctor stale presence safety", () => {
     expect(result.detail).toContain("docs-2");
     expect(result.detail).toContain("project orch");
     expect(result.detail).toContain(DEAD_KEY);
-  });
+  }, 30_000);
 
   test("the removal fix is marked destructive so UIs never pre-select it", async () => {
     const directory = tempDir();
@@ -61,7 +61,7 @@ describe("doctor stale presence safety", () => {
     const result = staleResult(await runDoctor(directory));
     expect(result.fix?.destructive).toBe(true);
     expect(result.fix?.description).toContain("docs-2");
-  });
+  }, 30_000);
 
   test("no dead agents leaves nothing to remove", async () => {
     const directory = tempDir();

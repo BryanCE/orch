@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { sourceFiles } from "./helpers/sources.ts";
+import { posixPath, sourceFiles } from "./helpers/sources.ts";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import * as connection from "../src/store/connection.ts";
@@ -14,7 +14,7 @@ import * as connection from "../src/store/connection.ts";
  * forbids. The raw port is only gone when nothing can reach it.
  */
 const packageRoot = join(import.meta.dir, "..");
-const THIS_FILE = join(import.meta.dir, "one-query-stack-over-the-connection.test.ts");
+const THIS_FILE = posixPath(join(import.meta.dir, "one-query-stack-over-the-connection.test.ts"));
 
 describe("one query stack over the connection (2.3)", () => {
   test("the store exposes no raw-SQL port beside the typed one", () => {

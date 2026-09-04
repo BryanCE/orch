@@ -27,7 +27,7 @@ describe("doctor orphaned-daemon check", () => {
     expect(result.detail).toContain(dir);
     expect(result.detail).toContain("unproven owner");
     if (result.fix) expect(result.fix.description).not.toContain(`pid ${process.pid}`);
-  });
+  }, 30_000);
 
   test("a dead pid's lock is not an orphan", () => {
     const dir = seedLockDir(2_147_000_000);

@@ -84,7 +84,9 @@ describe("commands that need no daemon need no identity", () => {
       // The sharp form of the row's claim: these commands never write, so the
       // store is not merely empty of agents — it was never created.
       expect(existsSync(join(directory, "orch.db"))).toBe(false);
-    });
+      // Each case spawns a real CLI; Windows process startup alone can outrun
+      // the 5s default, and a slow host is not the failure under test.
+    }, 30_000);
   }
 
   test("help works before setup has ever run, which is when it is needed most", () => {

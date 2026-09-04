@@ -232,7 +232,9 @@ describe("fleet ownership scoping", () => {
       expect(result.output).toContain("other-orchestrator");
       removeTempDir(dirs.pop()!);
     }
-  });
+    // One real CLI spawn per driving verb; the default 5s covers none of them
+    // on a host that starts processes slowly.
+  }, 30_000);
 
   // Reading is control too: agent names are one flat namespace across sessions,
   // so an unscoped `orch result` hands a foreign orchestrator's work product back

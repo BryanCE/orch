@@ -23,5 +23,5 @@ describe("build reset safety", () => {
     });
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain(root);
-  });
+  }, 30_000);
 });

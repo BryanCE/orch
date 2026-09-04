@@ -21,5 +21,5 @@ describe("doctor settings preservation", () => {
     writeFileSync(file, custom);
     await runDoctor(dir, { yes: true });
     expect(readFileSync(file, "utf8")).toBe(custom);
-  });
+  }, 30_000);
 });

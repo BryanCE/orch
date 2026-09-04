@@ -65,13 +65,28 @@ export function runInstall(bin: string, cmd: string, interactive: boolean): void
   }
 }
 
+function copyBin(src: string, dest: string): "copy" {
+  files.cpSync(src, dest, { recursive: true });
+  return "copy";
+}
+
+/** Windows refuses a symlink to an account without Developer Mode, so a copy is the
+ *  only link it will make. Setup has to finish there, not abort on EPERM. */
+function symlinkOrCopyBin(src: string, dest: string): "link" | "copy" {
+  try {
+    files.symlinkSync(src, dest);
+    return "link";
+  } catch {
+    return copyBin(src, dest);
+  }
+}
+
 /** Point `dest` at `src`, replacing any existing entry (symlink, or a full copy under --copy). */
 export function linkBin(src: string, dest: string, copy: boolean): void {
   files.mkdirSync(path.dirname(dest), { recursive: true });
   files.rmSync(dest, { recursive: true, force: true });
-  if (copy) files.cpSync(src, dest, { recursive: true });
-  else files.symlinkSync(src, dest);
-  process.stdout.write(`  ${dest} ${copy ? "(copy)" : "-> " + src}\n`);
+  const wired = copy ? copyBin(src, dest) : symlinkOrCopyBin(src, dest);
+  process.stdout.write(`  ${dest} ${wired === "copy" ? "(copy)" : "-> " + src}\n`);
 }
 
 export interface MissingPrerequisite { bin: string; cmd: string }

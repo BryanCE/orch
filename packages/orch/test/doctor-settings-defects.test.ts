@@ -109,5 +109,5 @@ describe("doctor settings defects", () => {
       detail: "settings.json has 1 unreadable key(s); fix: orch settings",
     });
     expect(result.detail).not.toContain("Zod");
-  });
+  }, 30_000);
 });

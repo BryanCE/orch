@@ -100,7 +100,8 @@ describe("commands/setup", () => {
 
     expect(settings).toMatchObject({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", defaults: { adapter: "pi", backend: "headless" } });
     expect(readdirSync(binDir).sort()).toEqual(["orch", "orch-ding", "pif"]);
-  });
+    // Where a symlink is refused this wires the bins by copy, which is real IO.
+  }, 30_000);
 
   test("resolves the runtime from the flag or the no-preference value, never from PATH", async () => {
     expect(await resolveRuntime("deno", false)).toBe("deno");

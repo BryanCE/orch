@@ -16,6 +16,7 @@ export type SpawnFlags = AgentFlags & {
   json: boolean;
   label: string;
   tabLabel: string | null;
+  /** The directory the agent starts in: the spawner's own unless `--dir` names another. */
   cwd: string;
   cmd: string;
   commandFlag: boolean;
@@ -32,7 +33,7 @@ function readSpawnFlag(flags: SpawnFlags, args: string[], index: number): number
   const argument = args[index];
   switch (argument) {
     case "--tab": flags.tabLabel = args[index + 1]!; return 1;
-    case "--cwd": flags.cwd = args[index + 1]!; return 1;
+    case "--dir": flags.cwd = args[index + 1]!; return 1;
     case "--cmd": flags.cmd = args[index + 1]!; flags.commandFlag = true; return 1;
     case "--space": flags.space = args[index + 1]!; return 1;
     case "--model": flags.modelFlag = args[index + 1]!; return 1;
@@ -99,7 +100,7 @@ export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   let names: string[];
   try { names = resolveSpawnNames(flags.positional); }
   catch (error: unknown) {
-    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--cwd <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--worktree]`);
+    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--dir <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--worktree]`);
   }
   const n = names.length;
   if (flags.promptFlags.length > 1 && flags.promptFlags.length !== n) die(`--prompt accepts one value for all agents or exactly ${n} values`);

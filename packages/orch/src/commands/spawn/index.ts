@@ -291,7 +291,7 @@ export async function cmdTile(args: string[]) {
   const requestedName = flags.positional[1];
   // Tile CREATES an agent, so it names one too. A pane
   // called `tile-3` says nothing about the slice it holds.
-  if (!target || !requestedName) die("usage: orch tile <tab-or-pane> <name> [--cmd <command>] [--cwd <path>] [--model <model[:thinking]>]");
+  if (!target || !requestedName) die("usage: orch tile <tab-or-pane> <name> [--cmd <command>] [--dir <path>] [--model <model[:thinking]>]");
 
   const tab = resolveTab(target);
   const role = selectedBackend.groupLayout;

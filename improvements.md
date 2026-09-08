@@ -23,6 +23,13 @@ Delete every verify-it-worked line these fixes make obsolete.
 - **Names are positional parameters, not flags.**
 - **A flag exists only to leave the default.** Whatever every call types is the default, and the flag
   is for the case that departs from it.
+- **One primitive per idea, the same for every caller.** A human at a terminal and an agent are the
+  same kind of thing running the same machinery (Rule 11). Some cases resolve differently — an agent
+  has a space and a human has none — but that is one rule reading a different value, never a second
+  code path keyed on who is asking. Design the primitive first; the callers fall out of it.
+- **Flags are one designed vocabulary, not per-command spellings.** `--all` means the same thing on
+  every verb that has it. A widening flag is `--all` everywhere or it is not that idea. The same
+  scope must never be `--mine` on one command and `--local` on another.
 - **Redispatch clears the session.** Rule 7. There is no flag to keep it, because reset is the wipe —
   returning the context window to baseline is the whole operation. Continuity is a plain `dispatch`
   to the agent as it stands, and anything else the next task needs goes in the dispatch body.
@@ -117,7 +124,14 @@ The first dispatch to a new pane needs the harness up, and nothing says whether 
 queues or drops. A blind `sleep 5` is the current workaround. If dispatch queues until ready, say so
 in the skill. If it drops, add `orch spawn --wait` or block the dispatch until ready.
 
-### 11. The watch banner is delivered as an event
+### 11. The watch banner is delivered as an event — DONE, not as prescribed
+
+"Print it on stderr" is not available: `test/no-stderr-writes.test.ts` enforces that orch has one
+diagnosis channel (the logger) and one output channel (stdout). The banner is for a person, so it is
+now suppressed whenever stdout is not a terminal — the same reason `--json` already suppressed it.
+A harness reading the stream gets transitions and nothing else.
+
+
 
 The "watching my agents from now on - history: --since-seq 0" line arrives on the event stream and
 wakes the harness for nothing. Print it on stderr.

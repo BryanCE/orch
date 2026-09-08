@@ -63,9 +63,30 @@ describe("commands/status", () => {
     const row = statusRowFixture({ key: "dead", state: "working", alive: false, exited: false });
     expect(normalizeStatusRow(row)).toMatchObject({ state: "exited" });
   });
-  test("default status reads span every workspace", () => {
+  test("a human at a terminal has no identity to narrow by and no space to be held inside", () => {
     const row = (key: string, spaceId: string): StatusRow => statusRowFixture({ key, spaceId });
     expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { all: false, allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
+  });
+
+  describe("an agent sees what it spawned, and never past its own space", () => {
+    const orch = { id: "orch1", ceiling: "w1" };
+    const rows = [
+      statusRowFixture({ key: "mine", spaceId: "w1", spawnedBy: "orch1" }),
+      statusRowFixture({ key: "sibling", spaceId: "w1", spawnedBy: "orch2" }),
+      statusRowFixture({ key: "elsewhere", spaceId: "w2", spawnedBy: "orch1" }),
+    ];
+
+    test("the default is the agents this caller spawned", () => {
+      expect(scopeFleetRows(rows, { all: false, allPanes: false, caller: orch }).map((r) => r.key)).toEqual(["mine"]);
+    });
+
+    test("--all widens to the caller's space, which is the wall", () => {
+      expect(scopeFleetRows(rows, { all: true, allPanes: false, caller: orch }).map((r) => r.key)).toEqual(["mine", "sibling"]);
+    });
+
+    test("a human widening sees every space, including the one the agent could not", () => {
+      expect(scopeFleetRows(rows, { all: true, allPanes: false }).map((r) => r.key)).toEqual(["mine", "sibling", "elsewhere"]);
+    });
   });
   test("derives status row fields from seeded presence", () => {
     const entity = entityFixture({

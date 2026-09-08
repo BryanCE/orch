@@ -13,6 +13,7 @@ import { runRemoteAsync } from "../remote.ts";
 import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName } from "../policy/space.ts";
+import { selfId, spaceOfAgent } from "../identity/self.ts";
 import { ensureDaemonOrWarn } from "../daemon/reach.ts";
 import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
@@ -241,22 +242,46 @@ async function readFleetRows(spaces: OrchSettings["spaces"], offline: boolean): 
   return snapshot(rows, rows.some((row) => row.backend != null));
 }
 
-/**
- * The rows this caller should see: every space by default, and the agents orch spawned
- * unless `--all-panes`. `--all` retains its historical meaning of including unmanaged panes.
- * A backend reports every pane it owns — the orchestrator's own included — and listing those
- * made "is anyone idle?" count the asker.
- */
 function keepsMeaningfulFleetRow(row: Pick<StatusRow, "alive" | "exited" | "state" | "lastText">): boolean {
   if (!row.exited && row.alive) return true;
   const hasRecordedResult = row.lastText !== null && row.lastText.trim().length > 0;
   return hasRecordedResult || row.state === "done" || row.state === "error";
 }
 
-export function scopeFleetRows(rows: readonly StatusRow[], opts: { all: boolean; allPanes: boolean; space?: string }): StatusRow[] {
+/**
+ * Who is asking, and how far they may see. One rule for every caller: you see what you
+ * spawned, and `--all` widens no further than your space. A human shell that spawned a fleet
+ * drives and owns it exactly as an orchestrator does — the values differ (a human sits in no
+ * space, so nothing caps them), never the rule.
+ */
+export interface CallerScope {
+  /** The caller's agent id, or null for a human at a terminal. */
+  id: string | null;
+  /** The space an agent caller may never see past, even with `--all`. */
+  ceiling: string | null;
+}
+
+export function callerScope(): CallerScope {
+  const id = selfId() ?? null;
+  return { id, ceiling: id === null ? null : spaceOfAgent(id) };
+}
+
+/**
+ * The rows this caller should see. By default an agent sees the agents IT spawned, so
+ * "is anyone idle?" never counts another orchestrator's fleet or the asker itself. `--all`
+ * widens to the caller's space, which is the wall; a human has no wall and sees the machine.
+ * `--all-panes` is the separate question of panes orch did not spawn.
+ */
+export function scopeFleetRows(
+  rows: readonly StatusRow[],
+  opts: { all: boolean; allPanes: boolean; space?: string; caller?: CallerScope },
+): StatusRow[] {
+  const caller = opts.caller ?? { id: null, ceiling: null };
   return rows.filter((row) => {
     if (opts.space !== undefined && row.spaceId !== opts.space) return false;
     if (!opts.allPanes && !row.managed) return false;
+    if (caller.ceiling !== null && row.spaceId !== caller.ceiling) return false;
+    if (caller.id !== null && !opts.all && row.spawnedBy !== caller.id) return false;
     if (opts.all) return true;
     return keepsMeaningfulFleetRow(row);
   });
@@ -556,7 +581,7 @@ export function fleetStatusRows(spaces: OrchSettings["spaces"], options: FleetSt
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
 async function localStatusRows(options: StatusOptions, spaces: OrchSettings["spaces"]): Promise<FleetSnapshot> {
   const snapshot = await readFleetRows(spaces, options.offline);
-  const scoped = scopeFleetRows(snapshot.rows, options);
+  const scoped = scopeFleetRows(snapshot.rows, { ...options, caller: callerScope() });
   return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 

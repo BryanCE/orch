@@ -199,7 +199,7 @@ function parseTabNewArgs(args: string[]): { label: string | null; workspace: str
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--label") label = args[++index] ?? null;
     else if (args[index] === "--workspace") workspace = args[++index] ?? null;
-    else if (args[index] === "--cwd") cwd = args[++index] ?? cwd;
+    else if (args[index] === "--dir") cwd = args[++index] ?? cwd;
   }
   return { label, workspace, cwd };
 }

@@ -5,7 +5,7 @@
 ## Spawn
 
 ```bash
-orch spawn api-types api-routes api-guards --tab api --cwd "$(git rev-parse --show-toplevel)"
+orch spawn api-types api-routes api-guards --tab api
 ```
 
 Opens one tab of N balanced-tiled agents. Never steals focus. Every name is validated before

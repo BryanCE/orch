@@ -73,7 +73,7 @@ orchestration prompt — the README below is the reference; that file is the met
 ## The loop
 
 ```sh
-orch spawn api-types api-routes --cwd "$(git rev-parse --show-toplevel)"
+orch spawn api-types api-routes
 orch dispatch api-types "add the FooBar type to src/types/core.ts and export it"
 orch events                                   # push stream; do not poll
 orch result api-types
@@ -81,9 +81,8 @@ orch runs -n 20                               # durable dispatch history
 orch reset api-types                          # fresh context, same pane, name and model kept
 ```
 
-`spawn` opens one tab of balanced, tiled agents named `<prefix>-1..N` and never steals
-focus. Always pass `--cwd` — it silently defaults
-to wherever you ran the command.
+`spawn` opens one tab of balanced, tiled agents, one per name, and never steals focus. Each
+agent starts in the directory you spawned from; `--dir <path>` puts it somewhere else.
 
 Detached, no plexer required:
 
@@ -160,7 +159,7 @@ workers are never told to reply to an address that would refuse them.
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
 | `restart <target>… \| --all [--cmd C]` | Close the harness process and relaunch it. |
 | `lock run \| check \| status \| release` | One heavy command machine-wide; see `locked_commands`. |
-| `spawn <name> [<name>…] [--tab L] [--cwd P] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents, one per name. |
+| `spawn <name> [<name>…] [--tab L] [--dir P] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents, one per name. `--dir` only when an agent belongs outside the spawner's directory. |
 | `tile <tab\|pane> <name> …` | Add one pane to an existing tab. |
 | `grant [<hash>\|--list]` | Approve an action an agent was refused. Needs a terminal; no flag answers the prompt for you. |
 | `rename <target> <name> [--pane]` | Rename the agent, or the pane border. |

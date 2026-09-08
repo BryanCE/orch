@@ -110,7 +110,7 @@ COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
   orch lock release --force      Evict the current holder, naming it.
 
 PANES (create / arrange / lifecycle - never steals focus except 'focus')
-  orch spawn <name> [<name>...] [--tab L] [--cwd P] [--cmd C] [--model M]
+  orch spawn <name> [<name>...] [--tab L] [--dir P] [--cmd C] [--model M]
                    [--agent A] [--backend B] [--prompt T] [--worktree]
                                  Fresh tab, one balanced-tiled pane per name (2=side-by-side,
                                  3=2+1, 4=2x2, ...). The names ARE the agents; there is no count.
@@ -119,7 +119,7 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
                                  --backend headless needs --prompt: a detached agent runs it and exits.
   orch grant [<hash>|--list]     Approve actions an agent was refused. Needs a terminal:
                                  there is no flag that answers the prompt for you.
-  orch tile <tab|pane> <name> [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
+  orch tile <tab|pane> <name> [--cmd C] [--dir P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
                                  Set the agent name (NAME column); --pane sets the pane
@@ -141,7 +141,7 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
 
 TABS
   orch tabs                      List tabs: id, label, number, pane count, status.
-  orch tab new [--label X] [--workspace ID] [--cwd P]
+  orch tab new [--label X] [--workspace ID] [--dir P]
                                  Create a tab (no focus steal); prints root pane id.
   orch tab rename <tab_id|label> <new-label>
   orch tab close <tab_id|label>

@@ -1,6 +1,6 @@
 ---
 name: orch
-description: Drive the orch CLI to run a fleet of coding agents in visible panes - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, use it, or spawn agents, your FIRST action is `orch spawn` - one command, no preflight, no driving the plexer yourself, no asking. Then dispatch async and watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
+description: Drive the orch CLI to run a fleet of coding agents - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, use it, or spawn agents, your FIRST action is `orch spawn` - one command, no preflight, no driving the plexer yourself, no asking. Then dispatch async and watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
 allowed-tools: Bash, Read
 ---
 
@@ -22,7 +22,7 @@ and `version` refuses until it has, naming the fix. Broken install: `orch doctor
 Told to use orch? `orch spawn` is your first tool call. No status preflight, no asking.
 
 ```bash
-orch spawn api-types api-routes api-guards --tab api --cwd "$(git rev-parse --show-toplevel)"
+orch spawn api-types api-routes api-guards --tab api
 orch dispatch api-types "<the full task spec>"
 orch dispatch api-routes --file slice.md               # only when the spec is too long for a line
 orch events --all --status done,error,blocked,asking   # arm as a Monitor in this same message
@@ -40,12 +40,11 @@ Read the diff, `orch reset <pane>`, `orch rename <pane> <next-slice>`, dispatch 
   a mover, a code-changer, and a checker running at once. Workers may go find things for you
   (a doc, a definition, every caller of a symbol) when you name the topic and the answer
   shape. They never design a feature, pick an approach, or decide what to build.
-- **Pass `--cwd "$(git rev-parse --show-toplevel)"` on every spawn.** Omitting it does not
-  fail loudly. It records whatever directory you ran from and `orch status` then shows a
-  confident path to the wrong repo. A repo path typed into a prompt is text, not a boundary.
-  A fleet spawned for one repo has edited another's source this way.
+- **An agent starts where you spawned it.** No flag for the normal case. `--dir <path>` when a
+  slice belongs somewhere else. A repo path typed into a prompt is text, not a boundary: a
+  fleet spawned from one repo has edited another's source that way.
 - **The positionals are the names, one per agent.** No `--name` flag, no count argument, no
-  `<prefix>-N` numbering. Name each pane for the slice it holds.
+  `<prefix>-N` numbering. Name each agent for the slice it holds.
 - **Single-quote the spec; a mangled prompt is never an orch bug.** The shell splits argv
   before orch exists, so orch receives whatever survived. Single quotes are literal in bash,
   zsh and PowerShell alike, so one rule covers every shell orch runs under. Use `--file` for a

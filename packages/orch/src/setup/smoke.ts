@@ -12,7 +12,7 @@ import type { SmokeSteps } from "../types/command.ts";
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
 export async function spawnHeadlessSmokeAgent(cwd: string, prompt: string): Promise<string> {
   const before = new Set(agentViews(orchDir()).map((view) => view.id));
-  await cmdSpawn(["orch-smoke", "--backend", "headless", "--cwd", cwd, "--prompt", prompt]);
+  await cmdSpawn(["orch-smoke", "--backend", "headless", "--dir", cwd, "--prompt", prompt]);
   const after = agentViews(orchDir());
   // The row that was not there before the single-agent spawn IS the smoke agent. Nothing here
   // re-checks the plexer: `--backend headless` above already decided it, and re-asserting it as a

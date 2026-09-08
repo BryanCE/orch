@@ -9,11 +9,15 @@ const ANY: ResolvedCallerScope = { mine: false, address: "me" };
 
 describe("events scope notice", () => {
   test("names the default live scope and its wideners", () => {
-    expect(eventsScopeNotice(parseEventsOptions([]), MINE)).toBe("watching my agents from now on - history: --since-seq 0; every session's agents: --any-agent");
+    expect(eventsScopeNotice(parseEventsOptions([]), MINE, true)).toBe("watching my agents from now on - history: --since-seq 0; every agent: --any-agent");
   });
 
   test("names the all-agent live scope and its history widener", () => {
-    expect(eventsScopeNotice(parseEventsOptions(["--any-agent"]), ANY)).toBe("watching all agents from now on - history: --since-seq 0");
+    expect(eventsScopeNotice(parseEventsOptions(["--any-agent"]), ANY, true)).toBe("watching all agents from now on - history: --since-seq 0");
+  });
+
+  test("a redirected stream is a harness reading transitions, and gets no banner", () => {
+    expect(eventsScopeNotice(parseEventsOptions([]), MINE, false)).toBeNull();
   });
 
   test("does not announce when history was requested", () => {
@@ -24,6 +28,7 @@ describe("events scope notice", () => {
     const order: string[] = [];
     let writes = 0;
     startEventsLiveStream(parseEventsOptions([]), MINE, {
+      toTerminal: true,
       writeNotice: (line: string) => {
         writes++;
         order.push(`notice:${line}`);
@@ -35,7 +40,7 @@ describe("events scope notice", () => {
     });
 
     expect(writes).toBe(1);
-    expect(order).toEqual(["notice:watching my agents from now on - history: --since-seq 0; every session's agents: --any-agent\n", "transport"]);
+    expect(order).toEqual(["notice:watching my agents from now on - history: --since-seq 0; every agent: --any-agent\n", "transport"]);
   });
 
   test("does not write a notice when history was requested", () => {

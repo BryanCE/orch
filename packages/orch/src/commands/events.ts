@@ -143,55 +143,68 @@ function namedTarget(argument: string, flag: string, usage: string): string {
 export interface EventsLiveStreamPorts {
   writeNotice: (line: string) => void;
   startTransport: () => () => void;
+  /** Whether stdout is a terminal, so the banner reaches a person rather than a parser. */
+  toTerminal?: boolean;
 }
 
 export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCallerScope, ports: EventsLiveStreamPorts): () => void {
-  const notice = eventsScopeNotice(options, scope);
+  const notice = eventsScopeNotice(options, scope, ports.toTerminal);
   if (notice !== null) ports.writeNotice(`${notice}\n`);
   return ports.startTransport();
 }
 
-export function eventsScopeNotice(options: EventsOptions, scope: ResolvedCallerScope): string | null {
+export function eventsScopeNotice(
+  options: EventsOptions,
+  scope: ResolvedCallerScope,
+  toTerminal: boolean = process.stdout.isTTY === true,
+): string | null {
   if (options.sinceSeq !== undefined || options.targets.length > 0) return null;
-  // The notice is for a person watching; json means a parser is reading stdout.
-  if (options.json) return null;
+  // The notice is for a PERSON watching. json means a parser is reading stdout, and a
+  // redirected stream means a harness is: there the banner is one more line to wake up
+  // for, on a stream whose every other line is a real transition.
+  if (options.json || !toTerminal) return null;
   return scope.mine
-    ? "watching my agents from now on - history: --since-seq 0; every session's agents: --any-agent"
+    ? "watching my agents from now on - history: --since-seq 0; every agent: --any-agent"
     : "watching all agents from now on - history: --since-seq 0";
 }
 
+const EVENTS_USAGE = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
+
+/** `--since-seq <n>`, or a refusal: a replay point that is not an integer names no event. */
+function readSinceSeq(value: string | undefined): number {
+  const parsed = value === undefined ? Number.NaN : Number(value);
+  if (!Number.isSafeInteger(parsed)) die(EVENTS_USAGE);
+  return parsed;
+}
+
+/** Read one flag into `options`, and say how many arguments it consumed after itself. */
+function readEventsFlag(options: EventsOptions, args: string[], index: number): number {
+  const argument = args[index]!;
+  switch (argument) {
+    case "--status": options.statusFilter = new Set((args[index + 1] ?? "").split(",").map((state) => state.trim()).filter(Boolean)); return 1;
+    case "--since-seq": options.sinceSeq = readSinceSeq(args[index + 1]); return 1;
+    case "--all": options.all = true; return 0;
+    case "--json": options.json = true; return 0;
+    case "--once": options.once = true; return 0;
+    case "--any-agent": options.scope = "any"; return 0;
+    default: break;
+  }
+  const prefix = argument.startsWith("--agent=") ? "--agent=" : argument.startsWith("--agent-id=") ? "--agent-id=" : null;
+  options.targets.push(prefix === null ? argument : namedTarget(argument, prefix, EVENTS_USAGE));
+  return 0;
+}
+
 export function parseEventsOptions(args: string[]): EventsOptions {
-  let statusFilter: Set<string> | null = null;
-  let all = false;
+  // One rule for every caller: you watch the agents you drive, and everyone else's are noise you
+  // have no business acting on. A human shell that spawned a fleet drives and owns it exactly as
+  // an orchestrator does; there is no second rule for people. `--any-agent` overrides it.
   // The norm is a readable line per transition that needs no jq to make sense of;
   // --json opts into the raw record for a caller that parses it.
-  let json = false;
-  let sinceSeq: number | undefined;
-  let once = false;
-  // An orchestrator watches the agents it currently drives; every other session's agents are
-  // noise it has no business acting on. A HUMAN shell drives none, so the same default hands it
-  // the whole fleet - the scope follows the caller's identity, and the two flags override it.
-  let scope: CallerScopeChoice = "auto";
-  const targets: string[] = [];
-  const usage = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--mine] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
-  for (let index = 0; index < args.length; index++) {
-    const argument = args[index]!;
-    if (argument === "--status") statusFilter = new Set((args[++index] ?? "").split(",").map((state) => state.trim()).filter(Boolean));
-    else if (argument === "--all") all = true;
-    else if (argument === "--json") json = true;
-    else if (argument === "--since-seq") {
-      const value = args[++index];
-      const parsed = value === undefined ? Number.NaN : Number(value);
-      if (!Number.isSafeInteger(parsed)) die(usage);
-      sinceSeq = parsed;
-    } else if (argument === "--once") once = true;
-    else if (argument === "--any-agent") scope = "any";
-    else if (argument === "--mine") scope = "mine";
-    else if (argument.startsWith("--agent=")) targets.push(namedTarget(argument, "--agent=", usage));
-    else if (argument.startsWith("--agent-id=")) targets.push(namedTarget(argument, "--agent-id=", usage));
-    else targets.push(argument);
-  }
-  return { statusFilter, all, json, sinceSeq, once, scope, targets };
+  const options: EventsOptions = {
+    statusFilter: null, all: false, json: false, sinceSeq: undefined, once: false, scope: "auto", targets: [],
+  };
+  for (let index = 0; index < args.length; index++) index += readEventsFlag(options, args, index);
+  return options;
 }
 
 function presenceMetadata(key: string): PresenceMetadata {

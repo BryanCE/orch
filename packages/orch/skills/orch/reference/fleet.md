@@ -8,7 +8,7 @@ domain. Cap is 4 panes per tab.
 First need in a domain:
 
 ```bash
-orch spawn slice-1 slice-2 --tab <domain> --cwd "$(git rev-parse --show-toplevel)"
+orch spawn slice-1 slice-2 --tab <domain>
 ```
 
 `--tab <label>` fills a tab that already carries that label, so a second spawn for the same

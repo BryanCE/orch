@@ -28,13 +28,12 @@ Read structured diagnosis records; malformed JSONL lines are skipped.
   --dispatch   Filter by correlation/dispatch id.
   --json       Emit raw records.
 `,
-  events: `orch events [--agent=<name>] [--agent-id=<id>] [--mine] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>]
+  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>]
 Continuous stream of pane state transitions; requires a running daemon.
 Bare 'orch events' is the normal use: one readable line per transition, scoped to the
 agents THIS session spawned. Every flag below is a deviation from that.
   --agent       Watch one agent by name.
   --agent-id    Watch one agent by identity key.
-  --mine        Explicitly select the default session scope (spawned or currently leased).
   --any-agent   Every agent, not just the ones this session spawned.
   --all         Every space's transitions, not just the caller's.
   --status      Only transitions into these states (comma-separated).
@@ -149,7 +148,7 @@ One heavy command machine-wide (see settings.locked_commands).
   status        Show the current holder (pid, note, age) or 'unlocked'.
   release       Evict the current holder, naming it. Requires --force.
 `,
-  spawn: `orch spawn <name> [<name> ...] [--tab L] [--cwd P] [--cmd C] [--model M]
+  spawn: `orch spawn <name> [<name> ...] [--tab L] [--dir P] [--cmd C] [--model M]
           [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--worktree]
 Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...).
 NAMING AN AGENT IS PART OF CREATING IT: the positional arguments ARE the names,
@@ -160,7 +159,7 @@ SLICE it holds, so you never pay for a rename afterwards.
 Every name is validated before any tab or pane is created — a refused spawn
 leaves nothing behind.
   --tab         Label for the new tab; an existing tab's label fills that tab.
-  --cwd         Working directory for every agent.
+  --dir         Directory the agents start in. Defaults to the spawner's own.
   --model       Pin each agent's launch model.
   --agent       Adapter id (pi, claude, codex, ...).
   --backend     Plexer id (herdr, tmux, headless). headless requires --prompt: a detached
@@ -169,7 +168,7 @@ leaves nothing behind.
   --tasks       JSON file containing exactly N task strings (alternative to --prompt).
   --worktree    Give each agent its own git worktree.
 `,
-  tile: `orch tile <tab|pane> <name> [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
+  tile: `orch tile <tab|pane> <name> [--cmd C] [--dir P] [--model M] [--agent A] [--backend B]
 Add ONE named pane to an existing tab: splits into the tab's largest cell and pins
 the model. Tile creates an agent, so it names one too.
 `,
@@ -213,7 +212,7 @@ Raw merged pane list, tab-separated, for scripting.
   tabs: `orch tabs
 List tabs: id, label, number, pane count, status.
 `,
-  tab: `orch tab new [--label X] [--workspace ID] [--cwd P]
+  tab: `orch tab new [--label X] [--workspace ID] [--dir P]
 orch tab rename <tab_id|label> <new-label>
 orch tab close <tab_id|label>
 orch tab focus <tab_id|label>

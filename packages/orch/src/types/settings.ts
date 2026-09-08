@@ -38,7 +38,7 @@ export interface OrchSettings {
   daemon: { tcp_port: number; idle_shutdown_minutes: number };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
-  skills: { install: boolean; roots: string[] };
+  skills: { install: boolean; store: string; link: string[] };
 }
 
 export interface SettingsWatchOptions {

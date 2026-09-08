@@ -85,10 +85,11 @@ Review done worktree agents. With no subcommand, review runs interactively.
 Queue a prompt through orchd with the worker header prepended.
   --raw         Send the exact prompt, no worker header.
 `,
-  dispatch: `orch dispatch <target> "<prompt>" [--raw] [--model <model[:thinking]>] [--agent <adapter>]
+  dispatch: `orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model <model[:thinking]>] [--agent <adapter>]
 Durably accept a prompt through orchd: the write lands in the outbox and survives restarts.
 Prints the dispatch id; 'orch status --json' echoes it as .dispatchId once the
 agent runs that prompt, proving the pane runs what THIS command sent.
+  --file        Read the prompt from a file, or from stdin with '-', instead of argv.
   --raw         Send the exact prompt, no worker header.
   --model       Pin the model (and optional thinking effort) for this dispatch.
   --agent       Route through a specific adapter instead of the recorded one.
@@ -261,16 +262,17 @@ a bare model is applied only when that harness lists it.
   --no-install  Report what is missing without installing.
   --copy        Copy shims instead of symlinking.
   --skills      Install orch's packaged skills without asking.
-  --no-skills   Skip them without asking; nothing is written to your harness dirs.
+  --no-skills   Skip them without asking; nothing is written to your skill dirs.
   --refresh     Ask every harness for its models again instead of using the stored
                 catalogues. Slower; for a model installed since the last refresh.
-Setup asks before copying skills into ~/.claude/skills and ~/.agents/skills. Change the
-answer later with 'orch settings skills'.
+Setup asks before installing skills. The real files go to ~/.agents/skills, the
+cross-harness standard, and each harness that reads its own directory gets a symlink
+into that store. Change the answer later with 'orch settings skills'.
 `,
   settings: `orch settings [--json] [--harness=<id>] [--plexer=<id>]
 orch settings models [--harness=<id>] [--model=<model[:thinking]>] [--refresh]
 orch settings thinking [<level>] [--harness=<id>] [--clear]
-orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
+orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]
 Print each effective setting with its source (flag > env > settings.json > default),
 or switch the active default adapter/plexer among the enabled set.
   models        Re-pick, per enabled harness: launch model, picker quicklist
@@ -281,10 +283,12 @@ or switch the active default adapter/plexer among the enabled set.
                 off, minimal, low, medium, high, xhigh, max. Bare prints the current
                 value; a level sets the global default; --harness=<id> sets that
                 harness's override and --clear --harness=<id> removes it.
-  skills        Turn the skill install on or off and choose its roots. --install writes
-                every packaged skill into them now; --no-install records the refusal and
-                leaves the files already there alone. Roots default to ~/.claude/skills
-                and ~/.agents/skills; a leading ~ expands to your home directory.
+  skills        Turn the skill install on or off and choose where it writes. --install
+                writes every packaged skill now; --no-install records the refusal and
+                leaves the files already there alone. --store names the one directory
+                holding the real files, ~/.agents/skills by default; --link names the
+                harness directories symlinked into it, ~/.claude/skills by default.
+                A leading ~ expands to your home directory.
 `,
   models: `orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
 List every model each enabled harness reports it can run.

@@ -25,6 +25,11 @@ export function splitThinkingSuffix(model: string): { bare: string; thinking?: T
   return { bare: model.slice(0, colon), thinking: suffix };
 }
 
+/** The ladder token for a model and its effort: the inverse of `splitThinkingSuffix`. */
+export function modelSpec(model: string, thinking: string | null | undefined): string {
+  return thinking ? `${model}:${thinking}` : model;
+}
+
 /** Resolve effort at orch's command boundary, from explicit input to harness default. */
 export function resolveThinking(input: ThinkingResolutionInput): ThinkingLevel {
   if (isThinkingLevel(input.flag)) return input.flag;

@@ -169,7 +169,8 @@ const settingsValueExtractors = {
   tiling: (root: Partial<SettingsFile>) => ({ first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
-    roots: root.skills?.roots ?? [...SETTINGS_DEFAULTS.skills.roots],
+    store: root.skills?.store ?? SETTINGS_DEFAULTS.skills.store,
+    link: root.skills?.link ?? [...SETTINGS_DEFAULTS.skills.link],
   }),
 };
 

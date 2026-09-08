@@ -8,6 +8,7 @@ import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadSettings } from "../settings/read.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
+import { modelSpec } from "../policy/thinking.ts";
 import { selfId } from "../identity/self.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
@@ -29,6 +30,8 @@ type DispatchFlags = AgentFlags & {
   doWait: boolean;
   thenTarget: string | null;
   thenNote: string;
+  /** Path the prompt body is read from, or "-" for stdin. Unset means the positionals are the prompt. */
+  promptFile?: string;
   positional: string[];
 };
 
@@ -191,9 +194,7 @@ async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGover
   const old = readPresenceStatus(path.join(presenceAgentDir(agentKey), STATUS_FILE));
   // A presence record stores the model structurally; render it in the same provider/id:thinking
   // form the caller passes, so the reported previous value and the no-op comparison both work.
-  const previous = old?.model?.id
-    ? `${old.model.provider ?? ""}/${old.model.id}${old.thinking ? `:${old.thinking}` : ""}`
-    : null;
+  const previous = old?.model?.id ? modelSpec(`${old.model.provider ?? ""}/${old.model.id}`, old.thinking) : null;
   await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, unchanged: previous === modelArg };
 }
@@ -215,21 +216,49 @@ export async function dispatchToAgent(key: string, text: string, options: Dispat
   return { dispatchId: delivered.id };
 }
 
+/** Forward the whole command to the host that owns the target, and say whether it went. */
+function forwardedToTargetHost(args: string[], target: string | undefined): boolean {
+  const remote = target ? targetHost(target) : null;
+  if (!remote || !target) return false;
+  const remoteArgs = [...args];
+  const index = remoteArgs.indexOf(target);
+  if (index >= 0) remoteArgs[index] = remote.target;
+  remoteWrite(remote.host, "dispatch", remoteArgs);
+  return true;
+}
+
+/**
+ * Record the row for a bare pane this dispatch just adopted. A spawned agent
+ * already has one; an adopted pane needs it under the SAME key we dispatched to,
+ * carrying the dispatcher's owner token or it stays open to every other orchestrator.
+ */
+function adoptBarePane(key: string, dispatchSettings: DispatchSettings): void {
+  registerSpawnedAgent(orchDir(), {
+    key,
+    harnessId: dispatchSettings.adapter,
+    // An entity that names no plexer is in no plexer, and that is the answer —
+    // never a sentinel id standing in for a missing one (Rule 11, and the
+    // `backendId` contract in SpawnRegistration). Absent here means no row in
+    // `agent_plexers`, which is exactly what a capless adopted pane is.
+    ...(dispatchSettings.ent.backend === null ? {} : { backendId: dispatchSettings.ent.backend }),
+    // An adopted bare pane is a pane orch did not open: the plexer's own
+    // address for it is the handle, and an entity with none states none.
+    pane: false,
+    ...(dispatchSettings.ent.paneId === null ? {} : { handle: dispatchSettings.ent.paneId }),
+    ...(dispatchSettings.ent.space === null ? {} : { space: dispatchSettings.ent.space }),
+    cwd: process.cwd(),
+    name: dispatchSettings.ent.name ?? key,
+    model: dispatchSettings.model ?? "",
+    spawner: spawnerIdentity().key,
+    owner: callerOwnerToken(),
+  });
+}
+
 export async function cmdDispatch(args: string[]) {
   const { gov, rest } = parseGovernance(args);
   const flags = parseDispatchFlags(rest);
-  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-space]');
-  const target = flags.positional[0];
-  if (target) {
-    const remote = targetHost(target);
-    if (remote) {
-      const remoteArgs = [...args];
-      const index = remoteArgs.indexOf(target);
-      if (index >= 0) remoteArgs[index] = remote.target;
-      remoteWrite(remote.host, "dispatch", remoteArgs);
-      return;
-    }
-  }
+  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-space]');
+  if (forwardedToTargetHost(args, flags.positional[0])) return;
   const settings = loadSettings(orchDir());
   const dispatchSettings = resolveDispatchSettings(flags, settings, gov);
   // Address the daemon by the one canonical identity, never the pane id: a
@@ -239,32 +268,7 @@ export async function cmdDispatch(args: string[]) {
   if (dispatchSettings.model) await setAgentModel(key, dispatchSettings.model, gov);
   const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth), lockedCommands: settings.locked_commands, spawnerRepliable: spawnerIsRepliable() };
   const { dispatchId } = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
-  // A spawned agent is already registered under its key; only an unrecorded
-  // bare pane needs a row, and it must carry the same key we just dispatched to.
-  // Dispatching to a bare pane adopts it: the record carries the dispatcher's
-  // owner token, or the adopted pane stays open to every other orchestrator.
-  if (!spawnedRecords().has(key)) {
-    const adoptedModel = dispatchSettings.model ?? "";
-    registerSpawnedAgent(orchDir(), {
-      key,
-      harnessId: dispatchSettings.adapter,
-      // An entity that names no plexer is in no plexer, and that is the answer —
-      // never a sentinel id standing in for a missing one (Rule 11, and the
-      // `backendId` contract in SpawnRegistration). Absent here means no row in
-      // `agent_plexers`, which is exactly what a capless adopted pane is.
-      ...(dispatchSettings.ent.backend === null ? {} : { backendId: dispatchSettings.ent.backend }),
-      // An adopted bare pane is a pane orch did not open: the plexer's own
-      // address for it is the handle, and an entity with none states none.
-      pane: false,
-      ...(dispatchSettings.ent.paneId === null ? {} : { handle: dispatchSettings.ent.paneId }),
-      ...(dispatchSettings.ent.space === null ? {} : { space: dispatchSettings.ent.space }),
-      cwd: process.cwd(),
-      name: dispatchSettings.ent.name ?? key,
-      model: adoptedModel,
-      spawner: spawnerIdentity().key,
-      owner: callerOwnerToken(),
-    });
-  }
+  if (!spawnedRecords().has(key)) adoptBarePane(key, dispatchSettings);
   const recipient = recipientFor(key);
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the pane runs the prompt this command sent, not some other delivery.
@@ -279,6 +283,7 @@ export function parseDispatchFlags(args: string[]): DispatchFlags {
   for (let i = 0; i < commandArgs.length; i++) {
     const argument = commandArgs[i];
     if (argument === "--model") flags.modelFlag = commandArgs[++i];
+    else if (argument === "--file") flags.promptFile = commandArgs[++i];
     else if (argument === "--agent" || argument === "--adapter") flags.adapterFlag = commandArgs[++i];
     else if (argument === "--wait") flags.doWait = true;
     else if (argument === "--then") {
@@ -290,10 +295,35 @@ export function parseDispatchFlags(args: string[]): DispatchFlags {
   return flags;
 }
 
+const STDIN_FD = 0;
+
+function readPromptFile(source: string): string {
+  const label = source === "-" ? "stdin" : source;
+  try {
+    return files.readFileSync(source === "-" ? STDIN_FD : source, "utf8");
+  } catch (error: unknown) {
+    die(`Could not read the prompt from ${label}: ${errorMessage(error)}`);
+  }
+}
+
+/**
+ * The prompt body a control verb sends. `--file <path>` reads it from disk and
+ * `--file -` from stdin, so a spec full of code identifiers never crosses argv,
+ * where one apostrophe kills the command and the whole body lands in the transcript.
+ */
+export function promptBody(flags: Pick<DispatchFlags, "promptFile" | "positional">): string {
+  const typed = flags.positional.slice(1).join(" ");
+  if (flags.promptFile === undefined) return typed;
+  if (typed) die("Give the prompt as arguments or as --file, not both.");
+  const body = readPromptFile(flags.promptFile).trim();
+  if (!body) die(`${flags.promptFile === "-" ? "stdin" : flags.promptFile} is empty; a dispatch needs a prompt.`);
+  return body;
+}
+
 function resolveDispatchSettings(flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
-  const prompt = flags.positional.slice(1).join(" ");
-  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
+  const prompt = promptBody(flags);
+  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
   const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, ent, gov.steal);
   const pane = ent.paneId ?? ent.key;

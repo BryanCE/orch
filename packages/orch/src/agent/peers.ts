@@ -9,6 +9,7 @@
 import * as fs from "node:fs";
 import { Type } from "typebox";
 import { term } from "../policy/vocabulary.ts";
+import { modelSpec } from "../policy/thinking.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
 import { INBOX_FILE } from "../presence/schema.ts";
 import { presenceAgentDir, presenceFile, presenceRoot, readLatestResult, readStatus } from "../presence/writer.ts";
@@ -23,8 +24,7 @@ function peerModel(status: unknown): string | undefined {
   const provider = optionalString(status.model.provider);
   const id = optionalString(status.model.id);
   if (!provider || !id) return undefined;
-  const thinking = optionalString(status.thinking) ?? "";
-  return `${provider}/${id}:${thinking}`;
+  return modelSpec(`${provider}/${id}`, optionalString(status.thinking));
 }
 
 

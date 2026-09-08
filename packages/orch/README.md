@@ -53,15 +53,16 @@ symlink into the repo, so **editing source does not change the installed `orch`*
 
 ## Teaching an agent to drive orch
 
-orch ships three skills — `orch`, `pi-agent`, and `herdr`. `orch setup` asks before writing
-them, and `skills.roots` decides where: `~/.claude/skills` (Claude Code's own directory)
-and `~/.agents/skills` (the cross-harness convention). The same files go to every root,
-because a skill is read by whichever harness finds it.
+orch ships one skill, `orch`. `orch setup` asks before writing it. The real files go to `skills.store`, `~/.agents/skills`, which is the cross-harness
+standard; every directory in `skills.link` gets a symlink pointing into that store, so a
+harness reading its own directory — `~/.claude/skills` for Claude Code — reads the same
+files rather than a second copy that drifts.
 
 ```sh
-orch settings skills --install                   # install into the recorded roots
-orch settings skills --no-install                # stop installing; existing files are yours
-orch settings skills --roots=~/.agents/skills    # one root only
+orch settings skills --install                     # write the store and its links
+orch settings skills --no-install                  # stop installing; existing files are yours
+orch settings skills --link=~/.claude/skills       # which harness dirs get a link
+orch settings skills --store=~/.agents/skills      # where the real files live
 ```
 
 [`skills/orch/SKILL.md`](skills/orch/SKILL.md) is the fleet doctrine an orchestrating agent
@@ -72,12 +73,12 @@ orchestration prompt — the README below is the reference; that file is the met
 ## The loop
 
 ```sh
-orch spawn 2 --name api --cwd "$(git rev-parse --show-toplevel)"
-orch dispatch api-1 "add the FooBar type to src/types/core.ts and export it"
+orch spawn api-types api-routes --cwd "$(git rev-parse --show-toplevel)"
+orch dispatch api-types "add the FooBar type to src/types/core.ts and export it"
 orch events                                   # push stream; do not poll
-orch result api-1
+orch result api-types
 orch runs -n 20                               # durable dispatch history
-orch reset api-1                              # fresh context, same pane, name and model kept
+orch reset api-types                          # fresh context, same pane, name and model kept
 ```
 
 `spawn` opens one tab of balanced, tiled agents named `<prefix>-1..N` and never steals
@@ -145,7 +146,7 @@ workers are never told to reply to an address that would refuse them.
 | `work [--once]` | Assign queued tasks to idle agents. |
 | `review [list \| approve \| reject]` | Review, merge, or re-dispatch worktree results. |
 | `run <target> "<prompt>" [--raw]` | Queue a prompt through orchd with the worker header. |
-| `dispatch <target> "<prompt>" [--raw] [--model M] [--agent A]` | Durable dispatch; prints a dispatch id that `status --json` echoes back as `.dispatchId`. |
+| `dispatch <target> "<prompt>" \| --file <path>\|- [--raw] [--model M] [--agent A]` | Durable dispatch; prints a dispatch id that `status --json` echoes back as `.dispatchId`. `--file` keeps a long spec out of argv. |
 | `answer <target> "<text>" [--force]` | Answer a pending question. |
 | `steer <target> <text…>` | Durable mid-run instruction; refused while the target is `asking`. |
 | `broadcast "<text>" [target ...\|--all]` | Steer many; reports per-target refusals. |
@@ -159,8 +160,8 @@ workers are never told to reply to an address that would refuse them.
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
 | `restart <target>… \| --all [--cmd C]` | Close the harness process and relaunch it. |
 | `lock run \| check \| status \| release` | One heavy command machine-wide; see `locked_commands`. |
-| `spawn <N> [--tab L] [--cwd P] [--name PREFIX] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents. |
-| `tile <tab\|pane> [--name X] …` | Add one pane to an existing tab. |
+| `spawn <name> [<name>…] [--tab L] [--cwd P] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents, one per name. |
+| `tile <tab\|pane> <name> …` | Add one pane to an existing tab. |
 | `grant [<hash>\|--list]` | Approve an action an agent was refused. Needs a terminal; no flag answers the prompt for you. |
 | `rename <target> <name> [--pane]` | Rename the agent, or the pane border. |
 | `close <target>… \| --all [--stream]` / `kill` | Close targets; `--all` spares panes orch did not spawn. |
@@ -288,7 +289,7 @@ effective value with the source that won.
   "locked_commands": [],
   "daemon": { "tcp_port": 3716, "idle_shutdown_minutes": 30 },
   "tiling": { "first_split": "rows" },
-  "skills": { "install": true, "roots": ["~/.claude/skills", "~/.agents/skills"] },
+  "skills": { "install": true, "store": "~/.agents/skills", "link": ["~/.claude/skills"] },
   "hosts": {
     "worker": { "dest": "user@example.org", "orch_dir": "/home/user/.orch", "timeout_ms": 10000 }
   }

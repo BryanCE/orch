@@ -126,7 +126,7 @@ function validateValue(kind: SettingKind, value: unknown): string | null {
     case "text":
       return typeof value === "string" ? null : "Value must be text";
     case "list":
-      // "list" covers every JSON-shaped setting: string arrays (skills.roots) and keyed
+      // "list" covers every JSON-shaped setting: string arrays (skills.link) and keyed
       // objects (hosts, defaults.models). Element shapes are enforced by the settings
       // schema on write — the same gate `orch settings <key> <value>` goes through.
       return value !== null && typeof value === "object"

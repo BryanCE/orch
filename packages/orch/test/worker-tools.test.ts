@@ -19,7 +19,7 @@ const settings = (workerPeerTools?: boolean, allowTools: string[] = []): OrchSet
   hosts: {},
   spaces: {},
   tiling: { first_split: "rows" },
-  skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
+  skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
 });
 
 describe("worker tool policy", () => {

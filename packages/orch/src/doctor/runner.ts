@@ -11,6 +11,7 @@ import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks }
 import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
 import { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
+import { checkSkillLinks } from "./skills.ts";
 import { checkProvenanceDepth } from "./provenance-depth.ts";
 import { checkUnclaimedAgents } from "./unclaimed-agents.ts";
 import { checkHarnessModels } from "./models.ts";
@@ -121,6 +122,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
     isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
+    settingsDependent(orchDir, "skill-links", "Skill links", () => checkSkillLinks(orchDir)),
     settingsDependent(orchDir, "spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
     settingsDependent(orchDir, "provenance-depth", "Provenance depth", () => checkProvenanceDepth(orchDir)),
     settingsDependent(orchDir, "unclaimed-agents", "Unclaimed agents", () => checkUnclaimedAgents(orchDir)),

@@ -78,7 +78,7 @@ describe("settings shell decisions", () => {
   });
 
   test("registry exposes writable subcommand entries", () => {
-    for (const key of ["defaults.models", "models.preferred", "models.allowed", "skills.install", "skills.roots", "notify", "defaults.thinking", "defaults.thinking_by_harness"]) {
+    for (const key of ["defaults.models", "models.preferred", "models.allowed", "skills.install", "skills.store", "skills.link", "notify", "defaults.thinking", "defaults.thinking_by_harness"]) {
       expect(SETTINGS_REGISTRY.find((entry) => entry.key === key)?.write, key).toBeDefined();
     }
   });

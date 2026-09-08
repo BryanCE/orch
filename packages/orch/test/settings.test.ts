@@ -120,7 +120,7 @@ describe("loadSettings", () => {
       doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
       logging: { level: "debug" },
-      skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
+      skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });
   });
 
@@ -223,7 +223,7 @@ describe("loadSettings", () => {
       doctor: { unclaimed_after_ms: 120_000 },
       tiling: { first_split: "rows" },
       logging: { level: "info" },
-      skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
+      skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });
   });
 
@@ -249,7 +249,7 @@ describe("loadSettings", () => {
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000 },
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 0 },
       tiling: { first_split: "columns" },
-      skills: { install: false, roots: ["~/.claude/skills", "~/.agents/skills"] },
+      skills: { install: false, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });
   });
 

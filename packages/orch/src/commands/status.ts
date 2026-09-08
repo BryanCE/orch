@@ -2,6 +2,7 @@ import { loadSettingsOrNull } from "../settings/read.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
+import { modelSpec } from "../policy/thinking.ts";
 import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../policy/capacity.ts";
 
@@ -67,8 +68,7 @@ export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
 
 /** Format a provider/model pair with its optional thinking suffix. */
 function formatModel(provider: string | null | undefined, model: string, thinking: string | null | undefined): string {
-  const suffix = thinking ? `:${thinking}` : "";
-  return `${provider ?? ""}/${model}${suffix}`;
+  return modelSpec(`${provider ?? ""}/${model}`, thinking);
 }
 
 /** Build a model string from a presence status when one is reported. */

@@ -75,8 +75,9 @@ REVIEW
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Queue a prompt through orchd with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" [--raw] [--model <model[:thinking]>] [--agent adapter]
-                                 Durably accept a prompt through orchd.
+  orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model <model[:thinking]>] [--agent adapter]
+                                 Durably accept a prompt through orchd. --file reads the
+                                 prompt from a file, or from stdin with '-'.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).
   orch pipe <src> <dst> ["instruction"]
@@ -109,16 +110,16 @@ COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
   orch lock release --force      Evict the current holder, naming it.
 
 PANES (create / arrange / lifecycle - never steals focus except 'focus')
-  orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
+  orch spawn <name> [<name>...] [--tab L] [--cwd P] [--cmd C] [--model M]
                    [--agent A] [--backend B] [--prompt T] [--worktree]
-                                 Fresh tab with N balanced-tiled named agents (2=side-by-side,
-                                 3=2+1, 4=2x2, ...). Names <prefix>-1..N.
+                                 Fresh tab, one balanced-tiled pane per name (2=side-by-side,
+                                 3=2+1, 4=2x2, ...). The names ARE the agents; there is no count.
                                  Run from outside a pane, opening a space is REFUSED until a
                                  human approves it with 'orch grant'; --space <id> uses an open one.
                                  --backend headless needs --prompt: a detached agent runs it and exits.
   orch grant [<hash>|--list]     Approve actions an agent was refused. Needs a terminal:
                                  there is no flag that answers the prompt for you.
-  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
+  orch tile <tab|pane> <name> [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
                                  Set the agent name (NAME column); --pane sets the pane
@@ -172,7 +173,8 @@ MAINTENANCE
                                  every selected adapter's shim. Prompts interactively when a
                                  selection is omitted on a TTY; --yes auto-installs deps,
                                  --no-install just reports, --copy copies instead of symlinking.
-                                 Asks before copying orch's skills into your harness dirs;
+                                 Asks before installing orch's skills into ~/.agents/skills
+                                 and linking them into each harness that reads its own dir;
                                  --skills / --no-skills answers that without the prompt.
   orch settings [--json] [--harness=<id>] [--plexer=<id>]
                                  Print each effective setting with its source (flag > env >
@@ -202,10 +204,12 @@ MAINTENANCE
                                  orch notify test.
   orch settings notify remove <sink>
                                  Stop delivering through that sink.
-  orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
+  orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]
                                  Turn orch's skill install on or off and choose where it
-                                 writes. --install copies them into the roots right away;
-                                 default roots are ~/.claude/skills and ~/.agents/skills.
+                                 writes. --install writes them right away; the real files
+                                 live in --store (~/.agents/skills, the cross-harness
+                                 standard) and each --link dir (~/.claude/skills) is
+                                 symlinked into it.
   orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
                                  List every model each enabled harness reports it can run -
                                  the quicklist never hides the rest. --preferred shows only the

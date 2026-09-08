@@ -81,10 +81,9 @@ export const SETTINGS_DEFAULTS = {
   doctor: { unclaimed_after_ms: 120_000 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
-  // Writing into a user's harness directories needs their say-so, so setup asks and
-  // records the answer here. Both roots ship the same skills: `.claude` is Claude Code's
-  // own, `.agents` is the cross-harness convention every other harness reads.
-  skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
+  // `.agents/skills` is the cross-harness standard, so the real files live there once and
+  // a harness that reads its own directory instead gets a link into the store.
+  skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
 } as const;
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
@@ -184,12 +183,14 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   tiling: z.strictObject({
     first_split: z.enum(TILE_FIRST_SPLITS).optional(),
   }).optional(),
-  /** Whether orch may copy its packaged skills into the user's harness directories, and
-   * where. Setup asks before the first install and records the answer; a user who wants
-   * to manage the files themselves turns `install` off and orch never writes them again. */
+  /** Whether orch may install its packaged skills, the one store holding the real files,
+   * and the harness directories linked into it. Setup asks before the first install and
+   * records the answer; a user who wants to manage the files themselves turns `install`
+   * off and orch never writes them again. */
   skills: z.strictObject({
     install: z.boolean().optional(),
-    roots: z.array(z.string().min(1)).optional(),
+    store: z.string().min(1).optional(),
+    link: z.array(z.string().min(1)).optional(),
   }).optional(),
 });
 

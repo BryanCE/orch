@@ -116,7 +116,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["1", "--name", "worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(["worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

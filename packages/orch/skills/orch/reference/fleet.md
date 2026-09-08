@@ -45,8 +45,16 @@ a cap refusal is never a surprise and a foreign fleet is never invisible.
 
 The orchestrator is the mind. It does the thinking and hands each worker one small,
 precisely-specced change, one to at most three tiny related edits per dispatch. Workers
-execute mechanically. They never design, never explore, never think through a system. A
-dispatch that needs a worker to figure out the approach is under-specced, so fix the prompt.
+execute mechanically. They never design, never pick an approach, never think through a
+system. A dispatch that needs a worker to figure out the approach is under-specced, so fix
+the prompt. Lookups are fine to hand out: "find the doc for X", "list every caller of Y",
+"which table holds Z" are mechanical when the topic and the answer shape are named.
+Exploring in the sense of inventing a feature or deciding what to build is never a
+worker's job.
+
+Split a job by role, not by size. Moving a file, changing the code that consumes it, and
+checking the result are three workers running at once, each on its own files, not one
+worker reading a four-section spec.
 
 The loop is small change, land, green-check, next small dispatch. Idle panes are waste: the
 moment a worker lands, its pane gets the next slice. A big fleet of fast small tasks beats a

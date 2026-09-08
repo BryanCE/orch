@@ -8,9 +8,13 @@
 orch spawn api-types api-routes api-guards --tab api --cwd "$(git rev-parse --show-toplevel)"
 ```
 
-Opens one tab of N balanced-tiled agents. Never steals focus. Cap is `fleet.spawn_cap`
-(default 8). Every name is validated before any tab or pane is created, so a refused spawn
-leaves nothing behind.
+Opens one tab of N balanced-tiled agents. Never steals focus. Every name is validated before
+any tab or pane is created, so a refused spawn leaves nothing behind.
+
+Four settings can refuse it, and the refusal names the one that fired:
+`fleet.max_agents_per_pack`, `fleet.max_agents_per_space.<space>`, `fleet.max_agents_total`,
+and `fleet.max_depth` for how deep a spawner may itself have been spawned. Read the remaining
+headroom with `orch status --capacity` before you size a fleet, not after a spawn burns.
 
 - The positionals name the agents, one per agent; `--tab` names the tab. There is no
   `--name` flag, no count argument and no `<prefix>-N` numbering.
@@ -56,7 +60,27 @@ exact spec for scripting.
 
 ```bash
 orch dispatch api-types "<the full task spec>"
+orch dispatch api-types --file slice.md   # or --file - to read the spec from stdin
 ```
+
+### Quote the spec correctly. This is yours, not orch's.
+
+The shell splits argv before orch runs, so orch only ever receives the finished string. A
+mangled spec is a quoting mistake in whatever shell you typed it into, never an orch bug, and
+`--file` is not the fix for one — it is for a spec too long to want on one line.
+
+**Single-quote the spec.** It is the one rule that holds in every shell orch runs under:
+inside single quotes bash, zsh and PowerShell all treat every character literally, so `$VAR`,
+backticks, `"` and `;` are just text.
+
+```sh
+orch dispatch api-types 'keep $ORCH_DIR and `backticks` literal; say "done" when finished'
+```
+
+Only a literal apostrophe differs, and only in how it is escaped: `'\''` in bash and zsh,
+doubled `''` in PowerShell. Double quotes differ far more — bash makes `$`, a backtick, `\`
+and `"` special, PowerShell makes `$` and a backtick special — so reach for them only when the
+text contains an apostrophe and no `$`.
 
 Durable and returns fast: the write lands in the daemon's outbox and survives a restart. It
 prints a dispatch id, and `orch status --json` echoes it as `.dispatchId` once the agent is
@@ -117,8 +141,9 @@ Each line becomes a wake-up. No `jq`, no `--json`.
 
 An attached stream counts as daemon usage, so `orchd` will not idle-shut-down beneath it.
 The daemon delivers notifications to sounds, desktops, webhooks and commands from the `notify` sinks in
-settings.json whether or not anyone is streaming. `orch events --notify` only renders them
-locally. `orch notify test` fires a synthetic transition through every sink.
+settings.json whether or not anyone is streaming. There is no `--notify` flag: every `orch events`
+line already carries the notification title. `orch notify test` fires a synthetic transition
+through every sink.
 
 `orch wait <target> --status done --timeout <ms>` blocks. One deliberate checkpoint, never a
 substitute for the stream.
@@ -172,8 +197,9 @@ the active default among the enabled set.
 
 Sinks: `sound` plays a ding on this machine, `desktop` raises a desktop notification, `herdr`
 posts in the plexer - none of the three take fields, so they are checkboxes on the `notify` row
-of the `orch settings` editor and toggles in the setup wizard. `webhook` needs `--url`,
-`command` needs `--command` and runs it with the event JSON on stdin. The packaged `orch-ding`
+of the `orch settings` editor and toggles in the setup wizard. Fields are assignment flags:
+`webhook` needs `--url=<value>`, `command` needs `--command=<value>` and runs it with the event
+JSON on stdin. The packaged `orch-ding`
 bin is the worked example for `command`; it makes the same noise the `sound` sink does.
 
 Enter on the `notify` row opens the sink picker: `space` turns a sink on or off, `e` edits what

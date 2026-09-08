@@ -4,7 +4,7 @@ import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/
 import { displaySetting, displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
-import { installSkills } from "../setup/skills.ts";
+import { describeSkillPlacement, installSkills } from "../setup/skills.ts";
 import { orchDir } from "../presence/writer.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
@@ -143,28 +143,33 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
 }
 
 /**
- * Turn skill installation on or off, and re-point or re-write the roots. `--install`
- * copies every packaged skill into the recorded roots straight away, so the setting and
- * what is on disk never disagree; `--no-install` records the refusal and leaves whatever
- * the user has there alone, since those files are theirs to remove.
+ * Turn skill installation on or off, and re-point the store or the harness links.
+ * `--install` writes every packaged skill straight away, so the setting and what is on
+ * disk never disagree; `--no-install` records the refusal and leaves whatever the user
+ * has there alone, since those files are theirs to remove.
  */
 export function cmdSettingsSkills(args: string[]): void {
-  const rootsFlag = readAssignFlag(args, "--roots");
+  const storeFlag = readAssignFlag(args, "--store");
+  const linkFlag = readAssignFlag(args, "--link");
   const install = args.includes("--install") ? true : args.includes("--no-install") ? false : undefined;
-  const roots = rootsFlag?.split(",").map((root) => root.trim()).filter(Boolean);
-  if (install === undefined && roots === undefined) {
-    die("usage: orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]");
+  const link = linkFlag?.split(",").map((root) => root.trim()).filter(Boolean);
+  if (install === undefined && storeFlag === undefined && link === undefined) {
+    die("usage: orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]");
   }
-  if (rootsFlag !== undefined && !roots?.length) die("--roots needs at least one directory.");
+  if (storeFlag !== undefined && !storeFlag.trim()) die("--store needs a directory.");
+  if (linkFlag !== undefined && !link?.length) die("--link needs at least one directory.");
 
   const current = currentSettings().skills;
   const wanted = install ?? current.install;
   writeRegisteredSetting(orchDir(), "skills.install", wanted);
-  if (roots !== undefined) writeRegisteredSetting(orchDir(), "skills.roots", roots);
-  const target = roots ?? current.roots;
-  process.stdout.write(`skills.install = ${wanted}\nskills.roots   = ${target.join(", ")}\n`);
+  if (storeFlag !== undefined) writeRegisteredSetting(orchDir(), "skills.store", storeFlag.trim());
+  if (link !== undefined) writeRegisteredSetting(orchDir(), "skills.link", link);
+  const roots = { store: storeFlag?.trim() ?? current.store, link: link ?? current.link };
+  process.stdout.write(
+    `skills.install = ${wanted}\nskills.store   = ${roots.store}\nskills.link    = ${roots.link.join(", ")}\n`,
+  );
   if (!wanted) return;
-  for (const written of installSkills(target)) process.stdout.write(`  ${written}\n`);
+  for (const placed of installSkills(roots)) process.stdout.write(`  ${describeSkillPlacement(placed)}\n`);
 }
 
 const NOTIFY_USAGE = "usage: orch settings notify [list] [--json]\n"

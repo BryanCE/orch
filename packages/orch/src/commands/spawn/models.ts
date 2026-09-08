@@ -1,7 +1,7 @@
 import { orchDir } from "../../presence/writer.ts";
 import { loadSettings } from "../../settings/read.ts";
 import { assertModelAllowed } from "../../policy/model.ts";
-import { resolveThinking, splitThinkingSuffix } from "../../policy/thinking.ts";
+import { modelSpec, resolveThinking, splitThinkingSuffix } from "../../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { repickCommand } from "../../adapters/prerequisites.ts";
 import { pickAdapter, requestedModel, resolveAdapterOrDie } from "../selection.ts";
@@ -68,7 +68,7 @@ export async function pinModels(
   // however `defaults.thinking` was configured. Spawn, `orch model` and reset's
   // re-pin all route through the same resolution.
   // `model:level` is the control plane's wire spelling, never a stored shape.
-  const spec = thinking === undefined ? model : `${model}:${thinking}`;
+  const spec = modelSpec(model, thinking);
   const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
     pane,
     name,

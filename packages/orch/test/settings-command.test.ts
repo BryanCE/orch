@@ -206,7 +206,7 @@ describe("orch settings", () => {
   test("sets a list value through its registry entry", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    expect(runSettings(directory, {}, "skills.roots", "[\"/tmp/a\",\"/tmp/b\"]")).toContain("skills.roots = [\"/tmp/a\",\"/tmp/b\"]");
+    expect(runSettings(directory, {}, "skills.link", "[\"/tmp/a\",\"/tmp/b\"]")).toContain("skills.link = [\"/tmp/a\",\"/tmp/b\"]");
   }, 30_000);
 
   test("refuses an invalid boolean and names the allowed values", () => {
@@ -244,8 +244,8 @@ describe("orch settings", () => {
   test("refuses an invalid list and names JSON as the allowed format", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "skills.roots", "not-json");
-    expect(failed.stdout).toContain("skills.roots");
+    const failed = runSettingsExpectingFailure(directory, "skills.link", "not-json");
+    expect(failed.stdout).toContain("skills.link");
     expect(failed.stdout).toContain("JSON array");
   }, 30_000);
 

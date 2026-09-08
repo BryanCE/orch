@@ -178,7 +178,8 @@ const HELP: Readonly<Record<string, string>> = {
   "doctor.unclaimed_after_ms": "How long after spawn an agent may stay unclaimed before doctor reports it. Milliseconds.",
   "tiling.first_split": "Direction used for the first pane split.",
   "skills.install": "Whether orch installs packaged skills.",
-  "skills.roots": "Harness skill directories managed by orch.",
+  "skills.store": "Directory holding the real skill files. The cross-harness standard is ~/.agents/skills.",
+  "skills.link": "Harness skill directories orch symlinks into the store.",
 };
 
 /** Env var that overrides a setting, for the few that take one. */

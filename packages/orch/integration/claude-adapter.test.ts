@@ -13,8 +13,8 @@ import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 // registry evaluates claude.ts as one of its dependencies instead.
 import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { readJsonRecord } from "./helpers/json.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { readJsonRecord } from "../test/helpers/json.ts";
 
 const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
 const previousOrchDir = process.env.ORCH_DIR;

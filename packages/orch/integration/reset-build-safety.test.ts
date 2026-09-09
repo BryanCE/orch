@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -1,3 +1,4 @@
+import { backendReachable } from "./backend.ts";
 import { headlessBackend } from "./headless/index.ts";
 import { herdrBackend } from "./herdr/index.ts";
 import { tmuxBackend } from "./tmux/index.ts";
@@ -43,8 +44,8 @@ function validateBackend(id: string): Backend {
   const backend = getBackend(id);
   if (!backend) throw new Error(`Unknown backend ${JSON.stringify(id)}. Supported backends: ${supportedIds()}`);
   if (!backend.isAvailable()) throw new Error(`Backend ${JSON.stringify(id)} is unavailable`);
-  if (!backend.isInsideSession()) {
-    throw new Error(`Backend ${JSON.stringify(id)} requires running inside a live ${id} session; start one and retry`);
+  if (!backendReachable(backend)) {
+    throw new Error(`Backend ${JSON.stringify(id)} is not reachable: orch is not inside a ${id} session and no ${id} server answered; start it and retry`);
   }
   return backend;
 }
@@ -53,8 +54,8 @@ function validateBackend(id: string): Backend {
 export function resolveBackend(opts: { explicit?: string | null; configured?: string | null }): Backend {
   if (opts.explicit !== undefined && opts.explicit !== null) return validateBackend(opts.explicit);
   if (opts.configured !== undefined && opts.configured !== null) return validateBackend(opts.configured);
-  if (herdrBackend.isAvailable() && herdrBackend.isInsideSession()) return herdrBackend;
-  if (tmuxBackend.isAvailable() && tmuxBackend.isInsideSession()) return tmuxBackend;
+  if (herdrBackend.isAvailable() && backendReachable(herdrBackend)) return herdrBackend;
+  if (tmuxBackend.isAvailable() && backendReachable(tmuxBackend)) return tmuxBackend;
   return headlessBackend;
 }
 

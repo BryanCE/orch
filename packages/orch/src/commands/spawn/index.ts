@@ -229,7 +229,7 @@ function placeSpawn(
   const placement = resolveSpawnPlacement({
     directory: orchDir(), backend, space: settings.space ?? callerSpace(),
     packRootId: spawnerAgentId === null ? null : agentById(orchDir(), spawnerAgentId)?.rootAgentId ?? null,
-    cwd: settings.cwd, label: settings.label,
+    cwd: settings.cwd,
     grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawnerAgentId); },
   });
   // A7/Rule 11: no space is NULL, never "" — a sentinel string is a space name

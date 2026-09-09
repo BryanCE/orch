@@ -88,12 +88,16 @@ describe("the rendered status table carries the owner column", () => {
     expect(cellUnder(table, "OWNER", 3)).toBe("no orch driving it");
   });
 
-  test("a dead holder renders as unleased, not as a live driver", () => {
+  test("a dead holder reads as unleased under a table that all shares one owner", () => {
     const table = localStatusTable([
       statusRow({ name: "orphan", owner: "no orch driving it (holder gone)" }),
     ], false);
 
-    expect(cellUnder(table, "OWNER", 2)).toBe("no orch driving it (holder gone)");
+    // One owner for every row is a fact about the table, not about a row: it is
+    // stated once beneath it rather than spending 32 columns on every line.
+    const widths = columnWidths(table);
+    expect(cells(table.split("\n")[0] ?? "", widths)).not.toContain("OWNER");
+    expect(table).toContain("owner: no orch driving it (holder gone)");
   });
 
   test("the owner column is dropped only when no row knows its lease", () => {

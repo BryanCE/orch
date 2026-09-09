@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor } from "../src/doctor/runner.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 
 const directories: string[] = [];

@@ -8,7 +8,8 @@
     "agents"
   ],
   "scripts": {
-    "test": "bun test --parallel",
+    "test": "bun test --parallel test",
+    "test:integration": "bun test --parallel integration",
     "check": "bun run --parallel --no-exit-on-error lint tc check:bridge",
     "check:bridge": "bun scripts/check-bridge.ts",
     "db:gen": "bun scripts/db/generate.ts",
@@ -31,7 +32,7 @@
     "build:dev": "bun scripts/reset.ts --build && bun run install:global && ORCH=$(npm prefix -g)/bin/orch && \"$ORCH\" doctor -y && \"$ORCH\" daemon start",
     "prepublishOnly": "bun run build:cli",
     "tc": "bunx tsc --noEmit",
-    "lint": "bunx oxlint bin src test extensions scripts",
+    "lint": "bunx oxlint bin src test integration extensions scripts",
     "reset": "bun scripts/reset.ts",
     "reinstall": "bun scripts/reset.ts && bun run install:global && ORCH=$(npm prefix -g)/bin/orch && \"$ORCH\" setup && \"$ORCH\" doctor -y && \"$ORCH\" daemon start"
   },

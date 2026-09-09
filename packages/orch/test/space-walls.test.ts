@@ -39,7 +39,7 @@ for (const agent of Object.values(AGENTS)) {
 afterAll(() => removeTempDir(orchDir));
 
 function fakeEntity(key: string, paneId: string | null): Entity {
-  return { key, paneId, managed: true, space: null, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, backend: null, presence: null, sessionPath: null, presenceOnly: true };
+  return { key, paneId, managed: true, space: null, name: null, tabLabel: null, agent: null, focused: false, backendStatus: null, backend: null, presence: null, sessionPath: null, presenceOnly: true, ended: false };
 }
 
 describe("space helpers", () => {

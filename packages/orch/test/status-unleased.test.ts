@@ -46,7 +46,7 @@ function entity(): Entity {
     // a place named "local".
     backendStatus: null, backend: null, presence: {
       key, dir: "/tmp", alive: true, result: null, status: { schema: 1, state: "idle" },
-    }, sessionPath: null, presenceOnly: false, space: null,
+    }, sessionPath: null, presenceOnly: false, ended: false, space: null,
   };
 }
 

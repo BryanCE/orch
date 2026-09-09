@@ -101,6 +101,9 @@ export interface Entity {
   presence: PresenceEntry | null;
   sessionPath: string | null;
   presenceOnly: boolean;
+  /** Whether orch recorded this agent's ending. An ended agent has released its
+   *  NAME to whoever takes the slice next; its id addresses it forever. */
+  ended: boolean;
   /** Space from the backend view or orch's spawned registry. */
   space: string | null;
   /** Set when this entity was addressed with a configured host prefix. */

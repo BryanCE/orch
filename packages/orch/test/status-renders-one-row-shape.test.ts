@@ -36,7 +36,7 @@ function entityWithQuestion(): Entity {
   return {
     key: "agent00001", paneId: null, managed: true, name: "worker", tabLabel: null,
     agent: "pi", focused: false, backendStatus: null, backend: null, sessionPath: null,
-    presenceOnly: true, space: null,
+    presenceOnly: true, ended: false, space: null,
     presence: {
       key: "agent00001", dir: "/tmp", alive: true, result: { text: " finished  " },
       status: { schema: 1, state: "asking", asking: { question: "  approve  ", id: "q1", ts: "now" }, task: "ignored" },

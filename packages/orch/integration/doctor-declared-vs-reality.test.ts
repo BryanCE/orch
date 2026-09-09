@@ -7,11 +7,11 @@ import { describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
-import { row } from "./helpers/rows.ts";
-import { FakePanedBackend, withRegisteredBackend } from "./helpers/backend.ts";
+import { row } from "../test/helpers/rows.ts";
+import { FakePanedBackend, withRegisteredBackend } from "../test/helpers/backend.ts";
 const directories: string[] = [];
 function fixture(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-reality-"));

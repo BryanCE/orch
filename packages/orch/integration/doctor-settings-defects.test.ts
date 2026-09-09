@@ -1,11 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkSettingsFile } from "../src/doctor/settings-file.ts";
 import { runDoctor } from "../src/doctor/runner.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
+import { writeSettingsFixture } from "../test/helpers/settings.ts";
 
 const directories: string[] = [];
 

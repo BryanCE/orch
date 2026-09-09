@@ -115,7 +115,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, false), space: "space00001",
-      packRootId: seedOrch(dir, "packroot01"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot01"), cwd: "/work", grantNewHome: grant.grantNewHome,
     });
 
     // E10: the space orch reports is orch's id. The coordinate is a separate
@@ -135,7 +135,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, true, { id: "insideorch" }), space: null,
-      packRootId: seedOrch(dir, "packroot02"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot02"), cwd: "/work", grantNewHome: grant.grantNewHome,
     });
 
     // A7: a space is optional, and nothing mints one from a path.
@@ -159,7 +159,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, true, null), space: null,
-      packRootId: seedOrch(dir, "packroot02b"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot02b"), cwd: "/work", grantNewHome: grant.grantNewHome,
     });
 
     expect(placement.space).toBeNull();
@@ -176,14 +176,16 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, false), space: null,
-      packRootId: orch, cwd: "/home/bryan/work", label: "api", grantNewHome: grant.grantNewHome,
+      packRootId: orch, cwd: "/home/bryan/work", grantNewHome: grant.grantNewHome,
     });
 
     // E8: allowable, but never unmarked, and never at orch's own discretion -
     // it puts a window on the human's screen, so the human is asked first.
     expect(grant.asked).toBe(1);
     expect(home.created[0]?.subject).toEqual({ kind: "pack", id: orch });
-    expect(home.created[0]?.request.label ?? "").toContain("orch");
+    // Marked as orch's, and named for the directory the fleet works in - a
+    // workspace a human can find, rather than one named after a pane's slice.
+    expect(home.created[0]?.request.label).toBe("orch/work");
     // E9/E10: the coordinate is the workspace and is RECORDED against the pack.
     // It is never orch's space, which stays absent because nobody created one.
     expect(placement.workspace).toBe("w1");
@@ -198,7 +200,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
     const request = {
       directory: dir, backend: homedBackend(home, false), space: null,
-      packRootId: orch, cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
+      packRootId: orch, cwd: "/work", grantNewHome: grant.grantNewHome,
     };
 
     const first = resolveSpawnPlacement(request);
@@ -217,7 +219,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(null, false), space: null,
-      packRootId: seedOrch(dir, "packroot05"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot05"), cwd: "/work", grantNewHome: grant.grantNewHome,
     });
 
     // E13/E14: `spaceHome === null` IS the capability, and orch never reaches
@@ -236,7 +238,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, false), space: "space00002",
-      packRootId: seedOrch(dir, "packroot06"), cwd: "/work", label: "api", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot06"), cwd: "/work", grantNewHome: grant.grantNewHome,
     });
 
     // The user named a space, so that is where the agents are filed. The home

@@ -2,12 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { writeSettingsFixture } from "./helpers/settings.ts";
+import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import * as registry from "../src/settings/registry.ts";
 import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
 import { cmdSettings } from "../src/commands/settings.ts";
 import { isRecord } from "../src/util.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 
 const directories: string[] = [];
 

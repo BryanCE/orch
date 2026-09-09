@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
@@ -7,7 +7,7 @@ import { buildEntities } from "../src/entities.ts";
 import { mintAgentId, parseIdentity } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent } from "../test/helpers/agent.ts";
 import { isRecord } from "../src/util.ts";
 
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));

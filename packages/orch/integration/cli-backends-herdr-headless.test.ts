@@ -12,8 +12,8 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { resolveAdapter } from "../src/adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { fakeAdapter as makeFakeAdapter } from "../test/helpers/adapter.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const dirs: string[] = [];

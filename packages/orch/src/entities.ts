@@ -1,5 +1,6 @@
 import { loadSettings } from "./settings/read.ts";
 import { allBackends } from "./backends/registry.ts";
+import { backendReachable } from "./backends/backend.ts";
 import { loadPresence } from "./presence/store.ts";
 import { orchDir } from "./presence/writer.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
@@ -122,11 +123,31 @@ export function scopeEntitiesToSpace(entities: Entity[], opts?: { all?: boolean 
   return entities.filter((entity) => sameSpace(entitySpace(entity), current));
 }
 
-/** The fleet as one read: every agent by id, and the presence that names it. */
+/** The fleet as one read: every agent by id, the presence that names it, and
+ *  what each reachable plexer says it still holds. */
 interface Fleet {
   readonly views: ReadonlyMap<string, AgentView>;
   readonly presence: ReadonlyMap<string, PresenceEntry>;
   readonly presenceById: ReadonlyMap<string, PresenceEntry>;
+  readonly census: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+/**
+ * The handles each reachable plexer confirms it still has, asked ONCE per build.
+ *
+ * Asking is a server query, so being inside a pane of the plexer was never the
+ * question — an orch outside herdr can see the fleet it opened. A plexer that
+ * answers nothing is simply absent from this map.
+ */
+function paneCensus(): Map<string, ReadonlySet<string>> {
+  const census = new Map<string, ReadonlySet<string>>();
+  for (const backend of allBackends()) {
+    if (!backend.paneInventory || !backendReachable(backend)) continue;
+    try {
+      census.set(backend.id, new Set(backend.paneInventory.list().map((target) => String(target.handle))));
+    } catch { /* a plexer that cannot answer says nothing either way */ }
+  }
+  return census;
 }
 
 function handlesByKey(fleet: Fleet, backend: Backend): Map<string, string> {
@@ -148,11 +169,13 @@ function entityFromBackendTarget(
   const paneId = String(target.handle);
   const key = keyByHandle.get(paneId) ?? paneId;
   const pres: PresenceEntry | null = fleet.presence.get(key) ?? null;
+  const view = viewForKey(fleet.views, key);
   if (pres) usedPresence.add(pres.key);
   return {
     key,
     paneId,
-    managed: viewForKey(fleet.views, key) !== undefined,
+    managed: view !== undefined,
+    ended: view?.endedAt != null,
     // Orch's registry owns the name; the backend's own pane label is only a
     // fallback for panes orch never spawned.
     name: normalizedAgentName(key) ?? target.name,
@@ -178,7 +201,7 @@ function entityFromBackendTarget(
 }
 
 function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
-  if (!backend.paneInventory || !backend.isInsideSession()) return [];
+  if (!backend.paneInventory || !backendReachable(backend)) return [];
   const keyByHandle = handlesByKey(fleet, backend);
   return backend.paneInventory.list()
     .map((target) => entityFromBackendTarget(backend, target, keyByHandle, fleet, usedPresence));
@@ -198,12 +221,12 @@ function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
   // U1: a pane is environment, so orch's own record answers for it. The agent's
   // self-report reached `peek` as a handle no plexer had.
   const plexer = view?.environment.plexer ?? null;
-  const backend = plexer === null ? undefined : allBackends().find((candidate) => candidate.id === plexer);
   return {
     key: entry.key,
     ...statusFields,
-    paneId: confirmedHandle(backend, view?.environment.handle ?? null),
+    paneId: confirmedHandle(fleet.census, plexer, view?.environment.handle ?? null),
     managed: view !== undefined,
+    ended: view?.endedAt != null,
     name: normalizedAgentName(entry.key) ?? null,
     tabLabel: null,
     focused: false,
@@ -227,20 +250,19 @@ function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[]
  * A row is not evidence that a pane exists. orch listed four agents with pane ids
  * herdr answered `pane_not_found` for, so `dispatch` accepted the target and
  * failed unexplained and `peek` crashed with a raw plexer error. The environment
- * is what says whether a pane is there, and the inventory IS that answer.
+ * is what says whether a pane is there, and the census IS that answer.
  *
- * A plexer that was not asked — no inventory role, or this process is not inside
- * a session of it — says nothing either way, so the recorded handle stands. Only
- * an inventory that ANSWERED and did not list the handle takes it away.
+ * A plexer that was not asked — no inventory role, or nothing answering — says
+ * nothing either way, so the recorded handle stands. Only a plexer that ANSWERED
+ * and did not list the handle takes it away.
  *
  * Losing the handle is not losing the agent (Rule 11): it becomes an agent with
  * no shortcut, still orch's and still reachable through its inbox.
  */
-function confirmedHandle(backend: Backend | undefined, handle: string | null): string | null {
+function confirmedHandle(census: ReadonlyMap<string, ReadonlySet<string>>, plexer: string | null, handle: string | null): string | null {
   if (handle === null) return null;
-  const inventory = backend?.paneInventory;
-  if (!inventory || backend?.isInsideSession() !== true) return handle;
-  return inventory.list().some((target) => String(target.handle) === handle) ? handle : null;
+  const held = plexer === null ? undefined : census.get(plexer);
+  return held === undefined || held.has(handle) ? handle : null;
 }
 
 /** Agents the store knows that neither a pane nor a presence directory surfaced.
@@ -253,11 +275,11 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
     const key = addressOf(view, fleet.presenceById);
     if (listed.has(key)) continue;
     const { plexer, handle, space } = view.environment;
-    const backend = plexer === null ? undefined : allBackends().find((candidate) => candidate.id === plexer);
     found.push({
       key,
-      paneId: confirmedHandle(backend, handle),
+      paneId: confirmedHandle(fleet.census, plexer, handle),
       managed: true,
+      ended: view.endedAt != null,
       name: view.name,
       tabLabel: null,
       agent: null,
@@ -275,7 +297,7 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
 
 export function buildEntities(options: { skipBackends?: boolean } = {}): Entity[] {
   const presence = loadPresence();
-  const fleet: Fleet = { views: viewsById(), presence, presenceById: indexPresenceById(presence) };
+  const fleet: Fleet = { views: viewsById(), presence, presenceById: indexPresenceById(presence), census: paneCensus() };
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []
@@ -314,10 +336,31 @@ function ambiguous(target: string, entities: Entity[]): never {
   })));
 }
 
+/** An agent orch has not recorded an ending for and whose process has not gone. */
+function stillRunning(entity: Entity): boolean {
+  return !entity.ended && entity.presence?.alive !== false;
+}
+
+/**
+ * The agents answering to the NAME `localTarget`: the running ones alone when any
+ * is running, else the ones that have stopped.
+ *
+ * A name is a slot the next holder of the slice takes over. A dead fleet keeping
+ * its names made every dispatch to the panes that replaced it an ambiguity
+ * refusal; falling back keeps `orch result <name>` answering for a closed agent
+ * nothing has replaced.
+ */
+function nameHolders(entities: Entity[], localTarget: string): Entity[] {
+  const named = entities.filter((entity) => entity.name === localTarget);
+  const running = named.filter(stillRunning);
+  return running.length > 0 ? running : named;
+}
+
 function matchInPool(entities: Entity[], localTarget: string, target: string, host?: string | null): Entity | null {
   const withHost = (entity: Entity): Entity => (host ? { ...entity, host } : entity);
 
-  const exact = dedupeEntities(entities.filter((entity) => entity.key === localTarget || entity.paneId === localTarget || entity.name === localTarget));
+  const addressed = entities.filter((entity) => entity.key === localTarget || entity.paneId === localTarget);
+  const exact = dedupeEntities([...addressed, ...nameHolders(entities, localTarget)]);
   if (exact.length === 1) return withHost(exact[0]!);
   if (exact.length > 1) ambiguous(target, exact);
 

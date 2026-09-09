@@ -295,9 +295,10 @@ export interface SpawnPlacementRequest {
   /** The agent at the root of this fleet's provenance tree — what
    *  `pack_plexers.pack_id` names. Null when the caller has no agent row yet. */
   readonly packRootId: string | null;
+  /** Where the fleet works, and the name its home is opened under: a workspace
+   *  called after the repo is one a human can find, and the tab label names a
+   *  slice, which is a different noun. */
   readonly cwd: string;
-  /** orch's own name for the fleet, marked before it reaches the plexer. */
-  readonly label: string;
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
    *  the gate stays testable. Throws or exits when not granted. */

@@ -10,12 +10,12 @@ import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
 import { checkWall } from "../src/policy/space.ts";
-import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
-import { seedSpace } from "./helpers/space.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { placeAgent, seedAgent } from "./helpers/agent.ts";
-import { withExitCode } from "./helpers/exit-code.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackend } from "../test/helpers/backend.ts";
+import { seedSpace } from "../test/helpers/space.ts";
+import { writeSettingsFixture } from "../test/helpers/settings.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { placeAgent, seedAgent } from "../test/helpers/agent.ts";
+import { withExitCode } from "../test/helpers/exit-code.ts";
 import { sql } from "drizzle-orm";
 
 /**

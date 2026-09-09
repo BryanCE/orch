@@ -337,6 +337,7 @@ function resolveFromViews(
 function entityFromView(view: AgentView, presence: ReadonlyMap<string, PresenceEntry>): Entity {
   return {
     key: agentAddress(view, presence), paneId: view.environment.handle, managed: true, name: view.name,
+    ended: view.endedAt != null,
     tabLabel: null, agent: view.harnessId, focused: false, backendStatus: null,
     backend: view.environment.plexer, presence: presence.get(view.id) ?? null,
     sessionPath: null, presenceOnly: true, space: view.environment.space,

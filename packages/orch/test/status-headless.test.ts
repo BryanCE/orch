@@ -17,14 +17,14 @@ function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
 const defaultOptions = { spaceWide: false, allPanes: false };
 
 describe("headless status visibility", () => {
-  test("keeps an exited agent with a terminal state", () => {
-    const row = statusRow({ key: "done-agent", state: "done", exited: true, alive: false });
-    expect(scopeFleetRows([row], defaultOptions)).toEqual([row]);
+  test("drops an exited agent that finished, however much it recorded", () => {
+    const row = statusRow({ key: "done-agent", state: "done", exited: true, alive: false, lastText: "finished" });
+    expect(scopeFleetRows([row], defaultOptions)).toEqual([]);
   });
 
-  test("keeps an exited agent with a recorded result", () => {
+  test("--filter names the states, so it brings the dead back", () => {
     const row = statusRow({ key: "result-agent", state: "exited", exited: true, alive: false, lastText: "finished" });
-    expect(scopeFleetRows([row], defaultOptions)).toEqual([row]);
+    expect(scopeFleetRows([row], { ...defaultOptions, filter: new Set(["exited"]) })).toEqual([row]);
   });
 
   test("drops a dead row with no result or terminal state", () => {

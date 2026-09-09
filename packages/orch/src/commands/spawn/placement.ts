@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { orchDir } from "../../presence/writer.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
@@ -19,6 +20,16 @@ import type { SpawnSettings } from "./flags.ts";
 
 
 /**
+ * The name a home orch opens for itself carries: the directory the fleet works
+ * in. A workspace called `orch/orch` says which repo is inside it; the fleet's
+ * first slice name, which this used to take, said only what the first pane was
+ * doing at the time.
+ */
+function homeName(cwd: string, subject: HomeSubject): string {
+  return basename(cwd) || subject.id;
+}
+
+/**
  * Where this fleet goes: orch's own space and the plexer's workspace, apart.
  *
  * The coordinate a plexer hands back is NOT an orch noun. This used to return it
@@ -33,7 +44,7 @@ import type { SpawnSettings } from "./flags.ts";
  * set the reachability boundary is the repo root.
  */
 export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlacement {
-  const { directory, backend, space, packRootId, cwd, label, grantNewHome } = request;
+  const { directory, backend, space, packRootId, cwd, grantNewHome } = request;
   // A space the user named is where the agents are FILED, whether or not this
   // plexer holds a home for it. A home recorded in another plexer is not this
   // one's to drive, so its absence here is simply no coordinate.
@@ -56,7 +67,7 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   if (existing !== null) return { space: null, workspace: existing };
   grantNewHome();
   try {
-    return { space: null, workspace: openHome({ directory, subject, plexerId: backend.id, home, cwd, label }) ?? undefined };
+    return { space: null, workspace: openHome({ directory, subject, plexerId: backend.id, home, cwd, label: homeName(cwd, subject) }) ?? undefined };
   } catch (error: unknown) {
     die(`could not open a home for this fleet: ${errorMessage(error)}`);
   }

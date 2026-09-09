@@ -21,7 +21,7 @@ import { sql } from "drizzle-orm";
 function entityFixture(overrides: Partial<Entity> = {}): Entity {
   return {
     key: "appagent01", paneId: "app:p1", managed: true, name: "worker", tabLabel: "app", agent: "pi",
-    focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, space: "local",
+    focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, ended: false, space: "local",
     presence: presenceEntryFixture({
       key: "appagent01", dir: "/tmp/pres",
       status: {

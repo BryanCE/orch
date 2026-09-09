@@ -24,6 +24,7 @@
     "drizzle.config.ts",
     "src/**/*.ts",
     "test/**/*.ts",
+    "integration/**/*.ts",
     "extensions/**/*.ts",
     "scripts/**/*.ts"
   ],

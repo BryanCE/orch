@@ -10,9 +10,9 @@ import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/settings-file.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
-import { seedStatusInDir } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { writeSettingsFixture } from "../test/helpers/settings.ts";
+import { seedStatusInDir } from "../test/helpers/presence.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
 const directories: string[] = [];

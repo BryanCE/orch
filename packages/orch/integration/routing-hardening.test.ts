@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, claimTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { orm } from "../src/store/connection.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { acquireLease, adoptLease, currentLease, leaseHistory } from "../src/store/lease-rows.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
+import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { sql } from "drizzle-orm";
 
-import { row } from "./helpers/rows.ts";
+import { row } from "../test/helpers/rows.ts";
 const tempDirs: string[] = [];
 
 function tempDir(prefix: string): string {

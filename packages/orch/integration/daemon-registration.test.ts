@@ -8,7 +8,7 @@ import { checkDaemonPresence, checkDaemonRegistration } from "../src/doctor/daem
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
 import { osSide } from "../src/util.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 
 const oldDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
 const roots: string[] = [];

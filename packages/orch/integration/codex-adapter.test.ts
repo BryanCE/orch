@@ -19,9 +19,9 @@ import {
 } from "../src/adapters/codex-events.ts";
 import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
-import { readJsonRecord } from "./helpers/json.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
+import { readJsonRecord } from "../test/helpers/json.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
 beforeEach(() => {

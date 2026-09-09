@@ -10,6 +10,7 @@ import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { processInstanceMatches, processIsAlive } from "../../process-identity.ts";
 import { getBackend } from "../../backends/registry.ts";
+import { backendReachable } from "../../backends/backend.ts";
 import { sleepMs } from "../../backends/pane-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/rpc/client.ts";
@@ -98,14 +99,14 @@ export function describeHandle(handle: BackendHandle): string {
 }
 
 /** Whether the ENVIRONMENT still lists this handle (U1). A plexer with no
- *  inventory, or one this process is not inside a session of, was not asked and
- *  says nothing either way, so the recorded handle stands. */
+ *  inventory, or none answering, was not asked and says nothing either way, so
+ *  the recorded handle stands. */
 function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boolean | null {
   const inventory = backend?.paneInventory;
-  // No inventory, or no session to ask, is UNKNOWN — never evidence that a
+  // No inventory, or nothing answering, is UNKNOWN — never evidence that a
   // handle exists. A missing handle is dealt with by the caller and never
   // reaches this function.
-  if (!inventory || backend?.isInsideSession() !== true) return null;
+  if (!backend || !inventory || !backendReachable(backend)) return null;
   try {
     return inventory.list().some((entry) => describeHandle(entry.handle) === describeHandle(handle));
   } catch {
@@ -216,9 +217,9 @@ function closeByPane(paneHost: PaneHostRole, handle: BackendHandle): CloseAttemp
 /** A plexer's successful close is not proof when its inventory can answer: verify
  *  the handle is really gone after every close attempt we can observe. */
 function stillListed(target: CloseTarget): string | null {
-  // An inventory that cannot see this session is UNKNOWN, so it cannot prove
-  // that a successfully closed handle remains present.
-  if (target.handle === null || !target.backend?.paneInventory || target.backend.isInsideSession() !== true) return null;
+  // A plexer that does not answer is UNKNOWN, so it cannot prove that a
+  // successfully closed handle remains present.
+  if (target.handle === null || !target.backend?.paneInventory || !backendReachable(target.backend)) return null;
   const handle = target.handle;
   try {
     const listed = target.backend.paneInventory.list()

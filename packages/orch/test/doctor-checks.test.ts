@@ -32,7 +32,10 @@ function notifyResult(directory: string): CheckResult {
 }
 
 
-async function withPath<T>(value: string, action: () => Promise<T>): Promise<T> {
+/** Run `action` with PATH pinned to `value`, restoring it afterwards. A doctor
+ *  check is sync or async depending on what it has to ask, and this helper only
+ *  owns the environment around it. */
+async function withPath<T>(value: string, action: () => T | Promise<T>): Promise<T> {
   const previous = process.env.PATH;
   process.env.PATH = value;
   try {

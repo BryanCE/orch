@@ -242,12 +242,6 @@ async function readFleetRows(spaces: OrchSettings["spaces"], offline: boolean): 
   return snapshot(rows, rows.some((row) => row.backend != null));
 }
 
-function keepsMeaningfulFleetRow(row: Pick<StatusRow, "alive" | "exited" | "state" | "lastText">): boolean {
-  if (!row.exited && row.alive) return true;
-  const hasRecordedResult = row.lastText !== null && row.lastText.trim().length > 0;
-  return hasRecordedResult || row.state === "done" || row.state === "error";
-}
-
 /**
  * Who is asking, and how far they may see. One rule for every caller: you see what you
  * spawned, and `--all` widens no further than your space. A human shell that spawned a fleet
@@ -283,8 +277,12 @@ export function scopeFleetRows(
     if (!opts.allPanes && !row.managed) return false;
     if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
     if (caller.id !== null && !opts.spaceWide && row.spawnedBy !== caller.id) return false;
-    if (opts.filter != null && !opts.filter.has(displayStatusState(row))) return false;
-    return keepsMeaningfulFleetRow(row);
+    if (opts.filter != null) return opts.filter.has(displayStatusState(row));
+    // The table is the fleet as it is NOW. An agent that has exited is history —
+    // `orch result` and `orch tail` still read it — and keeping every dead one
+    // that ever recorded a line buried ten working agents under thirty corpses.
+    // Naming a state in `--filter` is how you ask for them back.
+    return row.alive && !row.exited;
   });
 }
 
@@ -352,8 +350,10 @@ function parseStatusOptions(args: readonly string[]): StatusOptions {
 function tableFlags(rows: readonly StatusRow[], spaceWide: boolean, human: boolean): TableFlags {
   return {
     showSpace: spaceWide && new Set(rows.map((row) => row.spaceId ?? "-")).size > 1,
-    // A known lease fact must remain visible even when every row shares it.
-    showOwner: rows.some((row) => row.owner !== null),
+    // A column every row agrees on tells you nothing and costs 32 characters a
+    // line: "no orch driving it (holder gone)" repeated twenty-five times said
+    // only what the state column already said. It appears when owners DIFFER.
+    showOwner: new Set(rows.map((row) => row.owner ?? "-")).size > 1,
     showBranch: rows.some((row) => row.branch),
     human,
   };
@@ -372,7 +372,13 @@ function localIdCell(row: StatusRow): string {
 }
 
 function environmentCell(row: StatusRow): string {
-  return row.warning ? "-" : row.paneId ?? DETACHED_ENVIRONMENT;
+  if (row.warning) return "-";
+  const handle = row.paneId;
+  // The column says WHERE an agent is, so it carries a coordinate. A detached
+  // agent's handle is a process record instead, and printing it raw put
+  // `{"pid":32…` in the column on every headless row.
+  if (handle === null || handle.startsWith("{")) return DETACHED_ENVIRONMENT;
+  return handle;
 }
 
 function localNameCell(row: StatusRow, flags: TableFlags): string {
@@ -417,6 +423,14 @@ function ownerBranchHeaders(flags: TableFlags): string[] {
   return columns;
 }
 
+/** The one lease every row shares, or null when they disagree or none is known.
+ *  A shared fact is stated once under the table instead of in every line (F6:
+ *  the fact must still READ, and one line reads better than twenty-five). */
+function sharedOwner(rows: readonly StatusRow[]): string | null {
+  const owners = new Set(rows.map((row) => row.owner).filter((owner): owner is string => owner !== null));
+  return owners.size === 1 && rows.every((row) => row.owner !== null) ? [...owners][0]! : null;
+}
+
 function ownerBranchCaps(flags: TableFlags): number[] {
   const caps: number[] = [];
   // Wide enough for the whole unleased sentence: F6 says the row must READ as
@@ -435,8 +449,11 @@ function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; ca
     };
   }
   return {
+    // Every cap is a promise the line still fits a terminal. TASK is the prompt
+    // you sent and LAST is what came back; both used to spend 90 characters
+    // repeating a repo path, and the row scrolled off the right of the screen.
     headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [...(host ? [10] : []), 12, 12, 14, ...ownerBranchCaps(flags), 10, 6, 30, 12, 8, 5, 40, 50],
+    caps: [...(host ? [10] : []), 12, 10, 14, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
   };
 }
 
@@ -457,6 +474,8 @@ export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags,
     const line = rendered[index + 2] ?? "";
     out.push(rows[index]?.exited ? (isTTY ? dim(line) : line) : line);
   }
+  const shared = sharedOwner(rows);
+  if (!flags.showOwner && shared !== null) out.push(`owner: ${shared}`);
   return out.join("\n");
 }
 

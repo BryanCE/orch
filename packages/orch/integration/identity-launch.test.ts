@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { launchCredential, LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 
 const directories: string[] = [];
 

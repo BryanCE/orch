@@ -2,7 +2,7 @@ import { loadSettings } from "../settings/read.ts";
 import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
 import { callerSpace } from "../identity/self.ts";
 import { scopeToSpace, withinSpaceCeiling } from "../policy/space.ts";
-import { agentInScope, resolveCallerScope } from "../policy/scope.ts";
+import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { isRecord } from "../util.ts";
@@ -144,12 +144,43 @@ export interface EventsLiveStreamPorts {
   startTransport: () => () => void;
   /** Whether stdout is a terminal, so the banner reaches a person rather than a parser. */
   toTerminal?: boolean;
+  /** How many agents the caller owns. Injected like every other fact this
+   *  function needs, so the store stays out of the stream's setup. */
+  ownedAgents?: () => number;
 }
 
 export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCallerScope, ports: EventsLiveStreamPorts): () => void {
+  // Ahead of the banner, and never suppressed: a parser and a person are equally
+  // misled by a stream that cannot fire, and the harness reading it is the one
+  // that will sit on it for an hour.
+  const owned = ports.ownedAgents?.() ?? ownedAgentCount(scope);
+  if (!options.json && owned === 0) ports.writeNotice(emptyScopeNotice());
   const notice = eventsScopeNotice(options, scope, ports.toTerminal);
   if (notice !== null) ports.writeNotice(`${notice}\n`);
   return ports.startTransport();
+}
+
+/**
+ * The agents this caller owns right now — everything its stream can carry.
+ *
+ * Zero is the case that reads as a broken daemon: a session that has spawned
+ * nothing owns nothing, so a watch armed before the first spawn is silence by
+ * construction, and a monitor sat on it for three minutes saying nothing.
+ */
+export function ownedAgentCount(scope: ResolvedCallerScope, root = orchDir()): number {
+  if (!scope.mine || scope.address === undefined) return 0;
+  let owned = 0;
+  for (const [agentId, record] of spawnedRecords(root)) {
+    const leaseOwner = currentLease(root, agentId)?.orchId ?? null;
+    if (agentInMineScope({ mineAddress: scope.address, leaseOwner, recordSpawnedBy: record.spawnedBy ?? undefined })) owned += 1;
+  }
+  return owned;
+}
+
+/** What a caller owning nothing is told, in place of an empty stream. */
+export function emptyScopeNotice(): string {
+  return "orch events: you own no agents, so nothing can arrive on this stream yet."
+    + " It covers whatever you spawn or dispatch to from here on; --space-wide watches the rest of your space now.\n";
 }
 
 export function eventsScopeNotice(

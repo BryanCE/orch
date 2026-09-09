@@ -41,14 +41,14 @@ function usage() {
 The ${term("orch")} routes control through the backend port.
 
 OBSERVE
-  orch status [--json] [--human] [--all] [--all-panes] [--offline] [--live] [--capacity]
+  orch status [--json] [--human] [--space-wide] [--filter=s[,s...]] [--all-panes] [--offline] [--live] [--capacity]
                                  Glanceable table of the fleet (default command); --human renders for people; --live re-renders full-screen
                                  from the daemon event stream (TTY only; q/esc quits; not with --json); --all-panes
                                  also lists panes orch did not spawn; --offline reads agent files only.
   orch questions                 List pending agent questions from live agents.
   orch runs [<target>] [-n <count>] [--json]
                                  List durable dispatch history, newest first.
-  orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--filter=s[,s...]] [--json]
+  orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=s[,s...]] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
   orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
                                  Query structured diagnosis logs (malformed lines are skipped).

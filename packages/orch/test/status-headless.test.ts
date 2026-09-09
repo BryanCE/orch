@@ -14,7 +14,7 @@ function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
   };
 }
 
-const defaultOptions = { all: false, allPanes: false };
+const defaultOptions = { spaceWide: false, allPanes: false };
 
 describe("headless status visibility", () => {
   test("keeps an exited agent with a terminal state", () => {
@@ -37,9 +37,11 @@ describe("headless status visibility", () => {
     expect(scopeFleetRows([row], defaultOptions)).toEqual([row]);
   });
 
-  test("--all keeps stale rows", () => {
+  // Widening scope is not the same question as keeping a dead agent that reported
+  // nothing, and one flag answering both is what made `--all` mean two things.
+  test("--space-wide widens the scope without resurrecting empty dead rows", () => {
     const row = statusRow({ key: "stale-agent", state: "working", exited: true, alive: false });
-    expect(scopeFleetRows([row], { all: true, allPanes: false })).toEqual([row]);
+    expect(scopeFleetRows([row], { spaceWide: true, allPanes: false })).toEqual([]);
   });
 
   test("uses agent language without backend details when no backend was asked", () => {

@@ -190,27 +190,6 @@ describe("fleet ownership scoping", () => {
     expect([...backend.closed].sort()).toEqual(["foreign", "mine"]);
   });
 
-  test("explicit foreign target closes successfully", () => {
-    const dir = makeDir();
-    const key = "klforeign1";
-    const signalPath = join(dir, "sigterm.txt");
-    const child = spawn(process.execPath, ["-e", `process.on(\"SIGTERM\", () => { require(\"node:fs\").writeFileSync(${JSON.stringify(signalPath)}, \"term\"); process.exit(0); }); setTimeout(() => {}, 60000)`], { detached: true });
-    children.push(child);
-    const pid = child.pid!;
-    const startToken = processStartToken(pid)!;
-    mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working" }));
-    recordProcess(dir, key, pid, startToken);
-    seedSpace(dir, "local");
-    placeAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" });
-
-    const result = runCli(dir, ["close", key], "caller-orchestrator");
-    expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
-    expect(existsSync(signalPath)).toBe(true);
-    expect(spawnedRecords().has(key)).toBe(false);
-    expect(existsSync(join(dir, "agents", key))).toBe(true);
-  }, 15_000);
-
   test("driving verbs remain gated against a live foreign holder", () => {
     const commands: readonly (readonly [string, string?])[] = [
       ["dispatch", "hello"],

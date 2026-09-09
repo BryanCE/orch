@@ -2,13 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { runDoctor } from "../src/doctor/runner.ts";
+import { binaryStatus } from "../src/doctor/bins.ts";
 import { checkProvenanceDepth } from "../src/doctor/provenance-depth.ts";
 import { checkUnclaimedAgents } from "../src/doctor/unclaimed-agents.ts";
 import { claimAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
-import { checkNotifiers } from "../src/doctor/notify.ts";
+import { checkNotifiers, checkNotifySinks } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { loadSettings } from "../src/settings/read.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -24,17 +24,13 @@ function tempDir(): string {
   return directory;
 }
 
-function notifyResult(results: CheckResult[]): CheckResult {
-  const result = results.find((entry) => entry.id === "notify-sinks");
-  if (!result) throw new Error("missing notify-sinks result");
-  return result;
+/** The one check under test, asked directly. Reaching it through `runDoctor` ran every
+ *  other probe — ssh, backend detection, binary scans — to read one result, which is what
+ *  made these time out on a slow machine while proving nothing extra. */
+function notifyResult(directory: string): CheckResult {
+  return checkNotifySinks(directory, binaryStatus(["pi"]));
 }
 
-function notifierResult(results: CheckResult[]): CheckResult {
-  const result = results.find((entry) => entry.id === "notifiers");
-  if (!result) throw new Error("missing notifiers result");
-  return result;
-}
 
 async function withPath<T>(value: string, action: () => Promise<T>): Promise<T> {
   const previous = process.env.PATH;
@@ -132,7 +128,7 @@ describe("doctor unclaimed-agent checks", () => {
 describe("doctor notification-sink checks", () => {
   test("reports no sinks as healthy", async () => {
     const directory = tempDir();
-    const result = await withPath(path.join(directory, "empty-path"), async () => notifyResult(await runDoctor(directory)));
+    const result = await withPath(path.join(directory, "empty-path"), () => notifyResult(directory));
 
     expect(result).toMatchObject({
       id: "notify-sinks",
@@ -163,7 +159,7 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "command", command: ["missing-notify-command"] }] });
 
-    const result = await withPath<CheckResult>(path.join(directory, "empty-path"), async (): Promise<CheckResult> => notifyResult(await runDoctor(directory)));
+    const result = await withPath<CheckResult>(path.join(directory, "empty-path"), (): CheckResult => notifyResult(directory));
     expect(result.status).toBe("warn");
     expect(result.detail).toContain('command sink #1 binary "missing-notify-command" is not on PATH');
   });
@@ -179,7 +175,7 @@ describe("doctor notification-sink checks", () => {
     fs.chmodSync(bash, 0o755);
     writeSettings(directory, { notify: [{ id: "command", command: ["bash"] }] });
 
-    const result = await withPath(binDir, async () => notifyResult(await runDoctor(directory)));
+    const result = await withPath(binDir, () => notifyResult(directory));
     expect(result).toMatchObject({ status: "ok", detail: "1 configured sink look deliverable" });
   });
 
@@ -187,7 +183,7 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error"] }] });
 
-    const result = notifierResult(await runDoctor(directory));
+    const result = await checkNotifiers(directory);
     expect(result).toMatchObject({
       status: "warn",
       detail: 'command: effective "on" list omits "done"; fix: orch settings notify add command --on=blocked,error,done',
@@ -198,7 +194,7 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "command", on: ["done"], command: [process.execPath] }] });
 
-    expect(notifierResult(await runDoctor(directory))).toMatchObject({ status: "ok" });
+    expect(await checkNotifiers(directory)).toMatchObject({ status: "ok" });
   });
 
   test("keeps unavailable notifier failures when done is omitted", async () => {
@@ -206,7 +202,7 @@ describe("doctor notification-sink checks", () => {
     const missingCommand = path.join(directory, "missing-notifier-command");
     writeSettings(directory, { notify: [{ id: "command", command: [missingCommand] }] });
 
-    const result = notifierResult(await runDoctor(directory));
+    const result = await checkNotifiers(directory);
     expect(result.status).toBe("fail");
     expect(result.detail).toContain(`fix: install ${missingCommand}`);
   });

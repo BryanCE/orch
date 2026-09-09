@@ -1,7 +1,7 @@
 import { loadSettings } from "../settings/read.ts";
 import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
 import { callerSpace } from "../identity/self.ts";
-import { sameSpace, scopeToSpace } from "../policy/space.ts";
+import { scopeToSpace, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
@@ -36,6 +36,8 @@ export interface EventsOptions {
   sinceSeq: number | undefined;
   once: boolean;
   scope: CallerScopeChoice;
+  /** States the caller narrowed to, or null for every state — which is the default. */
+  filter: Set<string> | null;
   targets: string[];
 }
 
@@ -48,20 +50,15 @@ interface EventsContext {
 }
 
 /**
- * The wall: an orch hears only agents in a space it belongs to.
- *
- * Never a flag and never widened, because there is nothing legitimate on the other
- * side of it — `--all` used to punch through and that was the hole. Ownership picks
- * the default INSIDE the wall, and `--any-agent` lifts you to the space's other
- * members for two orchs coordinating; neither reaches past this.
+ * The wall for a streamed transition, asked exactly as `orch status` asks it of a row.
  *
  * A1 / Rule 11: the space is an ENVIRONMENT axis read through {@link spaceOf}, never
  * a segment sliced out of the identity key. Reading it out of the key pinned the
  * stream to the space the agent was BORN in, so a moved or adopted agent kept
  * appearing in a space it had left and vanished from the one it occupies.
  */
-export function eventWithinSpaceWall(root: string, key: string, callerSpace: string | null): boolean {
-  return sameSpace(spaceOf(root, key), callerSpace);
+export function eventWithinSpaceWall(root: string, key: string, ceiling: string | null): boolean {
+  return withinSpaceCeiling(spaceOf(root, key), ceiling);
 }
 
 export async function cmdEvents(args: string[]) {
@@ -78,7 +75,7 @@ export async function cmdEvents(args: string[]) {
     if (!inScope) return false;
     const leaseOwner = currentLease(orchDir(), agentId ?? key)?.orchId ?? null;
     return agentInScope({
-      anyAgent: !scope.mine,
+      spaceWide: !scope.mine,
       mineAddress: scope.address,
       leaseOwner,
       recordSpawnedBy: spawnedRecords().get(agentId ?? key)?.spawnedBy ?? undefined,
@@ -170,13 +167,21 @@ export function eventsScopeNotice(
     : "watching all agents from now on";
 }
 
-const EVENTS_USAGE = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--json] [--since-seq <n>] [--once]";
+const EVENTS_USAGE = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>] [--once]";
 
 /** `--since-seq <n>`, or a refusal: a replay point that is not an integer names no event. */
 function readSinceSeq(value: string | undefined): number {
   const parsed = value === undefined ? Number.NaN : Number(value);
   if (!Number.isSafeInteger(parsed)) die(EVENTS_USAGE);
   return parsed;
+}
+
+/** `--filter=done,error`, or a refusal: an empty list narrows to nothing and would
+ *  arm a watch that can never fire. */
+function readStateFilter(value: string): Set<string> {
+  const states = value.split(",").map((state) => state.trim()).filter((state) => state.length > 0);
+  if (states.length === 0) die(EVENTS_USAGE);
+  return new Set(states);
 }
 
 /** Read one flag into `options`, and say how many arguments it consumed after itself. */
@@ -186,8 +191,12 @@ function readEventsFlag(options: EventsOptions, args: string[], index: number): 
     case "--since-seq": options.sinceSeq = readSinceSeq(args[index + 1]); return 1;
     case "--json": options.json = true; return 0;
     case "--once": options.once = true; return 0;
-    case "--any-agent": options.scope = "any"; return 0;
+    case "--space-wide": options.scope = "any"; return 0;
     default: break;
+  }
+  if (argument.startsWith("--filter=")) {
+    options.filter = readStateFilter(argument.slice("--filter=".length));
+    return 0;
   }
   const prefix = argument.startsWith("--agent=") ? "--agent=" : argument.startsWith("--agent-id=") ? "--agent-id=" : null;
   options.targets.push(prefix === null ? argument : namedTarget(argument, prefix, EVENTS_USAGE));
@@ -195,13 +204,11 @@ function readEventsFlag(options: EventsOptions, args: string[], index: number): 
 }
 
 export function parseEventsOptions(args: string[]): EventsOptions {
-  // One rule for every caller: you watch the agents you drive, and everyone else's are noise you
-  // have no business acting on. A human shell that spawned a fleet drives and owns it exactly as
-  // an orchestrator does; there is no second rule for people. `--any-agent` overrides it.
-  // The norm is a readable line per transition that needs no jq to make sense of;
-  // --json opts into the raw record for a caller that parses it.
+  // Bare `orch events` IS the monitor: every state of every agent you own, in readable
+  // lines, self-contained enough to act on without a second command. Flags only ever
+  // narrow it (`--filter`) or widen it to the rest of your space (`--space-wide`).
   const options: EventsOptions = {
-    json: false, sinceSeq: undefined, once: false, scope: "auto", targets: [],
+    json: false, sinceSeq: undefined, once: false, scope: "auto", filter: null, targets: [],
   };
   for (let index = 0; index < args.length; index++) index += readEventsFlag(options, args, index);
   return options;
@@ -273,6 +280,7 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
 
 function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
+    if (options.filter !== null && !options.filter.has(event.newState)) return false;
     const space = event.space ?? spaceOf(orchDir(), event.key);
     process.stdout.write(`${renderEvent(event, options.json, streamSeq, space)}\n`);
     return true;

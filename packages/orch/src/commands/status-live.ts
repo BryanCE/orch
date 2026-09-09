@@ -74,7 +74,7 @@ export function createRefreshController(read: () => Promise<void>): RefreshContr
 
 export function renderLiveStatus(
   rows: readonly StatusRow[],
-  options: { all: boolean; host: boolean; human?: boolean },
+  options: { spaceWide: boolean; host: boolean; human?: boolean },
   date = new Date(),
   error?: string,
 ): string {
@@ -101,9 +101,9 @@ export async function cmdStatusLive(options: StatusOptions): Promise<void> {
       if (stopped) return;
       rows = result.rows;
       host = result.host;
-      process.stdout.write(renderLiveStatus(rows, { all: options.all, host, human: options.human }));
+      process.stdout.write(renderLiveStatus(rows, { spaceWide: options.spaceWide, host, human: options.human }));
     } catch {
-      if (!stopped) process.stdout.write(renderLiveStatus(rows, { all: options.all, host, human: options.human }, new Date(), "daemon unreachable - retrying on next event"));
+      if (!stopped) process.stdout.write(renderLiveStatus(rows, { spaceWide: options.spaceWide, host, human: options.human }, new Date(), "daemon unreachable - retrying on next event"));
     }
   });
   const refresh = (): void => refreshController.trigger();

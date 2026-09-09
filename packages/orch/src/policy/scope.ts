@@ -11,7 +11,7 @@ import { callerSession } from "../adapters/session-env.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
 import type { AgentScopeInput, CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 
-export function agentInMineScope(input: Omit<AgentScopeInput, "anyAgent">): boolean {
+export function agentInMineScope(input: Omit<AgentScopeInput, "spaceWide">): boolean {
   if (input.mineAddress === undefined || input.mineAddress.length === 0) return false;
   // A live foreign lease excludes the agent even when this session originally spawned it.
   if (input.leaseOwner !== null && input.leaseOwner !== input.mineAddress) return false;
@@ -19,7 +19,7 @@ export function agentInMineScope(input: Omit<AgentScopeInput, "anyAgent">): bool
 }
 
 export function agentInScope(input: AgentScopeInput): boolean {
-  return input.anyAgent || agentInMineScope(input);
+  return input.spaceWide || agentInMineScope(input);
 }
 
 /**

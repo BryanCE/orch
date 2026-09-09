@@ -22,6 +22,19 @@ export function sameSpace(a: string | null | undefined, b: string | null | undef
   return a !== null && a !== undefined && b !== null && b !== undefined && a === b;
 }
 
+/**
+ * The wall, for every listing: an agent placed in a space never sees past it, and
+ * no flag widens it. A ceiling of null is the human at a raw terminal — orch minted
+ * them no id, so they sit in no space and the wall has nothing to stand on.
+ *
+ * `orch status` and `orch events` both ask this, and two copies of it disagreed:
+ * status let the human through and events matched spaces both ways, which silenced
+ * the human's stream entirely.
+ */
+export function withinSpaceCeiling(agentSpace: string | null | undefined, ceiling: string | null): boolean {
+  return ceiling === null || sameSpace(agentSpace, ceiling);
+}
+
 /** The human operator of a space controls every agent keyed into it. */
 export function operatorControls(
   orchDir: string,

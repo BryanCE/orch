@@ -111,8 +111,13 @@ orch events
 ```
 
 Each line becomes a wake-up. No flags, no `jq`, no `--json`. Bare `orch events` is every
-transition of the agents you spawned, which is what watching a fleet means. Narrowing to
-one state is `orch wait`, not a flag here.
+state of every agent you own, in lines complete enough to act on without a second command.
+That is what watching a fleet means, and it is the whole of normal use.
+
+`orch events` and `orch status` answer the same scope question in two shapes: events pushes
+transitions as they happen, status returns a table right now with cost and context. Both
+default to what you own, both take `--space-wide` and `--filter`, and neither sees past the
+space wall. `orch wait` is the third shape: one blocking checkpoint on one agent.
 
 - **Preflight before arming, every time.** This survives a context compaction because it reads
   the OS instead of your memory:
@@ -125,12 +130,14 @@ one state is `orch wait`, not a flag here.
   longer exist (compare to `orch status`), `kill` that pid and arm one fresh.
 - **Smoke-test before arming.** `timeout 6 orch events --since-seq 0` must print past
   transitions. A silent stream means the scope is wrong, not that nothing happened.
-- **Scope.** The default is the agents this session spawned, matched on `spawnedBy`, and it
-  covers panes you dispatch to later without re-arming. Other sessions run workers in the
-  same fleet; their transitions belong to their orchestrator and every stray alert burns a
-  wake-up. `--any-agent` lifts that scope, and exists for two orchs coordinating, not for
-  normal watching. `--agent=<name>` or `--agent-id=<id>` narrows to one. `--once` exits
-  after the first match.
+- **Scope: three rings, and you are in the first.** The default is the agents this session
+  owns, matched on `spawnedBy` and the open lease, and it covers panes you dispatch to later
+  without re-arming. Other sessions run workers in the same fleet; their transitions belong
+  to their orchestrator and every stray alert burns a wake-up. `--space-wide` widens to the
+  rest of your space, for two orchs coordinating, not for normal watching. Past that is the
+  wall, and nothing lifts it — a human at a raw terminal sits in no space, so they alone see
+  the machine, and an orch never can. `--agent=<name>` or `--agent-id=<id>` narrows to one.
+  `--filter=done,error` keeps only those states. `--once` exits after the first match.
 - **No dedupe needed.** The daemon suppresses an identical `(key, oldState->newState,
   dispatchId, task)` for 120s at the publish point, so a flapping status file produces one
   event, not fifteen. `seq` is that agent's transition ordinal, and `(key, seq)` identifies an

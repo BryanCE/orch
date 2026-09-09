@@ -12,7 +12,7 @@ import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
-import { spaceName as resolveSpaceName } from "../policy/space.ts";
+import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../policy/space.ts";
 import { selfId, spaceOfAgent } from "../identity/self.ts";
 import { ensureDaemonOrWarn } from "../daemon/reach.ts";
 import { dim } from "../tui/screen.ts";
@@ -268,21 +268,22 @@ export function callerScope(): CallerScope {
 
 /**
  * The rows this caller should see. By default an agent sees the agents IT spawned, so
- * "is anyone idle?" never counts another orchestrator's fleet or the asker itself. `--all`
- * widens to the caller's space, which is the wall; a human has no wall and sees the machine.
- * `--all-panes` is the separate question of panes orch did not spawn.
+ * "is anyone idle?" never counts another orchestrator's fleet or the asker itself.
+ * `--space-wide` widens to the rest of the caller's space and stops at the wall; a human
+ * sits in no space, has no wall, and sees the machine. `--all-panes` is the separate
+ * question of panes orch did not spawn, and `--filter` narrows by state.
  */
 export function scopeFleetRows(
   rows: readonly StatusRow[],
-  opts: { all: boolean; allPanes: boolean; space?: string; caller?: CallerScope },
+  opts: { spaceWide: boolean; allPanes: boolean; filter?: Set<string> | null; space?: string; caller?: CallerScope },
 ): StatusRow[] {
   const caller = opts.caller ?? { id: null, ceiling: null };
   return rows.filter((row) => {
     if (opts.space !== undefined && row.spaceId !== opts.space) return false;
     if (!opts.allPanes && !row.managed) return false;
-    if (caller.ceiling !== null && row.spaceId !== caller.ceiling) return false;
-    if (caller.id !== null && !opts.all && row.spawnedBy !== caller.id) return false;
-    if (opts.all) return true;
+    if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
+    if (caller.id !== null && !opts.spaceWide && row.spawnedBy !== caller.id) return false;
+    if (opts.filter != null && !opts.filter.has(displayStatusState(row))) return false;
     return keepsMeaningfulFleetRow(row);
   });
 }
@@ -294,6 +295,14 @@ export function formatNoRowsMessage(info: { agentsSeen: number; alive: number; b
 
 export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exited">): string {
   return row.exited || !row.alive ? "exited" : row.state;
+}
+
+/** `--filter=done,error`: the states to keep, or null when the caller named none. */
+function parseStateFilter(args: readonly string[]): Set<string> | null {
+  const flag = args.find((argument) => argument.startsWith("--filter="));
+  if (flag === undefined) return null;
+  const states = flag.slice("--filter=".length).split(",").map((state) => state.trim()).filter((state) => state.length > 0);
+  return states.length === 0 ? null : new Set(states);
 }
 
 function parseSpace(args: readonly string[]): string | undefined {
@@ -313,8 +322,10 @@ export interface TableFlags {
 export interface StatusOptions {
   json: boolean;
   human: boolean;
-  all: boolean;
+  spaceWide: boolean;
   allPanes: boolean;
+  /** States the caller narrowed to, or null for every state — which is the default. */
+  filter: Set<string> | null;
   local: boolean;
   offline: boolean;
   live: boolean;
@@ -323,12 +334,13 @@ export interface StatusOptions {
 }
 
 function parseStatusOptions(args: readonly string[]): StatusOptions {
-  const { enabled } = splitOptionFlags([...args], ["--json", "--human", "--all", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
+  const { enabled } = splitOptionFlags([...args], ["--json", "--human", "--space-wide", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
   return {
     json: enabled.has("--json"),
     human: enabled.has("--human"),
-    all: enabled.has("--all"),
+    spaceWide: enabled.has("--space-wide"),
     allPanes: enabled.has("--all-panes"),
+    filter: parseStateFilter(args),
     local: enabled.has("--local"),
     offline: enabled.has("--offline"),
     live: enabled.has("--live"),
@@ -337,9 +349,9 @@ function parseStatusOptions(args: readonly string[]): StatusOptions {
   };
 }
 
-function tableFlags(rows: readonly StatusRow[], all: boolean, human: boolean): TableFlags {
+function tableFlags(rows: readonly StatusRow[], spaceWide: boolean, human: boolean): TableFlags {
   return {
-    showSpace: all && new Set(rows.map((row) => row.spaceId ?? "-")).size > 1,
+    showSpace: spaceWide && new Set(rows.map((row) => row.spaceId ?? "-")).size > 1,
     // A known lease fact must remain visible even when every row shares it.
     showOwner: rows.some((row) => row.owner !== null),
     showBranch: rows.some((row) => row.branch),
@@ -449,12 +461,12 @@ export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags,
 }
 
 /** Render the status table for any row set without writing to a stream. */
-export function formatStatusTable(rows: readonly StatusRow[], options: { all: boolean; host: boolean; human?: boolean }): string {
-  return renderStatusTable(rows, tableFlags(rows, options.all, options.human === true), { host: options.host });
+export function formatStatusTable(rows: readonly StatusRow[], options: { spaceWide: boolean; host: boolean; human?: boolean }): string {
+  return renderStatusTable(rows, tableFlags(rows, options.spaceWide, options.human === true), { host: options.host });
 }
 
-export function localStatusTable(visible: readonly StatusRow[], all: boolean): string {
-  return formatStatusTable(visible, { all, host: false });
+export function localStatusTable(visible: readonly StatusRow[], spaceWide: boolean): string {
+  return formatStatusTable(visible, { spaceWide, host: false });
 }
 
 interface OrchNames {
@@ -685,6 +697,6 @@ export async function cmdStatus(args: string[]): Promise<void> {
     if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result.rows, { all: options.all, host: result.host, human: options.human }) + "\n");
+  process.stdout.write(formatStatusTable(result.rows, { spaceWide: options.spaceWide, host: result.host, human: options.human }) + "\n");
   if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
 }

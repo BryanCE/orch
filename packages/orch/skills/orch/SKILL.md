@@ -52,11 +52,11 @@ Read the diff, `orch reset <pane>`, `orch rename <pane> <next-slice>`, dispatch 
 - **Arm the watch in the same message as the first dispatch.** Not after it. An unwatched
   fleet finishes and sits done while you believe it is still working, and `orch status` only
   saves you if you already suspect something.
-- **Arm the watch with no flags at all.** `orch events` bare already streams every transition
-  of the agents this session spawned, which is the whole point of watching. A flag narrows
-  that: `--status` hides the agents working and asking, and `--any-agent` is only for two
-  orchs coordinating across each other. Reach for one when you were told to observe something
-  specific, never as standard setup.
+- **Arm the watch with no flags at all.** `orch events` bare already streams every state of
+  every agent you own, in lines complete enough to act on. A flag only ever narrows that
+  (`--filter=done,error` hides the agents working and asking) or widens it to the rest of
+  your space (`--space-wide`, for two orchs coordinating). Reach for one when you were told
+  to observe something specific, never as standard setup.
 - **Arm through the Monitor tool (`persistent: true`).** Never `&`, `nohup`, or
   `run_in_background`. A stream that never exits never wakes a harness that wakes on
   completion, and the silence looks exactly like "still working".

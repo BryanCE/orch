@@ -11,11 +11,14 @@ const ALIASES: Record<string, string> = {
 };
 
 const TOPICS: Record<string, string> = {
-  status: `orch status [--json] [--human] [--all] [--all-panes] [--offline] [--live]
+  status: `orch status [--json] [--human] [--space-wide] [--filter=<state,...>] [--all-panes] [--offline] [--live]
 Glanceable table of the fleet (the default command when none is given).
+Bare 'orch status' is the normal use: every agent this session owns, with cost and
+context. A human at a raw terminal owns none and sees the whole machine.
   --json        Machine-readable rows instead of the table.
   --human       Render named harness and directory details for a person.
-  --all         Include every space, not just the caller's.
+  --space-wide  Also the other orchs' agents in your space. Never past it.
+  --filter      Keep only these states, e.g. --filter=done,error.
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
   --live        Full-screen live status re-rendered from the daemon event stream; TTY only; q/esc quits; not combinable with --json.
@@ -28,13 +31,15 @@ Read structured diagnosis records; malformed JSONL lines are skipped.
   --dispatch   Filter by correlation/dispatch id.
   --json       Emit raw records.
 `,
-  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--json] [--since-seq <n>]
+  events: `orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>]
 Continuous stream of pane state transitions; requires a running daemon.
-Bare 'orch events' is the normal use: every transition of the agents this session
-spawned, one readable line each. Every flag below is a deviation from that.
+Bare 'orch events' is the monitor: every state of every agent this session owns, one
+readable line each, enough to act on without a second command. A human at a raw
+terminal owns none and sees the whole machine. Every flag below deviates from that.
   --agent       Watch one agent by name.
   --agent-id    Watch one agent by identity key.
-  --any-agent   Every agent, not just the ones this session spawned.
+  --space-wide  Also the other orchs' agents in your space. Never past it.
+  --filter      Keep only these states, e.g. --filter=done,error.
   --json        Raw event records, one per line, for a caller that parses them.
   --since-seq <n> Resume after this durable sequence; it survives daemon restarts, but
                 history is bounded by the events retention window. A pruned range is

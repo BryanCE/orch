@@ -75,6 +75,7 @@ export class FakePanedBackend implements Backend {
   readonly handleLookup = null;
   readonly logPruning = null;
   readonly versionInfo = null;
+  readonly serverInfo = null;
 
   constructor(options: { readonly id?: BackendId; readonly panes?: readonly FakePane[] } = {}) {
     this.id = options.id ?? "headless";

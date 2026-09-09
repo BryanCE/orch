@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { isRecord } from "../../util.ts";
 import { claimAgent, getOrCreateSessionAgent } from "../../store/agent-rows.ts";
 import { processStartToken } from "../../process-identity.ts";
-import { supportedPlexerVersion, supportedRange } from "../../backends/versions.ts";
+import { versionInRange } from "../../backends/versions.ts";
+import { getBackend } from "../../backends/registry.ts";
 import type { HostOs } from "../../types/store.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse, UnleasedAgent } from "../../types/daemon.ts";
 import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
@@ -81,9 +82,9 @@ function claimedEnvironment(claim: Record<string, unknown>): { sessionToken: str
 
 function plexerRegistrationWarning(plexerId: string | null, plexerVersion: string | null): string | undefined {
   if (!plexerId || !plexerVersion) return undefined;
-  const range = supportedRange(plexerId);
-  if (!range || supportedPlexerVersion(plexerId, plexerVersion)) return undefined;
-  return `plexer ${plexerId} ${plexerVersion} is outside orch's supported ${range}; update orch`;
+  const range = getBackend(plexerId)?.versionInfo?.supported();
+  if (!range || versionInRange(plexerVersion, range)) return undefined;
+  return `plexer ${plexerId} ${plexerVersion} is older than orch's supported ${range}; update ${plexerId}`;
 }
 
 function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: string): boolean {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eventInSpaceScope, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { eventWithinSpaceWall, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
@@ -26,9 +26,9 @@ describe("commands/events", () => {
   // line per transition, scoped to the agents this session currently leases. Every flag
   // widens or reshapes that. A default that streamed every session's agents as raw JSON made
   // the caller pass three flags and a jq filter to get back to what it wanted in the first place.
-  test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ statusFilter: null, all: false, json: false, sinceSeq: undefined, once: false, scope: "auto", targets: [] }));
-  test("parses filters and scope flags", () => expect(parseEventsOptions(["--status", "working,done", "--all", "--any-agent", "agent"])).toEqual({ statusFilter: new Set(["working", "done"]), all: true, json: false, sinceSeq: undefined, once: false, scope: "any", targets: ["agent"] }));
-  test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ statusFilter: null, all: false, json: true, sinceSeq: 42, once: true, scope: "auto", targets: [] }));
+  test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "auto", targets: [] }));
+  test("parses the scope flags", () => expect(parseEventsOptions(["--any-agent", "agent"])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "any", targets: ["agent"] }));
+  test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ json: true, sinceSeq: 42, once: true, scope: "auto", targets: [] }));
   test("includes an adopted agent whose open lease is mine", () => {
     expect(agentInMineScope({ mineAddress: "me", leaseOwner: "me" })).toBe(true);
   });
@@ -103,11 +103,11 @@ describe("commands/events", () => {
   });
 });
 
-// A1 / CLAUDE.md Rule 11: `orch events` scopes the stream by the agent's CURRENT
-// space, composed from `agent_spaces`. It used to read a space segment out of the
-// identity key, so a moved or adopted agent kept streaming into the space it was
-// BORN in and went silent in the one it actually occupies.
-describe("commands/events space scope", () => {
+// The wall is unconditional: no flag punches through it, so every case here is
+// about WHERE the agent is now. A1 / Rule 11: the space is composed from
+// `agent_spaces`, never a segment read out of the identity key, which pinned the
+// stream to the space the agent was born in.
+describe("commands/events space wall", () => {
   const directories: string[] = [];
   let previousOrchDir: string | undefined;
 
@@ -133,11 +133,11 @@ describe("commands/events space scope", () => {
     while (directories.length > 0) removeTempDir(directories.pop()!);
   });
 
-  test("an agent streams into the space it currently occupies", () => {
+  test("an agent is heard only inside the space it currently occupies", () => {
     const root = tempOrchDir();
     const key = seedAgent(root, "w1");
-    expect(eventInSpaceScope(root, key, "w1", false)).toBe(true);
-    expect(eventInSpaceScope(root, key, "w2", false)).toBe(false);
+    expect(eventWithinSpaceWall(root, key, "w1")).toBe(true);
+    expect(eventWithinSpaceWall(root, key, "w2")).toBe(false);
   });
 
   test("moving an agent moves its events with it", () => {
@@ -147,19 +147,19 @@ describe("commands/events space scope", () => {
     // A move is a new interval on the space axis, not a re-registration.
     setSpace(root, key, Date.now(), "w2");
     // The identity key never changed; only the environment did.
-    expect(eventInSpaceScope(root, key, "w1", false)).toBe(false);
-    expect(eventInSpaceScope(root, key, "w2", false)).toBe(true);
+    expect(eventWithinSpaceWall(root, key, "w1")).toBe(false);
+    expect(eventWithinSpaceWall(root, key, "w2")).toBe(true);
   });
 
-  test("--all streams every space, and an unplaced caller scopes to none", () => {
+  test("an unplaced caller hears nothing", () => {
     const root = tempOrchDir();
     const key = seedAgent(root, "w1");
-    expect(eventInSpaceScope(root, key, "w2", true)).toBe(true);
-    expect(eventInSpaceScope(root, key, null, false)).toBe(false);
+    expect(eventWithinSpaceWall(root, key, null)).toBe(false);
   });
 
   test("a key naming no registered agent is in no space", () => {
     const root = tempOrchDir();
-    expect(eventInSpaceScope(root, mintAgentId(), "w1", false)).toBe(false);
+    expect(eventWithinSpaceWall(root, mintAgentId(), "w1")).toBe(false);
   });
 });
+

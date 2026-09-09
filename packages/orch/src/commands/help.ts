@@ -28,15 +28,13 @@ Read structured diagnosis records; malformed JSONL lines are skipped.
   --dispatch   Filter by correlation/dispatch id.
   --json       Emit raw records.
 `,
-  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>]
+  events: `orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--json] [--since-seq <n>]
 Continuous stream of pane state transitions; requires a running daemon.
-Bare 'orch events' is the normal use: one readable line per transition, scoped to the
-agents THIS session spawned. Every flag below is a deviation from that.
+Bare 'orch events' is the normal use: every transition of the agents this session
+spawned, one readable line each. Every flag below is a deviation from that.
   --agent       Watch one agent by name.
   --agent-id    Watch one agent by identity key.
   --any-agent   Every agent, not just the ones this session spawned.
-  --all         Every space's transitions, not just the caller's.
-  --status      Only transitions into these states (comma-separated).
   --json        Raw event records, one per line, for a caller that parses them.
   --since-seq <n> Resume after this durable sequence; it survives daemon restarts, but
                 history is bounded by the events retention window. A pruned range is

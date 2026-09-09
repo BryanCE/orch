@@ -151,9 +151,28 @@ export interface HandleLookupRole<Handle = BackendHandle> {
   handleFor(key: string): Handle | undefined;
 }
 
+/** What an environment's running server says about itself. `compatible` is null
+ *  when the server reports no compatibility fact for orch to read. */
+export interface ServerReport {
+  readonly version: string | null;
+  readonly compatible: boolean | null;
+}
+
 /** Reporting an environment's installed integration version. */
 export interface VersionRole {
   installed(): string | null;
+  /** The oldest version of its own environment this integration still speaks to.
+   *  The integration's fact to state, never core's to hold: a version range keyed
+   *  by environment id in core is an environment orch cannot add without editing
+   *  policy. A floor and never a ceiling - a newer environment is the environment. */
+  supported(): string;
+}
+
+/** Reporting the server an environment's client talks to. Null role for an
+ *  environment that is one process and has no server to disagree with; a null
+ *  report for one whose server is not running. */
+export interface ServerInfoRole {
+  running(): ServerReport | null;
 }
 
 /** Pruning this environment's own logs. Absent when it keeps none — which is an
@@ -380,6 +399,9 @@ export interface Backend<Handle = BackendHandle> {
    *  environment exposes no version to report — which is an ANSWER for the doctor
    *  to print, not a missing method to probe for. */
   readonly versionInfo: VersionRole | null;
+  /** Reports the server this environment's client drives. Absent when it runs as
+   *  one process, so there is no client and server that can disagree. */
+  readonly serverInfo: ServerInfoRole | null;
   readonly paneHost: PaneHostRole<Handle> | null;
   readonly paneInventory: PaneInventoryRole<Handle> | null;
   /** Explicit plexer fast path; normal dispatch never uses this channel. */

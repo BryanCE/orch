@@ -25,7 +25,7 @@ Told to use orch? `orch spawn` is your first tool call. No status preflight, no 
 orch spawn api-types api-routes api-guards --tab api
 orch dispatch api-types "<the full task spec>"
 orch dispatch api-routes --file slice.md               # only when the spec is too long for a line
-orch events --all --status done,error,blocked,asking   # arm as a Monitor in this same message
+orch events                                            # arm as a Monitor in this same message
 orch result api-types
 ```
 
@@ -52,8 +52,11 @@ Read the diff, `orch reset <pane>`, `orch rename <pane> <next-slice>`, dispatch 
 - **Arm the watch in the same message as the first dispatch.** Not after it. An unwatched
   fleet finishes and sits done while you believe it is still working, and `orch status` only
   saves you if you already suspect something.
-- **`--all` is required today** (U9, 2026-08-29). The default caller-space scope drops the
-  events of a fleet spawned from a pane in no space, and the watch never fires.
+- **Arm the watch with no flags at all.** `orch events` bare already streams every transition
+  of the agents this session spawned, which is the whole point of watching. A flag narrows
+  that: `--status` hides the agents working and asking, and `--any-agent` is only for two
+  orchs coordinating across each other. Reach for one when you were told to observe something
+  specific, never as standard setup.
 - **Arm through the Monitor tool (`persistent: true`).** Never `&`, `nohup`, or
   `run_in_background`. A stream that never exits never wakes a harness that wakes on
   completion, and the silence looks exactly like "still working".

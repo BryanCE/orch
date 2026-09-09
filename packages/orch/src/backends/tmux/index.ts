@@ -77,6 +77,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly logPruning: null = null;
   // tmux reports no orch integration version of its own.
   readonly versionInfo: null = null;
+  // tmux runs a server, but reports no client/server compatibility fact to read.
+  readonly serverInfo: null = null;
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneInput = {

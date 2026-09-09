@@ -107,6 +107,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   };
   // A detached process has no plexer integration to version.
   readonly versionInfo: null = null;
+  readonly serverInfo: null = null;
   readonly logPruning: LogPruningRole = {
     prune: (cutoff: Date, liveKeys: readonly string[], orchDir?: string): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
   };

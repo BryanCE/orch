@@ -1,19 +1,3 @@
-/** Supported plexer versions are ranges, not floors: pre-1.0 integrations can
- * change compatibly-shaped behavior between minor releases. Keep these declarations
- * beside the backend boundary so doctor and registration use the same contract. */
-export const SUPPORTED_RANGES = {
-  herdr: ">=0.8.0 <0.9.0",
-} as const;
-
-type SupportedPlexer = keyof typeof SUPPORTED_RANGES;
-
-/** Whether orch declares a supported range for this plexer at all. A narrowing
- *  guard, not a cast: an id orch has never heard of has no range, and saying so
- *  is the answer doctor and registration print. */
-function isSupportedPlexer(plexerId: string): plexerId is SupportedPlexer {
-  return Object.hasOwn(SUPPORTED_RANGES, plexerId);
-}
-
 interface Semver {
   major: number;
   minor: number;
@@ -61,7 +45,7 @@ export function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-/** Evaluate the small, explicit range grammar used by SUPPORTED_RANGES. */
+/** Evaluate the small, explicit range grammar an integration states its floor in. */
 export function versionInRange(version: string, range: string): boolean {
   if (!parseSemver(version)) return false;
   return range.trim().split(/\s+/).filter(Boolean).every((term) => {
@@ -78,11 +62,3 @@ export function versionInRange(version: string, range: string): boolean {
   });
 }
 
-export function supportedPlexerVersion(plexerId: string, installed: string): boolean {
-  const range = supportedRange(plexerId);
-  return range !== undefined && versionInRange(installed, range);
-}
-
-export function supportedRange(plexerId: string): string | undefined {
-  return isSupportedPlexer(plexerId) ? SUPPORTED_RANGES[plexerId] : undefined;
-}

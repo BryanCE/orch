@@ -48,7 +48,7 @@ OBSERVE
   orch questions                 List pending agent questions from live agents.
   orch runs [<target>] [-n <count>] [--json]
                                  List durable dispatch history, newest first.
-  orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json]
+  orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--filter=s[,s...]] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
   orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
                                  Query structured diagnosis logs (malformed lines are skipped).

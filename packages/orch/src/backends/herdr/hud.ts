@@ -7,11 +7,12 @@
 // (`src/backends/hud.ts`) and never imports this module; the port wires these
 // functions in as its herdr provider — no herdr socket, event name, or shell-out
 // ever appears outside `src/backends/herdr/`.
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { isAgentId } from "../identity.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { environmentOf } from "../../store/agent-view.ts";
+import { herdrServerStatus } from "./cli.ts";
 import { herdrEnvironmentPresent } from "./index.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
@@ -34,8 +35,7 @@ let reportedSocket: string | null | undefined;
 function serverSocketPath(): string | undefined {
   if (reportedSocket !== undefined) return reportedSocket ?? undefined;
   try {
-    const reported = execFileSync("herdr", ["status", "server"], { encoding: "utf8", timeout: 2000 });
-    reportedSocket = /^socket:\s*(.+)$/m.exec(reported)?.[1]?.trim() ?? null;
+    reportedSocket = herdrServerStatus().socket;
   } catch {
     reportedSocket = null;
   }

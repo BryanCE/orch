@@ -624,7 +624,11 @@ export function checkCoreScopeLine(line: string, relPath: string): string | unde
       return `${owner} adapter wire literal ${JSON.stringify(literal)} is forbidden in core; keep it inside src/adapters/${owner}.ts`;
     }
   }
-  return undefined;
+  // The same rule extensions already answer to. A plexer's name in core is how every
+  // coupling here has started: a map keyed by it, a constant named after it, a docs
+  // URL for it. Prose explaining why code looks the way it does spells no literal
+  // and stays legal.
+  return checkPlexerLiteralLine(line, relPath, "in core");
 }
 
 /** Recursively scan src/** for port-boundary violations, excluding the adapter/backend port dirs. */

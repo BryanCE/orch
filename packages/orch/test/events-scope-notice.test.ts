@@ -9,11 +9,11 @@ const ANY: ResolvedCallerScope = { mine: false, address: "me" };
 
 describe("events scope notice", () => {
   test("names the default live scope and its wideners", () => {
-    expect(eventsScopeNotice(parseEventsOptions([]), MINE, true)).toBe("watching my agents from now on - history: --since-seq 0; every agent: --any-agent");
+    expect(eventsScopeNotice(parseEventsOptions([]), MINE, true)).toBe("watching my agents from now on");
   });
 
   test("names the all-agent live scope and its history widener", () => {
-    expect(eventsScopeNotice(parseEventsOptions(["--any-agent"]), ANY, true)).toBe("watching all agents from now on - history: --since-seq 0");
+    expect(eventsScopeNotice(parseEventsOptions(["--any-agent"]), ANY, true)).toBe("watching all agents from now on");
   });
 
   test("a redirected stream is a harness reading transitions, and gets no banner", () => {
@@ -40,7 +40,7 @@ describe("events scope notice", () => {
     });
 
     expect(writes).toBe(1);
-    expect(order).toEqual(["notice:watching my agents from now on - history: --since-seq 0; every agent: --any-agent\n", "transport"]);
+    expect(order).toEqual(["notice:watching my agents from now on\n", "transport"]);
   });
 
   test("does not write a notice when history was requested", () => {

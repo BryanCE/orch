@@ -1,12 +1,12 @@
 import { loadSettings } from "../settings/read.ts";
 import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
 import { callerSpace } from "../identity/self.ts";
+import { sameSpace, scopeToSpace } from "../policy/space.ts";
 import { agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { isRecord } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
-import { sameSpace, scopeToSpace } from "../policy/space.ts";
 import { subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
@@ -32,8 +32,6 @@ function looksLikePaneKey(key: string): boolean {
 }
 
 export interface EventsOptions {
-  statusFilter: Set<string> | null;
-  all: boolean;
   json: boolean;
   sinceSeq: number | undefined;
   once: boolean;
@@ -50,16 +48,20 @@ interface EventsContext {
 }
 
 /**
- * Whether a streamed event belongs to the caller's space.
+ * The wall: an orch hears only agents in a space it belongs to.
  *
- * A1 / CLAUDE.md Rule 11: the agent's space is an ENVIRONMENT axis composed from
- * `agent_spaces` and read through {@link spaceOf}, never a segment sliced out of
- * the identity key. Reading it out of the key pinned the stream to the space the
- * agent was BORN in, so a moved or adopted agent kept appearing in a space it had
- * left and vanished from the one it actually occupies.
+ * Never a flag and never widened, because there is nothing legitimate on the other
+ * side of it — `--all` used to punch through and that was the hole. Ownership picks
+ * the default INSIDE the wall, and `--any-agent` lifts you to the space's other
+ * members for two orchs coordinating; neither reaches past this.
+ *
+ * A1 / Rule 11: the space is an ENVIRONMENT axis read through {@link spaceOf}, never
+ * a segment sliced out of the identity key. Reading it out of the key pinned the
+ * stream to the space the agent was BORN in, so a moved or adopted agent kept
+ * appearing in a space it had left and vanished from the one it occupies.
  */
-export function eventInSpaceScope(root: string, key: string, callerSpace: string | null, all: boolean): boolean {
-  return all || sameSpace(spaceOf(root, key), callerSpace);
+export function eventWithinSpaceWall(root: string, key: string, callerSpace: string | null): boolean {
+  return sameSpace(spaceOf(root, key), callerSpace);
 }
 
 export async function cmdEvents(args: string[]) {
@@ -72,7 +74,7 @@ export async function cmdEvents(args: string[]) {
     const agentId = tryParseIdentity(key)?.id ?? null;
     const inScope = options.targets.length
       ? items.has(key)
-      : agentId !== null && eventInSpaceScope(orchDir(), agentId, callerSpace(), options.all);
+      : agentId !== null && eventWithinSpaceWall(orchDir(), agentId, callerSpace());
     if (!inScope) return false;
     const leaseOwner = currentLease(orchDir(), agentId ?? key)?.orchId ?? null;
     return agentInScope({
@@ -164,11 +166,11 @@ export function eventsScopeNotice(
   // for, on a stream whose every other line is a real transition.
   if (options.json || !toTerminal) return null;
   return scope.mine
-    ? "watching my agents from now on - history: --since-seq 0; every agent: --any-agent"
-    : "watching all agents from now on - history: --since-seq 0";
+    ? "watching my agents from now on"
+    : "watching all agents from now on";
 }
 
-const EVENTS_USAGE = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>] [--once]";
+const EVENTS_USAGE = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--json] [--since-seq <n>] [--once]";
 
 /** `--since-seq <n>`, or a refusal: a replay point that is not an integer names no event. */
 function readSinceSeq(value: string | undefined): number {
@@ -181,9 +183,7 @@ function readSinceSeq(value: string | undefined): number {
 function readEventsFlag(options: EventsOptions, args: string[], index: number): number {
   const argument = args[index]!;
   switch (argument) {
-    case "--status": options.statusFilter = new Set((args[index + 1] ?? "").split(",").map((state) => state.trim()).filter(Boolean)); return 1;
     case "--since-seq": options.sinceSeq = readSinceSeq(args[index + 1]); return 1;
-    case "--all": options.all = true; return 0;
     case "--json": options.json = true; return 0;
     case "--once": options.once = true; return 0;
     case "--any-agent": options.scope = "any"; return 0;
@@ -201,7 +201,7 @@ export function parseEventsOptions(args: string[]): EventsOptions {
   // The norm is a readable line per transition that needs no jq to make sense of;
   // --json opts into the raw record for a caller that parses it.
   const options: EventsOptions = {
-    statusFilter: null, all: false, json: false, sinceSeq: undefined, once: false, scope: "auto", targets: [],
+    json: false, sinceSeq: undefined, once: false, scope: "auto", targets: [],
   };
   for (let index = 0; index < args.length; index++) index += readEventsFlag(options, args, index);
   return options;
@@ -220,7 +220,7 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
       [...loadPresence().values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
       callerSpace(),
-      { all: options.all },
+      { all: false },
     );
     for (const presence of presences) {
       const metadata = presenceMetadata(presence.key);
@@ -234,7 +234,7 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
     }
   }
   for (const target of options.targets) {
-    const entity = resolveTarget(target, { all: options.all });
+    const entity = resolveTarget(target, { all: false });
     if (!entity.presence) die(`Target "${target}" has no agent dir to watch.`);
     items.set(entity.presence.key, {
       key: entity.presence.key,
@@ -264,16 +264,15 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   // The plexer coordinate is opaque: echo it verbatim and never resolve it to a
   // configured label that could make the coordinate look like an orch-chosen name.
   const textEvent: NotifyEvent = { ...event, space: coordinate ?? "" };
+  // What happened, and nothing about the fleet's books. Cost and pack capacity are
+  // `orch status` columns; a stream that carried them made every transition read
+  // like a status row and buried the one thing the line exists to say.
   const title = notificationText(textEvent, { colorize: true }).title;
-  const transition = `  ${event.oldState}->${event.newState}`;
-  const cost = typeof event.cost === "number" ? `  $${event.cost.toFixed(2)}` : "";
-  const capacity = event.capacity === undefined ? "" : ` pack ${event.capacity.packUsed}/${event.capacity.packCap ?? "unlimited"}`;
-  return `${title}${transition}${cost}${capacity}`;
+  return `${title}  ${event.oldState}->${event.newState}`;
 }
 
 function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
-    if (options.statusFilter && !options.statusFilter.has(event.newState)) return false;
     const space = event.space ?? spaceOf(orchDir(), event.key);
     process.stdout.write(`${renderEvent(event, options.json, streamSeq, space)}\n`);
     return true;

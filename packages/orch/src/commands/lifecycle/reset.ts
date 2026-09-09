@@ -13,7 +13,7 @@ import { loadSettings } from "../../settings/read.ts";
 import type { AgentFlags } from "../../types/command.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 
-type ClearedAgent = { key: string; pane: string; name: string };
+interface ClearedAgent { key: string; pane: string; name: string }
 
 function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags } {
   const targets: string[] = [];

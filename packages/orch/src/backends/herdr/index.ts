@@ -11,16 +11,20 @@ export const HERDR_BLOCKED_EVENT = "herdr:blocked";
 
 /** What a pane in this plexer composes, as the agent inside it will read it. */
 const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT });
-import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrStartAgent, herdrTabs, version } from "./cli.ts";
+import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrServerStatus, herdrStartAgent, herdrTabs, version } from "./cli.ts";
 import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, OpenPaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, OpenPaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
 
 const HERDR_BACKEND: BackendId = "herdr";
+
+/** The oldest herdr this integration speaks to. Every command it issues and every
+ *  JSON field it reads exists from here on; a newer herdr is still herdr. */
+const SUPPORTED_HERDR = ">=0.8.0";
 
 /** herdr exported its environment into this process. */
 export function herdrEnvironmentPresent(): boolean {
@@ -120,7 +124,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly handleLookup: null = null;
   // herdr keeps no logs orch owns.
   readonly logPruning: null = null;
-  readonly versionInfo: VersionRole = { installed: (): string | null => this.installedVersion() };
+  readonly versionInfo: VersionRole = {
+    installed: (): string | null => this.installedVersion(),
+    supported: (): string => SUPPORTED_HERDR,
+  };
+  readonly serverInfo: ServerInfoRole = { running: (): ServerReport | null => this.serverReport() };
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneInput = {
@@ -238,7 +246,9 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       return { coordinate: created.workspace, rootHandle: created.rootHandle };
     },
     rename: (coordinate, label): void => { herdrAck(["workspace", "rename", coordinate, label]); },
-    close: (coordinate): void => { herdrAck(["workspace", "close", coordinate]); },
+    // Closing takes the worktree homes opened under this one with it. Rule 11: close is
+    // never gated, and a close that refuses is a home the human cannot kill through orch.
+    close: (coordinate): void => { herdrAck(["workspace", "close", coordinate, "--group"]); },
     focus: (coordinate): void => { herdrAck(["workspace", "focus", coordinate]); },
   };
 
@@ -249,6 +259,13 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 
   private installedVersion(): string | null {
     return version();
+  }
+
+  /** herdr's server as the version port describes one. A server that is not
+   *  running is null: there is nothing for the installed client to disagree with. */
+  private serverReport(): ServerReport | null {
+    const status = herdrServerStatus();
+    return status.running ? { version: status.version, compatible: status.endpointCompatible } : null;
   }
 
   /** True when a herdr control socket is reachable (inside a live herdr session). */

@@ -107,10 +107,12 @@ Failed tasks retry up to `queue.max_retries` (default 1).
 ## Watch
 
 ```bash
-orch events --all --status done,error,blocked,asking
+orch events
 ```
 
-Each line becomes a wake-up. No `jq`, no `--json`.
+Each line becomes a wake-up. No flags, no `jq`, no `--json`. Bare `orch events` is every
+transition of the agents you spawned, which is what watching a fleet means. Narrowing to
+one state is `orch wait`, not a flag here.
 
 - **Preflight before arming, every time.** This survives a context compaction because it reads
   the OS instead of your memory:
@@ -121,14 +123,14 @@ Each line becomes a wake-up. No `jq`, no `--json`.
 
   Non-empty means a watch is already armed, so do not arm another. If it names panes that no
   longer exist (compare to `orch status`), `kill` that pid and arm one fresh.
-- **Smoke-test before arming.** `timeout 6 orch events --all --since-seq 0 --status done` must
-  print past transitions. A silent stream means the scope is wrong, not that nothing
-  happened.
+- **Smoke-test before arming.** `timeout 6 orch events --since-seq 0` must print past
+  transitions. A silent stream means the scope is wrong, not that nothing happened.
 - **Scope.** The default is the agents this session spawned, matched on `spawnedBy`, and it
   covers panes you dispatch to later without re-arming. Other sessions run workers in the
   same fleet; their transitions belong to their orchestrator and every stray alert burns a
-  wake-up. `--any-agent` lifts that scope. `--agent=<name>` or `--agent-id=<id>` narrows to
-  one. `--all` covers every workspace. `--once` exits after the first match.
+  wake-up. `--any-agent` lifts that scope, and exists for two orchs coordinating, not for
+  normal watching. `--agent=<name>` or `--agent-id=<id>` narrows to one. `--once` exits
+  after the first match.
 - **No dedupe needed.** The daemon suppresses an identical `(key, oldState->newState,
   dispatchId, task)` for 120s at the publish point, so a flapping status file produces one
   event, not fifteen. `seq` is that agent's transition ordinal, and `(key, seq)` identifies an

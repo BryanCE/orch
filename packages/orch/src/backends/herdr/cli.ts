@@ -90,12 +90,12 @@ export function setHerdrExecutor(executor: HerdrExecutor): () => void {
   };
 }
 
-function herdr(args: string[]): unknown {
+function herdr(args: string[], policy?: RetryPolicy): unknown {
   const cacheKey = args.join(" ");
   const cached = listCache.get(cacheKey);
   if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.value;
   try {
-    const output = executeHerdr("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const output = executeHerdr("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
     const value = parseHerdrOutput(output);
     listCache.set(cacheKey, { at: Date.now(), value });
     return value;
@@ -185,6 +185,34 @@ export function version(): string | null {
   } catch {
     return null;
   }
+}
+
+interface HerdrServerStatus {
+  readonly running: boolean;
+  readonly version: string | null;
+  readonly socket: string | null;
+  readonly endpointCompatible: boolean | null;
+}
+
+/** A question asked to DIAGNOSE, so a silent server is the answer and never a
+ *  race to retry. The default ladder costs four attempts and 1.75s of backoff on
+ *  top of each timeout, which is a doctor run hanging on the one thing it was
+ *  trying to report. */
+const ASK_ONCE: RetryPolicy = { attempts: 1, delayMs: 0, backoff: 1 };
+
+/** What herdr's running server reports about itself. The one reader of
+ *  `status server` output: everything that needs the socket path, the server's
+ *  version, or its compatibility asks here. herdr omits `endpoint_compatible`
+ *  when its server reports no generation, and an absent fact is unknown. */
+export function herdrServerStatus(): HerdrServerStatus {
+  const result = herdr(["status", "server", "--json"], ASK_ONCE);
+  if (!isRecord(result)) throw new Error("herdr status server returned invalid response");
+  return {
+    running: result.running === true,
+    version: typeof result.version === "string" ? result.version : null,
+    socket: typeof result.socket === "string" ? result.socket : null,
+    endpointCompatible: typeof result.endpoint_compatible === "boolean" ? result.endpoint_compatible : null,
+  };
 }
 
 /** True only when the herdr control socket responds. */

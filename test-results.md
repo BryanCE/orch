@@ -2331,3 +2331,284 @@ $ bun --filter @bryance/orch test
 @bryance/orch test: (pass) lease commands > close proceeds with a foreign live-holder lease [1211.42ms]
 @bryance/orch test: (pass) lease commands > reap proceeds with a foreign live-holder lease [1054.90ms]
 @bryance/orch test: (pass) lease commands > reset driving verb refuses a foreign live-holder lease [2111.08ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc-identity.test.ts:
+@bryance/orch test: (pass) daemon identity RPCs > claim-identity refuses an unknown id by naming it [935.89ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-replay.test.ts:
+@bryance/orch test: (pass) orchd RPC replay buffer > replays from inside the surviving range without a gap [230.44ms]
+@bryance/orch test: (pass) orchd RPC replay buffer > reports a gap when the requested sequence predates retained history [250.84ms]
+@bryance/orch test: (pass) orchd RPC replay buffer > empty history has no gap or oldest sequence [151.60ms]
+@bryance/orch test: (pass) orchd RPC replay buffer > limits replay size without pruning durable events [6971.65ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-transport-parity.test.ts:
+@bryance/orch test: (pass) both transports carry one mechanism > the same token registers the same session whichever transport carried it [1946.57ms]
+@bryance/orch test: 
+@bryance/orch test: integration\daemon-registration.test.ts:
+@bryance/orch test: (pass) machine daemon registration > refuses a second start and names the live socket [3235.10ms]
+@bryance/orch test: 
+@bryance/orch test: integration\os-executors.test.ts:
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > an OS side with no executor answers, and never runs the body [0.16ms]
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > the local side runs the body and hands back its value [0.12ms]
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > doctor passes a daemon registered on the side orch is running on [3454.25ms]
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > doctor answers, rather than failing, for a daemon on a side with no executor [2413.19ms]
+@bryance/orch test: 
+@bryance/orch test: integration\settings-command.test.ts:
+@bryance/orch test: fleet.max_depth = 6
+@bryance/orch test: (pass) orch settings > every registered setting is printed in the table [402.64ms]
+@bryance/orch test: (pass) orch settings > --json reports value + source per setting, settings.json winning over defaults [314.82ms]
+@bryance/orch test: (pass) orch settings > --json reports env as the winning source over settings.json [258.61ms]
+@bryance/orch test: (pass) orch settings > --harness switches defaults.adapter between enabled ids and rejects a non-enabled id [931.87ms]
+@bryance/orch test: (pass) orch settings > reports each harness's picker quicklist and launch gate as separate rows [436.87ms]
+@bryance/orch test: (pass) orch settings > a load error surfaces loudly with no partial table [384.37ms]
+@bryance/orch test: (pass) orch settings > sets a boolean through its registry entry [347.30ms]
+@bryance/orch test: (pass) orch settings > sets an integer through its registry entry [371.12ms]
+@bryance/orch test: (pass) orch settings > single-setting set delegates to the registry writer [13.97ms]
+@bryance/orch test: (pass) orch settings > sets a choice through its registry entry [306.60ms]
+@bryance/orch test: (pass) orch settings > sets a multi value through its registry entry [396.89ms]
+@bryance/orch test: (pass) orch settings > sets a list value through its registry entry [352.70ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid boolean and names the allowed values [330.46ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid integer and names the allowed range [335.78ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid choice and names the allowed choices [368.17ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid multi value and names the allowed choices [247.38ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid list and names JSON as the allowed format [232.26ms]
+@bryance/orch test: (pass) orch settings > refuses an unknown key and suggests nearest valid keys [259.23ms]
+@bryance/orch test: (pass) orch settings > refuses read-only runtime and names the editing subcommand [271.00ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc-identity.test.ts:
+@bryance/orch test: (pass) daemon identity RPCs > register-session mints one id per session token [1332.86ms]
+@bryance/orch test: (pass) daemon identity RPCs > the removed method is unknown [19.94ms]
+@bryance/orch test: 
+@bryance/orch test: test\backend-process-role.test.ts:
+@bryance/orch test: (pass) ProcessRole > herdr provider records pid and start token and safely kills it [2609.93ms]
+@bryance/orch test: (pass) ProcessRole > tmux provider records pid and start token and safely kills it [2043.61ms]
+@bryance/orch test: (pass) ProcessRole > reports replaced when a pid is reused by a different process token [0.33ms]
+@bryance/orch test: 
+@bryance/orch test: test\peer-lease-visibility.test.ts:
+@bryance/orch test: (pass) peer summaries carry ownership as a lease > a peer nobody ever took reports no orch driving it [1054.33ms]
+@bryance/orch test: (pass) peer summaries carry ownership as a lease > a dead holder is not a live one [1108.75ms]
+@bryance/orch test: (pass) the compact listing separates orphans from live work > unleased peers sit in their own bucket, below the driven ones [1908.15ms]
+@bryance/orch test: (pass) the compact listing separates orphans from live work > a held peer names its holder, and an unleased one never reads as yours [1574.52ms]
+@bryance/orch test: (pass) the compact listing separates orphans from live work > with nothing unleased the bucket does not appear at all [1296.72ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > hello translates an absent daemon instead of reading a missing token [5051.24ms]
+@bryance/orch test: 
+@bryance/orch test: integration\doctor-settings-defects.test.ts:
+@bryance/orch test: (pass) doctor settings defects > accepts a clean settings file and keeps its path detail [21.94ms]
+@bryance/orch test: (pass) doctor settings defects > reports malformed JSON as a file defect [7.91ms]
+@bryance/orch test: (pass) doctor settings defects > reports a read failure instead of throwing [2.39ms]
+@bryance/orch test: (pass) doctor settings defects > reports a stale key with the value that was written [22.84ms]
+@bryance/orch test: (pass) doctor settings defects > reports a typo with its suggested key [9.11ms]
+@bryance/orch test: (pass) doctor settings defects > reports the expected schema version [22.12ms]
+@bryance/orch test: (pass) doctor settings defects > skips settings-dependent checks with a short repair hint [5331.80ms]
+@bryance/orch test: 
+@bryance/orch test: integration\doctor-settings-preservation.test.ts:
+@bryance/orch test: (pass) doctor settings preservation > yes mode leaves existing settings.json byte-identical [5979.12ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-lifecycle.test.ts:
+@bryance/orch test: Bun is a fast JavaScript runtime, package manager, bundler, and test runner. (1.4.0+34cbb9a40)
+@bryance/orch test: 
+@bryance/orch test: Usage: bun <command> [...flags] [...args]
+@bryance/orch test: 
+@bryance/orch test: Commands:
+@bryance/orch test:   run       ./my-script.ts       Execute a file with Bun
+@bryance/orch test:             lint                 Run a package.json script
+@bryance/orch test:   test                           Run unit tests with Bun
+@bryance/orch test:   x         prisma               Execute a package binary (CLI), installing if needed (bunx)
+@bryance/orch test:   repl                           Start a REPL session with Bun
+@bryance/orch test:   exec                           Run a shell script directly with Bun
+@bryance/orch test: 
+@bryance/orch test:   install                        Install dependencies for a package.json (bun i)
+@bryance/orch test:   add       @shumai/shumai       Add a dependency to package.json (bun a)
+@bryance/orch test:   remove    redux                Remove a dependency from package.json (bun rm)
+@bryance/orch test:   update    hono                 Update outdated dependencies
+@bryance/orch test:   audit                          Check installed packages for vulnerabilities
+@bryance/orch test:   dedupe                         Remove duplicate versions from the lockfile
+@bryance/orch test:   prune                          Remove packages that are not in the lockfile from node_modules
+@bryance/orch test:   outdated                       Display latest versions of outdated dependencies
+@bryance/orch test:   link      [<package>]          Register or link a local npm package
+@bryance/orch test:   unlink                         Unregister a local npm package
+@bryance/orch test:   publish                        Publish a package to the npm registry
+@bryance/orch test:   patch <pkg>                    Prepare a package for patching
+@bryance/orch test:   pm <subcommand>                Additional package management utilities
+@bryance/orch test:   info      react                Display package metadata from the registry
+@bryance/orch test:   why       lyra                 Explain why a package is installed
+@bryance/orch test: 
+@bryance/orch test:   build     ./a.ts ./b.jsx       Bundle TypeScript & JavaScript into a single file
+@bryance/orch test: 
+@bryance/orch test:   init                           Start an empty Bun project from a built-in template
+@bryance/orch test:   create    elysia               Create a new project from a template (bun c)
+@bryance/orch test:   upgrade                        Upgrade to latest version of Bun.
+@bryance/orch test: 
+@bryance/orch test:   <command> --help               Print help text for command.
+@bryance/orch test: 
+@bryance/orch test: Learn more about Bun:            https://bun.com/docs
+@bryance/orch test: Join our Discord community:      https://bun.com/discord
+@bryance/orch test: (pass) daemon lifecycle > reexecs with the current argv and hands over the lock [869.06ms]
+@bryance/orch test: (pass) daemon lifecycle > rejects a recycled pid identity [3208.99ms]
+@bryance/orch test: (pass) daemon lifecycle > foreign machine registration cannot be signalled for another store [1856.65ms]
+@bryance/orch test: (pass) daemon lifecycle > only a provable lock owner may be signalled [1864.77ms]
+@bryance/orch test: (pass) daemon lifecycle > hash is stable and changes when entrypoint content changes [8.03ms]
+@bryance/orch test: 
+@bryance/orch test: integration\doctor-orphan-daemons.test.ts:
+@bryance/orch test: (pass) doctor orphaned-daemon check > a live foreign lock is reported, and an unproven owner is never killable [5198.97ms]
+@bryance/orch test: 
+@bryance/orch test: integration\doctor-stale-presence.test.ts:
+@bryance/orch test: (pass) doctor stale presence safety > the removal fix is marked destructive so UIs never pre-select it [5494.78ms]
+@bryance/orch test: (fail) doctor stale presence safety > no dead agents leaves nothing to remove [5274.66ms]
+@bryance/orch test:   ^ this test timed out after 5000ms.
+@bryance/orch test: 
+@bryance/orch test: integration\doctor-declared-vs-reality.test.ts:
+@bryance/orch test: (pass) doctor declared-vs-reality > reports a lease whose recorded holder process is dead [269.56ms]
+@bryance/orch test: (pass) doctor declared-vs-reality > reports an environment handle missing from its plexer [245.44ms]
+@bryance/orch test: (pass) doctor declared-vs-reality > reports a live agent with no lease and no live spawner [256.15ms]
+@bryance/orch test: (pass) doctor declared-vs-reality > surfaces a missing task scope row as unrunnable [5887.21ms]
+@bryance/orch test: (pass) doctor declared-vs-reality > doctor -y does not delete an unrunnable task [5034.27ms]
+@bryance/orch test: 
+@bryance/orch test: test\broker-governance.test.ts:
+@bryance/orch test: (pass) daemon governWrite enforcement > an unscoped actor may write to an unleased target [216.47ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > the lease holder may write to its own agent [1709.09ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > a foreign live holder in the same space is refused and named [1632.99ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > a dead holder is not a collision [1087.21ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > --steal on a driving verb does not take a live holder's lease [2179.23ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > a cross-space write is refused by the wall before the lease [1050.06ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > --cross-space clears the wall but the lease still applies [1676.26ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > the space operator writes to a same-space leased agent without taking the lease [1339.02ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > a foreign space's operator still hits the wall [708.81ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > a refused enqueue leaves the lease exactly as it was [1275.70ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > a granted write and its enqueue commit together [1238.76ms]
+@bryance/orch test: (pass) daemon governWrite enforcement > an unleased target is writable by any same-space actor [100.19ms]
+@bryance/orch test: 
+@bryance/orch test: test\lease-authority.test.ts:
+@bryance/orch test: (pass) C3 foreign agents are untouchable > a DEAD foreign holder is not a collision [1822.89ms]
+@bryance/orch test: (pass) C3 foreign agents are untouchable > the composed holder IS the open lease, with nothing beside it [1186.38ms]
+@bryance/orch test: (pass) C4 steal > adopt refuses a live holder, and --steal takes it [1861.29ms]
+@bryance/orch test: (pass) C4 steal > detach refuses a live holder, and --steal releases it [1932.41ms]
+@bryance/orch test: (pass) C4a fencing token > lease ids are monotonic across handoff and adoption [88.69ms]
+@bryance/orch test: (pass) C4a fencing token > a stale fence cannot release the current holder's lease [99.12ms]
+@bryance/orch test: (pass) C4a fencing token > openLeaseId is null when nothing is leased [97.25ms]
+@bryance/orch test: (pass) C4b reads are never gated > status and events read straight through a live foreign lease [1278.41ms]
+@bryance/orch test: (pass) C4c/C4d name resolution > duplicate names are legal and an ambiguous target asks for the id [80.44ms]
+@bryance/orch test: (pass) C4c/C4d name resolution > a unique name resolves, and an unknown target is a lookup miss [74.57ms]
+@bryance/orch test: (pass) C4e naming at creation > a nameless spawn is refused [0.43ms]
+@bryance/orch test: (pass) C4e naming at creation > a self-registering session gets <harness>-<first 8 of its id> [69.50ms]
+@bryance/orch test: (pass) C4f self-rename > an agent renames itself whether or not a lease is in force [667.43ms]
+@bryance/orch test: (pass) C4f self-rename > renaming another agent is driving and obeys the lease [1311.18ms]
+@bryance/orch test: (pass) C4f self-rename > an invalid name is refused [70.90ms]
+@bryance/orch test: (pass) C5 a transfer does not disturb the agent > adoption writes lease rows and touches nothing else [662.60ms]
+@bryance/orch test: (pass) C7 live by lease, history by provenance > adoption moves the live view and leaves provenance untouched [629.24ms]
+@bryance/orch test: 
+@bryance/orch test: integration\owner-scoping.test.ts:
+@bryance/orch test: skipping caller: unknown backend null (reaping the record)
+@bryance/orch test: skipping other: unknown backend null (reaping the record)
+@bryance/orch test: {"closed":["caller","klmine0001","klforeign1","other"],"results":[{"target":"caller","handle":null,"outcome":"done","error":null},{"target":"klmine0001","handle":"mine","outcome":"done","error":null},{"target":"klforeign1","handle":"foreign","outcome":"done","error":null},{"target":"other","handle":null,"outcome":"done","error":null}],"requested":4,"ok":4,"stream":false}
+@bryance/orch test: (pass) fleet ownership scoping > owner token uses ORCH_OWNER, else this process's own minted id [3.42ms]
+@bryance/orch test: (pass) fleet ownership scoping > spawn stamps the owner token from ORCH_OWNER on its record [219.15ms]
+@bryance/orch test: (pass) fleet ownership scoping > close --all works without an owner token [597.40ms]
+@bryance/orch test: (pass) fleet ownership scoping > close --all closes all managed records regardless of owner [265.75ms]
+@bryance/orch test: (pass) fleet ownership scoping > driving verbs remain gated against a live foreign holder [4181.16ms]
+@bryance/orch test: (pass) fleet ownership scoping > result refuses a foreign-owned agent and names its owner [664.23ms]
+@bryance/orch test: (pass) fleet ownership scoping > pane mutations refuse a foreign-owned agent and name its owner [940.29ms]
+@bryance/orch test: {"closed":["kmismatch1"],"results":[{"target":"kmismatch1","handle":"{\"pid\":10192,\"key\":\"kmismatch1\"}","outcome":"done","error":null}],"requested":1,"ok":1,"stream":false}
+@bryance/orch test: (pass) fleet ownership scoping > close has no force option and remains unconditional without it [1334.49ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > an unreachable agent yields a boundary answer, and the outbox is not left pending [5509.68ms]
+@bryance/orch test: (pass) daemon RPC > round-trips a call over the real unix socket [12.47ms]
+@bryance/orch test: (pass) daemon RPC > issues one session identity to sequential invocations from one session [930.60ms]
+@bryance/orch test: 
+@bryance/orch test: integration\owner-scoping.test.ts:
+@bryance/orch test: (pass) fleet ownership scoping > close cleans up a mismatched recorded process without signalling [549.77ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > a spawned agent acts as its own minted id, not its launch key [0.84ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > --cross-space from a spawned agent is refused [259.55ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close --all from an AGENT sweeps only its own subtree [281.78ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close --all from the HUMAN sweeps every managed spawn, whoever spawned it [291.84ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close from a spawned agent is REFUSED when the target is not its own [278.84ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close from a spawned agent SUCCEEDS on a slave it spawned itself [316.88ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > the workspace operator keeps control of an agent-owned fleet [273.34ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > hello returns live agents whose newest lease is closed or absent [958.85ms]
+@bryance/orch test: 
+@bryance/orch test: integration\daemon-registration.test.ts:
+@bryance/orch test: (pass) machine daemon registration > the refusal a second start prints names the live daemon's pid [2330.60ms]
+@bryance/orch test: (pass) machine daemon registration > doctor names both when a second daemon is live beside the registered one [1813.88ms]
+@bryance/orch test: (pass) machine daemon registration > evicts a registration whose process instance no longer matches [1438.80ms]
+@bryance/orch test: (pass) machine daemon registration > routes a different orch dir to its own runtime files [1334.02ms]
+@bryance/orch test: (pass) machine daemon registration > doctor distinguishes registered-but-dead from live-and-registered [2079.93ms]
+@bryance/orch test: 
+@bryance/orch test: integration\doctor-orphan-daemons.test.ts:
+@bryance/orch test: (pass) doctor orphaned-daemon check > a dead pid's lock is not an orphan [3419.69ms]
+@bryance/orch test: (pass) doctor orphaned-daemon check > the caller's own orch dir is never reported against itself [2062.17ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > hello returns an empty unleased list when none exist [466.74ms]
+@bryance/orch test: (pass) daemon RPC > a TCP hello with the daemon token gets an identity [824.85ms]
+@bryance/orch test: (pass) daemon RPC > refuses a hello that reports no session pid [12.46ms]
+@bryance/orch test: (pass) daemon RPC > refuses a hello without its environment [11.08ms]
+@bryance/orch test: (pass) daemon RPC > same session pid keeps its id and a different session pid gets another [1260.21ms]
+@bryance/orch test: (pass) daemon RPC > refuses a TCP hello without a token [7.07ms]
+@bryance/orch test: (pass) daemon RPC > refuses a TCP hello with a wrong token [8.30ms]
+@bryance/orch test: (pass) daemon RPC > writes the daemon token with owner-only permissions [9.96ms]
+@bryance/orch test: (pass) daemon RPC > returns an error for an unknown method [7.44ms]
+@bryance/orch test: (pass) daemon RPC > reports malformed lines and keeps the connection alive [19.73ms]
+@bryance/orch test: (pass) daemon RPC > delivers pushed subscription events [63.45ms]
+@bryance/orch test: (pass) daemon RPC > replays durable events after a daemon restart without a gap [325.91ms]
+@bryance/orch test: (pass) daemon RPC > reports the oldest sequence when replay starts before the pruned window [51.03ms]
+@bryance/orch test: 
+@bryance/orch test: integration\doctor.test.ts:
+@bryance/orch test: killed 1 dangling process
+@bryance/orch test: (fail) runDoctor > runs on an unconfigured install without failing for want of settings.json [5976.47ms]
+@bryance/orch test:   ^ this test timed out after 5000ms.
+@bryance/orch test: (pass) runDoctor > checks a healthy store [3847.67ms]
+@bryance/orch test: (pass) runDoctor > warns when the store is absent [0.98ms]
+@bryance/orch test: (pass) runDoctor > fails when the store predates orch's migrations [61.25ms]
+@bryance/orch test: (pass) runDoctor > fails and names a missing store table [68.89ms]
+@bryance/orch test: (pass) runDoctor > reports a normal ORCH_DIR on the Linux filesystem [2127.14ms]
+@bryance/orch test: (pass) runDoctor > reports an absent daemon as optional [1937.71ms]
+@bryance/orch test: (pass) runDoctor > reports and fixes a stale daemon lock [1793.59ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > removes a stale unix socket when the daemon owns the lock [1090.25ms]
+@bryance/orch test: (pass) daemon RPC > has a catchable absent-daemon error [0.71ms]
+@bryance/orch test: (pass) daemon RPC > calls a slow daemon unreachable, not absent [110.31ms]
+@bryance/orch test: (pass) daemon RPC > calls a refused endpoint absent so a wedged daemon is still reclaimable [4.05ms]
+@bryance/orch test: 
+@bryance/orch test: integration\doctor.test.ts:
+@bryance/orch test: (pass) runDoctor > accepts a live daemon and an answerable socket [3377.30ms]
+@bryance/orch test: (pass) runDoctor > warns when the live daemon code hash is stale [1687.26ms]
+@bryance/orch test: (pass) runDoctor > fails on an invalid lock and an unanswerable live socket [3316.71ms]
+@bryance/orch test: (pass) runDoctor > warns when the extension bundle is absent for a matching live hash [7.76ms]
+@bryance/orch test: (pass) runDoctor > warns when the extension bundle is absent for a stale live hash [8.58ms]
+@bryance/orch test: (pass) runDoctor > warns when the extension bundle is absent for a live status without a hash [10.40ms]
+@bryance/orch test: (pass) runDoctor > reports a dead presence pid [1634.65ms]
+@bryance/orch test: (pass) runDoctor > bins check is driven by the enabled set and offers no fix [295.32ms]
+@bryance/orch test: (pass) runDoctor > applyFixes reports exactly the changes it applies [2.54ms]
+@bryance/orch test: (fail) runDoctor > validates configured notifier adapters [5051.04ms]
+@bryance/orch test:   ^ this test timed out after 5000ms.
+@bryance/orch test: (pass) runDoctor > reports invalid settings and accepts missing settings [3230.83ms]
+@bryance/orch test: (pass) runDoctor > never throws when individual checks encounter broken inputs [3247.36ms]
+@bryance/orch test: 
+@bryance/orch test: 4 tests skipped:
+@bryance/orch test: (skip) the token file is the whole credential > the token is 0600
+@bryance/orch test: (skip) the token file is the whole credential > $ORCH_DIR is 0700, so same-uid is a boundary the filesystem enforces
+@bryance/orch test: (skip) the token file is the whole credential > a token left loose by an earlier run is tightened, not trusted
+@bryance/orch test: (skip) the token file is the whole credential > a runtime directory the daemon creates is 0700 too
+@bryance/orch test: 
+@bryance/orch test: 
+@bryance/orch test: 3 tests failed:
+@bryance/orch test: (fail) doctor stale presence safety > no dead agents leaves nothing to remove [5274.66ms]
+@bryance/orch test:   ^ this test timed out after 5000ms.
+@bryance/orch test: (fail) runDoctor > runs on an unconfigured install without failing for want of settings.json [5976.47ms]
+@bryance/orch test:   ^ this test timed out after 5000ms.
+@bryance/orch test: (fail) runDoctor > validates configured notifier adapters [5051.04ms]
+@bryance/orch test:   ^ this test timed out after 5000ms.
+@bryance/orch test: 
+@bryance/orch test:  1555 pass
+@bryance/orch test:  4 skip
+@bryance/orch test:  3 fail
+@bryance/orch test:  7111 expect() calls
+@bryance/orch test: Ran 1562 tests across 243 files. [48.19s]
+@bryance/orch test: Exited with code 1
+error: script "test:orch" exited with code 1

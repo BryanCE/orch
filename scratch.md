@@ -49,10 +49,11 @@ existing code.
 | 10 | Fresh spawn timing is undocumented | 🟡 |
 | 11 | The watch banner is delivered as an event | ✅ |
 | 12 | ~~Orch cannot ask whether a monitor is already armed~~ RULED OUT | — |
+| 21 | dispatch resets by default; spawn and dispatch take `--file` and `--with` | ❌ |
 | 13 | A watch fires without `--all` | ✅ |
 | 14 | Worker lint noise | ✅ |
 | 15 | Prompt bodies come from a file or stdin | ✅ |
-| 16 | `orch redispatch` | ❌ |
+| 16 | ~~`orch redispatch`~~ RULED OUT — dispatch does it | — |
 | 17 | The leftover `--name` flag | ✅ |
 | 18 | A `--json` filter for live status | ✅ |
 | 19 | `--cwd` on every spawn | ✅ |
@@ -89,7 +90,8 @@ existing code.
 
 | # | What the code says today |
 |---|---|
-| 4 | Answers now carry a delivery id and wait for consumption, but are not bound to the question or task they answer. A late answer can still reach a later question. NEXT. |
+| 4 | Answers now carry a delivery id and wait for consumption, but are not bound to the question or task they answer. A late answer can still reach a later question. |
+| 21 | `spawn` takes `--prompt` only; no `--file`, no `--with`. `dispatch` takes the prompt positionally or `--file`, parses `--with` into `flags.withPaths` but never uses it, and never resets. `clearSession` (`lifecycle/reset.ts:54`) is the reusable reset and is module-private. Order must be reset, then model, then dispatch — a reset can drop the pinned model, which is why `cmdNew` re-pins after clearing. |
 | 12 | No `subscribe` / `subscriptions` verbs exist; the daemon holds the connections and is never asked. `reference/commands.md` still teaches `pgrep -fa "orch events"` as the preflight. |
 | 16 | No `redispatch` anywhere in `src/` or `skills/`. Still blocked on your ruling below. |
 
@@ -112,7 +114,7 @@ Still hand-packed the same way: `store/outbox-rows.ts`.
 
 | # | Question |
 |---|---|
-| 16 | RULED: there is no `redispatch` verb. Resetting before new work is Rule 7's always, not an option, so `orch dispatch` does it itself. The old question — "does redispatch carry the new model and the new name" — was noise: the agent already has both, `--model` is already on dispatch, and renaming is `orch rename`. ONE question left: does dispatch ALWAYS reset, or is there a flag to skip it? |
+| 16 | RULED OUT. There is no `redispatch` verb, and the concept came from `improvements.md` (a past pass), never from Bryan. `spawn` creates and starts work; `dispatch` is the follow-up to an agent that already exists. Bryan's ruling: dispatch RESETS the context and sends the next work by default, with a flag to send work without resetting. Both verbs take `--prompt`, `--file` and `--with`. The old "does it carry the new name and model" question was noise — the agent already has both, `--model` is on dispatch, renaming is `orch rename`. |
 
 ## Open, from your flag ruling
 

@@ -191,7 +191,9 @@ export interface LeaseStatusPayload {
  * "read by the agent", which settled every inbox row at write time and made the
  * ack reader below unreachable in the daemon.
  */
-export type OutboxDelivery = "acked" | "queued" | "failed";
+/** `failed` is worth another attempt; `gone` never is — the agent the write was
+ *  addressed to no longer exists, so retrying it only costs every other write. */
+export type OutboxDelivery = "acked" | "queued" | "failed" | "gone";
 
 export interface OutboxDeps {
   deliver(target: string, payload: unknown, id: string): Promise<OutboxDelivery>;

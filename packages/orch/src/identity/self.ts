@@ -50,3 +50,21 @@ export function callerSpace(): string | null {
   const id = selfId();
   return id === undefined ? null : spaceOfAgent(id);
 }
+
+/**
+ * The plexer the caller is recorded in, or null when it is in none.
+ *
+ * The same question as {@link callerSpace} and the same source: the row orch
+ * wrote when it spawned or registered this process. A plexer's env vars say the
+ * same thing a beat later and only for a process it launched itself, so reading
+ * them is re-deriving a fact orch already holds.
+ */
+export function callerPlexer(): string | null {
+  const id = selfId();
+  if (id === undefined) return null;
+  try {
+    return environmentOf(orchDir(), id).plexer;
+  } catch {
+    return null;
+  }
+}

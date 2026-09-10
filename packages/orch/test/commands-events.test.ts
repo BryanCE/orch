@@ -131,7 +131,7 @@ describe("commands/events space wall", () => {
   function seedAgent(root: string, space: string): string {
     const key = mintAgentId();
     seedSpace(root, space);
-    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", space, spawner: null });
+    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", space, spawner: null });
     return key;
   }
 

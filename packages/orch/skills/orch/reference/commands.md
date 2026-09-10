@@ -128,8 +128,10 @@ space wall. `orch wait` is the third shape: one blocking checkpoint on one agent
 
   Non-empty means a watch is already armed, so do not arm another. If it names panes that no
   longer exist (compare to `orch status`), `kill` that pid and arm one fresh.
-- **Smoke-test before arming.** `timeout 6 orch events --since-seq 0` must print past
-  transitions. A silent stream means the scope is wrong, not that nothing happened.
+- **Smoke-test before arming.** `timeout 6 orch events --since-seq 0` replays past
+  transitions. Silence has three causes, and orch names the first one for you: you own no
+  agents yet (the stream says so), the fleet is mid-turn and has changed no state, or your
+  scope excludes the agents that did. `orch status` tells the second from the third.
 - **Scope: three rings, and you are in the first.** The default is the agents this session
   owns, matched on `spawnedBy` and the open lease, and it covers panes you dispatch to later
   without re-arming. Other sessions run workers in the same fleet; their transitions belong

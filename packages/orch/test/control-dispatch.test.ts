@@ -77,7 +77,7 @@ describe("deliverControl", () => {
     const dir = presence(directory, key, "pi");
     seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
 
-    await deliverControl(key, { kind: "answer", text: "yes, pattern C" });
+    await deliverControl(key, { kind: "answer", text: "yes, pattern C", id: "answer-1" });
     const answer = JSON.parse(fs.readFileSync(path.join(dir, "answer.json"), "utf8")) as { text: string };
     expect(answer.text).toBe("yes, pattern C");
   });

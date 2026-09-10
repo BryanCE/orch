@@ -295,6 +295,10 @@ export interface SpawnPlacementRequest {
   /** The agent at the root of this fleet's provenance tree — what
    *  `pack_plexers.pack_id` names. Null when the caller has no agent row yet. */
   readonly packRootId: string | null;
+  /** The plexer the caller stands in, or null for a caller in none. orch RECORDS
+   *  this at spawn and at registration (Rule 11), so placement reads it as a
+   *  fact and probes no process environment of its own. */
+  readonly callerPlexer: string | null;
   /** Where the fleet works, and the name its home is opened under: a workspace
    *  called after the repo is one a human can find, and the tab label names a
    *  slice, which is a different noun. */

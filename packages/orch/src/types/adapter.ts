@@ -76,6 +76,8 @@ export interface AnswerRequest {
   readonly key: string;
   /** Answer text to deliver to the agent. */
   readonly text: string;
+  /** Delivery id acknowledged when the agent consumes the answer. */
+  readonly id: string;
   /** Session options needed by the adapter's answer mechanism. */
   readonly opts?: SpawnOpts;
 }
@@ -227,6 +229,7 @@ export interface ModelWarmRole {
 }
 
 export interface QuestionRole {
+  /** The reader must acknowledge request.id after consuming the answer. */
   answer(request: AnswerRequest): AdapterCommand | undefined;
 }
 

@@ -19,7 +19,6 @@ import { cmdEvents, cmdNotify } from "./events.ts";
 import { cmdLogs } from "./logs.ts";
 import { cmdReview, cmdReviewInteractive } from "./review.ts";
 import { cmdQueue } from "./queue.ts";
-import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdGrant } from "./grant.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
@@ -101,13 +100,6 @@ DISPATCH WORK
                                  Start a fresh session/context, then pin M (else that harness's defaults.models entry). (alias: new)
   orch restart <target>... | --all [--cmd pi]
                                  Fully close the harness process and relaunch it.
-
-COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
-  orch lock run [--note <why>] [--timeout <ms>] -- <argv...>
-                                 Acquire the machine-wide lock, run argv, release on exit (propagates the exit code).
-  orch lock check -- <argv...>     Exit 3 if argv is a locked command held elsewhere, else exit 0.
-  orch lock status [--json]      Show the current holder (pid, note, age) or 'unlocked'.
-  orch lock release --force      Evict the current holder, naming it.
 
 PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch spawn <name> [<name>...] [--tab L] [--dir P] [--cmd C] [--model M]
@@ -314,7 +306,6 @@ const commandHandlers: Record<string, Handler> = {
   questions: (args) => dispatchAsync(cmdQuestions(args)),
   runs: (args) => cmdRuns(args),
   queue: (args) => dispatchAsync(cmdQueue(args)),
-  lock: (args) => dispatchAsync(cmdLock(args).then((code) => { process.exitCode = code; })),
   daemon: (args) => dispatchAsync(cmdDaemon(args)),
   doctor: (args) => dispatchAsync(cmdDoctor(args)),
   work: (args) => dispatchAsync(cmdWork(args)),

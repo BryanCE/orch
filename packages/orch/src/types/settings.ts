@@ -26,7 +26,7 @@ export interface OrchSettings {
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
   fleet: { max_agents_per_pack: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
-  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
+  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };
   queue: { max_retries: number };
   retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number };
   logging?: { level: LogLevel };
@@ -35,7 +35,7 @@ export interface OrchSettings {
   locked_commands: string[];
   hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
-  daemon: { tcp_port: number; idle_shutdown_minutes: number };
+  daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
   skills: { install: boolean; store: string; link: string[] };

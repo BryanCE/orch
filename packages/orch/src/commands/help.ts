@@ -141,16 +141,6 @@ Always reset a target before dispatching it a new task.
 Fully close the harness process and relaunch it.
   --cmd         The command to relaunch with (default: the recorded adapter command).
 `,
-  lock: `orch lock run [--note <why>] [--timeout <ms>] -- <argv...>
-orch lock check -- <argv...>
-orch lock status [--json]
-orch lock release --force
-One heavy command machine-wide (see settings.locked_commands).
-  run           Acquire the lock, run argv, release on exit; propagates the exit code.
-  check         Exit 3 if argv is a locked command held elsewhere, else exit 0.
-  status        Show the current holder (pid, note, age) or 'unlocked'.
-  release       Evict the current holder, naming it. Requires --force.
-`,
   spawn: `orch spawn <name> [<name> ...] [--tab L] [--dir P] [--cmd C] [--model M]
           [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--worktree]
 Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...).

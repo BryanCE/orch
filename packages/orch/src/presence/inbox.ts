@@ -72,6 +72,14 @@ export function drainInbox(directory: string): string[] {
   return drainClaimedLines(inboxPath(directory));
 }
 
+/** Report consumption over the socket, with a presence marker if it is unavailable. */
+export async function reportDeliveryAck(directory: string, id: string, key: string, post: (id: string) => Promise<boolean>): Promise<void> {
+  try {
+    if (await post(id)) return;
+  } catch {}
+  appendAck(directory, id, key);
+}
+
 /**
  * Append a delivery marker for one inbox message.
  *

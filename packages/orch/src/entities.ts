@@ -1,6 +1,5 @@
 import { loadSettings } from "./settings/read.ts";
 import { allBackends } from "./backends/registry.ts";
-import { backendReachable } from "./backends/backend.ts";
 import { loadPresence } from "./presence/store.ts";
 import { orchDir } from "./presence/writer.ts";
 import { tryParseIdentity } from "./backends/identity.ts";
@@ -129,23 +128,21 @@ interface Fleet {
   readonly views: ReadonlyMap<string, AgentView>;
   readonly presence: ReadonlyMap<string, PresenceEntry>;
   readonly presenceById: ReadonlyMap<string, PresenceEntry>;
-  readonly census: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly census: Census;
 }
 
-/**
- * The handles each reachable plexer confirms it still has, asked ONCE per build.
- *
- * Asking is a server query, so being inside a pane of the plexer was never the
- * question — an orch outside herdr can see the fleet it opened. A plexer that
- * answers nothing is simply absent from this map.
- */
-function paneCensus(): Map<string, ReadonlySet<string>> {
-  const census = new Map<string, ReadonlySet<string>>();
+/** What each environment answers it still holds, by handle. An environment that
+ *  cannot answer is absent from this map, and its recorded handles stand. */
+type Census = ReadonlyMap<string, ReadonlyMap<string, BackendTarget>>;
+
+/** Ask every environment what it holds, ONCE per build. */
+function paneCensus(): Census {
+  const census = new Map<string, ReadonlyMap<string, BackendTarget>>();
   for (const backend of allBackends()) {
-    if (!backend.paneInventory || !backendReachable(backend)) continue;
+    if (!backend.paneInventory || !backend.isAvailable()) continue;
     try {
-      census.set(backend.id, new Set(backend.paneInventory.list().map((target) => String(target.handle))));
-    } catch { /* a plexer that cannot answer says nothing either way */ }
+      census.set(backend.id, new Map(backend.paneInventory.list().map((target) => [String(target.handle), target])));
+    } catch { /* an environment that cannot answer says nothing either way */ }
   }
   return census;
 }
@@ -201,9 +198,10 @@ function entityFromBackendTarget(
 }
 
 function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
-  if (!backend.paneInventory || !backendReachable(backend)) return [];
+  const listed = fleet.census.get(backend.id);
+  if (listed === undefined) return [];
   const keyByHandle = handlesByKey(fleet, backend);
-  return backend.paneInventory.list()
+  return [...listed.values()]
     .map((target) => entityFromBackendTarget(backend, target, keyByHandle, fleet, usedPresence));
 }
 
@@ -244,22 +242,10 @@ function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[]
     .map((entry) => presenceOnlyEntity(entry, fleet));
 }
 
-/**
- * The handle the ENVIRONMENT confirms it still has, or null.
- *
- * A row is not evidence that a pane exists. orch listed four agents with pane ids
- * herdr answered `pane_not_found` for, so `dispatch` accepted the target and
- * failed unexplained and `peek` crashed with a raw plexer error. The environment
- * is what says whether a pane is there, and the census IS that answer.
- *
- * A plexer that was not asked — no inventory role, or nothing answering — says
- * nothing either way, so the recorded handle stands. Only a plexer that ANSWERED
- * and did not list the handle takes it away.
- *
- * Losing the handle is not losing the agent (Rule 11): it becomes an agent with
- * no shortcut, still orch's and still reachable through its inbox.
- */
-function confirmedHandle(census: ReadonlyMap<string, ReadonlySet<string>>, plexer: string | null, handle: string | null): string | null {
+/** The handle the environment confirms it still has, else null. Only an
+ *  environment that answered, and did not list the handle, takes it away.
+ *  An agent with no handle keeps its id and its inbox (Rule 11). */
+function confirmedHandle(census: Census, plexer: string | null, handle: string | null): string | null {
   if (handle === null) return null;
   const held = plexer === null ? undefined : census.get(plexer);
   return held === undefined || held.has(handle) ? handle : null;

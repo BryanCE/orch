@@ -11,7 +11,8 @@ export const HERDR_BLOCKED_EVENT = "herdr:blocked";
 
 /** What a pane in this plexer composes, as the agent inside it will read it. */
 const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT });
-import { herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrServerStatus, herdrStartAgent, herdrTabs, version } from "./cli.ts";
+import { HerdrCommandError, herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrServerStatus, herdrStartAgent, herdrTabs, version } from "./cli.ts";
+import { AgentGoneError } from "../../control/agent-gone.ts";
 import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
@@ -21,6 +22,28 @@ import type { AgentAdapter } from "../../types/adapter.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
 
 const HERDR_BACKEND: BackendId = "herdr";
+
+/** herdr's own codes for "that handle no longer exists". They stay in this
+ *  adapter; what crosses the boundary is orch's AgentGoneError. */
+const GONE_HANDLE_CODES = new Set(["pane_not_found", "agent_not_found"]);
+
+/**
+ * Say "gone" in orch's vocabulary when herdr says the handle is not there.
+ *
+ * A write to a closed handle is permanent, and the outbox has to know that: left
+ * as an ordinary failure it retried every 30 seconds forever, and each retry
+ * delayed the dispatches of every other agent.
+ */
+function reportGoneHandle(handle: HerdrHandle, deliver: () => void): void {
+  try {
+    deliver();
+  } catch (error: unknown) {
+    if (error instanceof HerdrCommandError && error.code !== null && GONE_HANDLE_CODES.has(error.code)) {
+      throw new AgentGoneError(handle, `herdr reports ${error.code}`);
+    }
+    throw error;
+  }
+}
 
 /** The oldest herdr this integration speaks to. Every command it issues and every
  *  JSON field it reads exists from here on; a newer herdr is still herdr. */
@@ -132,8 +155,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly channel = agentChannel;
   readonly capture = capture;
   readonly paneInput = {
-    submit: (handle: HerdrHandle, text: string): void => { herdrAck(["pane", "run", handle, text]); },
-    sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { herdrAck(["pane", "send-keys", handle, ...keys]); },
+    submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => herdrAck(["pane", "run", handle, text])); },
+    sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => herdrAck(["pane", "send-keys", handle, ...keys])); },
     focus: (handle: HerdrHandle): void => { herdrAck(["agent", "focus", handle]); },
   };
   readonly paneForeground: PaneForegroundRole<HerdrHandle> = {
@@ -264,8 +287,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   /** herdr's server as the version port describes one. A server that is not
    *  running is null: there is nothing for the installed client to disagree with. */
   private serverReport(): ServerReport | null {
-    const status = herdrServerStatus();
-    return status.running ? { version: status.version, compatible: status.endpointCompatible } : null;
+    // A client that cannot run, or a server that does not answer, IS the answer:
+    // no server. Throwing here made one missing binary the failure of every
+    // command that reads the fleet.
+    try {
+      const status = herdrServerStatus();
+      return status.running ? { version: status.version, compatible: status.endpointCompatible } : null;
+    } catch {
+      return null;
+    }
   }
 
   /** True when a herdr control socket is reachable (inside a live herdr session). */

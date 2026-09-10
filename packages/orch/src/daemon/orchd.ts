@@ -26,17 +26,18 @@ import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
 import { insertControlOutcome } from "../store/control-outcome-rows.ts";
 import { settleControlOutcome } from "../control/outcome.ts";
+import { acknowledgeDelivery, confirmDelivery } from "../control/ack.ts";
 import { agentIdOf } from "../commands/lifecycle/close.ts";
 import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
-import { drainOutbox } from "./outbox.ts";
+import { deliverOutboxMessage, drainOutbox } from "./outbox.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb } from "../adapters/adapter.ts";
-import { detachedBackend } from "../backends/registry.ts";
+import { headlessBackend } from "../backends/registry.ts";
 import { fleetStatusRows } from "../commands/status.ts";
 import { agentView } from "../store/agent-view.ts";
 import { createLogger } from "../log.ts";
@@ -91,6 +92,7 @@ let server: RpcServer | undefined;
 const workController = new AbortController();
 let workLoop: Promise<void> | undefined;
 let workLoopRunning = false;
+let outboxDrain: ReturnType<typeof setInterval> | undefined;
 let presenceWatch: PresenceWatch | undefined;
 let settingsWatch: SettingsWatch | undefined;
 let currentSettings: OrchSettings | undefined;
@@ -297,9 +299,8 @@ export function governWrite(directory: string, target: string, params: unknown, 
   logLeaseGrant();
 }
 
-async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
+async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown, id = randomUUID()): Promise<{ accepted: true; id: string }> {
   const { target, text } = validateWriteParams(params);
-  const id = randomUUID();
   const log = decisionLogger(directory).forCorrelation(id);
   try {
     withTransaction(directory, () => {
@@ -308,7 +309,10 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
     });
     log.info("dispatch.accepted", { target, action });
     log.info("dispatch.queued", { target, action });
-    await drainOutbox(directory, outboxDeps());
+    // THIS write only. Draining the whole outbox here put every caller behind
+    // every other orch's backlog, and one dead agent's retries then timed out
+    // the RPC for a fleet that was perfectly healthy.
+    await deliverOutboxMessage(directory, id, outboxDeps());
     // Only a write no channel would take is a failure. A queued one is open on
     // purpose: the agent has not read its inbox yet (L7).
     if (outboxMessageUnsent(directory, id)) {
@@ -354,14 +358,14 @@ export function optionalModelSpecs(value: unknown, name: string): string[] | und
 }
 
 /**
- * Launch one detached agent from INSIDE the daemon.
+ * Launch one headless agent from INSIDE the daemon.
  *
- * A detached agent has no TTY: it runs the prompt it was launched with and exits.
- * The prompt is therefore required, not optional — a detached agent with nothing
+ * A headless agent has no TTY: it runs the prompt it was launched with and exits.
+ * The prompt is therefore required, not optional — a headless agent with nothing
  * to do registers, finds no work, and dies before anything can be sent to it.
  * orchd owns the launch because it already owns delivery and outlives the CLI.
  */
-function spawnDetached(directory: string, params: unknown): { key: string; pid: number } {
+function spawnHeadless(directory: string, params: unknown): { key: string; pid: number } {
   const value = rpcParams(params);
   const key = requiredString(value.key, "key");
   const adapterId = requiredString(value.adapter, "adapter");
@@ -372,7 +376,7 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
   const model = requiredString(value.model, "model");
   assertModelAllowed(directory, adapter, model);
-  const handle = detachedBackend.spawn(adapter, {
+  const handle = headlessBackend.spawn(adapter, {
     key,
     env: optionalEnvRecord(value.env, "env"),
     orchDir: directory,
@@ -435,13 +439,28 @@ async function applyLifecycle(directory: string, params: unknown): Promise<{ ok:
   return { ok: true, verb };
 }
 
-async function answer(directory: string, params: unknown): Promise<{ ok: true }> {
+export async function steer(directory: string, params: unknown) {
+  const id = randomUUID();
+  const timeoutMs = loadSettings(directory).timeouts.dispatch_ack_ms;
+  const ack = await confirmDelivery(id, timeoutMs, async () => {
+    await acceptWrite(directory, "steer", params, id);
+    return outboxMessageOpen(directory, id) ? "expected" : "none";
+  });
+  return { accepted: true, id, ack };
+}
+
+export async function answer(directory: string, params: unknown) {
   const value = rpcParams(params);
   const target = requiredString(value.target, "target");
   const text = requiredString(value.text, "text");
   governWrite(directory, target, params);
-  await deliverControl(target, { kind: "answer", text });
-  return { ok: true };
+  const id = randomUUID();
+  const ack = await confirmDelivery(id, loadSettings(directory).timeouts.dispatch_ack_ms, async () => {
+    const outcome = await deliverControl(target, { kind: "answer", text, id });
+    if (outcome.outcome === "answer") throw new Error(outcome.text);
+    return outcome.ack;
+  });
+  return { ok: true, id, ack };
 }
 
 let daemonLogger: Logger | undefined;
@@ -466,6 +485,7 @@ function logFatalAndExit(kind: string, error: unknown): void {
 
 async function shutDown(directory: string, reason: string): Promise<void> {
   daemonLogger?.info("daemon.stopping", { reason });
+  if (outboxDrain) clearInterval(outboxDrain);
   presenceWatch?.stop();
   settingsWatch?.stop();
   workController.abort();
@@ -534,8 +554,8 @@ async function main(): Promise<void> {
       },
       status: () => fleetStatus(directory),
       dispatch: (params) => acceptWrite(directory, "dispatch", params),
-      steer: (params) => acceptWrite(directory, "steer", params),
-      "spawn-detached": (params) => spawnDetached(directory, params),
+      steer: (params) => steer(directory, params),
+      "spawn-headless": (params) => spawnHeadless(directory, params),
       "set-model": (params) => setModel(directory, params),
       lifecycle: (params) => applyLifecycle(directory, params),
       "agent-closed": (params) => publishClosedAgent(directory, params),
@@ -544,6 +564,7 @@ async function main(): Promise<void> {
         const value = rpcParams(params);
         const id = requiredString(value.id, "id");
         markOutboxDelivered(directory, id);
+        acknowledgeDelivery(id);
         return { ok: true };
       },
       "control-outcome": (params) => {
@@ -631,6 +652,16 @@ async function main(): Promise<void> {
     continuous: true,
     onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory); },
   }).finally(() => { workLoopRunning = false; });
+
+  // The outbox drains on orchd's OWN clock. Piggy-backing it on `acceptWrite`
+  // meant a queued write was only ever retried when some other caller dispatched,
+  // and that caller then waited out the whole backlog before its own write went.
+  outboxDrain = setInterval(() => {
+    void drainOutbox(directory, outboxDeps()).catch((error: unknown) => {
+      daemonLogger?.error("outbox.drain-failed", { error: errorMessage(error) });
+    });
+  }, getSettings(directory).daemon.outbox_drain_ms);
+  outboxDrain.unref?.();
 
   const idleCheck = setInterval(() => {
     const idleMinutes = getSettings(directory).daemon.idle_shutdown_minutes;

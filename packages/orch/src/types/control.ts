@@ -11,7 +11,7 @@ export interface CommandLock {
 export type ControlAction =
   | { readonly kind: "run"; readonly text: string; readonly id?: string }
   | { readonly kind: "steer"; readonly text: string; readonly id?: string }
-  | { readonly kind: "answer"; readonly text: string }
+  | { readonly kind: "answer"; readonly text: string; readonly id: string }
   | { readonly kind: "model"; readonly model: string; readonly id: string }
   | { readonly kind: "lifecycle"; readonly verb: LifecycleVerb };
 

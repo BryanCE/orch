@@ -1,9 +1,8 @@
 import { orchDir } from "../../presence/writer.ts";
 import { loadSettings } from "../../settings/read.ts";
-import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
+import { agentIdentityEnv, maySpawnFrom, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
-import { workerPrompt } from "../../worker-prompt.ts";
-import { maySpawnFrom } from "../../policy/spawner.ts";
+import { workerPrompt, workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { mintAgentId, serializeIdentity } from "../../backends/identity.ts";
 import { resolveBackend } from "../../backends/registry.ts";
@@ -13,7 +12,7 @@ import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { rpcRegisterSession } from "../../daemon/reach.ts";
 import { die } from "../target.ts";
-import { callerSpace, selfId } from "../../identity/self.ts";
+import { callerPlexer, callerSpace, selfId } from "../../identity/self.ts";
 import { LAUNCH_ENV, launchCredential } from "../../identity/launch.ts";
 import { resolveTab } from "../panes.ts";
 import { commandLogger } from "../logging.ts";
@@ -30,15 +29,14 @@ import { findGroupInSpace, growFleetIntoGroup, resolveSpawnPlacement, spawnBacke
 import { awaitBridgeRegistration, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 
 
-// Detached agents are launched BY THE DAEMON, not here: orchd outlives this CLI
-// and already owns delivery. Each runs the prompt it was launched with and exits —
-// there is no pane for it to idle in.
-async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, spawnerAgentId: string | null): Promise<void> {
-  if (settings.commandFlag) die("--cmd requires a pane backend; detached launches use the selected adapter.");
-  // A detached agent has no TTY to idle on: it runs its prompt and exits, so work
+// Headless agents are launched BY THE DAEMON, not here: orchd outlives this CLI
+// and already owns delivery. Each runs the prompt it was launched with and exits.
+async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, spawnerAgentId: string | null): Promise<void> {
+  if (settings.commandFlag) die("--cmd requires a backend that places agents; headless launches use the selected adapter.");
+  // A headless agent has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process.
-  if (settings.prompts.length === 0 || settings.prompts.some((prompt) => !prompt.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" (a detached agent runs it and exits)`);
-  // Detached agents mint their identity under the backend's own grouping (headless → "local"),
+  if (settings.prompts.length === 0 || settings.prompts.some((prompt) => !prompt.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" (a headless agent runs it and exits)`);
+  // Headless agents mint their identity under the backend's own grouping (headless → "local"),
   // never the caller's herdr identity; the cap check must match that same bucket, not callerSpace().
   const space = settings.space ?? "local";
   assertSpawnPolicy(settings, space, settings.n);
@@ -60,7 +58,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
       const spawner = spawnerIdentity();
       // orchd launches a real harness process inside this call, so it gets the adapter-command
       // budget, not the 5s default meant for a question orchd answers from memory.
-      await callDaemon("spawn-detached", {
+      await callDaemon("spawn-headless", {
         key,
         adapter: settings.adapter,
         cwd,
@@ -76,11 +74,11 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { maySpawn, lockedCommands: settingsFile.locked_commands, spawnerRepliable: spawner.key !== null }),
+        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { maySpawn, spawnerRepliable: spawner.key !== null, ...workerRules(settingsFile) }),
         tools: settings.tools,
         workers: settings.workers,
       }, {}, settingsFile.timeouts.adapter_command_ms);
-      // A detached agent has no pane, so its key is the handle every display uses.
+      // A headless agent is placed nowhere, so its key is the handle every display uses.
       created.push({ key, pane: key, name });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
@@ -107,7 +105,7 @@ async function executeDetachedSpawn(settings: SpawnSettings, backend: Backend, s
     registered: registered.length,
   }) + "\n");
   else {
-    process.stdout.write(`\nSpawned ${created.length} detached agent(s) (no panes).\n`);
+    process.stdout.write(`\nSpawned ${created.length} headless agent(s); nothing shows them.\n`);
     process.stdout.write("'orch status' shows the fleet.\n");
   }
 }
@@ -229,6 +227,7 @@ function placeSpawn(
   const placement = resolveSpawnPlacement({
     directory: orchDir(), backend, space: settings.space ?? callerSpace(),
     packRootId: spawnerAgentId === null ? null : agentById(orchDir(), spawnerAgentId)?.rootAgentId ?? null,
+    callerPlexer: callerPlexer(),
     cwd: settings.cwd,
     grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawnerAgentId); },
   });
@@ -244,8 +243,8 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // A spawned agent already carries its id; only a driving session registers.
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
   const backend = spawnBackend(settings);
-  // A backend without group creation has no panes to tile into: spawn detached.
-  if (!backend.groupHome) return executeDetachedSpawn(settings, backend, spawnerAgentId);
+  // An environment that creates no group can place nothing: spawn headless.
+  if (!backend.groupHome) return executeHeadlessSpawn(settings, backend, spawnerAgentId);
   const groupLayout = backend.groupLayout;
   if (!groupLayout) return answerNoGroupLayout(settings.json);
   const { space, workspace } = placeSpawn(settings, backend, spawnerAgentId);

@@ -18,7 +18,7 @@ import {
   writeStatus as writePresenceStatus,
 } from "../presence/writer.ts";
 import {
-  appendAck,
+  reportDeliveryAck,
   drainInbox as drainPresenceInbox,
   isInboxFilename,
   resetInbox,
@@ -378,20 +378,12 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   function deliverSteerText(text: string): void {
     state.steersReceived += 1;
-    try {
-      const idle = lastCtx?.isIdle() ?? true;
-      if (idle) {
-        harness.sendUserMessage(text);
-      } else {
-        harness.sendUserMessage(text, { deliverAs: "steer" });
-      }
-    } catch {}
-  }
-
-  // The transport-neutral fallback marker, consumed by a socket-less daemon.
-  function appendAckMarker(id: string): void {
-    if (!dir) return;
-    appendAck(dir, id, state.key);
+    const idle = lastCtx?.isIdle() ?? true;
+    if (idle) {
+      harness.sendUserMessage(text);
+    } else {
+      harness.sendUserMessage(text, { deliverAs: "steer" });
+    }
   }
 
   async function applyInboxMessage(parsed: unknown, messageId: string | undefined): Promise<void> {
@@ -411,11 +403,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     await applyInboxMessage(parsed, messageId);
     if (messageId !== undefined) {
       daemon.markAcked(messageId);
-      try {
-        if (!(await daemon.postAck(messageId))) appendAckMarker(messageId);
-      } catch {
-        appendAckMarker(messageId);
-      }
+      if (dir) await reportDeliveryAck(dir, messageId, state.key, (id) => daemon.postAck(id));
     }
   }
 

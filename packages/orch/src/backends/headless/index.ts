@@ -215,11 +215,11 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       key,
       harnessId: adapter.id,
       backendId: HEADLESS_BACKEND,
-      // No pane: this environment offers no plexer shortcut to the process. It
-      // still has a handle — a concrete address for the process just started —
-      // and stating it here is what lets `list`/`close`/`handleFor` reach an
-      // agent with no screen without a SECOND write behind the registration.
-      pane: false,
+      // Placed nowhere, yet still addressable: the handle below is a concrete
+      // address for the process just started, and stating it here is what lets
+      // `list`/`close`/`handleFor` reach an agent with no screen without a
+      // SECOND write behind the registration.
+      placed: false,
       handle: JSON.stringify(handle),
       cwd: opts.cwd ?? process.cwd(),
       name: opts.name ?? opts.env?.ORCH_AGENT_NAME ?? key,

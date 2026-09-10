@@ -15,6 +15,7 @@ import { loadSettingsOrNull } from "../settings/read.ts";
 import { orchDir } from "../presence/writer.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
 import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
+import { reportDeliveryAck } from "../presence/inbox.ts";
 import { atomicWrite, presenceFile } from "../presence/writer.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
@@ -94,11 +95,11 @@ function waitForOrchestratorAnswer(
   answerFile: string,
   signal: AbortSignal | undefined,
   reNotify: () => void,
-): Promise<string | undefined> {
+): Promise<{ text: string; id: string } | undefined> {
   return new Promise((resolve) => {
     let settled = false;
     let lastNotificationAt = Date.now();
-    const finish = (text?: string) => {
+    const finish = (answer?: { text: string; id: string }) => {
       if (settled) return;
       settled = true;
       clearInterval(poll);
@@ -106,12 +107,12 @@ function waitForOrchestratorAnswer(
       try {
         signal?.removeEventListener("abort", onAbort);
       } catch {}
-      resolve(text);
+      resolve(answer);
     };
     const check = () => {
       const answer = readJsonFile(answerFile);
-      if (isRecord(answer) && typeof answer.text === "string") {
-        finish(answer.text);
+      if (isRecord(answer) && typeof answer.text === "string" && typeof answer.id === "string" && answer.id.length > 0) {
+        finish({ text: answer.text, id: answer.id });
         return;
       }
       if (Date.now() - lastNotificationAt >= 60 * 1000) {
@@ -191,14 +192,15 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const answer = await waitForOrchestratorAnswer(answerFile, signal, () => {
           notify(notificationEvent);
         });
-        if (typeof answer === "string") {
+        if (answer !== undefined) {
           try {
             fs.unlinkSync(answerFile);
           } catch {}
           try {
             fs.unlinkSync(questionFile);
           } catch {}
-          return toolResult(answer);
+          await reportDeliveryAck(dir, answer.id, state.key, (id) => daemon.postAck(id));
+          return toolResult(answer.text);
         }
         return noOrchestratorAnswer();
       } catch {

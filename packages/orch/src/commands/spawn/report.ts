@@ -2,6 +2,7 @@ import { bridgeRegistered } from "../../presence/store.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { loadSettings } from "../../settings/read.ts";
 import { maySpawnFrom } from "../../policy/spawner.ts";
+import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { tryParseIdentity } from "../../backends/identity.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
@@ -149,7 +150,7 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
       try {
         const { dispatchId } = await dispatchToAgent(agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
-          context: { maySpawn, lockedCommands: settingsFile.locked_commands, spawnerRepliable: true },
+          context: { maySpawn, spawnerRepliable: true, ...workerRules(settingsFile) },
         });
         dispatches.push({ name: agent.name, key: agent.key, dispatchId });
         if (!settings.json) process.stdout.write(`dispatched ${agent.name} ${dispatchId}\n`);

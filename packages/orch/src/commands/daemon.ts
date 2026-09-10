@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { loadSettings } from "../settings/read.ts";
 import {
   clearDaemonRuntime,
   daemonEntrypoint,
@@ -88,6 +89,10 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
  *  Use {@link writeRpc} when that cost is the whole command. */
 export async function callDaemon(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
   const directory = orchDir();
+  if (timeoutMs === undefined && (method === "steer" || method === "answer")) {
+    const { timeouts } = loadSettings(directory);
+    timeoutMs = timeouts.adapter_command_ms + timeouts.dispatch_ack_ms;
+  }
   if (gov.steal) forbidAgentOverride("--steal");
   if (gov.crossSpace) forbidAgentOverride("--cross-space");
   // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else

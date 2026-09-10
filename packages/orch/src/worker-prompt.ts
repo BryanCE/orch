@@ -5,14 +5,31 @@
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
-import type { WorkerHeaderContext } from "./types/core.ts";
+import type { WorkerHeaderContext, WorkerRules } from "./types/core.ts";
+import type { OrchSettings } from "./types/settings.ts";
 
-/** Always-on worker header: the pane is unattended. */
+/** The rules this machine puts in every worker header, whoever launched the worker. */
+export function workerRules(settings: OrchSettings): WorkerRules {
+  return { lockedCommands: settings.locked_commands, verifyCommands: settings.workers.verify_commands };
+}
+
+/**
+ * Always-on worker header: nobody watches this agent.
+ *
+ * The header addresses the AGENT, so it reads the same however the agent was
+ * launched and whether or not any environment shows it.
+ */
 const WORKER_HEADER_BASE =
-  "[orch worker] No human watches this pane." +
-  " Run your own tests and typechecks directly in this pane; verify your slice before reporting." +
+  "[orch worker] No human watches you." +
+  " Verify your own slice before you report it." +
   " Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden." +
-  " Do the work yourself in this pane. A slice too big for one pane is reported back, not split by you.";
+  " Do the work yourself. A slice too big for one agent is reported back, not split by you.";
+
+/** Names the commands that verify a slice; falls back to the repository's own when the user declared none. */
+function verifyCommandsClause(verifyCommands: readonly string[]): string {
+  if (verifyCommands.length === 0) return " Run the tests and typechecks this repository already has.";
+  return ` Verify with: ${verifyCommands.join(", ")}.`;
+}
 
 /** Tell the worker whether it may create another provenance level. */
 function workerSpawnClause(maySpawn: boolean): string {
@@ -54,7 +71,10 @@ export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Part
   const spawner = adapter?.inboxSteering && context.spawnerRepliable
     ? WORKER_HEADER_SPAWNER_CLAUSE
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
-  return WORKER_HEADER_BASE + workerSpawnClause(context.maySpawn === true) + ask + spawner + lockedCommandsClause(context.lockedCommands ?? []);
+  return WORKER_HEADER_BASE
+    + verifyCommandsClause(context.verifyCommands ?? [])
+    + workerSpawnClause(context.maySpawn === true)
+    + ask + spawner + lockedCommandsClause(context.lockedCommands ?? []);
 }
 
 /** Strip the composed worker header (base + any clauses) from a dispatched task's text. */
@@ -62,6 +82,18 @@ export function stripWorkerHeader(task: string): string {
   if (!task.startsWith(WORKER_HEADER_BASE)) return task;
   const separator = task.indexOf("\n\n");
   return separator === -1 ? "" : task.slice(separator + 2);
+}
+
+/**
+ * The task text for one agent: the paths it works with, then the instructions.
+ *
+ * The paths belong to the TASK, never to the header. `stripWorkerHeader` cuts the
+ * header off a stored task, and a path cut out of the record leaves a task nobody
+ * can read back.
+ */
+export function taskWithPaths(instructions: string, paths: readonly string[]): string {
+  if (paths.length === 0) return instructions;
+  return `Work with: ${paths.join(", ")}.\n\n${instructions}`;
 }
 
 /** Normalize a dispatched task before storing it: strip the header, then truncate. */

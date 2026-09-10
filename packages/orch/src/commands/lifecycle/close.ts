@@ -10,7 +10,6 @@ import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { processInstanceMatches, processIsAlive } from "../../process-identity.ts";
 import { getBackend } from "../../backends/registry.ts";
-import { backendReachable } from "../../backends/backend.ts";
 import { sleepMs } from "../../backends/pane-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/rpc/client.ts";
@@ -98,19 +97,14 @@ export function describeHandle(handle: BackendHandle): string {
   return typeof handle === "string" ? handle : handle.toString();
 }
 
-/** Whether the ENVIRONMENT still lists this handle (U1). A plexer with no
- *  inventory, or none answering, was not asked and says nothing either way, so
- *  the recorded handle stands. */
+/** Whether the environment still lists this handle (U1). An environment that
+ *  cannot answer says nothing either way, so the recorded handle stands. */
 function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boolean | null {
   const inventory = backend?.paneInventory;
-  // No inventory, or nothing answering, is UNKNOWN — never evidence that a
-  // handle exists. A missing handle is dealt with by the caller and never
-  // reaches this function.
-  if (!backend || !inventory || !backendReachable(backend)) return null;
+  if (!inventory) return null;
   try {
     return inventory.list().some((entry) => describeHandle(entry.handle) === describeHandle(handle));
   } catch {
-    // A plexer that cannot answer has not said the pane is gone.
     return null;
   }
 }
@@ -214,21 +208,17 @@ function closeByPane(paneHost: PaneHostRole, handle: BackendHandle): CloseAttemp
   }
 }
 
-/** A plexer's successful close is not proof when its inventory can answer: verify
- *  the handle is really gone after every close attempt we can observe. */
+/** A reported close is not proof: ask the environment whether the handle is gone.
+ *  An environment that cannot answer proves nothing, so it reports no failure. */
 function stillListed(target: CloseTarget): string | null {
-  // A plexer that does not answer is UNKNOWN, so it cannot prove that a
-  // successfully closed handle remains present.
-  if (target.handle === null || !target.backend?.paneInventory || !backendReachable(target.backend)) return null;
   const handle = target.handle;
+  if (handle === null || !target.backend?.paneInventory) return null;
   try {
     const listed = target.backend.paneInventory.list()
       .some((entry) => describeHandle(entry.handle) === describeHandle(handle));
-    return listed === true
-      ? `${describeHandle(handle)} is still listed by ${target.backend?.id ?? "the plexer"} after the close`
-      : null;
-  } catch (error: unknown) {
-    return errorMessage(error);
+    return listed ? `${describeHandle(handle)} is still listed by ${target.backend.id} after the close` : null;
+  } catch {
+    return null;
   }
 }
 

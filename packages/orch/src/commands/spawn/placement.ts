@@ -4,13 +4,14 @@ import { assertNameFree } from "../../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { mintAgentId, serializeIdentity } from "../../backends/identity.ts";
-import { detachedBackend, resolveBackend } from "../../backends/registry.ts";
+import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement } from "../../backends/tiling.ts";
 import { createAgentWorktree } from "../../worktree.ts";
 import { errorMessage } from "../../util.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
+import { callerPlexer } from "../../identity/self.ts";
 import { commandLogger } from "../logging.ts";
 import type { Backend, BackendGroup, BackendHandle, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import { homeHandle, openHome } from "../../store/home-rows.ts";
@@ -44,7 +45,7 @@ function homeName(cwd: string, subject: HomeSubject): string {
  * set the reachability boundary is the repo root.
  */
 export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlacement {
-  const { directory, backend, space, packRootId, cwd, grantNewHome } = request;
+  const { directory, backend, space, packRootId, callerPlexer, cwd, grantNewHome } = request;
   // A space the user named is where the agents are FILED, whether or not this
   // plexer holds a home for it. A home recorded in another plexer is not this
   // one's to drive, so its absence here is simply no coordinate.
@@ -55,12 +56,11 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   // ROLE, never from whether a method happens to exist (E13). Its absence is the
   // answer, not a failure (E14): the plexer places the fleet on its own default.
   const home = backend.spaceHome;
-  // Already inside this plexer: the fleet lands beside the caller. There is no
-  // window to open, so there is nothing to ask the human for. WHERE the caller
-  // sits is an environment fact answered by the plexer's own environment (Rule
-  // 11) — never by whether orch minted the caller an id: a human's own pane
-  // carries no launch credential and is inside all the same.
-  const inside = backend.isInsideSession();
+  // Already inside this plexer: the fleet lands beside the caller, so there is no
+  // window to open and nothing to ask the human for. WHERE the caller sits is an
+  // environment fact orch RECORDED at spawn or registration (Rule 11). It arrives
+  // as a fact; this function probes nothing.
+  const inside = callerPlexer !== null && callerPlexer === backend.id;
   if (home === null || inside || packRootId === null) return { space: null, workspace: undefined };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
   const existing = homeHandle(directory, subject, backend.id);
@@ -110,7 +110,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   // writer filling in the rest is how the two came to disagree about which
   // record was authoritative.
   registerSpawnedAgent(orchDir(), {
-    key, harnessId: spec.adapterId, backendId: spec.backend.id, pane: spec.backend.paneInventory !== null,
+    key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.paneInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, space: spec.space ?? undefined,
     spawner: spec.spawnerAgentId ?? null,
     owner: callerOwnerToken(),
@@ -178,19 +178,19 @@ export function findGroupInSpace(backend: Backend, workspace: string | undefined
 }
 /**
  * Where the fleet runs is placement, never identity (Rule 11), so a caller outside
- * the plexer is not a reason to go detached: it only means orch has no space
- * yet, and a backend that can open one of its own opens one. Detached is the answer
+ * the plexer is not a reason to go headless: it only means orch has no space
+ * yet, and a backend that can open one of its own opens one. Headless is the answer
  * only for a backend that can neither be entered nor open a space.
  */
 export function spawnBackend(settings: SpawnSettings): Backend {
   const backend = resolveBackend({ configured: settings.backend });
   if (!backend.groupHome || settings.space !== null) return backend;
-  if (backend.isInsideSession()) return backend;
+  if (callerPlexer() === backend.id) return backend;
   if (backend.spaceHome) return backend;
-  commandLogger().warn("spawn.detached-fallback", { backend: backend.id });
+  commandLogger().warn("spawn.headless-fallback", { backend: backend.id });
   process.stdout.write(
-    `orch is not running inside a ${backend.id} pane and ${backend.id} cannot open a space of its own - spawning detached. `
+    `orch is not running inside ${backend.id} and ${backend.id} cannot open a space of its own - spawning headless. `
     + `Pass --space <id> to place these agents in a ${backend.id} space instead.\n`,
   );
-  return detachedBackend;
+  return headlessBackend;
 }

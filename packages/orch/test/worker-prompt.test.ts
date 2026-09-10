@@ -45,8 +45,25 @@ describe("worker prompt capability composition", () => {
     const header = workerHeaderFor(getAdapter("pi"));
     expect(header).not.toContain("orch lock run");
     expect(header).toContain("Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden");
-    expect(header).toContain("Run your own tests and typechecks directly in this pane");
+    expect(header).toContain("Verify your own slice before you report it");
     expect(header.toLowerCase()).toContain("never spawn subagents");
+  });
+
+  // A pane is a plexer's word for one place an agent can be shown. A headless worker
+  // has none, so a header that names one describes an environment the agent is not in.
+  test("the header addresses the agent, and names no plexer furniture", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { maySpawn: true, spawnerRepliable: true });
+    expect(header.toLowerCase()).not.toContain("pane");
+    expect(header.toLowerCase()).not.toContain("workspace");
+  });
+
+  test("the verify clause names the configured commands, and asks for the repository's own when there are none", () => {
+    const named = workerHeaderFor(getAdapter("pi"), { verifyCommands: ["bun check", "bun test"] });
+    expect(named).toContain("Verify with: bun check, bun test.");
+    expect(named).not.toContain("this repository already has");
+
+    const unnamed = workerHeaderFor(getAdapter("pi"), { verifyCommands: [] });
+    expect(unnamed).toContain("Run the tests and typechecks this repository already has.");
   });
 
   test("locked-commands clause names the commands, and asks for a report rather than a lock", () => {

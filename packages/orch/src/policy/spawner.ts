@@ -1,6 +1,6 @@
 import { LAUNCH_ENV } from "../identity/launch.ts";
 import { ENVIRONMENT_ENV } from "../agent/environment.ts";
-import { selfIdentity } from "../identity/self.ts";
+import { selfId, selfIdentity } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { orchDir } from "../presence/writer.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -9,6 +9,9 @@ import { depthOf } from "./provenance.ts";
 import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import type { SpawnerIdentity } from "../types/policy.ts";
+import { workerRules } from "../worker-prompt.ts";
+import type { WorkerHeaderContext } from "../types/core.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 /** Every ORCH_* variable carried through a spawn; tests import this vocabulary
  * so isolation cannot drift from the launch boundary. */
@@ -106,4 +109,13 @@ export function maySpawnFrom(orchDir: string, spawnerId: string | undefined, max
  *  nothing else — never on its own harness's steer capability. */
 export function spawnerIsRepliable(): boolean {
   return spawnerIdentity().key !== null;
+}
+
+/** The header context for a worker THIS session dispatches to. */
+export function workerHeaderContext(settings: OrchSettings): WorkerHeaderContext {
+  return {
+    maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth),
+    spawnerRepliable: spawnerIsRepliable(),
+    ...workerRules(settings),
+  };
 }

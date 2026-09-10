@@ -5,6 +5,7 @@ import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setSpace } from "./interval-rows.ts";
+import { closeOutboxForTarget } from "./outbox-rows.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 
 /** This machine's OS as the store names it. Throws rather than guess: an
@@ -80,8 +81,12 @@ export function reclaimAgent(orchDir: string, id: string): void {
   });
 }
 
+/** Record an agent's ending and close the writes still queued for it. An ended
+ *  agent reads nothing, so a write left open only costs every other agent a turn
+ *  in the retry loop. */
 export function endAgent(orchDir: string, agentId: string, endedAt: number, closedBy: string | null): void {
   orm(orchDir).insert(agentEndings).values({ agentId, endedAt, closedBy }).run();
+  closeOutboxForTarget(orchDir, agentId);
 }
 
 /** Record that an agent runs from a git worktree. No row means the repo itself. */
@@ -198,13 +203,17 @@ function placeSession(orchDir: string, agentId: string, input: SessionAgentInput
   }
 }
 
+/** The environment exists as soon as it is named; only the host record needs its version. */
+function recordPlexer(orchDir: string, input: SessionAgentInput): void {
+  if (!input.plexerId) return;
+  ensurePlexer(orchDir, input.plexerId, input.plexerId);
+  if (input.plexerVersion) ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
+}
+
 export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInput): SessionAgentIdentity {
   ensureHarness(orchDir, input.harnessId, input.harnessId, input.now);
   ensureHost(orchDir, input.hostId, input.hostName, input.hostOs, input.now);
-  if (input.plexerId && input.plexerVersion) {
-    ensurePlexer(orchDir, input.plexerId, input.plexerId);
-    ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
-  }
+  recordPlexer(orchDir, input);
   const identity = withTransaction<SessionAgentIdentity>(orchDir, () => {
     const db = orm(orchDir);
     const token = input.sessionToken ?? null;

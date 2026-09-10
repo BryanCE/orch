@@ -77,7 +77,7 @@ export const SETTINGS_DEFAULTS = {
   logging: { level: "info" },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
-  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
+  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000 },
   doctor: { unclaimed_after_ms: 120_000 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
@@ -136,6 +136,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     exclude_extensions: z.array(z.string()).optional(),
     builtin_tools: z.boolean().optional(),
     allow_tools: z.array(z.string()).optional(),
+    /** Commands a worker runs to verify its own slice, named in its header. */
+    verify_commands: z.array(z.string()).optional(),
   }).optional(),
   queue: z.strictObject({
     max_retries: z.number().int().nonnegative().optional(),
@@ -173,6 +175,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     tcp_port: PositiveInt.optional(),
     /** Minutes of no live agents, no subscribers, and no RPC before orchd exits; 0 = never. */
     idle_shutdown_minutes: z.number().int().min(0).optional(),
+    /** How often orchd retries queued writes and consumes acknowledgements. */
+    outbox_drain_ms: PositiveInt.optional(),
   }).optional(),
   doctor: z.strictObject({
     /** Milliseconds an agent may remain unclaimed after spawn before doctor reports it. */

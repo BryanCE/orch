@@ -27,7 +27,7 @@ describe("per-command help topics", () => {
   });
 
   test("every topic is printable text ending in a newline", () => {
-    for (const name of ["status", "spawn", "dispatch", "queue", "lock", "review", "settings", "doctor", "setup", "close", "reset", "logs", "help"]) {
+    for (const name of ["status", "spawn", "dispatch", "queue", "review", "settings", "doctor", "setup", "close", "reset", "logs", "help"]) {
       const topic = helpTopic(name);
       expect(topic).not.toBeNull();
       expect(topic!.endsWith("\n")).toBe(true);

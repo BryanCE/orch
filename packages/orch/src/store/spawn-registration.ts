@@ -21,7 +21,7 @@ export function registerSpawnedAgent(directory: string, input: SpawnRegistration
   const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
   const tuning = splitThinkingSuffix(input.model);
   const handle = input.handle;
-  if (input.pane && handle === undefined) throw new Error("pane spawn registration requires a handle");
+  if (input.placed && handle === undefined) throw new Error("a placed agent requires a handle");
 
   // A space is USER-CREATED (A7): a spawn naming one that does not exist is a
   // refusal, never a licence to conjure the place. This gate lived in the second

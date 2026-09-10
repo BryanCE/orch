@@ -9,13 +9,12 @@ import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadSettings } from "../settings/read.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
-import { selfId } from "../identity/self.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel } from "./selection.ts";
 import { workerPrompt } from "../worker-prompt.ts";
-import { maySpawnFrom, spawnerIsRepliable } from "../policy/spawner.ts";
+import { workerHeaderContext } from "../policy/spawner.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId } from "../types/adapter.ts";
@@ -32,6 +31,8 @@ type DispatchFlags = AgentFlags & {
   thenNote: string;
   /** Path the prompt body is read from, or "-" for stdin. Unset means the positionals are the prompt. */
   promptFile?: string;
+  /** Paths the agent works with. Orch names them and never opens them; each `--with` adds one. */
+  withPaths: string[];
   positional: string[];
 };
 
@@ -62,20 +63,21 @@ export async function cmdSteer(args: string[]): Promise<void> {
   }
   const entity = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, entity, gov.steal);
-  if (!entity.paneId) {
-    if (!entity.presence) die(`Target "${target}" has no agent presence.`);
-    // The daemon's control dispatcher applies the effect; the CLI never steers directly.
-    const key = entity.presence.key;
-    const result = await writeRpc("steer", { target: key, text }, gov);
-    const recipient = recipientFor(key);
-    if (json) process.stdout.write(JSON.stringify({ target: key, recipient, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-    else process.stdout.write(`Steered ${recipientLabel(recipient)} -> ${truncate(collapse(text), 60)}\n`);
+  const result = await writeRpc("steer", { target: entity.key, text }, gov);
+  reportControlDelivery("steered", entity.key, result, json, ` -> ${truncate(collapse(text), 60)}`);
+}
+
+function reportControlDelivery(action: "steered" | "answered", key: string, result: unknown, json: boolean, suffix: string): void {
+  if (!isRecord(result) || (result.ack !== "acknowledged" && result.ack !== "unavailable")) die("Daemon response missing delivery acknowledgement.");
+  const confirmed = result.ack === "acknowledged";
+  const recipient = recipientFor(key);
+  if (json) {
+    process.stdout.write(JSON.stringify({ target: key, recipient, [action]: confirmed, ...result }) + "\n");
     return;
   }
-  const result = await writeRpc("steer", { target: entity.key, text }, gov);
-  const recipient = recipientFor(entity.key);
-  if (json) process.stdout.write(JSON.stringify({ target: entity.paneId, recipient, steered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Steered ${recipientLabel(recipient)} -> ${truncate(collapse(text), 60)}\n`);
+  const verb = confirmed ? (action === "steered" ? "Steered" : "Answered") : "Sent to";
+  const ack = confirmed ? "acknowledged" : "ack unavailable; consumption unconfirmed";
+  process.stdout.write(`${verb} ${recipientLabel(recipient)} (${ack})${suffix}\n`);
 }
 
 export async function cmdBroadcast(args: string[]) {
@@ -166,9 +168,7 @@ export async function cmdAnswer(args: string[]): Promise<void> {
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
   const result = await writeRpc("answer", { target: ent.presence.key, text }, gov);
-  const recipient = recipientFor(ent.presence.key);
-  if (json) process.stdout.write(JSON.stringify({ target: ent.presence.key, recipient, answered: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Answered ${recipientLabel(recipient)}.\n`);
+  reportControlDelivery("answered", ent.presence.key, result, json, ".");
 }
 
 export async function cmdModel(args: string[]): Promise<void> {
@@ -228,22 +228,22 @@ function forwardedToTargetHost(args: string[], target: string | undefined): bool
 }
 
 /**
- * Record the row for a bare pane this dispatch just adopted. A spawned agent
- * already has one; an adopted pane needs it under the SAME key we dispatched to,
- * carrying the dispatcher's owner token or it stays open to every other orchestrator.
+ * Record the row for an agent this dispatch just adopted. A spawned agent already
+ * has one; an adopted agent needs it under the SAME key we dispatched to, carrying
+ * the dispatcher's owner token or it stays open to every other orchestrator.
  */
-function adoptBarePane(key: string, dispatchSettings: DispatchSettings): void {
+function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings): void {
   registerSpawnedAgent(orchDir(), {
     key,
     harnessId: dispatchSettings.adapter,
     // An entity that names no plexer is in no plexer, and that is the answer —
     // never a sentinel id standing in for a missing one (Rule 11, and the
     // `backendId` contract in SpawnRegistration). Absent here means no row in
-    // `agent_plexers`, which is exactly what a capless adopted pane is.
+    // `agent_plexers`.
     ...(dispatchSettings.ent.backend === null ? {} : { backendId: dispatchSettings.ent.backend }),
-    // An adopted bare pane is a pane orch did not open: the plexer's own
-    // address for it is the handle, and an entity with none states none.
-    pane: false,
+    // orch did not place this agent, so it claims no place for it. Whatever
+    // address the environment already had is carried below as the handle.
+    placed: false,
     ...(dispatchSettings.ent.paneId === null ? {} : { handle: dispatchSettings.ent.paneId }),
     ...(dispatchSettings.ent.space === null ? {} : { space: dispatchSettings.ent.space }),
     cwd: process.cwd(),
@@ -266,9 +266,9 @@ export async function cmdDispatch(args: string[]) {
   // control target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
   if (dispatchSettings.model) await setAgentModel(key, dispatchSettings.model, gov);
-  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth), lockedCommands: settings.locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const headerContext = workerHeaderContext(settings);
   const { dispatchId } = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
-  if (!spawnedRecords().has(key)) adoptBarePane(key, dispatchSettings);
+  if (!spawnedRecords().has(key)) recordAdoptedAgent(key, dispatchSettings);
   const recipient = recipientFor(key);
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the pane runs the prompt this command sent, not some other delivery.
@@ -279,11 +279,12 @@ export async function cmdDispatch(args: string[]) {
 
 export function parseDispatchFlags(args: string[]): DispatchFlags {
   const commandArgs = args.filter((argument) => argument !== "--raw" && argument !== "--json");
-  const flags: DispatchFlags = { raw: args.includes("--raw"), json: args.includes("--json"), doWait: false, thenTarget: null, thenNote: "", positional: [] };
+  const flags: DispatchFlags = { raw: args.includes("--raw"), json: args.includes("--json"), doWait: false, thenTarget: null, thenNote: "", withPaths: [], positional: [] };
   for (let i = 0; i < commandArgs.length; i++) {
     const argument = commandArgs[i];
     if (argument === "--model") flags.modelFlag = commandArgs[++i];
     else if (argument === "--file") flags.promptFile = commandArgs[++i];
+    else if (argument === "--with") flags.withPaths.push(commandArgs[++i]!);
     else if (argument === "--agent" || argument === "--adapter") flags.adapterFlag = commandArgs[++i];
     else if (argument === "--wait") flags.doWait = true;
     else if (argument === "--then") {

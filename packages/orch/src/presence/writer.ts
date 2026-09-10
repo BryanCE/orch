@@ -191,8 +191,8 @@ export function launchStamp<T extends LaunchStampable>(previous: T, id: string, 
 }
 
 /** Write the answer to an agent's blocking question. */
-export function writeAnswer(directory: string, text: string): void {
-  atomicWrite(presenceFile(directory, ANSWER_FILE), { text, ts: new Date().toISOString() });
+export function writeAnswer(directory: string, text: string, id: string): void {
+  atomicWrite(presenceFile(directory, ANSWER_FILE), { id, text, ts: new Date().toISOString() });
 }
 
 /** Append one line to a presence log. A log gets append-atomicity where a cell

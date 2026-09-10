@@ -104,13 +104,23 @@ function herdr(args: string[], policy?: RetryPolicy): unknown {
   }
 }
 
+/** A failed herdr command, carrying the code herdr answered with. The code is
+ *  herdr's wire format and stays inside this adapter; callers read `code` rather
+ *  than matching on the message text. */
+export class HerdrCommandError extends Error {
+  constructor(public readonly code: string | null, message: string) {
+    super(message);
+    this.name = "HerdrCommandError";
+  }
+}
+
 function herdrOutput(args: string[], timeoutMs = MUTATION_TIMEOUT_MS): string {
   // Assume a mutation: listings must not serve pre-mutation state.
   listCache.clear();
   try {
     return executeHerdr("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error: unknown) {
-    throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
+    throw new HerdrCommandError(herdrErrorCode(error), `herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
   }
 }
 

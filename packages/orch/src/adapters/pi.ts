@@ -136,7 +136,7 @@ export function steerViaInbox(request: SteerRequest): AdapterCommand | undefined
 /** Unblock an asking agent by writing the answer file its bridge waits on. */
 export function answerViaFile(request: AnswerRequest): AdapterCommand | undefined {
   const presence = presenceFor(request.key);
-  if (presence) writeAnswer(presence.dir, request.text);
+  if (presence) writeAnswer(presence.dir, request.text, request.id);
   return undefined;
 }
 

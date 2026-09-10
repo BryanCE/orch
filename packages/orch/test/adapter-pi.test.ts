@@ -100,7 +100,7 @@ describe("PiAdapter", () => {
   test("writes a blocking answer to the presence answer file", () => {
     writeStatus("pianswer01", "blocked");
 
-    adapter.answer({ key: "pianswer01", text: "yes" });
+    adapter.answer({ key: "pianswer01", text: "yes", id: "answer-1" });
 
     expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir(), "pianswer01", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
   });

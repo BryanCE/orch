@@ -104,8 +104,6 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
   inventory (every consumer, every call site, every fixture, file:line) written to a report
   file. Dispatches then cite the report instead of restating it.
 - **Verify at stopping points with scoped runs.** Turn idle panes into verifiers that run only
-  their slice's test files: `orch lock run -- bun test <files>`. The lock serializes heavy
-  runs machine-wide (waiters sleep-poll until it frees, dead holders are evicted), so a
-  12-pane fleet cannot stampede the machine. Full-suite gates stay with the user.
+  their slice's test files: `bun test <files>`. Full-suite gates stay with the user.
 - **Self-hosting boundary.** Changes to orch's own code bite only after rebuild, daemon
   reload, and respawn. Bridges reconnect to a restarted daemon on their own.

@@ -26,7 +26,7 @@ export function spawnLogger(key?: string) {
 }
 
 /** Wait for every agent to write its bridge dir; returns only the ones that registered. */
-export async function awaitBridgeRegistration(created: { key: string; pane: string; name: string }[], json = false): Promise<CreatedAgent[]> {
+export async function awaitBridgeRegistration(created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
   const registered = new Map<string, CreatedAgent>();
   const deadline = Date.now() + 60_000;
@@ -36,17 +36,17 @@ export async function awaitBridgeRegistration(created: { key: string; pane: stri
       if (bridgeRegistered(key)) {
         pending.delete(key);
         registered.set(key, agent);
-        if (!json) process.stdout.write(`  ok      ${agent.pane}  ${agent.name}\n`);
+        if (!json) process.stdout.write(`  ok      ${agent.handle}  ${agent.name}\n`);
       }
     }
     await sleep(500);
   }
   // A stalled agent is a failed spawn: it holds its name and answers no control
   // traffic. Reporting it on stdout while exiting 0 is what let a scripted fleet
-  // launch read as success and dispatch into panes that never came up.
+  // launch read as success and dispatch into agents that never came up.
   for (const agent of pending.values()) {
-    spawnLogger(agent.key).error("spawn.stalled", { handle: agent.pane, name: agent.name });
-    process.stdout.write(`  STALLED ${agent.pane}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
+    spawnLogger(agent.key).error("spawn.stalled", { handle: agent.handle, name: agent.name });
+    process.stdout.write(`  STALLED ${agent.handle}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
   }
   if (pending.size) process.exitCode = 1;
   return [...registered.values()];
@@ -77,7 +77,7 @@ export function printLayout(backend: Backend, group: string, header: string) {
   const role = backend.groupLayout;
   if (!role) return;
   const layout = readGroupLayout(role, group);
-  const names = new Map((backend.paneInventory?.list() ?? []).map((target) => [String(target.handle), target.name ?? "-"]));
+  const names = new Map((backend.placementInventory?.list() ?? []).map((target) => [String(target.handle), target.name ?? "-"]));
   process.stdout.write(header + "\n");
   const rows = layout.panes.map((p) => [
     String(p.handle),
@@ -110,7 +110,7 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
   const settingsFile = loadSettings(orchDir());
   const maySpawn = maySpawnFrom(orchDir(), selfId(), settingsFile.fleet.max_depth);
   if (!settings.json) {
-    for (const agent of created) process.stdout.write(`${agent.pane}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
+    for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     printLayout(backend, group, "\nFinal tiling:");
   }
   reportShortfall(settings.n, created.length);

@@ -135,7 +135,7 @@ export interface AgentSettings {
   preferredModels: readonly string[];
 }
 
-export interface CreatedAgent { key: string; pane: string; name: string }
+export interface CreatedAgent { key: string; handle: string; name: string }
 
 export interface TabSpawnSpec {
   backend: Backend;
@@ -326,13 +326,13 @@ export interface LeaseOptions {
 }
 
 /**
- * Everything minted for ONE agent before any pane exists: its identity, its
- * worktree and the environment its pane is opened with.
+ * Everything minted for ONE agent before it has a place: its identity, its
+ * worktree and the environment it is placed with.
  *
  * A fresh-tab launch is deliberately phased — mint every identity, create the
- * tab, open every pane, then launch every agent — so this is what one agent
- * carries between those phases. `pane` is filled in by the phase that opens it
- * and stays undefined when that failed, which costs that agent and never the tab.
+ * group, place every agent, then launch every agent — so this is what one agent
+ * carries between those phases. `handle` is filled in by the phase that places it
+ * and stays undefined when that failed, which costs that agent and never the group.
  */
 export interface PreparedAgent {
   readonly name: string;
@@ -340,5 +340,5 @@ export interface PreparedAgent {
   readonly key: string;
   readonly env: Readonly<Record<string, string>>;
   readonly branch: string | undefined;
-  pane: BackendHandle | undefined;
+  handle: BackendHandle | undefined;
 }

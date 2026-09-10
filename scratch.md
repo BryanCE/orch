@@ -31,9 +31,26 @@ an agent. `backends/registry.ts`.
 ## Rule 11 as a gate
 
 `scripts/check-vocabulary.ts` fails on a plexer's words (`pane`, `workspace`) anywhere outside
-`src/backends/<plexer>/`. It reports **538 uses across 66 files** today, so it is NOT yet wired
-into `bun check` — it lands there in the same commit as the rename, or it turns the gate red on
-existing code.
+`src/backends/<plexer>/`. It reported **538 uses across 66 files** when it was written; it is now
+at **405 across 60**. It is NOT yet wired into `bun check` — it lands there in the same commit
+that finishes the rename, or it turns the gate red on existing code.
+
+Renamed so far, each with every writer, reader and test in the same change:
+
+| Cluster | Was | Now |
+|---|---|---|
+| `SpawnRegistration` (`types/store.ts`) | `pane: boolean` | `placed: boolean` |
+| `CreatedAgent` (`types/command.ts`) | `pane: string` | `handle: string` |
+| `PreparedAgent` (`types/command.ts`) | `pane` | `handle` |
+| `ClearedAgent` (`lifecycle/reset.ts`) | `pane` | `handle` |
+| `DispatchSettings` (`commands/control.ts`) | `pane` | `handle` |
+| `ReloadResult` (`lifecycle/reload.ts`) | `pane` | `handle` |
+| `lifecycle/reload.ts` | `reloadPaneAndAwaitBridge`, `restartPaneAndAwaitBridge` | `reloadAgentAndAwaitBridge`, `restartAgentAndAwaitBridge` |
+| `spawn/index.ts` | `openPanesForGroup` | `placeRemainingAgents` |
+
+Next, and the largest: the **Backend port roles** — `paneHost`, `paneInput`, `paneInventory`,
+`paneForeground`, `PaneForeground`, `intoPane`, `targetPane`, `backends/pane-ready.ts`. These
+span `types/backend.ts`, every backend, and `commands/panes.ts`. After that: `Entity.paneId`.
 
 | # | Item | Done |
 |---|---|---|
@@ -49,7 +66,7 @@ existing code.
 | 10 | Fresh spawn timing is undocumented | 🟡 |
 | 11 | The watch banner is delivered as an event | ✅ |
 | 12 | ~~Orch cannot ask whether a monitor is already armed~~ RULED OUT | — |
-| 21 | dispatch resets by default; spawn and dispatch take `--file` and `--with` | ❌ |
+| 21 | dispatch resets by default; spawn and dispatch take `--file` and `--with` | ✅ |
 | 13 | A watch fires without `--all` | ✅ |
 | 14 | Worker lint noise | ✅ |
 | 15 | Prompt bodies come from a file or stdin | ✅ |
@@ -91,7 +108,7 @@ existing code.
 | # | What the code says today |
 |---|---|
 | 4 | Answers now carry a delivery id and wait for consumption, but are not bound to the question or task they answer. A late answer can still reach a later question. |
-| 21 | `spawn` takes `--prompt` only; no `--file`, no `--with`. `dispatch` takes the prompt positionally or `--file`, parses `--with` into `flags.withPaths` but never uses it, and never resets. `clearSession` (`lifecycle/reset.ts:54`) is the reusable reset and is module-private. Order must be reset, then model, then dispatch — a reset can drop the pinned model, which is why `cmdNew` re-pins after clearing. |
+| 21 | DONE. `dispatch` clears the session, then pins the model, then sends; `--keep-context` skips the clear. `clearSession` is exported from `lifecycle/reset.ts`. `readPromptFile` moved to `commands/prompt-file.ts` and both verbs call it. Both verbs take `--file` and `--with`, and `taskWithPaths` composes the paths into the task. Help and the published skill say so. |
 | 12 | No `subscribe` / `subscriptions` verbs exist; the daemon holds the connections and is never asked. `reference/commands.md` still teaches `pgrep -fa "orch events"` as the preflight. |
 | 16 | No `redispatch` anywhere in `src/` or `skills/`. Still blocked on your ruling below. |
 

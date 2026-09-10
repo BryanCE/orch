@@ -17,7 +17,7 @@ import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, OpenPaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
 
@@ -93,7 +93,7 @@ function groupFromTab(tab: HerdrTab): BackendGroup {
     workspace: tab.workspace_id ?? null,
     focused: !!tab.focused,
     number: tab.number ?? null,
-    paneCount: tab.pane_count ?? null,
+    placementCount: tab.pane_count ?? null,
     status: tab.agent_status ?? null,
   };
 }
@@ -154,12 +154,12 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly serverInfo: ServerInfoRole = { running: (): ServerReport | null => this.serverReport() };
   readonly channel = agentChannel;
   readonly capture = capture;
-  readonly paneInput = {
+  readonly agentInput = {
     submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => herdrAck(["pane", "run", handle, text])); },
     sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => herdrAck(["pane", "send-keys", handle, ...keys])); },
     focus: (handle: HerdrHandle): void => { herdrAck(["agent", "focus", handle]); },
   };
-  readonly paneForeground: PaneForegroundRole<HerdrHandle> = {
+  readonly foreground: ForegroundRole<HerdrHandle> = {
     read: (handle) => {
       const out = herdrExec(["pane", "process-info", "--pane", handle], {
         timeout: 5000,
@@ -176,12 +176,12 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       };
     },
   };
-  readonly paneHost: PaneHostRole<HerdrHandle> = {
-    open: (request: OpenPaneRequest<HerdrHandle>) => {
+  readonly placement: PlacementRole<HerdrHandle> = {
+    open: (request: PlacementRequest<HerdrHandle>) => {
       const workspace = request.workspace ?? callerPaneWorkspace();
       if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
-      const targetPane = typeof request.targetPane === "string"
-        ? request.targetPane
+      const targetPane = typeof request.targetHandle === "string"
+        ? request.targetHandle
         : typeof request.group === "string"
           ? this.panesWithMetadata().find((pane) => pane.group === request.group)?.handle ?? null
           : null;
@@ -189,7 +189,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     },
     close: (handle) => { herdrAck(["pane", "close", handle]); },
   };
-  readonly paneInventory: PaneInventoryRole<HerdrHandle> = {
+  readonly placementInventory: PlacementInventoryRole<HerdrHandle> = {
     current: () => {
       const handle = callerPaneHandle();
       return handle ? { handle, workspace: callerPaneWorkspace() ?? null, group: null } : null;
@@ -197,15 +197,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     list: () => this.panesWithMetadata(),
   };
   /** The last visible lines of a pane's screen. Throws on failure. */
-  readonly paneScreen: PaneScreenRole<HerdrHandle> = {
+  readonly screen: ScreenRole<HerdrHandle> = {
     read: (handle, lines) => herdrExec(["pane", "read", handle, "--source", "recent-unwrapped", "--lines", String(lines)], {
       timeout: 5000,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }),
   };
-  readonly paneZoom: PaneZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { herdrAck(["pane", "zoom", handle, ZOOM_FLAGS[mode]]); } };
-  readonly paneNaming: PaneNamingRole<HerdrHandle> = { renamePane: (handle, name) => { herdrAck(["pane", "rename", handle, name]); } };
+  readonly zoom: ZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { herdrAck(["pane", "zoom", handle, ZOOM_FLAGS[mode]]); } };
+  readonly labeling: LabelRole<HerdrHandle> = { setLabel: (handle, name) => { herdrAck(["pane", "rename", handle, name]); } };
   readonly agentNaming: AgentNamingRole<HerdrHandle> = { renameAgent: (handle, name) => { herdrAck(["agent", "rename", handle, name]); } };
   /** Blocks until herdr reports the status; provider failures and timeouts throw. */
   readonly agentStatus: AgentStatusRole<HerdrHandle> = {
@@ -234,20 +234,20 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     rename: (coordinate, label) => { herdrAck(["tab", "rename", coordinate, label]); },
     close: (coordinate) => { herdrAck(["tab", "close", coordinate]); },
     focus: (coordinate) => { herdrAck(["tab", "focus", coordinate]); },
-    move: (request: MovePaneRequest<HerdrHandle>) => {
+    move: (request: MoveRequest<HerdrHandle>) => {
       if (request.group === null) {
         const args = ["pane", "move", request.handle, "--new-tab", "--no-focus"];
         if (request.label) args.push("--label", request.label);
         herdrJSON<{ move_result?: { pane?: { pane_id?: string } } }>(args);
         return;
       }
-      const move = this.movePaneIntoTab(request.handle, request.group, request.split, request.against ?? request.targetPane);
+      const move = this.movePaneIntoTab(request.handle, request.group, request.split, request.against ?? request.targetHandle);
       if (move.changed) return;
       if (move.reason !== "same_tab") throw new Error(`herdr refused to move ${request.handle} into ${request.group}: ${move.reason ?? "unchanged"}`);
       const bounceArgs = ["pane", "move", request.handle, "--new-tab", "--no-focus"];
       const bouncedResult = herdrJSON<{ move_result?: { pane?: { pane_id?: string } } }>(bounceArgs);
       const bounced = bouncedResult?.move_result?.pane?.pane_id ?? request.handle;
-      const reseated = this.movePaneIntoTab(bounced, request.group, request.split, request.against ?? request.targetPane);
+      const reseated = this.movePaneIntoTab(bounced, request.group, request.split, request.against ?? request.targetHandle);
       if (!reseated.changed) throw new Error(`herdr left ${bounced} outside tab ${request.group}`);
     },
   };
@@ -256,7 +256,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       const panes = herdrPanes().filter((pane) => pane.tab_id === group);
       if (!panes.length) throw new Error(`no panes on tab ${group}`);
       const rects = panes.flatMap((pane) => pane.rect ? [{ handle: pane.pane_id, rect: pane.rect }] : []);
-      return rects.length === panes.length ? { group, panes: rects } : this.tabLayoutOf(panes[0]!.pane_id);
+      return rects.length === panes.length ? { group, placements: rects } : this.tabLayoutOf(panes[0]!.pane_id);
     },
   };
   readonly spaceHome: SpaceHomeRole<HerdrHandle> = {
@@ -323,16 +323,16 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     // to clean up if herdr cannot honor the request.
     this.launchArgs(adapter, opts);
     // A handed-over pane is the caller's to clean up, and it is already seated.
-    const adopted = typeof opts.intoPane === "string" ? opts.intoPane : null;
+    const adopted = typeof opts.intoHandle === "string" ? opts.intoHandle : null;
     const opened = adopted === null;
-    const handle = adopted ?? this.paneHost.open({
+    const handle = adopted ?? this.placement.open({
       cwd: opts.cwd ?? process.cwd(),
       workspace: opts.workspace,
       group: opts.group,
       split: opts.split,
-      // opts.targetPane is an opaque cross-backend handle; herdr's own is a
+      // opts.targetHandle is an opaque cross-backend handle; herdr's own is a
       // string, so it is narrowed here rather than trusted (as tmux does too).
-      targetPane: typeof opts.targetPane === "string" ? opts.targetPane : undefined,
+      targetHandle: typeof opts.targetHandle === "string" ? opts.targetHandle : undefined,
       env: agentLaunchEnv(opts, HERDR_ENVIRONMENT_STAMP),
     }).handle;
     if (!opened) {
@@ -454,7 +454,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     if (!layout || !Array.isArray(layout.panes)) throw new Error(`no layout for ${handle}`);
     return {
       group: layout.tab_id,
-      panes: layout.panes.map((pane) => ({ handle: pane.pane_id, rect: pane.rect })),
+      placements: layout.panes.map((pane) => ({ handle: pane.pane_id, rect: pane.rect })),
     };
   }
 

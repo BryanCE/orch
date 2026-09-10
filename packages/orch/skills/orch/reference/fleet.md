@@ -65,9 +65,10 @@ the work, never the worker.
 
 ## Keep the pane, rename the work
 
-Keep the tab open while the domain probably has more work. Between tasks reuse the pane:
-`orch reset <target>` gives fresh context in the same pane, name and model intact. `orch
-close` a tab only when that domain is done. Close-and-respawn cycles per round waste time
+Keep the tab open while the domain probably has more work. Between tasks reuse the agent:
+`orch dispatch` gives the next task fresh context in the same agent, name and model intact.
+`orch reset <target>` does the clear alone, when you want the context gone and send no
+work. `orch close` a tab only when that domain is done. Close-and-respawn cycles per round waste time
 and leave dead panes that look idle.
 
 Name panes for the work, and rename when the work changes. `orch rename <target> <name>`
@@ -75,7 +76,7 @@ sets the NAME column (`--pane` sets the border label instead) and costs nothing:
 context and model are untouched. A spawn-ordinal name like `recon-2` says nothing about what
 that worker holds. By round three you cannot tell which pane owns which slice and every
 event line becomes unreadable. Name by slice: `mcp-types`, `mcp-tools`, `mcp-guards`. After
-a reset onto a new slice, rename in the same breath. A stale name is worse than an ordinal
+a dispatch onto a new slice, rename in the same breath. A stale name is worse than an ordinal
 because it actively lies. Renaming does not break the watch, since the scope filters on
 `spawnedBy`.
 

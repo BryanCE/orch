@@ -87,11 +87,14 @@ Review done worktree agents. With no subcommand, review runs interactively.
 Queue a prompt through orchd with the worker header prepended.
   --raw         Send the exact prompt, no worker header.
 `,
-  dispatch: `orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model <model[:thinking]>] [--agent <adapter>]
+  dispatch: `orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model <model[:thinking]>] [--agent <adapter>]
 Durably accept a prompt through orchd: the write lands in the outbox and survives restarts.
-Prints the dispatch id; 'orch status --json' echoes it as .dispatchId once the
-agent runs that prompt, proving the pane runs what THIS command sent.
+The target starts the work on a CLEAN session: dispatch clears the context first,
+then re-pins the model, then sends. Prints the dispatch id; 'orch status --json'
+echoes it as .dispatchId once the agent runs that prompt.
   --file        Read the prompt from a file, or from stdin with '-', instead of argv.
+  --with        Name a path the agent works with. Repeat once per path.
+  --keep-context  Send onto the session the agent already has, without clearing it.
   --raw         Send the exact prompt, no worker header.
   --model       Pin the model (and optional thinking effort) for this dispatch.
   --agent       Route through a specific adapter instead of the recorded one.
@@ -142,7 +145,8 @@ Fully close the harness process and relaunch it.
   --cmd         The command to relaunch with (default: the recorded adapter command).
 `,
   spawn: `orch spawn <name> [<name> ...] [--tab L] [--dir P] [--cmd C] [--model M]
-          [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--worktree]
+          [--agent A] [--backend B] [--prompt T ...] [--file P|-] [--with P]...
+          [--tasks FILE] [--worktree]
 Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...).
 NAMING AN AGENT IS PART OF CREATING IT: the positional arguments ARE the names,
 one per agent, and how many you give is how many panes you get. There is no
@@ -155,9 +159,11 @@ leaves nothing behind.
   --dir         Directory the agents start in. Defaults to the spawner's own.
   --model       Pin each agent's launch model.
   --agent       Adapter id (pi, claude, codex, ...).
-  --backend     Plexer id (herdr, tmux, headless). headless requires --prompt: a detached
+  --backend     Plexer id (herdr, tmux, headless). headless needs --prompt or --file: a detached
                 agent runs the prompt and exits.
   --prompt      One task for every agent, or repeat exactly N times for per-agent tasks.
+  --file        Read the one task from a file, or from stdin with '-', instead of argv.
+  --with        Name a path the agents work with. Repeat once per path.
   --tasks       JSON file containing exactly N task strings (alternative to --prompt).
   --worktree    Give each agent its own git worktree.
 `,

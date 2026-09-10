@@ -20,14 +20,14 @@ function activeBackend(reports: readonly DoctorBackendReport[], configured?: str
     // An absent `enabled` means the backend never declared one, which reads as enabled.
     return (report.enabled ?? true) ? report : null;
   }
-  const live = reports.find((report) => report.roles.includes("paneInventory") && report.detected && report.insideSession && (report.enabled ?? true));
+  const live = reports.find((report) => report.roles.includes("placementInventory") && report.detected && report.insideSession && (report.enabled ?? true));
   if (live) return live;
-  return reports.find((report) => !report.roles.includes("paneInventory") && (report.enabled ?? true)) ?? null;
+  return reports.find((report) => !report.roles.includes("placementInventory") && (report.enabled ?? true)) ?? null;
 }
 
 /** Every enabled backend must be detected; only the active one must be inside
  *  a live session. Requiring insideSession of all of them is unsatisfiable the
- *  moment two pane backends are enabled — you cannot be inside both a herdr
+ *  moment two placing environments are enabled — you cannot be inside both a herdr
  *  and a tmux session at once, so the check could never pass (design D6).
  *
  *  Severity separates a broken install from situational context (11.3): a missing
@@ -169,17 +169,17 @@ export function describeBackendEnvironments(
       enabled: isEnabled,
       active: false,
       insideSession,
-      // The plexer's own grouping for the calling pane. Never read off an
+      // The plexer's own grouping for the calling process. Never read off an
       // identity: identity carries no environment (A1).
-      space: backend.paneInventory?.current()?.workspace ?? null,
+      space: backend.placementInventory?.current()?.workspace ?? null,
       roles: Object.entries({
-        paneHost: backend.paneHost,
-        paneInventory: backend.paneInventory,
-        paneInput: backend.paneInput,
-        paneForeground: backend.paneForeground,
-        paneScreen: backend.paneScreen,
-        paneZoom: backend.paneZoom,
-        paneNaming: backend.paneNaming,
+        placement: backend.placement,
+        placementInventory: backend.placementInventory,
+        agentInput: backend.agentInput,
+        foreground: backend.foreground,
+        screen: backend.screen,
+        zoom: backend.zoom,
+        labeling: backend.labeling,
         agentNaming: backend.agentNaming,
         agentStatus: backend.agentStatus,
         groupHome: backend.groupHome,

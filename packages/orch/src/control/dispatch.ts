@@ -106,9 +106,9 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
     return { outcome: "invoke", ack: "none" };
   }
   const route = resolveTargetRoute(target);
-  if (!route?.backend.paneInventory) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${action.kind} does not apply.` };
-  if (!route.backend.paneInput) return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${action.kind}` };
-  route.backend.paneInput.submit(route.handle, action.text);
+  if (!route?.backend.placementInventory) return { outcome: "answer", reason: "not-placed", text: `${target} is placed nowhere; ${action.kind} does not apply.` };
+  if (!route.backend.agentInput) return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${action.kind}` };
+  route.backend.agentInput.submit(route.handle, action.text);
   return { outcome: "invoke", ack: "none" };
 }
 
@@ -171,12 +171,12 @@ function deliverLifecycle(target: string, adapter: AgentAdapter, verb: Lifecycle
   }
   const route = resolveBackendHandle(target);
   if (!route) throw new Error(`cannot ${verb} ${target}: no live backend handle`);
-  if (!route.backend.paneInput) {
-    throw new Error(`cannot ${verb} ${target}: target environment has no pane input role`);
+  if (!route.backend.agentInput) {
+    throw new Error(`cannot ${verb} ${target}: target environment cannot take input`);
   }
   const command = adapter.lifecycleControl.lifecycleCmd(verb);
   if (!command) throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} returned no ${verb} command`);
-  route.backend.paneInput.submit(route.handle, command.text);
+  route.backend.agentInput.submit(route.handle, command.text);
   return { outcome: "invoke", ack: "none" };
 }
 

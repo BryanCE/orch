@@ -199,10 +199,10 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
   const kind = value.action === "dispatch" ? "run" : "steer";
   if (!resolveTargetAdapter(canonicalTarget)) {
     const route = resolveTargetRoute(canonicalTarget);
-    if (!route?.backend.paneInput) return "failed";
-    // Keystrokes into a pane: nothing will ever append a marker for this, so the
+    if (!route?.backend.agentInput) return "failed";
+    // Raw keystrokes: nothing will ever append a marker for this, so the
     // write itself is the whole delivery.
-    route.backend.paneInput.submit(String(route.handle), text);
+    route.backend.agentInput.submit(String(route.handle), text);
     return "acked";
   }
   try {

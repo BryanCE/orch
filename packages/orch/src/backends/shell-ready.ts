@@ -1,7 +1,7 @@
-import type { PaneForeground } from "../types/backend.ts";
-export const NO_PANE_FOREGROUND: PaneForeground = { shellPid: null, foregroundPid: null, processes: [] };
+import type { ForegroundProcesses } from "../types/backend.ts";
+export const NO_FOREGROUND: ForegroundProcesses = { shellPid: null, foregroundPid: null, processes: [] };
 
-/** What a plexer counts as a pane's own shell. Copied from herdr's
+/** What an environment counts as an agent's own shell. Copied from herdr's
  *  `is_pane_shell_process_name` so orch reads exactly the fact herdr reads. */
 const SHELL_PROCESS_NAMES = new Set([
   "sh", "bash", "dash", "zsh", "fish", "ksh", "mksh", "csh", "tcsh",
@@ -16,10 +16,10 @@ function processName(name: string): string {
   return base.replace(/^-+/, "").toLowerCase().replace(/\.exe$/, "");
 }
 
-/** True while the pane's own shell owns the terminal. That covers an idle prompt
+/** True while the agent's own shell owns the terminal. That covers an idle prompt
  *  AND a shell still sourcing its rc files, which are indistinguishable from
  *  outside — so this answers "no command is running", never "input is accepted". */
-export function paneAtShellPrompt(foreground: PaneForeground): boolean {
+export function atShellPrompt(foreground: ForegroundProcesses): boolean {
   if (foreground.shellPid !== null && foreground.foregroundPid !== null) {
     return foreground.shellPid === foreground.foregroundPid;
   }

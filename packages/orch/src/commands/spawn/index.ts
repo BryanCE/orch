@@ -35,7 +35,7 @@ async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, s
   if (settings.commandFlag) die("--cmd requires a backend that places agents; headless launches use the selected adapter.");
   // A headless agent has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process.
-  if (settings.prompts.length === 0 || settings.prompts.some((prompt) => !prompt.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" (a headless agent runs it and exits)`);
+  if (settings.prompts.length === 0 || settings.prompts.some((prompt) => !prompt.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
   // Headless agents mint their identity under the backend's own grouping (headless → "local"),
   // never the caller's herdr identity; the cap check must match that same bucket, not callerSpace().
   const space = settings.space ?? "local";
@@ -51,7 +51,7 @@ async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, s
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
     try {
       // ONE key per agent: mint the name-based identity BEFORE launch and pass
-      // it as the launch credential, exactly like the pane paths (spawnOneIntoTab).
+      // it as the launch credential, exactly like the placed path (spawnOneIntoTab).
       // The backend records the OS pid separately for close ownership; the key
       // never encodes it, and the backend never re-mints a second identity.
       const key = serializeIdentity({ id: mintAgentId() });
@@ -79,7 +79,7 @@ async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, s
         workers: settings.workers,
       }, {}, settingsFile.timeouts.adapter_command_ms);
       // A headless agent is placed nowhere, so its key is the handle every display uses.
-      created.push({ key, pane: key, name });
+      created.push({ key, handle: key, name });
       if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
       // Stop asking for more, but report the agents already launched: a caller told
@@ -90,7 +90,7 @@ async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, s
       break;
     }
   }
-  // Same gate the pane path uses: an inbox adapter is only reachable once it has
+  // Same gate the placed path uses: an inbox adapter is only reachable once it has
   // written its presence dir, so returning before that hands the caller a key it
   // cannot dispatch to yet.
   reportShortfall(settings.n, created.length);
@@ -116,14 +116,14 @@ async function spawnIntoExistingTab(settings: SpawnSettings, group: BackendGroup
   await reportSpawnResults(settings, group.id, group.label ?? group.id, created, backend);
 }
 
-/** Announce a fleet whose control plane is down, and fail the launch. Panes without
+/** Announce a fleet whose control plane is down, and fail the launch. Agents without
  *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
  *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
  *  dispatching into a fleet that answered nothing. Null when orchd answers. */
 /** An environment with no group layout cannot tile. That is an ANSWER with exit
  *  0, never a throw and never a silent empty result. */
 function answerNoGroupLayout(json: boolean): void {
-  const answer = { outcome: "answer", reason: "no-environment-role", text: "this pane environment does not provide group layout" };
+  const answer = { outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group layout" };
   if (json) process.stdout.write(JSON.stringify(answer) + "\n");
   else process.stdout.write(`${answer.text}\n`);
 }
@@ -140,11 +140,11 @@ function prepareAgents(settings: SpawnSettings, adapter: AgentAdapter, names: re
       ...worktreeEnv(settings.worktree ? cwd : undefined, branch),
       [LAUNCH_ENV]: key, ORCH_DIR: orchDir(),
     };
-    return { name, cwd, key, env, branch, pane: undefined };
+    return { name, cwd, key, env, branch, handle: undefined };
   });
 }
 
-/** Create the tab and hand its root pane to the first prepared agent. */
+/** Create the group and hand its root place to the first prepared agent. */
 function createSpawnGroup(
   groupHome: GroupHomeRole,
   workspace: string | undefined,
@@ -154,16 +154,16 @@ function createSpawnGroup(
   const root = prepared[0]!;
   try {
     const created = groupHome.create({ workspace, cwd: root.cwd, label, env: root.env });
-    root.pane = created.rootHandle;
+    root.handle = created.rootHandle;
     return created.group;
   } catch (error: unknown) {
     die(`group create failed: ${errorMessage(error)}`);
   }
 }
 
-/** Open a pane for every prepared agent after the first, which already holds the
- *  group's root. A pane that fails to open costs that agent, never the tab. */
-function openPanesForGroup(
+/** Place every prepared agent after the first, which already holds the group's
+ *  root. A place that fails to open costs that agent, never the group. */
+function placeRemainingAgents(
   backend: Backend,
   prepared: readonly PreparedAgent[],
   groupId: string,
@@ -176,18 +176,18 @@ function openPanesForGroup(
       const role = backend.groupLayout;
       if (!role) continue;
       const tile = nextTilePlacement(role, groupId, firstSplit);
-      if (!backend.paneHost) throw new Error("backend has no pane host");
-      item.pane = backend.paneHost.open({ cwd: item.cwd, workspace, group: groupId, split: tile.split, targetPane: tile.targetPane, env: item.env }).handle;
+      if (!backend.placement) throw new Error("environment cannot place an agent");
+      item.handle = backend.placement.open({ cwd: item.cwd, workspace, group: groupId, split: tile.split, targetHandle: tile.targetHandle, env: item.env }).handle;
     } catch (error: unknown) {
       const message = errorMessage(error);
-      spawnLogger(item.key).warn("spawn.pane-open-failed", { name: item.name, error: message });
-      process.stdout.write(`warning: could not open a pane for ${item.name}: ${message}\n`);
-      item.pane = undefined;
+      spawnLogger(item.key).warn("spawn.place-failed", { name: item.name, error: message });
+      process.stdout.write(`warning: could not place ${item.name}: ${message}\n`);
+      item.handle = undefined;
     }
   }
 }
 
-/** Launch an agent into every pane that opened. A launch failure costs that
+/** Launch an agent into every place that opened. A launch failure costs that
  *  agent; the caller rules on what an empty result means. */
 function launchPrepared(
   prepared: readonly PreparedAgent[],
@@ -196,14 +196,14 @@ function launchPrepared(
   const { settings, backend, adapter, space, workspace, groupId, spawnerAgentId } = context;
   const created: CreatedAgent[] = [];
   for (const item of prepared) {
-    if (item.pane === undefined) continue;
+    if (item.handle === undefined) continue;
     try {
       created.push(spawnOneIntoTab({
         backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined,
         worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
-        spawnerAgentId, intoPane: item.pane, key: item.key, env: item.env,
+        spawnerAgentId, intoPane: item.handle, key: item.key, env: item.env,
       }));
     } catch (error: unknown) {
       const message = errorMessage(error);
@@ -218,7 +218,7 @@ function launchPrepared(
  *
  *  orch's own grouping and the plexer's coordinate are used for different
  *  things and are never interchanged: capacity, names and the agent record are
- *  orch's; the group and pane requests take the coordinate. */
+ *  orch's; the group and placement requests take the coordinate. */
 function placeSpawn(
   settings: SpawnSettings,
   backend: Backend,
@@ -259,7 +259,7 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   const groupHome = backend.groupHome;
   const prepared = prepareAgents(settings, adapter, names);
   const group = createSpawnGroup(groupHome, workspace, settings.label, prepared);
-  openPanesForGroup(backend, prepared, group.id, workspace, settings.tiling.first_split);
+  placeRemainingAgents(backend, prepared, group.id, workspace, settings.tiling.first_split);
   const created = launchPrepared(prepared, { settings, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
@@ -277,7 +277,7 @@ export async function cmdTile(args: string[]) {
   const settingsFile = loadSettings(orchDir());
   const { adapter, model, preferredModels } = resolveAgentSettings(flags, settingsFile);
   const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
-  if (!selectedBackend.paneInventory) die(`orch tile requires a pane-capable environment; ${selectedBackend.id} has no pane inventory.`);
+  if (!selectedBackend.placementInventory) die(`orch tile requires an environment that places agents; ${selectedBackend.id} places none.`);
   if (!selectedBackend.groupHome || !selectedBackend.groupLayout) {
     const answer = { outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" };
     if (flags.json) process.stdout.write(JSON.stringify(answer) + "\n");
@@ -288,9 +288,9 @@ export async function cmdTile(args: string[]) {
   assertLaunchModelAllowed(adapter, model);
   const target = flags.positional[0];
   const requestedName = flags.positional[1];
-  // Tile CREATES an agent, so it names one too. A pane
+  // Tile CREATES an agent, so it names one too. An agent
   // called `tile-3` says nothing about the slice it holds.
-  if (!target || !requestedName) die("usage: orch tile <tab-or-pane> <name> [--cmd <command>] [--dir <path>] [--model <model[:thinking]>]");
+  if (!target || !requestedName) die("usage: orch tile <target> <name> [--cmd <command>] [--dir <path>] [--model <model[:thinking]>]");
 
   const tab = resolveTab(target);
   const role = selectedBackend.groupLayout;
@@ -331,11 +331,11 @@ export async function cmdTile(args: string[]) {
   } catch (e: unknown) {
     die(`tile failed: ${errorMessage(e)}`);
   }
-  if (flags.json) process.stdout.write(JSON.stringify({ pane: agent.pane, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
+  if (flags.json) process.stdout.write(JSON.stringify({ handle: agent.handle, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
   else {
-    process.stdout.write(`Added ${agent.pane} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
+    process.stdout.write(`Added ${agent.handle} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
     printLayout(selectedBackend, tab.id, "\nFinal tiling:");
   }
-  await pinModels([{ key: agent.key, pane: agent.pane, name: autoName }], model);
+  await pinModels([{ key: agent.key, handle: agent.handle, name: autoName }], model);
 }
 

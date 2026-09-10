@@ -54,11 +54,11 @@ async function deliverModelPin(key: string, model: string): Promise<string | nul
 }
 
 /** Pin every agent to the launch model and return the refusals as warning text.
- *  A pin is the last step of a launch whose panes already exist and are registered:
+ *  A pin is the last step of a launch whose agents already exist and are registered:
  *  its failure is a warning the caller reads, never an exit code that tells an
- *  automated caller to retry a spawn that already created panes. */
+ *  automated caller to retry a spawn that already created agents. */
 export async function pinModels(
-  created: { key: string; pane: string; name: string }[],
+  created: { key: string; handle: string; name: string }[],
   model: string,
   thinking?: ThinkingLevel,
 ): Promise<string[]> {
@@ -69,14 +69,14 @@ export async function pinModels(
   // re-pin all route through the same resolution.
   // `model:level` is the control plane's wire spelling, never a stored shape.
   const spec = modelSpec(model, thinking);
-  const results = await Promise.all(created.map(async ({ key, pane, name }) => ({
-    pane,
+  const results = await Promise.all(created.map(async ({ key, handle, name }) => ({
+    handle,
     name,
     failure: await deliverModelPin(key, spec),
   })));
   const warnings = results
     .filter((result) => result.failure)
-    .map((result) => `could not pin ${result.name} (${result.pane}) to ${spec}: ${result.failure}`);
+    .map((result) => `could not pin ${result.name} (${result.handle}) to ${spec}: ${result.failure}`);
   for (const warning of warnings) {
     commandLogger().warn("spawn.model-pin-failed", { warning });
     process.stdout.write(`warning: ${warning}\n`);

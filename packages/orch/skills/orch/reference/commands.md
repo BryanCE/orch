@@ -20,8 +20,11 @@ headroom with `orch status --capacity` before you size a fleet, not after a spaw
   `--name` flag, no count argument and no `<prefix>-N` numbering.
 - `--worktree` only when parallel agents would otherwise edit the same files. Collect with
   `orch review`.
-- `--backend headless` runs detached and requires `--prompt`. The agent runs it and exits,
-  with no pane to steer.
+- `--prompt <text>` gives every agent its first task, or repeat it once per agent.
+  `--file <path>` (or `--file -`) reads that one task from disk or stdin, and `--with <path>`
+  names a path the agents work with, once per path. A spawn gets to work right away.
+- `--backend headless` runs detached and needs `--prompt` or `--file`. The agent runs the
+  task and exits, with nowhere to steer it.
 
 ### Spaces
 
@@ -61,7 +64,17 @@ exact spec for scripting.
 ```bash
 orch dispatch api-types "<the full task spec>"
 orch dispatch api-types --file slice.md   # or --file - to read the spec from stdin
+orch dispatch api-types --file slice.md --with src/api/types.ts --with src/api/schema.ts
+orch dispatch api-types "one more line in the same thread" --keep-context
 ```
+
+**Dispatch clears the context first.** It clears the session, re-pins the model, then
+sends. That is the default, so a new task never stacks on a used session and you never
+pair `orch reset` with it yourself. `--keep-context` sends onto the session the agent
+already has: use it only to add to work already in flight.
+
+`--with <path>` names a path the agent works with, once per path. orch names the paths in
+the task and never opens them.
 
 ### Quote the spec correctly. This is yours, not orch's.
 
@@ -167,7 +180,7 @@ same agent. Names are the readable option, so keep them meaningful.
 ## Steering and arrangement
 
 Steer a running agent at most once with `orch steer <target> "<text>"`. It arrives mid-turn.
-A doctrine change big enough to need explaining twice is a reset plus a new dispatch. A pane
+A doctrine change big enough to need explaining twice is a new dispatch. An agent
 in `asking` refuses a steer and names `orch answer`: answering a pending question is a
 different operation, and a steer aimed at one is accepted by the inbox and then lost inside
 the blocked turn.

@@ -13,7 +13,9 @@ import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel } from "./selection.ts";
-import { workerPrompt } from "../worker-prompt.ts";
+import { taskWithPaths, workerPrompt } from "../worker-prompt.ts";
+import { clearSession } from "./lifecycle/reset.ts";
+import { readPromptFile } from "./prompt-file.ts";
 import { workerHeaderContext } from "../policy/spawner.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
@@ -33,6 +35,8 @@ type DispatchFlags = AgentFlags & {
   promptFile?: string;
   /** Paths the agent works with. Orch names them and never opens them; each `--with` adds one. */
   withPaths: string[];
+  /** Send the work onto the session the agent already has, instead of a clean one. */
+  keepContext: boolean;
   positional: string[];
 };
 
@@ -45,8 +49,10 @@ interface DispatchSettings {
   doWait: boolean;
   thenNote: string;
   ent: Entity;
-  pane: string;
+  /** What the caller called the agent back to itself: its handle, else its key. */
+  handle: string;
   prompt: string;
+  keepContext: boolean;
   destination: Entity | null;
 }
 
@@ -107,8 +113,8 @@ export async function cmdBroadcast(args: string[]) {
     assertAgentOwned(target, ent, force);
     destinations.set(ent.presence!.key, ent.presence!);
   }
-  if (!destinations.size) die("No live pane agent dirs to broadcast to.");
-  // Per target, never Promise.all + die: one agent refusing (a pane awaiting an
+  if (!destinations.size) die("No live agent dirs to broadcast to.");
+  // Per target, never Promise.all + die: one agent refusing (one awaiting an
   // answer refuses a steer) must not hide which of its siblings did receive the text.
   const refusals: { key: string; reason: string }[] = [];
   await Promise.all([...destinations.values()].map(async (pres) => {
@@ -179,11 +185,11 @@ export async function cmdModel(args: string[]): Promise<void> {
   if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-space] [--no-wait]");
   const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, ent, gov.steal);
-  const pane = ent.paneId ?? ent.key;
+  const handle = ent.paneId ?? ent.key;
   const result = await setAgentModel(ent.key, modelArg, gov);
   const recipient = recipientFor(ent.key);
   const label = recipientLabel(recipient);
-  if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, requested: modelArg, ...result }) + "\n");
+  if (json) process.stdout.write(JSON.stringify({ target: handle, recipient, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${label}: already ${modelArg} (no-op)\n`);
   else process.stdout.write(`${label}: ${result.old ?? "(unknown)"} -> ${result.now} (accepted)\n`);
 }
@@ -257,29 +263,32 @@ function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings): vo
 export async function cmdDispatch(args: string[]) {
   const { gov, rest } = parseGovernance(args);
   const flags = parseDispatchFlags(rest);
-  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-space]');
+  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-space]');
   if (forwardedToTargetHost(args, flags.positional[0])) return;
   const settings = loadSettings(orchDir());
   const dispatchSettings = resolveDispatchSettings(flags, settings, gov);
-  // Address the daemon by the one canonical identity, never the pane id: a
-  // second registry row keyed by pane id forks the agent and makes every later
-  // control target ambiguous (dispatch/steer/reset all fail post-first-run).
+  // Address the daemon by the one canonical identity, never the handle: a second
+  // registry row keyed by handle forks the agent and makes every later control
+  // target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
+  // New work lands on a clean session unless the caller asked to keep the old one.
+  // The model is pinned AFTER the clear, because a clear drops it.
+  if (!dispatchSettings.keepContext) await clearSession(key, gov.steal === true);
   if (dispatchSettings.model) await setAgentModel(key, dispatchSettings.model, gov);
   const headerContext = workerHeaderContext(settings);
   const { dispatchId } = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
   if (!spawnedRecords().has(key)) recordAdoptedAgent(key, dispatchSettings);
   const recipient = recipientFor(key);
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
-  // proves the pane runs the prompt this command sent, not some other delivery.
+  // proves the agent runs the prompt this command sent, not some other delivery.
   const result = { id: dispatchId };
-  if (dispatchSettings.json) process.stdout.write(JSON.stringify({ target: dispatchSettings.pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  if (dispatchSettings.json) process.stdout.write(JSON.stringify({ target: dispatchSettings.handle, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}${dispatchId ? ` (dispatch ${dispatchId})` : ""}.\n`);
 }
 
 export function parseDispatchFlags(args: string[]): DispatchFlags {
-  const commandArgs = args.filter((argument) => argument !== "--raw" && argument !== "--json");
-  const flags: DispatchFlags = { raw: args.includes("--raw"), json: args.includes("--json"), doWait: false, thenTarget: null, thenNote: "", withPaths: [], positional: [] };
+  const commandArgs = args.filter((argument) => argument !== "--raw" && argument !== "--json" && argument !== "--keep-context");
+  const flags: DispatchFlags = { raw: args.includes("--raw"), json: args.includes("--json"), doWait: false, thenTarget: null, thenNote: "", withPaths: [], keepContext: args.includes("--keep-context"), positional: [] };
   for (let i = 0; i < commandArgs.length; i++) {
     const argument = commandArgs[i];
     if (argument === "--model") flags.modelFlag = commandArgs[++i];
@@ -296,40 +305,23 @@ export function parseDispatchFlags(args: string[]): DispatchFlags {
   return flags;
 }
 
-const STDIN_FD = 0;
-
-function readPromptFile(source: string): string {
-  const label = source === "-" ? "stdin" : source;
-  try {
-    return files.readFileSync(source === "-" ? STDIN_FD : source, "utf8");
-  } catch (error: unknown) {
-    die(`Could not read the prompt from ${label}: ${errorMessage(error)}`);
-  }
-}
-
-/**
- * The prompt body a control verb sends. `--file <path>` reads it from disk and
- * `--file -` from stdin, so a spec full of code identifiers never crosses argv,
- * where one apostrophe kills the command and the whole body lands in the transcript.
- */
+/** The prompt body a control verb sends: typed after the target, or read from `--file`. */
 export function promptBody(flags: Pick<DispatchFlags, "promptFile" | "positional">): string {
   const typed = flags.positional.slice(1).join(" ");
   if (flags.promptFile === undefined) return typed;
   if (typed) die("Give the prompt as arguments or as --file, not both.");
-  const body = readPromptFile(flags.promptFile).trim();
-  if (!body) die(`${flags.promptFile === "-" ? "stdin" : flags.promptFile} is empty; a dispatch needs a prompt.`);
-  return body;
+  return readPromptFile(flags.promptFile);
 }
 
 function resolveDispatchSettings(flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = promptBody(flags);
-  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model provider/id:think] [--agent adapter] [--wait] [--then <dst> ["note"]]');
+  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--agent adapter]');
   const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, ent, gov.steal);
-  const pane = ent.paneId ?? ent.key;
+  const handle = ent.paneId ?? ent.key;
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
-  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, pane, prompt, destination };
+  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, handle, prompt: taskWithPaths(prompt, flags.withPaths), keepContext: flags.keepContext, destination };
 }
 

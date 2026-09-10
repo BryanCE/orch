@@ -10,7 +10,7 @@ import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { processInstanceMatches, processIsAlive } from "../../process-identity.ts";
 import { getBackend } from "../../backends/registry.ts";
-import { sleepMs } from "../../backends/pane-ready.ts";
+import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/rpc/client.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";

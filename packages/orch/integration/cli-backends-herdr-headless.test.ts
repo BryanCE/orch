@@ -94,13 +94,16 @@ describe("backend registry selection is backend-independent", () => {
     }
   });
 
+  // Availability is the whole question: can this environment take an agent at all.
+  // Where the CALLER sits is environment (Rule 11) and never decides what orch can
+  // drive, so isInsideSession() is not part of the answer.
   test("implicit selection follows the capability probe, never throwing", () => {
     const herdr = getBackend("herdr")!;
-    const expected = herdr.isAvailable() && herdr.isInsideSession() ? "herdr" : "headless";
+    const expected = herdr.isAvailable() ? "herdr" : "headless";
     expect(resolveBackend({ explicit: null, configured: null }).id).toBe(expected);
   });
 
-  test("implicit selection falls back to headless when no herdr session exists", () => {
+  test("implicit selection falls back to headless when no plexer answers", () => {
     // eslint-disable-next-line typescript/unbound-method
     const herdrAvailable = HerdrBackend.prototype.isAvailable;
     // eslint-disable-next-line typescript/unbound-method

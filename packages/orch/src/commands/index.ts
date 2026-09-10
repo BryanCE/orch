@@ -74,9 +74,11 @@ REVIEW
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Queue a prompt through orchd with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" | --file <path>|- [--raw] [--model <model[:thinking]>] [--agent adapter]
-                                 Durably accept a prompt through orchd. --file reads the
-                                 prompt from a file, or from stdin with '-'.
+  orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model <model[:thinking]>] [--agent adapter]
+                                 Durably accept a prompt through orchd, onto a CLEAN session.
+                                 --file reads the prompt from a file, or from stdin with '-'.
+                                 --with names a path the agent works with (repeatable).
+                                 --keep-context sends onto the existing session instead.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).
   orch pipe <src> <dst> ["instruction"]
@@ -103,12 +105,12 @@ DISPATCH WORK
 
 PANES (create / arrange / lifecycle - never steals focus except 'focus')
   orch spawn <name> [<name>...] [--tab L] [--dir P] [--cmd C] [--model M]
-                   [--agent A] [--backend B] [--prompt T] [--worktree]
+                   [--agent A] [--backend B] [--prompt T] [--file P|-] [--with P]... [--worktree]
                                  Fresh tab, one balanced-tiled pane per name (2=side-by-side,
                                  3=2+1, 4=2x2, ...). The names ARE the agents; there is no count.
                                  Run from outside a pane, opening a space is REFUSED until a
                                  human approves it with 'orch grant'; --space <id> uses an open one.
-                                 --backend headless needs --prompt: a detached agent runs it and exits.
+                                 --backend headless needs --prompt or --file: a detached agent runs it and exits.
   orch grant [<hash>|--list]     Approve actions an agent was refused. Needs a terminal:
                                  there is no flag that answers the prompt for you.
   orch tile <tab|pane> <name> [--cmd C] [--dir P] [--model M] [--agent A] [--backend B]

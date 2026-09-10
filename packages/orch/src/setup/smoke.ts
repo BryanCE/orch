@@ -32,7 +32,7 @@ export function closeSmokeAgent(key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
     const handle = backend.handleLookup?.handleFor(key);
-    if (handle !== undefined) backend.paneHost?.close(handle);
+    if (handle !== undefined) backend.placement?.close(handle);
   } catch {
     // A leaked headless process is reaped by `orch clean`; never let teardown mask the verdict.
   }

@@ -29,7 +29,7 @@ function defaultInventory(plexerId: string): readonly PlexerInventoryEntry[] {
   const backend = getBackend(plexerId);
   if (!backend?.paneInventory) return [];
   try {
-    return backend.paneInventory.list().map((target) => ({ handle: target.handle }));
+    return backend.placementInventory.list().map((target) => ({ handle: target.handle }));
   } catch {
     return [];
   }

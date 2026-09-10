@@ -139,9 +139,9 @@ type Census = ReadonlyMap<string, ReadonlyMap<string, BackendTarget>>;
 function paneCensus(): Census {
   const census = new Map<string, ReadonlyMap<string, BackendTarget>>();
   for (const backend of allBackends()) {
-    if (!backend.paneInventory || !backend.isAvailable()) continue;
+    if (!backend.placementInventory || !backend.isAvailable()) continue;
     try {
-      census.set(backend.id, new Map(backend.paneInventory.list().map((target) => [String(target.handle), target])));
+      census.set(backend.id, new Map(backend.placementInventory.list().map((target) => [String(target.handle), target])));
     } catch { /* an environment that cannot answer says nothing either way */ }
   }
   return census;

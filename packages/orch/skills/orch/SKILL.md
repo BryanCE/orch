@@ -22,14 +22,15 @@ and `version` refuses until it has, naming the fix. Broken install: `orch doctor
 Told to use orch? `orch spawn` is your first tool call. No status preflight, no asking.
 
 ```bash
-orch spawn api-types api-routes api-guards --tab api
+orch spawn api-types api-routes api-guards --tab api --prompt "<the first task>"
 orch dispatch api-types "<the full task spec>"
-orch dispatch api-routes --file slice.md               # only when the spec is too long for a line
+orch dispatch api-routes --file slice.md --with src/api/routes.ts   # spec too long for a line
 orch events                                            # arm as a Monitor in this same message
 orch result api-types
 ```
 
-Read the diff, `orch reset <pane>`, `orch rename <pane> <next-slice>`, dispatch again.
+Read the diff, `orch rename <target> <next-slice>`, dispatch again. Dispatch clears the
+context itself, so there is no reset step between two tasks.
 
 ## Rules
 
@@ -62,9 +63,11 @@ Read the diff, `orch reset <pane>`, `orch rename <pane> <next-slice>`, dispatch 
   completion, and the silence looks exactly like "still working".
 - **Never wrap `orch status` in a `while true` loop.** `orch events` pushes transitions the
   instant they happen. `orch status` is for one-shot inspection.
-- **`orch reset <target>` before every new task.** Never stack a task on a used session.
+- **`orch dispatch` already clears the context.** It clears the session, re-pins the model,
+  then sends, so a new task never stacks on a used session. Do not pair it with `orch
+  reset`. `--keep-context` opts out, only to add to work already in flight.
 - **Reuse before spawn, your own panes only.** Spawn a replacement only after a
-  reset-and-dispatch on the idle pane actually errors, then close the zombie it replaces.
+  dispatch to the idle agent actually errors, then close the zombie it replaces.
 - **Send the task and only the task.** orch composes the worker contract per adapter and
   prepends it to every dispatch. A hand-written near-copy delivers the rule twice in two
   wordings and the two drift. A missing rule gets added to the header. `--raw` opts out.
@@ -77,7 +80,7 @@ Read the diff, `orch reset <pane>`, `orch rename <pane> <next-slice>`, dispatch 
 
 | verb | what it does | when |
 |---|---|---|
-| `orch reset <target>` (alias `new`) | fresh session, same pane, model re-pinned | before every new task |
+| `orch reset <target>` (alias `new`) | fresh session, same agent, model re-pinned | you want the context gone without sending work |
 | `orch reload <target>` | live-reload code in place after a rebuild | you rebuilt orch or an extension |
 | `orch restart <target>` | full harness process relaunch | reset and reload both failed |
 | `orch close <target>` (alias `kill`) | close the pane | that domain is finished for good |

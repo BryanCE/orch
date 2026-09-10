@@ -13,7 +13,7 @@ import { loadSettings } from "../../settings/read.ts";
 import type { AgentFlags } from "../../types/command.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 
-interface ClearedAgent { key: string; pane: string; name: string }
+interface ClearedAgent { key: string; handle: string; name: string }
 
 function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags } {
   const targets: string[] = [];
@@ -51,22 +51,22 @@ function resolveLaunchSpec(flags: AgentFlags): { model: string; thinking: Thinki
 }
 
 /** Clear one agent's session and wait for it to come back ready. */
-async function clearSession(target: string, force: boolean): Promise<ClearedAgent> {
-  // A detached agent has no pane, so it resolves through the lifecycle target
-  // resolver; resolvePane would reject the whole headless fleet outright.
+export async function clearSession(target: string, force: boolean): Promise<ClearedAgent> {
+  // Resolved through the lifecycle resolver, which answers for an agent placed
+  // nowhere; the placement resolver rejects the whole headless fleet outright.
   const { entity: ent, handle } = resolveLifecycleTarget(target);
-  const pane = describeHandle(handle);
+  const label = describeHandle(handle);
   assertAgentOwned(target, ent, force);
   const statusPath = path.join(presenceAgentDir(ent.key), STATUS_FILE);
   const before = readPresenceStatus(statusPath);
   const beforeUpdated = Date.parse(typeof before?.updatedAt === "string" ? before.updatedAt : "");
   const sentAt = Date.now();
   // The daemon owns every lifecycle mechanism: a console gets the adapter's
-  // text, a detached agent has none and is refused. Neither is the CLI's to choose.
+  // text, an agent with none is refused. Neither is the CLI's to choose.
   reclaimAgent(orchDir(), agentIdOf(ent.key));
   await writeRpc("lifecycle", { target: ent.key, verb: "reset" });
-  if (!awaitIdleAfter(statusPath, beforeUpdated, sentAt)) die(`${pane}: reset did not become ready within 75s.`);
-  return { key: ent.key, pane, name: ent.name ?? pane };
+  if (!awaitIdleAfter(statusPath, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
+  return { key: ent.key, handle: label, name: ent.name ?? label };
 }
 
 export async function cmdNew(args: string[]): Promise<void> {
@@ -85,12 +85,12 @@ export async function cmdNew(args: string[]): Promise<void> {
   for (const target of targets) {
     const agent = await clearSession(target, force);
     cleared.push(agent);
-    if (!json) process.stdout.write(`Cleared session on ${agent.pane}; ready.\n`);
+    if (!json) process.stdout.write(`Cleared session on ${agent.handle}; ready.\n`);
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
   if ((await pinModels(cleared, model, thinking)).length) process.exitCode = 1;
-  const results = cleared.map((agent) => ({ target: agent.pane, cleared: true, ready: true }));
+  const results = cleared.map((agent) => ({ target: agent.handle, cleared: true, ready: true }));
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
   else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${modelSpec(model, thinking)}.\n`);
 }

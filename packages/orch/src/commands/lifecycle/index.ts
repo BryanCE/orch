@@ -4,7 +4,7 @@ import { orchDir, readPresenceStatus } from "../../presence/writer.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";
 import { loadSettings } from "../../settings/read.ts";
-import { sleepMs } from "../../backends/pane-ready.ts";
+import { sleepMs } from "../../backends/shell-ready.ts";
 import { workerPrompt } from "../../worker-prompt.ts";
 import { workerHeaderContext } from "../../policy/spawner.ts";
 import { entityAdapter } from "../status.ts";

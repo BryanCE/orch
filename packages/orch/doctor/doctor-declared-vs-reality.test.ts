@@ -43,8 +43,8 @@ describe("doctor declared-vs-reality", () => {
     const result = withRegisteredBackend(new FakePanedBackend(), () => describeBackendEnvironments(["headless"]));
     const description = result.backends?.find((backend) => backend.id === "headless");
     expect(description).toBeDefined();
-    expect(description?.roles).toContain("paneHost");
-    expect(description?.roles).not.toContain("paneInput");
+    expect(description?.roles).toContain("placement");
+    expect(description?.roles).not.toContain("agentInput");
   });
 
   test("reports a lease whose recorded holder process is dead", () => {

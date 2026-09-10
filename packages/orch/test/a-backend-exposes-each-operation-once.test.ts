@@ -9,7 +9,7 @@ import type { Backend } from "../src/types/backend.ts";
  *
  * Every plexer operation used to be reachable two ways: a top-level method AND a
  * one-line role forwarder to it. Two surfaces for one operation is what made call
- * sites hedge (`paneInventory?.list() ?? inventory?.()`), and it is why a role
+ * sites hedge (`placementInventory?.list() ?? inventory?.()`), and it is why a role
  * could exist and still throw (bug 1.5). A capability is present exactly when its
  * role is non-null, so an operation must have NO second address.
  */
@@ -18,14 +18,14 @@ import type { Backend } from "../src/types/backend.ts";
  * used to answer for it too. The second address is what must not exist.
  */
 const OPERATION_OWNED_BY_A_ROLE: ReadonlyMap<string, string> = new Map([
-  ["close", "paneHost.close"],
-  ["list", "paneInventory.list"],
-  ["inventory", "paneInventory.list"],
-  ["focus", "paneHost/groupHome focus"],
-  ["sendKeys", "paneInput.sendKeys"],
-  ["read", "paneScreen.read"],
-  ["zoom", "paneZoom.setZoom"],
-  ["renamePane", "paneNaming.renamePane"],
+  ["close", "placement.close"],
+  ["list", "placementInventory.list"],
+  ["inventory", "placementInventory.list"],
+  ["focus", "placement/groupHome focus"],
+  ["sendKeys", "agentInput.sendKeys"],
+  ["read", "screen.read"],
+  ["zoom", "zooming.setZoom"],
+  ["renamePane", "labeling.setLabel"],
   ["renameAgent", "agentNaming.renameAgent"],
   ["waitAgentStatus", "agentStatus.wait"],
   ["workspaces", "spaceHome.list"],

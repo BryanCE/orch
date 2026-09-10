@@ -3,9 +3,9 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
+import { NO_FOREGROUND } from "../src/backends/shell-ready.ts";
 import { ownedAgentKeys } from "../src/commands/lifecycle/index.ts";
-import { paneForeground, reloadAgentAndAwaitBridge } from "../src/commands/lifecycle/reload.ts";
+import { foregroundOf, reloadAgentAndAwaitBridge } from "../src/commands/lifecycle/reload.ts";
 import { releaseLease } from "../src/store/lease-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -48,7 +48,7 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
 describe("commands/lifecycle", () => {
   test("capability helpers fail closed when absent", () => {
     const backend = new FakePanedBackend();
-    expect(paneForeground(backend, "p1")).toEqual(NO_PANE_FOREGROUND);
+    expect(foregroundOf(backend, "p1")).toEqual(NO_FOREGROUND);
     const result = reloadAgentAndAwaitBridge(backend, "p1", "agent00001", "reload");
     expect(result.handle).toBe("p1");
     expect(result.ok).toBe(false);

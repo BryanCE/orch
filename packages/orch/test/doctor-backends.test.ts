@@ -11,7 +11,7 @@ import type { DoctorBackendReport } from "../src/types/doctor.ts";
 /** One backend's probe result. Injected so the verdict is provable without the
  *  suite happening to run inside a herdr or tmux session. */
 function report(id: string, detected: boolean, insideSession: boolean): DoctorBackendReport {
-  return { id, detected, insideSession, space: null, roles: ["paneInventory"] };
+  return { id, detected, insideSession, space: null, roles: ["placementInventory"] };
 }
 
 const directories: string[] = [];

@@ -32,25 +32,56 @@ an agent. `backends/registry.ts`.
 
 `scripts/check-vocabulary.ts` fails on a plexer's words (`pane`, `workspace`) anywhere outside
 `src/backends/<plexer>/`. It reported **538 uses across 66 files** when it was written; it is now
-at **405 across 60**. It is NOT yet wired into `bun check` — it lands there in the same commit
+at **335 across 57**. It is NOT yet wired into `bun check` — it lands there in the same commit
 that finishes the rename, or it turns the gate red on existing code.
 
-Renamed so far, each with every writer, reader and test in the same change:
+The **Backend port** (`src/types/backend.ts`) no longer speaks a plexer's vocabulary. It was the
+source of the coupling: every core caller inherited its field names.
+
+| Was | Now |
+|---|---|
+| `paneHost` / `PaneHostRole` | `placement` / `PlacementRole` |
+| `paneInventory` / `PaneInventoryRole` | `placementInventory` / `PlacementInventoryRole` |
+| `paneInput` / `PaneInputRole` | `agentInput` / `AgentInputRole` |
+| `paneForeground` / `PaneForegroundRole` / `PaneForeground` | `foreground` / `ForegroundRole` / `ForegroundProcesses` |
+| `paneScreen` / `PaneScreenRole` | `screen` / `ScreenRole` |
+| `paneZoom` / `PaneZoomRole` | `zooming` / `ZoomRole` |
+| `paneNaming.renamePane` / `PaneNamingRole` | `labeling.setLabel` / `LabelRole` |
+| `OpenPaneRequest` / `OpenedPane` / `MovePaneRequest` | `PlacementRequest` / `Placement` / `MoveRequest` |
+| `PaneCoordinate` | `PlacementCoordinate` |
+| `intoPane` / `targetPane` | `intoHandle` / `targetHandle` |
+| `paneCount` / layout `panes` | `placementCount` / `placements` |
+| `backends/pane-ready.ts` | `backends/shell-ready.ts` |
+| `NO_PANE_FOREGROUND` / `paneAtShellPrompt` | `NO_FOREGROUND` / `atShellPrompt` |
+| boundary reason `"no-pane"` | `"not-placed"` |
+
+Earlier clusters, same rule — every writer, reader and test in one change:
 
 | Cluster | Was | Now |
 |---|---|---|
 | `SpawnRegistration` (`types/store.ts`) | `pane: boolean` | `placed: boolean` |
-| `CreatedAgent` (`types/command.ts`) | `pane: string` | `handle: string` |
-| `PreparedAgent` (`types/command.ts`) | `pane` | `handle` |
+| `CreatedAgent`, `PreparedAgent` (`types/command.ts`) | `pane` | `handle` |
 | `ClearedAgent` (`lifecycle/reset.ts`) | `pane` | `handle` |
 | `DispatchSettings` (`commands/control.ts`) | `pane` | `handle` |
 | `ReloadResult` (`lifecycle/reload.ts`) | `pane` | `handle` |
 | `lifecycle/reload.ts` | `reloadPaneAndAwaitBridge`, `restartPaneAndAwaitBridge` | `reloadAgentAndAwaitBridge`, `restartAgentAndAwaitBridge` |
 | `spawn/index.ts` | `openPanesForGroup` | `placeRemainingAgents` |
 
-Next, and the largest: the **Backend port roles** — `paneHost`, `paneInput`, `paneInventory`,
-`paneForeground`, `PaneForeground`, `intoPane`, `targetPane`, `backends/pane-ready.ts`. These
-span `types/backend.ts`, every backend, and `commands/panes.ts`. After that: `Entity.paneId`.
+### Two things the rename exposed
+
+1. The role `zoom` collided with a legacy top-level method that
+   `test/a-backend-exposes-each-operation-once.test.ts` forbids. Renamed to `zooming`.
+2. **A real bug in `scripts/check-bridge.ts`.** The role alternation was built as `a|b|c` and
+   used as `(?!a|b|c\b)`, so the `\b` bound only to the LAST alternative. Any role that prefixes
+   a plain data field (`placement` inside `placementCount`) silently exempted that field from the
+   capability rule. Now grouped: `(?!(?:a|b|c)\b)`. `check:bridge` still passes, so nothing was
+   relying on the hole.
+
+### Still open — Bryan's call, published CLI surface
+
+`src/commands/panes.ts` holds the `orch panes` verb and the `--all-panes` flag on `orch status`.
+Renaming a shipped command is not the rename's to decide. `Entity.paneId` is the next internal
+cluster after that.
 
 | # | Item | Done |
 |---|---|---|

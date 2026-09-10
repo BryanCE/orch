@@ -559,7 +559,10 @@ function portRoleMembers(): readonly string[] {
 }
 
 export const ENVIRONMENT_ROLE_NAMES: readonly string[] = portRoleMembers();
-const ENVIRONMENT_ROLE_ALTERNATION = ENVIRONMENT_ROLE_NAMES.join("|");
+/** Grouped, so the `\b` that follows binds to EVERY role and not just the last
+ *  one. Ungrouped, a role that prefixes a plain data field (`placement` inside
+ *  `placementCount`) exempted that field from the rule. */
+const ENVIRONMENT_ROLE_ALTERNATION = `(?:${ENVIRONMENT_ROLE_NAMES.join("|")})`;
 /**
  * Scoped to METHOD_OWNER, exactly like the three patterns below it. E13 forbids
  * asking a PORT whether it has a method; `typeof value.fn === "function"` on a

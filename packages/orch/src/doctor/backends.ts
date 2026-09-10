@@ -178,7 +178,7 @@ export function describeBackendEnvironments(
         agentInput: backend.agentInput,
         foreground: backend.foreground,
         screen: backend.screen,
-        zoom: backend.zoom,
+        zooming: backend.zooming,
         labeling: backend.labeling,
         agentNaming: backend.agentNaming,
         agentStatus: backend.agentStatus,

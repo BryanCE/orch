@@ -118,7 +118,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly agentInput = null;
   readonly foreground: ForegroundRole<HeadlessHandle> | null = null;
   readonly screen = null;
-  readonly zoom = null;
+  readonly zooming = null;
   readonly labeling = null;
   readonly agentNaming = null;
   readonly agentStatus = null;

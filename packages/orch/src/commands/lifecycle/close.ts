@@ -359,7 +359,7 @@ export function cmdAbort(args: string[]) {
   // Abort is an unconditional ending operation: resolve from orch's registry so
   // a foreign-space target is still reachable, and never apply owner gates.
   const { backend, handle, entity } = resolveLifecycleTarget(target);
-  const input = backend.paneInput;
+  const input = backend.agentInput;
   if (!entity.paneId || !input) {
     const reason = !entity.paneId ? "no-pane" : "no-environment-role";
     const text = !entity.paneId ? `${target} has no pane; abort does not apply.` : "this pane environment does not provide abort";

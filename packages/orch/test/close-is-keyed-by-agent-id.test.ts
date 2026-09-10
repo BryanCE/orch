@@ -29,7 +29,7 @@ import { withExitCode } from "./helpers/exit-code.ts";
  * fabricated a handle out of the identity, and every report line named the
  * plexer's coordinate instead of the agent.
  *
- * A handle has exactly one legitimate use: the argument to `paneHost.close`.
+ * A handle has exactly one legitimate use: the argument to `placement.close`.
  * It is never a target key, never a dedupe key, and never what a human or a
  * `--json` consumer is told they closed.
  */
@@ -155,7 +155,7 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
 
     withRegisteredBackend(backend, () => capture(() => { cmdClose(["--all", "--json"]); }));
 
-    // The handle is not banished — it is the argument to `paneHost.close` and
+    // The handle is not banished — it is the argument to `placement.close` and
     // nothing else.
     expect(backend.closed).toEqual(["w7:p3E"]);
   });

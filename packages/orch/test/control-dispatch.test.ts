@@ -102,7 +102,7 @@ describe("deliverControl", () => {
     seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
 
     const outcome = await deliverControl(key, { kind: "steer", text: "hello claude" });
-    expect(outcome).toEqual({ outcome: "answer", reason: "no-pane", text: `${key} has no pane; steer does not apply.` });
+    expect(outcome).toEqual({ outcome: "answer", reason: "not-placed", text: `${key} is placed nowhere; steer does not apply.` });
     expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
   }, 15_000);
 
@@ -114,7 +114,7 @@ describe("deliverControl", () => {
     seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
 
     const outcome = await deliverControl(key, { kind: "run", text: "hello claude" });
-    expect(outcome).toEqual({ outcome: "answer", reason: "no-pane", text: `${key} has no pane; run does not apply.` });
+    expect(outcome).toEqual({ outcome: "answer", reason: "not-placed", text: `${key} is placed nowhere; run does not apply.` });
     expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
   }, 15_000);
 
@@ -131,7 +131,7 @@ describe("deliverControl", () => {
     expect(claudeAdapter.modelControl).toBeNull();
 
     expect(await deliverControl(key, { kind: "steer", text: "nope" })).toEqual({
-      outcome: "answer", reason: "no-pane", text: `${key} has no pane; steer does not apply.`,
+      outcome: "answer", reason: "not-placed", text: `${key} is placed nowhere; steer does not apply.`,
     });
     expect(await deliverControl(key, { kind: "model", model: "provider/new-model", id: "req-1" })).toEqual({
       // E14: an absence is an ANSWER to a human, so it has to be usable — it

@@ -133,7 +133,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   };
   /** The last visible lines of a pane's screen. Throws on failure (D7). */
   readonly screen: ScreenRole<TmuxHandle> = { read: (handle, lines) => execTmux(["capture-pane", "-p", "-t", handle, "-S", `-${lines}`]) };
-  readonly zoom: ZoomRole<TmuxHandle> | null = null;
+  readonly zooming: ZoomRole<TmuxHandle> | null = null;
   /** The pane border label. */
   readonly labeling: LabelRole<TmuxHandle> = { setLabel: (handle, name) => { if (bestEffortTmux(["select-pane", "-t", handle, "-T", name]) === null) throw new Error(`tmux failed to rename pane ${handle}`); } };
   /** The agent shown for a pane (the `@orch_agent_name` pane option). */

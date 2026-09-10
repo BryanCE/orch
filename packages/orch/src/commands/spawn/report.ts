@@ -79,7 +79,7 @@ export function printLayout(backend: Backend, group: string, header: string) {
   const layout = readGroupLayout(role, group);
   const names = new Map((backend.placementInventory?.list() ?? []).map((target) => [String(target.handle), target.name ?? "-"]));
   process.stdout.write(header + "\n");
-  const rows = layout.panes.map((p) => [
+  const rows = layout.placements.map((p) => [
     String(p.handle),
     names.get(String(p.handle)) ?? "-", 
     `${p.rect.width}x${p.rect.height} @${p.rect.x},${p.rect.y}`,
@@ -97,11 +97,11 @@ export function printLayout(backend: Backend, group: string, header: string) {
  *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
  *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
  *  dispatching into a fleet that answered nothing. Null when orchd answers. */
-export async function reportControlPlaneOutage(paneCount: number): Promise<string | null> {
+export async function reportControlPlaneOutage(placementCount: number): Promise<string | null> {
   const outage = await daemonOutage();
   if (!outage) return null;
-  commandLogger().error("spawn.control-plane-unreachable", { panes: paneCount, error: outage });
-  process.stdout.write(`CONTROL PLANE UNREACHABLE - ${paneCount} pane(s) are UNMANAGED: ${outage}\n`);
+  commandLogger().error("spawn.control-plane-unreachable", { panes: placementCount, error: outage });
+  process.stdout.write(`CONTROL PLANE UNREACHABLE - ${placementCount} pane(s) are UNMANAGED: ${outage}\n`);
   process.exitCode = 1;
   return outage;
 }

@@ -180,12 +180,12 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     open: (request: PlacementRequest<HerdrHandle>) => {
       const workspace = request.workspace ?? callerPaneWorkspace();
       if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
-      const targetPane = typeof request.targetHandle === "string"
+      const targetHandle = typeof request.targetHandle === "string"
         ? request.targetHandle
         : typeof request.group === "string"
           ? this.panesWithMetadata().find((pane) => pane.group === request.group)?.handle ?? null
           : null;
-      return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env, split: request.split }, targetPane) };
+      return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env, split: request.split }, targetHandle) };
     },
     close: (handle) => { herdrAck(["pane", "close", handle]); },
   };
@@ -204,7 +204,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       stdio: ["ignore", "pipe", "pipe"],
     }),
   };
-  readonly zoom: ZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { herdrAck(["pane", "zoom", handle, ZOOM_FLAGS[mode]]); } };
+  readonly zooming: ZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { herdrAck(["pane", "zoom", handle, ZOOM_FLAGS[mode]]); } };
   readonly labeling: LabelRole<HerdrHandle> = { setLabel: (handle, name) => { herdrAck(["pane", "rename", handle, name]); } };
   readonly agentNaming: AgentNamingRole<HerdrHandle> = { renameAgent: (handle, name) => { herdrAck(["agent", "rename", handle, name]); } };
   /** Blocks until herdr reports the status; provider failures and timeouts throw. */
@@ -413,7 +413,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Every pane with its workspace, tab, name and agent metadata. Private:
-   *  `paneInventory` is the one public address for this (2.2). */
+   *  `placementInventory` is the one public address for this (2.2). */
   private panesWithMetadata(): BackendTarget<HerdrHandle>[] {
     const tabs = herdrTabs();
     const names = herdrNames();

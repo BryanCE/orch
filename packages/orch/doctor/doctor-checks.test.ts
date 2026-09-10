@@ -11,9 +11,9 @@ import { sql } from "drizzle-orm";
 import { checkNotifiers, checkNotifySinks } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { loadSettings } from "../src/settings/read.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
-import { seedAgent } from "./helpers/agent.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { writeSettingsFixture } from "../test/helpers/settings.ts";
+import { seedAgent } from "../test/helpers/agent.ts";
+import { removeTempDir } from "../test/helpers/tempdir.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 
 const directories: string[] = [];

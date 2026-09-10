@@ -11,7 +11,7 @@ import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/bac
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { AgentNamingRole, PaneNamingRole } from "../src/types/backend.ts";
+import type { AgentNamingRole, LabelRole } from "../src/types/backend.ts";
 import { seedAgent } from "./helpers/agent.ts";
 
 /**
@@ -73,13 +73,13 @@ class NamingBackend extends FakePanedBackend {
   readonly agentNames: string[] = [];
   readonly paneNames: string[] = [];
   override readonly agentNaming: AgentNamingRole;
-  override readonly paneNaming: PaneNamingRole;
+  override readonly labeling: LabelRole;
 
   constructor(paneFails = false) {
     super({ id: "headless", panes: [fakePane("w7:p2J")] });
     this.agentNaming = { renameAgent: (_handle, name: string): void => { this.agentNames.push(name); } };
-    this.paneNaming = {
-      renamePane: (_handle, name: string): void => {
+    this.labeling = {
+      setLabel: (_handle, name: string): void => {
         if (paneFails) throw new Error("herdr refused: pane rename unavailable");
         this.paneNames.push(name);
       },

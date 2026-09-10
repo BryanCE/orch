@@ -203,7 +203,7 @@ function launchPrepared(
         model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined,
         worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
-        spawnerAgentId, intoPane: item.handle, key: item.key, env: item.env,
+        spawnerAgentId, intoHandle: item.handle, key: item.key, env: item.env,
       }));
     } catch (error: unknown) {
       const message = errorMessage(error);

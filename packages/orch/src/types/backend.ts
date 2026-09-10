@@ -408,7 +408,7 @@ export interface Backend<Handle = BackendHandle> {
   readonly agentInput: AgentInputRole<Handle> | null;
   readonly foreground: ForegroundRole<Handle> | null;
   readonly screen: ScreenRole<Handle> | null;
-  readonly zoom: ZoomRole<Handle> | null;
+  readonly zooming: ZoomRole<Handle> | null;
   readonly labeling: LabelRole<Handle> | null;
   readonly agentNaming: AgentNamingRole<Handle> | null;
   readonly agentStatus: AgentStatusRole<Handle> | null;

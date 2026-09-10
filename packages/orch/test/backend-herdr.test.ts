@@ -166,11 +166,11 @@ describe("HerdrBackend", () => {
 
   test("starts an authority-bearing herdr agent with the adapter command", () => {
     expect(backend.id).toBe("herdr");
-    expect(backend.paneHost).not.toBeNull();
-    expect(backend.paneInventory).not.toBeNull();
-    expect(backend.paneInput).not.toBeNull();
-    expect(backend.paneForeground).not.toBeNull();
-    expect(backend.paneScreen).not.toBeNull();
+    expect(backend.placement).not.toBeNull();
+    expect(backend.placementInventory).not.toBeNull();
+    expect(backend.agentInput).not.toBeNull();
+    expect(backend.foreground).not.toBeNull();
+    expect(backend.screen).not.toBeNull();
     expect(backend.logPruning).toBeNull();
     expect(backend.identity).not.toBeNull();
     expect(backend.spaceHome).not.toBeNull();
@@ -210,7 +210,7 @@ describe("HerdrBackend", () => {
 
   test("a caller pane is split rather than given a new tab", () => {
     herdrArgv.length = 0;
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "down", targetPane: "w0:p1" });
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "down", targetHandle: "w0:p1" });
 
     expect(herdrArgv[0]).toEqual(
       ["pane", "split", "w0:p1", "--direction", "down", "--cwd", testDir, "--env", environmentStampArg, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
@@ -219,7 +219,7 @@ describe("HerdrBackend", () => {
 
   test("pane and tab creation always preserves focus", () => {
     herdrArgv.length = 0;
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetPane: "w0:p1" });
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetHandle: "w0:p1" });
     const creations = herdrArgv.filter((args) =>
       (args[0] === "tab" && args[1] === "create") || (args[0] === "pane" && args[1] === "split"),
     );
@@ -229,7 +229,7 @@ describe("HerdrBackend", () => {
 
   test("split direction clamps to herdr's right|down", () => {
     herdrArgv.length = 0;
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "right", targetPane: "w0:p1" });
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "right", targetHandle: "w0:p1" });
 
     expect(herdrArgv[0]?.[4]).toBe("right");
   });
@@ -237,7 +237,7 @@ describe("HerdrBackend", () => {
   test("env reaches the pane through herdr's --env, not an argv prefix", () => {
     herdrArgv.length = 0;
     const key = mintAgentId();
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetPane: "w0:p1", key, orchDir: "/tmp/orchdir", env: { FOO: "bar" } });
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetHandle: "w0:p1", key, orchDir: "/tmp/orchdir", env: { FOO: "bar" } });
 
     const split = herdrArgv[0] ?? [];
     expect(split).toContain("--env");
@@ -253,7 +253,7 @@ describe("HerdrBackend", () => {
     // close, and every later tiling decision balanced against that phantom.
     herdrArgv.length = 0;
     freshPane("w0:p9");
-    const handle = backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t9", intoPane: "w0:p9" });
+    const handle = backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t9", intoHandle: "w0:p9" });
 
     expect(handle).toBe("w0:p9");
     expect(herdrArgv).toEqual([
@@ -276,7 +276,7 @@ describe("HerdrBackend", () => {
   });
 
   test("the pane host closes a pane through herdr", () => {
-    backend.paneHost.close("w0:p2");
+    backend.placement.close("w0:p2");
     expect(herdrArgv.at(-1)).toEqual(["pane", "close", "w0:p2"]);
   });
 
@@ -284,7 +284,7 @@ describe("HerdrBackend", () => {
     // The pane is born in the planned neighbour's tab, so the same-tab move
     // that used to follow only bounced it through a throwaway tab and back.
     herdrArgv.length = 0;
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t1", split: "down", targetPane: "w0:p1" });
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", group: "t1", split: "down", targetHandle: "w0:p1" });
 
     expect(herdrArgv[0]?.slice(0, 5)).toEqual(["pane", "split", "w0:p1", "--direction", "down"]);
     expect(lastCall("agent", "start")).toEqual(agentStart("pi-agent", "w0:p3"));
@@ -334,7 +334,7 @@ describe("HerdrBackend", () => {
 
   test("reads recent unwrapped pane output", () => {
     herdrArgv.length = 0;
-    backend.paneScreen.read("w0:p1", 12);
+    backend.screen.read("w0:p1", 12);
     expect(herdrArgv).toEqual([["pane", "read", "w0:p1", "--source", "recent-unwrapped", "--lines", "12"]]);
   });
 
@@ -346,7 +346,7 @@ describe("HerdrBackend", () => {
   test("groupLayout reads tab geometry straight off the pane listing", () => {
     expect(backend.groupLayout.read("t1")).toEqual({
       group: "t1",
-      panes: [
+      placements: [
         { handle: "w0:p1", rect: { width: 100, height: 50, x: 0, y: 0 } },
         { handle: "w0:p2", rect: { width: 100, height: 50, x: 100, y: 0 } },
       ],
@@ -356,7 +356,7 @@ describe("HerdrBackend", () => {
 
   test("pane input submits through pane run", () => {
     herdrArgv.length = 0;
-    backend.paneInput.submit("w0:p1", "ls");
+    backend.agentInput.submit("w0:p1", "ls");
 
     expect(herdrArgv).toEqual([["pane", "run", "w0:p1", "ls"]]);
   });
@@ -364,7 +364,7 @@ describe("HerdrBackend", () => {
   test("pane rename failure reaches the role caller", () => {
     paneRenameFails = true;
     try {
-      expect(() => backend.paneNaming.renamePane("w0:p1", "renamed")).toThrow("pane rename failed");
+      expect(() => backend.labeling.setLabel("w0:p1", "renamed")).toThrow("pane rename failed");
     } finally {
       paneRenameFails = false;
     }

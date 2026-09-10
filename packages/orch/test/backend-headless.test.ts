@@ -158,7 +158,7 @@ describe("HeadlessBackend", () => {
   /**
    * 2.2 — closing a headless agent has ONE address: the `process` role. The
    * backend used to publish a `close(handle)` method beside it that nothing
-   * reached (`paneHost` is null here), carrying its own pid/key ownership check.
+   * reached (`placement` is null here), carrying its own pid/key ownership check.
    * The live guard is stronger and on the axis orch actually records: a process
    * is signalled only while its recorded START TOKEN still matches, so a pid
    * reused by an unrelated process is refused rather than killed.

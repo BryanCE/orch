@@ -14,7 +14,7 @@ import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/rpc/client.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
-import type { Backend, BackendHandle, PaneHostRole } from "../../types/backend.ts";
+import type { Backend, BackendHandle, PlacementRole } from "../../types/backend.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
 
 interface RecordedProcess {
@@ -100,7 +100,7 @@ export function describeHandle(handle: BackendHandle): string {
 /** Whether the environment still lists this handle (U1). An environment that
  *  cannot answer says nothing either way, so the recorded handle stands. */
 function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boolean | null {
-  const inventory = backend?.paneInventory;
+  const inventory = backend?.placementInventory;
   if (!inventory) return null;
   try {
     return inventory.list().some((entry) => describeHandle(entry.handle) === describeHandle(handle));
@@ -118,7 +118,7 @@ interface CloseTarget {
   readonly recorded: RecordedProcess | null;
   /** Whether a pane operation is meaningful here — false when the plexer no
    *  longer lists the handle (U1), so orch never asks it to close a lost pane. */
-  readonly paneKnown: boolean;
+  readonly placeKnown: boolean;
 }
 
 /**
@@ -145,7 +145,7 @@ function sweepTargets(): CloseTarget[] {
       backend, handle, key: address, recorded: recordedProcess(address),
       // Unknown inventory still permits a real recorded handle to be handed to
       // the plexer; a null handle is never replaced with the agent id.
-      paneKnown: handle !== null && paneState !== false,
+      placeKnown: handle !== null && paneState !== false,
     });
   }
   return targets;
@@ -157,7 +157,7 @@ function namedTargets(positional: readonly string[]): CloseTarget[] {
     const resolved = resolveLifecycleTarget(target);
     // Never gated by the LEASE. Who may end this is close-authority.ts, applied in cmdClose.
     // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
-    // Close may hand only the environment's actual pane handle to paneHost.
+    // Close may hand only the environment's actual pane handle to placer.
     const handle = resolved.view !== null ? resolved.view.environment.handle : resolved.entity.paneId;
     return {
       backend: resolved.backend,
@@ -166,7 +166,7 @@ function namedTargets(positional: readonly string[]): CloseTarget[] {
       recorded: recordedProcess(resolved.key),
       // A pane-capable backend's stale registry row may outlive its pane. Do
       // not invoke a provider with an opaque identity handle in that case.
-      paneKnown: handle !== null && (resolved.backend.paneInventory === null || resolved.entity.paneId !== null),
+      placeKnown: handle !== null && (resolved.backend.placementInventory === null || resolved.entity.paneId !== null),
     };
   });
 }
@@ -194,9 +194,9 @@ function closeByProcess(recorded: RecordedProcess): CloseAttempt {
 }
 
 /** A pane host owns closure when process identity is unavailable. */
-function closeByPane(paneHost: PaneHostRole, handle: BackendHandle): CloseAttempt {
+function closeByPane(placer: PlacementRole, handle: BackendHandle): CloseAttempt {
   try {
-    paneHost.close(handle);
+    placer.close(handle);
     return { failure: null, signalled: false, closedByBackend: true, alreadyAbsent: false };
   } catch (error: unknown) {
     // A pane that is already gone is the desired end state, not a close error.
@@ -212,9 +212,9 @@ function closeByPane(paneHost: PaneHostRole, handle: BackendHandle): CloseAttemp
  *  An environment that cannot answer proves nothing, so it reports no failure. */
 function stillListed(target: CloseTarget): string | null {
   const handle = target.handle;
-  if (handle === null || !target.backend?.paneInventory) return null;
+  if (handle === null || !target.backend?.placementInventory) return null;
   try {
-    const listed = target.backend.paneInventory.list()
+    const listed = target.backend.placementInventory.list()
       .some((entry) => describeHandle(entry.handle) === describeHandle(handle));
     return listed ? `${describeHandle(handle)} is still listed by ${target.backend.id} after the close` : null;
   } catch {
@@ -227,11 +227,11 @@ function stillListed(target: CloseTarget): string | null {
  *  variant carries what its own close needs, so the attempt re-derives nothing. */
 type CloseRoute =
   | { readonly kind: "process"; readonly recorded: RecordedProcess }
-  | { readonly kind: "pane"; readonly paneHost: PaneHostRole }
+  | { readonly kind: "pane"; readonly placer: PlacementRole }
   | { readonly kind: "untokenized"; readonly pid: number }
   | { readonly kind: "none" };
 
-function closeRoute(target: CloseTarget, paneHost: PaneHostRole | null): CloseRoute {
+function closeRoute(target: CloseTarget, placer: PlacementRole | null): CloseRoute {
   // Narrowed to the RECORD OF A LIVE PROCESS in one step: a dead pid is the
   // same answer as no record at all, and every test below reads one value.
   const recorded = target.recorded !== null && processIsAlive(target.recorded.pid) ? target.recorded : null;
@@ -239,7 +239,7 @@ function closeRoute(target: CloseTarget, paneHost: PaneHostRole | null): CloseRo
   if (recorded !== null && token !== null && processInstanceMatches(recorded.pid, token)) {
     return { kind: "process", recorded };
   }
-  if (target.paneKnown && paneHost !== null) return { kind: "pane", paneHost };
+  if (target.placeKnown && placer !== null) return { kind: "pane", placer };
   // A live process without a launch token cannot be safely signalled or
   // reaped: losing the row would make that process unreachable.
   if (recorded !== null) return { kind: "untokenized", pid: recorded.pid };
@@ -251,7 +251,7 @@ function takeRoute(route: CloseRoute, handle: BackendHandle | null): CloseAttemp
     case "process": return closeByProcess(route.recorded);
     case "pane": return handle === null
       ? { failure: "pane route had no environment handle", signalled: false, closedByBackend: false, alreadyAbsent: false }
-      : closeByPane(route.paneHost, handle);
+      : closeByPane(route.placer, handle);
     case "untokenized": return {
       failure: `process ${route.pid} is live but carries no start token, so orch cannot prove it is this agent`,
       signalled: false, closedByBackend: false, alreadyAbsent: false,
@@ -262,9 +262,9 @@ function takeRoute(route: CloseRoute, handle: BackendHandle | null): CloseAttemp
 
 /** End one agent by the strongest means available, and say what happened. */
 function attemptClose(target: CloseTarget): CloseAttempt {
-  const paneHost = target.backend?.paneHost ?? null;
-  const paneCapable = target.paneKnown && paneHost !== null && target.handle !== null;
-  const attempt = takeRoute(closeRoute(target, paneHost), target.handle);
+  const placer = target.backend?.placement ?? null;
+  const paneCapable = target.placeKnown && placer !== null && target.handle !== null;
+  const attempt = takeRoute(closeRoute(target, placer), target.handle);
   if (attempt.failure !== null || !paneCapable || attempt.alreadyAbsent) return attempt;
   const lingering = stillListed(target);
   return lingering === null ? attempt : { ...attempt, failure: lingering };

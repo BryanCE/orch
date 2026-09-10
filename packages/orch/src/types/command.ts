@@ -155,13 +155,13 @@ export interface TabSpawnSpec {
   thinking?: ThinkingLevel;
   /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
   preferredModels: readonly string[];
-  /** Where the pane lands in the group, from the tiling planner. */
+  /** Where the agent lands in the group, from the tiling planner. */
   placement?: TilePlacement;
-  /** Existing pane to launch into (fresh tab root). */
-  intoPane?: BackendHandle;
-  /** The identity already stamped into `intoPane`'s environment when the pane was
-   *  opened ahead of the launch. ONE key per agent: the pane's env and the record
-   *  must name the same id, so a pre-opened pane hands its key in rather than
+  /** Existing place to launch into (a fresh group's root). */
+  intoHandle?: BackendHandle;
+  /** The identity already stamped into `intoHandle`'s environment when the place
+   *  was opened ahead of the launch. ONE key per agent: that env and the record
+   *  must name the same id, so a pre-opened place hands its key in rather than
    *  letting the launch mint a second one. */
   key?: string;
   env?: Readonly<Record<string, string>>;

@@ -33,4 +33,4 @@ export type ControlAck = "expected" | "none";
 
 export type ControlBoundaryOutcome =
   | { readonly outcome: "invoke"; readonly ack: ControlAck }
-  | { readonly outcome: "answer"; readonly text: string; readonly reason: "no-pane" | "no-environment-role" };
+  | { readonly outcome: "answer"; readonly text: string; readonly reason: "not-placed" | "no-environment-role" };

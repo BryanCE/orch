@@ -36,11 +36,5 @@ export function normalizeControlTarget(target: string): string {
 
   if (keys.size === 1) return [...keys][0]!;
   if (keys.size > 1) throw new Error(`control target ${target} is ambiguous: ${[...keys].join(", ")}`);
-
-  // Not in the registry: an agent whose bridge stamped presence before its row
-  // landed is still reachable through the pane id it reported.
-  const stamped = [...presence].filter(([, entry]) => entry.status?.paneId === target).map(([key]) => key);
-  if (stamped.length === 1) return stamped[0]!;
-  if (stamped.length > 1) throw new Error(`control target ${target} is ambiguous: ${stamped.join(", ")}`);
   throw new Error(`control target ${target} does not resolve to a presence identity`);
 }

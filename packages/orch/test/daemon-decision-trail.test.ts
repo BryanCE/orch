@@ -96,7 +96,7 @@ describe("daemon decision trail", () => {
     });
   });
 
-  test("records a no-pane boundary answer with its reason", async () => {
+  test("records a not-placed boundary answer with its reason", async () => {
     const directory = fixture();
     // A bare minted id: an agent with no pane is not a different KIND of
     // identity, it is the same identity with one environment axis absent (A1).
@@ -119,12 +119,12 @@ describe("daemon decision trail", () => {
       event: "boundary.answer",
       correlationId: "dispatch-1",
       agentId: target,
-      fields: { target, reason: "no-pane" },
+      fields: { target, reason: "not-placed" },
     });
     const refusal = trail.find((candidate) => candidate.event === "dispatch.refused");
     if (refusal === undefined) throw new Error("missing dispatch refusal record");
     expect(refusal.level).toBe("warn");
     expect(refusal.correlationId).toBe("dispatch-1");
-    expect(refusal.fields).toEqual({ target, reason: "no-pane", text: `${target} has no pane; steer does not apply.` });
+    expect(refusal.fields).toEqual({ target, reason: "not-placed", text: `${target} is placed nowhere; steer does not apply.` });
   });
 });

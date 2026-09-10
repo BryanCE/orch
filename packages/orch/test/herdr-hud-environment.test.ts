@@ -31,7 +31,7 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
 
   function seedPaneAgent(root: string, plexer: string, handle: string): string {
     const key = mintAgentId();
-    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: plexer, pane: true, handle, cwd: root, name: "recon", model: "test", spawner: null });
+    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: plexer, placed: true, handle, cwd: root, name: "recon", model: "test", spawner: null });
     return key;
   }
 

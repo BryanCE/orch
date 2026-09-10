@@ -6,7 +6,7 @@ import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { governWrite } from "../src/daemon/orchd.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/writer.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { reapAgent, adoptAgent, detachAgent, cmdReap } from "../src/commands/lease.ts";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
@@ -132,10 +132,10 @@ describe("lease commands", () => {
     // Rule 11: `abort`/`close`/`reap` are NEVER gated — the human must always be
     // able to kill from CLI or web, whether or not a live foreign orch holds the
     // lease. Abort must therefore PROCEED here and must not steal the lease.
-    // Headless composes no paneInput: it has channel, capture and process roles
+    // Headless composes no agentInput: it has channel, capture and process roles
     // and no pane roles, so this asserts the refusal is absent,
     // not that any keystroke was sent.
-    expect(headlessBackend.paneInput).toBeNull();
+    expect(headlessBackend.agentInput).toBeNull();
     expect(() => { cmdAbort([key, "--json"]); }).not.toThrow();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });

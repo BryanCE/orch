@@ -5,8 +5,10 @@ import { readDaemonLock } from "../lifecycle.ts";
 import { ensurePrivateDir, errorMessage, isRecord, osSide } from "../../util.ts";
 import type { SessionAgentIdentity } from "../../types/store.ts";
 import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
-import { RpcError, ReplayBuffer, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest } from "./wire.ts";
-import { isRegisterSessionResponse, registerSession, claimIdentity } from "./registration.ts";
+import { RpcError, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest } from "./wire.ts";
+import { ReplayBuffer } from "./replay.ts";
+import { isRegisterSessionResponse } from "./registration.ts";
+import { registerSession, claimIdentity } from "./session-registry.ts";
 
 interface ConnectionState {
   identity?: SessionAgentIdentity;

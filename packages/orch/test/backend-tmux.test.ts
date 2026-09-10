@@ -6,8 +6,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { NO_PANE_FOREGROUND } from "../src/backends/pane-ready.ts";
+import { NO_FOREGROUND } from "../src/backends/shell-ready.ts";
 import { projectRoot } from "../src/util.ts";
+import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
+
+/** tmux composes no HUD role today, so an agent it spawns is told exactly that. */
+const environmentStampArg = `${ENVIRONMENT_ENV}=${JSON.stringify({ labels: false, blockedEvent: null })}`;
 import { mintAgentId } from "../src/backends/identity.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
@@ -135,7 +139,7 @@ void mock.module("node:child_process", () => ({
 }));
 
 const { TmuxBackend } = await import("../src/backends/tmux/index.ts");
-const { paneForeground } = await import("../src/commands/lifecycle/reload.ts");
+const { foregroundOf } = await import("../src/commands/lifecycle/reload.ts");
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
@@ -213,19 +217,19 @@ describe("TmuxBackend", () => {
 
   test("exposes tmux pane roles", () => {
     const backend = new TmuxBackend();
-    expect(backend.paneHost).not.toBeNull();
-    expect(backend.paneInventory).not.toBeNull();
-    expect(backend.paneInput).not.toBeNull();
-    expect(backend.paneForeground).toBeNull();
-    expect(backend.paneScreen).not.toBeNull();
+    expect(backend.placement).not.toBeNull();
+    expect(backend.placementInventory).not.toBeNull();
+    expect(backend.agentInput).not.toBeNull();
+    expect(backend.foreground).toBeNull();
+    expect(backend.screen).not.toBeNull();
     expect(backend.logPruning).toBeNull();
     expect(backend.identity).not.toBeNull();
   });
 
   test("does not declare pane foreground capability", () => {
     const backend = new TmuxBackend();
-    expect(Object.hasOwn(backend.paneInput, "foreground")).toBe(false);
-    expect(paneForeground(backend, "%1")).toEqual(NO_PANE_FOREGROUND);
+    expect(Object.hasOwn(backend.agentInput, "foreground")).toBe(false);
+    expect(foregroundOf(backend, "%1")).toEqual(NO_FOREGROUND);
   });
 
   test("reports tmux availability", () => {
@@ -247,7 +251,7 @@ describe("TmuxBackend", () => {
   });
 
   test("rejects an empty handle without invoking tmux", () => {
-    new TmuxBackend().paneHost.close("");
+    new TmuxBackend().placement.close("");
     expect(execCalls.some((call) => call.file === "tmux" && call.args[0] === "kill-pane")).toBe(false);
   });
 
@@ -271,7 +275,7 @@ describe("TmuxBackend", () => {
     ];
 
     const backend = new TmuxBackend();
-    expect(backend.paneInventory.list()).toEqual([
+    expect(backend.placementInventory.list()).toEqual([
       { handle: "%1", workspace: "main", group: "@1", groupLabel: "agents", name: "worker-a", agent: "pi", focused: true, status: null, sessionPath: null },
       { handle: "%3", workspace: "side", group: "@2", groupLabel: "side-window", name: "claude-pane", agent: "claude", focused: false, status: null, sessionPath: null },
     ]);
@@ -279,7 +283,7 @@ describe("TmuxBackend", () => {
 
   test("status-facing inventory displays the tmux session workspace", () => {
     panes = [orchPane({ paneId: "%1", session: "main", agentKey: "tmuxpane01", agent: "claude" })];
-    const target = new TmuxBackend().paneInventory.list()[0];
+    const target = new TmuxBackend().placementInventory.list()[0];
     expect(target?.workspace).toBe("main");
     expect(target?.agent).toBe("claude");
   });
@@ -289,13 +293,13 @@ describe("TmuxBackend", () => {
     writeStatus("tmuxpane01", { state: "working" });
 
     const backend = new TmuxBackend();
-    expect(backend.paneInventory.list()[0]?.status).toBe("working");
+    expect(backend.placementInventory.list()[0]?.status).toBe("working");
   });
 
   test("inventory status is null when no presence status.json exists", () => {
     panes = [orchPane({ paneId: "%1", agentKey: "nostatus99" })];
     const backend = new TmuxBackend();
-    expect(backend.paneInventory.list()[0]?.status).toBeNull();
+    expect(backend.placementInventory.list()[0]?.status).toBeNull();
   });
 
   test("waitAgentStatus polls presence status.json until it matches or times out", () => {
@@ -318,31 +322,31 @@ describe("TmuxBackend", () => {
   test("the pane screen returns captured text and throws when capture-pane fails", () => {
     const backend = new TmuxBackend();
     captureResult = "line one\nline two";
-    expect(backend.paneScreen.read("%1", 100)).toBe("line one\nline two");
+    expect(backend.screen.read("%1", 100)).toBe("line one\nline two");
 
     captureResult = null;
-    expect(() => backend.paneScreen.read("%1", 100)).toThrow();
+    expect(() => backend.screen.read("%1", 100)).toThrow();
   });
 
-  test("renamePane and renameAgent write two distinct pane options", () => {
+  test("setLabel and renameAgent write two distinct pane options", () => {
     const backend = new TmuxBackend();
-    backend.paneNaming.renamePane("%1", "border-label");
+    backend.labeling.setLabel("%1", "border-label");
     backend.agentNaming.renameAgent("%1", "agent-label");
 
     expect(callArgs("tmux", "select-pane")).toEqual(["select-pane", "-t", "%1", "-T", "border-label"]);
     expect(callArgs("tmux", "set-option")).toEqual(["set-option", "-p", "-t", "%1", "@orch_agent_name", "agent-label"]);
   });
 
-  test("paneHost.open splits the requested target with cwd and environment", () => {
+  test("placement.open splits the requested target with cwd and environment", () => {
     const backend = new TmuxBackend();
     const key = mintAgentId();
-    const created = backend.paneHost.open({ cwd: "/work", group: "@1", split: "right", targetPane: "%7", env: { [LAUNCH_ENV]: key, FOO: "bar" } });
+    const created = backend.placement.open({ cwd: "/work", group: "@1", split: "right", targetHandle: "%7", env: { [LAUNCH_ENV]: key, FOO: "bar" } });
     expect(created.handle).toBe("%1");
     expect(callArgs("tmux", "split-window")).toEqual([
       "split-window", "-t", "%7", "-h", "-P", "-F", "#{pane_id}", "-c", "/work",
       "-e", `${LAUNCH_ENV}=${key}`, "-e", "FOO=bar", "--", "bash",
     ]);
-    backend.paneHost.close(created.handle);
+    backend.placement.close(created.handle);
     expect(execCalls.some((call) => call.args.join(" ") === "kill-pane -t %1")).toBe(true);
   });
 
@@ -353,7 +357,7 @@ describe("TmuxBackend", () => {
 
     expect(handle).toBe("%1");
     const split = callArgs("tmux", "split-window");
-    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `${LAUNCH_ENV}=${key}`, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
+    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `${LAUNCH_ENV}=${key}`, "-e", environmentStampArg, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
     expect(execCalls.some((call) => call.args.join(" ") === `set-option -p -t %1 @orch_agent_key ${key}`)).toBe(true);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent pi")).toBe(true);
     // The tiling planner owns geometry; a blanket select-layout would overwrite it.
@@ -363,7 +367,7 @@ describe("TmuxBackend", () => {
   test("spawn splits the planned target pane, not whatever pane the window has active", () => {
     const backend = new TmuxBackend();
     const key = mintAgentId();
-    backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "down", targetPane: "%7" });
+    backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "down", targetHandle: "%7" });
 
     expect(callArgs("tmux", "split-window")?.slice(0, 4)).toEqual(["split-window", "-t", "%7", "-v"]);
   });
@@ -379,7 +383,7 @@ describe("TmuxBackend", () => {
     // Non-orch panes count: geometry the planner ignores is geometry it plans over.
     expect(backend.groupLayout.read("@1")).toEqual({
       group: "@1",
-      panes: [
+      placements: [
         { handle: "%1", rect: { width: 100, height: 50, x: 0, y: 0 } },
         { handle: "%2", rect: { width: 99, height: 50, x: 101, y: 0 } },
       ],
@@ -415,8 +419,8 @@ describe("TmuxBackend", () => {
 
     const backend = new TmuxBackend();
     expect(backend.groupHome.list()).toEqual([
-      { id: "@1", label: "agents", workspace: "main", focused: true, number: 0, paneCount: 2, status: null },
-      { id: "@2", label: "side-window", workspace: "side", focused: false, number: 3, paneCount: 1, status: null },
+      { id: "@1", label: "agents", workspace: "main", focused: true, number: 0, placementCount: 2, status: null },
+      { id: "@2", label: "side-window", workspace: "side", focused: false, number: 3, placementCount: 1, status: null },
     ]);
   });
 
@@ -425,7 +429,7 @@ describe("TmuxBackend", () => {
     const { group, rootHandle } = backend.groupHome.create({ workspace: "main", cwd: "/work", label: "extra" });
 
     expect(rootHandle).toBe("%1");
-    expect(group).toEqual({ id: "@w1", label: "extra", workspace: "main", focused: false, number: 1, paneCount: 1, status: null });
+    expect(group).toEqual({ id: "@w1", label: "extra", workspace: "main", focused: false, number: 1, placementCount: 1, status: null });
     expect(callArgs("tmux", "new-window")).toEqual(["new-window", "-P", "-F", "#{window_id}\t#{window_index}\t#{pane_id}", "-t", "main", "-c", "/work", "-n", "extra"]);
   });
 });

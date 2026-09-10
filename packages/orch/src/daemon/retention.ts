@@ -4,6 +4,7 @@ import { errorMessage } from "../util.ts";
 import { decisionLogger } from "./decision-log.ts";
 import { deleteEventsBefore } from "../store/event-rows.ts";
 import { deleteDeliveredBefore } from "../store/outbox-rows.ts";
+import { deleteControlOutcomesBefore } from "../store/control-outcome-rows.ts";
 import { deleteSettledTasksBefore } from "../store/task-rows.ts";
 import { deleteRunsBefore } from "../store/run-rows.ts";
 
@@ -106,11 +107,12 @@ function removeExpiredLogs(orchDir: string, cutoff: Date): number {
  * forbids. Rule 13's own remedy for a cast is "a wrong signature gets its signature
  * fixed", and this was the wrong signature. */
 export function sweepExpiredRows(orchDir: string, settings: Pick<OrchSettings, "retention">, now: Date): SweepCounts {
-  const counts: SweepCounts = { queue: 0, outbox: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 };
+  const counts: SweepCounts = { queue: 0, outbox: 0, control_outcomes: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 };
   const cutoff = (days: number): Date => new Date(now.getTime() - days * DAY_MS);
   const entries: SweepEntry[] = [
     { name: "queue", days: settings.retention.queue_days, remove: (date) => deleteSettledTasksBefore(orchDir, date.getTime()) },
     { name: "outbox", days: settings.retention.outbox_days, remove: (date) => deleteDeliveredBefore(orchDir, date.getTime()) },
+    { name: "control_outcomes", days: settings.retention.control_outcomes_days, remove: (date) => deleteControlOutcomesBefore(orchDir, date.getTime()) },
     { name: "events", days: settings.retention.events_days, remove: (date) => deleteEventsBefore(orchDir, date.getTime()) },
     { name: "runs", days: settings.retention.runs_days, remove: (date) => deleteRunsBefore(orchDir, date.getTime()) },
     { name: "ended_agents", days: settings.retention.ended_agents_days, remove: (date) => removeExpiredAgentDirs(orchDir, date) },

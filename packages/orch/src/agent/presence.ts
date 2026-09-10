@@ -7,18 +7,18 @@
 // Nothing here is backend-aware: the pane id, the status sink and the daemon ack
 // transport are all injected by the composition root.
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { mintAgentId } from "../backends/identity.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { CONTROL_FILE, PRESENCE_SCHEMA } from "../presence/schema.ts";
+import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import {
+  appendOutcome,
   ensurePresenceAgentDir,
   launchStamp,
   writeResult as writePresenceResult,
   writeStatus as writePresenceStatus,
 } from "../presence/writer.ts";
 import {
-  appendAck,
+  reportDeliveryAck,
   drainInbox as drainPresenceInbox,
   isInboxFilename,
   resetInbox,
@@ -105,7 +105,6 @@ interface AgentPresenceState {
   schema: typeof PRESENCE_SCHEMA;
   agent: string;
   key: string;
-  paneId: string | null;
   /** The launch stamps the agent's display name and its spawner's identity into
    *  env; a plexer HUD may later refine the label, but identity never depends on one. */
   label: string | null;
@@ -145,17 +144,15 @@ interface AgentPresenceState {
 }
 
 export function createAgentPresence(options: AgentPresenceOptions) {
-  const { harness, ack, extensionHash, reportStatus } = options;
+  const { harness, daemon, extensionHash } = options;
 
   let dir: string | undefined;
-  let controlFile = "";
 
   let lastCtx: HarnessContext | undefined;
   const state: AgentPresenceState = {
     schema: PRESENCE_SCHEMA,
     agent: options.identity.agentId,
     key: "",
-    paneId: options.paneId,
     // The launch stamps the agent's display name and its spawner's identity into
     // env; a plexer HUD may later refine the label, but identity never depends on one.
     label: null,
@@ -218,13 +215,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       out.blockedMessage = blocked.message;
     }
     writePresenceStatus(dir, out);
-    // A pane HUD is best-effort and must never prevent the durable status from
-    // landing (especially on the terminal turn where the daemon needs it).
-    try {
-      reportStatus({ state: state.state, task: state.task, cost: state.cost });
-    } catch {
-      // Keep the harness alive when a plexer/status reporter is unavailable.
-    }
   }
 
   function writeResult(text: string, details: JsonRecord = {}): void {
@@ -340,12 +330,15 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   // Model/thinking control commands are applied by the dedicated model-control
   // module (allowlist gate + registry resolution + ladder-suffix parsing); this
-  // layer only owns the inbox transport, the control.json path and the presence
+  // layer owns the inbox transport, the outcome history and the presence
   // refresh the applier calls back into.
   const modelControl = createModelControl({
     harness,
     context: () => lastCtx,
-    controlFile: () => controlFile,
+    recordOutcome: (outcome) => {
+      if (dir) appendOutcome(dir, outcome);
+    },
+    reportOutcome: (outcome) => daemon.postControlOutcome({ ...outcome, key: state.key }),
     refreshPresence: () => {
       if (lastCtx) updateModel(lastCtx);
       writeStatus();
@@ -385,20 +378,12 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   function deliverSteerText(text: string): void {
     state.steersReceived += 1;
-    try {
-      const idle = lastCtx?.isIdle() ?? true;
-      if (idle) {
-        harness.sendUserMessage(text);
-      } else {
-        harness.sendUserMessage(text, { deliverAs: "steer" });
-      }
-    } catch {}
-  }
-
-  // The transport-neutral fallback marker, consumed by a socket-less daemon.
-  function appendAckMarker(id: string): void {
-    if (!dir) return;
-    appendAck(dir, id, state.key);
+    const idle = lastCtx?.isIdle() ?? true;
+    if (idle) {
+      harness.sendUserMessage(text);
+    } else {
+      harness.sendUserMessage(text, { deliverAs: "steer" });
+    }
   }
 
   async function applyInboxMessage(parsed: unknown, messageId: string | undefined): Promise<void> {
@@ -413,16 +398,12 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   async function routeInboxLine(line: string): Promise<void> {
     const parsed = parseInboxLine(line);
-    const messageId = ack.messageIdOf(parsed);
-    if (messageId !== undefined && ack.isAcked(messageId)) return;
+    const messageId = daemon.messageIdOf(parsed);
+    if (messageId !== undefined && daemon.isAcked(messageId)) return;
     await applyInboxMessage(parsed, messageId);
     if (messageId !== undefined) {
-      ack.markAcked(messageId);
-      try {
-        if (!(await ack.post(messageId))) appendAckMarker(messageId);
-      } catch {
-        appendAckMarker(messageId);
-      }
+      daemon.markAcked(messageId);
+      if (dir) await reportDeliveryAck(dir, messageId, state.key, (id) => daemon.postAck(id));
     }
   }
 
@@ -451,8 +432,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     // orch CLI) inherit this, so a spawn made FROM here can hand its workers
     // this session's reply address — whatever harness this happens to be.
     process.env.ORCH_SESSION_KEY = key;
-    controlFile = path.join(dir, CONTROL_FILE);
-
     resetInbox(dir); // ignore steers from a previous life
     poll = setInterval(() => {
       void drainInbox().catch(() => {
@@ -484,11 +463,11 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     state.pendingHandoff = undefined;
   }
 
-  function deliverPendingHandoff(finalText: string, ownKey: string): void {
+  async function deliverPendingHandoff(finalText: string, ownKey: string): Promise<void> {
     const handoff = pendingHandoff;
     if (!handoff) return;
     try {
-      const resolved = resolvePeer(handoff.target, ownKey);
+      const resolved = await resolvePeer(daemon, handoff.target, ownKey);
       if ("error" in resolved) {
         state.handoffError = resolved.error;
         clearPendingHandoff();

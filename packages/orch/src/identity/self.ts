@@ -1,21 +1,9 @@
 import { launchCredential } from "./launch.ts";
 import { agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
-import { allAdapters } from "../adapters/registry.ts";
-import { optionalString } from "../util.ts";
+import { callerSession } from "../adapters/session-env.ts";
 import { orchDir } from "../presence/writer.ts";
-import type { AgentAdapter } from "../types/adapter.ts";
-import type { CallerSession, SelfIdentity } from "../types/core.ts";
-
-export function callerSession(adapters: readonly AgentAdapter[] = allAdapters()): CallerSession | null {
-  const marked = adapters.find((adapter) =>
-    adapter.sessionEnvMarker !== undefined && optionalString(process.env[adapter.sessionEnvMarker]) !== undefined);
-  if (!marked) return null;
-  const sessionId = marked.sessionIdEnv ? optionalString(process.env[marked.sessionIdEnv]) ?? null : null;
-  const rawPid = marked.sessionPidEnv ? optionalString(process.env[marked.sessionPidEnv]) : undefined;
-  const pid = rawPid !== undefined && /^[0-9]+$/.test(rawPid) ? Number(rawPid) : null;
-  return { harnessId: marked.id, sessionId, pid: pid !== null && pid > 0 ? pid : null };
-}
+import type { SelfIdentity } from "../types/core.ts";
 
 /** The id orch handed this process, or null when orch has never registered it. */
 export function selfIdentity(): SelfIdentity | null {
@@ -61,4 +49,22 @@ export function spaceOfAgent(id: string): string | null {
 export function callerSpace(): string | null {
   const id = selfId();
   return id === undefined ? null : spaceOfAgent(id);
+}
+
+/**
+ * The plexer the caller is recorded in, or null when it is in none.
+ *
+ * The same question as {@link callerSpace} and the same source: the row orch
+ * wrote when it spawned or registered this process. A plexer's env vars say the
+ * same thing a beat later and only for a process it launched itself, so reading
+ * them is re-deriving a fact orch already holds.
+ */
+export function callerPlexer(): string | null {
+  const id = selfId();
+  if (id === undefined) return null;
+  try {
+    return environmentOf(orchDir(), id).plexer;
+  } catch {
+    return null;
+  }
 }

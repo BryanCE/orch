@@ -2,11 +2,11 @@ import { headlessBackend } from "./headless/index.ts";
 import { herdrBackend } from "./herdr/index.ts";
 import { tmuxBackend } from "./tmux/index.ts";
 import type { Backend } from "../types/backend.ts";
-import type { HeadlessHandle } from "../types/plexer.ts";
 
-/** The pane-less backend a daemon-owned detached launch runs on. Named here so
- *  core reaches it through this boundary instead of reaching into a backend. */
-export const detachedBackend: Backend<HeadlessHandle> = headlessBackend;
+/** The environment that places an agent nowhere, which a daemon-owned launch
+ *  runs on. Re-exported here so core
+ *  reaches it through this boundary instead of reaching into a backend. */
+export { headlessBackend } from "./headless/index.ts";
 
 const backends = new Map<string, Backend>();
 
@@ -43,9 +43,6 @@ function validateBackend(id: string): Backend {
   const backend = getBackend(id);
   if (!backend) throw new Error(`Unknown backend ${JSON.stringify(id)}. Supported backends: ${supportedIds()}`);
   if (!backend.isAvailable()) throw new Error(`Backend ${JSON.stringify(id)} is unavailable`);
-  if (!backend.isInsideSession()) {
-    throw new Error(`Backend ${JSON.stringify(id)} requires running inside a live ${id} session; start one and retry`);
-  }
   return backend;
 }
 
@@ -53,9 +50,12 @@ function validateBackend(id: string): Backend {
 export function resolveBackend(opts: { explicit?: string | null; configured?: string | null }): Backend {
   if (opts.explicit !== undefined && opts.explicit !== null) return validateBackend(opts.explicit);
   if (opts.configured !== undefined && opts.configured !== null) return validateBackend(opts.configured);
-  if (herdrBackend.isAvailable() && herdrBackend.isInsideSession()) return herdrBackend;
-  if (tmuxBackend.isAvailable() && tmuxBackend.isInsideSession()) return tmuxBackend;
-  return headlessBackend;
+  // WHERE THE CALLER SITS IS ENVIRONMENT (Rule 11) and never decides what orch
+  // can drive. Asking isInsideSession() here silently downgraded every spawn to
+  // headless whenever the terminal was not itself inside a plexer: the caller
+  // asked for a fleet it could watch and got agents with no place to appear.
+  // Availability is the question — can this environment take an agent at all.
+  return allBackends().find((backend) => backend.groupHome !== null && backend.isAvailable()) ?? headlessBackend;
 }
 
 registerBackend(herdrBackend);

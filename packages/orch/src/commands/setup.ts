@@ -10,9 +10,10 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { runDoctor } from "../doctor/runner.ts";
 import { promptText } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
-import { installSkills, packagedSkillNames } from "../setup/skills.ts";
+import { describeSkillPlacement, installSkills, packagedSkillNames, type SkillRoots } from "../setup/skills.ts";
 import { setupIntro, setupOutro, selectNotifiers } from "../setup/wizard.ts";
-import { orchDir, presenceDir } from "../presence/store.ts";
+import { presenceDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { commandLogger } from "./logging.ts";
 import { compositionUnrecorded, resolveSetupComposition, recordComposition } from "../setup/composition.ts";
 import type { SetupComposition } from "../setup/composition.ts";
@@ -31,28 +32,30 @@ async function promptConfirm(message: string): Promise<boolean> {
   return !isCancel(answer) && answer === true;
 }
 
-/** Ask whether orch may write its packaged skills into the user's harness directories,
- *  defaulting to YES. Copying files into `~/.claude` and `~/.agents` is the user's call,
- *  so a declined or cancelled prompt records the refusal rather than installing anyway. */
-async function askSkillsConsent(roots: readonly string[], recorded: boolean): Promise<boolean> {
+/** Ask whether orch may install its packaged skills, defaulting to YES. Writing the store
+ *  and linking a harness directory into it is the user's call, so a declined or cancelled
+ *  prompt records the refusal rather than installing anyway. */
+async function askSkillsConsent(roots: SkillRoots, recorded: boolean): Promise<boolean> {
+  const linked = roots.link.length ? `, linked into ${roots.link.join(" and ")}` : "";
   const answer = await confirm({
-    message: `Install orch's skills (${packagedSkillNames().join(", ")}) into ${roots.join(" and ")}?`,
+    message: `Install orch's skills (${packagedSkillNames().join(", ")}) into ${roots.store}${linked}?`,
     initialValue: recorded,
   });
   return !isCancel(answer) && answer === true;
 }
 
 /** Resolve skills consent from `--skills`/`--no-skills`, the prompt, or what is already
- *  recorded, then write every packaged skill into the configured roots when allowed. */
+ *  recorded, then write the store and its harness links when allowed. */
 async function offerSkills(
   args: string[],
   interactive: boolean,
-  ask: (roots: readonly string[], recorded: boolean) => Promise<boolean> = askSkillsConsent,
+  ask: (roots: SkillRoots, recorded: boolean) => Promise<boolean> = askSkillsConsent,
 ): Promise<void> {
   // A build that packaged no skills has nothing to consent to; asking would offer an
   // empty list and then write nothing.
   if (!packagedSkillNames().length) return;
-  const { install: recorded, roots } = loadSettings(orchDir()).skills;
+  const { install: recorded, store, link } = loadSettings(orchDir()).skills;
+  const roots = { store, link };
   const forced = args.includes("--skills") ? true : args.includes("--no-skills") ? false : undefined;
   const install = forced ?? (interactive ? await ask(roots, recorded) : recorded);
   writeSettingsSkills(orchDir(), { install });
@@ -61,7 +64,7 @@ async function offerSkills(
     process.stdout.write("  not installed - turn it back on with: orch settings skills --install\n");
     return;
   }
-  for (const written of installSkills(roots)) process.stdout.write(`  ${written}\n`);
+  for (const placed of installSkills(roots)) process.stdout.write(`  ${describeSkillPlacement(placed)}\n`);
 }
 
 /** Surface the reappable malformed presence records the closing doctor pass found and, on a TTY,

@@ -43,14 +43,18 @@ function mode(path: string): number {
   return statSync(path).mode & 0o777;
 }
 
+/** NTFS carries no owner/group/other bits — statSync reports 0o666 whatever chmod did — so
+ *  the filesystem boundary below is a POSIX fact. It stays asserted on every POSIX run. */
+const posixOnlyTest = test.skipIf(process.platform === "win32");
+
 describe("the token file is the whole credential", () => {
-  test("the token is 0600", async () => {
+  posixOnlyTest("the token is 0600", async () => {
     const orchDir = tempDir();
     await start(orchDir);
     expect(mode(endpointPaths(orchDir).token)).toBe(0o600);
   });
 
-  test("$ORCH_DIR is 0700, so same-uid is a boundary the filesystem enforces", async () => {
+  posixOnlyTest("$ORCH_DIR is 0700, so same-uid is a boundary the filesystem enforces", async () => {
     const orchDir = tempDir();
     // mkdtemp hands back 0700 already, which would make this assertion pass
     // without the daemon doing anything. Loosen it first so the test measures
@@ -66,7 +70,7 @@ describe("the token file is the whole credential", () => {
     expect(mode(orchDir)).toBe(0o700);
   });
 
-  test("a token left loose by an earlier run is tightened, not trusted", async () => {
+  posixOnlyTest("a token left loose by an earlier run is tightened, not trusted", async () => {
     const orchDir = tempDir();
     const token = endpointPaths(orchDir).token;
     mkdirSync(join(token, ".."), { recursive: true });
@@ -79,7 +83,7 @@ describe("the token file is the whole credential", () => {
     expect(mode(token)).toBe(0o600);
   });
 
-  test("a runtime directory the daemon creates is 0700 too", async () => {
+  posixOnlyTest("a runtime directory the daemon creates is 0700 too", async () => {
     const orchDir = tempDir();
     const runtime = join(endpointPaths(orchDir).token, "..");
     mkdirSync(runtime, { recursive: true });

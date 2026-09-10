@@ -16,7 +16,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 describe("notifier setup logic", () => {
   test("probes the built-in adapters", async () => {
     const choices = await probeNotifiers();
-    expect(choices.map((choice) => choice.id)).toEqual(["herdr", "desktop", "webhook", "command"]);
+    expect(choices.map((choice) => choice.id)).toEqual(["herdr", "desktop", "webhook", "sound", "command"]);
     expect(choices.every((choice) => typeof choice.available === "boolean")).toBe(true);
     expect(choices.find((choice) => choice.id === "webhook")?.requiredFields.map((field) => field.name)).toEqual(["url"]);
   });

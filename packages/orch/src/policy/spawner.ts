@@ -1,15 +1,22 @@
 import { LAUNCH_ENV } from "../identity/launch.ts";
-import { callerSession, selfIdentity } from "../identity/self.ts";
-import { orchDir } from "../presence/store.ts";
+import { ENVIRONMENT_ENV } from "../agent/environment.ts";
+import { selfId, selfIdentity } from "../identity/self.ts";
+import { callerSession } from "../adapters/session-env.ts";
+import { orchDir } from "../presence/writer.ts";
 import { agentById } from "../store/agent-rows.ts";
+import { agentView } from "../store/agent-view.ts";
+import { depthOf } from "./provenance.ts";
 import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import type { SpawnerIdentity } from "../types/policy.ts";
+import { workerRules } from "../worker-prompt.ts";
+import type { WorkerHeaderContext } from "../types/core.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 /** Every ORCH_* variable carried through a spawn; tests import this vocabulary
  * so isolation cannot drift from the launch boundary. */
 export const ORCH_ENV_VARS = [
-  LAUNCH_ENV, "ORCH_DIR", "ORCH_PROJECT", "ORCH_AGENT_NAME",
+  LAUNCH_ENV, ENVIRONMENT_ENV, "ORCH_DIR", "ORCH_PROJECT", "ORCH_AGENT_NAME",
   "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH",
   "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_SPACE", "ORCH_HARNESS",
 ] as const;
@@ -89,4 +96,26 @@ export function agentLaunchEnv(
   return Object.fromEntries(
     Object.entries(candidates).filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
+}
+
+/** Whether a child launched by this spawner may itself spawn under the depth limit. */
+export function maySpawnFrom(orchDir: string, spawnerId: string | undefined, maxDepth: number): boolean {
+  const depth = spawnerId === undefined ? 0 : depthOf((id) => agentView(orchDir, id), spawnerId);
+  return depth + 1 < maxDepth;
+}
+
+/** This session's own reply address, live only when it writes presence of its own.
+ *  A worker is told to `orch_send target "spawner"` on the strength of this and
+ *  nothing else — never on its own harness's steer capability. */
+export function spawnerIsRepliable(): boolean {
+  return spawnerIdentity().key !== null;
+}
+
+/** The header context for a worker THIS session dispatches to. */
+export function workerHeaderContext(settings: OrchSettings): WorkerHeaderContext {
+  return {
+    maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth),
+    spawnerRepliable: spawnerIsRepliable(),
+    ...workerRules(settings),
+  };
 }

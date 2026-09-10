@@ -7,7 +7,7 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { claimAgent } from "../src/store/agent-rows.ts";
 import { callerKind } from "../src/policy/caller.ts";
-import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { isolateHarnessSession, isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -17,6 +17,7 @@ const savedSessionEnv = {
   marker: process.env[sessionEnv.marker],
   sessionId: process.env[sessionEnv.sessionId],
 };
+let restoreHarnessSession: (() => void) | undefined;
 
 afterEach(() => {
   restoreOrchEnv();
@@ -24,11 +25,14 @@ afterEach(() => {
   else process.env[sessionEnv.marker] = savedSessionEnv.marker;
   if (savedSessionEnv.sessionId === undefined) delete process.env[sessionEnv.sessionId];
   else process.env[sessionEnv.sessionId] = savedSessionEnv.sessionId;
+  restoreHarnessSession?.();
+  restoreHarnessSession = undefined;
   while (directories.length > 0) removeTempDir(directories.pop() ?? "");
 });
 
 function setupClaimedAgent(token: string): string {
   isolateOrchEnv();
+  restoreHarnessSession = isolateHarnessSession("pi");
   const directory = mkdtempSync(join(tmpdir(), "orch-caller-kind-"));
   directories.push(directory);
   process.env.ORCH_DIR = directory;

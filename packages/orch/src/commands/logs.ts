@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { isLogLevel, isLogRecord } from "../log.ts";
 import { die } from "./target.ts";
 import type { LogOptions } from "../types/command.ts";

@@ -4,19 +4,18 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { formatOwnerCell, statusRowFromEntity } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
-import { closeAllStores, orm } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
-import { rmSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import type { Entity } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 
 const dirs: string[] = [];
 afterEach(() => {
-  closeAllStores();
-  while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true });
+  while (dirs.length > 0) removeTempDir(dirs.pop()!);
 });
 
 function fixture(): string {
@@ -47,7 +46,7 @@ function entity(): Entity {
     // a place named "local".
     backendStatus: null, backend: null, presence: {
       key, dir: "/tmp", alive: true, result: null, status: { schema: 1, state: "idle" },
-    }, sessionPath: null, presenceOnly: false, space: null,
+    }, sessionPath: null, presenceOnly: false, ended: false, space: null,
   };
 }
 

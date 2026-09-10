@@ -101,6 +101,9 @@ export interface Entity {
   presence: PresenceEntry | null;
   sessionPath: string | null;
   presenceOnly: boolean;
+  /** Whether orch recorded this agent's ending. An ended agent has released its
+   *  NAME to whoever takes the slice next; its id addresses it forever. */
+  ended: boolean;
   /** Space from the backend view or orch's spawned registry. */
   space: string | null;
   /** Set when this entity was addressed with a configured host prefix. */
@@ -202,10 +205,16 @@ export interface ShimScope {
 export interface WorkerHeaderContext {
   maySpawn: boolean;
   lockedCommands?: readonly string[];
+  /** The commands that prove a slice is finished. Empty: the header asks for
+   *  whatever the repository already has, because orch was told no verb. */
+  verifyCommands?: readonly string[];
   /** The spawner's inbox is live and will accept a peer write. Default false: orch
    *  never instructs a reply it has not established the worker can actually deliver. */
   spawnerRepliable?: boolean;
 }
+
+/** The half of a worker header that comes from settings rather than from this spawn. */
+export type WorkerRules = Pick<WorkerHeaderContext, "lockedCommands" | "verifyCommands">;
 
 export type ExtensionName = keyof typeof EXTENSION_SOURCE_DIR;
 

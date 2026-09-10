@@ -163,10 +163,11 @@ function scanPackagesSrc(check: LineCheck): number {
  */
 const PRESENCE_FILENAMES: readonly string[] = [
   "status.json",
-  "result.json",
+  "results.jsonl",
   "inbox.jsonl",
   "answer.json",
   "ack.jsonl",
+  "outcomes.jsonl",
 ];
 
 /** The one directory allowed to name a presence file literally. */
@@ -558,7 +559,10 @@ function portRoleMembers(): readonly string[] {
 }
 
 export const ENVIRONMENT_ROLE_NAMES: readonly string[] = portRoleMembers();
-const ENVIRONMENT_ROLE_ALTERNATION = ENVIRONMENT_ROLE_NAMES.join("|");
+/** Grouped, so the `\b` that follows binds to EVERY role and not just the last
+ *  one. Ungrouped, a role that prefixes a plain data field (`placement` inside
+ *  `placementCount`) exempted that field from the rule. */
+const ENVIRONMENT_ROLE_ALTERNATION = `(?:${ENVIRONMENT_ROLE_NAMES.join("|")})`;
 /**
  * Scoped to METHOD_OWNER, exactly like the three patterns below it. E13 forbids
  * asking a PORT whether it has a method; `typeof value.fn === "function"` on a
@@ -623,7 +627,11 @@ export function checkCoreScopeLine(line: string, relPath: string): string | unde
       return `${owner} adapter wire literal ${JSON.stringify(literal)} is forbidden in core; keep it inside src/adapters/${owner}.ts`;
     }
   }
-  return undefined;
+  // The same rule extensions already answer to. A plexer's name in core is how every
+  // coupling here has started: a map keyed by it, a constant named after it, a docs
+  // URL for it. Prose explaining why code looks the way it does spells no literal
+  // and stays legal.
+  return checkPlexerLiteralLine(line, relPath, "in core");
 }
 
 /** Recursively scan src/** for port-boundary violations, excluding the adapter/backend port dirs. */

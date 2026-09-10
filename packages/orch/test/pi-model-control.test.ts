@@ -1,22 +1,8 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createModelControl, resolveRegistryModel } from "../src/agent/model-control.ts";
 import { splitThinkingSuffix } from "../src/policy/thinking.ts";
-import type { HarnessApi, HarnessContext, ResolvedModel } from "../src/types/agent.ts";
-import { isRecord } from "../src/util.ts";
-
-const tempDirs: string[] = [];
-function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-model-control-"));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-});
+import type { ControlOutcome, HarnessApi, HarnessContext, ResolvedModel } from "../src/types/agent.ts";
+import type { JsonRecord } from "../src/types/core.ts";
 
 // A registry model is opaque to model-control — it only forwards whatever find()
 // returns into pi.setModel. A tagged sentinel is enough to assert identity.
@@ -26,19 +12,21 @@ function fakeModel(provider: string, id: string): ResolvedModel {
 
 const noRetry = { attempts: 1, delayMs: 0, backoff: 1 };
 
-/** The outcome record applyControlCommand writes to control.json. */
-interface ControlOutcome {
-  id?: unknown;
-  success: boolean;
-  requested?: unknown;
-  error?: string;
-}
-
-function readControlOutcome(file: string): ControlOutcome {
-  const value: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (!isRecord(value) || typeof value.success !== "boolean") throw new Error("invalid control outcome");
-  if (value.error !== undefined && typeof value.error !== "string") throw new Error("invalid control outcome error");
-  return { id: value.id, success: value.success, requested: value.requested, error: value.error };
+/** Captures what applyControlCommand appends to history and reports to orchd. */
+function outcomeRecorder() {
+  const recorded: JsonRecord[] = [];
+  const reported: ControlOutcome[] = [];
+  return {
+    recorded,
+    reported,
+    record: (outcome: JsonRecord): void => {
+      recorded.push(outcome);
+    },
+    report: (outcome: ControlOutcome): Promise<boolean> => {
+      reported.push(outcome);
+      return Promise.resolve(true);
+    },
+  };
 }
 
 function modelContext(find: (provider: string, id: string) => ResolvedModel | undefined): HarnessContext {
@@ -147,14 +135,14 @@ describe("createModelControl.applyControlCommand", () => {
   }
 
   test("applies a suffixed model command and records a success outcome", async () => {
-    const dir = tempDir();
-    const controlFile = path.join(dir, "control.json");
     const { pi, calls } = makePi();
+    const outcomes = outcomeRecorder();
     let refreshed = 0;
     const control = createModelControl({
       harness: pi,
       context: () => modelContext((p, id) => fakeModel(p, id)),
-      controlFile: () => controlFile,
+      recordOutcome: outcomes.record,
+      reportOutcome: outcomes.report,
       refreshPresence: () => {
         refreshed += 1;
       },
@@ -165,48 +153,47 @@ describe("createModelControl.applyControlCommand", () => {
     expect(calls.model).toEqual(fakeModel("openai-codex", "gpt-5.6-luna"));
     expect(calls.thinking).toBe("medium");
     expect(refreshed).toBe(1);
-    const outcome = readControlOutcome(controlFile);
-    expect(outcome.success).toBe(true);
-    expect(outcome.requested).toEqual({ model: "openai-codex/gpt-5.6-luna:medium" });
-    // The dispatcher matches the outcome to its own request by this id.
-    expect(outcome.id).toBe("req-1");
+    expect(outcomes.recorded[0]).toMatchObject({ id: "req-1", success: true, requested: { model: "openai-codex/gpt-5.6-luna:medium" } });
+    // The dispatcher matches the report to its own request by this id.
+    expect(outcomes.reported[0]).toMatchObject({ id: "req-1", command: "model", requested: { model: "openai-codex/gpt-5.6-luna:medium" } });
+    expect(outcomes.reported[0]?.error).toBeUndefined();
   });
 
   test("records a failure outcome when the model is rejected", async () => {
-    const dir = tempDir();
-    const controlFile = path.join(dir, "control.json");
     const { pi, calls } = makePi();
+    const outcomes = outcomeRecorder();
     const control = createModelControl({
       harness: pi,
       context: () => modelContext(() => undefined),
-      controlFile: () => controlFile,
+      recordOutcome: outcomes.record,
+      reportOutcome: outcomes.report,
       refreshPresence: () => undefined,
     });
 
     await control.applyControlCommand({ cmd: "model", model: "openrouter/bad/model" });
 
     expect(calls.model).toBeUndefined();
-    const outcome = readControlOutcome(controlFile);
-    expect(outcome.success).toBe(false);
-    expect(outcome.error).toMatch(/Model not in registry/);
+    expect(outcomes.recorded[0]).toMatchObject({ success: false });
+    expect(outcomes.recorded[0]?.error).toMatch(/Model not in registry/);
+    // No request id means no waiter, so nothing is reported to orchd.
+    expect(outcomes.reported).toHaveLength(0);
   });
 
   test("applies a thinking command directly", async () => {
-    const dir = tempDir();
-    const controlFile = path.join(dir, "control.json");
     const { pi, calls } = makePi();
+    const outcomes = outcomeRecorder();
     const control = createModelControl({
       harness: pi,
       context: () => undefined,
-      controlFile: () => controlFile,
+      recordOutcome: outcomes.record,
+      reportOutcome: outcomes.report,
       refreshPresence: () => undefined,
     });
 
-    await control.applyControlCommand({ cmd: "thinking", level: "high" });
+    await control.applyControlCommand({ cmd: "thinking", level: "high", id: "req-2" });
 
     expect(calls.thinking).toBe("high");
-    const outcome = readControlOutcome(controlFile);
-    expect(outcome.success).toBe(true);
-    expect(outcome.requested).toEqual({ thinking: "high" });
+    expect(outcomes.recorded[0]).toMatchObject({ success: true, requested: { thinking: "high" } });
+    expect(outcomes.reported[0]).toMatchObject({ command: "thinking", requested: { thinking: "high" } });
   });
 });

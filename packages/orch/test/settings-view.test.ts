@@ -122,13 +122,27 @@ describe("settings view", () => {
   });
 
   test("overlays render choices, checkboxes, and input with error", () => {
-    expect(stripAnsi(selectOverlay(["rows", "columns"], 1).join("\n"))).toContain("● columns");
+    expect(stripAnsi(selectOverlay(["rows", "columns"], 1).join("\n"))).toContain("(*) columns");
     const multi = stripAnsi(multiOverlay(["pi", "claude"], 0, ["claude"]).join("\n"));
-    expect(multi).toContain("◼ claude");
-    expect(multi).toContain("◻ pi");
+    expect(multi).toContain("[x] claude");
+    expect(multi).toContain("[ ] pi");
     const input = stripAnsi(inputOverlay("daemon.tcp_port", "3716", "expected an integer").join("\n"));
     expect(input).toContain("daemon.tcp_port = 3716");
     expect(input).toContain("expected an integer");
+  });
+
+  test("a checkbox row shows what its choice carries", () => {
+    const rows = stripAnsi(multiOverlay(
+      ["desktop", "command", "sound"],
+      1,
+      ["desktop", "command"],
+      { command: "orch-ding" },
+    ).join("\n")).split("\n");
+    expect(rows[1]).toContain("[x] command  orch-ding");
+    // A choice with nothing to carry is not padded out to make room for a column it has no
+    // value in - the checkbox is the whole row.
+    expect(rows[0]).toContain("[x] desktop");
+    expect(rows[0]).not.toContain("desktop ");
   });
 
   test("displayValue keeps scalars bare and JSON-encodes shapes", () => {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { settingsDefects } from "../src/settings/defects.ts";
@@ -11,7 +12,7 @@ import type { RepairChoice, RepairState } from "../src/types/settings.ts";
 const directories: string[] = [];
 
 afterEach(() => {
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) removeTempDir(directory);
 });
 
 function orchDirWith(settings: Record<string, unknown>): string {

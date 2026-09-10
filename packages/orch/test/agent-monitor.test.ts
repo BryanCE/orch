@@ -1,12 +1,15 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createFleetMonitor, registerFleetMonitor } from "../src/agent/monitor.ts";
 import type { FleetMonitorOptions, HarnessApi, HarnessContext } from "../src/types/agent.ts";
 
+// Stated through the monitor's options, not mocked into the policy module: a
+// bun module mock outlives the file that installs it and would answer for every
+// later test in this process.
 let caller: "human" | "agent" = "human";
-void mock.module("../src/policy/caller.ts", () => ({ callerKind: () => caller }));
-const { createFleetMonitor, registerFleetMonitor } = await import("../src/agent/monitor.ts");
 
 interface Subscription {
   callback: (event: unknown, seq: number) => void;
@@ -27,14 +30,14 @@ const subscribe: FleetMonitorOptions["subscribe"] = (_dir, options, callback) =>
 };
 
 function options(ownKey: string): FleetMonitorOptions {
-  return { ownKey: () => ownKey, subscribe };
+  return { ownKey: () => ownKey, subscribe, callerKind: () => caller };
 }
 
 afterEach(() => {
   for (const subscription of subscriptions) subscription.closed = true;
   subscriptions.length = 0;
   subscribeOptions.length = 0;
-  for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
+  for (const path of tempDirs.splice(0)) removeTempDir(path);
   caller = "human";
 });
 

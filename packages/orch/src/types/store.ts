@@ -174,9 +174,14 @@ export interface OutboxMessageInput{id:string;target:string;payload:unknown;crea
  * "the agent has not read it yet" — collapsing them failed every inbox dispatch
  * back to the caller as unapplied.
  */
-export type OutboxState = "pending" | "awaiting" | "delivered";
+/** `undeliverable` is terminal like `delivered`: the agent it was written for is
+ *  gone, and no number of retries brings it back. */
+export type OutboxState = "pending" | "awaiting" | "delivered" | "undeliverable";
 
 export interface OutboxMessage{id:string;target:string;payload:unknown;state:OutboxState;attempts:number;createdAt:number;nextAttemptAt:number}
+
+/** What an agent did with one control command. `error` absent means it applied. */
+export interface ControlOutcomeRecord{id:string;agentId:string;command:string;requested:unknown;settledAt:number;error?:string}
 
 export interface RunRecord { dispatchId:string; agentKey:string; adapter?:string; model?:string; space?:string; task?:string; state:string; startedAt:number; finishedAt?:number; tokensIn?:number; tokensOut?:number; cacheRead?:number; cacheWrite?:number; cost?:number; turns?:number; result?:unknown; lastError?:string }
 
@@ -192,7 +197,8 @@ export interface SpawnRegistration {
    */
   backendId?: string;
   /** Whether this backend exposes the agent in a pane. */
-  pane: boolean;
+  /** Whether orch placed this agent somewhere the environment tracks; a placed agent has a handle. */
+  placed: boolean;
   handle?: string;
   cwd: string;
   name: string;

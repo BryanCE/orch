@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdSettingsNotify } from "../src/commands/settings.ts";
 import { loadSettings } from "../src/settings/read.ts";
+import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SIMPLE_IDS } from "../src/settings/schema.ts";
+import { NOTIFY_STATES } from "../src/types/settings.ts";
+import { registeredSetting, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -83,5 +86,42 @@ describe("orch settings notify", () => {
 
   test("an empty notify array lists as none configured", async () => {
     expect(await captureNotify(["list"])).toContain("(none configured)");
+  });
+
+  test("the notify row lists every sink, the states it may fire on, and the fields each carries", async () => {
+    await captureNotify(["add", "webhook", "--url=https://example.test/hook", "--on=done"]);
+    const row = registeredSetting("notify");
+    expect(row.type).toEqual({
+      kind: "sinks",
+      choices: NOTIFY_IDS,
+      fields: { webhook: { name: "url" }, command: { name: "command" } },
+      states: NOTIFY_STATES,
+      defaultStates: NOTIFY_DEFAULT_ON,
+    });
+    expect(NOTIFY_SIMPLE_IDS).toContain("sound");
+    expect(row.read(loadSettings(root))).toEqual([{ id: "webhook", url: "https://example.test/hook", on: ["done"] }]);
+  });
+
+  test("the notify row writes the picked sinks, states included, and drops the ones left off", () => {
+    writeRegisteredSetting(root, "notify", [
+      { id: "webhook", url: "https://example.test/hook", on: ["done"] },
+      { id: "sound", on: ["blocked", "asking"] },
+      { id: "command", command: "sh -c 'X=1 notify-send orch'" },
+    ]);
+    expect(loadSettings(root).notify).toEqual([
+      { id: "webhook", url: "https://example.test/hook", on: ["done"] },
+      { id: "sound", on: ["blocked", "asking"] },
+      // A sink naming no states fires on the default ones, so nothing is recorded for it.
+      { id: "command", command: "sh -c 'X=1 notify-send orch'" },
+    ]);
+
+    writeRegisteredSetting(root, "notify", [{ id: "sound" }]);
+    expect(loadSettings(root).notify).toEqual([{ id: "sound" }]);
+  });
+
+  test("the notify row refuses an unknown sink, a carrying sink with nothing to carry, and an unknown state", () => {
+    expect(() => writeRegisteredSetting(root, "notify", [{ id: "megaphone" }])).toThrow(/unknown notify sink "megaphone"/);
+    expect(() => writeRegisteredSetting(root, "notify", [{ id: "webhook" }])).toThrow(/webhook sink needs a url/);
+    expect(() => writeRegisteredSetting(root, "notify", [{ id: "sound", on: ["whenever"] }])).toThrow(/sound:/);
   });
 });

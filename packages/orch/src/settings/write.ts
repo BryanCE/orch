@@ -223,12 +223,19 @@ export function writeSettingsThinking(
   });
 }
 
-/** Record the user's answer to "may orch write its skills into your harness directories?"
- *  and, when they named them, which directories. */
-export function writeSettingsSkills(orchDir: string, skills: { install: boolean; roots?: readonly string[] }): void {
+/** Record the user's answer to "may orch install its skills?" and, when they named them,
+ *  which store holds the files and which harness directories link into it. */
+export function writeSettingsSkills(
+  orchDir: string,
+  skills: { install: boolean; store?: string; link?: readonly string[] },
+): void {
   updateSettingsFile(orchDir, (root) => ({
     ...root,
-    skills: { install: skills.install, roots: [...(skills.roots ?? root.skills?.roots ?? SETTINGS_DEFAULTS.skills.roots)] },
+    skills: {
+      install: skills.install,
+      store: skills.store ?? root.skills?.store ?? SETTINGS_DEFAULTS.skills.store,
+      link: [...(skills.link ?? root.skills?.link ?? SETTINGS_DEFAULTS.skills.link)],
+    },
   }));
 }
 

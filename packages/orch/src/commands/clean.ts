@@ -1,5 +1,6 @@
 import * as path from "node:path";
-import { orchDir, reapDeadPresenceDirs } from "../presence/store.ts";
+import { reapDeadPresenceDirs } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errorMessage } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import {

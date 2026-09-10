@@ -14,11 +14,11 @@
  * JSON guards come from there rather than being re-declared per shim.
  */
 import { homedir } from "node:os";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ANSWER_FILE, PRESENCE_SCHEMA, RESULT_FILE, STATUS_FILE } from "./schema.ts";
-import { isRecord } from "../util.ts";
-import type { LaunchEnvFacts, LaunchStampable, PresenceRecord } from "../types/presence.ts";
+import { ANSWER_FILE, OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
+import { isRecord, readJsonFile } from "../util.ts";
+import type { LaunchEnvFacts, LaunchStampable, PresenceRecord, PresenceStatus } from "../types/presence.ts";
 import type { JsonRecord } from "../types/core.ts";
 
 /** $ORCH_DIR, defaulting to ~/.orch. Read per call so tests can repoint the env. */
@@ -108,6 +108,30 @@ export function writeStatus(directory: string, status: PresenceRecord): void {
   atomicWrite(presenceFile(directory, STATUS_FILE), status);
 }
 
+/** Placement is orch's to record, never the agent's to report. A record stamping
+ *  the CURRENT schema that still carries one is a writer claiming to know where
+ *  it runs, which the registry alone answers — so it is malformed, not old. */
+export function isPresenceStatus(value: unknown): value is PresenceStatus {
+  return isRecord(value)
+    && value.schema === PRESENCE_SCHEMA
+    && !("backend" in value)
+    && !("space" in value)
+    && !("handle" in value);
+}
+
+/** The one gate every presence status read passes through. A status.json is a
+ *  live record only when it stamps the current PRESENCE_SCHEMA; anything else
+ *  is malformed and reads as absent, exactly as src/doctor/presence.ts reports
+ *  it. Malformed dirs stay on disk and keep enumerating so `orch doctor` can
+ *  name them and `orch clean` can reap them — they just never surface as a
+ *  live status, so one bad dir can never break the whole status view. */
+export function readPresenceStatus(file: string): PresenceStatus | null {
+  // A predicate, not a cast: the schema check IS the narrowing, so the runtime
+  // guard and the asserted type cannot drift apart.
+  const status = readJsonFile(file);
+  return isPresenceStatus(status) ? status : null;
+}
+
 export function readJsonStdin(): JsonRecord {
   try {
     const parsed: unknown = JSON.parse(readFileSync(0, "utf8"));
@@ -167,11 +191,43 @@ export function launchStamp<T extends LaunchStampable>(previous: T, id: string, 
 }
 
 /** Write the answer to an agent's blocking question. */
-export function writeAnswer(directory: string, text: string): void {
-  atomicWrite(presenceFile(directory, ANSWER_FILE), { text, ts: new Date().toISOString() });
+export function writeAnswer(directory: string, text: string, id: string): void {
+  atomicWrite(presenceFile(directory, ANSWER_FILE), { id, text, ts: new Date().toISOString() });
 }
 
-/** Write the agent's settled-turn result record. */
+/** Append one line to a presence log. A log gets append-atomicity where a cell
+ * gets rename-atomicity, so these are the records `atomicWrite` never touches. */
+function appendPresenceLine(directory: string, name: string, record: PresenceRecord): void {
+  appendFileSync(presenceFile(directory, name), `${JSON.stringify(record)}\n`);
+}
+
+/** Append the agent's settled-turn result. */
 export function writeResult(directory: string, result: PresenceRecord): void {
-  atomicWrite(presenceFile(directory, RESULT_FILE), result);
+  appendPresenceLine(directory, RESULTS_FILE, result);
+}
+
+/** Append what the agent did with one control command. */
+export function appendOutcome(directory: string, outcome: PresenceRecord): void {
+  appendPresenceLine(directory, OUTCOMES_FILE, outcome);
+}
+
+/** The newest settled result, or null when none has settled. Scans up from the
+ * end so a torn final line — appended by an agent that died mid-write — costs
+ * the newest result rather than every result. */
+export function readLatestResult(directory: string): PresenceRecord | null {
+  let lines: string[];
+  try {
+    lines = readFileSync(presenceFile(directory, RESULTS_FILE), "utf8").split("\n");
+  } catch {
+    return null;
+  }
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index]?.trim();
+    if (line === undefined || line === "") continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isRecord(parsed)) return parsed;
+    } catch { /* a torn line names no result */ }
+  }
+  return null;
 }

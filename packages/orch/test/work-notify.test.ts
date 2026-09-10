@@ -49,7 +49,7 @@ describe("orch presence notifications", () => {
     const command = nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`);
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
-    const { presenceAgentDir } = await import("../src/presence/store.ts");
+    const { presenceAgentDir } = await import("../src/presence/writer.ts");
     const agentsDir = presenceAgentDir(key, orchDir);
     seedStatusInDir(agentsDir, { state: "idle", label: "Test agent", pid: process.pid });
     writeSettingsFixture(orchDir, {

@@ -1,11 +1,11 @@
 import * as files from "node:fs";
 import { loadSettings, resolveWithSource } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
-import { displayValue } from "../settings/display.ts";
+import { displaySetting, displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
-import { installSkills } from "../setup/skills.ts";
-import { orchDir } from "../presence/store.ts";
+import { describeSkillPlacement, installSkills } from "../setup/skills.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
 import { resolveHarnessModels } from "../setup/composition.ts";
@@ -18,7 +18,7 @@ import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
 import { nearestKeys } from "../settings/nearest.ts";
-import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../settings/registry.ts";
+import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
 import type { NotifierChoice } from "../types/notify.ts";
@@ -143,28 +143,33 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
 }
 
 /**
- * Turn skill installation on or off, and re-point or re-write the roots. `--install`
- * copies every packaged skill into the recorded roots straight away, so the setting and
- * what is on disk never disagree; `--no-install` records the refusal and leaves whatever
- * the user has there alone, since those files are theirs to remove.
+ * Turn skill installation on or off, and re-point the store or the harness links.
+ * `--install` writes every packaged skill straight away, so the setting and what is on
+ * disk never disagree; `--no-install` records the refusal and leaves whatever the user
+ * has there alone, since those files are theirs to remove.
  */
 export function cmdSettingsSkills(args: string[]): void {
-  const rootsFlag = readAssignFlag(args, "--roots");
+  const storeFlag = readAssignFlag(args, "--store");
+  const linkFlag = readAssignFlag(args, "--link");
   const install = args.includes("--install") ? true : args.includes("--no-install") ? false : undefined;
-  const roots = rootsFlag?.split(",").map((root) => root.trim()).filter(Boolean);
-  if (install === undefined && roots === undefined) {
-    die("usage: orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]");
+  const link = linkFlag?.split(",").map((root) => root.trim()).filter(Boolean);
+  if (install === undefined && storeFlag === undefined && link === undefined) {
+    die("usage: orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]");
   }
-  if (rootsFlag !== undefined && !roots?.length) die("--roots needs at least one directory.");
+  if (storeFlag !== undefined && !storeFlag.trim()) die("--store needs a directory.");
+  if (linkFlag !== undefined && !link?.length) die("--link needs at least one directory.");
 
   const current = currentSettings().skills;
   const wanted = install ?? current.install;
   writeRegisteredSetting(orchDir(), "skills.install", wanted);
-  if (roots !== undefined) writeRegisteredSetting(orchDir(), "skills.roots", roots);
-  const target = roots ?? current.roots;
-  process.stdout.write(`skills.install = ${wanted}\nskills.roots   = ${target.join(", ")}\n`);
+  if (storeFlag !== undefined) writeRegisteredSetting(orchDir(), "skills.store", storeFlag.trim());
+  if (link !== undefined) writeRegisteredSetting(orchDir(), "skills.link", link);
+  const roots = { store: storeFlag?.trim() ?? current.store, link: link ?? current.link };
+  process.stdout.write(
+    `skills.install = ${wanted}\nskills.store   = ${roots.store}\nskills.link    = ${roots.link.join(", ")}\n`,
+  );
   if (!wanted) return;
-  for (const written of installSkills(target)) process.stdout.write(`  ${written}\n`);
+  for (const placed of installSkills(roots)) process.stdout.write(`  ${describeSkillPlacement(placed)}\n`);
 }
 
 const NOTIFY_USAGE = "usage: orch settings notify [list] [--json]\n"
@@ -260,7 +265,7 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   const merged = configured.some((entry) => entry.id === id)
     ? configured.map((entry) => entry.id === id ? replacement : entry)
     : [...configured, replacement];
-  writeRegisteredSetting(orchDir(), "notify", merged);
+  writeNotifyEntries(orchDir(), merged);
   process.stdout.write(`notify  ${settingsPath(orchDir())}\n\n`);
   for (const entry of written.entries) process.stdout.write(notifyEntryRow(entry));
   if (!choice.available) process.stdout.write(`\n  ${choice.remediation}\n`);
@@ -273,7 +278,7 @@ function removeNotifyEntry(args: string[]): void {
   const configured = currentSettings().notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
-  writeRegisteredSetting(orchDir(), "notify", configured.filter((candidate) => candidate.id !== entry.id));
+  writeNotifyEntries(orchDir(), configured.filter((candidate) => candidate.id !== entry.id));
   process.stdout.write(`removed notify sink ${id} from ${settingsPath(orchDir())}\n`);
 }
 
@@ -312,12 +317,12 @@ export async function cmdSettings(args: string[]): Promise<void> {
 
   // One model row per installed harness: each names models in its own vocabulary,
   // so there is no single "the model" to report.
-  const modelRows = settings.enabled.adapters.map((harness) => ({
-    key: `model (${harness})`,
-    ...resolveWithSource<string>({ settings: settings.defaults.models[harness], fallback: "(none)" }),
-  }));
+  const modelRows = settings.enabled.adapters.map((harness) => {
+    const resolved = resolveWithSource<string>({ settings: settings.defaults.models[harness], fallback: "(none)" });
+    return { key: `model (${harness})`, ...resolved, display: formatValue(resolved.value) };
+  });
 
-  interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string }
+  interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string; readonly display: string }
   const provenance: ProvenanceRow[] = [];
   // Every declared setting, in the registry's own declaration order. The registry
   // is the single source of truth for a setting, and
@@ -332,7 +337,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
     const environment = spec.env === undefined ? undefined : process.env[spec.env];
     const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
     const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
-    provenance.push({ key: spec.key, value, source });
+    provenance.push({ key: spec.key, value, source, display: value === null ? "(none)" : displaySetting(value, spec.type) });
   }
   provenance.push(...modelRows);
 
@@ -346,10 +351,10 @@ export async function cmdSettings(args: string[]): Promise<void> {
   }
 
   const width = Math.max(...provenance.map((row) => row.key.length));
-  const valueWidth = Math.max(...provenance.map((row) => formatValue(row.value).length));
+  const valueWidth = Math.max(...provenance.map((row) => row.display.length));
   process.stdout.write(`settings  ${settingsPath(orchDir())}\n\n`);
-  for (const { key, value, source } of provenance) {
-    process.stdout.write(`  ${key.padEnd(width)}  ${formatValue(value).padEnd(valueWidth)}  ${source}\n`);
+  for (const { key, display, source } of provenance) {
+    process.stdout.write(`  ${key.padEnd(width)}  ${display.padEnd(valueWidth)}  ${source}\n`);
   }
   process.stdout.write("\n");
   process.stdout.write(`  enabled.adapters  ${settings.enabled.adapters.join(", ") || "(none)"}\n`);

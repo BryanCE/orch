@@ -1,5 +1,6 @@
-import { allBackends, detectBackends, getBackend } from "../backends/registry.ts";
-import { SUPPORTED_RANGES, supportedRange, versionInRange } from "../backends/versions.ts";
+import { allBackends, detectBackends } from "../backends/registry.ts";
+import { versionInRange } from "../backends/versions.ts";
+import type { ServerInfoRole, ServerReport } from "../types/backend.ts";
 import type { BackendVersionObservation, CheckResult, DoctorBackendReport } from "../types/doctor.ts";
 
 /** The backend orch would actually pick, given the configured default. Mirrors
@@ -19,14 +20,14 @@ function activeBackend(reports: readonly DoctorBackendReport[], configured?: str
     // An absent `enabled` means the backend never declared one, which reads as enabled.
     return (report.enabled ?? true) ? report : null;
   }
-  const live = reports.find((report) => report.roles.includes("paneInventory") && report.detected && report.insideSession && (report.enabled ?? true));
+  const live = reports.find((report) => report.roles.includes("placementInventory") && report.detected && report.insideSession && (report.enabled ?? true));
   if (live) return live;
-  return reports.find((report) => !report.roles.includes("paneInventory") && (report.enabled ?? true)) ?? null;
+  return reports.find((report) => !report.roles.includes("placementInventory") && (report.enabled ?? true)) ?? null;
 }
 
 /** Every enabled backend must be detected; only the active one must be inside
  *  a live session. Requiring insideSession of all of them is unsatisfiable the
- *  moment two pane backends are enabled — you cannot be inside both a herdr
+ *  moment two placing environments are enabled — you cannot be inside both a herdr
  *  and a tmux session at once, so the check could never pass (design D6).
  *
  *  Severity separates a broken install from situational context (11.3): a missing
@@ -67,17 +68,31 @@ export function backendCapabilitiesVerdict(
   };
 }
 
+/** How a client/server plexer's server reads on a report row. An absent server
+ *  role and an absent server both say nothing; only a fact gets printed. */
+function serverRow(server: ServerReport | null | undefined): string {
+  if (!server) return "";
+  const compatibility = server.compatible === null ? "compatibility unknown" : server.compatible ? "compatible" : "INCOMPATIBLE";
+  return `, server ${server.version ?? "unknown"} (${compatibility})`;
+}
+
+/** A server the installed client cannot fully drive. Since herdr 0.9.0 a client
+ *  still connects to a server it outgrew and loses individual actions instead,
+ *  so the mismatch has to be named here or it surfaces as one unexplained
+ *  command failure later. */
+function serverMismatch(plexerId: string, server: ServerReport | null | undefined): string | null {
+  if (server?.compatible !== false) return null;
+  return `${plexerId}: the running server ${server.version ?? "of unknown version"} is not compatible with the installed client; restart the ${plexerId} server`;
+}
+
 /** Render the support-matrix comparison separately from host discovery so it is
- * deterministic and easy to test. An out-of-range install is a hard failure:
- * silently assuming a newer pre-1.0 integration is exactly the drift this check
- * is intended to prevent. */
+ * deterministic and easy to test. An install below the floor is a hard failure:
+ * orch calls commands that plexer does not have yet. */
 export function backendVersionsVerdict(observations: readonly BackendVersionObservation[]): CheckResult {
   const rows: string[] = [];
   const failures: string[] = [];
   const unreadable: string[] = [];
-  for (const { plexerId, detected, installed } of observations) {
-    const range = supportedRange(plexerId);
-    if (!range) continue;
+  for (const { plexerId, range, detected, installed, server } of observations) {
     if (!detected) {
       rows.push(`${plexerId}: not installed`);
     } else if (!installed) {
@@ -85,12 +100,14 @@ export function backendVersionsVerdict(observations: readonly BackendVersionObse
       unreadable.push(reason);
       rows.push(reason);
     } else if (versionInRange(installed, range)) {
-      rows.push(`${plexerId}: installed ${installed}, supported ${range} (in range)`);
+      rows.push(`${plexerId}: installed ${installed}, supported ${range} (in range)${serverRow(server)}`);
     } else {
-      const reason = `${plexerId}: installed ${installed} is outside orch's supported ${range}; update orch`;
+      const reason = `${plexerId}: installed ${installed} is older than orch's supported ${range}; update ${plexerId}`;
       failures.push(reason);
       rows.push(reason);
     }
+    const mismatch = serverMismatch(plexerId, server);
+    if (mismatch) failures.push(mismatch);
   }
   const reasons = [...failures, ...unreadable];
   return {
@@ -101,14 +118,37 @@ export function backendVersionsVerdict(observations: readonly BackendVersionObse
   };
 }
 
-/** Ask each supported plexer on this machine what it is, then compare against
- * orch's declared range. The binary is the fact; the store's install history is
- * a record of past sessions and answers nothing about a fresh checkout. */
+/** Asking a plexer about its server is itself a socket call. Doctor reports on a
+ *  plexer it cannot reach; it never dies on one, so an unreachable server reads
+ *  the same as none running. */
+function reportedServer(serverInfo: ServerInfoRole | null | undefined): ServerReport | null {
+  try {
+    return serverInfo?.running() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ask each integration what version of its own environment it speaks to, then what
+ * is installed here. The binary is the fact; the store's install history is a record
+ * of past sessions and answers nothing about a fresh checkout.
+ *
+ * An integration that reports no version at all declares no floor either, so it has
+ * nothing for this check to compare and never appears - which is why the list comes
+ * from the registry and not from a set of ids core would have to hold. */
 export function checkBackendVersions(): CheckResult {
   const detected = detectBackends();
-  const observations = Object.keys(SUPPORTED_RANGES).map((plexerId) => {
-    const here = detected.get(plexerId)?.detected ?? false;
-    return { plexerId, detected: here, installed: here ? getBackend(plexerId)?.versionInfo?.installed() ?? null : null };
+  const observations = allBackends().flatMap((backend) => {
+    const versionInfo = backend.versionInfo;
+    if (!versionInfo) return [];
+    const here = detected.get(backend.id)?.detected ?? false;
+    return [{
+      plexerId: backend.id,
+      range: versionInfo.supported(),
+      detected: here,
+      installed: here ? versionInfo.installed() : null,
+      server: here ? reportedServer(backend.serverInfo) : null,
+    }];
   });
   return backendVersionsVerdict(observations);
 }
@@ -129,17 +169,17 @@ export function describeBackendEnvironments(
       enabled: isEnabled,
       active: false,
       insideSession,
-      // The plexer's own grouping for the calling pane. Never read off an
+      // The plexer's own grouping for the calling process. Never read off an
       // identity: identity carries no environment (A1).
-      space: backend.paneInventory?.current()?.workspace ?? null,
+      space: backend.placementInventory?.current()?.workspace ?? null,
       roles: Object.entries({
-        paneHost: backend.paneHost,
-        paneInventory: backend.paneInventory,
-        paneInput: backend.paneInput,
-        paneForeground: backend.paneForeground,
-        paneScreen: backend.paneScreen,
-        paneZoom: backend.paneZoom,
-        paneNaming: backend.paneNaming,
+        placement: backend.placement,
+        placementInventory: backend.placementInventory,
+        agentInput: backend.agentInput,
+        foreground: backend.foreground,
+        screen: backend.screen,
+        zooming: backend.zooming,
+        labeling: backend.labeling,
         agentNaming: backend.agentNaming,
         agentStatus: backend.agentStatus,
         groupHome: backend.groupHome,
@@ -149,6 +189,7 @@ export function describeBackendEnvironments(
         handleLookup: backend.handleLookup,
         logPruning: backend.logPruning,
         versionInfo: backend.versionInfo,
+        serverInfo: backend.serverInfo,
       }).filter((entry) => entry[1] !== null).map(([name]) => name),
     };
   });

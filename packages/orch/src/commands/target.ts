@@ -8,7 +8,8 @@ import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { runSSH } from "../remote.ts";
-import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
+import { loadPresence, spawnedRecords } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { ambiguousTargetRefusal, CommandRefusal } from "../refusal.ts";
@@ -289,7 +290,7 @@ function canonicalForStalePane(entities: readonly Entity[], ent: Entity): Entity
   const paneId = ent.paneId;
   if (tryParseIdentity(ent.key) !== null || !paneId) return undefined;
   return entities.find((candidate) => tryParseIdentity(candidate.key) !== null
-    && candidate.presence?.status?.paneId === paneId);
+    && candidate.paneId === paneId);
 }
 
 function resolveFromInventory(
@@ -336,6 +337,7 @@ function resolveFromViews(
 function entityFromView(view: AgentView, presence: ReadonlyMap<string, PresenceEntry>): Entity {
   return {
     key: agentAddress(view, presence), paneId: view.environment.handle, managed: true, name: view.name,
+    ended: view.endedAt != null,
     tabLabel: null, agent: view.harnessId, focused: false, backendStatus: null,
     backend: view.environment.plexer, presence: presence.get(view.id) ?? null,
     sessionPath: null, presenceOnly: true, space: view.environment.space,

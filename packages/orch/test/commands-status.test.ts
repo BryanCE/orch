@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { displayStatusState, formatNoRowsMessage, formatSpace, normalizeStatusRow, scopeFleetRows, statusRowFromEntity, warningStatusRow } from "../src/commands/status.ts";
+import { displayStatusState, formatNoRowsMessage, formatSpace, formatStatusTable, normalizeStatusRow, scopeFleetRows, statusRowFromEntity, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
-import { closeAllStores, orm } from "../src/store/connection.ts";
+import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -20,7 +21,7 @@ import { sql } from "drizzle-orm";
 function entityFixture(overrides: Partial<Entity> = {}): Entity {
   return {
     key: "appagent01", paneId: "app:p1", managed: true, name: "worker", tabLabel: "app", agent: "pi",
-    focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, space: "local",
+    focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, ended: false, space: "local",
     presence: presenceEntryFixture({
       key: "appagent01", dir: "/tmp/pres",
       status: {
@@ -50,7 +51,7 @@ const seededEntity = entityFixture();
 describe("commands/status", () => {
   test("zero-row message reports gathered counts and backend response", () => {
     expect(formatNoRowsMessage({ agentsSeen: 3, alive: 1, backendAnswered: true })).toBe(
-      "No panes found (agent records seen: 3; alive: 1; backend answered: yes).\n",
+      "No agents found (agent records seen: 3; alive: 1; backend answered: yes).\n",
     );
   });
 
@@ -62,9 +63,30 @@ describe("commands/status", () => {
     const row = statusRowFixture({ key: "dead", state: "working", alive: false, exited: false });
     expect(normalizeStatusRow(row)).toMatchObject({ state: "exited" });
   });
-  test("default status reads span every workspace", () => {
+  test("a human at a terminal has no identity to narrow by and no space to be held inside", () => {
     const row = (key: string, spaceId: string): StatusRow => statusRowFixture({ key, spaceId });
-    expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { all: false, allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
+    expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { spaceWide: false,allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
+  });
+
+  describe("an agent sees what it spawned, and never past its own space", () => {
+    const orch = { id: "orch1", ceiling: "w1" };
+    const rows = [
+      statusRowFixture({ key: "mine", spaceId: "w1", spawnedBy: "orch1" }),
+      statusRowFixture({ key: "sibling", spaceId: "w1", spawnedBy: "orch2" }),
+      statusRowFixture({ key: "elsewhere", spaceId: "w2", spawnedBy: "orch1" }),
+    ];
+
+    test("the default is the agents this caller spawned", () => {
+      expect(scopeFleetRows(rows, { spaceWide: false,allPanes: false, caller: orch }).map((r) => r.key)).toEqual(["mine"]);
+    });
+
+    test("--space-wide widens to the caller's space, which is the wall", () => {
+      expect(scopeFleetRows(rows, { spaceWide: true,allPanes: false, caller: orch }).map((r) => r.key)).toEqual(["mine", "sibling"]);
+    });
+
+    test("a human widening sees every space, including the one the agent could not", () => {
+      expect(scopeFleetRows(rows, { spaceWide: true,allPanes: false }).map((r) => r.key)).toEqual(["mine", "sibling", "elsewhere"]);
+    });
   });
   test("derives status row fields from seeded presence", () => {
     const entity = entityFixture({
@@ -143,7 +165,7 @@ describe("commands/status", () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-status-"));
     try {
       ensureHarness(dir, "pi", "pi", 1);
-      insertAgent(dir, { id: "me", harnessId: "pi", cwd: "/tmp", name: "me", createdAt: 1 });
+      insertAgent(dir, { id: "me", harnessId: "pi", cwd: "/tmp", name: "Orchestrator", createdAt: 1 });
       insertAgent(dir, { id: "worker0001", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
       insertAgent(dir, { id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
       const key = "worker0001";
@@ -153,16 +175,38 @@ describe("commands/status", () => {
       if (!token) throw new Error("test process has no start token");
       db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"me"},${1},${"host"},${process.pid},${token})`);
       acquireLease(dir, "worker0001", "me", 2);
-      expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "me", mine: true });
+      expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "Orchestrator", mine: true });
       releaseLease(dir, "worker0001", "me", 3);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it", mine: false });
       acquireLease(dir, "worker0001", "other", 4);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "unleased", owner: "no orch driving it (holder gone)", mine: false });
     } finally {
-      closeAllStores();
-      rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
+  test("default table separates minted identity from pane environment", () => {
+    const table = formatStatusTable([
+      statusRowFixture({ key: "headless-id", agentId: "headless-id", paneId: null, name: "headless" }),
+      statusRowFixture({ key: "leased-id", agentId: "leased-id", paneId: "%7", name: "leased", owner: "Orchestrator" }),
+    ], { spaceWide: false,host: false });
+    expect(table).toContain("ID");
+    expect(table).toContain("ENV");
+    expect(table).toContain("headless-id");
+    expect(table).toContain("leased-id");
+    expect(table).toContain("headless");
+    expect(table).toContain("%7");
+    expect(table).not.toContain("%7  leased-id");
+  });
+
+  test("human table shows harness and working directory facts", () => {
+    const table = formatStatusTable([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", owner: "Orchestrator" })], { spaceWide: false,host: false, human: true });
+    expect(table).toContain("HARNESS");
+    expect(table).toContain("CWD");
+    expect(table).toContain("WORKTREE");
+    expect(table).toContain("claude");
+    expect(table).toContain("/repo");
+  });
+
   test("json branch and local table branch derive identical rows apart from host", () => {
     const jsonRow = statusRowFromEntity(seededEntity, new Map()); // cmdStatusLocal json branch shape
     const localRow = { ...statusRowFromEntity(seededEntity, new Map()), host: "local" }; // localStatusRows table shape

@@ -127,9 +127,9 @@ describe("HeadlessBackend", () => {
         return [process.execPath, "-e", [
           "const fs=require('node:fs');",
           `fs.mkdirSync(${JSON.stringify(dir)}, {recursive:true});`,
-          `const status=${JSON.stringify(path.join(dir, "status.json"))}; const result=${JSON.stringify(path.join(dir, "result.json"))};`,
+          `const status=${JSON.stringify(path.join(dir, "status.json"))}; const results=${JSON.stringify(path.join(dir, "results.jsonl"))};`,
           "fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'working'}));",
-          "setTimeout(()=>{fs.writeFileSync(result, JSON.stringify({text:'headless result'})); fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'done'}));}, 30);",
+          "setTimeout(()=>{fs.appendFileSync(results, JSON.stringify({text:'headless result'})+'\\n'); fs.writeFileSync(status, JSON.stringify({pid:process.pid,state:'done'}));}, 30);",
         ].join(" ")];
       },
     });
@@ -138,7 +138,7 @@ describe("HeadlessBackend", () => {
     const dir = path.join(testOrchDir, "agents", key);
     await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
     await waitFor(() => (JSON.parse(fs.readFileSync(path.join(dir, "status.json"), "utf8")) as { state: string }).state === "done");
-    expect(JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"))).toEqual({ text: "headless result" });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "results.jsonl"), "utf8"))).toEqual({ text: "headless result" });
   }, 30000);
 
   test("records and mirrors the headless log for Codex session-tail parsing", async () => {
@@ -158,7 +158,7 @@ describe("HeadlessBackend", () => {
   /**
    * 2.2 — closing a headless agent has ONE address: the `process` role. The
    * backend used to publish a `close(handle)` method beside it that nothing
-   * reached (`paneHost` is null here), carrying its own pid/key ownership check.
+   * reached (`placement` is null here), carrying its own pid/key ownership check.
    * The live guard is stronger and on the axis orch actually records: a process
    * is signalled only while its recorded START TOKEN still matches, so a pid
    * reused by an unrelated process is refused rather than killed.

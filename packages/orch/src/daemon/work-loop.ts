@@ -14,7 +14,7 @@ import { emitAndNotify } from "./events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, statusForPresence } from "../presence/store.ts";
 import { loadSettings } from "../settings/read.ts";
-import { workerHeaderFor } from "../worker-prompt.ts";
+import { workerHeaderFor, workerRules } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -37,13 +37,9 @@ interface Runner {
   agentId: string;
 }
 
-/** A presence key IS the minted id and carries nothing else — the plexer and the
- *  space are environment, read through the composer (`src/store/agent-view.ts`)
- *  and never parsed back out of an address.
- *
- *  Cq8: an idle process whose id names no live registered agent is precisely the
- *  foreign runner the old code handed work to. It has no row, so it has no pack,
- *  so no scope contains it. */
+/** The agent behind an idle process, or null when orch has no live row for it.
+ *  A process with no row belongs to no pack, so no scope reaches it and no
+ *  queued task may go to it. */
 function runnerOf(orchDir: string, entry: PresenceEntry): Runner | null {
   const agentId = tryParseIdentity(entry.key)?.id;
   if (agentId === undefined) return null;
@@ -93,13 +89,13 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const runnerId = currentAttempt(task)?.agentId ?? tryParseIdentity(entry.key)?.id;
   const view = runnerId === undefined ? null : agentView(options.orchDir, runnerId);
   const adapterId = view?.harnessId ?? entry.status?.agent;
-  const lockedCommands = (options.getSettings?.() ?? loadSettings(options.orchDir)).locked_commands;
+  const rules = workerRules(options.getSettings?.() ?? loadSettings(options.orchDir));
   // The daemon is not this agent's spawner; provenance names it. Only a spawner
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
   const spawnerKey = view?.spawnedBy ?? entry.status?.spawnedBy;
   const spawnerRepliable = typeof spawnerKey === "string" && pidAlive(loadPresence().get(spawnerKey)?.status?.pid);
-  const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { lockedCommands, spawnerRepliable });
+  const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...rules });
   const prompt = `${header}\n\n${task.text}`;
   // The claim's dispatch id rides every attempt: the bridge acks per id, so a
   // retry of the same id can never deliver the prompt twice, and the agent's
@@ -234,14 +230,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         lastSweepAt = nowMs;
         const counts = sweepExpiredRows(options.orchDir, settings, new Date(nowMs));
         if (Object.values(counts).some((count) => count > 0)) {
-          decisionLogger(options.orchDir).info("retention.swept", {
-            queue: counts.queue,
-            outbox: counts.outbox,
-            events: counts.events,
-            runs: counts.runs,
-            ended_agents: counts.ended_agents,
-            logs: counts.logs,
-          });
+          decisionLogger(options.orchDir).info("retention.swept", { ...counts });
         }
       }
     }

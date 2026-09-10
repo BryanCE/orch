@@ -102,7 +102,7 @@ function completeSettings(): Record<string, unknown> {
     spaces: { main: "/tmp/main" },
     daemon: { tcp_port: 3716, idle_shutdown_minutes: 0 },
     tiling: { first_split: "rows" },
-    skills: { install: false, roots: ["/tmp/skills"] },
+    skills: { install: false, store: "/tmp/skills", link: ["/tmp/claude-skills"] },
   };
 }
 

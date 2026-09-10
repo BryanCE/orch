@@ -1,5 +1,5 @@
 import { tryParseIdentity } from "../../backends/identity.ts";
-import { orchDir } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { renameAgent as renameNormalizedAgent } from "../../store/agent-rows.ts";
 import { errorMessage } from "../../util.ts";
@@ -48,10 +48,10 @@ function renameAgent(
   role.renameAgent(handle, name);
   // The border follows the name in the SAME command. An environment with no
   // pane naming has no border to sync, which is an answer, not a failure (E14).
-  const paneNaming = backend.paneNaming;
-  if (!paneNaming) return { chrome: "none", chromeError: null };
+  const labeling = backend.labeling;
+  if (!labeling) return { chrome: "none", chromeError: null };
   try {
-    paneNaming.renamePane(handle, name);
+    labeling.setLabel(handle, name);
     return { chrome: "renamed", chromeError: null };
   } catch (error: unknown) {
     const message = errorMessage(error);
@@ -80,8 +80,8 @@ export function cmdRename(args: string[]) {
     if (paneLabel) {
       // `--pane` is for deliberately giving the border something DIFFERENT. It
       // leaves orch's name alone; it is never the price of a correct display.
-      if (!backend.paneNaming) throw new Error("target environment has no pane naming role");
-      backend.paneNaming.renamePane(handle, name);
+      if (!backend.labeling) throw new Error("target environment has no pane naming role");
+      backend.labeling.setLabel(handle, name);
       outcome = { chrome: "renamed", chromeError: null };
     } else outcome = renameAgent(backend, handle, key, name, views);
   } catch (error: unknown) {

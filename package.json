@@ -25,14 +25,15 @@
     "db:reset": "bun --filter @bryance/orch db:reset",
     "db:reset:dry": "bun --filter @bryance/orch db:reset:dry",
     "reset": "bun --filter @bryance/orch reset",
-    "reinstall": "bun --filter @bryance/orch reinstall",
+    "reinstall": "bun --cwd=packages/orch run reinstall",
     "fallow:dupes": "bunx fallow dupes --baseline .fallow-dupes-baseline.json --fail-on-issues",
     "fallow:health": "bunx fallow health --baseline .fallow-health-baseline.json --fail-on-issues",
     "fallow:dead": "bunx fallow dead-code",
     "fallow:accept": "bunx fallow dupes --save-baseline .fallow-dupes-baseline.json && bunx fallow health --save-baseline .fallow-health-baseline.json"
   },
   "devDependencies": {
-    "fallow": "^3.20.0"
+    "fallow": "^3.20.0",
+    "oxlint-tsgolint": "^7.0.2001"
   },
   "trustedDependencies": [
     "@google/genai",

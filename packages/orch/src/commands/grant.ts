@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 import { confirm, isCancel } from "@clack/prompts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { currentHostOs, ensureHost } from "../store/agent-rows.ts";
 import { approveGrantRequest, denyGrantRequest, pendingGrantRequest, pendingGrantRequests, renderGrantRequest } from "../store/grant-rows.ts";
 import { die } from "./target.ts";

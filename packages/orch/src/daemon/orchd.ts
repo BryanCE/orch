@@ -15,23 +15,29 @@ import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { watchSettings } from "../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
-import { errorMessage, errorTrace } from "../util.ts";
+import { loadPresence } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
+import { errorMessage, errorTrace, isRecord } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { withTransaction } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
+import { insertControlOutcome } from "../store/control-outcome-rows.ts";
+import { settleControlOutcome } from "../control/outcome.ts";
+import { acknowledgeDelivery, confirmDelivery } from "../control/ack.ts";
+import { agentIdOf } from "../commands/lifecycle/close.ts";
+import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
-import { drainOutbox } from "./outbox.ts";
+import { deliverOutboxMessage, drainOutbox } from "./outbox.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb } from "../adapters/adapter.ts";
-import { detachedBackend } from "../backends/registry.ts";
+import { headlessBackend } from "../backends/registry.ts";
 import { fleetStatusRows } from "../commands/status.ts";
 import { agentView } from "../store/agent-view.ts";
 import { createLogger } from "../log.ts";
@@ -46,6 +52,10 @@ import type { NotifyEvent } from "../types/notify.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
+import { createPanePainter } from "./pane-painter.ts";
+import { activePaneHud } from "../backends/hud.ts";
+import { peerView } from "./peer-view.ts";
+import type { PaneLabels } from "../types/plexer.ts";
 
 
 /** The one spelling of "is this lease's holder still running". A start token
@@ -82,6 +92,7 @@ let server: RpcServer | undefined;
 const workController = new AbortController();
 let workLoop: Promise<void> | undefined;
 let workLoopRunning = false;
+let outboxDrain: ReturnType<typeof setInterval> | undefined;
 let presenceWatch: PresenceWatch | undefined;
 let settingsWatch: SettingsWatch | undefined;
 let currentSettings: OrchSettings | undefined;
@@ -149,6 +160,30 @@ function requiredString(value: unknown, name: string): string {
   return value;
 }
 
+/** A notification a bridge raised, rebuilt field by field. It arrives as JSON
+ *  from another process, so every member is narrowed here rather than trusted:
+ *  the event is constructed, never asserted. */
+function bridgeNotifyEvent(params: Record<string, unknown>): NotifyEvent {
+  const nullableString = (value: unknown): string | null => typeof value === "string" ? value : null;
+  const event: NotifyEvent = {
+    key: requiredString(params.key, "key"),
+    agent: nullableString(params.agent),
+    tab: nullableString(params.tab),
+    model: nullableString(params.model),
+    oldState: requiredString(params.oldState, "oldState"),
+    newState: requiredString(params.newState, "newState"),
+    ts: requiredString(params.ts, "ts"),
+  };
+  const space = optionalString(params.space);
+  if (space !== undefined) event.space = space;
+  const task = optionalString(params.task);
+  if (task !== undefined) event.task = task;
+  const reason = optionalString(params.reason);
+  if (reason !== undefined) event.reason = reason;
+  if (typeof params.cost === "number") event.cost = params.cost;
+  return event;
+}
+
 function isWritePayload(value: unknown): value is { action?: unknown; text?: unknown } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -164,10 +199,10 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
   const kind = value.action === "dispatch" ? "run" : "steer";
   if (!resolveTargetAdapter(canonicalTarget)) {
     const route = resolveTargetRoute(canonicalTarget);
-    if (!route?.backend.paneInput) return "failed";
-    // Keystrokes into a pane: nothing will ever append a marker for this, so the
+    if (!route?.backend.agentInput) return "failed";
+    // Raw keystrokes: nothing will ever append a marker for this, so the
     // write itself is the whole delivery.
-    route.backend.paneInput.submit(String(route.handle), text);
+    route.backend.agentInput.submit(String(route.handle), text);
     return "acked";
   }
   try {
@@ -264,9 +299,8 @@ export function governWrite(directory: string, target: string, params: unknown, 
   logLeaseGrant();
 }
 
-async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string }> {
+async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown, id = randomUUID()): Promise<{ accepted: true; id: string }> {
   const { target, text } = validateWriteParams(params);
-  const id = randomUUID();
   const log = decisionLogger(directory).forCorrelation(id);
   try {
     withTransaction(directory, () => {
@@ -275,7 +309,10 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
     });
     log.info("dispatch.accepted", { target, action });
     log.info("dispatch.queued", { target, action });
-    await drainOutbox(directory, outboxDeps());
+    // THIS write only. Draining the whole outbox here put every caller behind
+    // every other orch's backlog, and one dead agent's retries then timed out
+    // the RPC for a fleet that was perfectly healthy.
+    await deliverOutboxMessage(directory, id, outboxDeps());
     // Only a write no channel would take is a failure. A queued one is open on
     // purpose: the agent has not read its inbox yet (L7).
     if (outboxMessageUnsent(directory, id)) {
@@ -321,14 +358,14 @@ export function optionalModelSpecs(value: unknown, name: string): string[] | und
 }
 
 /**
- * Launch one detached agent from INSIDE the daemon.
+ * Launch one headless agent from INSIDE the daemon.
  *
- * A detached agent has no TTY: it runs the prompt it was launched with and exits.
- * The prompt is therefore required, not optional — a detached agent with nothing
+ * A headless agent has no TTY: it runs the prompt it was launched with and exits.
+ * The prompt is therefore required, not optional — a headless agent with nothing
  * to do registers, finds no work, and dies before anything can be sent to it.
  * orchd owns the launch because it already owns delivery and outlives the CLI.
  */
-function spawnDetached(directory: string, params: unknown): { key: string; pid: number } {
+function spawnHeadless(directory: string, params: unknown): { key: string; pid: number } {
   const value = rpcParams(params);
   const key = requiredString(value.key, "key");
   const adapterId = requiredString(value.adapter, "adapter");
@@ -339,7 +376,7 @@ function spawnDetached(directory: string, params: unknown): { key: string; pid: 
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
   const model = requiredString(value.model, "model");
   assertModelAllowed(directory, adapter, model);
-  const handle = detachedBackend.spawn(adapter, {
+  const handle = headlessBackend.spawn(adapter, {
     key,
     env: optionalEnvRecord(value.env, "env"),
     orchDir: directory,
@@ -402,13 +439,28 @@ async function applyLifecycle(directory: string, params: unknown): Promise<{ ok:
   return { ok: true, verb };
 }
 
-async function answer(directory: string, params: unknown): Promise<{ ok: true }> {
+export async function steer(directory: string, params: unknown) {
+  const id = randomUUID();
+  const timeoutMs = loadSettings(directory).timeouts.dispatch_ack_ms;
+  const ack = await confirmDelivery(id, timeoutMs, async () => {
+    await acceptWrite(directory, "steer", params, id);
+    return outboxMessageOpen(directory, id) ? "expected" : "none";
+  });
+  return { accepted: true, id, ack };
+}
+
+export async function answer(directory: string, params: unknown) {
   const value = rpcParams(params);
   const target = requiredString(value.target, "target");
   const text = requiredString(value.text, "text");
   governWrite(directory, target, params);
-  await deliverControl(target, { kind: "answer", text });
-  return { ok: true };
+  const id = randomUUID();
+  const ack = await confirmDelivery(id, loadSettings(directory).timeouts.dispatch_ack_ms, async () => {
+    const outcome = await deliverControl(target, { kind: "answer", text, id });
+    if (outcome.outcome === "answer") throw new Error(outcome.text);
+    return outcome.ack;
+  });
+  return { ok: true, id, ack };
 }
 
 let daemonLogger: Logger | undefined;
@@ -433,6 +485,7 @@ function logFatalAndExit(kind: string, error: unknown): void {
 
 async function shutDown(directory: string, reason: string): Promise<void> {
   daemonLogger?.info("daemon.stopping", { reason });
+  if (outboxDrain) clearInterval(outboxDrain);
   presenceWatch?.stop();
   settingsWatch?.stop();
   workController.abort();
@@ -481,10 +534,28 @@ async function main(): Promise<void> {
         },
       }),
       "subscribe-events": () => ({ subscribed: true }),
+      // A bundled harness links no plexer, so the two things it used to ask its
+      // pane directly it now asks orchd, the only process that talks to one.
+      "environment-labels": async (params) => {
+        const id = requiredString(rpcParams(params).id, "id");
+        let reported: PaneLabels | null = null;
+        await activePaneHud(id).readLabels((labels) => { reported = labels; });
+        return reported;
+      },
+      "peer-view": (params) => {
+        const value = rpcParams(params);
+        const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === "string") : [];
+        return peerView(directory, requiredString(value.ownKey, "ownKey"), keys, value.allSpaces === true);
+      },
+      notify: (params) => {
+        const event = bridgeNotifyEvent(rpcParams(params));
+        activePaneHud(agentIdOf(event.key)).notify(event);
+        return { ok: true };
+      },
       status: () => fleetStatus(directory),
       dispatch: (params) => acceptWrite(directory, "dispatch", params),
-      steer: (params) => acceptWrite(directory, "steer", params),
-      "spawn-detached": (params) => spawnDetached(directory, params),
+      steer: (params) => steer(directory, params),
+      "spawn-headless": (params) => spawnHeadless(directory, params),
       "set-model": (params) => setModel(directory, params),
       lifecycle: (params) => applyLifecycle(directory, params),
       "agent-closed": (params) => publishClosedAgent(directory, params),
@@ -493,6 +564,28 @@ async function main(): Promise<void> {
         const value = rpcParams(params);
         const id = requiredString(value.id, "id");
         markOutboxDelivered(directory, id);
+        acknowledgeDelivery(id);
+        return { ok: true };
+      },
+      "control-outcome": (params) => {
+        const value = rpcParams(params);
+        const error = typeof value.error === "string" ? value.error : undefined;
+        const report: ControlOutcomeReport = {
+          id: requiredString(value.id, "id"),
+          key: requiredString(value.key, "key"),
+          command: requiredString(value.command, "command"),
+          requested: isRecord(value.requested) ? value.requested : {},
+          ...(error === undefined ? {} : { error }),
+        };
+        insertControlOutcome(directory, {
+          id: report.id,
+          agentId: agentIdOf(report.key),
+          command: report.command,
+          requested: report.requested,
+          settledAt: Date.now(),
+          ...(error === undefined ? {} : { error }),
+        });
+        settleControlOutcome(report);
         return { ok: true };
       },
       reload: () => {
@@ -526,6 +619,7 @@ async function main(): Promise<void> {
     },
     onWarn: (message) => daemonLogger?.warn("config.warning", { message }),
   });
+  const paintPane = createPanePainter(directory);
   presenceWatch = startPresenceWatch({
     orchDir: directory,
     metadataFor: (key) => {
@@ -541,7 +635,13 @@ async function main(): Promise<void> {
       if (spawner) metadata.spawnedByLabel = spawner.name;
       return metadata;
     },
-    onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory); },
+    onEvent: (event) => {
+      lastActivityAt = Date.now();
+      // The agent no longer paints its own pane: its bundle carries no plexer.
+      const painted = tryParseIdentity(event.key)?.id;
+      if (painted !== undefined) paintPane(painted, { state: event.newState, cost: event.cost ?? 0, ...(event.task === undefined ? {} : { task: event.task }) });
+      emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory);
+    },
   });
   workLoopRunning = true;
   workLoop = runWorkLoop({
@@ -552,6 +652,16 @@ async function main(): Promise<void> {
     continuous: true,
     onEvent: (event) => { lastActivityAt = Date.now(); emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory); },
   }).finally(() => { workLoopRunning = false; });
+
+  // The outbox drains on orchd's OWN clock. Piggy-backing it on `acceptWrite`
+  // meant a queued write was only ever retried when some other caller dispatched,
+  // and that caller then waited out the whole backlog before its own write went.
+  outboxDrain = setInterval(() => {
+    void drainOutbox(directory, outboxDeps()).catch((error: unknown) => {
+      daemonLogger?.error("outbox.drain-failed", { error: errorMessage(error) });
+    });
+  }, getSettings(directory).daemon.outbox_drain_ms);
+  outboxDrain.unref?.();
 
   const idleCheck = setInterval(() => {
     const idleMinutes = getSettings(directory).daemon.idle_shutdown_minutes;

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cmdNotify } from "../src/commands/events.ts";
@@ -11,7 +12,7 @@ const dirs: string[] = [];
 const oldDir = process.env.ORCH_DIR;
 
 afterEach(() => {
-  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = oldDir;
 });

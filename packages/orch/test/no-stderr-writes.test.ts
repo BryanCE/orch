@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { isTypeScriptOrTsx, sourceFiles } from "./helpers/sources.ts";
 import { join, relative } from "node:path";
 
 /**
@@ -16,20 +17,10 @@ import { join, relative } from "node:path";
 const ROOT = join(import.meta.dir, "..");
 const SCANNED = ["src", "extensions"] as const;
 
-function sourceFiles(directory: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(directory)) {
-    const full = join(directory, entry);
-    if (statSync(full).isDirectory()) files.push(...sourceFiles(full));
-    else if (/\.tsx?$/.test(entry)) files.push(full);
-  }
-  return files;
-}
-
 function stderrWriteSites(): string[] {
   const sites: string[] = [];
   for (const scanned of SCANNED) {
-    for (const file of sourceFiles(join(ROOT, scanned))) {
+    for (const file of sourceFiles(join(ROOT, scanned), isTypeScriptOrTsx)) {
       readFileSync(file, "utf8").split("\n").forEach((line, index) => {
         if (/process\.stderr\.write\s*\(/.test(line)) sites.push(`${relative(ROOT, file)}:${index + 1}`);
       });
@@ -46,7 +37,7 @@ describe("orch has one diagnosis channel (the logger) and one output channel (st
   test("the scan actually covers the tree it claims to", () => {
     // A recursive scan that silently finds zero files passes vacuously — the
     // exact failure Rule 10 records for check-bridge. Pin that it sees both roots.
-    expect(sourceFiles(join(ROOT, "src")).length).toBeGreaterThan(50);
-    expect(sourceFiles(join(ROOT, "extensions")).length).toBeGreaterThan(0);
+    expect(sourceFiles(join(ROOT, "src"), isTypeScriptOrTsx).length).toBeGreaterThan(50);
+    expect(sourceFiles(join(ROOT, "extensions"), isTypeScriptOrTsx).length).toBeGreaterThan(0);
   });
 });

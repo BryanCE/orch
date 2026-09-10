@@ -2,7 +2,7 @@ import { mintAgentId } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { loadSettings } from "../settings/read.ts";
 import { selfId } from "../identity/self.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agentSpaces, agents, spaces } from "../db/schema.ts";

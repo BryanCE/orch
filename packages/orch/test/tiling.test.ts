@@ -4,8 +4,8 @@ import type { BackendGroupLayout, BackendRect, TileFirstSplit } from "../src/typ
 
 interface LayoutPane { handle: string; rect: BackendRect }
 
-function layout(panes: LayoutPane[]): BackendGroupLayout {
-  return { group: "@1", panes };
+function layout(placements: LayoutPane[]): BackendGroupLayout {
+  return { group: "@1", placements };
 }
 
 /** Halve a rect the way a plexer does, so a whole fill sequence can be replayed. */
@@ -23,7 +23,7 @@ function fillTab(root: BackendRect, count: number, policy: TileFirstSplit, shuff
   let panes: LayoutPane[] = [{ handle: "%1", rect: root }];
   for (let seq = 2; seq <= count; seq++) {
     const placement = planTilePlacement(layout(shuffle(panes)), policy);
-    const target = panes.find((pane) => pane.handle === placement.targetPane) ?? panes[0]!;
+    const target = panes.find((pane) => pane.handle === placement.targetHandle) ?? panes[0]!;
     const [kept, added] = halve(target.rect, placement.split);
     panes = panes.map((pane) => (pane === target ? { ...pane, rect: kept } : pane));
     panes.push({ handle: `%${seq}`, rect: added });
@@ -42,7 +42,7 @@ const TALL: BackendRect = { width: 80, height: 60, x: 0, y: 0 };
 describe("planTilePlacement", () => {
   test("a lone pane anchors the split to the only pane", () => {
     expect(planTilePlacement(layout([{ handle: "w0:p9", rect: { x: 0, y: 0, width: 200, height: 50 } }]), "rows"))
-      .toEqual({ targetPane: "w0:p9", split: "down" });
+      .toEqual({ targetHandle: "w0:p9", split: "down" });
   });
 
   test("first_split rules the opening split, however the screen is shaped", () => {
@@ -74,8 +74,8 @@ describe("planTilePlacement", () => {
     ]);
 
     for (const policy of ["rows", "columns", "longest-edge"] as const) {
-      expect(planTilePlacement(stacked, policy)).toEqual({ targetPane: "%1", split: "right" });
-      expect(planTilePlacement(sideBySide, policy)).toEqual({ targetPane: "%1", split: "down" });
+      expect(planTilePlacement(stacked, policy)).toEqual({ targetHandle: "%1", split: "right" });
+      expect(planTilePlacement(sideBySide, policy)).toEqual({ targetHandle: "%1", split: "down" });
     }
   });
 
@@ -86,7 +86,7 @@ describe("planTilePlacement", () => {
       { handle: "%3", rect: { width: 100, height: 50, x: 100, y: 0 } },
     ]), "rows");
 
-    expect(placement).toEqual({ targetPane: "%3", split: "down" });
+    expect(placement).toEqual({ targetHandle: "%3", split: "down" });
   });
 
   test("equal panes resolve top-left first, so enumeration order cannot decide", () => {
@@ -95,8 +95,8 @@ describe("planTilePlacement", () => {
       { handle: "%1", rect: { width: 100, height: 50, x: 0, y: 0 } },
     ];
 
-    expect(planTilePlacement(layout(panes), "rows").targetPane).toBe("%1");
-    expect(planTilePlacement(layout([...panes].reverse()), "rows").targetPane).toBe("%1");
+    expect(planTilePlacement(layout(panes), "rows").targetHandle).toBe("%1");
+    expect(planTilePlacement(layout([...panes].reverse()), "rows").targetHandle).toBe("%1");
   });
 
   test("four agents land in a 2x2 grid, not four columns", () => {

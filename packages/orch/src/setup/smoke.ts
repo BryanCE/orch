@@ -1,6 +1,7 @@
 import { resolveBackend } from "../backends/registry.ts";
 import { loadSettings } from "../settings/read.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import {loadPresence} from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";
@@ -11,7 +12,7 @@ import type { SmokeSteps } from "../types/command.ts";
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
 export async function spawnHeadlessSmokeAgent(cwd: string, prompt: string): Promise<string> {
   const before = new Set(agentViews(orchDir()).map((view) => view.id));
-  await cmdSpawn(["1", "--backend", "headless", "--name", "orch-smoke", "--cwd", cwd, "--prompt", prompt]);
+  await cmdSpawn(["orch-smoke", "--backend", "headless", "--dir", cwd, "--prompt", prompt]);
   const after = agentViews(orchDir());
   // The row that was not there before the single-agent spawn IS the smoke agent. Nothing here
   // re-checks the plexer: `--backend headless` above already decided it, and re-asserting it as a
@@ -31,7 +32,7 @@ export function closeSmokeAgent(key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
     const handle = backend.handleLookup?.handleFor(key);
-    if (handle !== undefined) backend.paneHost?.close(handle);
+    if (handle !== undefined) backend.placement?.close(handle);
   } catch {
     // A leaked headless process is reaped by `orch clean`; never let teardown mask the verdict.
   }

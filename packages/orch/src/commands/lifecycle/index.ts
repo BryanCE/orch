@@ -1,12 +1,12 @@
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../../entities.ts";
 import { tryParseIdentity } from "../../backends/identity.ts";
-import { orchDir, readPresenceStatus } from "../../presence/store.ts";
-import { selfId } from "../../identity/self.ts";
+import { orchDir, readPresenceStatus } from "../../presence/writer.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";
 import { loadSettings } from "../../settings/read.ts";
-import { sleepMs } from "../../backends/pane-ready.ts";
-import { maySpawnFrom, spawnerIsRepliable, workerPrompt } from "../../worker-prompt.ts";
+import { sleepMs } from "../../backends/shell-ready.ts";
+import { workerPrompt } from "../../worker-prompt.ts";
+import { workerHeaderContext } from "../../policy/spawner.ts";
 import { entityAdapter } from "../status.ts";
 import { parseGovernance, writeRpc } from "../daemon.ts";
 import { agentViewIndex, backendTarget, die, ownsAgent, parseTargetPrompt, requireCallerOwnerToken, viewForKey } from "../target.ts";
@@ -25,7 +25,7 @@ export async function cmdRun(args: string[]): Promise<void> {
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
   const { ent, pane } = resolvePane(target, { crossSpace: gov.crossSpace });
   const settings = loadSettings(orchDir());
-  const headerContext = { maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth), lockedCommands: settings.locked_commands, spawnerRepliable: spawnerIsRepliable() };
+  const headerContext = workerHeaderContext(settings);
   const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), headerContext) }, gov);
   const recipient = recipientFor(ent.key);
   if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");

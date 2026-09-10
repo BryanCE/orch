@@ -27,9 +27,9 @@ function recordedProcessAlive(orchDir: string, agentId: string, dependencies: De
 
 function defaultInventory(plexerId: string): readonly PlexerInventoryEntry[] {
   const backend = getBackend(plexerId);
-  if (!backend?.paneInventory) return [];
+  if (!backend?.placementInventory) return [];
   try {
-    return backend.paneInventory.list().map((target) => ({ handle: target.handle }));
+    return backend.placementInventory.list().map((target) => ({ handle: target.handle }));
   } catch {
     return [];
   }

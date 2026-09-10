@@ -1,7 +1,7 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/lifecycle.ts";
 import { cmdStatus } from "./status.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
@@ -19,7 +19,6 @@ import { cmdEvents, cmdNotify } from "./events.ts";
 import { cmdLogs } from "./logs.ts";
 import { cmdReview, cmdReviewInteractive } from "./review.ts";
 import { cmdQueue } from "./queue.ts";
-import { cmdLock } from "./lock.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdGrant } from "./grant.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
@@ -41,14 +40,14 @@ function usage() {
 The ${term("orch")} routes control through the backend port.
 
 OBSERVE
-  orch status [--json] [--all] [--all-panes] [--offline] [--live] [--capacity]
-                                 Glanceable table of the fleet (default command); --live re-renders full-screen
+  orch status [--json] [--human] [--space-wide] [--filter=s[,s...]] [--all-panes] [--offline] [--live] [--capacity]
+                                 Glanceable table of the fleet (default command); --human renders for people; --live re-renders full-screen
                                  from the daemon event stream (TTY only; q/esc quits; not with --json); --all-panes
                                  also lists panes orch did not spawn; --offline reads agent files only.
   orch questions                 List pending agent questions from live agents.
   orch runs [<target>] [-n <count>] [--json]
                                  List durable dispatch history, newest first.
-  orch events [--agent=<name>] [--agent-id=<id>] [--any-agent] [--all] [--status s[,s...]] [--json]
+  orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=s[,s...]] [--json]
                                  Continuous stream of pane state transitions; requires a running daemon.
   orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
                                  Query structured diagnosis logs (malformed lines are skipped).
@@ -75,8 +74,11 @@ REVIEW
 DISPATCH WORK
   orch run <target> "<prompt>" [--raw]
                                  Queue a prompt through orchd with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" [--raw] [--model <model[:thinking]>] [--agent adapter]
-                                 Durably accept a prompt through orchd.
+  orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model <model[:thinking]>] [--agent adapter]
+                                 Durably accept a prompt through orchd, onto a CLEAN session.
+                                 --file reads the prompt from a file, or from stdin with '-'.
+                                 --with names a path the agent works with (repeatable).
+                                 --keep-context sends onto the existing session instead.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).
   orch pipe <src> <dst> ["instruction"]
@@ -91,7 +93,7 @@ DISPATCH WORK
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
   orch result <target> [--force] [--json]
-                                 Print a target's result (result.json or session fallback).
+                                 Print a target's result (results.jsonl or session fallback).
                                  --force reads an agent another ${term("orch")} owns.
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.
@@ -101,24 +103,17 @@ DISPATCH WORK
   orch restart <target>... | --all [--cmd pi]
                                  Fully close the harness process and relaunch it.
 
-COMMAND LOCK (one heavy command machine-wide; see settings.locked_commands)
-  orch lock run [--note <why>] [--timeout <ms>] -- <argv...>
-                                 Acquire the machine-wide lock, run argv, release on exit (propagates the exit code).
-  orch lock check -- <argv...>     Exit 3 if argv is a locked command held elsewhere, else exit 0.
-  orch lock status [--json]      Show the current holder (pid, note, age) or 'unlocked'.
-  orch lock release --force      Evict the current holder, naming it.
-
 PANES (create / arrange / lifecycle - never steals focus except 'focus')
-  orch spawn <N> [--tab L] [--cwd P] [--cmd C] [--name PREFIX] [--model M]
-                   [--agent A] [--backend B] [--prompt T] [--worktree]
-                                 Fresh tab with N balanced-tiled named agents (2=side-by-side,
-                                 3=2+1, 4=2x2, ...). Names <prefix>-1..N.
+  orch spawn <name> [<name>...] [--tab L] [--dir P] [--cmd C] [--model M]
+                   [--agent A] [--backend B] [--prompt T] [--file P|-] [--with P]... [--worktree]
+                                 Fresh tab, one balanced-tiled pane per name (2=side-by-side,
+                                 3=2+1, 4=2x2, ...). The names ARE the agents; there is no count.
                                  Run from outside a pane, opening a space is REFUSED until a
                                  human approves it with 'orch grant'; --space <id> uses an open one.
-                                 --backend headless needs --prompt: a detached agent runs it and exits.
+                                 --backend headless needs --prompt or --file: a detached agent runs it and exits.
   orch grant [<hash>|--list]     Approve actions an agent was refused. Needs a terminal:
                                  there is no flag that answers the prompt for you.
-  orch tile <tab|pane> [--name X] [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
+  orch tile <tab|pane> <name> [--cmd C] [--dir P] [--model M] [--agent A] [--backend B]
                                  Add ONE pane to an existing tab, split into its largest cell and pin M.
   orch rename <target> <name> [--pane]
                                  Set the agent name (NAME column); --pane sets the pane
@@ -140,7 +135,7 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
 
 TABS
   orch tabs                      List tabs: id, label, number, pane count, status.
-  orch tab new [--label X] [--workspace ID] [--cwd P]
+  orch tab new [--label X] [--workspace ID] [--dir P]
                                  Create a tab (no focus steal); prints root pane id.
   orch tab rename <tab_id|label> <new-label>
   orch tab close <tab_id|label>
@@ -172,7 +167,8 @@ MAINTENANCE
                                  every selected adapter's shim. Prompts interactively when a
                                  selection is omitted on a TTY; --yes auto-installs deps,
                                  --no-install just reports, --copy copies instead of symlinking.
-                                 Asks before copying orch's skills into your harness dirs;
+                                 Asks before installing orch's skills into ~/.agents/skills
+                                 and linking them into each harness that reads its own dir;
                                  --skills / --no-skills answers that without the prompt.
   orch settings [--json] [--harness=<id>] [--plexer=<id>]
                                  Print each effective setting with its source (flag > env >
@@ -196,13 +192,18 @@ MAINTENANCE
                                  the fields this call does not name. Each sink declares its own
                                  fields (webhook --url, command --command; desktop and herdr take
                                  none). --on defaults to blocked,error,done.
-                                 e.g. orch settings notify add command --command="notify-send orch"
+                                 e.g. orch settings notify add sound  (a ding on this machine)
+                                 The sinks that need no fields (sound, desktop, herdr) are also
+                                 checkboxes on the notify row of orch settings. Verify with
+                                 orch notify test.
   orch settings notify remove <sink>
                                  Stop delivering through that sink.
-  orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
+  orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]
                                  Turn orch's skill install on or off and choose where it
-                                 writes. --install copies them into the roots right away;
-                                 default roots are ~/.claude/skills and ~/.agents/skills.
+                                 writes. --install writes them right away; the real files
+                                 live in --store (~/.agents/skills, the cross-harness
+                                 standard) and each --link dir (~/.claude/skills) is
+                                 symlinked into it.
   orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
                                  List every model each enabled harness reports it can run -
                                  the quicklist never hides the rest. --preferred shows only the
@@ -307,7 +308,6 @@ const commandHandlers: Record<string, Handler> = {
   questions: (args) => dispatchAsync(cmdQuestions(args)),
   runs: (args) => cmdRuns(args),
   queue: (args) => dispatchAsync(cmdQueue(args)),
-  lock: (args) => dispatchAsync(cmdLock(args).then((code) => { process.exitCode = code; })),
   daemon: (args) => dispatchAsync(cmdDaemon(args)),
   doctor: (args) => dispatchAsync(cmdDoctor(args)),
   work: (args) => dispatchAsync(cmdWork(args)),

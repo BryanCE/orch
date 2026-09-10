@@ -135,7 +135,7 @@ export interface AgentSettings {
   preferredModels: readonly string[];
 }
 
-export interface CreatedAgent { key: string; pane: string; name: string }
+export interface CreatedAgent { key: string; handle: string; name: string }
 
 export interface TabSpawnSpec {
   backend: Backend;
@@ -155,13 +155,13 @@ export interface TabSpawnSpec {
   thinking?: ThinkingLevel;
   /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
   preferredModels: readonly string[];
-  /** Where the pane lands in the group, from the tiling planner. */
+  /** Where the agent lands in the group, from the tiling planner. */
   placement?: TilePlacement;
-  /** Existing pane to launch into (fresh tab root). */
-  intoPane?: BackendHandle;
-  /** The identity already stamped into `intoPane`'s environment when the pane was
-   *  opened ahead of the launch. ONE key per agent: the pane's env and the record
-   *  must name the same id, so a pre-opened pane hands its key in rather than
+  /** Existing place to launch into (a fresh group's root). */
+  intoHandle?: BackendHandle;
+  /** The identity already stamped into `intoHandle`'s environment when the place
+   *  was opened ahead of the launch. ONE key per agent: that env and the record
+   *  must name the same id, so a pre-opened place hands its key in rather than
    *  letting the launch mint a second one. */
   key?: string;
   env?: Readonly<Record<string, string>>;
@@ -295,9 +295,14 @@ export interface SpawnPlacementRequest {
   /** The agent at the root of this fleet's provenance tree — what
    *  `pack_plexers.pack_id` names. Null when the caller has no agent row yet. */
   readonly packRootId: string | null;
+  /** The plexer the caller stands in, or null for a caller in none. orch RECORDS
+   *  this at spawn and at registration (Rule 11), so placement reads it as a
+   *  fact and probes no process environment of its own. */
+  readonly callerPlexer: string | null;
+  /** Where the fleet works, and the name its home is opened under: a workspace
+   *  called after the repo is one a human can find, and the tab label names a
+   *  slice, which is a different noun. */
   readonly cwd: string;
-  /** orch's own name for the fleet, marked before it reaches the plexer. */
-  readonly label: string;
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
    *  the gate stays testable. Throws or exits when not granted. */
@@ -321,13 +326,13 @@ export interface LeaseOptions {
 }
 
 /**
- * Everything minted for ONE agent before any pane exists: its identity, its
- * worktree and the environment its pane is opened with.
+ * Everything minted for ONE agent before it has a place: its identity, its
+ * worktree and the environment it is placed with.
  *
  * A fresh-tab launch is deliberately phased — mint every identity, create the
- * tab, open every pane, then launch every agent — so this is what one agent
- * carries between those phases. `pane` is filled in by the phase that opens it
- * and stays undefined when that failed, which costs that agent and never the tab.
+ * group, place every agent, then launch every agent — so this is what one agent
+ * carries between those phases. `handle` is filled in by the phase that places it
+ * and stays undefined when that failed, which costs that agent and never the group.
  */
 export interface PreparedAgent {
   readonly name: string;
@@ -335,5 +340,5 @@ export interface PreparedAgent {
   readonly key: string;
   readonly env: Readonly<Record<string, string>>;
   readonly branch: string | undefined;
-  pane: BackendHandle | undefined;
+  handle: BackendHandle | undefined;
 }

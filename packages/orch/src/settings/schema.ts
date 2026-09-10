@@ -50,6 +50,7 @@ export const NotifyEntrySchema = z.discriminatedUnion("id", [
       z.tuple([z.string().min(1)], z.string()),
     ]),
   }),
+  z.strictObject({ id: z.literal("sound"), on: NotifyOnSchema }),
   z.strictObject({ id: z.literal(HERDR_SINK_ID), on: NotifyOnSchema }),
 ]);
 
@@ -57,21 +58,32 @@ export const NotifyEntrySchema = z.discriminatedUnion("id", [
  *  for a plexer must not put that plexer's name in core (Rule 10). */
 export const NOTIFY_IDS: readonly string[] = NotifyEntrySchema.options.map((option) => option.shape.id.value);
 
+/** The one field a sink carries beyond its id and states, keyed by sink id. Read off the
+ *  schema, so a new sink is offered everywhere without a second list to keep in step. */
+export const NOTIFY_SINK_FIELD: Readonly<Record<string, string>> = Object.fromEntries(
+  NotifyEntrySchema.options.flatMap((option) => {
+    const field = Object.keys(option.shape).find((key) => key !== "id" && key !== "on");
+    return field === undefined ? [] : [[option.shape.id.value, field]];
+  }),
+);
+
+/** The sinks whose whole entry is an id and its states - nothing to type, so a plain checkbox. */
+export const NOTIFY_SIMPLE_IDS: readonly string[] = NOTIFY_IDS.filter((id) => NOTIFY_SINK_FIELD[id] === undefined);
+
 export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_depth: 1, worker_peer_tools: false, cross_space: false },
   queue: { max_retries: 1 },
-  retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, logs_days: 7 },
+  retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7 },
   logging: { level: "info" },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
-  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30 },
+  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000 },
   doctor: { unclaimed_after_ms: 120_000 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
-  // Writing into a user's harness directories needs their say-so, so setup asks and
-  // records the answer here. Both roots ship the same skills: `.claude` is Claude Code's
-  // own, `.agents` is the cross-harness convention every other harness reads.
-  skills: { install: true, roots: ["~/.claude/skills", "~/.agents/skills"] },
+  // `.agents/skills` is the cross-harness standard, so the real files live there once and
+  // a harness that reads its own directory instead gets a link into the store.
+  skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
 } as const;
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
@@ -124,6 +136,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     exclude_extensions: z.array(z.string()).optional(),
     builtin_tools: z.boolean().optional(),
     allow_tools: z.array(z.string()).optional(),
+    /** Commands a worker runs to verify its own slice, named in its header. */
+    verify_commands: z.array(z.string()).optional(),
   }).optional(),
   queue: z.strictObject({
     max_retries: z.number().int().nonnegative().optional(),
@@ -142,6 +156,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     runs_days: PositiveInt.optional(),
     /** Delivered outbox messages older than this many days. */
     outbox_days: PositiveInt.optional(),
+    /** Recorded control outcomes older than this many days. */
+    control_outcomes_days: PositiveInt.optional(),
     /** Headless log files older than this many days. */
     logs_days: PositiveInt.optional(),
   }).optional(),
@@ -159,6 +175,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     tcp_port: PositiveInt.optional(),
     /** Minutes of no live agents, no subscribers, and no RPC before orchd exits; 0 = never. */
     idle_shutdown_minutes: z.number().int().min(0).optional(),
+    /** How often orchd retries queued writes and consumes acknowledgements. */
+    outbox_drain_ms: PositiveInt.optional(),
   }).optional(),
   doctor: z.strictObject({
     /** Milliseconds an agent may remain unclaimed after spawn before doctor reports it. */
@@ -169,12 +187,14 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   tiling: z.strictObject({
     first_split: z.enum(TILE_FIRST_SPLITS).optional(),
   }).optional(),
-  /** Whether orch may copy its packaged skills into the user's harness directories, and
-   * where. Setup asks before the first install and records the answer; a user who wants
-   * to manage the files themselves turns `install` off and orch never writes them again. */
+  /** Whether orch may install its packaged skills, the one store holding the real files,
+   * and the harness directories linked into it. Setup asks before the first install and
+   * records the answer; a user who wants to manage the files themselves turns `install`
+   * off and orch never writes them again. */
   skills: z.strictObject({
     install: z.boolean().optional(),
-    roots: z.array(z.string().min(1)).optional(),
+    store: z.string().min(1).optional(),
+    link: z.array(z.string().min(1)).optional(),
   }).optional(),
 });
 

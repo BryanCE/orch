@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { declaredRuntime } from "../settings/read.ts";
 import type { OrchRuntime } from "../runtime.ts";
-import { loadPresence, orchDir, statusForPresence } from "../presence/store.ts";
+import { loadPresence, statusForPresence } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
@@ -242,7 +243,7 @@ class ClaudeAdapter implements AgentAdapter {
     return CLAUDE_MODELS;
   }
 
-  /** Prefer hook result.json, then Claude transcript JSONL, then native output. */
+  /** Prefer hook results.jsonl, then Claude transcript JSONL, then native output. */
   extractResult(input: ClaudeResultExtractionInput): string | undefined {
     const presence = presenceFor(input.key);
     const result = presence?.result;

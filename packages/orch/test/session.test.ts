@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseSession } from "../src/session.ts";
@@ -44,7 +45,7 @@ describe("parseSession", () => {
       expect(parsed.tokens).toEqual({ input: 2, output: 3, cacheRead: 4, cacheWrite: 5 });
       expect(parsed.entries).toHaveLength(8);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempDir(root);
     }
   });
 
@@ -55,7 +56,7 @@ describe("parseSession", () => {
     try {
       expect(parseSession(file).lastAssistant).toBe("one\ntwo");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempDir(root);
     }
   });
 });

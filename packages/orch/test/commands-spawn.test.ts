@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
@@ -16,7 +17,7 @@ const tempDirs: string[] = [];
 const previousOrchDir = process.env.ORCH_DIR;
 
 afterEach(() => {
-  while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length) removeTempDir(tempDirs.pop()!);
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousOrchDir;
 });
@@ -115,7 +116,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["1", "--name", "worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(["worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

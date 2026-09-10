@@ -10,10 +10,9 @@
 // thinking effort ("provider/id:medium"); the registry keys on the bare id, so
 // the suffix is split off before lookup and applied through pi's own mechanism.
 import { isThinkingLevel, splitThinkingSuffix } from "../policy/thinking.ts";
-import { atomicWrite } from "../presence/writer.ts";
 import { retryingAsync } from "../retry.ts";
 import { isRecord } from "../util.ts";
-import type { ControlCommand, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
+import type { ControlCommand, ControlOutcome, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
 import type { RetryPolicy } from "../types/core.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { JsonRecord } from "../types/core.ts";
@@ -61,7 +60,7 @@ export async function resolveRegistryModel(
 
 /** pi's control-command applier: resolves+applies a model or thinking change and records the outcome. */
 export function createModelControl(deps: ModelControlDeps) {
-  const { harness, context, controlFile, refreshPresence } = deps;
+  const { harness, context, recordOutcome, reportOutcome, refreshPresence } = deps;
   const findModel: FindRegistryModel = (provider, id) => context()?.modelRegistry.find(provider, id);
 
   function applyThinkingLevel(level: unknown): void {
@@ -75,24 +74,28 @@ export function createModelControl(deps: ModelControlDeps) {
     if (thinking !== undefined) harness.setThinkingLevel(thinking);
   }
 
-  // The dispatcher blocks on this record to learn whether its command landed, so
-  // the outcome carries back the request id it must match.
+  // The dispatcher blocks on the report to learn whether its command landed, so
+  // it carries back the request id it must match.
   async function applyControlCommand(parsed: ControlCommand): Promise<void> {
     const requested: JsonRecord = parsed.cmd === "model"
       ? { model: parsed.model }
       : { thinking: parsed.level };
-    const outcome: JsonRecord = { id: parsed.id, requested, success: false, ts: new Date().toISOString() };
+    let error: string | undefined;
     try {
       if (parsed.cmd === "model") {
         await applyModelCommand(parsed.model);
       } else {
         applyThinkingLevel(parsed.level);
       }
-      outcome.success = true;
-    } catch (error: unknown) {
-      outcome.error = error instanceof Error ? error.message : String(error);
+    } catch (thrown: unknown) {
+      error = thrown instanceof Error ? thrown.message : String(thrown);
     }
-    atomicWrite(controlFile(), outcome);
+    recordOutcome({ id: parsed.id, requested, success: error === undefined, ts: new Date().toISOString(), ...(error === undefined ? {} : { error }) });
+    // A command with no id has no waiter to answer; its history line is the whole record.
+    if (typeof parsed.id === "string") {
+      const settled: ControlOutcome = { id: parsed.id, command: parsed.cmd, requested, ...(error === undefined ? {} : { error }) };
+      await reportOutcome(settled);
+    }
     refreshPresence();
   }
 

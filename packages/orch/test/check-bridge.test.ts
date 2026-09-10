@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { sourceFilesUnder } from "./helpers/sources.ts";
 import { join } from "node:path";
 import {
   CORE_SCOPE_ALLOWLIST,
@@ -34,17 +35,6 @@ function readRepoLines(relPath: string): string[] {
 
 function readWebRepoLines(relPath: string): string[] {
   return readFileSync(join(monorepoRoot, relPath), "utf8").split(/\r?\n/);
-}
-
-function sourceFiles(relDir: string, root = repoRoot): string[] {
-  const directory = join(root, relDir);
-  const files: string[] = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(relDir, entry.name);
-    if (entry.isDirectory()) files.push(...sourceFiles(path, root));
-    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(path);
-  }
-  return files;
 }
 
 describe("10.1 packages must not import concrete backends/adapters (checkPackageImportLine)", () => {
@@ -270,17 +260,17 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
     for (const deleted of ["capabilities", "createWorkspace", "currentIdentity", "handleFor", "pruneLogs", "workspaces", "focusWorkspace", "version"]) {
       expect(ENVIRONMENT_ROLE_NAMES).not.toContain(deleted);
     }
-    for (const composed of ["paneInventory", "paneInput", "spaceHome", "identity", "handleLookup", "logPruning", "inboxSteering", "question", "modelControl", "thinking"]) {
+    for (const composed of ["placementInventory", "agentInput", "spaceHome", "identity", "handleLookup", "logPruning", "inboxSteering", "question", "modelControl", "thinking"]) {
       expect(ENVIRONMENT_ROLE_NAMES).toContain(composed);
     }
   });
 
   // Plain nullable DATA on the port is not a capability. Exempting it would let
-  // `if (backend.paneCount)` pass as a capability read.
+  // `if (backend.placementCount)` pass as a capability read.
   test("nullable data on the port is not exempted as a role", () => {
-    expect(ENVIRONMENT_ROLE_NAMES).not.toContain("paneCount");
+    expect(ENVIRONMENT_ROLE_NAMES).not.toContain("placementCount");
     expect(ENVIRONMENT_ROLE_NAMES).not.toContain("sessionPath");
-    expect(checkEnvironmentCapabilityLine("  if (backend.paneCount) return countPanes();", "src/commands/panes.ts")).toContain("method-presence");
+    expect(checkEnvironmentCapabilityLine("  if (backend.placementCount) return countPanes();", "src/commands/panes.ts")).toContain("method-presence");
   });
 
   test("flags plexer and harness identity branches", () => {
@@ -315,7 +305,7 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
     const violations: string[] = [];
     for (const scope of scopes) {
       const root = scope === "packages/web/src" ? monorepoRoot : repoRoot;
-      for (const file of sourceFiles(scope, root)) {
+      for (const file of sourceFilesUnder(root, scope)) {
         const relPath = file.replace(/\\/g, "/");
         const lines = scope === "packages/web/src" ? readWebRepoLines(file) : readRepoLines(file);
         for (let index = 0; index < lines.length; index++) {
@@ -365,7 +355,7 @@ describe("10.7 leases and provenance stay in separate columns (checkLeaseProvena
 
   test("passes the clean tree: no source line crosses lease and provenance columns", () => {
     const offenders: string[] = [];
-    for (const relPath of sourceFiles("src")) {
+    for (const relPath of sourceFilesUnder(repoRoot, "src")) {
       readRepoLines(relPath).forEach((line, index) => {
         if (checkLeaseProvenanceLine(line, relPath)) offenders.push(`${relPath}:${index + 1}`);
       });

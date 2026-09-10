@@ -2,6 +2,7 @@ import { loadSettingsOrNull } from "../settings/read.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
+import { modelSpec } from "../policy/thinking.ts";
 import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../policy/capacity.ts";
 
@@ -9,9 +10,10 @@ import { getAdapter } from "../adapters/registry.ts";
 import { collapse, buildEntities, entitySpace, sortEntities } from "../entities.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
-import { spaceName as resolveSpaceName } from "../policy/space.ts";
+import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../policy/space.ts";
+import { selfId, spaceOfAgent } from "../identity/self.ts";
 import { ensureDaemonOrWarn } from "../daemon/reach.ts";
 import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
@@ -32,6 +34,7 @@ import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
 const isTTY = process.stdout.isTTY;
+const DETACHED_ENVIRONMENT = "headless";
 
 export function formatSpace(id: string | null | undefined, name: string | null | undefined): string {
   if (!id) return "-";
@@ -66,8 +69,7 @@ export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
 
 /** Format a provider/model pair with its optional thinking suffix. */
 function formatModel(provider: string | null | undefined, model: string, thinking: string | null | undefined): string {
-  const suffix = thinking ? `:${thinking}` : "";
-  return `${provider ?? ""}/${model}${suffix}`;
+  return modelSpec(`${provider ?? ""}/${model}`, thinking);
 }
 
 /** Build a model string from a presence status when one is reported. */
@@ -241,23 +243,46 @@ async function readFleetRows(spaces: OrchSettings["spaces"], offline: boolean): 
 }
 
 /**
- * The rows this caller should see: every space by default, and the agents orch spawned
- * unless `--all-panes`. `--all` retains its historical meaning of including unmanaged panes.
- * A backend reports every pane it owns — the orchestrator's own included — and listing those
- * made "is anyone idle?" count the asker.
+ * Who is asking, and how far they may see. One rule for every caller: you see what you
+ * spawned, and `--all` widens no further than your space. A human shell that spawned a fleet
+ * drives and owns it exactly as an orchestrator does — the values differ (a human sits in no
+ * space, so nothing caps them), never the rule.
  */
-function keepsMeaningfulFleetRow(row: Pick<StatusRow, "alive" | "exited" | "state" | "lastText">): boolean {
-  if (!row.exited && row.alive) return true;
-  const hasRecordedResult = row.lastText !== null && row.lastText.trim().length > 0;
-  return hasRecordedResult || row.state === "done" || row.state === "error";
+export interface CallerScope {
+  /** The caller's agent id, or null for a human at a terminal. */
+  id: string | null;
+  /** The space an agent caller may never see past, even with `--all`. */
+  ceiling: string | null;
 }
 
-export function scopeFleetRows(rows: readonly StatusRow[], opts: { all: boolean; allPanes: boolean; space?: string }): StatusRow[] {
+export function callerScope(): CallerScope {
+  const id = selfId() ?? null;
+  return { id, ceiling: id === null ? null : spaceOfAgent(id) };
+}
+
+/**
+ * The rows this caller should see. By default an agent sees the agents IT spawned, so
+ * "is anyone idle?" never counts another orchestrator's fleet or the asker itself.
+ * `--space-wide` widens to the rest of the caller's space and stops at the wall; a human
+ * sits in no space, has no wall, and sees the machine. `--all-panes` is the separate
+ * question of panes orch did not spawn, and `--filter` narrows by state.
+ */
+export function scopeFleetRows(
+  rows: readonly StatusRow[],
+  opts: { spaceWide: boolean; allPanes: boolean; filter?: Set<string> | null; space?: string; caller?: CallerScope },
+): StatusRow[] {
+  const caller = opts.caller ?? { id: null, ceiling: null };
   return rows.filter((row) => {
     if (opts.space !== undefined && row.spaceId !== opts.space) return false;
     if (!opts.allPanes && !row.managed) return false;
-    if (opts.all) return true;
-    return keepsMeaningfulFleetRow(row);
+    if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
+    if (caller.id !== null && !opts.spaceWide && row.spawnedBy !== caller.id) return false;
+    if (opts.filter != null) return opts.filter.has(displayStatusState(row));
+    // The table is the fleet as it is NOW. An agent that has exited is history —
+    // `orch result` and `orch tail` still read it — and keeping every dead one
+    // that ever recorded a line buried ten working agents under thirty corpses.
+    // Naming a state in `--filter` is how you ask for them back.
+    return row.alive && !row.exited;
   });
 }
 
@@ -268,6 +293,14 @@ export function formatNoRowsMessage(info: { agentsSeen: number; alive: number; b
 
 export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exited">): string {
   return row.exited || !row.alive ? "exited" : row.state;
+}
+
+/** `--filter=done,error`: the states to keep, or null when the caller named none. */
+function parseStateFilter(args: readonly string[]): Set<string> | null {
+  const flag = args.find((argument) => argument.startsWith("--filter="));
+  if (flag === undefined) return null;
+  const states = flag.slice("--filter=".length).split(",").map((state) => state.trim()).filter((state) => state.length > 0);
+  return states.length === 0 ? null : new Set(states);
 }
 
 function parseSpace(args: readonly string[]): string | undefined {
@@ -281,12 +314,16 @@ export interface TableFlags {
   showSpace: boolean;
   showOwner: boolean;
   showBranch: boolean;
+  human?: boolean;
 }
 
 export interface StatusOptions {
   json: boolean;
-  all: boolean;
+  human: boolean;
+  spaceWide: boolean;
   allPanes: boolean;
+  /** States the caller narrowed to, or null for every state — which is the default. */
+  filter: Set<string> | null;
   local: boolean;
   offline: boolean;
   live: boolean;
@@ -295,11 +332,13 @@ export interface StatusOptions {
 }
 
 function parseStatusOptions(args: readonly string[]): StatusOptions {
-  const { enabled } = splitOptionFlags([...args], ["--json", "--all", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
+  const { enabled } = splitOptionFlags([...args], ["--json", "--human", "--space-wide", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
   return {
     json: enabled.has("--json"),
-    all: enabled.has("--all"),
+    human: enabled.has("--human"),
+    spaceWide: enabled.has("--space-wide"),
     allPanes: enabled.has("--all-panes"),
+    filter: parseStateFilter(args),
     local: enabled.has("--local"),
     offline: enabled.has("--offline"),
     live: enabled.has("--live"),
@@ -308,12 +347,15 @@ function parseStatusOptions(args: readonly string[]): StatusOptions {
   };
 }
 
-function tableFlags(rows: readonly StatusRow[], all: boolean): TableFlags {
+function tableFlags(rows: readonly StatusRow[], spaceWide: boolean, human: boolean): TableFlags {
   return {
-    showSpace: all && new Set(rows.map((row) => row.spaceId ?? "-")).size > 1,
-    // A known lease fact must remain visible even when every row shares it.
-    showOwner: rows.some((row) => row.owner !== null),
+    showSpace: spaceWide && new Set(rows.map((row) => row.spaceId ?? "-")).size > 1,
+    // A column every row agrees on tells you nothing and costs 32 characters a
+    // line: "no orch driving it (holder gone)" repeated twenty-five times said
+    // only what the state column already said. It appears when owners DIFFER.
+    showOwner: new Set(rows.map((row) => row.owner ?? "-")).size > 1,
     showBranch: rows.some((row) => row.branch),
+    human,
   };
 }
 
@@ -324,9 +366,19 @@ function tableOptionalCells(row: StatusRow, flags: TableFlags): string[] {
   return cells;
 }
 
-function localPaneCell(row: StatusRow): string {
+function localIdCell(row: StatusRow): string {
   if (row.warning) return "-";
-  return (row.paneId ?? row.key) + (row.focused ? "*" : "");
+  return (row.agentId ?? row.key) + (row.focused ? "*" : "");
+}
+
+function environmentCell(row: StatusRow): string {
+  if (row.warning) return "-";
+  const handle = row.paneId;
+  // The column says WHERE an agent is, so it carries a coordinate. A detached
+  // agent's handle is a process record instead, and printing it raw put
+  // `{"pid":32…` in the column on every headless row.
+  if (handle === null || handle.startsWith("{")) return DETACHED_ENVIRONMENT;
+  return handle;
 }
 
 function localNameCell(row: StatusRow, flags: TableFlags): string {
@@ -347,9 +399,16 @@ function tableContextCell(row: StatusRow): string {
 }
 
 function tableRow(row: StatusRow, flags: TableFlags, host: boolean): string[] {
+  if (flags.human) {
+    return [
+      ...(host ? [row.host ?? "local"] : []), row.name ?? (row.warning ? "WARNING" : "-"),
+      row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
+      truncate(row.branch ?? "-", 20), formatOwnerCell(row), tableStateCell(row, true),
+    ];
+  }
   const prefix = host
-    ? [row.host ?? "local", localPaneCell(row), localNameCell(row, flags)]
-    : [localPaneCell(row), localNameCell(row, flags)];
+    ? [row.host ?? "local", localIdCell(row), environmentCell(row), localNameCell(row, flags)]
+    : [localIdCell(row), environmentCell(row), localNameCell(row, flags)];
   return [
     ...prefix, ...tableOptionalCells(row, flags), row.tab ?? "-", row.agent ?? "-",
     row.modelShort || row.model || "-", tableStateCell(row, true), tableCostCell(row),
@@ -364,6 +423,14 @@ function ownerBranchHeaders(flags: TableFlags): string[] {
   return columns;
 }
 
+/** The one lease every row shares, or null when they disagree or none is known.
+ *  A shared fact is stated once under the table instead of in every line (F6:
+ *  the fact must still READ, and one line reads better than twenty-five). */
+function sharedOwner(rows: readonly StatusRow[]): string | null {
+  const owners = new Set(rows.map((row) => row.owner).filter((owner): owner is string => owner !== null));
+  return owners.size === 1 && rows.every((row) => row.owner !== null) ? [...owners][0]! : null;
+}
+
 function ownerBranchCaps(flags: TableFlags): number[] {
   const caps: number[] = [];
   // Wide enough for the whole unleased sentence: F6 says the row must READ as
@@ -375,9 +442,18 @@ function ownerBranchCaps(flags: TableFlags): number[] {
 }
 
 function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; caps: number[] } {
+  if (flags.human) {
+    return {
+      headers: [...(host ? ["HOST"] : []), "NAME", "HARNESS", "CWD", "WORKTREE", "BRANCH", "OWNER", "STATE"],
+      caps: [...(host ? [10] : []), 20, 10, 30, 24, 20, 32, 12],
+    };
+  }
   return {
-    headers: [...(host ? ["HOST"] : []), "PANE", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [...(host ? [10] : []), 12, 14, ...ownerBranchCaps(flags), 10, 6, 30, 12, 8, 5, 40, 50],
+    // Every cap is a promise the line still fits a terminal. TASK is the prompt
+    // you sent and LAST is what came back; both used to spend 90 characters
+    // repeating a repo path, and the row scrolled off the right of the screen.
+    headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
+    caps: [...(host ? [10] : []), 12, 10, 14, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
   };
 }
 
@@ -398,16 +474,18 @@ export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags,
     const line = rendered[index + 2] ?? "";
     out.push(rows[index]?.exited ? (isTTY ? dim(line) : line) : line);
   }
+  const shared = sharedOwner(rows);
+  if (!flags.showOwner && shared !== null) out.push(`owner: ${shared}`);
   return out.join("\n");
 }
 
 /** Render the status table for any row set without writing to a stream. */
-export function formatStatusTable(rows: readonly StatusRow[], options: { all: boolean; host: boolean }): string {
-  return renderStatusTable(rows, tableFlags(rows, options.all), { host: options.host });
+export function formatStatusTable(rows: readonly StatusRow[], options: { spaceWide: boolean; host: boolean; human?: boolean }): string {
+  return renderStatusTable(rows, tableFlags(rows, options.spaceWide, options.human === true), { host: options.host });
 }
 
-export function localStatusTable(visible: readonly StatusRow[], all: boolean): string {
-  return formatStatusTable(visible, { all, host: false });
+export function localStatusTable(visible: readonly StatusRow[], spaceWide: boolean): string {
+  return formatStatusTable(visible, { spaceWide, host: false });
 }
 
 interface OrchNames {
@@ -534,7 +612,7 @@ export function fleetStatusRows(spaces: OrchSettings["spaces"], options: FleetSt
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
 async function localStatusRows(options: StatusOptions, spaces: OrchSettings["spaces"]): Promise<FleetSnapshot> {
   const snapshot = await readFleetRows(spaces, options.offline);
-  const scoped = scopeFleetRows(snapshot.rows, options);
+  const scoped = scopeFleetRows(snapshot.rows, { ...options, caller: callerScope() });
   return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 
@@ -638,6 +716,6 @@ export async function cmdStatus(args: string[]): Promise<void> {
     if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result.rows, { all: options.all, host: result.host }) + "\n");
+  process.stdout.write(formatStatusTable(result.rows, { spaceWide: options.spaceWide, host: result.host, human: options.human }) + "\n");
   if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
 }

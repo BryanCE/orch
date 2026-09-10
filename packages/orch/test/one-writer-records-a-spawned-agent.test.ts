@@ -50,7 +50,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     const owner = mintAgentId();
 
     registerSpawnedAgent(dir, {
-      key, harnessId: "pi", backendId: "herdr", pane: true, handle: "%3",
+      key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%3",
       cwd: "/tmp", name: "solo-1", model: "openai/gpt-5.6", space: "wsOne",
       spawner: null, owner,
     });
@@ -106,7 +106,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       group: "tab1",
       model: "openai/gpt-5.6",
       preferredModels: [],
-      placement: { split: "right", targetPane: "fake-pane-0" },
+      placement: { split: "right", targetHandle: "fake-pane-0" },
     });
 
     const view = agentView(dir, agent.key);

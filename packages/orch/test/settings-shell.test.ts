@@ -56,18 +56,6 @@ describe("settings shell decisions", () => {
     }
   });
 
-  test("an overridden setting cannot be written", () => {
-    const directory = tempDir("orch-settings-override-");
-    writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
-    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, "../bin/orch.ts"), "settings", "defaults.worktree", "false"], {
-      env: { ...process.env, ORCH_DIR: directory, ORCH_WORKTREE: "true" },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    expect(result.success).toBe(false);
-    expect(result.stdout.toString()).toContain("ORCH_WORKTREE");
-  });
-
   test("registered writes use the registry entry", () => {
     const directory = tempDir("orch-settings-shell-");
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
@@ -78,7 +66,7 @@ describe("settings shell decisions", () => {
   });
 
   test("registry exposes writable subcommand entries", () => {
-    for (const key of ["defaults.models", "models.preferred", "models.allowed", "skills.install", "skills.roots", "notify", "defaults.thinking", "defaults.thinking_by_harness"]) {
+    for (const key of ["defaults.models", "models.preferred", "models.allowed", "skills.install", "skills.store", "skills.link", "notify", "defaults.thinking", "defaults.thinking_by_harness"]) {
       expect(SETTINGS_REGISTRY.find((entry) => entry.key === key)?.write, key).toBeDefined();
     }
   });

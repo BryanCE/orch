@@ -7,7 +7,7 @@
 // Where omp differs from pi and that difference is load-bearing:
 //   settle    omp fires `session_stop` ("a main-agent turn is about to settle");
 //             it has no `agent_settled`. Binding pi's name here would leave every
-//             successful run writing no result.json and never reaching `done`.
+//             successful run writing no results.jsonl and never reaching `done`.
 //   model     omp emits no `model_select` / `thinking_level_select`. The presence
 //             heartbeat re-reads ctx.model and getThinkingLevel(), so an in-TUI
 //             switch lands one tick later rather than not at all.

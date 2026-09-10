@@ -1,4 +1,4 @@
-import { orchDir } from "../../presence/store.ts";
+import { orchDir } from "../../presence/writer.ts";
 import { recordGrantRequest, spendGrant } from "../../store/grant-rows.ts";
 import { assertValidAgentName } from "../../policy/name.ts";
 import { spawnerIdentity } from "../../policy/spawner.ts";
@@ -24,7 +24,7 @@ export { liveSpawnCounts } from "../../policy/capacity.ts";
 const SPAWN_POLICY_OFFERS = `bind the task to a live ${term("slave")} (orch dispatch <name>) or put it on the pack queue (orch queue add)`;
 
 
-/** Return a spawn policy refusal without allocating a pane, tab, worktree, or queue entry. */
+/** Return a spawn policy refusal without allocating a handle, worktree, or queue entry. */
 export function spawnPolicyError(
   settings: Pick<OrchSettings, "fleet">,
   space: string | null,
@@ -84,16 +84,13 @@ export function assertSpawnCapacity(
   }
 }
 
-// Detached agents are launched BY THE DAEMON, not here: orchd outlives this CLI
-// and already owns delivery. Each runs the prompt it was launched with and exits —
-// there is no pane for it to idle in.
 /** Exactly what opening a space for this fleet would do. Every field the
  *  human must see is here: it is both what they read and what the grant is
  *  bound to, so the two can never describe different actions. */
 export function newSpaceAction(settings: SpawnSettings, backend: Backend): GrantAction {
   return {
     kind: "spawn.new-space",
-    params: { plexer: backend.id, cwd: settings.cwd, panes: String(settings.n), name: settings.prefix },
+    params: { plexer: backend.id, cwd: settings.cwd, agents: String(settings.n), name: settings.prefix },
   };
 }
 
@@ -104,13 +101,13 @@ export function assertNewSpaceGranted(settings: SpawnSettings, backend: Backend,
   const action = newSpaceAction(settings, backend);
   if (spendGrant(orchDir(), action, callerAgentId)) return;
   const request = recordGrantRequest(orchDir(), action, callerAgentId);
-  die(`orch is not running inside a ${backend.id} pane, so this spawn would open a NEW ${backend.id} space.\n`
+  die(`orch is not running inside a ${backend.id} space, so this spawn would open a NEW ${backend.id} space.\n`
     + `Ask the user to approve it in another terminal:\n\n    orch grant ${request.id}\n\n`
     + `then retry this exact command. Or pass --space <id> to place the fleet in an open space,`
-    + ` or --backend headless with --prompt to launch detached.`);
+    + ` or --backend headless with --prompt to launch with no space at all.`);
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
- *  spawn leaves no tab, no pane, no worktree and no queue entry. */
+ *  spawn leaves no handle, no worktree and no queue entry. */
 export async function admitSpawn(settings: SpawnSettings): Promise<void> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.

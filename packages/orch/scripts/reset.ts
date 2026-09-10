@@ -107,7 +107,7 @@ function packageTarballRemovals(): WipeStep[] {
 }
 
 function binShimRemovals(): WipeStep[] {
-  return ["orch", "pif"].map((name) => deletion(join(HOME, ".local", "bin", name))).filter(nonNull);
+  return ["orch", "pif", "orch-ding"].map((name) => deletion(join(HOME, ".local", "bin", name))).filter(nonNull);
 }
 
 /** True for a link into an orch package — the mark of an orch-installed extension. */
@@ -152,15 +152,17 @@ function readdirSafe(dir: string): string[] {
   }
 }
 
-/** The roots the install actually wrote skills to: what settings.json records, else the
- *  shipped defaults. Reading the raw file keeps the wipe working on a settings.json too
- *  malformed for the config loader — the exact state a reset exists to clear. */
+/** Every directory the install may have put a skill in — the store plus each harness link
+ *  root: what settings.json records, else the shipped defaults. Reading the raw file keeps
+ *  the wipe working on a settings.json too malformed for the config loader — the exact
+ *  state a reset exists to clear. */
 function recordedSkillRoots(): string[] {
   const recorded = readJsonFile(join(ORCH_DIR, "settings.json"));
   const skills = recorded === null ? null : recorded.skills;
-  const roots = isRecord(skills) ? skills.roots : undefined;
-  const named = Array.isArray(roots) ? roots.filter((root): root is string => typeof root === "string") : [];
-  return (named.length ? named : [...SETTINGS_DEFAULTS.skills.roots]).map(resolveSkillRoot);
+  const store = isRecord(skills) && typeof skills.store === "string" ? skills.store : SETTINGS_DEFAULTS.skills.store;
+  const link = isRecord(skills) ? skills.link : undefined;
+  const named = Array.isArray(link) ? link.filter((root): root is string => typeof root === "string") : [];
+  return [store, ...(named.length ? named : SETTINGS_DEFAULTS.skills.link)].map(resolveSkillRoot);
 }
 
 /** Every packaged skill, removed from every root the install wrote it to. A build

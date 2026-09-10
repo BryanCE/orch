@@ -3,10 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { loadSettings } from "../src/settings/read.ts";
-import { runDoctor, applyFixes } from "../src/doctor/runner.ts";
+import { applyFixes } from "../src/doctor/runner.ts";
+import { checkSpawnLimits } from "../src/doctor/settings-file.ts";
 import { assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { SpawnRefusalError } from "../src/refusal.ts";
-import { presenceAgentDir } from "../src/presence/store.ts";
+import { presenceAgentDir } from "../src/presence/writer.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -160,7 +161,7 @@ describe("spawn limits", () => {
   test("doctor reports an unsatisfiable workspace cap without a fix", async () => {
     const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 4, max_agents_per_space: { wX: 8 } } });
-    const result = (await runDoctor(dir)).find((entry) => entry.id === "spawn-limits")!;
+    const result = await checkSpawnLimits(dir);
     expect(result.status).toBe("warn");
     expect(result.fix).toBeUndefined();
     expect(result.detail).toContain("fleet.max_agents_per_space.wX");
@@ -171,6 +172,6 @@ describe("spawn limits", () => {
   test("doctor accepts satisfiable limits", async () => {
     const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 8, max_agents_per_space: { wX: 4 } } });
-    expect((await runDoctor(dir)).find((entry) => entry.id === "spawn-limits")).toMatchObject({ status: "ok" });
+    expect(await checkSpawnLimits(dir)).toMatchObject({ status: "ok" });
   });
 });

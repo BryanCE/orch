@@ -3,13 +3,18 @@ import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
-import { sleepMs } from "../pane-ready.ts";
+import { environmentStamp } from "../../agent/environment.ts";
+
+/** tmux has panes but orch composes no HUD role for them yet: nothing to read,
+ *  nothing to relay. Adding one means editing this stamp and nothing else. */
+const TMUX_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
+import { sleepMs } from "../shell-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
-import { presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
+import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
 import { agentChannel, capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit,  CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MovePaneRequest, PaneForegroundRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, PaneScreenRole, PaneZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit,  CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
 
@@ -35,7 +40,7 @@ function groupFromWindowPanes(windowId: string, panes: readonly TmuxPane[]): Bac
     workspace: first.session || null,
     focused: panes.some((pane) => pane.windowActive),
     number: Number.isFinite(index) ? index : null,
-    paneCount: panes.length,
+    placementCount: panes.length,
     status: null,
   };
 }
@@ -72,9 +77,11 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly logPruning: null = null;
   // tmux reports no orch integration version of its own.
   readonly versionInfo: null = null;
+  // tmux runs a server, but reports no client/server compatibility fact to read.
+  readonly serverInfo: null = null;
   readonly channel = agentChannel;
   readonly capture = capture;
-  readonly paneInput = {
+  readonly agentInput = {
     submit: (handle: TmuxHandle, text: string): void => {
       if (bestEffortTmux(["send-keys", "-t", handle, "--", text]) === null
         || bestEffortTmux(["send-keys", "-t", handle, "--", "Enter"]) === null) throw new Error(`tmux failed to submit text to ${handle}`);
@@ -86,10 +93,10 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       if (bestEffortTmux(["select-window", "-t", handle]) === null || bestEffortTmux(["select-pane", "-t", handle]) === null) throw new Error(`tmux failed to focus ${handle}`);
     },
   };
-  readonly paneForeground: PaneForegroundRole<TmuxHandle> | null = null;
-  readonly paneHost: PaneHostRole<TmuxHandle> = {
+  readonly foreground: ForegroundRole<TmuxHandle> | null = null;
+  readonly placement: PlacementRole<TmuxHandle> = {
     open: (request) => {
-      const target = request.targetPane ?? request.group;
+      const target = request.targetHandle ?? request.group;
       if (!target) throw new Error("tmux pane placement requires a target pane or group");
       const orientation = request.split === "right" ? "-h" : "-v";
       const envArgs = tmuxEnvArgs(request.env ?? {});
@@ -106,7 +113,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       bestEffortTmux(["kill-pane", "-t", handle]);
     },
   };
-  readonly paneInventory: PaneInventoryRole<TmuxHandle> = {
+  readonly placementInventory: PlacementInventoryRole<TmuxHandle> = {
     current: () => {
       const handle = process.env.TMUX_PANE;
       return handle ? { handle, workspace: this.sessionOf(handle), group: null } : null;
@@ -125,10 +132,10 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     })),
   };
   /** The last visible lines of a pane's screen. Throws on failure (D7). */
-  readonly paneScreen: PaneScreenRole<TmuxHandle> = { read: (handle, lines) => execTmux(["capture-pane", "-p", "-t", handle, "-S", `-${lines}`]) };
-  readonly paneZoom: PaneZoomRole<TmuxHandle> | null = null;
+  readonly screen: ScreenRole<TmuxHandle> = { read: (handle, lines) => execTmux(["capture-pane", "-p", "-t", handle, "-S", `-${lines}`]) };
+  readonly zooming: ZoomRole<TmuxHandle> | null = null;
   /** The pane border label. */
-  readonly paneNaming: PaneNamingRole<TmuxHandle> = { renamePane: (handle, name) => { if (bestEffortTmux(["select-pane", "-t", handle, "-T", name]) === null) throw new Error(`tmux failed to rename pane ${handle}`); } };
+  readonly labeling: LabelRole<TmuxHandle> = { setLabel: (handle, name) => { if (bestEffortTmux(["select-pane", "-t", handle, "-T", name]) === null) throw new Error(`tmux failed to rename pane ${handle}`); } };
   /** The agent shown for a pane (the `@orch_agent_name` pane option). */
   readonly agentNaming: AgentNamingRole<TmuxHandle> = { renameAgent: (handle, name) => { if (bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent_name", name]) === null) throw new Error(`tmux failed to rename agent ${handle}`); } };
   readonly agentStatus: AgentStatusRole<TmuxHandle> = { wait: (handle, status, timeoutMs) => { if (!this.awaitStatus(handle, status, timeoutMs)) throw new Error(`wait for ${handle} -> "${status}" timed out`); } };
@@ -148,12 +155,12 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       const [windowId, windowIndex, paneId] = execTmux(args).trim().split("\t");
       if (!windowId || !paneId) throw new Error("tmux new-window returned no window/pane id");
       const index = Number(windowIndex);
-      return { group: { id: windowId, label: opts.label ?? null, workspace: opts.workspace ?? null, focused: false, number: Number.isFinite(index) ? index : null, paneCount: 1, status: null }, rootHandle: paneId };
+      return { group: { id: windowId, label: opts.label ?? null, workspace: opts.workspace ?? null, focused: false, number: Number.isFinite(index) ? index : null, placementCount: 1, status: null }, rootHandle: paneId };
     },
     rename: (coordinate, label) => { execTmux(["rename-window", "-t", coordinate, label]); },
     close: (coordinate) => { execTmux(["kill-window", "-t", coordinate]); },
     focus: (coordinate) => { execTmux(["select-window", "-t", coordinate]); },
-    move: (request: MovePaneRequest<TmuxHandle>): void => {
+    move: (request: MoveRequest<TmuxHandle>): void => {
       if (request.group === null) {
         const args = ["break-pane", "-d", "-s", request.handle];
         if (request.label) args.push("-n", request.label);
@@ -161,7 +168,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
         return;
       }
       const orientation = request.split === "right" ? "-h" : "-v";
-      const target = request.against ?? request.targetPane ?? request.group;
+      const target = request.against ?? request.targetHandle ?? request.group;
       execTmux(["join-pane", orientation, "-s", request.handle, "-t", target]);
     },
   };
@@ -169,7 +176,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     read: (group: string): BackendGroupLayout<TmuxHandle> => {
       const panes = windowPaneRects(group);
       if (!panes.length) throw new Error(`no panes on window ${group}`);
-      return { group, panes: panes.map((pane) => ({ handle: pane.paneId, rect: pane.rect })) };
+      return { group, placements: panes.map((pane) => ({ handle: pane.paneId, rect: pane.rect })) };
     },
   };
   readonly spaceHome: SpaceHomeRole<TmuxHandle> = {
@@ -283,13 +290,13 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const cwd = opts.cwd ?? process.cwd();
-    const envArgs = tmuxEnvArgs(agentLaunchEnv({ ...opts, orchDir: opts.orchDir ?? process.env.ORCH_DIR }));
+    const envArgs = tmuxEnvArgs(agentLaunchEnv({ ...opts, orchDir: opts.orchDir ?? process.env.ORCH_DIR }, TMUX_ENVIRONMENT_STAMP));
 
     // A planned target pane wins over the group: `-t <window>` splits whatever
     // pane happens to be active there, which makes placement depend on focus.
-    const splitTarget = typeof opts.targetPane === "string" ? opts.targetPane : opts.group;
-    const handle = typeof opts.intoPane === "string"
-      ? this.runInPane(opts.intoPane, cwd, envArgs, command)
+    const splitTarget = typeof opts.targetHandle === "string" ? opts.targetHandle : opts.group;
+    const handle = typeof opts.intoHandle === "string"
+      ? this.runInPane(opts.intoHandle, cwd, envArgs, command)
       : splitTarget
         ? this.placeInGroup(splitTarget, opts.split, cwd, envArgs, command)
         : this.placeInNewWindow(cwd, envArgs, command);

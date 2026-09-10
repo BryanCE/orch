@@ -3,47 +3,47 @@ import type { AgentAdapter } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
 import type { WorkerPolicy } from "./policy.ts";
 
-/** A pane coordinate returned by a pane inventory. */
-export interface PaneCoordinate {
+/** Where a placed agent sits, as the environment reports it. */
+export interface PlacementCoordinate {
   readonly handle: BackendHandle;
   readonly workspace: string | null;
   readonly group: string | null;
 }
 
-export interface OpenPaneRequest<Handle = BackendHandle> {
+export interface PlacementRequest<Handle = BackendHandle> {
   readonly cwd: string;
   readonly workspace?: string;
   readonly group?: string;
   readonly split?: BackendSplit;
-  readonly targetPane?: Handle;
+  readonly targetHandle?: Handle;
   readonly env?: Readonly<Record<string, string>>;
 }
 
-export interface OpenedPane<Handle = BackendHandle> { readonly handle: Handle; }
+export interface Placement<Handle = BackendHandle> { readonly handle: Handle; }
 
-export interface PaneHostRole<Handle = BackendHandle> {
-  open(request: OpenPaneRequest<Handle>): OpenedPane<Handle>;
+export interface PlacementRole<Handle = BackendHandle> {
+  open(request: PlacementRequest<Handle>): Placement<Handle>;
   close(handle: Handle): void;
 }
 
-export interface PaneInventoryRole<Handle = BackendHandle> {
-  current(): PaneCoordinate | null;
+export interface PlacementInventoryRole<Handle = BackendHandle> {
+  current(): PlacementCoordinate | null;
   list(): readonly BackendTarget<Handle>[];
 }
 
-export interface PaneInputRole<Handle = BackendHandle> {
+export interface AgentInputRole<Handle = BackendHandle> {
   submit(handle: Handle, text: string): void;
   sendKeys(handle: Handle, keys: readonly string[]): void;
   focus(handle: Handle): void;
 }
 
-export interface PaneForegroundRole<Handle = BackendHandle> { read(handle: Handle): PaneForeground; }
+export interface ForegroundRole<Handle = BackendHandle> { read(handle: Handle): ForegroundProcesses; }
 
-export interface PaneScreenRole<Handle = BackendHandle> { read(handle: Handle, lines: number): string; }
+export interface ScreenRole<Handle = BackendHandle> { read(handle: Handle, lines: number): string; }
 
-export interface PaneZoomRole<Handle = BackendHandle> { setZoom(handle: Handle, mode: BackendZoomMode): void; }
+export interface ZoomRole<Handle = BackendHandle> { setZoom(handle: Handle, mode: BackendZoomMode): void; }
 
-export interface PaneNamingRole<Handle = BackendHandle> { renamePane(handle: Handle, name: string): void; }
+export interface LabelRole<Handle = BackendHandle> { setLabel(handle: Handle, name: string): void; }
 
 export interface AgentNamingRole<Handle = BackendHandle> { renameAgent(handle: Handle, name: string): void; }
 
@@ -56,36 +56,36 @@ export interface CreateGroupRequest {
   readonly workspace: string | undefined;
   readonly cwd: string;
   readonly label?: string | null;
-  /** Environment for the group's own shell pane, for a caller that will launch
-   *  an agent in it rather than opening a second pane beside it. */
+  /** Environment for the group's own root place, for a caller that will launch
+   *  an agent in it rather than opening a second place beside it. */
   readonly env?: Readonly<Record<string, string>>;
 }
 
-/** Result of creating a group, including its initial shell pane. */
+/** Result of creating a group, including its root place. */
 export interface CreatedGroup<Handle = BackendHandle> {
   readonly group: BackendGroup;
   readonly rootHandle: Handle;
 }
 
 /** Group placement request. A null group creates a fresh group. */
-export interface MovePaneRequest<Handle = BackendHandle> {
+export interface MoveRequest<Handle = BackendHandle> {
   readonly handle: Handle;
   readonly group: string | null;
   readonly split: BackendSplit;
   readonly against?: Handle;
-  /** Alias used by placement callers for the pane to split. */
-  readonly targetPane?: Handle;
+  /** Alias used by placement callers for the place to split. */
+  readonly targetHandle?: Handle;
   readonly label?: string | null;
 }
 
-/** Group inventory and mutation role. Every method is implemented by a paned provider. */
+/** Group inventory and mutation role. Every method is implemented by an environment that places agents. */
 export interface GroupHomeRole<Handle = BackendHandle> {
   list(): readonly BackendGroup[];
   create(request: CreateGroupRequest): CreatedGroup<Handle>;
   rename(coordinate: string, label: string): void;
   close(coordinate: string): void;
   focus(coordinate: string): void;
-  move(request: MovePaneRequest<Handle>): void;
+  move(request: MoveRequest<Handle>): void;
 }
 
 /** Group geometry role used by the tiling planner. */
@@ -106,7 +106,7 @@ export interface CreateHomeRequest {
   readonly env?: Readonly<Record<string, string>>;
 }
 
-/** Result of creating a plexer home, including its root pane handle. */
+/** Result of creating a plexer home, including its root handle. */
 export interface CreatedHome<Handle = BackendHandle> {
   readonly coordinate: string;
   readonly rootHandle: Handle;
@@ -134,7 +134,7 @@ export interface SpaceHomeRole<Handle = BackendHandle> {
 
 /**
  * Where the calling process itself is. Composed by an environment a process can be
- * INSIDE — a pane in a plexer. A detached agent is in no space, so headless
+ * INSIDE. A detached agent is in no space, so headless
  * composes nothing here and callers get the absence as their answer: nullness
  * is the capability, never a method probe.
  */
@@ -151,9 +151,28 @@ export interface HandleLookupRole<Handle = BackendHandle> {
   handleFor(key: string): Handle | undefined;
 }
 
+/** What an environment's running server says about itself. `compatible` is null
+ *  when the server reports no compatibility fact for orch to read. */
+export interface ServerReport {
+  readonly version: string | null;
+  readonly compatible: boolean | null;
+}
+
 /** Reporting an environment's installed integration version. */
 export interface VersionRole {
   installed(): string | null;
+  /** The oldest version of its own environment this integration still speaks to.
+   *  The integration's fact to state, never core's to hold: a version range keyed
+   *  by environment id in core is an environment orch cannot add without editing
+   *  policy. A floor and never a ceiling - a newer environment is the environment. */
+  supported(): string;
+}
+
+/** Reporting the server an environment's client talks to. Null role for an
+ *  environment that is one process and has no server to disagree with; a null
+ *  report for one whose server is not running. */
+export interface ServerInfoRole {
+  running(): ServerReport | null;
 }
 
 /** Pruning this environment's own logs. Absent when it keeps none — which is an
@@ -262,36 +281,36 @@ export interface BackendSpawnOpts {
   readonly group?: string;
   /** Split direction within the target group. */
   readonly split?: BackendSplit;
-  /** Pane the new pane must split, so placement never depends on what has focus. */
-  readonly targetPane?: BackendHandle;
+  /** The place the new place must split, so placement never depends on what has focus. */
+  readonly targetHandle?: BackendHandle;
   /**
-   * Launch the agent in this pane instead of opening one. A group is born with a
-   * shell pane, and splitting off it to then close it leaves an orphan whenever
-   * the plexer declines the close — which every later tiling decision then
-   * balances against. Handing that pane over directly cannot leave one.
+   * Launch the agent in this place instead of opening one. A group is born with a
+   * root place, and splitting off it to then close it leaves an orphan whenever
+   * the environment declines the close — which every later tiling decision then
+   * balances against. Handing that place over directly cannot leave one.
    */
-  readonly intoPane?: BackendHandle;
+  readonly intoHandle?: BackendHandle;
 }
 
 /**
  * A native handle returned by one of orch's environments.
  *
- * Pane environments address a pane with its native string coordinate; the
- * detached environment carries the process identity it can actually signal.
- * The object variant is intentionally shaped (rather than `unknown`) so code
- * that renders a handle must account for the process form explicitly. The
- * optional phantom kind keeps native pane strings compatible while documenting
- * the discriminant used by structured handles.
+ * An environment that places agents addresses each with its native string
+ * coordinate; the detached environment carries the process identity it can
+ * actually signal. The object variant is intentionally shaped (rather than
+ * `unknown`) so code that renders a handle must account for the process form
+ * explicitly. The optional phantom kind keeps native coordinate strings
+ * compatible while documenting the discriminant used by structured handles.
  */
-export type BackendHandle = (string & { readonly kind?: "pane" }) | HeadlessHandle;
+export type BackendHandle = (string & { readonly kind?: "placed" }) | HeadlessHandle;
 
-/** Split direction for pane placement inside a group. */
+/** Split direction for placement inside a group. */
 export type BackendSplit = "down" | "right";
 
-/** Zoom state applied to one pane. */
+/** Zoom state applied to one place. */
 export type BackendZoomMode = "on" | "off" | "toggle";
 
-/** Pane geometry inside a group layout. */
+/** Geometry of one place inside a group layout. */
 export interface BackendRect {
   readonly width: number;
   readonly height: number;
@@ -325,21 +344,21 @@ export interface BackendGroup {
   readonly workspace: string | null;
   readonly focused: boolean;
   readonly number: number | null;
-  readonly paneCount: number | null;
+  readonly placementCount: number | null;
   readonly status: string | null;
 }
 
-/** Geometry of every pane in one group. */
+/** Geometry of every place in one group. */
 export interface BackendGroupLayout<Handle = BackendHandle> {
   readonly group: string;
-  readonly panes: readonly { readonly handle: Handle; readonly rect: BackendRect }[];
+  readonly placements: readonly { readonly handle: Handle; readonly rect: BackendRect }[];
 }
 
 
 
 /**
- * Lifecycle, identity, and control contract shared by pane and
- * detached-process backends.
+ * Lifecycle, identity, and control contract shared by every environment,
+ * whether it places agents or detaches them.
  *
  * The backend owns its workspace/session identity (design D2): it reports the
  * calling process's own {@link Identity} via {@link Backend.currentIdentity} and
@@ -370,7 +389,7 @@ export interface Backend<Handle = BackendHandle> {
   readonly identity: EnvironmentIdentityRole | null;
   /**
    * Live handle for one agent identity key. Composed by backends whose handle is
-   * not a pane the spawn registry can record — a detached process handle changes
+   * not a place the spawn registry can record — a detached process handle changes
    * every relaunch, so only the backend knows the current one.
    */
   readonly handleLookup: HandleLookupRole<Handle> | null;
@@ -380,14 +399,17 @@ export interface Backend<Handle = BackendHandle> {
    *  environment exposes no version to report — which is an ANSWER for the doctor
    *  to print, not a missing method to probe for. */
   readonly versionInfo: VersionRole | null;
-  readonly paneHost: PaneHostRole<Handle> | null;
-  readonly paneInventory: PaneInventoryRole<Handle> | null;
-  /** Explicit plexer fast path; normal dispatch never uses this channel. */
-  readonly paneInput: PaneInputRole<Handle> | null;
-  readonly paneForeground: PaneForegroundRole<Handle> | null;
-  readonly paneScreen: PaneScreenRole<Handle> | null;
-  readonly paneZoom: PaneZoomRole<Handle> | null;
-  readonly paneNaming: PaneNamingRole<Handle> | null;
+  /** Reports the server this environment's client drives. Absent when it runs as
+   *  one process, so there is no client and server that can disagree. */
+  readonly serverInfo: ServerInfoRole | null;
+  readonly placement: PlacementRole<Handle> | null;
+  readonly placementInventory: PlacementInventoryRole<Handle> | null;
+  /** Explicit environment fast path; normal dispatch never uses this channel. */
+  readonly agentInput: AgentInputRole<Handle> | null;
+  readonly foreground: ForegroundRole<Handle> | null;
+  readonly screen: ScreenRole<Handle> | null;
+  readonly zooming: ZoomRole<Handle> | null;
+  readonly labeling: LabelRole<Handle> | null;
   readonly agentNaming: AgentNamingRole<Handle> | null;
   readonly agentStatus: AgentStatusRole<Handle> | null;
   readonly groupHome: GroupHomeRole<Handle> | null;
@@ -412,29 +434,29 @@ export interface Identity {
    * could not be reused after its agent died, could not be reassigned, and
    * renaming would have severed every presence/ack join.
    *
-   * Equally never the backend pane id or OS pid: those exist only after spawn,
+   * Equally never the backend handle or OS pid: those exist only after spawn,
    * so minting a key from one forks the agent into two identities.
    */
   readonly id: string;
 }
 
-/** What a plexer can see about the processes a pane is running right now. */
-export interface PaneForeground {
-  /** The pane's own shell. Null when the plexer does not report it. */
+/** What an environment can see about the processes one agent is running right now. */
+export interface ForegroundProcesses {
+  /** The place's own shell. Null when the environment does not report it. */
   shellPid: number | null;
-  /** Leader of the process group holding the terminal. Null on panes whose OS
-   *  exposes no foreground group — Windows-side panes, where only names remain. */
+  /** Leader of the process group holding the terminal. Null where the OS
+   *  exposes no foreground group — Windows-side agents, where only names remain. */
   foregroundPid: number | null;
   processes: readonly string[];
 }
 
 /**
  * How a tab's FIRST split runs, from `tiling.first_split` in settings.json.
- * Every split after it halves the biggest pane's longer visual side whichever
+ * Every split after it halves the biggest place's longer visual side whichever
  * one is set — the opening split is all that differs, and it is what decides
  * whether four agents land as a 2x2 grid or as four of one shape.
  *
- * - `rows` stacks: the new pane goes under the old one (a horizontal divider).
+ * - `rows` stacks: the new place goes under the old one (a horizontal divider).
  * - `columns` sits side by side (a vertical divider).
  * - `longest-edge` lets the tab's own shape pick, which on a wide monitor keeps
  *   choosing columns until the fleet is a row of thin strips.
@@ -445,9 +467,9 @@ export type TileFirstSplit = (typeof TILE_FIRST_SPLITS)[number];
 
 /** Where the next agent lands in a group. */
 export interface TilePlacement {
-  /** Pane to split. Absent on a single-pane group, where every backend's own
-   *  default already splits the one pane there is. */
-  readonly targetPane?: BackendHandle;
+  /** The place to split. Absent on a one-place group, where every backend's own
+   *  default already splits the one place there is. */
+  readonly targetHandle?: BackendHandle;
   readonly split: BackendSplit;
 }
 
@@ -464,7 +486,7 @@ export interface LocalProcessRoleDeps {
  * out, and the retry policy is the caller's to state.
  *
  * Why it exists: orch's commands fail on TIMING far more often than on being
- * wrong. A pane whose shell has not finished coming up, a plexer server still
+ * wrong. A place whose shell has not finished coming up, a plexer server still
  * binding its socket, a loaded machine — each answers with a refusal that would
  * have succeeded moments later. Failing the whole spawn on the first of those is
  * what makes orch feel unreliable on slower hardware, and it is not a per-harness

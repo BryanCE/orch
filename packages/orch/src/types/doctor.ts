@@ -1,4 +1,5 @@
 import type { OrchRuntime } from "../runtimes.ts";
+import type { ServerReport } from "./backend.ts";
 import type { SshResult } from "./core.ts";
 
 /** Shared result shape returned by doctor checks and adapter diagnostics. */
@@ -43,8 +44,12 @@ export interface CheckResult {
  *  meaningful once `detected` is true. */
 export interface BackendVersionObservation {
   plexerId: string;
+  /** The version floor this plexer's own integration states it speaks to. */
+  range: string;
   detected: boolean;
   installed: string | null;
+  /** The plexer's running server, when it has one and orch could reach it. */
+  server?: ServerReport | null;
 }
 
 export type BinaryStatus = Record<string, boolean>;

@@ -1,5 +1,5 @@
 import { dim } from "../tui/screen.ts";
-import { displayValue } from "./display.ts";
+import { displaySetting, displayValue } from "./display.ts";
 import { repairChoicesFor } from "./repair.ts";
 import type { EditorSetting, RepairChoice, SettingsDefect } from "../types/settings.ts";
 
@@ -35,14 +35,20 @@ export interface SettingsScreen {
   readonly status: string | undefined;
 }
 
-export const BROWSE_KEYBAR = "↑/↓ move · enter edit · ctrl+d use default · type to filter · esc quit";
-export const SELECT_KEYBAR = "↑/↓ choose · enter save · esc cancel";
-export const MULTI_KEYBAR = "↑/↓ move · space toggle · enter save · esc cancel";
-export const INPUT_KEYBAR = "enter save · esc cancel";
+// ASCII only, here and in every glyph below: a terminal that is not decoding UTF-8 renders
+// arrows and boxes as mojibake, and a settings editor nobody can read is not a fallback.
+export const BROWSE_KEYBAR = "up/down move | enter edit | ctrl+d use default | type to filter | esc quit";
+export const SELECT_KEYBAR = "up/down choose | enter save | esc cancel";
+export const MULTI_KEYBAR = "up/down move | space toggle | enter save | esc cancel";
+export const SINKS_KEYBAR = "up/down move | space toggle | e edit value | w when it fires | enter save | esc cancel";
+export const INPUT_KEYBAR = "enter save | ctrl+u clear | esc cancel";
 
 function matchesFilter(entry: EditorSetting, filter: string): boolean {
   const needle = filter.toLowerCase();
-  return entry.spec.key.toLowerCase().includes(needle) || entry.spec.group.toLowerCase().includes(needle);
+  // Help too: nobody looking for a notification sound guesses the key is called `notify`.
+  return entry.spec.key.toLowerCase().includes(needle)
+    || entry.spec.group.toLowerCase().includes(needle)
+    || entry.spec.help.toLowerCase().includes(needle);
 }
 
 /** Indices into `entries` that survive the filter, in display order. */
@@ -64,7 +70,7 @@ export function windowBounds(total: number, focus: number, budget: number): { st
 
 function fit(text: string, width: number): string {
   if (width <= 0) return "";
-  return text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`;
+  return text.length <= width ? text : `${text.slice(0, Math.max(0, width - 3))}...`;
 }
 
 function sourceTag(entry: EditorSetting): string {
@@ -95,7 +101,7 @@ function listLines(screen: SettingsScreen, visible: readonly number[], columns: 
     const focused = index === screen.focusedIndex;
     const tag = sourceTag(entry);
     const valueWidth = columns - 3 - keyWidth - 2 - (tag === "" ? 0 : tag.length + 2);
-    const value = fit(displayValue(entry.value), valueWidth);
+    const value = fit(displaySetting(entry.value, entry.spec.type), valueWidth);
     const plain = `${focused ? " > " : "   "}${entry.spec.key.padEnd(keyWidth)}  ${value}${tag === "" ? "" : `  ${tag}`}`;
     if (focused) {
       focusLine = lines.length;
@@ -110,20 +116,44 @@ function listLines(screen: SettingsScreen, visible: readonly number[], columns: 
 /** Overlay for a choice edit: the option list with the cursor row highlighted. */
 export function selectOverlay(choices: readonly string[], cursor: number): string[] {
   return choices.map((choice, index) =>
-    index === cursor ? inverse(` > ● ${choice}`) : `   ○ ${choice}`);
+    index === cursor ? inverse(` > (*) ${choice}`) : `   ( ) ${choice}`);
 }
 
-/** Overlay for a multi edit: checkboxes, the cursor row highlighted. */
-export function multiOverlay(choices: readonly string[], cursor: number, selected: readonly string[]): string[] {
+/** Overlay for a multi edit: checkboxes, the cursor row highlighted. `notes` is what a
+ *  choice carries beyond being on or off - the command a sink runs, the URL it posts to. */
+export function multiOverlay(
+  choices: readonly string[],
+  cursor: number,
+  selected: readonly string[],
+  notes?: Readonly<Record<string, string>>,
+): string[] {
+  const width = Math.max(0, ...choices.map((choice) => choice.length));
   return choices.map((choice, index) => {
-    const box = selected.includes(choice) ? "◼" : "◻";
-    return index === cursor ? inverse(` > ${box} ${choice}`) : `   ${box} ${choice}`;
+    const box = selected.includes(choice) ? "[x]" : "[ ]";
+    const note = notes?.[choice] ?? "";
+    const text = note === "" ? choice : `${choice.padEnd(width)}  ${note}`;
+    return index === cursor ? inverse(` > ${box} ${text}`) : `   ${box} ${text}`;
   });
 }
 
-/** Overlay for a text/integer/list edit: the input line and any validation error. */
-export function inputOverlay(key: string, inputWithCursor: string, error: string | undefined): string[] {
+/** The input line with its cursor drawn in inverse video. @clack's own
+ *  `userInputWithCursor` draws U+2588, which is mojibake on a terminal not decoding UTF-8. */
+export function inputCursor(text: string, cursor: number): string {
+  const at = Math.max(0, Math.min(text.length, cursor));
+  const under = text.slice(at, at + 1);
+  return `${text.slice(0, at)}${inverse(under === "" ? " " : under)}${text.slice(at + 1)}`;
+}
+
+/** Overlay for a text/integer/list edit: the input line, an example of what goes on it,
+ *  and any validation error. The example is shown, never typed into the line. */
+export function inputOverlay(
+  key: string,
+  inputWithCursor: string,
+  error: string | undefined,
+  example?: string,
+): string[] {
   const lines = [` ${key} = ${inputWithCursor}`];
+  if (example !== undefined && example !== "") lines.push(dim(` for example: ${example}`));
   if (error !== undefined && error !== "") lines.push(yellow(` ${error}`));
   return lines;
 }
@@ -140,11 +170,11 @@ export interface RepairScreen {
   readonly status: string | undefined;
 }
 
-export const REPAIR_KEYBAR = "↑/↓ move · r rename · s set · d drop · l leave · enter save · esc quit without saving";
+export const REPAIR_KEYBAR = "up/down move | r rename | s set | d drop | l leave | enter save | esc quit without saving";
 
 /** What one standing choice will do to the file, in the words of the thing it does. */
 export function repairActionLabel(defect: SettingsDefect, choice: RepairChoice): string {
-  if (choice === "rename") return `rename → ${defect.suggestion ?? ""}`;
+  if (choice === "rename") return `rename -> ${defect.suggestion ?? ""}`;
   if (choice === "set") return `set ${displayValue(defect.expected)}`;
   if (choice === "drop") return "drop";
   return "leave";
@@ -202,8 +232,8 @@ export function repairFrame(screen: RepairScreen, columns: number, rows: number)
   const budget = Math.max(3, rows - chrome);
   const { start, end } = windowBounds(lines.length, focusLine, budget);
   const windowed = lines.slice(start, end);
-  if (start > 0 && windowed.length > 0) windowed[0] = dim(` ↑ ${start} more`);
-  if (end < lines.length && windowed.length > 0) windowed[windowed.length - 1] = dim(` ↓ ${lines.length - end} more`);
+  if (start > 0 && windowed.length > 0) windowed[0] = dim(` ^ ${start} more`);
+  if (end < lines.length && windowed.length > 0) windowed[windowed.length - 1] = dim(` v ${lines.length - end} more`);
 
   // Every chrome line is fitted too: a headline or keybar longer than the terminal
   // wraps, and a wrapped line pushes the whole frame down a row on every render.
@@ -235,15 +265,15 @@ export function settingsFrame(
   const { lines, focusLine } = listLines(screen, visible, columns);
   const focused = screen.entries[screen.focusedIndex];
 
-  const filterLine = screen.filter === "" ? [] : [cyan(` filter: ${screen.filter}▌`)];
+  const filterLine = screen.filter === "" ? [] : [cyan(` filter: ${screen.filter}_`)];
   const overlayLines = overlay ?? [];
   const chrome = 1 + filterLine.length + 1 + 1 + 1 + overlayLines.length + 1 + 1;
   const budget = Math.max(3, rows - chrome);
 
   const { start, end } = windowBounds(lines.length, focusLine, budget);
   const windowed = lines.slice(start, end);
-  if (start > 0 && windowed.length > 0) windowed[0] = dim(` ↑ ${start} more`);
-  if (end < lines.length && windowed.length > 0) windowed[windowed.length - 1] = dim(` ↓ ${lines.length - end} more`);
+  if (start > 0 && windowed.length > 0) windowed[0] = dim(` ^ ${start} more`);
+  if (end < lines.length && windowed.length > 0) windowed[windowed.length - 1] = dim(` v ${lines.length - end} more`);
   if (windowed.length === 0) windowed.push(dim(` no settings match ${JSON.stringify(screen.filter)}`));
 
   const frame = [

@@ -1,7 +1,8 @@
 import * as path from "node:path";
 import { loadSettings } from "../settings/read.ts";
 import { buildEntities, collapse, resolveTarget, scopeEntitiesToSpace, spaceOf } from "../entities.ts";
-import { loadPresence, orchDir, readJSON } from "../presence/store.ts";
+import { loadPresence, readJSON } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { QUESTION_FILE } from "../presence/schema.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
@@ -9,6 +10,7 @@ import { runRemoteAsync, runSSH } from "../remote.ts";
 import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
+import { selectRun } from "../store/run-rows.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
@@ -95,10 +97,24 @@ function writeAdapterResult(ent: Entity, json: boolean): boolean {
   if (!text) return false;
   resultLogger(ent.key).info("result.adapter-fallback");
   // Same rule: where the text came from is diagnosis, not the result.
-  process.stdout.write("(no result.json - falling back to adapter-extracted session text)\n");
+  process.stdout.write("(no results.jsonl - falling back to adapter-extracted session text)\n");
   if (json) writeAdapterJson(ent, adapter, text);
   else process.stdout.write(text + "\n");
   return true;
+}
+
+/** The result of the dispatch the agent is on NOW, or a refusal naming its state.
+ *  `results.jsonl` is append-only and survives a reset, so its newest line is the
+ *  previous task's answer until the current one settles. The run row is bound to
+ *  the dispatch id, so it can never hand back the wrong task. */
+function writeCurrentDispatchResult(dispatchId: string, key: string, json: boolean): void {
+  const run = selectRun(orchDir(), dispatchId);
+  if (run?.result === undefined) {
+    die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${key}\`.`);
+  }
+  resultLogger(key).info("result.current-dispatch", { dispatchId });
+  if (json) process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
+  else process.stdout.write((typeof run.result === "string" ? run.result : resultText(run.result) ?? JSON.stringify(run.result)) + "\n");
 }
 
 function tryHistoricalTarget(target: string, json: boolean): boolean {
@@ -120,11 +136,13 @@ export function cmdResult(args: string[]) {
   // Names are a flat namespace across every orchestrator, so an unscoped read
   // hands one session's work product to another as if it were its own.
   assertAgentOwned(target, ent, options.force);
+  const dispatchId = ent.presence?.status?.dispatchId;
+  if (dispatchId) return writeCurrentDispatchResult(dispatchId, ent.key, options.json);
   if (writePresenceResult(ent.presence?.result, options.json)) return;
   const historical = latestRunForKey(ent.key);
   if (historical && writeHistoricalResult(historical, options.json, ent.key)) return;
   if (writeAdapterResult(ent, options.json)) return;
-  die(`No result available for "${target}" (no result.json and no adapter-extractable session text).`);
+  die(`No result available for "${target}" (no results.jsonl and no adapter-extractable session text).`);
 }
 
 export async function cmdQuestions(args: string[]): Promise<void> {
@@ -161,7 +179,7 @@ export async function cmdQuestions(args: string[]): Promise<void> {
     return;
   }
   const tableRows = rows.map((row) => [row.host ?? "-", row.key, row.name ?? "-", row.age, row.question]);
-  process.stdout.write(renderTable(["HOST", "PANE", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
+  process.stdout.write(renderTable(["HOST", "ID", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
 }
 
 interface PendingQuestion { pres: PresenceEntry; question: QuestionPayload }

@@ -62,7 +62,7 @@ function seedAgentWithStatus(dir: string, key: string, handle: string, pid: numb
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, paneId: handle, pid, agent: "pi", state: "working",
+    schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working",
   }));
 }
 
@@ -106,7 +106,7 @@ describe("close reports an outcome for every target it was given (U2)", () => {
     // A plexer that lists the pane and refuses to close it: the close is asked
     // for, fails, and the row survives - exactly the reported case.
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p2C")] });
-    backend.paneHost.close = (): never => { throw new Error("herdr refused: pane is busy"); };
+    backend.placement.close = (): never => { throw new Error("herdr refused: pane is busy"); };
 
     const payload = withRegisteredBackend(backend, () => capture(() => { cmdClose(["--all", "--json"]); }));
 

@@ -31,6 +31,16 @@ export const outbox = sqliteTable("outbox", {
   nextAttemptAt: integer("next_attempt_at").notNull().default(0),
 }, (table) => [index("outbox_pending").on(table.state, table.nextAttemptAt)]);
 
+/** What an agent did with a control command. `error` NULL means it applied. */
+export const controlOutcomes = sqliteTable("control_outcomes", {
+  id: text("id").notNull().primaryKey(),
+  agentId: text("agent_id").notNull(),
+  command: text("command").notNull(),
+  requested: text("requested").notNull(),
+  settledAt: integer("settled_at").notNull(),
+  error: text("error"),
+}, (table) => [index("control_outcomes_agent").on(table.agentId, table.settledAt)]);
+
 export const catalogues = sqliteTable("catalogues", {
   command: text("command").notNull().primaryKey(),
   at: integer("at").notNull(),

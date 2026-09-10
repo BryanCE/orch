@@ -1,77 +1,181 @@
- Honest read after driving ~25 dispatches across 3 waves today:
+# improvements.md — status
 
-  The skill earns its keep. The doctrine that actually saved me: arm the watch in the same message as
-  the first dispatch (every done/asking event woke me, zero polling), --cwd at spawn,
-  reset-before-redispatch, name-by-slice, and "done is a claim" (that habit caught the mangled comment
-  and the HostConfig gap). The --all warning on events was load-bearing — I'd have armed a dead watch
-  without it.
+13 done, 4 half done, 3 open. Verified against the code on 2026-09-10.
 
-  What orch itself does well: spawn is genuinely one command; dispatch is durable and returns
-  instantly; the push stream never dropped an event; rename not breaking the watch scope is the right
-  design; per-event cost is nice; questions/answer flow is clean.
+## Ahead of the 20: the dispatch outage, fixed 2026-09-10
 
-  Friction I actually hit:
+`orchd` stopped answering dispatches (2000ms timeout, then silent no-ops), intermittently,
+recovering on its own. Four defects compounded, all confirmed in `~/.orch/orchd.log`:
+one target at attempt **145**, 416 `bridge is disconnected` failures, 1235 delivery attempts.
 
-  1. reset silently re-pins the spawn-time model, discarding a later orch model change. I set panes to
-     :medium, reset them, and they came back :high. I caught it only because the reset output prints
-     the pin. Reset should keep the current pin, or say loudly that it reverted.
-  2. The pack cap ambushed me. Skill says spawn_cap 8 and "default fleet 6-8"; nothing mentions
-     fleet.max_agents_per_pack=10 until a spawn dies mid-batch. The refusal message was good — but
-     capacity should be visible before I burn a spawn (e.g. in orch status or a spawn --fit).
-  3. The smoke-test advice gave a false negative. orch events --all --since-seq 0 printed nothing on a
-     daemon that then pushed every live event perfectly. The skill says "silent replay = broken scope"
-     — I armed anyway and it worked. Either replay has a bug or the doctrine needs "empty history is
-     normal on a fresh daemon."
-  4. The answer race. vocab-mover asked, I answered within seconds, and it still finished on its
-     default assumption — the result reads like the answer never entered its turn. No feedback on
-     whether an answer was consumed. That cost me a manual HostConfig cleanup.
-  5. Giant dispatch prompts through shell quoting is the worst part of the loop. My specs are 300+
-     words with code identifiers; one stray apostrophe kills the command. orch dispatch <target> --file
-     spec.md (or stdin) would be the single biggest QoL win.
-  6. The refill dance is 4 commands per pane (reset, rename, model, dispatch). A composite — orch
-     redispatch <t> --name X --model Y "task" — would cut my batch messages by 75%.
-  7. Small skill bug: it says "there is no --name flag" in the spawn section, then documents --name
-     names the agents two paragraphs later.
+| Defect | Fix | Where |
+|---|---|---|
+| The outbox had NO periodic drain. `drainOutbox` had exactly one caller — `acceptWrite` — so a queued write was retried only when some other caller dispatched. | orchd drains on its own clock, every `daemon.outbox_drain_ms`. | `daemon/orchd.ts`, `settings/*` |
+| Accepting a dispatch awaited a drain of the WHOLE backlog, so one orch's dead agent delayed every other orch's send past the RPC budget. | `acceptWrite` delivers only its own write, through `deliverOutboxMessage`. | `daemon/orchd.ts`, `daemon/outbox.ts` |
+| A write to an agent that no longer exists retried forever at the 30s cap. | `AgentGoneError` is a permanent failure; the row settles `undeliverable`. | `control/agent-gone.ts`, `control/dispatch.ts`, `daemon/outbox.ts`, `store/outbox-rows.ts` |
+| Closing an agent left its queued writes open, so a closed agent kept generating retries. | `endAgent` closes that agent's open writes. | `store/agent-rows.ts`, `store/outbox-rows.ts` |
 
-  Ease overall: 8/10 — three refactor waves, ~110 files churned, zero lost dispatches, ~$1.20 total.
-  Fixes 1, 4, and 5 would get it to 9+.
+Also: `pane_not_found` / `agent_not_found` from herdr now means "gone" in orch's vocabulary,
+mapped inside herdr's own adapter through a typed `HerdrCommandError` so no core module reads
+a herdr code. `store/outbox-rows.ts` was hand-packed onto single lines; rewritten as ordinary code.
 
+## Spawn produced no agents anywhere to watch
 
+`resolveBackend` picked the environment by asking `isInsideSession()`. Run `orch spawn` from a
+terminal that is not itself inside a plexer and every spawn silently became headless — the caller
+asked for a fleet it could watch and got agents with nowhere to appear. An earlier pass removed
+`isInsideSession()` from `validateBackend`, which covers the explicit and configured routes; the
+DEFAULT route kept it. Selection now asks only whether an environment is available and can place
+an agent. `backends/registry.ts`.
 
+## Rule 11 as a gate
 
-  Bryans notes:
-  --cwd at spawn,reset-before-redispatch can these be made more automatic are they basically always used? if they are the defaul thing shouldn't require a flag only non standard calls shoudl have a flag not sure though disciss with me
+`scripts/check-vocabulary.ts` fails on a plexer's words (`pane`, `workspace`) anywhere outside
+`src/backends/<plexer>/`. It reported **538 uses across 66 files** when it was written; it is now
+at **335 across 57**. It is NOT yet wired into `bun check` — it lands there in the same commit
+that finishes the rename, or it turns the gate red on existing code.
 
+The **Backend port** (`src/types/backend.ts`) no longer speaks a plexer's vocabulary. It was the
+source of the coupling: every core caller inherited its field names.
 
-  The --all warning on events was load-bearing — I'd have armed a dead watch
-  without it.   Again shouldn't --all jsut be default and only remove all the stuff when its for sure needed?
+| Was | Now |
+|---|---|
+| `paneHost` / `PaneHostRole` | `placement` / `PlacementRole` |
+| `paneInventory` / `PaneInventoryRole` | `placementInventory` / `PlacementInventoryRole` |
+| `paneInput` / `PaneInputRole` | `agentInput` / `AgentInputRole` |
+| `paneForeground` / `PaneForegroundRole` / `PaneForeground` | `foreground` / `ForegroundRole` / `ForegroundProcesses` |
+| `paneScreen` / `PaneScreenRole` | `screen` / `ScreenRole` |
+| `paneZoom` / `PaneZoomRole` | `zooming` / `ZoomRole` |
+| `paneNaming.renamePane` / `PaneNamingRole` | `labeling.setLabel` / `LabelRole` |
+| `OpenPaneRequest` / `OpenedPane` / `MovePaneRequest` | `PlacementRequest` / `Placement` / `MoveRequest` |
+| `PaneCoordinate` | `PlacementCoordinate` |
+| `intoPane` / `targetPane` | `intoHandle` / `targetHandle` |
+| `paneCount` / layout `panes` | `placementCount` / `placements` |
+| `backends/pane-ready.ts` | `backends/shell-ready.ts` |
+| `NO_PANE_FOREGROUND` / `paneAtShellPrompt` | `NO_FOREGROUND` / `atShellPrompt` |
+| boundary reason `"no-pane"` | `"not-placed"` |
 
+Earlier clusters, same rule — every writer, reader and test in one change:
 
+| Cluster | Was | Now |
+|---|---|---|
+| `SpawnRegistration` (`types/store.ts`) | `pane: boolean` | `placed: boolean` |
+| `CreatedAgent`, `PreparedAgent` (`types/command.ts`) | `pane` | `handle` |
+| `ClearedAgent` (`lifecycle/reset.ts`) | `pane` | `handle` |
+| `DispatchSettings` (`commands/control.ts`) | `pane` | `handle` |
+| `ReloadResult` (`lifecycle/reload.ts`) | `pane` | `handle` |
+| `lifecycle/reload.ts` | `reloadPaneAndAwaitBridge`, `restartPaneAndAwaitBridge` | `reloadAgentAndAwaitBridge`, `restartAgentAndAwaitBridge` |
+| `spawn/index.ts` | `openPanesForGroup` | `placeRemainingAgents` |
 
+### Two things the rename exposed
 
+1. The role `zoom` collided with a legacy top-level method that
+   `test/a-backend-exposes-each-operation-once.test.ts` forbids. Renamed to `zooming`.
+2. **A real bug in `scripts/check-bridge.ts`.** The role alternation was built as `a|b|c` and
+   used as `(?!a|b|c\b)`, so the `\b` bound only to the LAST alternative. Any role that prefixes
+   a plain data field (`placement` inside `placementCount`) silently exempted that field from the
+   capability rule. Now grouped: `(?!(?:a|b|c)\b)`. `check:bridge` still passes, so nothing was
+   relying on the hole.
 
+### Still open — Bryan's call, published CLI surface
 
+`src/commands/panes.ts` holds the `orch panes` verb and the `--all-panes` flag on `orch status`.
+Renaming a shipped command is not the rename's to decide. `Entity.paneId` is the next internal
+cluster after that.
 
-1 - ok for topic one yeah this maybe isn;t great but I also don't want agents getting reset and then using liek high thinking from before on some simple task that should be set to low I wnat each call or dispath or thing after a reset or in a spawn to be intentional so it makes you set the thining to what the task requirses so maybe the default isn;t good either maybe we require thinging as a required thing in the commands ot just make it happen the way I wnatevery time 
+| # | Item | Done |
+|---|---|---|
+| 1 | Nothing tells you thinking effort is per task | ✅ |
+| 2 | Capacity is invisible until a spawn dies mid-batch | ✅ |
+| 3 | Empty replay is indistinguishable from wrong scope | 🟡 |
+| 4 | An answer can land after the agent has moved on | ❌ |
+| 5 | Exited agents shadow live names | ✅ |
+| 6 | A fleet can vanish with no event | 🟡 |
+| 7 | `orch result` returns the previous task's result | ✅ |
+| 8 | Steer and answer have no ack | ✅ |
+| 9 | dispatch reports accepted, never delivered | 🟡 |
+| 10 | Fresh spawn timing is undocumented | 🟡 |
+| 11 | The watch banner is delivered as an event | ✅ |
+| 12 | ~~Orch cannot ask whether a monitor is already armed~~ RULED OUT | — |
+| 21 | dispatch resets by default; spawn and dispatch take `--file` and `--with` | ✅ |
+| 13 | A watch fires without `--all` | ✅ |
+| 14 | Worker lint noise | ✅ |
+| 15 | Prompt bodies come from a file or stdin | ✅ |
+| 16 | ~~`orch redispatch`~~ RULED OUT — dispatch does it | — |
+| 17 | The leftover `--name` flag | ✅ |
+| 18 | A `--json` filter for live status | ✅ |
+| 19 | `--cwd` on every spawn | ✅ |
+| 20 | The published skill drifts from the code | ✅ |
 
+## What each done item actually changed
 
-2 - Yes we used to have differnt stuff we only have total cap and like total depth or whatveer the skill must get this updated ot the current MAX_AGENT_whatever stuff we have now 
+| # | Change |
+|---|---|
+| 8 | Steer and answer wait for a matching reader acknowledgement using `timeouts.dispatch_ack_ms`. Answer writers carry a delivery id; readers report consumption through orch's shared ack protocol. Timeout fails without claiming delivery was cancelled. Channels without acknowledgements say consumption is unconfirmed. Core uses ports and correlation ids, with no provider-id branches. Source tests pass; user check and publish are pending. |
+| 1 | `reset` prints the level it pinned; four scattered `model:thinking` joins collapsed into one `modelSpec` in `policy/thinking.ts`. `cmdNew` split back under the cyclomatic cap. |
+| 2 | Skill cited `fleet.spawn_cap`, which does not exist; it now names the four real caps and `orch status --capacity`. The claimed mid-spawn refusal was false — admission runs before anything is created. |
+| 11 | The watch banner is suppressed whenever stdout is not a terminal, so it never reaches a watching harness as an event. |
+| 13 | `policy/scope.ts` is now the single ownership rule, asked per streamed transition by `events` and per row by `status`. Bare `orch events` delivers every agent the caller owns, matched on `spawnedBy` and the open lease — no widening flag. Code-side done; not yet re-confirmed on a live fleet. |
+| 15 | `orch dispatch <target> --file <path>`, and `--file -` for stdin. Refusals for prompt-and-file together, empty file, unreadable path. `cmdDispatch` split back under the cap. |
+| 17 | `--name` gone from every caller and doc. `setup`'s smoke spawn was passing it into a parser that dies on unknown flags, so it could never run. Deleted the unreferenced `test/golden/help.txt`. |
+| 18 | Nothing to build: `orch status --json --live` already exists. |
+| 19 | `--cwd` deleted from `spawn`, `tile` and `tab new`. An agent starts in the spawner's directory; `--dir <path>` is the override, named for the agent's directory. Incantation stripped from `SKILL.md`, both reference files, and the README. |
+| 5 | `entities.ts` resolves a name against the agents still running first. `stillRunning` is "orch recorded no ending and the process has not gone"; `nameHolders` returns the running holders of a name, and falls back to every holder only when none is running. An id or handle still addresses an ended agent forever. `Entity.ended` carries the recorded ending. |
+| 7 | `orch result` reads the run row for the agent's CURRENT `dispatchId` (`selectRun`), not the newest line of `results.jsonl`. The daemon already bound each result to its dispatch id in the `runs` table; nothing asked for it. An unsettled dispatch now refuses by name — `Dispatch abc has not settled (working)` — instead of printing the previous task's answer. The old path stays only for an agent with no dispatch id, which is one orch never dispatched to. |
+| 14 | The worker header no longer names a pane or invents a verify command. `workers.verify_commands` is a real setting (schema, read, registry, type); `verifyCommandsClause` names those commands, and falls back to "the tests and typechecks this repository already has" when the user declared none. |
+| 20 | Audited every verb, flag, short flag and setting the skill names against the code. Three were fiction: `fleet.spawn_cap`, `orch events --notify` (never parsed — it would have been swallowed as a target name), and the notify sink fields, whose real syntax is `--url=<value>` / `--command=<value>`. Quoting guidance rewritten shell-neutral. |
 
+## The four half-done ones
 
-3 - yes we need to investigaet this and get the skill lined up with reality or fix the bugs 
+| # | Half that landed | Half still owed |
+|---|---|---|
+| 3 | A caller owning nothing is told so instead of watching a stream that cannot ever speak: `ownedAgentCount` counts what the caller owns and `emptyScopeNotice` writes the sentence. `reference/commands.md` no longer teaches "a silent stream means the scope is wrong" — it names all three causes of silence. | Replay itself still prints no count. `--since-seq 0` over an empty history and `--since-seq 0` filtered down to nothing are the same output, and a fleet that has since died replays as silence because presence reads only live views. |
+| 6 | `orch events` no longer has a default state filter at all — `options.filter` is null unless you pass `--filter`, so `exited` streams like every other state, and `daemon/events.ts` derives `exited` from pid liveness. A dead fleet now announces itself. | When the STREAM ends, nothing names the reason. `subscribeEvents` redials with bounded backoff forever on close or error; a daemon that never comes back is indistinguishable from a quiet fleet. |
+| 9 | The dispatch id is minted by the daemon, returned by the CLI, logged under one correlation id, and shows in `orch status` as `.dispatchId`. Delivery IS tracked: the outbox retries until the agent's `ack.jsonl` line arrives, then logs `dispatch.acked`. | None of that reaches the caller. `orch dispatch` prints "Dispatched to X (dispatch abc)" the instant orchd accepts it, and there is no `delivered` transition on the event stream. Delivery is known and unsaid. |
+| 10 | The behaviour is settled: for any inbox-steering adapter, `spawn` blocks up to 60s on `awaitBridgeRegistration` and prints `ok` or `STALLED` per agent (exit 1 on a stall), and an adapter that writes no presence record at start prints an UNVERIFIED warning. A dispatch is durable through the outbox, so it queues rather than drops. | The skill says none of this. Nothing tells a reader that spawn already waited, so the `sleep 5` habit has no reason to stop. |
 
+## Open, verified against the code
 
-4 - yes when an agent asks they shoud wait for the answer not sure if we can force this in some way through the published extensions or hook sfor each harness? but yeah may just be the agent being dumb??? not sure
+| # | What the code says today |
+|---|---|
+| 4 | Answers now carry a delivery id and wait for consumption, but are not bound to the question or task they answer. A late answer can still reach a later question. |
+| 21 | DONE. `dispatch` clears the session, then pins the model, then sends; `--keep-context` skips the clear. `clearSession` is exported from `lifecycle/reset.ts`. `readPromptFile` moved to `commands/prompt-file.ts` and both verbs call it. Both verbs take `--file` and `--with`, and `taskWithPaths` composes the paths into the task. Help and the published skill say so. |
+| 12 | No `subscribe` / `subscriptions` verbs exist; the daemon holds the connections and is never asked. `reference/commands.md` still teaches `pgrep -fa "orch events"` as the preflight. |
+| 16 | No `redispatch` anywhere in `src/` or `skills/`. Still blocked on your ruling below. |
 
+## Landed this session, outside the 20
 
-5. Giant dispatch prompts through shell quoting is the worst part of the loop. My specs are 300+
-     words with code identifiers; one stray apostrophe kills the command. orch dispatch <target> --file
-     spec.md (or stdin) would be the single biggest QoL win.
-     YESYESYES we need to amke this much betetr I alwasys worried about this, we shoudl for sure allow sending or suing things like temporary files or stdin or whatevewr else makes things much easier for you to use a random apostrphe misplaced shoud never kill the command ever 
+| What | Where |
+|---|---|
+| orch never probes a plexer. `backendReachable` and `serverAnswers` are deleted with all four call sites. orch calls the port; the integration answers or throws, and a throw is "no answer". | `backends/backend.ts`, `entities.ts`, `lifecycle/close.ts` |
+| Spawning into a plexer you are not inside works. `validateBackend` checks registered and installed, never `isInsideSession()`. herdr's own error is what refuses when herdr cannot take the agent. | `backends/registry.ts` |
+| The census asks each environment for its handles ONCE per fleet build, keyed by handle, so nothing lists twice. | `entities.ts` |
+| `orch status` shows live and working agents. Exited rows come back only with `--filter`. A single shared owner collapses out of the table into a footer, and a detached environment prints as one word instead of a JSON blob. | `commands/status.ts` |
+| `orch lock` is gone: command, dispatch entry, help topic, usage block and test. | `commands/`, `skills/orch/reference/fleet.md` |
+| The caller's plexer is recorded at registration instead of sent as `undefined`, so placement reads it as a fact. | `daemon/rpc/registration.ts`, `identity/self.ts` |
+| A fleet's own home is named for the working directory, not for the first slice. `--tab` is no longer needed for one spawn. | `commands/spawn/placement.ts` |
+| `run-rows.ts` was hand-packed onto single lines with one-letter parameters. Rewritten as ordinary code; the insert and the conflict-update no longer repeat the same 15 columns. | `store/run-rows.ts` |
 
+Still hand-packed the same way: `store/outbox-rows.ts`.
 
+## Blocked on you
 
-6 - redispatch <t> --name X --model Y "task" — would cut my batch messages by 75%.    YES YES YES we need this as well for sure
+| # | Question |
+|---|---|
+| 16 | RULED OUT. There is no `redispatch` verb, and the concept came from `improvements.md` (a past pass), never from Bryan. `spawn` creates and starts work; `dispatch` is the follow-up to an agent that already exists. Bryan's ruling: dispatch RESETS the context and sends the next work by default, with a flag to send work without resetting. Both verbs take `--prompt`, `--file` and `--with`. The old "does it carry the new name and model" question was noise — the agent already has both, `--model` is on dispatch, renaming is `orch rename`. |
 
+## Open, from your flag ruling
 
-7 - we used to only name to custom names when using the --name flag so we made name part of the normal spawn and I guess --name was left behind we shoudl see if this needs to just be removed names should really be parameters not flags 
+The scope work replaced `--mine` / `--any-agent` with `--space-wide` on `events` and `status`, so
+those two now speak one vocabulary. The rest did not move:
+
+| Flag | Where | Means |
+|---|---|---|
+| `--space-wide` | events, status | every agent in the caller's space, not just the ones it owns |
+| `--all` | results, questions, panes | the same widening, spelled differently |
+| `--local` | results, questions, status | this host only, skipping configured remote hosts |
+| `--all-panes` | status | also list panes orch did not spawn |
+
+`--all` on `results`, `questions` and `panes` calls `scopeEntitiesToSpace(…, { all })` — literally
+the widening `--space-wide` names. `--local` is a host axis wearing the same shape, and
+`--all-panes` is pane vocabulary in orch's own CLI.

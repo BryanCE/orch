@@ -42,17 +42,18 @@ const fixture: StatusRow = {
 
 describe("live status renderer", () => {
   test("renders a clear screen, timestamped header, and table body", () => {
-    const frame = renderLiveStatus([fixture], { all: false, host: false }, new Date(2026, 6, 16, 9, 8, 7));
+    const frame = renderLiveStatus([fixture], { spaceWide: false, host: false }, new Date(2026, 6, 16, 9, 8, 7));
     expect(frame.startsWith(CLEAR_SCREEN)).toBe(true);
     expect(frame).toContain("1 agents");
     expect(frame).toContain("updated 09:08:07");
-    expect(frame).toContain("PANE");
+    expect(frame).toContain("ID");
+    expect(frame).toContain("ENV");
     expect(frame).toContain("worker-one");
     expect(frame).toContain("working");
   });
 
   test("renders a refresh failure in the header area", () => {
-    const frame = renderLiveStatus([fixture], { all: false, host: false }, new Date(2026, 6, 16, 9, 8, 7), "daemon unreachable - retrying on next event");
+    const frame = renderLiveStatus([fixture], { spaceWide: false, host: false }, new Date(2026, 6, 16, 9, 8, 7), "daemon unreachable - retrying on next event");
     expect(frame).toContain("daemon unreachable - retrying on next event");
   });
 
@@ -80,7 +81,7 @@ describe("live status renderer", () => {
   });
 
   test("keeps the existing table renderer available", () => {
-    const table = formatStatusTable([fixture], { all: false, host: false });
+    const table = formatStatusTable([fixture], { spaceWide: false, host: false });
     expect(table).toContain("STATE");
   });
 });

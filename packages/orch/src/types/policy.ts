@@ -35,7 +35,9 @@ export interface SpawnerIdentity {
  * rule would be two answers to "is this mine".
  */
 export interface AgentScopeInput {
-  anyAgent: boolean;
+  /** `--space-wide`: widen from what I own to every agent in my space. Never past
+   *  it — the space ceiling is checked separately and no flag lifts it. */
+  spaceWide: boolean;
   mineAddress: string | undefined;
   leaseOwner: string | null;
   recordSpawnedBy?: string;

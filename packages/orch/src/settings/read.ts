@@ -137,6 +137,7 @@ const settingsValueExtractors = {
     exclude_extensions: root.workers?.exclude_extensions ?? [],
     builtin_tools: root.workers?.builtin_tools ?? SETTINGS_DEFAULTS.workers.builtin_tools,
     allow_tools: root.workers?.allow_tools ?? [],
+    verify_commands: root.workers?.verify_commands ?? [],
   }),
   queue: (root: Partial<SettingsFile>) => ({ max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries }),
   logging: (root: Partial<SettingsFile>) => ({ level: root.logging?.level ?? SETTINGS_DEFAULTS.logging.level }),
@@ -146,6 +147,7 @@ const settingsValueExtractors = {
     events_days: settingOr(root.retention?.events_days, SETTINGS_DEFAULTS.retention.events_days),
     runs_days: settingOr(root.retention?.runs_days, SETTINGS_DEFAULTS.retention.runs_days),
     outbox_days: settingOr(root.retention?.outbox_days, SETTINGS_DEFAULTS.retention.outbox_days),
+    control_outcomes_days: settingOr(root.retention?.control_outcomes_days, SETTINGS_DEFAULTS.retention.control_outcomes_days),
     logs_days: settingOr(root.retention?.logs_days, SETTINGS_DEFAULTS.retention.logs_days),
   }),
   timeouts: (root: Partial<SettingsFile>) => ({
@@ -161,6 +163,7 @@ const settingsValueExtractors = {
   daemon: (root: Partial<SettingsFile>) => ({
     tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
     idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
+    outbox_drain_ms: root.daemon?.outbox_drain_ms ?? SETTINGS_DEFAULTS.daemon.outbox_drain_ms,
   }),
   doctor: (root: Partial<SettingsFile>) => ({
     unclaimed_after_ms: root.doctor?.unclaimed_after_ms ?? SETTINGS_DEFAULTS.doctor.unclaimed_after_ms,
@@ -168,7 +171,8 @@ const settingsValueExtractors = {
   tiling: (root: Partial<SettingsFile>) => ({ first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
-    roots: root.skills?.roots ?? [...SETTINGS_DEFAULTS.skills.roots],
+    store: root.skills?.store ?? SETTINGS_DEFAULTS.skills.store,
+    link: root.skills?.link ?? [...SETTINGS_DEFAULTS.skills.link],
   }),
 };
 

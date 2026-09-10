@@ -9,13 +9,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Type } from "typebox";
-import { spaceOf } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import { loadSettingsOrNull } from "../settings/read.ts";
 import { orchDir } from "../presence/writer.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
 import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
+import { reportDeliveryAck } from "../presence/inbox.ts";
 import { atomicWrite, presenceFile } from "../presence/writer.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
@@ -95,11 +95,11 @@ function waitForOrchestratorAnswer(
   answerFile: string,
   signal: AbortSignal | undefined,
   reNotify: () => void,
-): Promise<string | undefined> {
+): Promise<{ text: string; id: string } | undefined> {
   return new Promise((resolve) => {
     let settled = false;
     let lastNotificationAt = Date.now();
-    const finish = (text?: string) => {
+    const finish = (answer?: { text: string; id: string }) => {
       if (settled) return;
       settled = true;
       clearInterval(poll);
@@ -107,12 +107,12 @@ function waitForOrchestratorAnswer(
       try {
         signal?.removeEventListener("abort", onAbort);
       } catch {}
-      resolve(text);
+      resolve(answer);
     };
     const check = () => {
       const answer = readJsonFile(answerFile);
-      if (isRecord(answer) && typeof answer.text === "string") {
-        finish(answer.text);
+      if (isRecord(answer) && typeof answer.text === "string" && typeof answer.id === "string" && answer.id.length > 0) {
+        finish({ text: answer.text, id: answer.id });
         return;
       }
       if (Date.now() - lastNotificationAt >= 60 * 1000) {
@@ -141,14 +141,14 @@ function waitForOrchestratorAnswer(
 export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptions): {
   onBlockedChange: (active: boolean, label: string | undefined) => void;
 } {
-  const { presence, notify, refreshLabels } = options;
+  const { presence, daemon, notify, refreshLabels } = options;
   const { state, blocked, text: runText } = presence;
 
   let askingPreviousState: typeof state.state | undefined;
   let blockedNotified = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
-  registerPeerTools(harness, presence);
+  registerPeerTools(harness, presence, daemon);
 
   harness.registerTool({
     name: "orch_ask",
@@ -178,7 +178,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         presence.writeStatus();
         const notificationEvent: BridgeNotification = {
           key: state.key,
-          space: spaceOf(orchDir(), state.key) ?? undefined,
+          space: undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,
@@ -192,14 +192,15 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const answer = await waitForOrchestratorAnswer(answerFile, signal, () => {
           notify(notificationEvent);
         });
-        if (typeof answer === "string") {
+        if (answer !== undefined) {
           try {
             fs.unlinkSync(answerFile);
           } catch {}
           try {
             fs.unlinkSync(questionFile);
           } catch {}
-          return toolResult(answer);
+          await reportDeliveryAck(dir, answer.id, state.key, (id) => daemon.postAck(id));
+          return toolResult(answer.text);
         }
         return noOrchestratorAnswer();
       } catch {
@@ -489,7 +490,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
       if (ctx) presence.updateContextUsage(ctx);
       if (finalText && presence.dir()) presence.writeResult(finalText);
       if (presence.hasPendingHandoff() && finalText) {
-        presence.deliverPendingHandoff(finalText, presence.keyOrCompute(ctx?.hasUI ?? false));
+        void presence.deliverPendingHandoff(finalText, presence.keyOrCompute(ctx?.hasUI ?? false));
       }
     } catch (error: unknown) {
       // A failing end-hook operation must not strand the agent as working. Keep
@@ -525,7 +526,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const notificationSummary = label ?? "";
         notify({
           key: state.key,
-          space: spaceOf(orchDir(), state.key) ?? undefined,
+          space: undefined,
           agent: state.label ?? state.agent,
           tab: state.tabLabel,
           model: state.model ? `${state.model.id}:${state.thinking ?? ""}`.replace(/:$/, "") : null,

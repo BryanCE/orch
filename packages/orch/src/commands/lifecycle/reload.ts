@@ -2,11 +2,11 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { refreshStaleShims } from "../../doctor/runner.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/store.ts";
+import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage, pidAlive } from "../../util.ts";
-import { paneAtShellPrompt, sleepMs, NO_PANE_FOREGROUND } from "../../backends/pane-ready.ts";
+import { atShellPrompt, sleepMs, NO_FOREGROUND } from "../../backends/shell-ready.ts";
 import { loadSettings } from "../../settings/read.ts";
 import { adapterCommand, assertLaunchModelAllowed, launchModel } from "../spawn/models.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
@@ -14,17 +14,17 @@ import { writeRpc } from "../daemon.ts";
 import { assertAgentOwned, die, resolveLifecycleTarget } from "../target.ts";
 import { lifecycleLogger, lifecycleTargets } from "./index.ts";
 import { describeHandle, agentIdOf } from "./close.ts";
-import type { Backend, PaneForeground } from "../../types/backend.ts";
+import type { Backend, ForegroundProcesses } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
 import type { LifecycleTarget } from "../../types/command.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 
-export function paneForeground(backend: Backend, handle: string): PaneForeground {
-  return backend.paneForeground?.read(handle) ?? NO_PANE_FOREGROUND;
+export function foregroundOf(backend: Backend, handle: string): ForegroundProcesses {
+  return backend.foreground?.read(handle) ?? NO_FOREGROUND;
 }
 
 export interface ReloadResult {
-  pane: string;
+  handle: string;
   ok: boolean;
   reason?: string;
 }
@@ -46,32 +46,32 @@ function awaitBridgeRefresh(statusPath: string, wasUpdatedAt: string, tries: num
 
 /** Apply a lifecycle verb to an agent with no console through the daemon, which owns
  *  every lifecycle mechanism. A detached agent has none, so this reports its refusal. */
-async function lifecycleThroughDaemon(verb: LifecycleVerb, key: string, pane: string): Promise<ReloadResult> {
+async function lifecycleThroughDaemon(verb: LifecycleVerb, key: string, handle: string): Promise<ReloadResult> {
   const statusPath = path.join(presenceAgentDir(key), STATUS_FILE);
   const wasUpdatedAt = readPresenceStatus(statusPath)?.updatedAt;
-  if (typeof wasUpdatedAt !== "string") return { pane, ok: false, reason: "no bridge status.json to verify against" };
+  if (typeof wasUpdatedAt !== "string") return { handle, ok: false, reason: "no bridge status.json to verify against" };
   try {
     await writeRpc("lifecycle", { target: key, verb });
   } catch (error: unknown) {
-    return { pane, ok: false, reason: errorMessage(error) };
+    return { handle, ok: false, reason: errorMessage(error) };
   }
   return awaitBridgeRefresh(statusPath, wasUpdatedAt, 60)
-    ? { pane, ok: true }
-    : { pane, ok: false, reason: `bridge status.json did not refresh within 30s after ${verb}` };
+    ? { handle, ok: true }
+    : { handle, ok: false, reason: `bridge status.json did not refresh within 30s after ${verb}` };
 }
 
-export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenceKey: string, reloadText: string): ReloadResult {
+export function reloadAgentAndAwaitBridge(backend: Backend, handle: string, presenceKey: string, reloadText: string): ReloadResult {
   try {
     const statusPath = path.join(presenceAgentDir(presenceKey), STATUS_FILE);
     const old = readPresenceStatus(statusPath);
     const oldUpdatedAt = typeof old?.updatedAt === "string" ? old.updatedAt : "";
     if (typeof old?.pid !== "number") {
-      return { pane, ok: false, reason: errorMessage("no bridge status.json pid to verify reload") };
+      return { handle, ok: false, reason: errorMessage("no bridge status.json pid to verify reload") };
     }
-    backend.paneInput?.sendKeys(pane, ["Escape"]);
+    backend.agentInput?.sendKeys(handle, ["Escape"]);
     sleepMs(500);
-    if (!backend.paneInput) throw new Error("target environment has no pane input role");
-    backend.paneInput.submit(pane, reloadText);
+    if (!backend.agentInput) throw new Error("target environment cannot take input");
+    backend.agentInput.submit(handle, reloadText);
     const refreshed = retryingSync(
       "await bridge refresh",
       () => {
@@ -82,10 +82,10 @@ export function reloadPaneAndAwaitBridge(backend: Backend, pane: string, presenc
       { attempts: 60, delayMs: 500, backoff: 1 },
       { sleepSync: sleepMs, retryOnResult: (value) => !value },
     );
-    if (refreshed) return { pane, ok: true };
-    return { pane, ok: false, reason: errorMessage(`bridge status.json did not refresh within 30s after ${reloadText}`) };
+    if (refreshed) return { handle, ok: true };
+    return { handle, ok: false, reason: errorMessage(`bridge status.json did not refresh within 30s after ${reloadText}`) };
   } catch (error: unknown) {
-    return { pane, ok: false, reason: errorMessage(error) };
+    return { handle, ok: false, reason: errorMessage(error) };
   }
 }
 
@@ -95,26 +95,26 @@ function touchReloadSignal(): void {
   files.closeSync(fd);
 }
 
-function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, presenceKey: string, quitText: string): boolean {
+function restartAgentAndAwaitBridge(backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): boolean {
   const statusPath = path.join(presenceAgentDir(presenceKey), STATUS_FILE);
   const oldPid = readPresenceStatus(statusPath)?.pid ?? null;
-  backend.paneInput?.sendKeys(pane, ["Escape"]);
+  backend.agentInput?.sendKeys(handle, ["Escape"]);
   sleepMs(500);
-  if (!backend.paneInput) throw new Error("target environment has no pane input role");
-  backend.paneInput.submit(pane, quitText);
+  if (!backend.agentInput) throw new Error("target environment cannot take input");
+  backend.agentInput.submit(handle, quitText);
   const shellSeen = retryingSync(
     "await shell prompt",
-    () => paneAtShellPrompt(paneForeground(backend, pane)),
+    () => atShellPrompt(foregroundOf(backend, handle)),
     { attempts: 16, delayMs: 500, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },
   );
   if (!shellSeen) {
-    lifecycleLogger(presenceKey).warn("lifecycle.restart-exit-timeout", { handle: pane, command: quitText });
-    process.stdout.write(`${pane}: agent did not exit after ${quitText} - skipping relaunch.\n`);
+    lifecycleLogger(presenceKey).warn("lifecycle.restart-exit-timeout", { handle, command: quitText });
+    process.stdout.write(`${handle}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
   reclaimAgent(orchDir(), agentIdOf(presenceKey));
-  backend.paneInput.submit(pane, cmd);
+  backend.agentInput.submit(handle, cmd);
   const refreshed = retryingSync(
     "await relaunched bridge",
     () => {
@@ -125,8 +125,8 @@ function restartPaneAndAwaitBridge(backend: Backend, pane: string, cmd: string, 
     { sleepSync: sleepMs, retryOnResult: (value) => !value },
   );
   if (refreshed) return true;
-  lifecycleLogger(presenceKey).warn("lifecycle.restart-bridge-timeout", { handle: pane });
-  process.stdout.write(`${pane}: relaunched but bridge status.json did not refresh within 20s.\n`);
+  lifecycleLogger(presenceKey).warn("lifecycle.restart-bridge-timeout", { handle });
+  process.stdout.write(`${handle}: relaunched but bridge status.json did not refresh within 20s.\n`);
   return false;
 }
 
@@ -154,7 +154,7 @@ function planReloads(targets: readonly string[], force: boolean, results: Reload
       if (!reloadCmd) throw new Error(`adapter ${adapter.id} has no reload mechanism`);
       planned.push({ resolved, target, harnessId: adapter.id, reloadText: reloadCmd.text });
     } catch (error: unknown) {
-      results.push({ pane: target, ok: false, reason: errorMessage(error) });
+      results.push({ handle: target, ok: false, reason: errorMessage(error) });
     }
   }
   return planned;
@@ -166,11 +166,11 @@ async function performReloads(planned: readonly PlannedReload[], results: Reload
     try {
       // No console to type `/reload` into leaves only the daemon, which owns
       // every lifecycle mechanism a backend does or does not have.
-      results.push(backend.paneInput
-        ? reloadPaneAndAwaitBridge(backend, describeHandle(handle), ent.key, reloadText)
+      results.push(backend.agentInput
+        ? reloadAgentAndAwaitBridge(backend, describeHandle(handle), ent.key, reloadText)
         : await lifecycleThroughDaemon("reload", ent.key, describeHandle(handle)));
     } catch (error: unknown) {
-      results.push({ pane: target, ok: false, reason: errorMessage(error) });
+      results.push({ handle: target, ok: false, reason: errorMessage(error) });
     }
   }
 }
@@ -181,7 +181,7 @@ function reportReloads(results: readonly ReloadResult[], json: boolean): void {
     process.stdout.write(JSON.stringify({ results, ok, total: results.length, hard: false, signaled: "reload.signal" }) + "\n");
   } else {
     for (const result of results) {
-      process.stdout.write(result.ok ? `RELOADED ${result.pane}\n` : `FAILED ${result.pane}: ${errorMessage(result.reason ?? "reload failed")}\n`);
+      process.stdout.write(result.ok ? `RELOADED ${result.handle}\n` : `FAILED ${result.handle}: ${errorMessage(result.reason ?? "reload failed")}\n`);
     }
     process.stdout.write("SIGNALED reload.signal\n");
   }
@@ -194,7 +194,7 @@ function reportReloads(results: readonly ReloadResult[], json: boolean): void {
 export async function cmdReload(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const { targets, all } = lifecycleTargets(args, ["--json", "--force"]);
-  // `--all` is a valid invocation even with zero live panes: it still touches
+  // `--all` is a valid invocation even with zero live agents: it still touches
   // reload.signal (SIGNALED) for settings/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
@@ -233,21 +233,21 @@ async function restartOneTarget(target: string, cmd: string | null, settings: Or
   const adapter = resolveAdapterOrDie(harness);
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
   if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
-  if (!backend.paneInput) {
+  if (!backend.agentInput) {
     reclaimAgent(orchDir(), agentIdOf(ent.key));
     const restarted = await lifecycleThroughDaemon("restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
-      if (!flags.json) process.stdout.write(`${restarted.pane}: bridge live.\n`);
+      if (!flags.json) process.stdout.write(`${restarted.handle}: bridge live.\n`);
       return true;
     }
     const reason = restarted.reason ?? "restart failed";
-    lifecycleLogger(ent.key).error("lifecycle.restart-failed", { handle: String(restarted.pane), error: reason });
-    process.stdout.write(`${restarted.pane}: ${reason}\n`);
+    lifecycleLogger(ent.key).error("lifecycle.restart-failed", { handle: String(restarted.handle), error: reason });
+    process.stdout.write(`${restarted.handle}: ${reason}\n`);
     return false;
   }
   const launch = restartLaunchCommand(cmd, harness, adapter, settings);
   if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
-  if (!restartPaneAndAwaitBridge(backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
+  if (!restartAgentAndAwaitBridge(backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
   if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);
   return true;
 }

@@ -1,7 +1,7 @@
 import { applyFixes, runDoctor } from "../doctor/runner.ts";
 import { renderDoctorResults, pickFixes } from "../setup/doctor-wizard.ts";
 import { withSpinner } from "../setup/io.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
 import type { CheckResult } from "../types/doctor.ts";
 

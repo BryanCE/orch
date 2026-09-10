@@ -5,7 +5,7 @@ import {
   terminateDaemon,
   unprovenLockRefusal,
 } from "../src/daemon/lifecycle.ts";
-import { orchDir } from "../src/presence/store.ts";
+import { orchDir } from "../src/presence/writer.ts";
 import { pidAlive } from "../src/util.ts";
 
 // Every build replaces dist/, so an orchd that survives it runs code that no

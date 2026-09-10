@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
 import { ensureHarness, getOrCreateSessionAgent, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { unleasedAgents } from "../src/daemon/rpc/registration.ts";
+import { unleasedAgents } from "../src/daemon/rpc/session-registry.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];

@@ -1,9 +1,10 @@
 import * as fs from "node:fs";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendInbox, drainInbox } from "../src/presence/inbox.ts";
-import { appendAck, drainClaimedLines } from "../src/presence/inbox.ts";
+import { appendAck, drainClaimedLines, reportDeliveryAck } from "../src/presence/inbox.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { presenceAgentDir, writeStatus } from "../src/presence/writer.ts";
 import { answerViaFile, steerViaInbox } from "../src/adapters/pi.ts";
@@ -16,12 +17,28 @@ function temp(): string {
   return dir;
 }
 afterEach(() => {
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) removeTempDir(dir);
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
 });
 
 describe("shared presence line writers", () => {
+  test("uses the socket acknowledgement without writing a fallback", async () => {
+    const dir = temp();
+    const ids: string[] = [];
+    await reportDeliveryAck(dir, "socket-id", "agent", (id) => { ids.push(id); return Promise.resolve(true); });
+    expect(ids).toEqual(["socket-id"]);
+    expect(fs.existsSync(path.join(dir, "ack.jsonl"))).toBe(false);
+  });
+
+  test.each([false, true])("writes a fallback if socket reporting fails, throws=%s", async (throws) => {
+    const dir = temp();
+    await reportDeliveryAck(dir, "fallback-id", "agent", () => {
+      if (throws) return Promise.reject(new Error("offline"));
+      return Promise.resolve(false);
+    });
+    expect(fs.readFileSync(path.join(dir, "ack.jsonl"), "utf8")).toContain('"id":"fallback-id"');
+  });
   test("inbox and ack drains use the same claimed rename path", () => {
     const dir = temp();
     fs.mkdirSync(dir, { recursive: true });
@@ -43,8 +60,8 @@ describe("shared presence line writers", () => {
     fs.mkdirSync(dir, { recursive: true });
     steerViaInbox({ key, id: "s1", text: "hello" });
     expect(JSON.parse(fs.readFileSync(path.join(dir, "inbox.jsonl"), "utf8"))).toMatchObject({ id: "s1", text: "hello" });
-    answerViaFile({ key, text: "answer" });
-    expect(JSON.parse(fs.readFileSync(path.join(dir, "answer.json"), "utf8"))).toMatchObject({ text: "answer" });
+    answerViaFile({ key, text: "answer", id: "a1" });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "answer.json"), "utf8"))).toMatchObject({ text: "answer", id: "a1" });
   });
 
   test("wrong status schema is rejected by shared status reader", () => {

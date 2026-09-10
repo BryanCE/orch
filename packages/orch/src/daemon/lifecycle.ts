@@ -9,7 +9,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import * as path from "node:path";
-import { orchDir as resolveOrchDir } from "../presence/store.ts";
+import { orchDir as resolveOrchDir } from "../presence/writer.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { retryingAsync, retryingSync } from "../retry.ts";
 import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";

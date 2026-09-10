@@ -76,6 +76,8 @@ export interface AnswerRequest {
   readonly key: string;
   /** Answer text to deliver to the agent. */
   readonly text: string;
+  /** Delivery id acknowledged when the agent consumes the answer. */
+  readonly id: string;
   /** Session options needed by the adapter's answer mechanism. */
   readonly opts?: SpawnOpts;
 }
@@ -227,6 +229,7 @@ export interface ModelWarmRole {
 }
 
 export interface QuestionRole {
+  /** The reader must acknowledge request.id after consuming the answer. */
   answer(request: AnswerRequest): AdapterCommand | undefined;
 }
 
@@ -304,7 +307,7 @@ export interface AgentAdapter {
   steer(request: SteerRequest): AdapterCommand | undefined;
   /** Build the command or presence action used to answer a blocking question. */
   answer(request: AnswerRequest): AdapterCommand | undefined;
-  /** Extract the final assistant text that should be written to `result.json`. */
+  /** Extract the final assistant text that should be written to `results.jsonl`. */
   extractResult(input: ResultExtractionInput): string | undefined;
 }
 
@@ -316,7 +319,7 @@ export interface PiStateDetectionInput extends StateDetectionInput {
 
 /** Result input for pi, identified by its orch presence key. */
 export interface PiResultExtractionInput extends ResultExtractionInput {
-  /** Presence key whose result.json is authoritative. */
+  /** Presence key whose results.jsonl is authoritative. */
   readonly key: string;
 }
 

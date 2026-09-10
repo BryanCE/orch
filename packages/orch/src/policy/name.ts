@@ -1,4 +1,5 @@
-import { loadPresence, orchDir, spawnedRecords } from "../presence/store.ts";
+import {loadPresence, spawnedRecords} from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { sameSpace } from "./space.ts";
 
 export function assertValidAgentName(name: string): void {

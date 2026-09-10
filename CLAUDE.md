@@ -1,5 +1,8 @@
 # CLAUDE.md. Rules for this repo. Non-negotiable.
 
+# MAIN ORCH CODE CANNOT AND SHOULD NOT BE COUPLED TO ANY PLEXER OR HARNESS!!!!!!!!!!!! CLI COMMANDS ALSO CANNOT BE COUPLED OT ANYTHING EITHER THIS IS WHAT THE DAEMON EXISTS FOR!!!!! THE COMMAND SHOULD RESOLVE WHAT IT NEEDS TO TARGET THE AGENT YOU WNAT TO HIT orch result <pane> IS COMPLETELY INVALID BECAUSE THIS COUPLES ORCH TO A SPOEICIFC PLEXER THAT USES PANES
+
+
 Layout: the repo root is a private bun workspace. The orch package (`@bryance/orch`) lives in `packages/orch/` — its `src/`, `test/`, `bin/`, `extensions/`, `scripts/`, `skills/`, `drizzle/`. The web UI is `packages/web/`. Relative paths in the rules below are inside `packages/orch/` unless they start with `packages/`.
 
 Root scripts: every verb runs from the root and delegates via `bun --filter`. A **bare verb covers the whole workspace** (`bun check`, `bun run build`); **`:orch` / `:web` scopes it to one package** (`bun run check:web`, `bun run build:orch:dev`). Verbs with no counterpart in the other package — `db:*`, `reset`, `reinstall`, `fallow:*` — stay unsuffixed. A package owns its own verbs; the root only fans out, explicitly, one entry per package, so a missing script fails loudly instead of matching nothing.

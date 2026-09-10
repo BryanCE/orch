@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compareVersions, versionInRange, SUPPORTED_RANGES } from "../src/backends/versions.ts";
+import { compareVersions, versionInRange } from "../src/backends/versions.ts";
 import { backendVersionsVerdict } from "../src/doctor/backends.ts";
 import { ensureHost, ensurePlexer, ensureHostPlexer, hostPlexers } from "../src/store/agent-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -13,12 +13,11 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): string { const d = mkdtempSync(join(tmpdir(), "orch-plexer-versions-")); dirs.push(d); return d; }
 
 describe("plexer version support", () => {
-  test("pins herdr to the tested range, including both exclusive boundaries", () => {
-    expect(SUPPORTED_RANGES.herdr).toBe(">=0.8.0 <0.9.0");
-    expect(versionInRange("0.8.0", SUPPORTED_RANGES.herdr)).toBe(true);
-    expect(versionInRange("0.8.9", SUPPORTED_RANGES.herdr)).toBe(true);
-    expect(versionInRange("0.7.99", SUPPORTED_RANGES.herdr)).toBe(false);
-    expect(versionInRange("0.9.0", SUPPORTED_RANGES.herdr)).toBe(false);
+  test("a floor admits every version at or above it", () => {
+    expect(versionInRange("0.8.0", ">=0.8.0")).toBe(true);
+    expect(versionInRange("0.9.0", ">=0.8.0")).toBe(true);
+    expect(versionInRange("1.4.2", ">=0.8.0")).toBe(true);
+    expect(versionInRange("0.7.99", ">=0.8.0")).toBe(false);
   });
 
   test("compares numeric versions rather than lexical strings", () => {
@@ -38,29 +37,60 @@ describe("plexer version support", () => {
     ]);
   });
 
-  test("doctor names both versions and tells the operator to update orch", () => {
-    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: true, installed: "0.9.0" }]);
+  test("doctor names both versions and tells the operator to update the plexer", () => {
+    const result = backendVersionsVerdict([{ plexerId: "herdr", range: ">=0.8.0", detected: true, installed: "0.7.9" }]);
     expect(result.status).toBe("fail");
     expect(result.detail).toContain("herdr");
-    expect(result.detail).toContain("0.9.0");
-    expect(result.detail).toContain(">=0.8.0 <0.9.0");
-    expect(result.detail).toContain("update orch");
+    expect(result.detail).toContain("0.7.9");
+    expect(result.detail).toContain(">=0.8.0");
+    expect(result.detail).toContain("update herdr");
   });
 
   test("a supported plexer the user never installed is not a complaint", () => {
-    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: false, installed: null }]);
+    const result = backendVersionsVerdict([{ plexerId: "herdr", range: ">=0.8.0", detected: false, installed: null }]);
     expect(result.status).toBe("ok");
     expect(result.detail).toContain("herdr: not installed");
   });
 
   test("an in-range install reports ok with the version it read", () => {
-    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: true, installed: "0.8.4" }]);
+    const result = backendVersionsVerdict([{ plexerId: "herdr", range: ">=0.8.0", detected: true, installed: "0.8.4" }]);
     expect(result.status).toBe("ok");
     expect(result.detail).toContain("installed 0.8.4");
   });
 
+  test("a compatible server rides along on the row without complaint", () => {
+    const result = backendVersionsVerdict([
+      { plexerId: "herdr", range: ">=0.8.0", detected: true, installed: "0.9.0", server: { version: "0.9.0", compatible: true } },
+    ]);
+    expect(result.status).toBe("ok");
+    expect(result.detail).toContain("server 0.9.0 (compatible)");
+  });
+
+  test("a server the installed client outgrew fails and names the restart", () => {
+    const result = backendVersionsVerdict([
+      { plexerId: "herdr", range: ">=0.8.0", detected: true, installed: "0.9.0", server: { version: "0.8.2", compatible: false } },
+    ]);
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("0.8.2");
+    expect(result.detail).toContain("restart the herdr server");
+  });
+
+  test("a server that reports no compatibility is unknown, never a failure", () => {
+    const result = backendVersionsVerdict([
+      { plexerId: "herdr", range: ">=0.8.0", detected: true, installed: "0.9.0", server: { version: "0.8.2", compatible: null } },
+    ]);
+    expect(result.status).toBe("ok");
+    expect(result.detail).toContain("compatibility unknown");
+  });
+
+  test("a plexer with no server running says nothing about one", () => {
+    const result = backendVersionsVerdict([{ plexerId: "herdr", range: ">=0.8.0", detected: true, installed: "0.9.0", server: null }]);
+    expect(result.status).toBe("ok");
+    expect(result.detail).not.toContain("server");
+  });
+
   test("only an installed plexer that cannot report a version warns", () => {
-    const result = backendVersionsVerdict([{ plexerId: "herdr", detected: true, installed: null }]);
+    const result = backendVersionsVerdict([{ plexerId: "herdr", range: ">=0.8.0", detected: true, installed: null }]);
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("--version");
   });

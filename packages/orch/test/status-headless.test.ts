@@ -14,17 +14,17 @@ function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
   };
 }
 
-const defaultOptions = { all: false, allPanes: false };
+const defaultOptions = { spaceWide: false, allPanes: false };
 
 describe("headless status visibility", () => {
-  test("keeps an exited agent with a terminal state", () => {
-    const row = statusRow({ key: "done-agent", state: "done", exited: true, alive: false });
-    expect(scopeFleetRows([row], defaultOptions)).toEqual([row]);
+  test("drops an exited agent that finished, however much it recorded", () => {
+    const row = statusRow({ key: "done-agent", state: "done", exited: true, alive: false, lastText: "finished" });
+    expect(scopeFleetRows([row], defaultOptions)).toEqual([]);
   });
 
-  test("keeps an exited agent with a recorded result", () => {
+  test("--filter names the states, so it brings the dead back", () => {
     const row = statusRow({ key: "result-agent", state: "exited", exited: true, alive: false, lastText: "finished" });
-    expect(scopeFleetRows([row], defaultOptions)).toEqual([row]);
+    expect(scopeFleetRows([row], { ...defaultOptions, filter: new Set(["exited"]) })).toEqual([row]);
   });
 
   test("drops a dead row with no result or terminal state", () => {
@@ -37,9 +37,11 @@ describe("headless status visibility", () => {
     expect(scopeFleetRows([row], defaultOptions)).toEqual([row]);
   });
 
-  test("--all keeps stale rows", () => {
+  // Widening scope is not the same question as keeping a dead agent that reported
+  // nothing, and one flag answering both is what made `--all` mean two things.
+  test("--space-wide widens the scope without resurrecting empty dead rows", () => {
     const row = statusRow({ key: "stale-agent", state: "working", exited: true, alive: false });
-    expect(scopeFleetRows([row], { all: true, allPanes: false })).toEqual([row]);
+    expect(scopeFleetRows([row], { spaceWide: true, allPanes: false })).toEqual([]);
   });
 
   test("uses agent language without backend details when no backend was asked", () => {

@@ -11,10 +11,14 @@ const ALIASES: Record<string, string> = {
 };
 
 const TOPICS: Record<string, string> = {
-  status: `orch status [--json] [--all] [--all-panes] [--offline] [--live]
+  status: `orch status [--json] [--human] [--space-wide] [--filter=<state,...>] [--all-panes] [--offline] [--live]
 Glanceable table of the fleet (the default command when none is given).
+Bare 'orch status' is the normal use: every agent this session owns, with cost and
+context. A human at a raw terminal owns none and sees the whole machine.
   --json        Machine-readable rows instead of the table.
-  --all         Include every space, not just the caller's.
+  --human       Render named harness and directory details for a person.
+  --space-wide  Also the other orchs' agents in your space. Never past it.
+  --filter      Keep only these states, e.g. --filter=done,error.
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
   --live        Full-screen live status re-rendered from the daemon event stream; TTY only; q/esc quits; not combinable with --json.
@@ -27,16 +31,15 @@ Read structured diagnosis records; malformed JSONL lines are skipped.
   --dispatch   Filter by correlation/dispatch id.
   --json       Emit raw records.
 `,
-  events: `orch events [--agent=<name>] [--agent-id=<id>] [--mine] [--any-agent] [--all] [--status s[,s...]] [--json] [--since-seq <n>]
+  events: `orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>]
 Continuous stream of pane state transitions; requires a running daemon.
-Bare 'orch events' is the normal use: one readable line per transition, scoped to the
-agents THIS session spawned. Every flag below is a deviation from that.
+Bare 'orch events' is the monitor: every state of every agent this session owns, one
+readable line each, enough to act on without a second command. A human at a raw
+terminal owns none and sees the whole machine. Every flag below deviates from that.
   --agent       Watch one agent by name.
   --agent-id    Watch one agent by identity key.
-  --mine        Explicitly select the default session scope (spawned or currently leased).
-  --any-agent   Every agent, not just the ones this session spawned.
-  --all         Every space's transitions, not just the caller's.
-  --status      Only transitions into these states (comma-separated).
+  --space-wide  Also the other orchs' agents in your space. Never past it.
+  --filter      Keep only these states, e.g. --filter=done,error.
   --json        Raw event records, one per line, for a caller that parses them.
   --since-seq <n> Resume after this durable sequence; it survives daemon restarts, but
                 history is bounded by the events retention window. A pruned range is
@@ -84,10 +87,14 @@ Review done worktree agents. With no subcommand, review runs interactively.
 Queue a prompt through orchd with the worker header prepended.
   --raw         Send the exact prompt, no worker header.
 `,
-  dispatch: `orch dispatch <target> "<prompt>" [--raw] [--model <model[:thinking]>] [--agent <adapter>]
+  dispatch: `orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model <model[:thinking]>] [--agent <adapter>]
 Durably accept a prompt through orchd: the write lands in the outbox and survives restarts.
-Prints the dispatch id; 'orch status --json' echoes it as .dispatchId once the
-agent runs that prompt, proving the pane runs what THIS command sent.
+The target starts the work on a CLEAN session: dispatch clears the context first,
+then re-pins the model, then sends. Prints the dispatch id; 'orch status --json'
+echoes it as .dispatchId once the agent runs that prompt.
+  --file        Read the prompt from a file, or from stdin with '-', instead of argv.
+  --with        Name a path the agent works with. Repeat once per path.
+  --keep-context  Send onto the session the agent already has, without clearing it.
   --raw         Send the exact prompt, no worker header.
   --model       Pin the model (and optional thinking effort) for this dispatch.
   --agent       Route through a specific adapter instead of the recorded one.
@@ -116,7 +123,7 @@ Block until the pane reaches a status.
   --timeout     Give up after this many milliseconds (default: 300000).
 `,
   result: `orch result <target> [--force] [--json]
-Print a target's result (result.json, else the session's last assistant text).
+Print a target's result (results.jsonl, else the session's last assistant text).
   --force       Read an agent another ${term("orch")} owns.
 `,
   tail: `orch tail <target> [-n N]
@@ -137,18 +144,9 @@ Always reset a target before dispatching it a new task.
 Fully close the harness process and relaunch it.
   --cmd         The command to relaunch with (default: the recorded adapter command).
 `,
-  lock: `orch lock run [--note <why>] [--timeout <ms>] -- <argv...>
-orch lock check -- <argv...>
-orch lock status [--json]
-orch lock release --force
-One heavy command machine-wide (see settings.locked_commands).
-  run           Acquire the lock, run argv, release on exit; propagates the exit code.
-  check         Exit 3 if argv is a locked command held elsewhere, else exit 0.
-  status        Show the current holder (pid, note, age) or 'unlocked'.
-  release       Evict the current holder, naming it. Requires --force.
-`,
-  spawn: `orch spawn <name> [<name> ...] [--tab L] [--cwd P] [--cmd C] [--model M]
-          [--agent A] [--backend B] [--prompt T ...] [--tasks FILE] [--worktree]
+  spawn: `orch spawn <name> [<name> ...] [--tab L] [--dir P] [--cmd C] [--model M]
+          [--agent A] [--backend B] [--prompt T ...] [--file P|-] [--with P]...
+          [--tasks FILE] [--worktree]
 Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...).
 NAMING AN AGENT IS PART OF CREATING IT: the positional arguments ARE the names,
 one per agent, and how many you give is how many panes you get. There is no
@@ -158,16 +156,18 @@ SLICE it holds, so you never pay for a rename afterwards.
 Every name is validated before any tab or pane is created — a refused spawn
 leaves nothing behind.
   --tab         Label for the new tab; an existing tab's label fills that tab.
-  --cwd         Working directory for every agent.
+  --dir         Directory the agents start in. Defaults to the spawner's own.
   --model       Pin each agent's launch model.
   --agent       Adapter id (pi, claude, codex, ...).
-  --backend     Plexer id (herdr, tmux, headless). headless requires --prompt: a detached
+  --backend     Plexer id (herdr, tmux, headless). headless needs --prompt or --file: a detached
                 agent runs the prompt and exits.
   --prompt      One task for every agent, or repeat exactly N times for per-agent tasks.
+  --file        Read the one task from a file, or from stdin with '-', instead of argv.
+  --with        Name a path the agents work with. Repeat once per path.
   --tasks       JSON file containing exactly N task strings (alternative to --prompt).
   --worktree    Give each agent its own git worktree.
 `,
-  tile: `orch tile <tab|pane> <name> [--cmd C] [--cwd P] [--model M] [--agent A] [--backend B]
+  tile: `orch tile <tab|pane> <name> [--cmd C] [--dir P] [--model M] [--agent A] [--backend B]
 Add ONE named pane to an existing tab: splits into the tab's largest cell and pins
 the model. Tile creates an agent, so it names one too.
 `,
@@ -211,7 +211,7 @@ Raw merged pane list, tab-separated, for scripting.
   tabs: `orch tabs
 List tabs: id, label, number, pane count, status.
 `,
-  tab: `orch tab new [--label X] [--workspace ID] [--cwd P]
+  tab: `orch tab new [--label X] [--workspace ID] [--dir P]
 orch tab rename <tab_id|label> <new-label>
 orch tab close <tab_id|label>
 orch tab focus <tab_id|label>
@@ -260,16 +260,17 @@ a bare model is applied only when that harness lists it.
   --no-install  Report what is missing without installing.
   --copy        Copy shims instead of symlinking.
   --skills      Install orch's packaged skills without asking.
-  --no-skills   Skip them without asking; nothing is written to your harness dirs.
+  --no-skills   Skip them without asking; nothing is written to your skill dirs.
   --refresh     Ask every harness for its models again instead of using the stored
                 catalogues. Slower; for a model installed since the last refresh.
-Setup asks before copying skills into ~/.claude/skills and ~/.agents/skills. Change the
-answer later with 'orch settings skills'.
+Setup asks before installing skills. The real files go to ~/.agents/skills, the
+cross-harness standard, and each harness that reads its own directory gets a symlink
+into that store. Change the answer later with 'orch settings skills'.
 `,
   settings: `orch settings [--json] [--harness=<id>] [--plexer=<id>]
 orch settings models [--harness=<id>] [--model=<model[:thinking]>] [--refresh]
 orch settings thinking [<level>] [--harness=<id>] [--clear]
-orch settings skills [--install|--no-install] [--roots=<dir>[,<dir>...]]
+orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]
 Print each effective setting with its source (flag > env > settings.json > default),
 or switch the active default adapter/plexer among the enabled set.
   models        Re-pick, per enabled harness: launch model, picker quicklist
@@ -280,10 +281,12 @@ or switch the active default adapter/plexer among the enabled set.
                 off, minimal, low, medium, high, xhigh, max. Bare prints the current
                 value; a level sets the global default; --harness=<id> sets that
                 harness's override and --clear --harness=<id> removes it.
-  skills        Turn the skill install on or off and choose its roots. --install writes
-                every packaged skill into them now; --no-install records the refusal and
-                leaves the files already there alone. Roots default to ~/.claude/skills
-                and ~/.agents/skills; a leading ~ expands to your home directory.
+  skills        Turn the skill install on or off and choose where it writes. --install
+                writes every packaged skill now; --no-install records the refusal and
+                leaves the files already there alone. --store names the one directory
+                holding the real files, ~/.agents/skills by default; --link names the
+                harness directories symlinked into it, ~/.claude/skills by default.
+                A leading ~ expands to your home directory.
 `,
   models: `orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
 List every model each enabled harness reports it can run.

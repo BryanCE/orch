@@ -90,6 +90,8 @@ export function renderNotifyEntry(id: string, config: Record<string, unknown>): 
   switch (id) {
     case "desktop":
       return { id: "desktop", ...notifyOn(config) };
+    case "sound":
+      return { id: "sound", ...notifyOn(config) };
     case HERDR_SINK_ID:
       return { id: HERDR_SINK_ID, ...notifyOn(config) };
     case "webhook":

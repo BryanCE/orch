@@ -2,7 +2,9 @@ import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
-import { loadPresence, orchDir } from "../presence/store.ts";
+import { AgentGoneError } from "./agent-gone.ts";
+import {loadPresence} from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
@@ -72,9 +74,9 @@ function runAdapterCommand(command: AdapterCommand, timeoutMs: number): Promise<
  */
 function requireLiveAgent(target: string, adapter: AgentAdapter, action: string): void {
   const presence = loadPresence().get(target);
-  if (!presence) throw new Error(`cannot ${action} ${target}: no presence dir for ${adapter.id} inbox delivery`);
-  if (!presence.status) throw new Error(`cannot ${action} ${target}: ${adapter.id} bridge never registered - respawn required`);
-  if (!presence.alive) throw new Error(`cannot ${action} ${target}: ${adapter.id} bridge is disconnected (pid ${presence.status.pid ?? "unknown"} is gone) - respawn required`);
+  if (!presence) throw new AgentGoneError(target, `no presence dir for ${adapter.id} inbox delivery (${action})`);
+  if (!presence.status) throw new AgentGoneError(target, `${adapter.id} bridge never registered - respawn required`);
+  if (!presence.alive) throw new AgentGoneError(target, `${adapter.id} bridge is disconnected (pid ${presence.status.pid ?? "unknown"} is gone) - respawn required`);
 }
 
 /**
@@ -104,22 +106,22 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
     return { outcome: "invoke", ack: "none" };
   }
   const route = resolveTargetRoute(target);
-  if (!route?.backend.paneInventory) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${action.kind} does not apply.` };
-  if (!route.backend.paneInput) return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${action.kind}` };
-  route.backend.paneInput.submit(route.handle, action.text);
+  if (!route?.backend.placementInventory) return { outcome: "answer", reason: "not-placed", text: `${target} is placed nowhere; ${action.kind} does not apply.` };
+  if (!route.backend.agentInput) return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${action.kind}` };
+  route.backend.agentInput.submit(route.handle, action.text);
   return { outcome: "invoke", ack: "none" };
 }
 
-async function deliverAnswer(target: string, adapter: AgentAdapter, text: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+async function deliverAnswer(target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   // E14: an absence is an ANSWER to a human, not a failure path — but the answer has
   // to be usable, so it names the target and the harness that cannot take answers.
   if (adapter.question === null) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
   requireLiveAgent(target, adapter, "answer");
-  const command = adapter.question.answer({ key: target, text });
+  const command = adapter.question.answer({ key: target, text: action.text, id: action.id });
   if (command) await runAdapterCommand(command, timeoutMs);
-  return { outcome: "invoke", ack: "none" };
+  return { outcome: "invoke", ack: "expected" };
 }
 
 /**
@@ -169,12 +171,12 @@ function deliverLifecycle(target: string, adapter: AgentAdapter, verb: Lifecycle
   }
   const route = resolveBackendHandle(target);
   if (!route) throw new Error(`cannot ${verb} ${target}: no live backend handle`);
-  if (!route.backend.paneInput) {
-    throw new Error(`cannot ${verb} ${target}: target environment has no pane input role`);
+  if (!route.backend.agentInput) {
+    throw new Error(`cannot ${verb} ${target}: target environment cannot take input`);
   }
   const command = adapter.lifecycleControl.lifecycleCmd(verb);
   if (!command) throw new Error(`cannot ${verb} ${target}: adapter ${adapter.id} returned no ${verb} command`);
-  route.backend.paneInput.submit(route.handle, command.text);
+  route.backend.agentInput.submit(route.handle, command.text);
   return { outcome: "invoke", ack: "none" };
 }
 
@@ -188,7 +190,7 @@ export async function deliverControl(target: string, action: ControlAction): Pro
   // Return what deliverAnswer decided. Discarding it and reporting "invoke"
   // regardless turned every boundary answer into a silent success, which is the
   // one thing E14 says an absence must never become.
-  if (action.kind === "answer") return await deliverAnswer(canonicalTarget, adapter, action.text, timeoutMs);
+  if (action.kind === "answer") return await deliverAnswer(canonicalTarget, adapter, action, timeoutMs);
   if (action.kind === "lifecycle") return deliverLifecycle(canonicalTarget, adapter, action.verb);
   return deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

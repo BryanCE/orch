@@ -1,7 +1,7 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
 import { agentChannel, capture } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
-import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, OpenedPane, OpenPaneRequest, EnvironmentIdentityRole, PaneHostRole, PaneInventoryRole, PaneNamingRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
+import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own;
@@ -49,20 +49,20 @@ export class FakePanedBackend implements Backend {
   readonly closed: string[] = [];
   /** Every pane-open request this environment received, in call order — so a
    *  test can assert WHICH coordinate the plexer was handed (E10). */
-  readonly opened: OpenPaneRequest[] = [];
+  readonly opened: PlacementRequest[] = [];
   private readonly panes: FakePane[];
   private openedCount = 0;
 
   readonly process: ProcessRole = new LocalProcessRole();
   readonly channel = agentChannel;
   readonly capture = capture;
-  readonly paneHost: PaneHostRole;
-  readonly paneInventory: PaneInventoryRole;
-  readonly paneInput = null;
-  readonly paneForeground = null;
-  readonly paneScreen = null;
-  readonly paneZoom = null;
-  readonly paneNaming: PaneNamingRole | null = null;
+  readonly placement: PlacementRole;
+  readonly placementInventory: PlacementInventoryRole;
+  readonly agentInput = null;
+  readonly foreground = null;
+  readonly screen = null;
+  readonly zooming = null;
+  readonly labeling: LabelRole | null = null;
   readonly agentNaming: AgentNamingRole | null = null;
   readonly agentStatus = null;
   readonly groupHome = null;
@@ -75,12 +75,13 @@ export class FakePanedBackend implements Backend {
   readonly handleLookup = null;
   readonly logPruning = null;
   readonly versionInfo = null;
+  readonly serverInfo = null;
 
   constructor(options: { readonly id?: BackendId; readonly panes?: readonly FakePane[] } = {}) {
     this.id = options.id ?? "headless";
     this.panes = [...(options.panes ?? [])];
-    this.paneHost = {
-      open: (request: OpenPaneRequest): OpenedPane => {
+    this.placement = {
+      open: (request: PlacementRequest): Placement => {
         this.opened.push(request);
         const pane = fakePane(`fake-pane-${++this.openedCount}`);
         this.panes.push(pane);
@@ -93,7 +94,7 @@ export class FakePanedBackend implements Backend {
         if (index >= 0) this.panes.splice(index, 1);
       },
     };
-    this.paneInventory = {
+    this.placementInventory = {
       current: () => null,
       list: (): readonly BackendTarget[] => this.panes.map(paneTarget),
     };

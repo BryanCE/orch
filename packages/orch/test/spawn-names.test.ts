@@ -26,7 +26,7 @@ function tempOrchDir(): string {
 function seedAgent(orchDir: string, name: string, space: string): string {
   const key = mintAgentId();
   seedSpace(orchDir, space);
-  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", pane: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null });
+  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null });
   return key;
 }
 

@@ -30,7 +30,7 @@ function register(dir: string, overrides: Partial<Parameters<typeof registerSpaw
     key,
     harnessId: "pi",
     backendId: "herdr",
-    pane: true,
+    placed: true,
     handle: "%42",
     cwd: "/repo",
     name: "worker-1",
@@ -56,7 +56,7 @@ describe("spawn agent registration", () => {
 
   test("an agent that states no plexer and no handle gets neither row", () => {
     const dir = fixture();
-    register(dir, { key: "worker0002", backendId: undefined, pane: false, handle: undefined });
+    register(dir, { key: "worker0002", backendId: undefined, placed: false, handle: undefined });
     expect(row(orm(dir), sql`SELECT * FROM agent_plexers WHERE agent_id = ${"worker0002"}`)).toBeUndefined();
     expect(currentHandle(dir, "worker0002")).toBeUndefined();
   });

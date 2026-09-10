@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { mintAgentId, parseIdentity, serializeIdentity } from "../src/backends/identity.ts";
@@ -29,8 +30,6 @@ describe("tmux backend registry and capabilities", () => {
     const backend = getBackend("tmux")!;
     if (!backend.isAvailable()) {
       expect(() => resolveBackend({ explicit: "tmux", configured: null })).toThrow(/unavailable/);
-    } else if (!backend.isInsideSession()) {
-      expect(() => resolveBackend({ explicit: "tmux", configured: null })).toThrow(/requires running inside a live tmux session/);
     } else {
       expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
     }
@@ -38,9 +37,9 @@ describe("tmux backend registry and capabilities", () => {
 
   test("exposes pane roles", () => {
     const backend = new TmuxBackend();
-    expect(backend.paneHost).not.toBeNull();
-    expect(backend.paneInventory).not.toBeNull();
-    expect(backend.paneInput).not.toBeNull();
+    expect(backend.placement).not.toBeNull();
+    expect(backend.placementInventory).not.toBeNull();
+    expect(backend.agentInput).not.toBeNull();
     expect(backend.logPruning).toBeNull();
     expect(backend.identity).not.toBeNull();
   });
@@ -64,33 +63,63 @@ describe("tmux backend registry and capabilities", () => {
     expect(() => serializeIdentity({ id: "%5" })).toThrow(/minted id|lowercase alphanumerics/);
   });
 
-  test("implicitly selects tmux inside a session", () => {
+  // Rule 11: where the caller SITS is environment and decides nothing. Selecting
+  // on it downgraded every default spawn to headless the moment the terminal was
+  // not itself inside a plexer, so the caller asked for a fleet it could watch
+  // and got agents with nowhere to appear.
+  test("selects an available placing environment, whichever one the caller sits in", () => {
     const previous = process.env.TMUX;
     // eslint-disable-next-line typescript/unbound-method
     const oldHerdrInside = HerdrBackend.prototype.isInsideSession;
+    // eslint-disable-next-line typescript/unbound-method
+    const oldHerdrAvailable = HerdrBackend.prototype.isAvailable;
     // eslint-disable-next-line typescript/unbound-method
     const oldTmuxAvailable = TmuxBackend.prototype.isAvailable;
     try {
       HerdrBackend.prototype.isInsideSession = () => false;
       TmuxBackend.prototype.isAvailable = () => true;
-      process.env.TMUX = "/tmp/fake-tmux,0,0";
+      delete process.env.TMUX;
+
+      HerdrBackend.prototype.isAvailable = () => true;
+      expect(resolveBackend({ explicit: null, configured: null }).id).toBe("herdr");
+
+      // The only fact that moves the answer is whether the environment is there.
+      HerdrBackend.prototype.isAvailable = () => false;
       expect(resolveBackend({ explicit: null, configured: null }).id).toBe("tmux");
     } finally {
       HerdrBackend.prototype.isInsideSession = oldHerdrInside;
+      HerdrBackend.prototype.isAvailable = oldHerdrAvailable;
       TmuxBackend.prototype.isAvailable = oldTmuxAvailable;
       if (previous === undefined) delete process.env.TMUX;
       else process.env.TMUX = previous;
     }
   });
 
-  test("fails tmux validation outside a session before pane work", () => {
+  test("falls back to headless only when no environment can place an agent", () => {
+    // eslint-disable-next-line typescript/unbound-method
+    const oldHerdrAvailable = HerdrBackend.prototype.isAvailable;
+    // eslint-disable-next-line typescript/unbound-method
+    const oldTmuxAvailable = TmuxBackend.prototype.isAvailable;
+    try {
+      HerdrBackend.prototype.isAvailable = () => false;
+      TmuxBackend.prototype.isAvailable = () => false;
+      expect(resolveBackend({ explicit: null, configured: null }).id).toBe("headless");
+    } finally {
+      HerdrBackend.prototype.isAvailable = oldHerdrAvailable;
+      TmuxBackend.prototype.isAvailable = oldTmuxAvailable;
+    }
+  });
+
+  test("an installed plexer is selectable from outside its session, and refuses in its own words", () => {
     const previous = process.env.TMUX;
     // eslint-disable-next-line typescript/unbound-method
     const oldTmuxAvailable = TmuxBackend.prototype.isAvailable;
     try {
       TmuxBackend.prototype.isAvailable = () => true;
       delete process.env.TMUX;
-      expect(() => resolveBackend({ explicit: "tmux", configured: null })).toThrow(/requires running inside a live tmux session/);
+      expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
+      expect(() => new TmuxBackend().spawn(fakeAdapter(), { key: "k", cwd: "/tmp" }))
+        .toThrow(/tmux spawn requires running inside a tmux session/);
     } finally {
       TmuxBackend.prototype.isAvailable = oldTmuxAvailable;
       if (previous === undefined) delete process.env.TMUX;
@@ -98,7 +127,7 @@ describe("tmux backend registry and capabilities", () => {
     }
   });
 
-  test("fails herdr validation outside a herdr session before pane work", () => {
+  test("herdr is selectable from outside a herdr session", () => {
     /* eslint-disable typescript/unbound-method */
     const oldHerdrInside = HerdrBackend.prototype.isInsideSession;
     const oldHerdrAvailable = HerdrBackend.prototype.isAvailable;
@@ -106,7 +135,7 @@ describe("tmux backend registry and capabilities", () => {
     try {
       HerdrBackend.prototype.isAvailable = () => true;
       HerdrBackend.prototype.isInsideSession = () => false;
-      expect(() => resolveBackend({ explicit: "herdr", configured: null })).toThrow(/requires running inside a live herdr session/);
+      expect(resolveBackend({ explicit: "herdr", configured: null }).id).toBe("herdr");
     } finally {
       HerdrBackend.prototype.isInsideSession = oldHerdrInside;
       HerdrBackend.prototype.isAvailable = oldHerdrAvailable;

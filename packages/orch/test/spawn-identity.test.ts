@@ -148,14 +148,13 @@ describe("one key per pane spawn (12.1)", () => {
       preferredModels: [],
     });
 
-    // The agent's bridge stamps its presence under the same key, carrying the
-    // pane handle/paneId — the only join between key and backend handle.
+    // The agent's bridge stamps its presence under the same key. The join
+    // between key and backend handle is the spawn's environment row, never this.
     seedStatus(dir, agent.key, {
       key: agent.key,
       backend: "herdr",
       workspace: "wsB",
       handle: "%7",
-      paneId: "%7",
       pid: process.pid,
     });
 
@@ -189,7 +188,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
     const key = mintAgentId();
 
     registerSpawnedAgent(dir, {
-      key, harnessId: "pi", backendId: "herdr", pane: true, handle: "%42",
+      key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
       cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, now: 10,
     });
 
@@ -209,7 +208,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
     registerSpawnedAgent(dir, {
       // States no plexer and no space: a capless agent is in no plexer, and that
       // is an ANSWER, not a gap for a second writer to close.
-      key, harnessId: "pi", pane: false,
+      key, harnessId: "pi", placed: false,
       cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, now: 10,
     });
 
@@ -226,7 +225,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
     const key = mintAgentId();
 
     registerSpawnedAgent(dir, {
-      key, harnessId: "pi", backendId: "herdr", pane: true, handle: "%42",
+      key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
       cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, now: 10,
     });
     setSpace(dir, key, 20, "wsB");

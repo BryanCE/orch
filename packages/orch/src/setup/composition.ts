@@ -8,7 +8,7 @@ import { signedOutFix } from "../adapters/prerequisites.ts";
 import { assertModelListed } from "../policy/model.ts";
 import { logStep, logWarning } from "./io.ts";
 import { selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectRuntime } from "./wizard.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { errorMessage } from "../util.ts";
 import { die } from "../commands/target.ts";
 import { SetupFlagError, validateSetupFlag } from "./flags.ts";

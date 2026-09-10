@@ -26,19 +26,19 @@ export interface OrchSettings {
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
   fleet: { max_agents_per_pack: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
-  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[] };
+  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };
   queue: { max_retries: number };
-  retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; logs_days: number };
+  retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number };
   logging?: { level: LogLevel };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];
   locked_commands: string[];
   hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
-  daemon: { tcp_port: number; idle_shutdown_minutes: number };
+  daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
-  skills: { install: boolean; roots: string[] };
+  skills: { install: boolean; store: string; link: string[] };
 }
 
 export interface SettingsWatchOptions {
@@ -69,6 +69,16 @@ export type SettingKind =
   | { readonly kind: "integer"; readonly min?: number; readonly max?: number }
   | { readonly kind: "choice"; readonly choices: readonly string[] }
   | { readonly kind: "multi"; readonly choices: readonly string[] }
+  /** A pick-list of delivery sinks. Each picked sink is an object: its id, the one value
+   *  `fields` says it carries, and the `states` it fires on. */
+  | {
+    readonly kind: "sinks";
+    readonly choices: readonly string[];
+    readonly fields: Readonly<Record<string, { readonly name: string; readonly suggestion?: string }>>;
+    readonly states: readonly string[];
+    /** Fired on when a sink names no states of its own. */
+    readonly defaultStates: readonly string[];
+  }
   | { readonly kind: "text" }
   | { readonly kind: "list" };
 

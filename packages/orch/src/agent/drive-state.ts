@@ -7,7 +7,7 @@
 // place — a second copy would be a second truth about who owns an agent.
 import { agentById } from "../store/agent-rows.ts";
 import { currentLease } from "../store/lease-rows.ts";
-import { orchDir } from "../presence/store.ts";
+import { orchDir } from "../presence/writer.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import type { DriveState, DriveStateOptions } from "../types/agent.ts";
 
@@ -38,9 +38,10 @@ export function deriveDriveState(agentId: string, options: DriveStateOptions = {
     // A dead holder is not a collision and is not an owner: the agent is
     // adoptable, and saying otherwise would hand it to a process that is gone.
     if (!recordedProcessIsLive(directory, lease.orchId)) return HOLDER_GONE;
+    const holder = agentById(directory, lease.orchId);
     return {
       kind: "leased",
-      owner: lease.orchId,
+      owner: holder?.name ?? lease.orchId,
       mine: options.currentOrchId != null && lease.orchId === options.currentOrchId,
     };
   } catch {

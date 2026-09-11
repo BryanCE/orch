@@ -17,6 +17,7 @@ import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { endProcess } from "../src/store/interval-rows.ts";
+import type { AdapterId } from "../src/types/adapter.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -44,7 +45,7 @@ function target(): string {
 }
 
 /** A live agent: registered with this runner as its process, plus its status. */
-function presence(directory: string, key: string, agent: string, extra: Record<string, unknown> = {}): void {
+function presence(directory: string, key: string, agent: AdapterId, extra: Record<string, unknown> = {}): void {
   seedAgent(key, { adapter: agent }, directory);
   seedStatus(directory, key, { agent, ...extra });
 }

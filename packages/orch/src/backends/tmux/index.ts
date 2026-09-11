@@ -187,11 +187,11 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     create: (subject: HomeSubject, request): CreatedHome<TmuxHandle> => {
       // E8: never unmarked. A `new-session` with no `-s` takes tmux's own
       // counter for a name, which says nothing about who opened it or what for.
-      const args = ["new-session", "-d", "-P", "-F", "#{session_name}\t#{pane_id}", "-c", request.cwd,
+      const args = ["new-session", "-d", "-P", "-F", "#{session_name}\t#{window_id}\t#{pane_id}", "-c", request.cwd,
         "-s", homeLabel(subject, request.label), ...tmuxEnvArgs(request.env ?? {})];
-      const [coordinate, rootHandle] = this.homeExec(args).trim().split("\t");
-      if (!coordinate || !rootHandle) throw new Error("tmux new-session returned no session/pane id");
-      return { coordinate, rootHandle };
+      const [coordinate, rootGroup, rootHandle] = this.homeExec(args).trim().split("\t");
+      if (!coordinate || !rootGroup || !rootHandle) throw new Error("tmux new-session returned no session/window/pane id");
+      return { coordinate, rootGroup, rootHandle };
     },
     rename: (coordinate, label): void => { this.homeExec(["rename-session", "-t", coordinate, label]); },
     close: (coordinate): void => { this.homeExec(["kill-session", "-t", coordinate]); },

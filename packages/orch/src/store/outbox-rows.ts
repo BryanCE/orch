@@ -5,7 +5,7 @@ import { isBridgeMessage } from "../control/bridge-message.ts";
 import type { OutboxMessage, OutboxMessageInput, OutboxState } from "../types/store.ts";
 
 /** States a retry loop still owes work for. */
-export const OPEN_OUTBOX_STATES: readonly OutboxState[] = ["pending", "awaiting"];
+const OPEN_OUTBOX_STATES: readonly OutboxState[] = ["pending", "awaiting"];
 
 /** States nothing will ever move again. */
 const SETTLED_OUTBOX_STATES: readonly OutboxState[] = ["delivered", "undeliverable"];

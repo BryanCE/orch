@@ -16,16 +16,16 @@ import { callerPlexer, callerSpace, selfId } from "../../identity/self.ts";
 import { LAUNCH_ENV, launchCredential } from "../../identity/launch.ts";
 import { resolveTab } from "../panes.ts";
 import { commandLogger } from "../logging.ts";
-import type { Backend, BackendGroup, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
+import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import { agentById } from "../../store/agent-rows.ts";
-import type { CreatedAgent, PreparedAgent } from "../../types/command.ts";
+import type { CreatedAgent, PreparedAgent, SpawnPlacement } from "../../types/command.ts";
 import { resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
 import type { SpawnSettings } from "./flags.ts";
 import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, admitSpawn } from "./admission.ts";
 import { assertLaunchModelAllowed, pinModels, resolveAgentSettings } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
-import { findGroupInSpace, growFleetIntoGroup, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
+import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
 import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 
 
@@ -223,19 +223,39 @@ function placeSpawn(
   settings: SpawnSettings,
   backend: Backend,
   spawnerAgentId: string | null,
-): { space: string | null; workspace: string | undefined } {
+): SpawnPlacement {
   const placement = resolveSpawnPlacement({
     directory: orchDir(), backend, space: settings.space ?? callerSpace(),
     packRootId: spawnerAgentId === null ? null : agentById(orchDir(), spawnerAgentId)?.rootAgentId ?? null,
     callerPlexer: callerPlexer(),
-    cwd: settings.cwd,
     grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawnerAgentId); },
   });
   // A7/Rule 11: no space is NULL, never "" — a sentinel string is a space name
   // nobody created, and registration rightly refuses it.
-  const space = placement.space;
-  assertSpawnCapacity(settings, space, settings.n);
-  return { space, workspace: placement.workspace };
+  assertSpawnCapacity(settings, placement.space, settings.n);
+  return placement;
+}
+
+/** Seat the fleet in the home it was owed: the root group takes the fleet's
+ *  label and the first agent takes the root place, so the home opens with the
+ *  fleet in it and no empty group beside it. */
+function seatFleetInHome(backend: Backend, groupHome: GroupHomeRole, home: CreatedHome, label: string, prepared: readonly PreparedAgent[]): BackendGroup {
+  groupHome.rename(home.rootGroup, label);
+  prepared[0]!.handle = home.rootHandle;
+  const group = findGroupInSpace(backend, home.coordinate, home.rootGroup);
+  if (!group) die(`${backend.id} opened home ${home.coordinate} but does not list its root group ${home.rootGroup}`);
+  return group;
+}
+
+/** The group this fleet fills and the coordinate it sits at. A fleet owed a
+ *  home opens one and takes its root group; any other fleet opens a group where
+ *  placement put it. */
+function seatFleet(backend: Backend, groupHome: GroupHomeRole, placement: SpawnPlacement, settings: SpawnSettings, prepared: readonly PreparedAgent[]): { group: BackendGroup; workspace: string | undefined } {
+  if (placement.homeToOpen === null) {
+    return { group: createSpawnGroup(groupHome, placement.workspace, settings.label, prepared), workspace: placement.workspace };
+  }
+  const home = openFleetHome({ directory: orchDir(), backend, subject: placement.homeToOpen, cwd: settings.cwd, env: prepared[0]!.env });
+  return { group: seatFleetInHome(backend, groupHome, home, settings.label, prepared), workspace: home.coordinate };
 }
 
 async function executeSpawn(settings: SpawnSettings): Promise<void> {
@@ -247,18 +267,20 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   if (!backend.groupHome) return executeHeadlessSpawn(settings, backend, spawnerAgentId);
   const groupLayout = backend.groupLayout;
   if (!groupLayout) return answerNoGroupLayout(settings.json);
-  const { space, workspace } = placeSpawn(settings, backend, spawnerAgentId);
+  const placement = placeSpawn(settings, backend, spawnerAgentId);
+  const { space } = placement;
   const adapter = resolveAdapterOrDie(settings.adapter);
   const names = claimSpawnNames(settings.names, space);
   // `--tab <existing>` fills that tab instead of opening a new one, auto-balancing
   // as it fills, so no follow-up move/tile is needed. There is no implicit
   // "grow the fleet under this prefix" path: names are per-slice and unnumbered
-  // so the tab is named explicitly or it is a new one.
-  const existing = settings.tabExplicit ? findGroupInSpace(backend, workspace, settings.label) : undefined;
-  if (existing) return spawnIntoExistingTab(settings, existing, space, workspace, backend, names, spawnerAgentId, groupLayout);
+  // so the tab is named explicitly or it is a new one. A home not yet open holds
+  // no tab to fill.
+  const existing = settings.tabExplicit && placement.homeToOpen === null ? findGroupInSpace(backend, placement.workspace, settings.label) : undefined;
+  if (existing) return spawnIntoExistingTab(settings, existing, space, placement.workspace, backend, names, spawnerAgentId, groupLayout);
   const groupHome = backend.groupHome;
   const prepared = prepareAgents(settings, adapter, names);
-  const group = createSpawnGroup(groupHome, workspace, settings.label, prepared);
+  const { group, workspace } = seatFleet(backend, groupHome, placement, settings, prepared);
   placeRemainingAgents(backend, prepared, group.id, workspace, settings.tiling.first_split);
   const created = launchPrepared(prepared, { settings, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
   if (created.length === 0) {

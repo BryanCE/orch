@@ -95,7 +95,7 @@ const restoreExecutor = setHerdrExecutor((_command, args) => {
     return JSON.stringify({ tab: { tab_id: "t9", workspace_id: "ws-test" }, root_pane: { pane_id: freshPane("w0:p9") } });
   }
   if (command === "workspace" && subcommand === "create") {
-    return JSON.stringify({ workspace: { workspace_id: "w7" }, root_pane: { pane_id: "w7:p1" } });
+    return JSON.stringify({ workspace: { workspace_id: "w7" }, root_pane: { pane_id: "w7:p1", tab_id: "t7" } });
   }
   if (command === "workspace" && subcommand === "list") {
     return JSON.stringify({ workspaces: [
@@ -439,7 +439,7 @@ describe("HerdrBackend space home", () => {
     herdrArgv.length = 0;
 
     expect(backend.spaceHome.create({ kind: "pack", id: "p1" }, { cwd: testDir }))
-      .toEqual({ coordinate: "w7", rootHandle: "w7:p1" });
+      .toEqual({ coordinate: "w7", rootGroup: "t7", rootHandle: "w7:p1" });
     expect(lastCall("workspace", "create")).toEqual([
       "workspace", "create", "--cwd", testDir, "--no-focus",
       "--env", `ORCH_PROJECT=${projectRoot()}`,
@@ -454,9 +454,10 @@ describe("HerdrBackend space home", () => {
   });
 
   // E10: the coordinate is orch's to STORE and hand back, never a name orch says.
-  test("create hands back the plexer coordinate and the root pane, and says neither", () => {
+  test("create hands back the plexer coordinate, the root tab and the root pane, and says none of them", () => {
     const created = backend.spaceHome.create({ kind: "space", id: "s8" }, { cwd: testDir });
     expect(created.coordinate).toBe("w7");
+    expect(created.rootGroup).toBe("t7");
     expect(created.rootHandle).toBe("w7:p1");
   });
 });

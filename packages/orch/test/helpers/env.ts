@@ -5,8 +5,6 @@ import { ORCH_ENV_VARS } from "../../src/policy/spawner.ts";
 import { HARNESS_SESSION_ENV } from "../../src/adapters/session-env.ts";
 import { removeTempDir } from "./tempdir.ts";
 
-export { ORCH_ENV_VARS };
-
 let saved: Record<string, string | undefined> = {};
 let isolatedDir: string | undefined;
 

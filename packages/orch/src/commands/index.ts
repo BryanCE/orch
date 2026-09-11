@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { orchDir } from "../presence/writer.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/lifecycle.ts";
-import { cmdStatus } from "./status.ts";
+import { cmdStatusVerb } from "./status-verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
 import { cmdRun, cmdWait } from "./lifecycle/index.ts";
@@ -310,7 +310,7 @@ function dispatchAsync(task: Promise<unknown>): void {
 }
 
 const commandHandlers: Record<string, Handler> = {
-  status: (args) => dispatchAsync(cmdStatus(args)),
+  status: (args) => dispatchAsync(cmdStatusVerb(args)),
   events: (args) => dispatchAsync(cmdEvents(args)),
   logs: (args) => cmdLogs(args),
   notify: (args) => dispatchAsync(cmdNotify(args)),
@@ -401,7 +401,7 @@ export function runCommand(argv: string[]): void {
     die(errorMessage(error));
   }
   if (cmd === undefined) {
-    dispatchAsync(cmdStatus(argv));
+    dispatchAsync(cmdStatusVerb(argv));
     return;
   }
   const handler = commandHandlers[cmd];
@@ -409,7 +409,7 @@ export function runCommand(argv: string[]): void {
     void handler(rest);
     return;
   }
-  if (cmd.startsWith("--")) dispatchAsync(cmdStatus(argv));
+  if (cmd.startsWith("--")) dispatchAsync(cmdStatusVerb(argv));
   else {
     commandLogger().error("command.unknown", { command: cmd });
     process.stdout.write(`Unknown command: ${cmd}\n\n`);

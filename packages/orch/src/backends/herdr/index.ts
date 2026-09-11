@@ -264,8 +264,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       // E8: the home orch opens is marked for the subject it was opened for.
       // Without a label herdr names the workspace itself (`wF`), and the pack
       // inside it reads as random agents beside the human's own panes.
-      const created = this.openWorkspace({ cwd: request.cwd, label: homeLabel(subject, request.label), env: request.env });
-      return { coordinate: created.workspace, rootHandle: created.rootHandle };
+      return this.openWorkspace({ cwd: request.cwd, label: homeLabel(subject, request.label), env: request.env });
     },
     rename: (coordinate, label): void => { herdrAck(["workspace", "rename", coordinate, label]); },
     // Closing takes the worktree homes opened under this one with it. Rule 11: close is
@@ -458,14 +457,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Open a workspace of orch's own. Throws on failure. */
-  private openWorkspace(opts: { cwd: string; label?: string | null; env?: Readonly<Record<string, string>> }): { workspace: string; rootHandle: HerdrHandle } {
+  private openWorkspace(opts: { cwd: string; label?: string | null; env?: Readonly<Record<string, string>> }): CreatedHome<HerdrHandle> {
     const args = ["workspace", "create", "--cwd", opts.cwd, "--no-focus", ...this.paneEnvFlags({ env: opts.env })];
     if (opts.label) args.push("--label", opts.label);
     const result = herdrJSON<{ workspace?: HerdrWorkspace; root_pane?: HerdrPane }>(args);
-    const workspace = result?.workspace?.workspace_id;
+    const coordinate = result?.workspace?.workspace_id;
+    const rootGroup = result?.root_pane?.tab_id;
     const rootHandle = result?.root_pane?.pane_id;
-    if (!workspace || !rootHandle) throw new Error(`herdr workspace create returned no workspace/root pane: ${JSON.stringify(result)}`);
-    return { workspace, rootHandle };
+    if (!coordinate || !rootGroup || !rootHandle) throw new Error(`herdr workspace create returned no workspace/root tab/root pane: ${JSON.stringify(result)}`);
+    return { coordinate, rootGroup, rootHandle };
   }
 
   /** Throws on herdr failure (callers surface the error). */

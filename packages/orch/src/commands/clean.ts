@@ -90,7 +90,7 @@ function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean
 
 /** Remove the presence directories that name no agent; the store owns the removal,
  *  this command adds output. */
-export function removeMalformedAgentDirs(json = false, root = orchDir()): string[] {
+function removeMalformedAgentDirs(json = false, root = orchDir()): string[] {
   const removed = reapMalformedPresenceDirs(root);
   if (!json) {
     if (removed.length) process.stdout.write("Removed malformed agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
@@ -101,7 +101,7 @@ export function removeMalformedAgentDirs(json = false, root = orchDir()): string
 
 /** Close the queued writes no live agent will ever read; the store owns the rows,
  *  this command adds output. */
-export function closeDeadAgentWrites(json = false, root = orchDir()): number {
+function closeDeadAgentWrites(json = false, root = orchDir()): number {
   const closed = closeOutboxForDeadTargets(root);
   if (!json) process.stdout.write(closed ? `Closed ${closed} queued write(s) to dead agents.\n` : "No queued writes to dead agents.\n");
   return closed;

@@ -2,7 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { packPlexers, spacePlexers } from "../db/schema.ts";
 import { ensurePlexer } from "./agent-rows.ts";
-import type { HomeSubject } from "../types/backend.ts";
+import type { CreatedHome, HomeSubject } from "../types/backend.ts";
 import type { OpenHomeRequest } from "../types/store.ts";
 export type { OpenHomeRequest };
 
@@ -77,14 +77,13 @@ export function clearHome(directory: string, subject: HomeSubject): void {
 /**
  * Open a plexer home for one space or pack and record its coordinate.
  *
- * Returns the coordinate, or null when this environment holds nothing. The
- * coordinate is for orch to STORE and to hand back to the plexer — never to
- * display and never to use as an orch id.
+ * Returns the home as the plexer created it — coordinate, root group and root
+ * place. The coordinate is for orch to STORE and to hand back to the plexer —
+ * never to display and never to use as an orch id.
  */
-export function openHome(request: OpenHomeRequest): string | null {
+export function openHome(request: OpenHomeRequest): CreatedHome {
   const { directory, subject, plexerId, home, cwd, label, env } = request;
-  if (home === null) return null;
   const created = home.create(subject, { cwd, label: homeLabel(label), env });
   recordHome(directory, subject, plexerId, created.coordinate);
-  return created.coordinate;
+  return created;
 }

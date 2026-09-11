@@ -106,9 +106,12 @@ export interface CreateHomeRequest {
   readonly env?: Readonly<Record<string, string>>;
 }
 
-/** Result of creating a plexer home, including its root handle. */
+/** Result of creating a plexer home. A home opens with one group and one place
+ *  already in it; both are returned so the first agent can take that place
+ *  instead of a second group being opened beside an empty one. */
 export interface CreatedHome<Handle = BackendHandle> {
   readonly coordinate: string;
+  readonly rootGroup: string;
   readonly rootHandle: Handle;
 }
 

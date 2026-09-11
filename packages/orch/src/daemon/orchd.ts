@@ -216,7 +216,7 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
         target: canonicalTarget,
         reason: outcome.reason,
       });
-      log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason });
+      log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason, text: outcome.text });
       return "acked";
     }
     return outcome.ack === "expected" ? "queued" : "acked";

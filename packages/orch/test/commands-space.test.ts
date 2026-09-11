@@ -42,7 +42,7 @@ function fakeSpaceHome(calls: HomeCall[]): SpaceHomeRole {
       const coordinate = `hc-${next}`;
       homes.set(coordinate, request.label ?? null);
       calls.push({ method: "create", args: [subject.kind, subject.id, request.label ?? ""] });
-      return { coordinate, rootHandle: `${coordinate}:p1` };
+      return { coordinate, rootGroup: `${coordinate}:t1`, rootHandle: `${coordinate}:p1` };
     },
     rename: (coordinate: string, label: string): void => { homes.set(coordinate, label); calls.push({ method: "rename", args: [coordinate, label] }); },
     close: (coordinate: string): void => { homes.delete(coordinate); calls.push({ method: "close", args: [coordinate] }); },

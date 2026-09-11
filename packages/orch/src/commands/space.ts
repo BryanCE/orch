@@ -107,11 +107,13 @@ function createSpace(env: SpaceEnvironment, name: string, json: boolean): void {
   // foreign key names it, so opening the home before the space exists would fail
   // on a reference orch itself had not written yet.
   orm(env.directory).insert(spaces).values({ id, name, createdBy: recordableActor(env), createdAt: now }).run();
-  const coordinate = openHome({
-    directory: env.directory, subject: { kind: "space", id }, plexerId: env.plexerId,
-    home: role, cwd: process.cwd(), label: name,
-  });
-  emit({ space: { id, name }, home: coordinate === null ? "none" : "created" }, `Created space "${name}".`, json);
+  if (role !== null) {
+    openHome({
+      directory: env.directory, subject: { kind: "space", id }, plexerId: env.plexerId,
+      home: role, cwd: process.cwd(), label: name,
+    });
+  }
+  emit({ space: { id, name }, home: role === null ? "none" : "created" }, `Created space "${name}".`, json);
 }
 
 function renameSpace(env: SpaceEnvironment, target: string | undefined, name: string | undefined, json: boolean): void {

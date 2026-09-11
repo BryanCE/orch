@@ -41,7 +41,7 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
   create(subject: HomeSubject, request: CreateHomeRequest): CreatedHome<string> {
     this.created.push({ subject, request });
     const coordinate = `w${++this.next}`;
-    return { coordinate, rootHandle: `${coordinate}:p1` };
+    return { coordinate, rootGroup: `${coordinate}:t1`, rootHandle: `${coordinate}:p1` };
   }
   rename(coordinate: string, label: string): void { this.renamed.push({ coordinate, label }); }
   close(coordinate: string): void { this.closed.push(coordinate); }
@@ -69,17 +69,19 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     const orch = seedOrch(dir, "packroot01");
     const role = new RecordingHomeRole();
 
-    const coordinate = openHome({
+    const home = openHome({
       directory: dir, subject: { kind: "pack", id: orch }, plexerId: "herdr",
       home: role, cwd: "/work", label: "api",
     });
 
-    // E9: the coordinate the plexer handed back landed in `pack_plexers`.
-    expect(coordinate).toBe("w1");
+    // E9: the coordinate the plexer handed back landed in `pack_plexers`. The
+    // root group and place came back with it: the fleet's first agent sits
+    // there, so no second group opens beside an empty one.
+    expect(home).toEqual({ coordinate: "w1", rootGroup: "w1:t1", rootHandle: "w1:p1" });
     expect(homeHandle(dir, { kind: "pack", id: orch }, "herdr")).toBe("w1");
     // E10: it is a plexer's coordinate, not an orch noun. The pack is still
     // named by the agent at its root - the coordinate names nothing of orch's.
-    expect(coordinate).not.toBe(orch);
+    expect(home.coordinate).not.toBe(orch);
   });
 
   test("the home orch opens is MARKED as orch's, never a bare directory name", () => {
@@ -110,11 +112,11 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     const packCoordinate = openHome({
       directory: dir, subject: { kind: "pack", id: orch }, plexerId: "herdr",
       home: role, cwd: "/work", label: "api",
-    });
+    }).coordinate;
     const spaceCoordinate = openHome({
       directory: dir, subject: { kind: "space", id: "space00001" }, plexerId: "herdr",
       home: role, cwd: "/work", label: "research",
-    });
+    }).coordinate;
 
     // E11/E10: one role, one create/rename/close, two subjects - no third code
     // path and no noun minted for the plexer's own grouping.
@@ -122,21 +124,6 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     expect(homeHandle(dir, { kind: "pack", id: orch }, "herdr")).toBe(packCoordinate);
     expect(homeHandle(dir, { kind: "space", id: "space00001" }, "herdr")).toBe(spaceCoordinate);
     expect(packCoordinate).not.toBe(spaceCoordinate);
-  });
-
-  test("an environment that holds nothing answers with an absence, and stores none", () => {
-    const dir = fixture();
-    const orch = seedOrch(dir, "packroot04");
-
-    // E13/E14: `home === null` IS the capability. There is no probe and no
-    // unsupported-operation throw - the absence is the answer.
-    const coordinate = openHome({
-      directory: dir, subject: { kind: "pack", id: orch }, plexerId: "headless",
-      home: null, cwd: "/work", label: "api",
-    });
-
-    expect(coordinate).toBeNull();
-    expect(homeHandle(dir, { kind: "pack", id: orch }, "headless")).toBeNull();
   });
 
   test("a home recorded in another plexer is not this one's to drive", () => {
@@ -163,7 +150,7 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     // leaving the old row open would refuse the reopen outright.
     expect(homeHandle(dir, subject, "herdr")).toBeNull();
     const reopened = openHome({ directory: dir, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api" });
-    expect(reopened).toBe("w2");
+    expect(reopened.coordinate).toBe("w2");
     expect(homeHandle(dir, subject, "herdr")).toBe("w2");
   });
 });

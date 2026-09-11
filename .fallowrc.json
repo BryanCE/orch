@@ -18,6 +18,7 @@
 	"overrides": [
 		{
 			"files": [
+				"packages/orch/scripts/**",
 				"packages/web/src/components/ui/**",
 				"packages/web/src/routeTree.gen.ts",
 				"packages/web/src/themes/**"

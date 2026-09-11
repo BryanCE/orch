@@ -1,5 +1,5 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
-import type { Backend, BackendHandle, BackendId, SpaceHomeRole, TilePlacement } from "./backend.ts";
+import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentView } from "./store.ts";
 import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
@@ -287,6 +287,10 @@ export type CataloguePicker = (
 export interface SpawnPlacement {
   readonly space: string | null;
   readonly workspace: string | undefined;
+  /** A home this fleet has to open before it has anywhere to land. Opening is
+   *  the caller's, after the first agent's environment exists: the home's root
+   *  place launches that agent, so it is opened under that agent's environment. */
+  readonly homeToOpen: HomeSubject | null;
 }
 
 /** What deciding a {@link SpawnPlacement} needs. */
@@ -302,14 +306,23 @@ export interface SpawnPlacementRequest {
    *  this at spawn and at registration (Rule 11), so placement reads it as a
    *  fact and probes no process environment of its own. */
   readonly callerPlexer: string | null;
-  /** Where the fleet works, and the name its home is opened under: a workspace
-   *  called after the repo is one a human can find, and the tab label names a
-   *  slice, which is a different noun. */
-  readonly cwd: string;
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
    *  the gate stays testable. Throws or exits when not granted. */
   readonly grantNewHome: () => void;
+}
+
+/** What opening the home a {@link SpawnPlacement} owes needs. */
+export interface OpenFleetHomeRequest {
+  readonly directory: string;
+  readonly backend: Backend;
+  readonly subject: HomeSubject;
+  /** Where the fleet works, and the name its home is opened under: a workspace
+   *  called after the repo is one a human can find, and the tab label names a
+   *  slice, which is a different noun. */
+  readonly cwd: string;
+  /** The first agent's environment. The home's root place launches that agent. */
+  readonly env: Readonly<Record<string, string>>;
 }
 
 export interface LeaseCommandResult {

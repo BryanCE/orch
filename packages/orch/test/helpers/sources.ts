@@ -7,7 +7,7 @@ export function posixPath(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-export function isTypeScript(name: string): boolean {
+function isTypeScript(name: string): boolean {
   return name.endsWith(".ts");
 }
 

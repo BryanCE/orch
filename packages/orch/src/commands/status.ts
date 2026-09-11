@@ -417,7 +417,7 @@ export interface StatusTableOptions {
   columns: ReadonlySet<string>;
 }
 
-function parseStatusOptions(args: readonly string[]): StatusOptions {
+export function parseStatusOptions(args: readonly string[]): StatusOptions {
   const { enabled } = splitOptionFlags([...args], ["--json", "--human", "--space-wide", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
   return {
     json: enabled.has("--json"),
@@ -781,13 +781,8 @@ function capacityOutput(settings: OrchSettings): { capacity: ReturnType<typeof c
   return { capacity, line: formatCapacityLine(capacity, currentOrchId() ?? undefined) };
 }
 
-export async function cmdStatus(args: string[]): Promise<void> {
-  const options = parseStatusOptions(args);
-  if (options.live) {
-    const { cmdStatusLive } = await import("./status-live.ts");
-    await cmdStatusLive(options);
-    return;
-  }
+/** The one-shot status table. `--live` is routed away before this runs (`status-verb.ts`). */
+export async function cmdStatus(options: StatusOptions): Promise<void> {
   if (options.capacity) {
     const settings = loadSettingsOrNull(orchDir());
     if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");

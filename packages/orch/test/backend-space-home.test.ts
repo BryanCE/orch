@@ -15,10 +15,10 @@ describe("tmux space home", () => {
     expect(calls).toEqual([["switch-client", "-t", "release"]]);
   });
 
-  test("create names the session after the space and returns its root pane", () => {
-    const { backend, calls } = recordingTmux("release\t%7\n");
+  test("create names the session after the space and returns its root window and pane", () => {
+    const { backend, calls } = recordingTmux("release\t@3\t%7\n");
     expect(backend.spaceHome.create({ kind: "space", id: "abc" }, { cwd: "/w", label: "release" }))
-      .toEqual({ coordinate: "release", rootHandle: "%7" });
+      .toEqual({ coordinate: "release", rootGroup: "@3", rootHandle: "%7" });
     expect(calls[0]).toContain("new-session");
     expect(calls[0]).toContain("release");
   });
@@ -47,16 +47,16 @@ describe("tmux space home", () => {
 // orch opened it or what for.
 describe("a home orch opens is never unmarked (E8)", () => {
   test("an unlabelled pack home is named for the pack it was opened for", () => {
-    const { backend, calls } = recordingTmux("orch-pack-p1\t%9\n");
+    const { backend, calls } = recordingTmux("orch-pack-p1\t@4\t%9\n");
 
     expect(backend.spaceHome.create({ kind: "pack", id: "p1" }, { cwd: "/w" }))
-      .toEqual({ coordinate: "orch-pack-p1", rootHandle: "%9" });
+      .toEqual({ coordinate: "orch-pack-p1", rootGroup: "@4", rootHandle: "%9" });
     expect(calls[0]).toContain("-s");
     expect(calls[0]?.[calls[0].indexOf("-s") + 1]).toBe("orch-pack-p1");
   });
 
   test("an unlabelled space home is named for the space, not for the pack", () => {
-    const { backend, calls } = recordingTmux("orch-space-s7\t%2\n");
+    const { backend, calls } = recordingTmux("orch-space-s7\t@1\t%2\n");
 
     backend.spaceHome.create({ kind: "space", id: "s7" }, { cwd: "/w" });
     expect(calls[0]?.[calls[0].indexOf("-s") + 1]).toBe("orch-space-s7");
@@ -66,7 +66,7 @@ describe("a home orch opens is never unmarked (E8)", () => {
   // (`orch spawn` names the fleet's home after the project directory), and tmux
   // refuses `.` and `:` in a session name.
   test("a subject id the plexer would refuse is made safe, never passed through", () => {
-    const { backend, calls } = recordingTmux("orch-pack-my-proj-v1-2\t%3\n");
+    const { backend, calls } = recordingTmux("orch-pack-my-proj-v1-2\t@1\t%3\n");
 
     backend.spaceHome.create({ kind: "pack", id: "my.proj:v1.2" }, { cwd: "/w" });
     expect(calls[0]?.[calls[0].indexOf("-s") + 1]).toBe("orch-pack-my-proj-v1-2");
@@ -75,7 +75,7 @@ describe("a home orch opens is never unmarked (E8)", () => {
   // The human's own name wins: `orch space create release` asked for "release",
   // and `space rename` later drives the same home by that name.
   test("a caller-supplied label is used verbatim", () => {
-    const { backend, calls } = recordingTmux("release\t%4\n");
+    const { backend, calls } = recordingTmux("release\t@1\t%4\n");
 
     backend.spaceHome.create({ kind: "space", id: "s7" }, { cwd: "/w", label: "release" });
     expect(calls[0]?.[calls[0].indexOf("-s") + 1]).toBe("release");

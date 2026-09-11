@@ -27,7 +27,7 @@ export function removeTempDir(dir: string): void {
 }
 
 /** Delete what the per-test removal could not, once the suite has stopped writing. */
-export function sweepTempDirs(): void {
+function sweepTempDirs(): void {
   for (const dir of undeleted.splice(0)) {
     try { rmSync(dir, { recursive: true, force: true }); } catch {}
   }

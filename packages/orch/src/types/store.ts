@@ -255,9 +255,9 @@ export interface OpenHomeRequest {
   readonly directory: string;
   readonly subject: HomeSubject;
   readonly plexerId: string;
-  /** `null` IS the answer that this environment holds nothing (E13) — there is
-   *  no probe here and no unsupported-operation path (E14). */
-  readonly home: SpaceHomeRole | null;
+  /** The caller gates on the environment holding a home at all (E13); an
+   *  environment that holds none never reaches here. */
+  readonly home: SpaceHomeRole;
   readonly cwd: string;
   /** orch's own name for the thing being grouped. It is MARKED before it reaches
    *  the plexer; the plexer never sees a bare directory basename. */

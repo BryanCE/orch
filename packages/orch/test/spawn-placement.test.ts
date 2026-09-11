@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
+import { openFleetHome, resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
 import { homeHandle, openHome } from "../src/store/home-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -63,7 +63,7 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
   create(subject: HomeSubject, request: CreateHomeRequest): CreatedHome<string> {
     this.created.push({ subject, request });
     const coordinate = `w${++this.next}`;
-    return { coordinate, rootHandle: `${coordinate}:p1` };
+    return { coordinate, rootGroup: `${coordinate}:t1`, rootHandle: `${coordinate}:p1` };
   }
   rename(coordinate: string, label: string): void { this.renamed.push({ coordinate, label }); }
   close(coordinate: string): void { this.closed.push(coordinate); }
@@ -156,7 +156,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, false), space: "space00001",
-      packRootId: seedOrch(dir, "packroot01"), callerPlexer: null, cwd: "/work", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot01"), callerPlexer: null, grantNewHome: grant.grantNewHome,
     });
 
     // E10: the space orch reports is orch's id. The coordinate is a separate
@@ -176,7 +176,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, true, { id: "insideorch" }), space: null,
-      packRootId: seedOrch(dir, "packroot02"), callerPlexer: "herdr", cwd: "/work", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot02"), callerPlexer: "herdr", grantNewHome: grant.grantNewHome,
     });
 
     // A7: a space is optional, and nothing mints one from a path.
@@ -200,7 +200,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, true, null), space: null,
-      packRootId: seedOrch(dir, "packroot02b"), callerPlexer: "herdr", cwd: "/work", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot02b"), callerPlexer: "herdr", grantNewHome: grant.grantNewHome,
     });
 
     expect(placement.space).toBeNull();
@@ -215,22 +215,33 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const home = new RecordingHomeRole();
     const grant = gate();
 
+    const backend = homedBackend(home, false);
+
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, false), space: null,
-      packRootId: orch, callerPlexer: null, cwd: "/home/bryan/work", grantNewHome: grant.grantNewHome,
+      directory: dir, backend, space: null,
+      packRootId: orch, callerPlexer: null, grantNewHome: grant.grantNewHome,
     });
 
     // E8: allowable, but never unmarked, and never at orch's own discretion -
     // it puts a window on the human's screen, so the human is asked first.
     expect(grant.asked).toBe(1);
-    expect(home.created[0]?.subject).toEqual({ kind: "pack", id: orch });
+    // Deciding opens nothing: the home's root place launches the fleet's first
+    // agent, so it is opened once that agent's environment exists.
+    const subject: HomeSubject = { kind: "pack", id: orch };
+    expect(placement).toEqual({ space: null, workspace: undefined, homeToOpen: subject });
+    expect(home.created).toEqual([]);
+
+    const opened = openFleetHome({ directory: dir, backend, subject, cwd: "/home/bryan/work", env: { ROOT_AGENT: "1" } });
+
+    expect(home.created[0]?.subject).toEqual(subject);
+    expect(home.created[0]?.request.env).toEqual({ ROOT_AGENT: "1" });
     // Marked as orch's, and named for the directory the fleet works in - a
     // workspace a human can find, rather than one named after a pane's slice.
     expect(home.created[0]?.request.label).toBe("orch/work");
     // E9/E10: the coordinate is the workspace and is RECORDED against the pack.
     // It is never orch's space, which stays absent because nobody created one.
-    expect(placement.workspace).toBe("w1");
-    expect(placement.space).toBeNull();
+    // The root group and place come back with it, for the fleet to take.
+    expect(opened).toEqual({ coordinate: "w1", rootGroup: "w1:t1", rootHandle: "w1:p1" });
     expect(homeHandle(dir, { kind: "pack", id: orch }, "herdr")).toBe("w1");
   });
 
@@ -239,15 +250,19 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const orch = seedOrch(dir, "packroot04");
     const home = new RecordingHomeRole();
     const grant = gate();
+    const backend = homedBackend(home, false);
     const request = {
-      directory: dir, backend: homedBackend(home, false), space: null,
-      packRootId: orch, callerPlexer: null, cwd: "/work", grantNewHome: grant.grantNewHome,
+      directory: dir, backend, space: null,
+      packRootId: orch, callerPlexer: null, grantNewHome: grant.grantNewHome,
     };
 
+    const subject: HomeSubject = { kind: "pack", id: orch };
     const first = resolveSpawnPlacement(request);
+    expect(first.homeToOpen).toEqual(subject);
+    const opened = openFleetHome({ directory: dir, backend, subject, cwd: "/work", env: {} });
     const second = resolveSpawnPlacement(request);
 
-    expect(second.workspace).toBe(first.workspace);
+    expect(second).toEqual({ space: null, workspace: opened.coordinate, homeToOpen: null });
     // One home, one grant. A second window per wave is exactly the "random
     // agents with no discoverable origin" this row exists to prevent, inverted.
     expect(home.created).toHaveLength(1);
@@ -260,13 +275,13 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(null, false), space: null,
-      packRootId: seedOrch(dir, "packroot05"), callerPlexer: null, cwd: "/work", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot05"), callerPlexer: null, grantNewHome: grant.grantNewHome,
     });
 
     // E13/E14: `spaceHome === null` IS the capability, and orch never reaches
     // for what the environment lacks - there is nothing to catch and nothing to
     // ask a human to approve.
-    expect(placement).toEqual({ space: null, workspace: undefined });
+    expect(placement).toEqual({ space: null, workspace: undefined, homeToOpen: null });
     expect(grant.asked).toBe(0);
   });
 
@@ -279,7 +294,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, false), space: "space00002",
-      packRootId: seedOrch(dir, "packroot06"), callerPlexer: null, cwd: "/work", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot06"), callerPlexer: null, grantNewHome: grant.grantNewHome,
     });
 
     // The user named a space, so that is where the agents are filed. The home

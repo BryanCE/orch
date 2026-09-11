@@ -13,9 +13,9 @@ import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { callerPlexer } from "../../identity/self.ts";
 import { commandLogger } from "../logging.ts";
-import type { Backend, BackendGroup, BackendHandle, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
+import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import { homeHandle, openHome } from "../../store/home-rows.ts";
-import type { CreatedAgent, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
+import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
 import type { HomeSubject } from "../../types/backend.ts";
 import type { SpawnSettings } from "./flags.ts";
 
@@ -39,35 +39,46 @@ function homeName(cwd: string, subject: HomeSubject): string {
  *
  * E8 — an orch spawning into a plexer it is not itself inside gets its own new
  * home so its pack is visibly separate from other orchs' work and from the
- * human's own agents. Allowable, but never unmarked, and never unasked.
+ * human's own agents. Allowable, but never unmarked, and never unasked. This
+ * decides that a home is owed and asks for it; {@link openFleetHome} opens it.
  *
  * A7 — a space is user-created and OPTIONAL. Nothing here mints one; with none
  * set the reachability boundary is the repo root.
  */
 export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlacement {
-  const { directory, backend, space, packRootId, callerPlexer, cwd, grantNewHome } = request;
+  const { directory, backend, space, packRootId, callerPlexer, grantNewHome } = request;
   // A space the user named is where the agents are FILED, whether or not this
   // plexer holds a home for it. A home recorded in another plexer is not this
   // one's to drive, so its absence here is simply no coordinate.
   if (space !== null) {
-    return { space, workspace: homeHandle(directory, { kind: "space", id: space }, backend.id) ?? undefined };
+    return { space, workspace: homeHandle(directory, { kind: "space", id: space }, backend.id) ?? undefined, homeToOpen: null };
   }
   // Whether this environment can hold a home at all is read from the COMPOSED
   // ROLE, never from whether a method happens to exist (E13). Its absence is the
   // answer, not a failure (E14): the plexer places the fleet on its own default.
-  const home = backend.spaceHome;
   // Already inside this plexer: the fleet lands beside the caller, so there is no
   // window to open and nothing to ask the human for. WHERE the caller sits is an
   // environment fact orch RECORDED at spawn or registration (Rule 11). It arrives
   // as a fact; this function probes nothing.
   const inside = callerPlexer !== null && callerPlexer === backend.id;
-  if (home === null || inside || packRootId === null) return { space: null, workspace: undefined };
+  if (backend.spaceHome === null || inside || packRootId === null) return { space: null, workspace: undefined, homeToOpen: null };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
   const existing = homeHandle(directory, subject, backend.id);
-  if (existing !== null) return { space: null, workspace: existing };
+  if (existing !== null) return { space: null, workspace: existing, homeToOpen: null };
   grantNewHome();
+  return { space: null, workspace: undefined, homeToOpen: subject };
+}
+
+/** Open the home {@link resolveSpawnPlacement} said this fleet is owed. The
+ *  home's root place is opened under the first agent's environment, because
+ *  that agent launches in it: a second group beside an empty root is the tab
+ *  nobody asked for. */
+export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
+  const { directory, backend, subject, cwd, env } = request;
+  const role = backend.spaceHome;
+  if (role === null) die(`${backend.id} cannot open a home for this fleet`);
   try {
-    return { space: null, workspace: openHome({ directory, subject, plexerId: backend.id, home, cwd, label: homeName(cwd, subject) }) ?? undefined };
+    return openHome({ directory, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env });
   } catch (error: unknown) {
     die(`could not open a home for this fleet: ${errorMessage(error)}`);
   }
